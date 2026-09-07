@@ -24,7 +24,9 @@ Day takes a third path among cross-platform toolkits. Web-view shells (Tauri, El
 
 This enables you to use Day to create user interfaces that are indistinguishable from ones built directly with the first-party toolkit provided by the mobile or desktop vendor. And because it is Rust, it has bare-metal performance and unmatched efficiency _everywhere_ without sacrificing memory safety and without relying on any additional runtime or garbage collector. Using the first-party native toolkit widgets also gives Day excellent accessibility support out of the box, so screen readers and other assistive technologies can interoperate flawlessly with Day apps.
 
-Applications created in Day are compact and follow the platform's native packaging idioms, which result in installation packages that are often just few megabytes. Day's built-in CI workflows and default project page template enable the automatic generation of landing pages with application information and install links.
+Day is a complete framework, and the UI layer is one part of it. The `day` command line creates a project, lints it, builds and launches it on any of the twelve targets, and packs the installer each platform expects. The [Day extension for VS Code](https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode) does the same from the editor and opens the host projects in Xcode and Android Studio. A reusable [GitHub Actions workflow](https://github.com/daybrite/actions) builds every target on each push, drives the app's own dayscript walkthrough on simulators and emulators, and uploads to the stores on a tag. Localization with Fluent, accessibility through each platform's own tree, and dayscript automation are in every app from the first build.
+
+Applications created in Day are compact and follow the platform's native packaging idioms, which result in installation packages that are often just a few megabytes. The CI workflow also generates a landing page for each app with its screenshots and install links.
 
 See the Day Gallery at https://daybrite.dev/gallery/ for examples of applications built with Day and their individual landing pages.
 

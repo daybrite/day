@@ -90,7 +90,7 @@ export const site = {
   name: 'Day',
   tagline: 'Create native apps for every platform under the sun from a single Rust codebase.',
   description:
-    'Day is a Rust framework that builds your app for Android, iOS, HarmonyOS, Windows, macOS, Linux, and the web — with each platform’s own native controls. Your product looks and works the way each platform’s users expect.',
+    'Day is a complete application framework in Rust. One codebase builds native apps for Android, iOS, HarmonyOS, Windows, macOS, Linux, and the web, each from that platform’s own controls, and the CLI, VS Code extension, CI workflows, localization, accessibility, and test automation come with it.',
   repo: 'https://github.com/daybrite/day',
   /** The showcase app's repository — it is its own project, released and deployed from there. */
   showcaseRepo: 'https://github.com/daybrite/Day-Showcase',

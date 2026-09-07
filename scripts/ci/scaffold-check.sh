@@ -87,7 +87,7 @@ cargo fmt --all -- --check || {
 
 # …and clippy-clean, on the same reasoning: a user's first `cargo clippy` should be quiet, and
 # every app scaffolded from this template runs nearly this command in its own CI — the shared
-# `build-day-app` preflight is `cargo clippy --workspace --all-targets -- -D warnings`. Without
+# `dayapp` preflight is `cargo clippy --workspace --all-targets -- -D warnings`. Without
 # this gate the template's lints are found by the GENERATED repositories rather than here, which
 # is how `tr(*k)` (an explicit deref clippy does for you) reached Day-Rise's preflight.
 #

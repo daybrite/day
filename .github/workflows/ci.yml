@@ -405,28 +405,28 @@ jobs:
         run: cargo publish --workspace --no-verify --locked
 
   # --- Canary: the SAME reusable workflow the app repositories use ------------------------------
-  # day's own CI and daybrite/actions' build-day-app.yml are the same pipeline written twice, and
+  # day's own CI and daybrite/actions' dayapp.yml are the same pipeline written twice, and
   # this is the first half of collapsing them. It builds ONE target through the shared workflow,
   # with `day-source: artifact` so the CLI under test is the one this run just built rather than a
   # published release — the property day's inline jobs have and app repos previously could not get.
   #
   # The app it builds is a FRESH SCAFFOLD, not Day-Showcase. What a red check here means is that
   # the shared workflow's contract with the CLI broke — that `day build` / `pack` / `launch
-  # --script` stopped answering to the flags, paths, and artifact names build-day-app.yml passes
+  # --script` stopped answering to the flags, paths, and artifact names dayapp.yml passes
   # them — and `day new app` exercises that contract as well as a real app does, without a second
   # repository to clone, a second full Showcase build beside the inline `linux` job's, or a
   # 400-step walkthrough that job already runs across eight theme/locale variants. Showcase still
   # goes through this same workflow every night in its own CI, across eight targets.
-  build-day-app:
+  dayapp:
     # Named for the workflow under test, because that is what a red check here means: the shared
     # pipeline broke, not this repository's own build. `(canary)` says the single target is
     # deliberate — it is an early-warning signal, not the coverage build.
-    name: build-day-app (canary)
+    name: dayapp (canary)
     needs: [day-cli-linux]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
-    uses: daybrite/actions/.github/workflows/build-day-app.yml@main
+    uses: daybrite/actions/.github/workflows/dayapp.yml@main
     with:
       targets: linux-gtk
       project-path: canary-app
@@ -460,7 +460,7 @@ jobs:
   # compile-level checks that must run once per backend sit in one job instead of riding six
   # device-bound ones. These check the FRAMEWORK, not the app — inside the per-combo build jobs
   # they made every build job framework-shaped and unusable as the generic app pipeline
-  # (daybrite/actions' build-day-app.yml). The OTHER framework check, the host-portable
+  # (daybrite/actions' dayapp.yml). The OTHER framework check, the host-portable
   # test run (scripts/ci/host-test.sh), rides every arch-matching leg of the day-cli-<os>
   # jobs above, gating that OS's CLI artifacts and everything downstream of them.
   toolkit:

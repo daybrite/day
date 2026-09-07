@@ -32,8 +32,12 @@ Docs: `docs/pullrefresh.md`. Demos: the showcase's Refresh page (plain scroll) a
 
 ## Part of Day
 
-[Day](https://daybrite.dev) builds cross-platform apps from each platform's *real* native
-widgets — AppKit, UIKit, Android, GTK 4, Qt 6, XAML, and ArkUI — from a single Rust codebase.
+This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
+out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
+XAML, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
+`NSButton` and Android shows a Material button. The framework also ships the tooling around
+the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
+accessibility, and dayscript automation.
 
 Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

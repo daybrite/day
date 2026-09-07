@@ -1,7 +1,7 @@
 # {{title}}'s website — built from this file plus data the project already maintains, by the
 # daysite template (https://github.com/daybrite/daysite).
 #
-# When this repository's CI uses the daybrite/actions build-day-app workflow, the presence of
+# When this repository's CI uses the daybrite/actions dayapp workflow, the presence of
 # this file makes it build and deploy the site to the repo's GitHub Pages on pushes to the
 # default branch: a localized landing page from store/'s listings, a screenshot gallery from the
 # dayscript captures, download links from the latest release, and the web-dom build hosted under

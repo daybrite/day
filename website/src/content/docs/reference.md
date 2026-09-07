@@ -47,6 +47,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [list](/docs/internal/list) | the native recycling list: row protocol, heights, selection |
 | [tree](/docs/internal/tree) | the hierarchical tree: nesting, expansion, drag-to-reparent (plan) |
 | [canvas](/docs/internal/canvas) | the canvas display list and gestures |
+| [fonts](/docs/internal/fonts) | the platform font list, canvas fonts, and text measurement |
 | [shapes](/docs/internal/shapes) | canvas drawing, shape pieces, gestures |
 | [progress](/docs/internal/progress) | determinate bars and spinners |
 | [picker](/docs/internal/picker) | the built-in one-of-N picker: menu, segmented, and inline styles |

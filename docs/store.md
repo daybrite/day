@@ -62,7 +62,11 @@ checked against 500 rather than 4000. Play's changelog is keyed by versionCode, 
 `changelogs/<[app] build>.txt`.
 
 `store/app.toml` carries what is not localized: `bundle-id`, `apple-category`, `copyright`,
-`contact-email`, `review-notes`. There is no Play category, because Google Play's category is
+`contact-email`, `review-notes`, and the App Review contact as `contact-first-name`,
+`contact-last-name` and `contact-phone` (with its country code, `+1 555 555 5555`). App Store
+Connect refuses a review contact missing any of the three, so the staged
+`review_information/` tree is written only when all of them and the email are set; otherwise
+the contact already entered in App Store Connect stands and the notes stay home. There is no Play category, because Google Play's category is
 set in the Play Console and `supply` cannot write it; recording one here would be a value that
 never reached the store.
 
@@ -108,8 +112,11 @@ build/day/store/android-mdc/fastlane/{Appfile,Fastfile,metadata/android/…}
 
 Two lanes each. `validate` asks the store to check the build and the listing and rolls back;
 `upload` sends it. Neither submits for review or releases to users: iOS uploads a build, Android
-uploads to the internal track as an unreleased draft. Promotion stays a human decision in the
-console, which is where the consequences are visible.
+uploads to the internal track as an unreleased draft. iOS has a third lane, `release`, which
+uploads, waits for App Store Connect to process the build, and submits the version for review
+with export compliance answered as exempt; the release itself still waits for the Release button
+in App Store Connect. `DAY_IPA` names the artifact outright, which is how the release workflow
+hands the lane the `.ipa` it downloaded.
 
 ```sh
 day pack -p ios-uikit --profile release

@@ -38,6 +38,15 @@ That function produces a native label above a native button on macOS, iOS, Andro
 Windows, and OpenHarmony. Each binary links only its own platform's toolkit, and every platform
 shares the same UI code.
 
+The framework is more than the UI layer. It ships with the `day` command line for creating,
+linting, building, launching, and packing ([CLI & projects](/docs/cli)); a
+[VS Code extension](https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode); a
+reusable [GitHub Actions workflow](/docs/cli#continuous-integration) that builds and tests every
+target; [localization](/docs/localization) through Fluent; [accessibility](/docs/accessibility)
+through each platform's own tree; and [dayscript](/docs/dayscript), the automation engine embedded
+in every app. The rest of this page covers the UI model, and the sidebar covers each of those in
+turn.
+
 ## What Day does itself
 
 Day keeps the platform's widgets and concentrates its own code on the parts native toolkits

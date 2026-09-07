@@ -291,6 +291,54 @@ const compare = [
     </div>
   </section>
 
+  <!-- The whole toolchain -->
+  <section class="section toolchain">
+    <div class="container">
+      <p class="eyebrow">The whole toolchain</p>
+      <h2 class="sec-title">One framework, <span class="accent-text">from the first build to the store listing</span>.</h2>
+      <p class="lead">
+        The UI layer is one part of Day. The tooling that takes an app from <code>day new</code> to
+        a signed installer is in the same box, built for the same twelve targets, and kept in step
+        with the framework on every release.
+      </p>
+      <ul class="how-list">
+        <li>
+          <b>The <code>day</code> CLI.</b> One command line creates a project, lints its strings and
+          ids, builds and launches on any target, drives it with a script, and packs the installer
+          that platform's users expect. <a href={url('docs/cli')}>CLI &amp; projects →</a>
+        </li>
+        <li>
+          <b>VS Code.</b> The Day extension picks targets, builds and launches from the editor,
+          opens the host project in Xcode or Android Studio when you need it, and runs dayscript
+          walkthroughs.
+          <a href="https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode">Install from the Marketplace →</a>
+        </li>
+        <li>
+          <b>CI on GitHub.</b> One reusable workflow builds every target, drives the walkthrough on
+          the iOS Simulator and the Android emulator, packages installers, uploads to the stores on
+          a tag, and publishes the app's own site.
+          <a href={url('docs/cli') + '#continuous-integration'}>Continuous integration →</a>
+        </li>
+        <li>
+          <b>Localization.</b> Strings live in Fluent catalogs and reach code as typed constants, so
+          a missing translation is a build error. <code>day localize add</code> stands up a new
+          language in one command, and the app switches locale while it runs.
+          <a href={url('docs/localization')}>Localization →</a>
+        </li>
+        <li>
+          <b>Automation.</b> Every app embeds dayscript. The same YAML that tests it in CI drives it
+          for an agent over MCP and shoots its store screenshots per locale and theme.
+          <a href={url('docs/dayscript')}>Testing with dayscript →</a>
+        </li>
+        <li>
+          <b>Accessibility.</b> Controls sit in each platform's own accessibility tree, labels and
+          roles come from the same declarations as the UI, and the walkthrough audits the result on
+          every push. <a href={url('docs/accessibility')}>Accessibility →</a>
+        </li>
+      </ul>
+    </div>
+  </section>
+
   <!-- AI + CI -->
   <section class="section ai-ci">
     <div class="container">

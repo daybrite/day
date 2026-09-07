@@ -244,7 +244,7 @@ subpath (a project-Pages URL like `https://<user>.github.io/<repo>/`) with no `<
 ### Deploy to GitHub Pages
 
 The [`daybrite/actions`](https://github.com/daybrite/actions) companion repo's reusable
-`build-day-app` workflow can also publish the web-dom build to the calling repo's own Pages site
+`dayapp` workflow can also publish the web-dom build to the calling repo's own Pages site
 (e.g. Day-Skies → `https://day-skies.github.io/Day-Skies/`): set `deploy-web: true` with `web-dom`
 among the `targets`, so the one workflow that builds and packages every platform also deploys the
 web build. Add this to the app repo and enable Settings → Pages → Source = "GitHub Actions":
@@ -261,7 +261,7 @@ permissions:            # reusable workflows run with the CALLER's permissions
   id-token: write       # actions/deploy-pages authenticates the upload with an OIDC token
 jobs:
   app:
-    uses: daybrite/actions/.github/workflows/build-day-app.yml@main   # pin @<tag> to match your day dep
+    uses: daybrite/actions/.github/workflows/dayapp.yml@main   # pin @<tag> to match your day dep
     secrets: inherit
     with:
       targets: macos-appkit, ios-uikit, android-mdc, web-dom

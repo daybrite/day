@@ -20,10 +20,11 @@ You don't add this crate to a project yourself. Backends are chosen by a cargo f
 ## Part of Day
 
 This crate is one piece of [Day](https://daybrite.dev), a Rust framework for building apps
-out of each platform's real native widgets — AppKit, UIKit, Android's Material widgets,
-GTK 4, Qt 6, XAML, and ArkUI — from one codebase. There is no web view and no bundled
-rendering engine: when you write `button("Save")`, macOS shows an `NSButton` and Android
-shows a Material button.
+out of each platform's own widgets — AppKit, UIKit, Android's Material widgets, GTK 4, Qt 6,
+XAML, and ArkUI — from one codebase. When you write `button("Save")`, macOS shows an
+`NSButton` and Android shows a Material button. The framework also ships the tooling around
+the app: the `day` CLI, a VS Code extension, GitHub CI workflows, localization,
+accessibility, and dayscript automation.
 
 New to Day? Start at [daybrite.dev](https://daybrite.dev), or browse the
 [source repository](https://github.com/daybrite/day).

@@ -218,6 +218,13 @@ pub struct AppMeta {
     pub copyright: Option<String>,
     /// Where the store writes back to a human: review contact, support email.
     pub contact_email: Option<String>,
+    /// The App Review contact, which App Store Connect refuses without a first name, a last
+    /// name and a phone number written with its country code (`+1 555 555 5555`). All three
+    /// together with the email make the `review_information/` tree; short of the set, staging
+    /// leaves the tree out, and the contact already entered in App Store Connect stands.
+    pub contact_first_name: Option<String>,
+    pub contact_last_name: Option<String>,
+    pub contact_phone: Option<String>,
     /// Free-form notes for the reviewer (deliver's `review_information/notes.txt`).
     pub review_notes: Option<String>,
 }
@@ -298,6 +305,9 @@ fn read_app_meta(path: &Path) -> Result<AppMeta, String> {
         apple_category: get("apple-category"),
         copyright: get("copyright"),
         contact_email: get("contact-email"),
+        contact_first_name: get("contact-first-name"),
+        contact_last_name: get("contact-last-name"),
+        contact_phone: get("contact-phone"),
         review_notes: get("review-notes"),
     })
 }
@@ -396,17 +406,21 @@ pub fn stage(
         if let Some(c) = &listing.app.apple_category {
             write("fastlane/metadata/primary_category.txt", &format!("{c}\n"))?;
         }
-        if let Some(n) = &listing.app.review_notes {
-            write(
-                "fastlane/metadata/review_information/notes.txt",
-                &format!("{n}\n"),
-            )?;
-        }
-        if let Some(e) = &listing.app.contact_email {
-            write(
-                "fastlane/metadata/review_information/email_address.txt",
-                &format!("{e}\n"),
-            )?;
+        // The review contact only as a complete record (`AppMeta::contact_first_name`).
+        if let (Some(first), Some(last), Some(phone), Some(email)) = (
+            &listing.app.contact_first_name,
+            &listing.app.contact_last_name,
+            &listing.app.contact_phone,
+            &listing.app.contact_email,
+        ) {
+            let ri = "fastlane/metadata/review_information";
+            write(&format!("{ri}/first_name.txt"), &format!("{first}\n"))?;
+            write(&format!("{ri}/last_name.txt"), &format!("{last}\n"))?;
+            write(&format!("{ri}/phone_number.txt"), &format!("{phone}\n"))?;
+            write(&format!("{ri}/email_address.txt"), &format!("{email}\n"))?;
+            if let Some(n) = &listing.app.review_notes {
+                write(&format!("{ri}/notes.txt"), &format!("{n}\n"))?;
+            }
         }
         write("fastlane/Appfile", &apple_appfile(&id, &listing.app))?;
         write("fastlane/Fastfile", &apple_fastfile(project))?;
@@ -428,7 +442,8 @@ fn apple_appfile(id: &str, app: &AppMeta) -> String {
     }
     s.push_str(
         "# Credentials come from the environment (App Store Connect API key):\n\
-         #   ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY (the .p8 contents)\n",
+         #   DAY_ASC_KEY_ID, DAY_ASC_ISSUER, and DAY_ASC_KEY (path to the .p8) or\n\
+         #   DAY_ASC_KEY_CONTENT (its contents)\n",
     );
     s
 }
@@ -450,9 +465,11 @@ fn apple_fastfile(_project: &Project) -> String {
 # The .ipa comes from `day pack -p ios-uikit`; this only uploads what that produced.
 default_platform(:ios)
 
-# __dir__ is <project>/build/day/store/<target>/fastlane, so ../../../dist is build/day/dist —
-# where `day pack` puts its output.
+# DAY_IPA names the artifact outright (the release workflow points it at the packed
+# artifact it downloaded). Otherwise __dir__ is <project>/build/day/store/<target>/fastlane,
+# so ../../../dist is build/day/dist — where `day pack` puts its output.
 def day_ipa
+  return ENV["DAY_IPA"] unless ENV["DAY_IPA"].to_s.empty?
   Dir[File.expand_path("../../../dist/*.ipa", __dir__)].first ||
     UI.user_error!("no .ipa in build/day/dist — run `day pack -p ios-uikit` first")
 end
@@ -494,6 +511,27 @@ platform :ios do
       metadata_path: File.expand_path("metadata", __dir__),
       submit_for_review: false,
       automatic_release: false,
+      force: true,
+      skip_screenshots: true,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+
+  desc "Upload the build + listing, wait for processing, and SUBMIT the version for review."
+  # Release stays manual: an approved version waits for the Release button in App Store
+  # Connect. Export compliance is answered as exempt (the app uses only the platform's
+  # HTTPS), and the build carries no advertising identifier.
+  lane :release do
+    deliver(
+      api_key: day_asc_key,
+      ipa: day_ipa,
+      metadata_path: File.expand_path("metadata", __dir__),
+      submit_for_review: true,
+      automatic_release: false,
+      submission_information: {
+        export_compliance_uses_encryption: false,
+        add_id_info_uses_idfa: false,
+      },
       force: true,
       skip_screenshots: true,
       precheck_include_in_app_purchases: false,

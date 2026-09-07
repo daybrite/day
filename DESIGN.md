@@ -3851,7 +3851,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > doctor/new/build steps moved into the CLI and packaging and the version axis joined them) and
 > `website.yml` (2026-09, step 6 below) in this repo.
 > External Day apps are served by the **`daybrite/actions`** companion repo: one reusable
-> `build-day-app.yml` matrix workflow that builds, packs, attaches release assets on a `vX.Y.Z`
+> `dayapp.yml` matrix workflow that builds, packs, attaches release assets on a `vX.Y.Z`
 > tag — including two generated launcher scripts, `launch.sh` (macOS `.dmg`, Linux `.appimage`)
 > and `launch.ps1` (the Windows per-user installer), which are release ASSETS rather than hosted
 > files so the URL chooses the version and every Day app gets a one-line try-it path without
@@ -3957,7 +3957,7 @@ cross-std, `--locked` everywhere, emulator boot polling, screenshot content vali
 ### §20.2 Release signing isolation
 
 > [!NOTE]
-> **Moved 2026-08.** This model now lives in daybrite/actions' `build-day-app.yml` as the
+> **Moved 2026-08.** This model now lives in daybrite/actions' `dayapp.yml` as the
 > `sign-macos` job, so every Day app gets it rather than only the showcase — which is itself an app
 > repository now (daybrite/Day-Showcase). day's own release publishes the CLI: six binaries, the
 > installers and the Homebrew formula, none of which touch a Developer ID. The five properties

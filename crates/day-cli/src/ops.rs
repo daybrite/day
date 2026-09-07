@@ -777,7 +777,7 @@ pub fn desktop_launch_plan(
     // render displayless (QT_QPA_PLATFORM=offscreen, the previous plumbing), but X selections
     // need a display server to broker them, so the system clipboard (day-part-clipboard's xclip)
     // was a silent no-op there and every copy/paste walkthrough step failed empty-handed. This
-    // knowledge lived in TWO workflow files (day's ci.yml and build-day-app.yml) and drifted
+    // knowledge lived in TWO workflow files (day's ci.yml and dayapp.yml) and drifted
     // between them; the CLI knows the target and the window, so it decides.
     let wrap = headless_wrap(
         target.toolkit,
