@@ -1016,6 +1016,64 @@ fn apply_custom_family(h: *mut c_void, spec: day_spec::FontSpec) {
     });
 }
 
+/// A canvas font family as XAML resolves it (docs/fonts.md): a bundled family through its
+/// staged file — `ms-appx:///fonts/<file>#<family>`, the one form unpackaged XAML loads (see
+/// [`apply_custom_family`]) — and a system family by its name. A `TextBlock` handed the bare
+/// name of a bundled family draws the system font instead, silently, which is how canvas text
+/// in Pacifico came out in Segoe UI while the labels beside it were right. Cached per family:
+/// resolution parses font name tables.
+fn canvas_family(family: &str) -> String {
+    thread_local! {
+        static CANVAS_FAMILIES: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+    }
+    CANVAS_FAMILIES.with(|cache| {
+        cache
+            .borrow_mut()
+            .entry(family.to_string())
+            .or_insert_with(|| {
+                match day_spec::fonts::resolve_font_file(family)
+                    .as_deref()
+                    .and_then(|p| p.file_name())
+                    .and_then(|n| n.to_str())
+                {
+                    Some(file) => format!("ms-appx:///fonts/{file}#{family}"),
+                    None => family.to_string(),
+                }
+            })
+            .clone()
+    })
+}
+
+/// The display list with every text font's family in the form XAML resolves
+/// ([`canvas_family`]); ops without a named family are untouched.
+fn resolve_canvas_fonts(ops: &[DrawOp]) -> Vec<DrawOp> {
+    ops.iter()
+        .cloned()
+        .map(|op| match op {
+            DrawOp::Text {
+                text,
+                at,
+                size,
+                color,
+                anchor,
+                font,
+            } if font.family.is_some() => DrawOp::Text {
+                text,
+                at,
+                size,
+                color,
+                anchor,
+                font: day_spec::CanvasFont {
+                    family: font.family.as_deref().map(canvas_family),
+                    weight: font.weight,
+                    italic: font.italic,
+                },
+            },
+            op => op,
+        })
+        .collect()
+}
+
 /// Stage the bundled font files (§18.4) next to the executable so XAML can load them. Unpackaged
 /// system XAML only resolves fonts under `ms-appx:///` (the exe directory and its subtree), so copy
 /// every `DAY_FONT_ROOT` font into `<exe>/fonts/` — a no-op when packed, where `day pack` already
@@ -2713,7 +2771,9 @@ impl Toolkit for Xaml {
     }
 
     fn replay(&mut self, h: &WinHandle, ops: &[DrawOp], _size: Size) {
-        let (nums, texts) = day_spec::encode_ops(ops);
+        // Bundled families go to the shim as the `ms-appx:///fonts/…#family` XAML loads them by.
+        let ops = resolve_canvas_fonts(ops);
+        let (nums, texts) = day_spec::encode_ops(&ops);
         let joined = cstr(&texts.join("\u{1f}"));
         unsafe {
             ffi::day_xaml_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr())
@@ -2858,7 +2918,14 @@ impl Toolkit for Xaml {
         font: &day_spec::CanvasFont,
     ) -> Option<day_spec::TextMetrics> {
         let text = cstr(text);
-        let family = cstr(font.family_str());
+        // The same family form `replay` draws with, so the measurement is of the same face.
+        let family = cstr(
+            &font
+                .family
+                .as_deref()
+                .map(canvas_family)
+                .unwrap_or_default(),
+        );
         let mut out = [0.0f64; 3];
         // SAFETY: both strings outlive the call and `out` has the three slots the shim fills.
         let rc = unsafe {
