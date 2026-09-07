@@ -36,7 +36,10 @@ inspector(show, editor(), || form((section((/* property rows */,)),)))
   side pane, and each home builds it fresh in its own scope. The piece wraps the panel in a
   `scroll` on every path.
 - `.width(pt)` sets the pane's preferred width (default 280). Where the native pane has a
-  user-draggable divider this is the initial width, not a limit.
+  user-draggable divider this is the initial width, not a limit. The composed pane follows the
+  width it splits: at 1000 points or more (a tablet in landscape, even beside a layers pane) it
+  is at least 320, and it never takes more than two fifths of the split, so a narrow window
+  keeps its content.
 - `.sheet_done(label)` names the compact sheet's dismiss button (default `✕`; day carries no
   "Done" of its own, so pass a localized one).
 - `.edge(PaneEdge::Leading)` puts the pane on the leading side of the content instead, for a

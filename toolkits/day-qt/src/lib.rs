@@ -150,7 +150,8 @@ fn argb(c: day_spec::Color) -> u32 {
 fn apply_button_style(w: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
     use day_spec::props::ButtonStyleSpec as S;
     let (kind, fill) = match style {
-        S::Automatic => (0, day_spec::Color::CLEAR),
+        // A QPushButton hugs a one-glyph title already, so Compact is the stock look.
+        S::Automatic | S::Compact => (0, day_spec::Color::CLEAR),
         S::Bordered => (1, day_spec::Color::CLEAR),
         S::Prominent => (2, day_spec::Color::CLEAR),
         S::Tinted(c) => (3, c),

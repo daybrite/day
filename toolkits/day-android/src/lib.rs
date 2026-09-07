@@ -871,6 +871,8 @@ mod imp {
             S::Bordered => (1, day_spec::Color::CLEAR),
             S::Prominent => (2, day_spec::Color::CLEAR),
             S::Tinted(c) => (3, c),
+            // Kind 4 drops Material's 88 dp minimum width and its wide insets (docs/buttons.md).
+            S::Compact => (4, day_spec::Color::CLEAR),
         };
         let _ = env.dcall_static(
             BRIDGE,

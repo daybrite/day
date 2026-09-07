@@ -3471,8 +3471,9 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
         match style {
             S::Prominent => btn.setKeyEquivalent(&NSString::from_str("\r")),
             S::Tinted(c) => btn.setBezelColor(Some(&nscolor(c))),
-            // Bordered is the stock NSButton look already; Automatic asks for nothing.
-            S::Bordered | S::Automatic => {}
+            // Bordered is the stock NSButton look already; Automatic asks for nothing, and an
+            // NSButton hugs a one-glyph title already, so Compact asks for nothing either.
+            S::Bordered | S::Automatic | S::Compact => {}
         }
     }
     BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));

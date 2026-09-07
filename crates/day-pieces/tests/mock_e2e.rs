@@ -152,6 +152,64 @@ fn counter_updates_exactly_one_op_per_click() {
 }
 
 #[test]
+fn a_labeled_row_stacks_when_its_control_cannot_fit_beside_the_label() {
+    // The window is 400 wide; "aa" is 16 wide at 8pt/char, the gap 12, so 372 is left — a
+    // 390-wide field does not fit and goes under the label (docs/forms.md).
+    let probe = boot(|| {
+        let name = Signal::new(String::new());
+        column((labeled("aa", text_field(name).width(390.0)),)).any()
+    });
+    let labels = probe.find_by_kind("day.label");
+    let fields = probe.find_by_kind("day.text_field");
+    assert_eq!(labels[0].1.frame.origin, day_spec::Point::new(0.0, 0.0));
+    assert_eq!(
+        fields[0].1.frame.origin.x, 0.0,
+        "leading-aligned under the label"
+    );
+    assert!(
+        fields[0].1.frame.origin.y >= labels[0].1.frame.size.height,
+        "the field sits below the label: {:?} vs {:?}",
+        fields[0].1.frame,
+        labels[0].1.frame
+    );
+    assert_eq!(fields[0].1.frame.size.width, 390.0);
+
+    // With room beside the label it stays a row: same line, control after the column.
+    let probe = boot(|| {
+        let name = Signal::new(String::new());
+        column((labeled("aa", text_field(name).width(100.0)),)).any()
+    });
+    let labels = probe.find_by_kind("day.label");
+    let fields = probe.find_by_kind("day.text_field");
+    assert_eq!(fields[0].1.frame.origin.x, 16.0 + 12.0);
+    assert!(fields[0].1.frame.origin.y < labels[0].1.frame.size.height);
+}
+
+#[test]
+fn a_min_width_control_overflows_a_starved_row_and_stacks() {
+    // "aa" beside a 320-wide minimum in a 400 window: 372 left, so it fits and stays a row.
+    let probe = boot(|| {
+        let v = Signal::new(0.5f64);
+        column((labeled("aa", slider(v).min_width(320.0).grow()),)).any()
+    });
+    let sliders = probe.find_by_kind("day.slider");
+    assert_eq!(sliders[0].1.frame.origin, day_spec::Point::new(28.0, 0.0));
+    assert_eq!(
+        sliders[0].1.frame.size.width, 372.0,
+        "a grow control still fills the row"
+    );
+    // A 380 minimum does not: the row stacks, and the slider takes the full width under it.
+    let probe = boot(|| {
+        let v = Signal::new(0.5f64);
+        column((labeled("aa", slider(v).min_width(380.0).grow()),)).any()
+    });
+    // (The slider's frame is relative to its min-width wrapper, so the stacking shows in the
+    // width it is given: the whole row, not the 372 beside the label.)
+    let sliders = probe.find_by_kind("day.slider");
+    assert_eq!(sliders[0].1.frame.size.width, 400.0);
+}
+
+#[test]
 fn layout_places_stack_children() {
     let probe = boot(|| {
         column((label("aa"), label("bbbb")))

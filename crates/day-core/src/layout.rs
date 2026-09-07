@@ -645,9 +645,13 @@ impl Layout for StackLayout {
         let sizes = self.negotiate(cx, &kids, p);
         let spacing_total = self.spacing * (kids.len() - 1) as f64;
         let has_flex = kids.iter().any(|&k| self.grows_main(cx.flex_of(k)));
+        // A stack with a stretching child fills what it is offered — but never reports LESS
+        // than its children need together (a `.min_width`, fixed-size pairs), so an overflow
+        // is visible to the parent (a `labeled` row stacks) instead of being clipped.
+        let needed = sizes.iter().map(|&s| self.main(s)).sum::<f64>() + spacing_total;
         let main_total = match main_p {
-            Some(mp) if has_flex => mp,
-            _ => sizes.iter().map(|&s| self.main(s)).sum::<f64>() + spacing_total,
+            Some(mp) if has_flex => mp.max(needed),
+            _ => needed,
         };
         let grows_cross = kids.iter().any(|&k| self.grows_cross(cx.flex_of(k)));
         let tallest = sizes.iter().map(|&s| self.cross(s)).fold(0.0, f64::max);
@@ -1432,14 +1436,17 @@ impl Layout for GrowLayout {
             Some(&c) => cx.measure_child(c, p),
             None => Size::ZERO,
         };
+        // A grown axis fills what is offered — but never reports LESS than the child needs, so
+        // a child that cannot shrink to the offer (a `.min_width`, a fixed-size pair) overflows
+        // visibly and its row can respond (a `labeled` row stacks) instead of clipping it.
         Size::new(
             if self.w {
-                p.width.unwrap_or(cs.width)
+                p.width.map_or(cs.width, |w| w.max(cs.width))
             } else {
                 cs.width
             },
             if self.h {
-                p.height.unwrap_or(cs.height)
+                p.height.map_or(cs.height, |h| h.max(cs.height))
             } else {
                 cs.height
             },
@@ -1489,6 +1496,38 @@ impl Layout for MaxWidthLayout {
             let w = bounds.size.width.min(self.max);
             let s = cx.measure_child(c, Proposal::exact(Size::new(w, bounds.size.height)));
             cx.place_child(c, Rect::from_size(Size::new(s.width.min(w), s.height)));
+        }
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
+    }
+}
+
+/// The `.min_width(w)` decorator: the child measures as it would, but never reports narrower
+/// than `w`, and is placed across whatever width the wrapper is given. A stretching control
+/// (a slider) in a row that is being squeezed thereby overflows its row instead of shrinking
+/// to nothing — which is what lets a `labeled` row notice and stack (docs/forms.md). The
+/// vertical axis passes through untouched.
+pub struct MinWidthLayout {
+    pub min: f64,
+}
+
+impl Layout for MinWidthLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let floored = Proposal::new(p.width.map(|w| w.max(self.min)), p.height);
+        match children.first() {
+            Some(&c) => {
+                let s = cx.measure_child(c, floored);
+                Size::new(s.width.max(self.min), s.height)
+            }
+            None => Size::new(self.min, 0.0),
+        }
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        if let Some(&c) = children.first() {
+            let w = bounds.size.width.max(self.min);
+            let s = cx.measure_child(c, Proposal::exact(Size::new(w, bounds.size.height)));
+            cx.place_child(c, Rect::from_size(Size::new(w, s.height)));
         }
     }
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {

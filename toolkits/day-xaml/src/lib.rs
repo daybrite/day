@@ -708,7 +708,8 @@ fn apply_button_style(h: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
         (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
     };
     let (kind, fill) = match style {
-        S::Automatic => (0, day_spec::Color::CLEAR),
+        // A XAML Button pads a one-glyph title modestly; Compact takes the stock look.
+        S::Automatic | S::Compact => (0, day_spec::Color::CLEAR),
         S::Bordered => (1, day_spec::Color::CLEAR),
         S::Prominent => (2, day_spec::Color::CLEAR),
         S::Tinted(c) => (3, c),

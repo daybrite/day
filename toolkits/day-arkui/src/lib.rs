@@ -673,6 +673,7 @@ mod imp {
             let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
             (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
         };
+        // Bordered, Prominent and Compact keep the stock ArkUI button (it hugs its title).
         if let S::Tinted(c) = style {
             // SAFETY: `n` is a live ARKUI_NODE_BUTTON; both setters take a packed color.
             unsafe {

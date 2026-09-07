@@ -323,6 +323,22 @@ fn op_max_width(max: f64) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_min_width(min: f64) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let w = cx.layout_only(
+                Rc::new(day_core::MinWidthLayout { min }),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(w, |cx| {
+                let _ = inner(cx);
+            });
+            w
+        })
+    }
+}
+
 fn op_reserving(sample: String) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -905,6 +921,12 @@ impl<P: Piece> Decorated<P> {
     pub fn max_width(self, max: f64) -> Self {
         self.push(op_max_width(max))
     }
+    /// Never narrower than `min`: a stretching control keeps a usable width, and a row that
+    /// cannot give it that overflows — so a `labeled` row stacks the control under its label
+    /// rather than squeezing it (docs/forms.md).
+    pub fn min_width(self, min: f64) -> Self {
+        self.push(op_min_width(min))
+    }
     pub fn reserving(self, sample: impl Into<String>) -> Self {
         self.push(op_reserving(sample.into()))
     }
@@ -1115,6 +1137,10 @@ pub trait Decorate: Piece + Sized {
     /// wraps inside the cap (chat bubbles, readable columns) while narrower content hugs.
     fn max_width(self, max: f64) -> Decorated<Self> {
         Decorated::new(self).max_width(max)
+    }
+    /// See [`Decorated::min_width`].
+    fn min_width(self, min: f64) -> Decorated<Self> {
+        Decorated::new(self).min_width(min)
     }
 
     /// Reserve at least the space `sample` needs, so this piece's size stops changing with its

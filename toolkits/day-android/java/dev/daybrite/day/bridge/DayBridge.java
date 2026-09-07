@@ -904,9 +904,15 @@ public final class DayBridge {
     private static final java.util.Map<View, android.content.res.ColorStateList> buttonTints =
             new java.util.WeakHashMap<>();
 
+    /** Each button's stock metrics {minWidth, minimumWidth, paddingStart, paddingEnd}, so a
+     *  later style patch away from Compact can put them back. */
+    static final java.util.WeakHashMap<View, int[]> buttonMetrics = new java.util.WeakHashMap<>();
+
     public static View makeButton(final long id, String title) {
         MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
         buttonTints.put(b, b.getBackgroundTintList());
+        buttonMetrics.put(b, new int[] {
+                b.getMinWidth(), b.getMinimumWidth(), b.getPaddingStart(), b.getPaddingEnd() });
         b.setText(title);
         b.setOnClickListener(new View.OnClickListener() {
             public void onClick(View x) { nativeOnEvent(id, K_PRESSED, 0, null); }
@@ -915,7 +921,9 @@ public final class DayBridge {
     }
 
     /**
-     * Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted (argb/fg).
+     * Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted (argb/fg),
+     * 4 compact — no minimum width and glyph-sized insets, for a stepper's "−"/"+" (the M3
+     * button's 88 dp minimum made two of them wider than an inspector pane).
      *
      * A tint is `backgroundTint` on the MaterialButton, so Material keeps drawing the ripple, the
      * state overlays and the disabled alpha itself — the view stays a MaterialButton, with its
@@ -925,6 +933,17 @@ public final class DayBridge {
     public static void setButtonStyle(View v, int kind, int argb, int fgArgb) {
         if (!(v instanceof MaterialButton)) return;
         MaterialButton b = (MaterialButton) v;
+        int[] stock = buttonMetrics.get(b);
+        if (kind == 4) {
+            float d = ctx.getResources().getDisplayMetrics().density;
+            b.setMinWidth(0);
+            b.setMinimumWidth(0);
+            b.setPadding((int) (12 * d), b.getPaddingTop(), (int) (12 * d), b.getPaddingBottom());
+        } else if (stock != null) {
+            b.setMinWidth(stock[0]);
+            b.setMinimumWidth(stock[1]);
+            b.setPadding(stock[2], b.getPaddingTop(), stock[3], b.getPaddingBottom());
+        }
         if (kind != 3) {
             // Back to what the theme dressed it in (see buttonTints), not to no tint at all.
             b.setBackgroundTintList(buttonTints.get(b));

@@ -651,6 +651,14 @@ impl Button {
         self.tint = Some(color.into_reactive());
         self
     }
+
+    /// A button no wider than its title: a stepper's "−" and "+", a chip's "×". Drops the
+    /// minimum width and wide insets of toolkits that have them (Material); a no-op where the
+    /// stock button already hugs its title.
+    pub fn compact(mut self) -> Self {
+        self.native_style = day_spec::props::ButtonStyleSpec::Compact;
+        self
+    }
 }
 
 /// [`Button`]'s own builders, reachable THROUGH a decoration — the [`LabelBuilder`] pattern, for
@@ -661,6 +669,7 @@ pub trait ButtonBuilder: Sized {
     fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
     fn prominent(self) -> Self;
     fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self;
+    fn compact(self) -> Self;
 }
 
 impl ButtonBuilder for Button {
@@ -679,6 +688,9 @@ impl ButtonBuilder for Button {
     fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
         Button::tint(self, color)
     }
+    fn compact(self) -> Self {
+        Button::compact(self)
+    }
 }
 
 impl<P: ButtonBuilder + Piece> ButtonBuilder for Decorated<P> {
@@ -696,6 +708,9 @@ impl<P: ButtonBuilder + Piece> ButtonBuilder for Decorated<P> {
     }
     fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
         self.map_inner(|p| p.tint(color))
+    }
+    fn compact(self) -> Self {
+        self.map_inner(ButtonBuilder::compact)
     }
 }
 

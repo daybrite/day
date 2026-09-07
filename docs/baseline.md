@@ -88,7 +88,7 @@ A container answers on behalf of its content, through `Layout::baseline`:
 - a **`labeled` row** reports the line its label and control now share, so a form row nested in
   another baseline-aligned row joins the same line;
 - every **single-child wrapper** (`.width()`, `.frame()`, `.padding()`, `.grow()`,
-  `.max_width()`, `.background()`) forwards its child's, offset by where it places it.
+  `.max_width()`, `.min_width()`, `.background()`) forwards its child's, offset by where it places it.
 
 That last one matters more than it looks. A decorator is invisible at the call site:
 `label("Qty").width(90.0)` still reads as "a label". If wrappers reported no baseline, a row

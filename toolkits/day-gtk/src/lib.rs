@@ -246,7 +246,8 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
             });
             btn.add_css_class(&class);
         }
-        S::Bordered | S::Automatic => {}
+        // A GtkButton hugs a one-glyph title already.
+        S::Bordered | S::Automatic | S::Compact => {}
     }
 }
 

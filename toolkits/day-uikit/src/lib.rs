@@ -5440,7 +5440,8 @@ mod imp {
         use objc2_ui_kit::UIButtonConfiguration;
         unsafe {
             let config = match style {
-                S::Automatic => {
+                // The plain system button hugs its title already, so Compact is Automatic.
+                S::Automatic | S::Compact => {
                     btn.setConfiguration(None);
                     btn.setTitle_forState(Some(&NSString::from_str(title)), UIControlState::Normal);
                     return;

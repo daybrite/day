@@ -12,7 +12,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use day_core::*;
-use day_geometry::Insets;
+use day_geometry::{Insets, Proposal, Rect};
 use day_reactive::{bind_seeded, untrack};
 use day_spec::props::{InspectorPaneProps, InspectorPatch, InspectorProps, PaneEdge};
 use day_spec::{Cap, Event, Size, Support, kinds};
@@ -275,6 +275,81 @@ impl<V: Binding<bool>> Binding<Option<String>> for SheetOpen<V> {
     }
 }
 
+/// The trailing pane's width for a split `total` points wide: the requested width, widened
+/// to 320 at 1000 or more (a tablet in landscape beside a layers pane, a desktop window)
+/// where an inspector has room to breathe, and never more than two fifths of the split, so
+/// a narrow one keeps its content. Keynote-class inspectors sit in this range.
+fn pane_width(requested: f64, total: f64) -> f64 {
+    let w = if total >= 1000.0 {
+        requested.max(320.0)
+    } else {
+        requested
+    };
+    w.min(total * 0.4).max(0.0)
+}
+
+/// The composed inspector's split: the content, the side pane (a container around the
+/// `when`), and the compact-width sheet, placed by [`SplitLayout`] so the pane's width follows
+/// the window rather than being fixed at build time.
+fn split_row<C: PieceSeq>(width: f64, children: C) -> impl Piece {
+    piece_fn(move |cx| {
+        let node = cx.layout_only(
+            Rc::new(SplitLayout { width }),
+            Flex {
+                grow_w: true,
+                grow_h: true,
+                ..Default::default()
+            },
+            Boundary::No,
+        );
+        cx.under(node, |cx| children.build_each(cx));
+        node
+    })
+}
+
+struct SplitLayout {
+    width: f64,
+}
+
+impl day_core::Layout for SplitLayout {
+    fn measure(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        // The split fills what it is offered; unconstrained, it is as big as its content.
+        let content = children.first().copied();
+        let natural = content
+            .map(|c| cx.measure_child(c, p))
+            .unwrap_or(Size::ZERO);
+        Size::new(
+            p.width.unwrap_or(natural.width),
+            p.height.unwrap_or(natural.height),
+        )
+    }
+    fn place(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], bounds: Rect) {
+        let (w, h) = (bounds.size.width, bounds.size.height);
+        let pane = pane_width(self.width, w);
+        // The side container is zero-wide while its `when` is hidden.
+        let side_w = children
+            .get(1)
+            .map(|s| {
+                let m = cx.measure_child(*s, Proposal::new(Some(pane), Some(h)));
+                if m.width > 0.0 { pane } else { 0.0 }
+            })
+            .unwrap_or(0.0);
+        if let Some(&c) = children.first() {
+            cx.place_child(c, Rect::new(0.0, 0.0, (w - side_w).max(0.0), h));
+        }
+        if let Some(&s) = children.get(1) {
+            cx.place_child(s, Rect::new(w - side_w, 0.0, side_w, h));
+        }
+        // The sheet (and anything after it) presents on its own; in the tree it takes only
+        // what it measures to — nothing while it is not presented — the way it did as a row
+        // child. Handing it the whole window would stack an empty host over the pane.
+        for extra in children.iter().skip(2) {
+            let m = cx.measure_child(*extra, Proposal::new(Some(w), Some(h)));
+            cx.place_child(*extra, Rect::new(0.0, 0.0, m.width.min(w), m.height.min(h)));
+        }
+    }
+}
+
 fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -> RNode {
     let Inspector {
         visible,
@@ -306,31 +381,63 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
     let sheet_panel = panel;
     let sheet_close = visible.clone();
     let done = sheet_done.initial();
-    row((
-        content.grow(),
-        // The side pane: mounted only while visible on a non-compact window, so the compact
-        // home (the sheet below) is never doubled.
-        when(
-            move || side_visible.read() && !compact(window),
-            move || row((divider(), scroll(side_panel()).width(width))),
-        ),
-        // The compact home: a fullscreen sheet. Unrouted — the inspector is chrome, not a
-        // place (`Cover::unrouted`) — and carrying its own way out, since a fullscreen
-        // modal has no divider to drag shut.
-        cover(SheetOpen { visible, window }, move |_: &String| {
-            let close = sheet_close.clone();
-            column((
-                row((
-                    spacer(),
-                    button(done.clone())
-                        .action(move || close.write(false))
-                        .id("day-inspector-done"),
+    split_row(
+        width,
+        (
+            content.grow(),
+            // The side pane: mounted only while visible on a non-compact window, so the compact
+            // home (the sheet below) is never doubled. Its width is the split's to decide
+            // (`pane_width`), so the row fills whatever it is proposed.
+            // A hairline divider, then the panel filling the rest of the pane, both the
+            // pane's full height.
+            column((when(
+                move || side_visible.read() && !compact(window),
+                move || row((divider().width(1.0).grow_h(), scroll(side_panel()).grow())).grow(),
+            ),))
+            .grow(),
+            // The compact home: a fullscreen sheet. Unrouted — the inspector is chrome, not a
+            // place (`Cover::unrouted`) — and carrying its own way out, since a fullscreen
+            // modal has no divider to drag shut.
+            cover(SheetOpen { visible, window }, move |_: &String| {
+                let close = sheet_close.clone();
+                column((
+                    row((
+                        spacer(),
+                        button(done.clone())
+                            .action(move || close.write(false))
+                            .id("day-inspector-done"),
+                    ))
+                    .padding(Insets::symmetric(12.0, 8.0)),
+                    scroll(sheet_panel()).grow(),
                 ))
-                .padding(Insets::symmetric(12.0, 8.0)),
-                scroll(sheet_panel()).grow(),
-            ))
-        })
-        .unrouted(),
-    ))
+            })
+            .unrouted(),
+        ),
+    )
     .build(cx)
+}
+
+#[cfg(test)]
+mod pane_width_tests {
+    use super::pane_width;
+
+    #[test]
+    fn the_pane_widens_on_a_wide_window_and_yields_on_a_narrow_one() {
+        assert_eq!(
+            pane_width(280.0, 1060.0),
+            320.0,
+            "a landscape tablet gets room"
+        );
+        assert_eq!(pane_width(360.0, 1280.0), 360.0, "a wider ask is kept");
+        assert_eq!(
+            pane_width(280.0, 960.0),
+            280.0,
+            "a desktop window keeps its ask"
+        );
+        assert_eq!(
+            pane_width(280.0, 600.0),
+            240.0,
+            "never more than two fifths"
+        );
+    }
 }

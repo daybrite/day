@@ -3791,6 +3791,13 @@ pub mod props {
         /// button. That is the deliberate trade: a plain button everywhere beats a colored
         /// rectangle that is no longer a button on the platforms that cannot.
         Tinted(Color),
+        /// A button no wider than its title asks for — a one-glyph "−" or "+" in a stepper,
+        /// a "×" on a chip — on toolkits whose stock button carries a MINIMUM width and wide
+        /// insets (Material's 88 dp button turns a two-button stepper into 240 dp). The native
+        /// control stays: only its minimum width and horizontal padding are reduced. A toolkit
+        /// whose buttons already hug their title (AppKit, UIKit's plain button, Qt) draws its
+        /// ordinary button.
+        Compact,
     }
 
     impl ButtonStyleSpec {

@@ -44,6 +44,7 @@ loss than a colored rectangle that no longer behaves like a button anywhere.
 | `.bordered()` | A visually contained button where the stock look is borderless (iOS's plain button reads as a link) |
 | `.prominent()` | The platform's accent / default-action button |
 | `.tint(color)` | A filled button in an app-chosen color |
+| `.compact()` | A button no wider than its title: a stepper's "−" and "+", a chip's "×". Drops the minimum width and wide insets of toolkits that have them (Material's 88 dp button); a no-op where the stock button already hugs its title |
 
 `.tint()` wins over `.bordered()` and `.prominent()`, being the more specific ask. It takes a
 reactive color, so a button can recolor with app state without being rebuilt:
@@ -69,6 +70,9 @@ where black would be 9.7:1. The two ratios cross at 0.179, not 0.5.
 | GTK | `suggested-action` | a per-color CSS class on the display's provider |
 | Qt | `setDefault` (styles vary) | a stylesheet with explicit `:hover`/`:pressed`/`:disabled` |
 | Android | the stock M3 filled button | `backgroundTint` on the `MaterialButton` |
+
+`.compact()` changes only Android (no `minWidth`, 12 dp horizontal padding) and web-dom (the
+`compact` class); every other toolkit's button hugs a one-glyph title as it is.
 | ArkUI | the stock filled capsule | `NODE_BACKGROUND_COLOR` + `NODE_FONT_COLOR` |
 | XAML | `AccentButtonStyle` where the resource set has it | `Background` + `Foreground` |
 | web-dom | `.day-btn.prominent` | `.day-btn.tinted` with the color in a CSS variable |

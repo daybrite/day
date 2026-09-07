@@ -182,6 +182,8 @@ body.day-has-toolbar #day-root {
   border: 1px solid var(--day-control-border);
 }
 .day-btn.destructive { background: #e63946; color: #fff; }
+/* A glyph-sized button (a stepper's − and +): no minimum width, tight insets. */
+.day-btn.compact { min-width: 0; padding: 0 8px; }
 
 .day-toggle {
   display: inline-block;

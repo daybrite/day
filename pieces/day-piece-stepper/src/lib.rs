@@ -304,8 +304,10 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
         }
     }
 
+    // Glyph-sized buttons: a stock Material button is 88 dp wide, and two of them beside the
+    // field made the composed stepper a 240 dp control that clipped in a 280 dp inspector.
     row((
-        button("−").action(dec),
+        button("−").compact().action(dec),
         text_field(FieldBinding {
             value,
             min,
@@ -314,7 +316,7 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
         })
         .id(key)
         .width(56.0),
-        button("+").action(inc),
+        button("+").compact().action(inc),
     ))
     .spacing(4.0)
     .align(VAlign::Center)

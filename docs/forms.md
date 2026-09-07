@@ -44,6 +44,11 @@ form((
   column edge + 12. A control marked `.grow()`
   (text fields, sliders, or a `row(( … ))` wrapper) stretches to the row's remaining width;
   others hug their natural size. Outside a `form`, the column is just that row's own label width.
+  A control whose natural width does not fit beside the column — a two-button stepper in a
+  280-point inspector — goes UNDER the label instead, leading-aligned with the control across
+  the whole row (the settings-list idiom), rather than clipping at the row's edge. A
+  stretching control shrinks rather than overflows, so give one that needs room a
+  `.min_width(pt)`: a slider beside a color well then stacks instead of vanishing.
 
 ## The section-card surface
 

@@ -215,9 +215,11 @@ fn apply_button_style(el: u32, style: ButtonStyleSpec) {
     class(el, "prominent", false);
     class(el, "bordered", false);
     class(el, "tinted", false);
+    class(el, "compact", false);
     match style {
         ButtonStyleSpec::Prominent => class(el, "prominent", true),
         ButtonStyleSpec::Bordered => class(el, "bordered", true),
+        ButtonStyleSpec::Compact => class(el, "compact", true),
         ButtonStyleSpec::Tinted(c) => {
             let css = |x: day_spec::Color| {
                 format!(

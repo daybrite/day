@@ -325,8 +325,12 @@ const CARD_W: f64 = FIELD_W + CARD_PAD * 2.0;
 const PANEL_SURFACE: Color = Color::rgb(0.13, 0.14, 0.17);
 const PANEL_TEXT: Color = Color::rgb(0.93, 0.94, 0.96);
 
-/// The well, in points: wide enough for `#rrggbbaa` at the caption size.
-const WELL_W: f64 = 96.0;
+/// The well, in points: wide enough for its caption at the caption size — `#rrggbbaa` when the
+/// picker carries alpha, `#rrggbb` when it does not, since a row beside a slider in a narrow
+/// inspector has no width to spare.
+fn well_width(alpha: bool) -> f64 {
+    if alpha { 96.0 } else { 72.0 }
+}
 const WELL_H: f64 = 26.0;
 
 /// The well itself: a DRAWN swatch showing the current color and its hex, which presents the
@@ -383,7 +387,7 @@ fn composed_well<C: Binding<Color>>(
     .on_tap(move || open.set(Some(open_key.clone())))
     .a11y(|a| a.role(Role::Button).label(day_l10n::t("day-color")))
     .id(key.clone())
-    .frame(WELL_W, WELL_H);
+    .frame(well_width(alpha), WELL_H);
     zstack((
         well,
         cover(open, move |_| {
