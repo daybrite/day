@@ -21,8 +21,21 @@ use crate::*;
 // Canvas (§11): record a display list reactively; backends replay natively.
 // ---------------------------------------------------------------------------
 
+#[derive(Default)]
 pub struct Draw {
     ops: Vec<DrawOp>,
+}
+
+impl Draw {
+    /// An empty recorder, for a test that calls a draw function directly and asserts on what
+    /// it records — the same list the canvas replays.
+    pub fn new() -> Self {
+        Draw::default()
+    }
+    /// What has been recorded so far, in order.
+    pub fn ops(&self) -> &[DrawOp] {
+        &self.ops
+    }
 }
 
 /// Build a [`Shape::Path`]: several contours, straight or curved, with a fill rule.
