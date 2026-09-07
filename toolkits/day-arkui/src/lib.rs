@@ -2266,6 +2266,7 @@ mod imp {
         }
 
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
+            ensure_canvas_fonts();
             // Encode the display list the shared way (day-android uses the same encoder) and hand it
             // to the custom node; its on-draw callback replays it with OH_Drawing (§11).
             let (nums, texts) = day_spec::encode_ops(ops);
@@ -2332,6 +2333,7 @@ mod imp {
             size: f64,
             font: &day_spec::CanvasFont,
         ) -> Option<day_spec::TextMetrics> {
+            ensure_canvas_fonts();
             let text = cstr(text);
             let family = cstr(font.family_str());
             let mut out = [0.0f64; 3];
@@ -2576,20 +2578,71 @@ mod imp {
     /// the CLI writes the file (plain strings, no escapes beyond `\"`), and this backend takes no
     /// JSON dependency for one key.
     fn manifest_families(json: &str) -> Vec<String> {
+        manifest_entries(json).into_iter().map(|(f, _)| f).collect()
+    }
+
+    /// The manifest's `(family, file)` pairs, in order: each staged font's family name and the
+    /// rawfile it was staged as under `day/fonts/`. The same key scan, one object at a time.
+    fn manifest_entries(json: &str) -> Vec<(String, String)> {
+        fn value_after(rest: &str, key: &str) -> Option<(String, usize)> {
+            let i = rest.find(key)?;
+            let after = &rest[i + key.len()..];
+            let q = after.find('"')?;
+            let value = &after[q + 1..];
+            let end = value.find('"')?;
+            let text = value[..end].replace("\\\"", "\"").replace("\\\\", "\\");
+            Some((text, i + key.len() + q + 1 + end + 1))
+        }
         let mut out = Vec::new();
         let mut rest = json;
-        while let Some(i) = rest.find("\"family\"") {
-            rest = &rest[i + 8..];
-            let Some(q) = rest.find('"') else { break };
-            let value = &rest[q + 1..];
-            let Some(end) = value.find('"') else { break };
-            let family = value[..end].replace("\\\"", "\"").replace("\\\\", "\\");
-            if !family.is_empty() {
-                out.push(family);
+        while let Some(open) = rest.find('{') {
+            let Some(close) = rest[open..].find('}') else {
+                break;
+            };
+            let object = &rest[open..open + close];
+            let family = value_after(object, "\"family\"").map(|(v, _)| v);
+            let file = value_after(object, "\"file\"").map(|(v, _)| v);
+            if let (Some(family), Some(file)) = (family, file)
+                && !family.is_empty()
+                && !file.is_empty()
+            {
+                out.push((family, file));
             }
-            rest = &value[end + 1..];
+            rest = &rest[open + close + 1..];
         }
         out
+    }
+
+    /// Hand every bundled font's bytes to the drawing layer, once per process, so canvas text
+    /// can draw in it (docs/fonts.md). The ability's ArkTS `font.registerFont` reaches the
+    /// text engine that labels use and not `OH_Drawing`'s font manager, which is why the
+    /// showcase's canvas came out in the system face while its labels were right.
+    fn ensure_canvas_fonts() {
+        thread_local! {
+            static DONE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        }
+        if DONE.with(|d| d.replace(true)) {
+            return;
+        }
+        let Some(manifest) = open_resource("fonts.json") else {
+            return;
+        };
+        let json = String::from_utf8_lossy(manifest.as_slice()).into_owned();
+        for (family, file) in manifest_entries(&json) {
+            let Some(res) = open_resource(&format!("fonts/{file}")) else {
+                log::warn!("bundled font {file:?} ({family:?}) is not in the rawfile store");
+                continue;
+            };
+            let bytes = res.as_slice();
+            let name = cstr(&family);
+            // SAFETY: the shim copies the bytes before returning; both pointers outlive the call.
+            let ok = unsafe {
+                ffi::day_ark_register_canvas_font(name.as_ptr(), bytes.as_ptr(), bytes.len())
+            };
+            if ok != 1 {
+                log::warn!("bundled font {file:?} ({family:?}) did not parse as a font");
+            }
+        }
     }
 
     /// The rawfile-backed data-resource opener (§18.3), registered once in [`init`]. Serves

@@ -45,7 +45,7 @@ Ask `capability(Cap::FontList)` before offering a font menu:
 | GTK | Native | the PangoCairo font map: `list_families()` → `list_faces()` |
 | Qt | Native | `QFontDatabase::families()` + `styles()` |
 | Android | Native | `/system/etc/fonts.xml` (the families `Typeface.create` resolves) plus the bundled `res/font/` families |
-| HarmonyOS | Native | `OH_Drawing_FontMgr` families and style sets, plus the bundled manifest |
+| HarmonyOS | Native | `OH_Drawing_FontMgr` families and style sets, plus the bundled manifest (the bundled files are handed to the drawing layer as typefaces, since ArkTS `font.registerFont` reaches only the text engine labels use) |
 | Windows (XAML) | Native | DirectWrite's system font collection (a bundled family is addressed as `ms-appx:///fonts/<file>#<family>` on the way to the `TextBlock`, the one form unpackaged XAML loads; the app keeps naming it by family) |
 | web-dom | **Emulated** | the CSS generic families (`system-ui`, `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy`) with the four faces a browser synthesizes for any family, plus every bundled `FontFace` |
 

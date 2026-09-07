@@ -251,6 +251,9 @@ unsafe extern "C" {
     pub fn day_ark_font_families(out: *mut *mut c_char, out_len: *mut usize) -> i32;
     /// Release a string returned by [`day_ark_font_families`]. Safe to call with null.
     pub fn day_ark_string_free(p: *mut c_void);
+    /// Register a bundled font's bytes under `family` for canvas text (the bytes are copied).
+    /// Returns 1 when they parsed as a font.
+    pub fn day_ark_register_canvas_font(family: *const c_char, data: *const u8, len: usize) -> i32;
     /// Measure one line of canvas text; `out` (3 doubles) receives width, height, ascent.
     pub fn day_ark_measure_text(
         text: *const c_char,

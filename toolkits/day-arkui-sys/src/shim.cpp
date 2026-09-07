@@ -46,6 +46,7 @@
 #include <native_drawing/drawing_font_mgr.h> // canvas fonts + the font list (docs/fonts.md)
 #include <native_drawing/drawing_text_typography.h> // OH_Drawing_FontStyleStruct
 #include <native_drawing/drawing_typeface.h>
+#include <native_drawing/drawing_memory_stream.h> // bundled canvas fonts from rawfile bytes
 #include <native_drawing/drawing_matrix.h>
 #include <native_drawing/drawing_path.h>
 #include <native_drawing/drawing_path_effect.h>
@@ -1093,11 +1094,28 @@ struct PendingFont {
     std::string family;
 };
 
-/// The process-wide font manager: the system font collection (plus what the ability
-/// registered), created on first use and kept.
+/// The process-wide font manager: the SYSTEM font collection, created on first use and kept.
+/// It does not see what the ability registered through ArkTS `font.registerFont` — that feeds
+/// the ArkUI text engine labels draw with, not native drawing — so the bundled families the
+/// canvas may be asked for are registered separately (`day_ark_register_canvas_font`).
 static OH_Drawing_FontMgr* font_mgr() {
     static OH_Drawing_FontMgr* mgr = OH_Drawing_FontMgrCreate();
     return mgr;
+}
+
+/// The bundled families, by lower-cased name, as typefaces built from the font files' bytes
+/// (docs/fonts.md); kept for the process, shared by every font that uses them.
+static std::map<std::string, OH_Drawing_Typeface*>& canvas_fonts() {
+    static std::map<std::string, OH_Drawing_Typeface*> fonts;
+    return fonts;
+}
+
+static std::string lower_ascii(const std::string& s) {
+    std::string out = s;
+    for (char& c : out) {
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    }
+    return out;
 }
 
 /// The font canvas text draws and measures with: the family's face nearest the requested
@@ -1115,8 +1133,19 @@ static OH_Drawing_Font* make_canvas_font(float size, const PendingFont& req,
     style.weight = (OH_Drawing_FontWeight)((weight / 100) - 1); // FONT_WEIGHT_100 == 0
     style.width = FONT_WIDTH_NORMAL;
     style.slant = italic ? FONT_STYLE_ITALIC : FONT_STYLE_NORMAL;
-    // The default face keeps the font's own typeface; only a NAMED family goes through the
-    // manager (a null family name is not something every OH_Drawing release matches).
+    // A bundled family first: its typeface is the process's, shared, never destroyed here,
+    // and one face — weight and slant are synthesized on it. Then a NAMED system family goes
+    // through the manager (a null family name is not something every OH_Drawing release
+    // matches); the default face keeps the font's own typeface.
+    if (req.active && !req.family.empty()) {
+        auto it = canvas_fonts().find(lower_ascii(req.family));
+        if (it != canvas_fonts().end() && it->second) {
+            OH_Drawing_FontSetTypeface(font, it->second);
+            OH_Drawing_FontSetFakeBoldText(font, weight >= 600);
+            OH_Drawing_FontSetTextSkewX(font, italic ? -0.25f : 0.0f);
+            return font;
+        }
+    }
     OH_Drawing_Typeface* tf = nullptr;
     if (req.active && !req.family.empty()) {
         tf = OH_Drawing_FontMgrMatchFamilyStyle(font_mgr(), req.family.c_str(), style);
@@ -1255,6 +1284,26 @@ int32_t day_ark_font_families(char** out, size_t* out_len) {
 
 /// Release a string returned by day_ark_font_families. Safe to call with null.
 void day_ark_string_free(void* p) { free(p); }
+
+/// Register a bundled font for canvas text (docs/fonts.md): `data` is the font file's bytes
+/// (copied — the caller may release them), `family` the name the app draws with. The typeface
+/// lives for the process; a family registered twice takes the later file. Returns 1 when the
+/// bytes made a typeface, 0 otherwise.
+int32_t day_ark_register_canvas_font(const char* family, const uint8_t* data, size_t len) {
+    if (!family || !*family || !data || len == 0) return 0;
+    OH_Drawing_MemoryStream* stream = OH_Drawing_MemoryStreamCreate(data, len, true);
+    if (!stream) return 0;
+    // Ownership of the stream passes to the typeface (the header's contract), so it is not
+    // destroyed here whether or not the bytes parsed.
+    OH_Drawing_Typeface* tf = OH_Drawing_TypefaceCreateFromStream(stream, 0);
+    if (!tf) return 0;
+    auto& fonts = canvas_fonts();
+    auto key = lower_ascii(family);
+    auto it = fonts.find(key);
+    if (it != fonts.end() && it->second) OH_Drawing_TypefaceDestroy(it->second);
+    fonts[key] = tf;
+    return 1;
+}
 
 /// Measure one line of canvas text with the font make_canvas_font resolves: `out` receives
 /// the advance width, the line height (ascent + descent) and the ascent, in vp. Returns 1.
