@@ -42,6 +42,9 @@ unsafe extern "C" {
     /// behind the XAML island. The WebView2 web view passes it as the composition controller's
     /// parentWindow (DPI / IME / input association) while rendering windowless into the XAML tree.
     pub fn day_xaml_host_hwnd() -> *mut c_void;
+    /// The pointer's shape over an element (docs/cursor.md): 0 releases it, 1..=16 name a
+    /// Win32 `IDC_*` shape in the shim's table, 17 hides the pointer.
+    pub fn day_xaml_set_cursor(h: *mut c_void, code: c_int);
     /// Title-bar + taskbar icon from a multi-size `.ico` (§18.2).
     pub fn day_xaml_set_app_icon(win: *mut c_void, ico_path: *const c_char);
     pub fn day_xaml_window_on_resize(win: *mut c_void, cb: extern "C" fn(c_int, c_int));

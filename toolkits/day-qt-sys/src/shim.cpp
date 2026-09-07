@@ -566,6 +566,15 @@ void day_qt_label_set_selectable(void *w, int on) {
     l->setTextInteractionFlags(on ? (Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard)
                                   : Qt::NoTextInteraction);
 }
+// The pointer's shape over a widget (the `.cursor()` modifier, docs/cursor.md): a
+// Qt::CursorShape value, or a negative one to hand the choice back to the widget's parent.
+void day_qt_widget_set_cursor(void *w, int shape) {
+    QWidget *q = static_cast<QWidget *>(w);
+    if (shape < 0)
+        q->unsetCursor();
+    else
+        q->setCursor(static_cast<Qt::CursorShape>(shape));
+}
 // Register an application font file with the QFontDatabase (§18.4). Returns the font id
 // (>= 0) or -1 on failure. Requires a constructed QApplication.
 int day_qt_register_font(const char *path) {

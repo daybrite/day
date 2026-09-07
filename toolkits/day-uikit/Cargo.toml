@@ -60,6 +60,8 @@ objc2-ui-kit = { version = "0.3", features = [
     # The window toolbar under a navigation controller's pages (docs/toolbars.md).
     "UIBarItem", "UIBarButtonItem", "UIToolbar", "UIBarButtonItemGroup",
     "UIContextMenuConfiguration", "UIInteraction", "UIKeyCommand",
+    # The `.cursor()` decorator on iPadOS (docs/cursor.md): pointer styles, not shapes.
+    "UIPointerInteraction", "UIPointerStyle", "UIPointerRegion", "UIHoverStyle", "UITargetedPreview",
     # A focusable canvas and its hardware-keyboard arrows (docs/menus.md): the press stream a
     # first-responder view reads (`pressesBegan:`), the key on each press, and the touch that
     # makes the canvas first responder in the first place.

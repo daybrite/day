@@ -33,7 +33,7 @@ objc2-app-kit = { version = "0.3", features = [
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton",
     "NSTextField", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
     "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",
-    "NSBitmapImageRep", "NSImageRep", "NSEvent", "NSAccessibilityProtocols", "NSAccessibilityConstants",
+    "NSBitmapImageRep", "NSImageRep", "NSEvent", "NSCursor", "NSTrackingArea", "NSAccessibilityProtocols", "NSAccessibilityConstants",
     "NSGraphicsContext", "NSAppearance", "NSSplitView", "NSLayoutConstraint",
     # The sidebar nav host (docs/navigation.md): NSSplitViewController owns the split's
     # delegate, holding priorities and the sidebar item's material, so the sidebar gets the

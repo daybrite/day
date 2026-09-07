@@ -114,7 +114,9 @@ body.day-has-toolbar #day-root {
 .day-label {
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: default;
+  /* No `cursor` here: a label inherits it, so a `.cursor()` set on a decorated ancestor (the
+     background container a padded, tinted label sits in) reaches the text itself rather than
+     stopping at the edges. #day-root's `default` is what an undecorated label inherits. */
   /* A label's text is Day's, newlines included — a two-paragraph body has to read as two
      paragraphs here as it does on every other backend. HTML collapses a run of whitespace to one
      space, so without this the blank line between them vanished and the two ran together.

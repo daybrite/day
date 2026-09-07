@@ -59,6 +59,7 @@ the architecture-level view and the rationale.
 | deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
 | toolbars — `Decorate::toolbar`, placement and column, the item vocabulary, `Symbol` icons, per-backend realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
 | search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
+| cursor — `.cursor()`, the CSS vocabulary as `Cursor`, per-toolkit realization and `Cap::Cursor`, the `day::cursor::<toolkit>` extras | [docs/cursor.md](docs/cursor.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; resizable windows on ios-uikit and android-mdc and what each platform requires; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
 | app icons — `day prepare`, the layered master, the generated `build/day/host` tree the host projects reference, `--check` gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | [docs/vectors.md](docs/vectors.md) | [§18.3](#183-images-and-data) |
@@ -812,6 +813,8 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `.focusable()` (opt a composed container into the focus system — the canvas contract behind
 `Toolkit::set_focusable`, [docs/focus.md](docs/focus.md); appkit today, a no-op elsewhere),
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),
+`.cursor()` (the pointer's shape over the piece, a constant or a reactive source — routed to
+`Toolkit::set_cursor` with `Cap::Cursor` saying how faithfully; [docs/cursor.md](docs/cursor.md)),
 `.context_menu()`, `.toolbar()` (declare toolbar items on the chrome this piece sits under —
 one item, a list, or a closure that derives one, [docs/toolbars.md](docs/toolbars.md)),
 `.defers_system_gestures()` / `.interactive_dismiss_disabled()`
@@ -1309,6 +1312,11 @@ pub trait Toolkit: Sized + 'static {
     // gestures + focus (docs/shapes.md, docs/focus.md)
     fn enable_gesture(&mut self, h, node: NodeId, kind: GestureKind) {}
     fn focus(&mut self, h, node: NodeId, focused: bool) {}
+    fn set_cursor(&mut self, h, cursor: Cursor) {}                    // Decorate::cursor — the
+                                                                      // pointer's shape over the
+                                                                      // node; idempotent, called
+                                                                      // again on a reactive change
+                                                                      // (docs/cursor.md)
     fn set_focusable(&mut self, h, node: NodeId, focusable: bool) {}  // Decorate::focusable —
                                    // the canvas contract for composed containers (2026-08)
 

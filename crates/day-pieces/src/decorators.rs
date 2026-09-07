@@ -14,7 +14,7 @@ use std::rc::Rc;
 use day_core::*;
 use day_reactive::{Scope, bind};
 use day_spec::props::*;
-use day_spec::{A11yProps, AnimSpec, Color, Event, Insets, Role, Transform, kinds};
+use day_spec::{A11yProps, AnimSpec, Color, Cursor, Event, Insets, Role, Transform, kinds};
 
 use crate::menus::lower_menu_scoped;
 use crate::*;
@@ -254,6 +254,26 @@ fn op_selectable() -> impl FnOnce(Build) -> Build {
         Box::new(move |cx| {
             let n = inner(cx);
             with_tree(|t| t.set_node_selectable(n, true));
+            n
+        })
+    }
+}
+
+fn op_cursor(cursor: Reactive<Cursor>) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| t.set_node_cursor(n, cursor.get_untracked()));
+            // Only a reactive source needs a binding; a constant shape is applied once at
+            // mount. The setter is idempotent, so a re-run costs one native call.
+            if let Reactive::Dyn(_) = &cursor {
+                bind(
+                    move || cursor.get(),
+                    move |c: &Cursor| {
+                        with_tree(|t| t.set_node_cursor(n, c.clone()));
+                    },
+                );
+            }
             n
         })
     }
@@ -873,6 +893,9 @@ impl<P: Piece> Decorated<P> {
     pub fn selectable(self) -> Self {
         self.push(op_selectable())
     }
+    pub fn cursor<M>(self, cursor: impl IntoReactive<Cursor, M>) -> Self {
+        self.push(op_cursor(cursor.into_reactive()))
+    }
     pub fn native_ref(self, r: &NativeRef) -> Self {
         self.push(op_native_ref(r.clone()))
     }
@@ -1066,6 +1089,16 @@ pub trait Decorate: Piece + Sized {
     /// platform's own. Unmanaged — set once at mount, and it survives Day's text updates.
     fn selectable(self) -> Decorated<Self> {
         Decorated::new(self).selectable()
+    }
+
+    /// Shape the pointer while it is over this piece and its descendants (docs/cursor.md): a
+    /// [`Cursor`] constant, a `Signal<Cursor>`, or a closure, so a canvas tool or a busy state
+    /// moves the shape without rebuilding the piece. The nearest ancestor's cursor wins, and
+    /// `Cursor::Default` releases the piece back to the platform. `capability(Cap::Cursor)`
+    /// says whether this toolkit draws the requested shapes, a nearest neighbor, or nothing;
+    /// a touch-only host never shows one, which is correct rather than a failure.
+    fn cursor<M>(self, cursor: impl IntoReactive<Cursor, M>) -> Decorated<Self> {
+        Decorated::new(self).cursor(cursor)
     }
 
     /// Capture a [`NativeRef`] to this piece's realized node for later imperative access

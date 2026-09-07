@@ -161,6 +161,77 @@ pub mod prefs {
 // Localization text source + arg trait (§12) at the crate root so generated `res::str::<key>(…)`
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
 pub use day_core::{lifecycle_supported, on_lifecycle};
+
+/// Pointer shapes for the `.cursor()` decorator (docs/cursor.md).
+///
+/// [`Cursor`](day_spec::Cursor) itself is in the prelude; this module carries the shapes only
+/// one toolkit names, each behind that toolkit's feature, so `day::cursor::appkit::DRAG_COPY`
+/// is a compile error in a GTK build rather than a silent arrow. Wrap a use in the same
+/// `#[cfg(feature = "…")]` the constant carries. Every constant is a [`Cursor::Native`] value:
+/// the named backend resolves it by its own table and any other backend ignores it.
+pub mod cursor {
+    pub use day_spec::Cursor;
+
+    /// AppKit's own shapes (`NSCursor`), beyond the shared vocabulary.
+    #[cfg(feature = "appkit")]
+    pub mod appkit {
+        use day_spec::Cursor;
+        /// The poof shown when dragging an item somewhere it will be removed.
+        pub const DISAPPEARING_ITEM: Cursor = Cursor::native("disappearingItem");
+        /// The arrow with a green plus badge shown during a copy drag.
+        pub const DRAG_COPY: Cursor = Cursor::native("dragCopy");
+        /// The arrow with a link badge shown during an alias drag.
+        pub const DRAG_LINK: Cursor = Cursor::native("dragLink");
+        /// The arrow with a menu badge, for content with a contextual menu.
+        pub const CONTEXTUAL_MENU: Cursor = Cursor::native("contextualMenu");
+        /// The I-beam for vertical text layout.
+        pub const I_BEAM_VERTICAL: Cursor = Cursor::native("IBeamCursorForVerticalLayout");
+    }
+
+    /// Qt's own shapes (`Qt::CursorShape`), beyond the shared vocabulary.
+    #[cfg(feature = "qt")]
+    pub mod qt {
+        use day_spec::Cursor;
+        /// The arrow with a question mark (`Qt::WhatsThisCursor`).
+        pub const WHATS_THIS: Cursor = Cursor::native("WhatsThisCursor");
+        /// The arrow with a spinner beside it (`Qt::BusyCursor`).
+        pub const BUSY: Cursor = Cursor::native("BusyCursor");
+        /// A plain upward arrow (`Qt::UpArrowCursor`).
+        pub const UP_ARROW: Cursor = Cursor::native("UpArrowCursor");
+        /// Horizontal splitter (`Qt::SplitHCursor`).
+        pub const SPLIT_H: Cursor = Cursor::native("SplitHCursor");
+        /// Vertical splitter (`Qt::SplitVCursor`).
+        pub const SPLIT_V: Cursor = Cursor::native("SplitVCursor");
+    }
+
+    /// Windows' own shapes (`IDC_*`), beyond the shared vocabulary.
+    #[cfg(feature = "xaml")]
+    pub mod xaml {
+        use day_spec::Cursor;
+        /// The person cursor (`IDC_PERSON`, Windows 10 1809 and up).
+        pub const PERSON: Cursor = Cursor::native("person");
+        /// The location-pin cursor (`IDC_PIN`, Windows 10 1809 and up).
+        pub const PIN: Cursor = Cursor::native("pin");
+        /// A plain upward arrow (`IDC_UPARROW`).
+        pub const UP_ARROW: Cursor = Cursor::native("uparrow");
+        /// The arrow with a small hourglass (`IDC_APPSTARTING`), Windows' progress shape.
+        pub const APP_STARTING: Cursor = Cursor::native("appstarting");
+    }
+
+    /// Android's own shapes (`PointerIcon.TYPE_*`), beyond the shared vocabulary.
+    #[cfg(feature = "mdc")]
+    pub mod android {
+        use day_spec::Cursor;
+        /// Four-way scroll (`TYPE_ALL_SCROLL`).
+        pub const ALL_SCROLL: Cursor = Cursor::native("all_scroll");
+        /// The no-drop shape (`TYPE_NO_DROP`), distinct from not-allowed.
+        pub const NO_DROP: Cursor = Cursor::native("no_drop");
+        /// Diagonal resize, top-right to bottom-left (`TYPE_TOP_RIGHT_DIAGONAL_DOUBLE_ARROW`).
+        pub const TOP_RIGHT_DIAGONAL: Cursor = Cursor::native("top_right_diagonal_double_arrow");
+        /// Diagonal resize, top-left to bottom-right (`TYPE_TOP_LEFT_DIAGONAL_DOUBLE_ARROW`).
+        pub const TOP_LEFT_DIAGONAL: Cursor = Cursor::native("top_left_diagonal_double_arrow");
+    }
+}
 pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
 
 /// The `log` crate itself, for an app that needs more than the macros (a `LevelFilter`, a custom
@@ -394,7 +465,7 @@ pub mod prelude {
     // two columns on a wide window, one on a narrow one. `None` on a backend that reports no
     // geometry. Tracked, so a piece reading it rebuilds when the window crosses a breakpoint.
     pub use day_core::size_class;
-    pub use day_spec::{Cap, HeightClass, SizeClass, Support, WidthClass};
+    pub use day_spec::{Cap, Cursor, HeightClass, SizeClass, Support, WidthClass};
     // Layout direction (docs/localization): `is_rtl()` lets a piece mirror its own drawing under a
     // right-to-left locale — the layout engine mirrors placement, but a `canvas` owns its coordinates.
     pub use day_core::{is_rtl, layout_direction};

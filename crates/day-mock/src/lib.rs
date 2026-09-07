@@ -33,6 +33,8 @@ pub struct MockWidget {
     pub editable: bool,
     pub selectable: bool,
     pub spellcheck: bool,
+    /// The last `.cursor()` applied to this widget (probe-visible for tests), `None` until set.
+    pub cursor: Option<day_spec::Cursor>,
     pub children: Vec<u64>,
     pub frame: Rect,
     pub a11y: A11yProps,
@@ -665,6 +667,8 @@ impl Toolkit for MockToolkit {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // Records the shape per widget (probe-visible), so a test can assert it.
+            Cap::Cursor => Support::Native,
             // The mock answers `first_baseline` from its synthetic metrics (see below).
             Cap::BaselineAlignment => Support::Native,
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
@@ -1177,6 +1181,14 @@ impl Toolkit for MockToolkit {
         }
         s.log(format!("set_selectable #{} {}", h.0, selectable));
         None
+    }
+
+    fn set_cursor(&mut self, h: &MockHandle, cursor: day_spec::Cursor) {
+        let mut s = self.state.borrow_mut();
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.cursor = Some(cursor.clone());
+        }
+        s.log(format!("set_cursor #{} {}", h.0, cursor.css_name()));
     }
 
     fn set_scroll_content(&mut self, h: &MockHandle, content: Size) {

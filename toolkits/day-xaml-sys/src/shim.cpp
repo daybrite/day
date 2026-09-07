@@ -39,6 +39,7 @@
 #include <cmath>
 #include <vector>
 #include <map>
+#include <set>
 #include <functional> // OEM menu-accelerator dispatch (see add_accel)
 #include <fstream> // read local image bytes for BitmapImage.SetSource (file:// URIs don't load)
 #include <shobjidl_core.h> // IInitializeWithWindow — parents WinRT file pickers to the host HWND
@@ -513,8 +514,63 @@ static bool is_color_scheme_change(LPARAM lp) {
     return area && std::wcscmp(area, L"ImmersiveColorSet") == 0;
 }
 
+// --- pointer shape (the `.cursor()` modifier, docs/cursor.md) ---------------------------------
+// UWP XAML hosted in a Win32 window has no per-element cursor property (that is WinUI 3's
+// ProtectedCursor) and no CoreWindow to hand a PointerCursor to, so the shape is owned by the
+// host: each decorated element records its code on PointerEntered, the nearest decorated
+// ancestor's on PointerExited, and the host answers WM_SETCURSOR with the current one. The
+// island's own DefWindowProc forwards WM_SETCURSOR to its parent first, which is what lets
+// this window's answer stand.
+static std::map<void*, int> g_cursor_codes;   // element ABI pointer -> code (1..=17)
+static std::set<void*> g_cursor_hooked;       // elements with the enter/exit handlers attached
+static int g_cursor_current = 0;              // what WM_SETCURSOR shows; 0 = the default arrow
+static HCURSOR cursor_for_code(int code) {
+    LPCWSTR id = IDC_ARROW;
+    switch (code) {
+    case 2: id = IDC_IBEAM; break;
+    case 3: id = IDC_WAIT; break;
+    case 4: id = IDC_CROSS; break;
+    case 5: id = IDC_UPARROW; break;
+    case 6: id = IDC_SIZENWSE; break;
+    case 7: id = IDC_SIZENESW; break;
+    case 8: id = IDC_SIZEWE; break;
+    case 9: id = IDC_SIZENS; break;
+    case 10: id = IDC_SIZEALL; break;
+    case 11: id = IDC_NO; break;
+    case 12: id = IDC_HAND; break;
+    case 13: id = IDC_APPSTARTING; break;
+    case 14: id = IDC_HELP; break;
+    case 15: id = MAKEINTRESOURCEW(32671); break; // IDC_PIN (Windows 10 1809+)
+    case 16: id = MAKEINTRESOURCEW(32672); break; // IDC_PERSON (Windows 10 1809+)
+    default: break;
+    }
+    HCURSOR c = LoadCursorW(nullptr, id);
+    return c ? c : LoadCursorW(nullptr, IDC_ARROW);
+}
+static void apply_cursor_now(int code) {
+    g_cursor_current = code;
+    if (code == 17) { SetCursor(nullptr); return; }
+    SetCursor(cursor_for_code(code));
+}
+// The code in force for an element: its own, else the nearest decorated ancestor's, else 0.
+static int cursor_code_over(UIElement const& e) {
+    WUX::DependencyObject d = e;
+    while (d) {
+        auto it = g_cursor_codes.find(winrt::get_abi(d));
+        if (it != g_cursor_codes.end()) return it->second;
+        d = WUXM::VisualTreeHelper::GetParent(d);
+    }
+    return 0;
+}
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
+    case WM_SETCURSOR:
+        if (g_cursor_current != 0 && LOWORD(lp) == HTCLIENT) {
+            apply_cursor_now(g_cursor_current);
+            return TRUE;
+        }
+        break;
     case WM_SIZE:
         if (g_app && g_app->island) {
             RECT rc; GetClientRect(hwnd, &rc);
@@ -2800,6 +2856,31 @@ void day_xaml_label_set_align(void* h, int mode) {
                                          : WUX::TextAlignment::Left);
         }
     });
+}
+void day_xaml_set_cursor(void* h, int code) {
+    UIElement e = elem(h);
+    void* key = winrt::get_abi(e);
+    if (code == 0) {
+        g_cursor_codes.erase(key);
+    } else {
+        g_cursor_codes[key] = code;
+    }
+    if (g_cursor_hooked.insert(key).second) {
+        e.PointerEntered([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
+            if (auto el = s.try_as<UIElement>()) apply_cursor_now(cursor_code_over(el));
+        });
+        e.PointerExited([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
+            auto el = s.try_as<UIElement>();
+            if (!el) { apply_cursor_now(0); return; }
+            // Back to whatever the nearest decorated ancestor wants, or the arrow.
+            WUX::DependencyObject parent = WUXM::VisualTreeHelper::GetParent(el);
+            UIElement pe{nullptr};
+            if (parent) pe = parent.try_as<UIElement>();
+            apply_cursor_now(pe ? cursor_code_over(pe) : 0);
+        });
+    }
+    // A reactive change while the pointer is already inside takes effect at once.
+    if (g_cursor_current != 0) apply_cursor_now(cursor_code_over(e));
 }
 void day_xaml_label_set_selectable(void* h, int on) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) tb.IsTextSelectionEnabled(on != 0);

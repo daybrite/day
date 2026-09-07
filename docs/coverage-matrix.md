@@ -105,3 +105,4 @@ An app branches on this rather than on the target name.
 | `AppBadgeDot` | N | – | – | – | – | – | – | E |
 | `Toolbar` | N | N | N | N | N | N | E | E |
 | `Inspector` | N | – | N | N | N | – | – | – |
+| `Cursor` | N | E | N | E | E | N | – | N |

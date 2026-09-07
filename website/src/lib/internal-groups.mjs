@@ -37,6 +37,7 @@ export const groups = [
       ['cover', 'fullscreen covers and dismissal control'],
       ['inspector', 'the trailing properties pane: native splits, the compact sheet'],
       ['focus', 'keyboard focus as a signal: bindings, rules, per-backend map'],
+      ['cursor', "the pointer's shape over a piece: one vocabulary, per-toolkit realization, toolkit-only extras"],
       ['list', 'the native recycling list: row protocol, heights, selection'],
       ['tree', 'the hierarchical tree: nesting, expansion, drag-to-reparent (plan)'],
       ['canvas', 'the canvas display list and gestures'],

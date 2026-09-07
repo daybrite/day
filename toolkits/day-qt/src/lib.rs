@@ -16,9 +16,9 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind,
-    Platform, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform, WindowOptions,
-    ffi_guard, kinds, props_of, sidetable::SideTable,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, NodeId,
+    PieceKind, Platform, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform,
+    WindowOptions, ffi_guard, kinds, props_of, sidetable::SideTable,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1467,11 +1467,51 @@ pub(crate) fn placeholder_handle(kind: PieceKind) -> QtHandle {
     QtHandle(unsafe { ffi::day_qt_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()) })
 }
 
+/// `Qt::CursorShape` for a [`Cursor`], or -1 to unset (docs/cursor.md).
+fn qt_cursor_shape(c: &Cursor) -> c_int {
+    match c {
+        Cursor::Default => -1,
+        Cursor::Pointer => 13,                    // PointingHandCursor
+        Cursor::Text | Cursor::VerticalText => 4, // IBeamCursor
+        Cursor::Crosshair | Cursor::Cell => 2,    // CrossCursor
+        Cursor::Move => 9,                        // SizeAllCursor
+        Cursor::Grab => 17,                       // OpenHandCursor
+        Cursor::Grabbing => 18,                   // ClosedHandCursor
+        Cursor::NotAllowed => 14,                 // ForbiddenCursor
+        Cursor::Wait => 3,                        // WaitCursor
+        Cursor::Progress => 16,                   // BusyCursor
+        Cursor::Help => 15,                       // WhatsThisCursor
+        Cursor::ContextMenu | Cursor::ZoomIn | Cursor::ZoomOut => 0, // ArrowCursor
+        Cursor::Copy => 19,                       // DragCopyCursor
+        Cursor::Alias => 21,                      // DragLinkCursor
+        Cursor::None => 10,                       // BlankCursor
+        Cursor::NsResize => 5,                    // SizeVerCursor
+        Cursor::EwResize => 6,                    // SizeHorCursor
+        Cursor::NeswResize => 7,                  // SizeBDiagCursor
+        Cursor::NwseResize => 8,                  // SizeFDiagCursor
+        Cursor::ColResize => 12,                  // SplitHCursor
+        Cursor::RowResize => 11,                  // SplitVCursor
+        Cursor::Native(name) => match &**name {
+            "UpArrowCursor" => 1,
+            "BlankCursor" => 10,
+            "SplitVCursor" => 11,
+            "SplitHCursor" => 12,
+            "WhatsThisCursor" => 15,
+            "BusyCursor" => 16,
+            "DragMoveCursor" => 20,
+            _ => -1,
+        },
+    }
+}
+
 impl Toolkit for Qt {
     type Handle = QtHandle;
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // `QWidget::setCursor` per widget; several CSS shapes take their nearest Qt shape
+            // (docs/cursor.md).
+            Cap::Cursor => Support::Emulated,
             // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
             // Cap::TextSpellCheck stays Unsupported (the default arm).
             Cap::TextRuns
@@ -2576,6 +2616,13 @@ impl Toolkit for Qt {
         // beyond the widget's own frame (§8.4) so a moved/scaled/rotated box isn't clipped.
         let (dur, curve) = qt_anim_args(anim);
         unsafe { ffi::day_qt_set_transform(h.0, t.tx, t.ty, t.sx, t.sy, t.rotate_deg, dur, curve) };
+    }
+
+    fn set_cursor(&mut self, h: &QtHandle, cursor: Cursor) {
+        // `QWidget::setCursor(Qt::CursorShape)`, or `unsetCursor` for Default (docs/cursor.md).
+        // Qt has no zoom, cell, copy-drop, context-menu, or vertical-text shape; each takes its
+        // nearest, which is why `Cap::Cursor` answers Emulated.
+        unsafe { ffi::day_qt_widget_set_cursor(h.0, qt_cursor_shape(&cursor)) };
     }
 
     fn set_selectable(&mut self, h: &QtHandle, selectable: bool) -> Option<QtHandle> {

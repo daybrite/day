@@ -21,7 +21,7 @@ use linkme::distributed_slice;
 use day_spec::props::*;
 use day_spec::sidetable::SideTable;
 use day_spec::{
-    A11yProps, AnimSpec, Animatable, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font,
+    A11yProps, AnimSpec, Animatable, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font,
     ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size,
     Support, Toolkit, Transform, TreeSource, ffi_guard, kinds, props_of,
 };
@@ -2424,6 +2424,8 @@ impl Toolkit for Gtk {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // `gdk::Cursor::from_name` takes the CSS vocabulary as it is (docs/cursor.md).
+            Cap::Cursor => Support::Native,
             // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
             // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
             Cap::TextRuns
@@ -4309,6 +4311,18 @@ impl Toolkit for Gtk {
             l.set_selectable(selectable);
         }
         None
+    }
+
+    fn set_cursor(&mut self, h: &Handle, cursor: Cursor) {
+        // GDK names cursors the way CSS does (docs/cursor.md), so the keyword goes straight
+        // through; a theme missing one falls back to its default arrow rather than to nothing.
+        if cursor == Cursor::Default {
+            h.set_cursor(None);
+            return;
+        }
+        let fallback = gtk4::gdk::Cursor::from_name("default", None);
+        let shape = gtk4::gdk::Cursor::from_name(cursor.css_name(), fallback.as_ref());
+        h.set_cursor(shape.as_ref());
     }
 
     /// GTK reports baselines from its own measure protocol (docs/baseline.md): the third and

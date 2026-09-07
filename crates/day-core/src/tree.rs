@@ -676,6 +676,9 @@ pub trait TreeOps {
     /// Make `node`'s text user-selectable (the `.selectable()` modifier). One-shot and unmanaged;
     /// No-op if the node has no handle.
     fn set_node_selectable(&mut self, node: RNode, selectable: bool);
+    /// Shape the pointer over `node` (the `.cursor()` modifier, docs/cursor.md). Idempotent;
+    /// called again when a reactive cursor changes. No-op if the node has no handle.
+    fn set_node_cursor(&mut self, node: RNode, cursor: day_spec::Cursor);
     /// Record that a `.tweak` closure ran against `node`'s current handle (docs/tweaks.md), so
     /// a later backing swap (`set_node_selectable` on a toolkit that rebuilds the widget) can
     /// warn about the discarded work instead of losing it silently.
@@ -1406,6 +1409,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             }
             n.handle = Some(new);
         }
+    }
+
+    fn set_node_cursor(&mut self, node: RNode, cursor: day_spec::Cursor) {
+        let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+            return;
+        };
+        self.toolkit.set_cursor(&h, cursor);
     }
 
     fn note_node_tweaked(&mut self, node: RNode) {

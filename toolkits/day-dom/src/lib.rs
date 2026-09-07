@@ -28,10 +28,10 @@ use std::collections::{BTreeSet, HashMap};
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, FontSpec, FontWeight,
-    GestureKind, Lifecycle, ListSource, MenuItem, NodeId, Paint, PieceKind, Platform, Point,
-    Proposal, Rect, Registry, Renderer, Shape, Size, Support, TextAnchor, Toolkit, Transform,
-    WindowOptions, kinds,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, FontSpec,
+    FontWeight, GestureKind, Lifecycle, ListSource, MenuItem, NodeId, Paint, PieceKind, Platform,
+    Point, Proposal, Rect, Registry, Renderer, Shape, Size, Support, TextAnchor, Toolkit,
+    Transform, WindowOptions, kinds,
     present::{PresentButton, PresentResult, PresentSpec},
 };
 
@@ -1239,6 +1239,8 @@ impl Toolkit for Dom {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // An inline `cursor` style per element (docs/cursor.md); a coarse pointer never shows it.
+            Cap::Cursor => Support::Native,
             // A statement about the toolkit, not about the current window: web-dom can always
             // draw two panes. Whether a given host does follows from the window's size class,
             // which `run`/`day_dom_resized` report and the pieces layer resolves against
@@ -2128,6 +2130,18 @@ impl Toolkit for Dom {
         // this element and its text back in (`.day-selectable` in day.css). See docs/text.md.
         class(h.0, "day-selectable", selectable);
         None
+    }
+
+    fn set_cursor(&mut self, h: &DomHandle, cursor: Cursor) {
+        // The CSS vocabulary is the contract (docs/cursor.md); an inline `cursor` on the element
+        // wins over the stylesheet's affordance rules, and an empty value removes it.
+        let v = if cursor == Cursor::Default {
+            ""
+        } else {
+            cursor.css_name()
+        };
+        let p = "cursor";
+        unsafe { day_dom_set_style(h.0, p.as_ptr(), p.len(), v.as_ptr(), v.len()) };
     }
 
     fn set_scroll_content(&mut self, h: &DomHandle, content: Size) {

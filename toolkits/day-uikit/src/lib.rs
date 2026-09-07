@@ -63,9 +63,11 @@ mod imp {
     use objc2_ui_kit::UISplitViewControllerDelegate;
     use objc2_ui_kit::UITextViewDelegate;
     use objc2_ui_kit::{
-        UIAction, UIContextMenuConfiguration, UIContextMenuInteraction,
+        UIAction, UIAxis, UIContextMenuConfiguration, UIContextMenuInteraction,
         UIContextMenuInteractionDelegate, UIInteraction, UIMenu, UIMenuElement,
-        UIMenuElementAttributes, UIMenuOptions,
+        UIMenuElementAttributes, UIMenuOptions, UIPointerEffect, UIPointerHighlightEffect,
+        UIPointerInteraction, UIPointerInteractionDelegate, UIPointerLiftEffect, UIPointerRegion,
+        UIPointerShape, UIPointerStyle, UITargetedPreview,
     };
     use objc2_ui_kit::{
         UIActivityIndicatorView, UIApplication, UIApplicationDelegate, UIButton, UIButtonType,
@@ -95,7 +97,7 @@ mod imp {
 
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Edges, Event, EventSink, Font,
+        A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Edges, Event, EventSink, Font,
         ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer,
         Size, Support, Toolkit, Transform, TreeSource, WINDOW_NODE, WindowOptions, kinds,
     };
@@ -5866,6 +5868,110 @@ mod imp {
 
     pub struct Uikit {
         registry: Registry<Uikit>,
+        /// One pointer interaction per view carrying a `.cursor()` (docs/cursor.md), keyed by
+        /// the view pointer. Removed when the cursor goes back to `Default`.
+        pointers: HashMap<usize, (Retained<DayPointerDelegate>, Retained<UIPointerInteraction>)>,
+    }
+
+    // ---------------------------------------------------------------------------
+    // DayPointerDelegate — the `.cursor()` decorator on iPadOS (docs/cursor.md)
+    // ---------------------------------------------------------------------------
+
+    struct PointerIvars {
+        cursor: RefCell<Cursor>,
+    }
+
+    // iPadOS draws pointer EFFECTS, not arrow shapes: a beam over text, a highlight or lift
+    // over a target, or nothing. The delegate answers `styleForRegion:` with the nearest of
+    // those for the requested shape, which is why `Cap::Cursor` answers Emulated.
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayPointerDelegate"]
+        #[ivars = PointerIvars]
+        struct DayPointerDelegate;
+
+        unsafe impl NSObjectProtocol for DayPointerDelegate {}
+
+        unsafe impl UIPointerInteractionDelegate for DayPointerDelegate {
+            #[unsafe(method_id(pointerInteraction:styleForRegion:))]
+            fn style_for_region(
+                &self,
+                interaction: &UIPointerInteraction,
+                region: &UIPointerRegion,
+            ) -> Option<Retained<UIPointerStyle>> {
+                self.style_for(interaction, region)
+            }
+        }
+    );
+
+    impl DayPointerDelegate {
+        /// The pointer style for the current cursor (the method above cannot return early
+        /// inside `define_class!`, so the logic lives here).
+        fn style_for(
+            &self,
+            interaction: &UIPointerInteraction,
+            region: &UIPointerRegion,
+        ) -> Option<Retained<UIPointerStyle>> {
+            let mtm = MainThreadMarker::from(self);
+            let cursor = self.ivars().cursor.borrow().clone();
+            let rect = unsafe { region.rect() };
+            let view = unsafe { interaction.view() };
+            let preview = || {
+                view.as_deref().map(|v| unsafe {
+                    UITargetedPreview::initWithView(UITargetedPreview::alloc(mtm), v)
+                })
+            };
+            Some(match cursor {
+                Cursor::None => UIPointerStyle::hiddenPointerStyle(mtm),
+                // An I-beam is a vertical beam as tall as the line; vertical text turns it.
+                Cursor::Text => UIPointerStyle::styleWithShape_constrainedAxes(
+                    &UIPointerShape::beamWithPreferredLength_axis(
+                        rect.size.height,
+                        UIAxis::Vertical,
+                        mtm,
+                    ),
+                    UIAxis::Neither,
+                ),
+                Cursor::VerticalText => UIPointerStyle::styleWithShape_constrainedAxes(
+                    &UIPointerShape::beamWithPreferredLength_axis(
+                        rect.size.width,
+                        UIAxis::Horizontal,
+                        mtm,
+                    ),
+                    UIAxis::Neither,
+                ),
+                // Tap-to-activate and drag targets: the pointer morphs onto the view.
+                Cursor::Pointer
+                | Cursor::ContextMenu
+                | Cursor::Copy
+                | Cursor::Alias
+                | Cursor::Grab
+                | Cursor::Grabbing => {
+                    let Some(p) = preview() else { return None };
+                    let effect: Retained<UIPointerEffect> =
+                        Retained::into_super(UIPointerHighlightEffect::effectWithPreview(&p));
+                    unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
+                }
+                Cursor::Move => {
+                    let Some(p) = preview() else { return None };
+                    let effect: Retained<UIPointerEffect> =
+                        Retained::into_super(UIPointerLiftEffect::effectWithPreview(&p));
+                    unsafe { UIPointerStyle::styleWithEffect_shape(&effect, None) }
+                }
+                // Everything else keeps the system pointer; iPadOS has no such shapes.
+                _ => return None,
+            })
+        }
+    }
+
+    impl DayPointerDelegate {
+        fn new(mtm: MainThreadMarker, cursor: Cursor) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(PointerIvars {
+                cursor: RefCell::new(cursor),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
     }
 
     impl Uikit {
@@ -5874,7 +5980,10 @@ mod imp {
             for f in RENDERERS {
                 registry.register(f());
             }
-            Uikit { registry }
+            Uikit {
+                registry,
+                pointers: HashMap::new(),
+            }
         }
     }
 
@@ -6375,6 +6484,9 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                // A UIPointerInteraction per view answers pointer EFFECTS (beam, highlight,
+                // lift, hidden) for the nearest shapes; iPadOS draws no arrows (docs/cursor.md).
+                Cap::Cursor => Support::Emulated,
                 // UIGraphicsImageRenderer draws this app's own window into a bitmap
                 // (docs/window-image.md).
                 // A label carrying a link run is built as a read-only UITextView, whose delegate
@@ -8365,6 +8477,37 @@ mod imp {
 
         fn move_child(&mut self, parent: &Handle, child: &Handle, _to: usize) {
             unsafe { parent.addSubview(child) };
+        }
+
+        fn set_cursor(&mut self, h: &Handle, cursor: Cursor) {
+            let key = Retained::as_ptr(h) as usize;
+            if cursor == Cursor::Default {
+                if let Some((_, interaction)) = self.pointers.remove(&key) {
+                    unsafe { h.removeInteraction(ProtocolObject::from_ref(&*interaction)) };
+                }
+                return;
+            }
+            let Some(mtm) = MainThreadMarker::new() else {
+                return;
+            };
+            match self.pointers.get(&key) {
+                Some((delegate, interaction)) => {
+                    *delegate.ivars().cursor.borrow_mut() = cursor;
+                    // Re-request the style if the pointer is already over the view.
+                    unsafe { interaction.invalidate() };
+                }
+                None => {
+                    let delegate = DayPointerDelegate::new(mtm, cursor);
+                    let interaction = unsafe {
+                        UIPointerInteraction::initWithDelegate(
+                            UIPointerInteraction::alloc(mtm),
+                            Some(ProtocolObject::from_ref(&*delegate)),
+                        )
+                    };
+                    unsafe { h.addInteraction(ProtocolObject::from_ref(&*interaction)) };
+                    self.pointers.insert(key, (delegate, interaction));
+                }
+            }
         }
 
         fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {

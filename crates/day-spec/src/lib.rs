@@ -2034,6 +2034,14 @@ pub enum Cap {
     /// signal, no native divider — so an unimplemented backend degrades to a drawn pane, not
     /// to a hole. Apps normally have no reason to probe this; the piece does.
     Inspector,
+    /// The toolkit shapes the pointer over a node from the `.cursor()` decorator
+    /// ([`Toolkit::set_cursor`], docs/cursor.md). `Native` where the platform draws the requested
+    /// shape from its own set (AppKit, GTK, the DOM, Android's `PointerIcon`), `Emulated` where
+    /// some shapes map to a nearest neighbor (Qt, XAML) or the platform draws pointer effects
+    /// rather than shapes (iPadOS), `Unsupported` where nothing changes — a touch-only toolkit,
+    /// or one whose pointer API Day does not reach yet. Apps ask before offering an affordance
+    /// that only a cursor reveals, such as a resize handle with no other visual.
+    Cursor,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -2043,6 +2051,137 @@ pub enum Support {
     /// The default — what an unimplemented capability answers everywhere.
     #[default]
     Unsupported,
+}
+
+/// The pointer's shape over a piece (the `.cursor()` decorator, docs/cursor.md).
+///
+/// The named variants are the CSS cursor vocabulary: the largest set any toolkit accepts as it
+/// is (GTK and the DOM take the names verbatim), and every other toolkit's set is a subset of it
+/// or maps onto it. A backend draws its own shape for each name, or the nearest one it has, and
+/// answers [`Cap::Cursor`] with how faithful that is. [`Cursor::Native`] reaches a shape only one
+/// toolkit names; the `day::cursor::<toolkit>` modules carry those as constants, gated on that
+/// toolkit's feature, and every other backend ignores a name it does not know.
+///
+/// A cursor applies to the node and its descendants until a descendant sets its own.
+/// [`Cursor::Default`] hands the shape back to the platform rather than pinning an arrow, so a
+/// reactive cursor can release what it took.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
+pub enum Cursor {
+    /// The platform default (an arrow), and the value that releases a node's cursor.
+    #[default]
+    Default,
+    /// A pointing hand: links and other tap-to-activate content.
+    Pointer,
+    /// An I-beam over editable or selectable text.
+    Text,
+    /// An I-beam for vertical text.
+    VerticalText,
+    Crosshair,
+    /// Four-way move.
+    Move,
+    /// An open hand: content that can be dragged.
+    Grab,
+    /// A closed hand: content being dragged.
+    Grabbing,
+    NotAllowed,
+    /// The app is busy and cannot take input.
+    Wait,
+    /// The app is busy but still takes input.
+    Progress,
+    Help,
+    ContextMenu,
+    /// A drop will copy.
+    Copy,
+    /// A drop will link.
+    Alias,
+    /// A table cell.
+    Cell,
+    ZoomIn,
+    ZoomOut,
+    /// No pointer at all.
+    None,
+    /// Vertical (north–south) resize.
+    NsResize,
+    /// Horizontal (east–west) resize.
+    EwResize,
+    /// Diagonal resize, north-east to south-west.
+    NeswResize,
+    /// Diagonal resize, north-west to south-east.
+    NwseResize,
+    ColResize,
+    RowResize,
+    /// A toolkit's own named cursor, resolved by that backend's lookup and ignored by every
+    /// other. Prefer the `day::cursor::<toolkit>` constants, which are gated on the toolkit.
+    Native(std::borrow::Cow<'static, str>),
+}
+
+impl Cursor {
+    /// A toolkit-specific cursor by its native name (see [`Cursor::Native`]).
+    pub const fn native(name: &'static str) -> Self {
+        Cursor::Native(std::borrow::Cow::Borrowed(name))
+    }
+
+    /// The CSS keyword for a named cursor, which GTK and the DOM take as it is. A native cursor
+    /// answers its own name, so a backend keyed on CSS names may still recognize it.
+    pub fn css_name(&self) -> &str {
+        match self {
+            Cursor::Default => "default",
+            Cursor::Pointer => "pointer",
+            Cursor::Text => "text",
+            Cursor::VerticalText => "vertical-text",
+            Cursor::Crosshair => "crosshair",
+            Cursor::Move => "move",
+            Cursor::Grab => "grab",
+            Cursor::Grabbing => "grabbing",
+            Cursor::NotAllowed => "not-allowed",
+            Cursor::Wait => "wait",
+            Cursor::Progress => "progress",
+            Cursor::Help => "help",
+            Cursor::ContextMenu => "context-menu",
+            Cursor::Copy => "copy",
+            Cursor::Alias => "alias",
+            Cursor::Cell => "cell",
+            Cursor::ZoomIn => "zoom-in",
+            Cursor::ZoomOut => "zoom-out",
+            Cursor::None => "none",
+            Cursor::NsResize => "ns-resize",
+            Cursor::EwResize => "ew-resize",
+            Cursor::NeswResize => "nesw-resize",
+            Cursor::NwseResize => "nwse-resize",
+            Cursor::ColResize => "col-resize",
+            Cursor::RowResize => "row-resize",
+            Cursor::Native(name) => name,
+        }
+    }
+
+    /// Every named cursor, in declaration order — what a gallery or a test walks.
+    pub const NAMED: [Cursor; 25] = [
+        Cursor::Default,
+        Cursor::Pointer,
+        Cursor::Text,
+        Cursor::VerticalText,
+        Cursor::Crosshair,
+        Cursor::Move,
+        Cursor::Grab,
+        Cursor::Grabbing,
+        Cursor::NotAllowed,
+        Cursor::Wait,
+        Cursor::Progress,
+        Cursor::Help,
+        Cursor::ContextMenu,
+        Cursor::Copy,
+        Cursor::Alias,
+        Cursor::Cell,
+        Cursor::ZoomIn,
+        Cursor::ZoomOut,
+        Cursor::None,
+        Cursor::NsResize,
+        Cursor::EwResize,
+        Cursor::NeswResize,
+        Cursor::NwseResize,
+        Cursor::ColResize,
+        Cursor::RowResize,
+    ];
 }
 
 /// A set of screen edges, for the `defers_system_gestures` modifier (docs/cover.md). Mirrors
@@ -4481,6 +4620,13 @@ pub trait Toolkit: Sized + 'static {
         None
     }
 
+    // pointer shape (docs/cursor.md): the cursor to show while the pointer is over this node
+    // and its descendants, from the `.cursor()` modifier. Called again whenever a reactive
+    // cursor changes, so the setter is idempotent and cheap; `Cursor::Default` releases the
+    // node. The default no-op is a backend with no pointer API to reach (`Cap::Cursor`
+    // answers `Unsupported` there).
+    fn set_cursor(&mut self, _h: &Self::Handle, _cursor: Cursor) {}
+
     // scroll (§7.6)
     fn set_scroll_content(&mut self, _h: &Self::Handle, _content: Size) {}
     fn scroll_to(&mut self, _h: &Self::Handle, _target: Rect, _animated: bool) {}
@@ -5957,5 +6103,28 @@ mod sidetable_tests {
         let contained = super::ffi_guard::contain(-1i32, || panic!("boom"));
         std::panic::set_hook(prev);
         assert_eq!(contained, -1, "the panic must not escape the guard");
+    }
+}
+
+#[cfg(test)]
+mod cursor_tests {
+    use super::Cursor;
+
+    /// Every named cursor has a distinct CSS keyword, and `NAMED` lists each exactly once — the
+    /// gallery and every backend's table key on the keyword.
+    #[test]
+    fn named_cursors_have_distinct_css_names() {
+        let mut seen = std::collections::BTreeSet::new();
+        for c in Cursor::NAMED.iter() {
+            assert!(
+                seen.insert(c.css_name().to_string()),
+                "duplicate: {}",
+                c.css_name()
+            );
+            assert!(!matches!(c, Cursor::Native(_)));
+        }
+        assert_eq!(seen.len(), Cursor::NAMED.len());
+        assert_eq!(Cursor::native("dragCopy").css_name(), "dragCopy");
+        assert_eq!(Cursor::default(), Cursor::Default);
     }
 }

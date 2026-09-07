@@ -33,11 +33,12 @@ use objc2_app_kit::{
 use objc2_app_kit::{
     NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
     NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl,
-    NSControlTextEditingDelegate, NSEvent, NSEventModifierFlags, NSEventType, NSFont,
+    NSControlTextEditingDelegate, NSCursor, NSCursorFrameResizeDirections,
+    NSCursorFrameResizePosition, NSEvent, NSEventModifierFlags, NSEventType, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
     NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch, NSText, NSTextField,
-    NSTextFieldDelegate, NSTextMovement, NSTextMovementUserInfoKey, NSView, NSWindow,
-    NSWindowDelegate, NSWindowStyleMask,
+    NSTextFieldDelegate, NSTextMovement, NSTextMovementUserInfoKey, NSTrackingArea,
+    NSTrackingAreaOptions, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{
     NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
@@ -62,7 +63,7 @@ use day_spec::present;
 use day_spec::props::*;
 use day_spec::sidetable::SideTable;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, ListSource,
     MoveVerdict, NodeId, PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer,
     Size, Support, Toolkit, Transform, TreeSource, WINDOW_NODE, WindowOptions, kinds, props_of,
 };
@@ -347,6 +348,124 @@ impl DayTarget {
         let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
         unsafe { msg_send![super(this), init] }
     }
+}
+
+// ---------------------------------------------------------------------------
+// DayCursorOwner — the `.cursor()` decorator's tracking-area owner (docs/cursor.md)
+// ---------------------------------------------------------------------------
+
+struct CursorIvars {
+    /// The shape to set on `cursorUpdate:`; `None` leaves the platform's own choice.
+    cursor: RefCell<Option<Retained<NSCursor>>>,
+    /// `Cursor::None`: hide the pointer while it is inside, unhide on exit.
+    hidden: Cell<bool>,
+    /// Whether this owner is the one that hid the pointer (balanced by `unhide`).
+    hiding: Cell<bool>,
+}
+
+// AppKit only re-evaluates the pointer's shape on `cursorUpdate:`, which it sends to a
+// tracking area's OWNER when the pointer enters the area (and on request through
+// `invalidateCursorRectsForView:`). One owner per view keeps the view class untouched: a label,
+// a button, or a plain container all get the same treatment without subclassing. Nested areas
+// resolve by entry order — the innermost is entered last, so its shape is the one that stays.
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayCursorOwner"]
+    #[ivars = CursorIvars]
+    struct DayCursorOwner;
+
+    unsafe impl NSObjectProtocol for DayCursorOwner {}
+
+    impl DayCursorOwner {
+        #[unsafe(method(cursorUpdate:))]
+        fn cursor_update(&self, _event: &NSEvent) {
+            let iv = self.ivars();
+            if iv.hidden.get() {
+                if !iv.hiding.replace(true) {
+                    NSCursor::hide();
+                }
+                return;
+            }
+            if let Some(c) = iv.cursor.borrow().as_ref() {
+                c.set();
+            }
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, _event: &NSEvent) {
+            if self.ivars().hiding.replace(false) {
+                NSCursor::unhide();
+            }
+        }
+    }
+);
+
+impl DayCursorOwner {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(CursorIvars {
+            cursor: RefCell::new(None),
+            hidden: Cell::new(false),
+            hiding: Cell::new(false),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// The `NSCursor` for a [`Cursor`], or `None` where the platform's own choice should stand
+/// (`Cursor::None`, which the owner hides instead, and a native name AppKit does not have).
+/// AppKit has no wait, progress, help, or move shape, so those take the arrow; the zoom, frame
+/// (diagonal) resize, and column/row resize cursors arrived in macOS 15 and are probed by
+/// selector, with the nearest older shape below it.
+// `resizeLeftRightCursor` and `resizeUpDownCursor` are deprecated in favor of the macOS 15
+// column/row resize cursors, which are probed above them; below 15 they are the shape.
+#[allow(deprecated)]
+fn ns_cursor(c: &Cursor) -> Option<Retained<NSCursor>> {
+    let has = |sel: objc2::runtime::Sel| <NSCursor as objc2::ClassType>::class().responds_to(sel);
+    Some(match c {
+        Cursor::Default | Cursor::Wait | Cursor::Progress | Cursor::Help => NSCursor::arrowCursor(),
+        Cursor::Pointer => NSCursor::pointingHandCursor(),
+        Cursor::Text => NSCursor::IBeamCursor(),
+        Cursor::VerticalText => NSCursor::IBeamCursorForVerticalLayout(),
+        Cursor::Crosshair | Cursor::Cell => NSCursor::crosshairCursor(),
+        Cursor::Move | Cursor::Grab => NSCursor::openHandCursor(),
+        Cursor::Grabbing => NSCursor::closedHandCursor(),
+        Cursor::NotAllowed => NSCursor::operationNotAllowedCursor(),
+        Cursor::ContextMenu => NSCursor::contextualMenuCursor(),
+        Cursor::Copy => NSCursor::dragCopyCursor(),
+        Cursor::Alias => NSCursor::dragLinkCursor(),
+        Cursor::ZoomIn if has(sel!(zoomInCursor)) => NSCursor::zoomInCursor(),
+        Cursor::ZoomOut if has(sel!(zoomOutCursor)) => NSCursor::zoomOutCursor(),
+        Cursor::ZoomIn | Cursor::ZoomOut => NSCursor::arrowCursor(),
+        Cursor::NsResize => NSCursor::resizeUpDownCursor(),
+        Cursor::EwResize => NSCursor::resizeLeftRightCursor(),
+        Cursor::NeswResize if has(sel!(frameResizeCursorFromPosition:inDirections:)) => {
+            NSCursor::frameResizeCursorFromPosition_inDirections(
+                NSCursorFrameResizePosition::TopRight,
+                NSCursorFrameResizeDirections::All,
+            )
+        }
+        Cursor::NwseResize if has(sel!(frameResizeCursorFromPosition:inDirections:)) => {
+            NSCursor::frameResizeCursorFromPosition_inDirections(
+                NSCursorFrameResizePosition::TopLeft,
+                NSCursorFrameResizeDirections::All,
+            )
+        }
+        Cursor::NeswResize | Cursor::NwseResize => NSCursor::arrowCursor(),
+        Cursor::ColResize if has(sel!(columnResizeCursor)) => NSCursor::columnResizeCursor(),
+        Cursor::ColResize => NSCursor::resizeLeftRightCursor(),
+        Cursor::RowResize if has(sel!(rowResizeCursor)) => NSCursor::rowResizeCursor(),
+        Cursor::RowResize => NSCursor::resizeUpDownCursor(),
+        Cursor::None => return None,
+        Cursor::Native(name) => match &**name {
+            "disappearingItem" => NSCursor::disappearingItemCursor(),
+            "dragCopy" => NSCursor::dragCopyCursor(),
+            "dragLink" => NSCursor::dragLinkCursor(),
+            "contextualMenu" => NSCursor::contextualMenuCursor(),
+            "IBeamCursorForVerticalLayout" => NSCursor::IBeamCursorForVerticalLayout(),
+            _ => return None,
+        },
+    })
 }
 
 /// Whether the NSEvent currently being dispatched ends a slider's interaction — see the
@@ -3866,6 +3985,9 @@ pub struct AppKit {
     /// answers the point after it, so threading that answer through here is the whole
     /// mechanism. `None` until the primary exists — the cascade starts from its corner.
     cascade: Option<NSPoint>,
+    /// One tracking-area owner per view carrying a `.cursor()` (docs/cursor.md), keyed by the
+    /// view pointer. Removed when the cursor goes back to `Default`.
+    cursors: HashMap<usize, (Retained<DayCursorOwner>, Retained<NSTrackingArea>)>,
 }
 
 impl AppKit {
@@ -3883,6 +4005,7 @@ impl AppKit {
             secondary: Vec::new(),
             app_name: "Day".into(),
             cascade: None,
+            cursors: HashMap::new(),
         }
     }
 
@@ -4418,6 +4541,10 @@ impl Toolkit for AppKit {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // A tracking-area owner sets an `NSCursor` per view (docs/cursor.md). Wait, progress,
+            // help, and move take the arrow — AppKit draws no such shapes — and the zoom and
+            // diagonal-resize cursors need macOS 15.
+            Cap::Cursor => Support::Native,
             Cap::Snapshot
             | Cap::NativeSymbols
             // The rows as chrome: `Rail` is the same source list pinned narrow, `Tabs` an
@@ -6246,6 +6373,60 @@ impl Toolkit for AppKit {
             unsafe { tf.setSelectable(selectable) };
         }
         None
+    }
+
+    fn set_cursor(&mut self, h: &Handle, cursor: Cursor) {
+        let key = Retained::as_ptr(h) as usize;
+        if cursor == Cursor::Default {
+            // Release: drop the tracking area, and the hide if this owner holds one.
+            if let Some((owner, area)) = self.cursors.remove(&key) {
+                unsafe { h.removeTrackingArea(&area) };
+                if owner.ivars().hiding.replace(false) {
+                    NSCursor::unhide();
+                }
+            }
+            return;
+        }
+        let hidden = cursor == Cursor::None;
+        let shape = if hidden { None } else { ns_cursor(&cursor) };
+        let mtm = self.mtm;
+        let (owner, _) = self.cursors.entry(key).or_insert_with(|| {
+            let owner = DayCursorOwner::new(mtm);
+            // InVisibleRect: the area follows the view's bounds, so no rect to keep in step
+            // with layout. ActiveInKeyWindow: the shape belongs to the window taking input.
+            let opts = NSTrackingAreaOptions::CursorUpdate
+                | NSTrackingAreaOptions::MouseEnteredAndExited
+                | NSTrackingAreaOptions::ActiveInKeyWindow
+                | NSTrackingAreaOptions::InVisibleRect;
+            let any: &objc2::runtime::AnyObject = &owner;
+            let area = unsafe {
+                NSTrackingArea::initWithRect_options_owner_userInfo(
+                    NSTrackingArea::alloc(),
+                    NSRect::ZERO,
+                    opts,
+                    Some(any),
+                    None,
+                )
+            };
+            unsafe { h.addTrackingArea(&area) };
+            (owner, area)
+        });
+        let changed = {
+            let iv = owner.ivars();
+            let same = match (iv.cursor.borrow().as_ref(), shape.as_ref()) {
+                (Some(a), Some(b)) => Retained::as_ptr(a) == Retained::as_ptr(b),
+                (None, None) => true,
+                _ => false,
+            };
+            *iv.cursor.borrow_mut() = shape;
+            let was_hidden = iv.hidden.replace(hidden);
+            !same || was_hidden != hidden
+        };
+        // A reactive change while the pointer is already inside: AppKit only asks on entry,
+        // so ask it to re-evaluate now.
+        if changed && let Some(w) = h.window() {
+            unsafe { w.invalidateCursorRectsForView(h) };
+        }
     }
 
     /// Where the control actually draws its first line of text (docs/baseline.md).

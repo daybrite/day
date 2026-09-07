@@ -53,6 +53,8 @@ unsafe extern "C" {
     /// `day_qt_widget_set_surface` (so a reactive `.background` keeps its rounded corners).
     pub fn day_qt_widget_set_bg(w: *mut c_void, r: c_double, g: c_double, b: c_double, a: c_double);
     pub fn day_qt_widget_set_section_card(w: *mut c_void, radius: f64);
+    /// `QWidget::setCursor(Qt::CursorShape)`; a negative shape unsets it (docs/cursor.md).
+    pub fn day_qt_widget_set_cursor(w: *mut c_void, shape: c_int);
     pub fn day_qt_widget_set_surface(
         w: *mut c_void,
         r: c_double,

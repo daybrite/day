@@ -438,9 +438,9 @@ mod imp {
     use day_spec::bridge;
     use day_spec::props::*;
     use day_spec::{
-        A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, ListSource,
-        NodeId, PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer, Size,
-        Support, Toolkit, Transform, WindowOptions, kinds,
+        A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font,
+        ListSource, NodeId, PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry,
+        Renderer, Size, Support, Toolkit, Transform, WindowOptions, kinds,
     };
 
     day_core::tls_group! {
@@ -778,6 +778,42 @@ mod imp {
     /// Run with an attached `Env` (public: external renderers use this too). jni 0.22's
     /// `attach_current_thread` is callback-scoped; the callback returns `Ok` so the outer
     /// `Result` just unwraps.
+    /// `PointerIcon.TYPE_*` for a [`Cursor`] (docs/cursor.md): the full CSS vocabulary has a
+    /// system icon on Android, so nothing here approximates. `None` releases the view.
+    fn pointer_icon_type(c: &Cursor) -> Option<i32> {
+        Some(match c {
+            Cursor::Default => return None,
+            Cursor::Pointer => 1002,
+            Cursor::Text => 1008,
+            Cursor::VerticalText => 1009,
+            Cursor::Crosshair => 1007,
+            Cursor::Move => 1013,
+            Cursor::Grab => 1020,
+            Cursor::Grabbing => 1021,
+            Cursor::NotAllowed => 1012,
+            Cursor::Wait | Cursor::Progress => 1004,
+            Cursor::Help => 1003,
+            Cursor::ContextMenu => 1001,
+            Cursor::Copy => 1011,
+            Cursor::Alias => 1010,
+            Cursor::Cell => 1006,
+            Cursor::ZoomIn => 1018,
+            Cursor::ZoomOut => 1019,
+            Cursor::None => 0,
+            Cursor::NsResize | Cursor::RowResize => 1015,
+            Cursor::EwResize | Cursor::ColResize => 1014,
+            Cursor::NeswResize => 1016,
+            Cursor::NwseResize => 1017,
+            Cursor::Native(name) => match &**name {
+                "all_scroll" => 1013,
+                "no_drop" => 1012,
+                "top_right_diagonal_double_arrow" => 1016,
+                "top_left_diagonal_double_arrow" => 1017,
+                _ => return None,
+            },
+        })
+    }
+
     pub fn with_env<R>(f: impl FnOnce(&mut Env) -> R) -> R {
         let vm = JAVA_VM.get().expect("day-android: init() not called");
         vm.attach_current_thread(|env| Ok::<R, jni::errors::Error>(f(env)))
@@ -1776,6 +1812,8 @@ mod imp {
 
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                // `View.setPointerIcon` with a system `PointerIcon` per view (docs/cursor.md).
+                Cap::Cursor => Support::Native,
                 // `View.draw(Canvas)` renders this app's own window into a bitmap
                 // (docs/window-image.md); surface-backed content is the documented gap.
                 Cap::Snapshot => Support::Native,
@@ -3134,6 +3172,44 @@ mod imp {
                 );
             });
             None
+        }
+
+        fn set_cursor(&mut self, h: &AHandle, cursor: Cursor) {
+            // `View.setPointerIcon` (API 24): a system icon by `PointerIcon.TYPE_*`, or null to
+            // release the view to the platform's own choice (docs/cursor.md). Only a mouse or
+            // trackpad ever shows it; a finger never does, which is correct.
+            let ty = pointer_icon_type(&cursor);
+            with_env(|env| {
+                let icon = match ty {
+                    None => JObject::null(),
+                    Some(t) => {
+                        let Ok(ctx) = env
+                            .dfield(BRIDGE, "ctx", "Landroid/content/Context;")
+                            .and_then(|f| f.l())
+                        else {
+                            return;
+                        };
+                        match env
+                            .dcall_static(
+                                "android/view/PointerIcon",
+                                "getSystemIcon",
+                                "(Landroid/content/Context;I)Landroid/view/PointerIcon;",
+                                &[JValue::Object(&ctx), JValue::Int(t)],
+                            )
+                            .and_then(|v| v.l())
+                        {
+                            Ok(icon) => icon,
+                            Err(_) => return,
+                        }
+                    }
+                };
+                let _ = env.dcall(
+                    h.0.as_obj(),
+                    "setPointerIcon",
+                    "(Landroid/view/PointerIcon;)V",
+                    &[JValue::Object(&icon)],
+                );
+            });
         }
 
         fn set_scroll_content(&mut self, h: &AHandle, content: Size) {

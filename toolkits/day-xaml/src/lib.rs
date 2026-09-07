@@ -22,9 +22,9 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Curve, DrawOp, Event, EventSink, Font, NodeId, PieceKind,
-    Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform,
-    WindowOptions, ffi_guard, kinds, props_of,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, NodeId,
+    PieceKind, Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit,
+    Transform, WindowOptions, ffi_guard, kinds, props_of,
 };
 
 /// An `AnimSpec` as the shim's `(duration_ms, curve)` pair — `(0, 0)` meaning "no animation, set
@@ -1319,11 +1319,43 @@ pub(crate) fn placeholder_handle(kind: PieceKind) -> WinHandle {
     WinHandle(unsafe { ffi::day_xaml_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()) })
 }
 
+/// The shim's cursor code for a [`Cursor`] (docs/cursor.md): 0 releases the element, 1..=16
+/// name an `IDC_*` shape in the shim's table, 17 hides the pointer.
+fn win_cursor_code(c: &Cursor) -> c_int {
+    match c {
+        Cursor::Default => 0,
+        Cursor::ContextMenu | Cursor::Copy | Cursor::Alias | Cursor::ZoomIn | Cursor::ZoomOut => 1, // arrow
+        Cursor::Text | Cursor::VerticalText => 2, // IDC_IBEAM
+        Cursor::Wait => 3,                        // IDC_WAIT
+        Cursor::Crosshair | Cursor::Cell => 4,    // IDC_CROSS
+        Cursor::NwseResize => 6,                  // IDC_SIZENWSE
+        Cursor::NeswResize => 7,                  // IDC_SIZENESW
+        Cursor::EwResize | Cursor::ColResize => 8, // IDC_SIZEWE
+        Cursor::NsResize | Cursor::RowResize => 9, // IDC_SIZENS
+        Cursor::Move => 10,                       // IDC_SIZEALL
+        Cursor::NotAllowed => 11,                 // IDC_NO
+        Cursor::Pointer | Cursor::Grab | Cursor::Grabbing => 12, // IDC_HAND
+        Cursor::Progress => 13,                   // IDC_APPSTARTING
+        Cursor::Help => 14,                       // IDC_HELP
+        Cursor::None => 17,
+        Cursor::Native(name) => match &**name {
+            "uparrow" => 5,
+            "appstarting" => 13,
+            "pin" => 15,
+            "person" => 16,
+            _ => 0,
+        },
+    }
+}
+
 impl Toolkit for Xaml {
     type Handle = WinHandle;
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // PointerEntered/Exited per element plus WM_SETCURSOR on the host; several CSS
+            // shapes take their nearest IDC_* shape (docs/cursor.md).
+            Cap::Cursor => Support::Emulated,
             Cap::Snapshot => Support::Native,
             // TextBlock.BaselineOffset for text, font-derived for templated controls
             // (docs/baseline.md).
@@ -2393,6 +2425,14 @@ impl Toolkit for Xaml {
                 )
             }
         }
+    }
+
+    fn set_cursor(&mut self, h: &WinHandle, cursor: Cursor) {
+        // The shim hooks PointerEntered/Exited on the element and the host window answers
+        // WM_SETCURSOR with a Win32 `IDC_*` shape (docs/cursor.md). Grab, zoom, column/row
+        // resize, copy, alias, cell, and vertical text take their nearest, so `Cap::Cursor`
+        // answers Emulated.
+        unsafe { ffi::day_xaml_set_cursor(h.0, win_cursor_code(&cursor)) };
     }
 
     fn set_selectable(&mut self, h: &WinHandle, selectable: bool) -> Option<WinHandle> {
