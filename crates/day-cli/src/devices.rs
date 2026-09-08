@@ -380,7 +380,7 @@ pub struct BootSpec<'a> {
 pub struct SetupSpec<'a> {
     /// AVD name. Defaults to one derived from the device and API level.
     pub name: Option<&'a str>,
-    /// A device profile id from `avdmanager list device` (`pixel_tablet`, `pixel_5`).
+    /// A device profile id from `avdmanager list device` (`pixel_10`, `small_tablet`).
     pub device: &'a str,
     /// API level, spelled `36`, `API 36` or `android-36`.
     pub os: &'a str,
@@ -392,6 +392,9 @@ pub struct SetupSpec<'a> {
     pub orientation: Option<&'a str>,
     /// Guest RAM in MB, overriding the profile's — see [`wanted_guest_ram`] for the default.
     pub ram: Option<u32>,
+    /// Panel density in dpi, overriding the profile's. The pixel panel is untouched, so a
+    /// screenshot keeps its size while the LAYOUT gets more points — see [`set_panel_density`].
+    pub density: Option<u32>,
 }
 
 /// One simulator, as the matcher needs it: display name, UDID, and a runtime spelled "iOS 26.5".
@@ -1009,6 +1012,9 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
     // created or restored from a cache, and it is cheap.
     enable_hw_keyboard(&name);
     size_guest_memory(&name, spec.ram);
+    if let Some(dpi) = spec.density {
+        set_panel_density(&name, dpi);
+    }
     if let Some(o) = spec.orientation {
         let value = match o.trim().to_ascii_lowercase().as_str() {
             "portrait" | "portrait-upside-down" => "portrait",
@@ -1026,6 +1032,32 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
     }
     println!("{name}");
     Ok(0)
+}
+
+/// Re-read the profile's pixel panel at `dpi`, which changes the size in POINTS and nothing else.
+///
+/// A store and a layout want different things from a tablet panel, and density is the only dial
+/// that serves both. Google Play takes a screenshot with at least 1080 px on its short side, and
+/// every stock Android tablet profile that clears that bar does it at 320 dpi: `small_tablet` is
+/// 1920×1200, which is 960×600 points. That is a short landscape screen — Day-Showcase's Query
+/// page collapses its list to nothing there, and its walkthrough fails three steps that pass on
+/// a taller one. The same panel at 240 dpi is 1280×800 points, the layout the CI tablet had
+/// before, while the capture stays 1920×1200 pixels and Play still takes it.
+///
+/// Pixels are what the emulator rasterizes, so this costs nothing at boot — unlike
+/// [`headless_panel`], which cuts pixels (and density with them) to keep a huge panel responsive
+/// and holds the point size fixed. This is the opposite lever: hold the pixels, move the points.
+fn set_panel_density(avd: &str, dpi: u32) {
+    set_avd_config(avd, "hw.lcd.density", &dpi.to_string());
+    // A halved panel records what to restore; keep that in step so a windowed boot comes back at
+    // the density that was asked for rather than the profile's.
+    if avd_config_path(avd)
+        .and_then(|c| std::fs::read_to_string(c).ok())
+        .is_some_and(|t| t.lines().any(|l| l.starts_with("day.lcd.fullDensity=")))
+    {
+        set_avd_config(avd, "day.lcd.fullDensity", &dpi.to_string());
+    }
+    crate::ops::status("Sizing", &format!("{avd}: {dpi} dpi"));
 }
 
 /// Set one key in an AVD's `config.ini`, adding it when absent. True when the file changed.
@@ -1114,6 +1146,11 @@ fn parse_mb(v: &str) -> Option<u32> {
 ///
 /// Three million is the same line [`wanted_guest_ram`] draws between a phone and a tablet, so the
 /// two rules agree on which is which; `pixel_5` (1080×2340) is below it and is left alone.
+///
+/// Halving costs a store listing its screenshots, which is why the app CI profiles now stay under
+/// the line by choice rather than by luck: Google Play wants at least 1080 px on a screenshot's
+/// short side, and a halved 2560×1600 tablet comes back at 1280×800. The shipped pair is
+/// `pixel_10` (1080×2424) and `small_tablet` (1920×1200, 2.30 Mpx), both captured whole.
 ///
 /// A windowed boot puts the panel back, so a developer who boots the same AVD to LOOK at it gets
 /// the profile's own display. The profile's values are recorded under `day.lcd.full*` the first

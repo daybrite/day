@@ -67,7 +67,11 @@ Platform access rules:
 
 - **Android 10+** only lets an app *read* the clipboard while it holds input focus: `get_text()` /
   `has_text()` return `None`/`false` in the background. Writing is always allowed. No manifest permission
-  is involved either way.
+  is involved either way. Writing raises a system overlay of its own on recent versions, and it can
+  hold that focus for a moment — so a read taken right after a write of the app's own is one of the
+  cases that comes back empty. `day::install_edit_commands` covers it by remembering the payload it
+  placed (see [menus.md](menus.md)); an app calling this crate directly gets the platform's answer
+  verbatim.
 - **iOS 14+** shows the system "app pasted from …" banner when `get_text()` reads the pasteboard;
   `has_text()` uses `hasStrings`, the pre-check Apple provides that does not trigger the banner.
 

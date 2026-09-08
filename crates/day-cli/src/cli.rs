@@ -867,7 +867,7 @@ pub enum DevicesCmd {
         /// Target this device belongs to (only `android-mdc` has AVDs to create)
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// Device profile id from `avdmanager list device` — `pixel_tablet`, `pixel_5`
+        /// Device profile id from `avdmanager list device` — `pixel_10`, `small_tablet`
         #[arg(long, value_name = "PROFILE")]
         device: String,
         /// API level: `36`, `API 36` or `android-36`
@@ -885,6 +885,11 @@ pub enum DevicesCmd {
         /// Orientation the emulator starts in (`portrait` or `landscape`)
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
+        /// Panel density in dpi, overriding the profile's. The pixel panel is unchanged, so a
+        /// screenshot keeps its size and the LAYOUT gets more points: `small_tablet` at
+        /// `--density 240` captures 1920x1200 laid out as 1280x800 points
+        #[arg(long, value_name = "DPI")]
+        density: Option<u32>,
         /// Guest RAM in MB. Without it a tablet-sized display (past three million pixels)
         /// gets 4096 where the profile grants less; phones keep the profile's value.
         #[arg(long, value_name = "MB")]
@@ -1286,6 +1291,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     tag,
                     name,
                     orientation,
+                    density,
                     ram,
                 },
         } => crate::devices::setup(
@@ -1298,6 +1304,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 tag: tag.as_deref(),
                 orientation: orientation.as_deref(),
                 ram,
+                density,
             },
         ),
         Cmd::Ohos {

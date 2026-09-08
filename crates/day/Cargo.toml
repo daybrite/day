@@ -61,3 +61,7 @@ day-xaml = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }
 day-mock = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The mock toolkit boots a tree for the facade's own wiring tests (install_edit_commands).
+day-mock = { workspace = true }

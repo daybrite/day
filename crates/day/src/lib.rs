@@ -107,7 +107,8 @@ pub fn install_undo(stack: &day_model::UndoStack) {
 /// uses — a focused text field keeps its clipboard behavior, everything else reaches these
 /// handlers. `can_copy` is a tracked read (drive it from your selection); `copy`/`cut`
 /// return the serialized payload (its format is the app's: Day-Sketch uses SVG), which day
-/// places on the system clipboard; `paste` receives whatever text the clipboard holds.
+/// places on the system clipboard; `paste` receives the text the clipboard holds, falling back
+/// to the payload this app last placed there when the platform answers nothing (docs/menus.md).
 /// Menu items come from `menu_role(MenuRole::Cut/Copy/Paste)`.
 pub fn install_edit_commands(
     can_copy: impl Fn() -> bool + 'static,
@@ -116,6 +117,19 @@ pub fn install_edit_commands(
     paste: impl Fn(&str) + 'static,
     select_all: impl Fn() + 'static,
 ) {
+    // What this app last put on the clipboard. Reading the clipboard is a PRIVILEGE on
+    // Android — only the app holding input focus is granted it (docs/clipboard.md) — and
+    // writing to it raises a system overlay of its own, so a Paste moments after a Copy can
+    // be refused the very payload this app just wrote, and `get_text` answers `None`. The
+    // platform read is still what a Paste asks first, so a clip from another app always
+    // wins; this is only what an app's own Cut/Copy ▸ Paste falls back to when the platform
+    // hands back nothing.
+    let ours: std::rc::Rc<std::cell::RefCell<Option<String>>> = Default::default();
+    let (copied, pasted) = (ours.clone(), ours);
+    let place = move |payload: String| {
+        let _ = day_part_clipboard::set_text(&payload);
+        *copied.borrow_mut() = Some(payload);
+    };
     day_core::install_edit_bridge(
         move || {
             let can = can_copy();
@@ -129,16 +143,31 @@ pub fn install_edit_commands(
         move |op| match op {
             day_spec::EditOp::Copy => {
                 if let Some(payload) = copy() {
-                    let _ = day_part_clipboard::set_text(&payload);
+                    place(payload);
                 }
             }
             day_spec::EditOp::Cut => {
                 if let Some(payload) = cut() {
-                    let _ = day_part_clipboard::set_text(&payload);
+                    place(payload);
                 }
             }
             day_spec::EditOp::Paste => {
-                if let Some(text) = day_part_clipboard::get_text() {
+                // An empty read is nothing to paste — and it is also how a refusal reaches
+                // this layer, since the Android arm answers `""` for a clip it was not
+                // allowed to look at.
+                let text = day_part_clipboard::get_text()
+                    .filter(|t| !t.is_empty())
+                    .or_else(|| {
+                        let ours = pasted.borrow().clone();
+                        if ours.is_some() {
+                            log::warn!(
+                                "clipboard read came back empty — pasting what this app last \
+                                 copied (docs/clipboard.md)"
+                            );
+                        }
+                        ours
+                    });
+                if let Some(text) = text {
                     paste(&text);
                 }
             }

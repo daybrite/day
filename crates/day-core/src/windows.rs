@@ -209,6 +209,7 @@ pub fn open_window<P: Piece>(
     if let Some(k) = key
         && let Some(existing) = window_by_key(k)
     {
+        revive_if_dismissing(existing.root);
         existing.focus();
         return existing;
     }
@@ -551,6 +552,39 @@ fn teardown(root: RNode) {
     if record.role == WindowRole::Primary && !app_has_primary_window() {
         quit_after_last_primary();
     }
+}
+
+/// Reverse a cover dismissal that has not yet been confirmed. Close is asynchronous on this
+/// tier — the hide transition runs for a quarter second, and the record stays registered until
+/// `CoverHidden` comes back — so a keyed window reopened inside that window is the SAME window
+/// arriving again, not a second one. Without this the reopen returns a handle to content the
+/// pending confirmation is about to dispose, and the surface the caller asked for goes blank
+/// (docs/windows.md). Clearing `closing` is also what makes that confirmation a no-op when it
+/// lands: the cover's handler already gates on it.
+fn revive_if_dismissing(root: RNode) {
+    let cover = WINDOWS.with(|w| {
+        w.borrow()
+            .iter()
+            .find(|r| r.root == root)
+            .and_then(|r| match &r.tier {
+                Tier::Cover { cover, closing } if closing.get() => {
+                    closing.set(false);
+                    Some(*cover)
+                }
+                _ => None,
+            })
+    });
+    let Some(cover) = cover else { return };
+    with_tree(|t| {
+        t.patch(
+            cover,
+            Box::new(CoverPatch::Present {
+                background: None,
+                dismiss_disabled: false,
+            }),
+            false,
+        )
+    });
 }
 
 /// The fallback tier: present the window content as a fullscreen cover in the primary

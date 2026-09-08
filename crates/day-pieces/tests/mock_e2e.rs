@@ -5025,6 +5025,70 @@ fn fallback_presents_as_cover_and_close_dismisses() {
 }
 
 #[test]
+fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
+    let probe = boot(|| label("main").any());
+    probe.set_no_multi_window(true);
+
+    let open = || {
+        day_core::open_window(
+            Some("prefs"),
+            win_options("Settings", 520.0, 640.0),
+            day_spec::WindowKind::Preferences,
+            || label("prefs body").id("prefs-label").any(),
+        )
+    };
+    let handle = open();
+    flush_sync();
+    let cover_node = NodeId(probe.find_by_kind("day.cover")[0].1.node);
+    probe.emit(cover_node, Event::FrameChanged(Size::new(400.0, 600.0)));
+    flush_sync();
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+
+    // Close, then reopen BEFORE the hide transition confirms — the phone animates it, and a
+    // walkthrough (or a user) reaches the Settings item again inside those milliseconds.
+    handle.close();
+    flush_sync();
+    let reopened = open();
+    flush_sync();
+
+    // The same window, revived: no second cover, and its content is the content that was
+    // already there.
+    assert!(handle.is_open(), "the reopen abandoned the original window");
+    assert_eq!(
+        probe.find_by_kind("day.cover").len(),
+        1,
+        "a second cover was realized alongside the dismissing one"
+    );
+    assert!(
+        probe
+            .log()
+            .iter()
+            .rev()
+            .take_while(|l| !l.ends_with("cover dismiss"))
+            .any(|l| l.contains("cover present")),
+        "the dismissal was not reversed: {:?}",
+        probe.log()
+    );
+
+    // The belated confirmation of the cancelled dismissal must not dispose the live content.
+    probe.emit(cover_node, Event::CoverHidden);
+    flush_sync();
+    assert!(reopened.is_open(), "the revived window closed anyway");
+    assert!(
+        day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some(),
+        "the belated CoverHidden tore the reopened window down"
+    );
+
+    // And it still closes like any other window afterwards.
+    reopened.close();
+    flush_sync();
+    probe.emit(cover_node, Event::CoverHidden);
+    flush_sync();
+    assert!(!reopened.is_open());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_none());
+}
+
+#[test]
 fn pending_open_completes_and_builds() {
     let probe = boot(|| label("main").any());
     probe.set_pending_windows(true);

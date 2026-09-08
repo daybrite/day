@@ -74,11 +74,18 @@ public class DayCover extends FrameLayout {
         });
     }
 
-    /** Attach over everything and slide up. Idempotent while already presented. */
+    /** Attach over everything and slide up. Idempotent while already presented.
+     *
+     *  Re-presenting a shell whose dismissal is still sliding REVERSES it: Rust reopens a
+     *  keyed window that has not finished closing as the same window (windows.rs), and the
+     *  slide picks up from where the view actually is rather than dropping it back to the
+     *  bottom edge first. The out-slide's completion callback goes with it — `slide` drops
+     *  the old animator's listeners before cancelling — so no K_COVER_HIDDEN follows. */
     void present(boolean dismissDisabled) {
         this.dismissDisabled = dismissDisabled;
         ViewGroup root = ((android.app.Activity) DayBridge.ctx)
                 .findViewById(android.R.id.content);
+        boolean onScreen = getParent() == root && getVisibility() == View.VISIBLE;
         if (getParent() != root) {
             if (getParent() instanceof ViewGroup) {
                 ((ViewGroup) getParent()).removeView(this);
@@ -90,7 +97,7 @@ public class DayCover extends FrameLayout {
         setVisibility(View.VISIBLE);
         requestApplyInsets();
         int h = root.getHeight() > 0 ? root.getHeight() : 2000;
-        slide(h, 0f, null);
+        slide(onScreen ? getTranslationY() : h, 0f, null);
         if (backCb == null) {
             backCb = new androidx.activity.OnBackPressedCallback(!dismissDisabled) {
                 @Override public void handleOnBackPressed() {

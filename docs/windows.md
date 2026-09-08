@@ -91,6 +91,9 @@ win.close();                              // async: confirmed by the platform, T
 
 - `key` names the logical window: opening an already-open key focuses it instead of
   duplicating, which is how `day.preferences` stays a singleton. `window_by_key` finds it later.
+  A key reopened while its window is still *closing* is the same window arriving again: on the
+  cover tier that reverses the hide transition and keeps the content that is already there,
+  rather than handing back a surface the pending confirmation is about to dispose.
 - `WindowKind` shapes the chrome: `Normal` is resizable/miniaturizable and joins the
   platform's tabbing group; `Preferences` drops resize/minimize and never tabs (macOS
   convention; other platforms map as fits).

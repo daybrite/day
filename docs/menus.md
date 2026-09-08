@@ -153,6 +153,14 @@ day::install_edit_commands(
 );
 ```
 
+`copy`/`cut` place their payload on the system clipboard, and Paste asks for it back — but the
+answer is not guaranteed. Android grants clipboard READS only to the app holding input focus
+([clipboard.md](clipboard.md)), and its own copy overlay can take that focus for a moment, so a
+Paste seconds after a Copy can be handed nothing. Day keeps what the app last placed there and
+pastes that when the platform comes back empty, which is what makes an app's own Cut/Copy ▸ Paste
+work on every target; a clip from another app is still what the platform answers with, and it
+always wins.
+
 Two companions round out the platform's input idioms. `day::modifiers()` answers the keyboard
 modifiers held right now (`shift`, `primary`, which is ⌘ on Apple platforms and Ctrl elsewhere,
 and `alt`), for interactions whose meaning they change: shift-click adding to a selection instead
