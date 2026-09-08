@@ -1438,25 +1438,18 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::
     let mut cmd = Command::new(emulator_bin());
     with_avd_home(&mut cmd).args(["-avd", avd, "-port", &port.to_string()]);
     if headless {
-        // A software renderer rather than the default `auto`: a runner has no GPU, and auto picks
-        // host acceleration and then fails to initialize.
+        // `swiftshader_indirect` rather than the default `auto`: a runner has no GPU, and auto
+        // picks host acceleration and then fails to initialize.
         //
-        // `swangle_indirect` — ANGLE over SwiftShader's Vulkan — rather than the
-        // `swiftshader_indirect` this asked for first, which selects the LEGACY GLES translator
-        // on Linux. That translator is where the third guest freeze in this family was measured
-        // (2026-09-08). Day-Showcase's walkthrough hung the whole guest — adbd included, the
-        // emulator's own log ending silently mid-run — drawing the composed color picker's hue
-        // strip, on 420 dpi panels only: `medium_phone` and `pixel_7` freeze, `pixel_5` (440 dpi)
-        // and a halved tablet (160) pass, all three in one run, same app and same day revision.
-        // 420 is the only common Android density that is not a multiple of 8, so the strip's
-        // 20-POINT height is the one dimension in that panel to land on a half device pixel:
-        // 52.5 px, against 55.0 and 20.0 on the legs that pass. The app's drawing is otherwise
-        // proportional and correct there — captured at both densities and compared.
-        //
-        // macOS has no legacy translator to select (`-gpu swiftshader` resolves to swangle here
-        // too), which is why this never reproduced off the runner, and it is also the evidence
-        // for the fix: under swangle that same panel renders that same picker at 420 dpi
-        // correctly. `gles_mode_selected:` in the emulator log says which one a boot got.
+        // Not `swangle_indirect`, which was tried here and reverted (2026-09-08). It does cure
+        // the guest freeze it was brought in for — Day-Showcase's walkthrough drawing the
+        // composed color picker on a 420 dpi panel, where the legacy translator this selects on
+        // Linux hangs the whole guest, adbd included — but it costs more than it is worth: the
+        // same eight walkthrough variants take 28.5 minutes through swangle against 13.8 through
+        // this, on every Android leg of every app. Two times the wall clock also stretches the
+        // gap a walkthrough leaves between a step and its assertion, which tipped a transport
+        // race the Showcase's own script already documents. The freeze belonged to one shape in
+        // one panel and was fixed there instead (day-piece-colorpicker's strips).
         //
         // Vulkan off as well. With it on, the host renderer answers the guest's Vulkan through
         // SwiftShader too, and a WebView's GPU process probing it on a tablet-sized surface
@@ -1478,7 +1471,7 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::
         cmd.args([
             "-no-window",
             "-gpu",
-            "swangle_indirect",
+            "swiftshader_indirect",
             "-feature",
             "-Vulkan",
             "-feature",

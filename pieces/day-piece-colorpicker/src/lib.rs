@@ -562,13 +562,11 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
         let stops: Vec<(f64, Color)> = (0..=6)
             .map(|i| (i as f64 / 6.0, Color::hsv(i as f64 * 60.0, 1.0, 1.0)))
             .collect();
-        d.clipped(Shape::RoundedRect(r, size.height / 2.0), |d| {
-            d.fill(
-                Shape::Rect(r),
-                LinearGradient::new(UnitPoint::LEADING, UnitPoint::TRAILING, stops),
-            );
-            slider_thumb(d, hue.get() / 360.0 * size.width, size.height);
-        });
+        d.fill(
+            Shape::RoundedRect(r, size.height / 2.0),
+            LinearGradient::new(UnitPoint::LEADING, UnitPoint::TRAILING, stops),
+        );
+        slider_thumb(d, hue.get() / 360.0, size);
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
@@ -584,15 +582,18 @@ fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) ->
     let pick = move |p: Point| opacity.set((p.x / FIELD_W).clamp(0.0, 1.0));
     canvas(move |d, size| {
         let r = Rect::new(0.0, 0.0, size.width, size.height);
+        // The checkerboard is the one thing on a strip that has to be CLIPPED: it is a grid of
+        // squares and the pill's caps have to cut it. Everything over it is a rounded fill of
+        // that same pill, which needs no clip of its own.
         d.clipped(Shape::RoundedRect(r, size.height / 2.0), |d| {
-            checkerboard(d, size);
-            let opaque = current().with_alpha(1.0);
-            d.fill(
-                Shape::Rect(r),
-                LinearGradient::horizontal(opaque.with_alpha(0.0), opaque),
-            );
-            slider_thumb(d, opacity.get() * size.width, size.height);
+            checkerboard(d, size)
         });
+        let opaque = current().with_alpha(1.0);
+        d.fill(
+            Shape::RoundedRect(r, size.height / 2.0),
+            LinearGradient::horizontal(opaque.with_alpha(0.0), opaque),
+        );
+        slider_thumb(d, opacity.get(), size);
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
@@ -677,12 +678,32 @@ fn marker(d: &mut Draw, at: Point, radius: f64) {
     d.stroke(ring(radius), Color::WHITE, 2.0);
 }
 
-/// The thumb on a strip: a full-height capsule, so it reads at 20 points tall.
-fn slider_thumb(d: &mut Draw, x: f64, height: f64) {
-    let r = Rect::new(x - 4.0, 0.0, 8.0, height);
-    d.fill(Shape::RoundedRect(r, 4.0), Color::WHITE);
+/// The thumb on a strip: a full-height capsule, so it reads at 20 points tall. `t` is the value
+/// it marks, as a fraction of the track.
+///
+/// Its center is held half a thumb-width inside each end, because the strips draw their gradient
+/// as a rounded FILL rather than a rect behind a rounded clip — so nothing would cut a thumb that
+/// ran off the cap. Clipping is what used to hide it, at the cost of showing half a thumb at
+/// either extreme; holding it whole reads better and asks the rasterizer for one shape fewer.
+fn slider_thumb(d: &mut Draw, t: f64, size: Size) {
+    const W: f64 = 8.0;
+    // A cover lays its content out ONCE before the surface reports its size, so a strip is drawn
+    // at zero width first (the same first pass `panel` centers its card around). The travel has
+    // to collapse to the middle there rather than invert: `clamp` panics on crossed bounds, and
+    // that panic is contained but leaves the whole panel half-built.
+    let half = W / 2.0;
+    let (lo, hi) = if size.width >= W {
+        (half, size.width - half)
+    } else {
+        (size.width / 2.0, size.width / 2.0)
+    };
+    let x = (t.clamp(0.0, 1.0) * size.width).clamp(lo, hi);
+    let r = Rect::new(x - W / 2.0, 0.0, W, size.height);
+    d.fill(Shape::RoundedRect(r, W / 2.0), Color::WHITE);
+    // The inset rect is a thumb-width MINUS one, so its corner radius has to come down with it:
+    // the old 4.0 against a 7.0-wide rect asked for radii wider than the shape they round.
     d.stroke(
-        Shape::RoundedRect(r.inset(0.5), 4.0),
+        Shape::RoundedRect(r.inset(0.5), W / 2.0 - 0.5),
         Color::BLACK.with_alpha(0.4),
         1.0,
     );
