@@ -305,6 +305,11 @@ fn build_native<C: Binding<Color>>(
 /// location become a value without the canvas having to report its own bounds first.
 const FIELD_W: f64 = 264.0;
 const FIELD_H: f64 = 160.0;
+/// The shade field's corner rounding. Drawn INSIDE the canvas rather than asked of the toolkit
+/// as a `corner_radius`, which is a view-level outline clip: on Android that is
+/// `setClipToOutline`, the one thing this panel does that nothing else in the app does, and a
+/// clip a canvas can apply to its own drawing costs the toolkit nothing on any target.
+const FIELD_R: f64 = 10.0;
 /// The hue and opacity strips.
 const STRIP_H: f64 = 20.0;
 /// One preset swatch.
@@ -520,20 +525,22 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
     };
     canvas(move |d, size| {
         let r = Rect::new(0.0, 0.0, size.width, size.height);
-        d.fill(Shape::Rect(r), Color::hsv(hue.get(), 1.0, 1.0));
-        d.fill(
-            Shape::Rect(r),
-            LinearGradient::horizontal(Color::WHITE, Color::WHITE.with_alpha(0.0)),
-        );
-        d.fill(
-            Shape::Rect(r),
-            LinearGradient::vertical(Color::BLACK.with_alpha(0.0), Color::BLACK),
-        );
-        marker(
-            d,
-            Point::new(sat.get() * size.width, (1.0 - val.get()) * size.height),
-            7.0,
-        );
+        d.clipped(Shape::RoundedRect(r, FIELD_R), |d| {
+            d.fill(Shape::Rect(r), Color::hsv(hue.get(), 1.0, 1.0));
+            d.fill(
+                Shape::Rect(r),
+                LinearGradient::horizontal(Color::WHITE, Color::WHITE.with_alpha(0.0)),
+            );
+            d.fill(
+                Shape::Rect(r),
+                LinearGradient::vertical(Color::BLACK.with_alpha(0.0), Color::BLACK),
+            );
+            marker(
+                d,
+                Point::new(sat.get() * size.width, (1.0 - val.get()) * size.height),
+                7.0,
+            );
+        });
     })
     // Gestures go on the CANVAS, before any wrapper: `Event::Tap`/`Event::Drag` report a point in
     // the node's own space, and a wrapper's space is not the canvas's. Both are wired because a
@@ -543,7 +550,6 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-shade")))
     .frame(FIELD_W, FIELD_H)
-    .corner_radius(10.0)
     .id("color-picker-shade")
     .any()
 }
@@ -556,17 +562,18 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
         let stops: Vec<(f64, Color)> = (0..=6)
             .map(|i| (i as f64 / 6.0, Color::hsv(i as f64 * 60.0, 1.0, 1.0)))
             .collect();
-        d.fill(
-            Shape::Rect(r),
-            LinearGradient::new(UnitPoint::LEADING, UnitPoint::TRAILING, stops),
-        );
-        slider_thumb(d, hue.get() / 360.0 * size.width, size.height);
+        d.clipped(Shape::RoundedRect(r, size.height / 2.0), |d| {
+            d.fill(
+                Shape::Rect(r),
+                LinearGradient::new(UnitPoint::LEADING, UnitPoint::TRAILING, stops),
+            );
+            slider_thumb(d, hue.get() / 360.0 * size.width, size.height);
+        });
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-hue")))
     .frame(FIELD_W, STRIP_H)
-    .corner_radius(STRIP_H / 2.0)
     .id("color-picker-hue")
     .any()
 }
@@ -576,19 +583,21 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
 fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) -> AnyPiece {
     let pick = move |p: Point| opacity.set((p.x / FIELD_W).clamp(0.0, 1.0));
     canvas(move |d, size| {
-        checkerboard(d, size);
-        let opaque = current().with_alpha(1.0);
-        d.fill(
-            Shape::Rect(Rect::new(0.0, 0.0, size.width, size.height)),
-            LinearGradient::horizontal(opaque.with_alpha(0.0), opaque),
-        );
-        slider_thumb(d, opacity.get() * size.width, size.height);
+        let r = Rect::new(0.0, 0.0, size.width, size.height);
+        d.clipped(Shape::RoundedRect(r, size.height / 2.0), |d| {
+            checkerboard(d, size);
+            let opaque = current().with_alpha(1.0);
+            d.fill(
+                Shape::Rect(r),
+                LinearGradient::horizontal(opaque.with_alpha(0.0), opaque),
+            );
+            slider_thumb(d, opacity.get() * size.width, size.height);
+        });
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-opacity")))
     .frame(FIELD_W, STRIP_H)
-    .corner_radius(STRIP_H / 2.0)
     .id("color-picker-opacity")
     .any()
 }
