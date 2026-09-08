@@ -867,7 +867,7 @@ pub enum DevicesCmd {
         /// Target this device belongs to (only `android-mdc` has AVDs to create)
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// Device profile id from `avdmanager list device` — `pixel_10`, `small_tablet`
+        /// Device profile id from `avdmanager list device` — `pixel_7`, `Nexus 7 2013`
         #[arg(long, value_name = "PROFILE")]
         device: String,
         /// API level: `36`, `API 36` or `android-36`
@@ -886,7 +886,7 @@ pub enum DevicesCmd {
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
         /// Panel density in dpi, overriding the profile's. The pixel panel is unchanged, so a
-        /// screenshot keeps its size and the LAYOUT gets more points: `small_tablet` at
+        /// screenshot keeps its size and the LAYOUT gets more points: `Nexus 7 2013` at
         /// `--density 240` captures 1920x1200 laid out as 1280x800 points
         #[arg(long, value_name = "DPI")]
         density: Option<u32>,

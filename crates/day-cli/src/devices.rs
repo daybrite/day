@@ -380,7 +380,7 @@ pub struct BootSpec<'a> {
 pub struct SetupSpec<'a> {
     /// AVD name. Defaults to one derived from the device and API level.
     pub name: Option<&'a str>,
-    /// A device profile id from `avdmanager list device` (`pixel_10`, `small_tablet`).
+    /// A device profile id from `avdmanager list device` (`pixel_7`, `Nexus 7 2013`).
     pub device: &'a str,
     /// API level, spelled `36`, `API 36` or `android-36`.
     pub os: &'a str,
@@ -1000,9 +1000,19 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
             Some(b"no\n"),
         )
         .map_err(|e| {
+            // Name the profiles this machine HAS. The catalog ships inside the command-line
+            // tools, and a CI image carries an older set than a desktop Android Studio — 12.0
+            // against 23.0 on the runners this was written for, 66 profiles against 96 — so a
+            // profile that exists on a laptop can be missing on the runner. Without the list,
+            // that costs a round trip through CI to discover.
+            let have = device_profiles();
+            let listed = if have.is_empty() {
+                String::new()
+            } else {
+                format!("\nThis machine has:\n  {}", have.join("\n  "))
+            };
             CliError::failure(format!(
-                "{e} — could not create {name}; is {:?} a device profile? \
-                 (`avdmanager list device`)",
+                "{e} — could not create {name}; is {:?} a device profile?{listed}",
                 spec.device
             ))
         })?;
@@ -1038,7 +1048,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
 ///
 /// A store and a layout want different things from a tablet panel, and density is the only dial
 /// that serves both. Google Play takes a screenshot with at least 1080 px on its short side, and
-/// every stock Android tablet profile that clears that bar does it at 320 dpi: `small_tablet` is
+/// every stock Android tablet profile that clears that bar does it at 320 dpi: `Nexus 7 2013` is
 /// 1920×1200, which is 960×600 points. That is a short landscape screen — Day-Showcase's Query
 /// page collapses its list to nothing there, and its walkthrough fails three steps that pass on
 /// a taller one. The same panel at 240 dpi is 1280×800 points, the layout the CI tablet had
@@ -1058,6 +1068,26 @@ fn set_panel_density(avd: &str, dpi: u32) {
         set_avd_config(avd, "day.lcd.fullDensity", &dpi.to_string());
     }
     crate::ops::status("Sizing", &format!("{avd}: {dpi} dpi"));
+}
+
+/// Every device profile id `avdmanager` knows, from its own listing (`id: 7 or "pixel_7"`).
+/// Empty when the tool cannot be run, which leaves the caller's message shorter but still true.
+fn device_profiles() -> Vec<String> {
+    let Ok(out) = with_avd_home(&mut Command::new(cmdline_tool("avdmanager")))
+        .env("ANDROID_HOME", day_toolchain::android_sdk_dir())
+        .env("ANDROID_SDK_ROOT", day_toolchain::android_sdk_dir())
+        .args(["list", "device"])
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("id: "))
+        .filter_map(|l| l.split_once(" or "))
+        .map(|(_, name)| name.trim().trim_matches('"').to_string())
+        .filter(|n| !n.is_empty())
+        .collect()
 }
 
 /// Set one key in an AVD's `config.ini`, adding it when absent. True when the file changed.
@@ -1150,7 +1180,7 @@ fn parse_mb(v: &str) -> Option<u32> {
 /// Halving costs a store listing its screenshots, which is why the app CI profiles now stay under
 /// the line by choice rather than by luck: Google Play wants at least 1080 px on a screenshot's
 /// short side, and a halved 2560×1600 tablet comes back at 1280×800. The shipped pair is
-/// `pixel_10` (1080×2424) and `small_tablet` (1920×1200, 2.30 Mpx), both captured whole.
+/// `pixel_7` (1080×2424) and `Nexus 7 2013` (1920×1200, 2.30 Mpx), both captured whole.
 ///
 /// A windowed boot puts the panel back, so a developer who boots the same AVD to LOOK at it gets
 /// the profile's own display. The profile's values are recorded under `day.lcd.full*` the first
