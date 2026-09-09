@@ -557,9 +557,10 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 cr.line_to(c, d);
                 let _ = cr.stroke();
             }
-            // Text (7): a Pango layout, drawn from its top-left — which IS the `Leading`
-            // anchor — or centered on (a, b) by its logical extents. The layout picks up the
-            // cairo CTM, so it rotates and scales with the drawing.
+            // Text (7): a Pango layout, drawn from its top-left — which IS the `LEADING`
+            // anchor — offset by whatever the packed anchor asks for, using the layout's own
+            // logical extents and baseline. The layout picks up the cairo CTM, so it rotates and
+            // scales with the drawing.
             7 => {
                 let text = texts.get(ti).cloned().unwrap_or_default();
                 ti += 1;
@@ -568,12 +569,18 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                 layout.set_font_description(Some(&canvas_font_desc(e, &font)));
                 layout.set_single_paragraph_mode(true);
                 layout.set_text(&text);
+                let anchor = day_spec::TextAnchor::unpack(f);
                 let (mut x, mut y) = (a, b);
-                if f > 0.5 {
+                if anchor != day_spec::TextAnchor::LEADING {
                     let (_, logical) = layout.extents();
                     let scale = f64::from(gtk4::pango::SCALE);
-                    x -= f64::from(logical.width()) / scale / 2.0;
-                    y -= f64::from(logical.height()) / scale / 2.0;
+                    let (dx, dy) = anchor.offset(
+                        f64::from(logical.width()) / scale,
+                        f64::from(logical.height()) / scale,
+                        f64::from(layout.baseline()) / scale,
+                    );
+                    x += dx;
+                    y += dy;
                 }
                 cr.move_to(x, y);
                 pangocairo::functions::show_layout(cr, &layout);

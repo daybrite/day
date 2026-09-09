@@ -117,10 +117,10 @@ Gradient strokes on Apple work by converting the stroke to the region it covers
 d.text("Aa", Point::new(8.0, 8.0), TextStyle {
     size: 24.0,
     color: ink,
-    anchor: TextAnchor::Leading,
+    anchor: TextAnchor::LEADING,
     font: CanvasFont { family: Some("Pacifico".into()), weight: Some(FontWeight::Bold), italic: false },
 });
-d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::Centered, ..Default::default() });
+d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::CENTERED, ..Default::default() });
 ```
 
 `TextStyle` is a size in absolute canvas points, a color, an anchor and a [`CanvasFont`](fonts.md):
@@ -132,12 +132,42 @@ Canvas text takes a size, not a `FontSpec`: it is for labels and type inside a d
 carries neither the reader's font-scale setting nor RTL mirroring. Anything a user reads as
 content belongs in a `label` piece, which does.
 
-Both anchors position the **line box**, the ascent-plus-descent box `day::measure_text` reports
-for the same text, size and font: `Leading` puts `at` at its top-leading corner, `Centered` at
-its center, and `at.y + metrics.ascent` is the baseline. A drawing app that frames its text from
-`measure_text` gets a frame that hugs what is drawn on every backend. (Before fonts arrived,
-gtk, qt, android, arkui and web-dom put a `Leading` anchor on the baseline instead; a caller that
-compensated for that with an offset can drop it.)
+### Anchors
+
+`TextAnchor` is one placement per axis, and the backend does the alignment:
+
+```rust
+TextAnchor { h: TextAlign::Trailing, v: TextVAlign::Middle }   // an axis label, right of its tick
+TextAnchor::LEADING                                            // top-leading corner (the default)
+TextAnchor::CENTERED                                           // the box's center, both ways
+TextAnchor::TRAILING                                           // top-trailing corner
+```
+
+| `TextAlign` | `at` is |
+|---|---|
+| `Leading` | the leading edge — left of LTR text, right of RTL |
+| `Center` | the horizontal middle of the advance width |
+| `Trailing` | the trailing edge |
+
+| `TextVAlign` | `at` is |
+|---|---|
+| `Top` | the top of the line box |
+| `Middle` | its vertical middle |
+| `Baseline` | the typographic baseline itself |
+| `Bottom` | the bottom of the line box |
+
+Top, Middle and Bottom are edges of the **line box** — the ascent-plus-descent box
+`day::measure_text` reports for the same text, size and font — so a drawing that frames its text
+from `measure_text` gets a frame that hugs what is drawn on every backend, and
+`TextVAlign::Baseline` is `at.y + metrics.ascent` below `Top`.
+
+**Let the anchor do it rather than measuring.** Right-aligning a label by measuring it and
+subtracting the width costs a `measure_text` call per label — a real cost, since measuring crosses
+into the toolkit — and the backend is about to lay the same text out anyway. `day-piece-charts`
+drew every y-axis label that way until `Trailing` existed; the measurement per label is now gone.
+
+(Before fonts arrived, gtk, qt, android, arkui and web-dom put a `Leading` anchor on the baseline
+instead; a caller that compensated for that with an offset can drop it.)
 
 The platform's font families, with the faces each ships, come from `day::font_families()`; the
 font menu of a drawing app is that list, and [docs/fonts.md](fonts.md) covers it and the

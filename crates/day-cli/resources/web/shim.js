@@ -1892,7 +1892,7 @@ function replay(canvas, ops, strs, w, h) {
     } else if (op === 6) { // clip
       const p = path();
       ctx.clip(p, p.__rule || 'nonzero');
-    } else if (op === 2) { // text: anchor 0 = top-leading of the line box, 1 = its center
+    } else if (op === 2) { // text: anchor packed as h * 4 + v (TextAnchor::pack)
       ctx.fillStyle = rgba(next());
       const size = next(), anchor = next(), x = next(), y = next(), off = next(), len = next();
       const weight = next(), italic = next(), famOff = next(), famLen = next();
@@ -1903,13 +1903,13 @@ function replay(canvas, ops, strs, w, h) {
       // numbers day_dom_measure_text reports, so a measured frame hugs what is drawn.
       const [asc, desc] = fontBox(ctx, text, size);
       ctx.textBaseline = 'alphabetic';
-      if (anchor === 1) {
-        ctx.textAlign = 'center';
-        ctx.fillText(text, x, y - (asc + desc) / 2 + asc);
-      } else {
-        ctx.textAlign = 'left';
-        ctx.fillText(text, x, y + asc);
-      }
+      // Horizontal alignment is the canvas's own; vertical is an offset from the line box, which
+      // is what `textBaseline: top/middle/bottom` would give but computed from the SAME ascent
+      // day_dom_measure_text reports, so the drawn box and the measured one agree exactly.
+      const h = Math.floor(anchor / 4), v = anchor % 4;
+      ctx.textAlign = h === 1 ? 'center' : h === 2 ? 'right' : 'left';
+      const dy = v === 1 ? -(asc + desc) / 2 : v === 2 ? -asc : v === 3 ? -(asc + desc) : 0;
+      ctx.fillText(text, x, y + dy + asc);
     } else if (op === 3) ctx.save();
     else if (op === 4) ctx.restore();
     else if (op === 5) { const a = next(), b = next(), c = next(), d = next(), e = next(), f = next(); ctx.transform(a, b, c, d, e, f); }

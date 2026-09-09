@@ -123,7 +123,7 @@ pub mod prelude {
     pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, Edges, GestureKind};
     pub use day_spec::{
-        DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, UnitPoint,
+        DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, TextVAlign, UnitPoint,
     };
     // Canvas fonts and the platform font list (docs/fonts.md).
     pub use day_spec::{CanvasFont, FontFace, FontFamilyInfo, TextMetrics};

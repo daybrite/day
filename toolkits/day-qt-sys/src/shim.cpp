@@ -1699,7 +1699,7 @@ protected:
                     p.drawArc(QRectF(a, b, c, d), (int)(-e * 16.0), (int)(-f * 16.0));
                     break;
                 case 6: p.setPen(pen); p.drawLine(QPointF(a, b), QPointF(c, d)); break;
-                case 7: { // text at (a,b); e=size, f=anchor (0 top-leading / 1 centered)
+                case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
                     QString t = ti < texts.size() ? texts[ti++] : QString();
                     QFont font = day_qt_canvas_font(p.font(), e,
                                                     fontPending ? fWeight : 0,
@@ -1707,15 +1707,18 @@ protected:
                                                     fontPending ? fFamily : QString());
                     p.setFont(font);
                     p.setPen(QPen(color));
-                    // drawText takes the BASELINE; both anchors position the line box
-                    // (ascent + descent), the box day_qt_measure_text reports.
+                    // drawText takes the BASELINE; the anchor positions the line box
+                    // (ascent + descent), the box day_qt_measure_text reports. Same arithmetic
+                    // as TextAnchor::offset in day-spec, from metrics this draw already holds.
                     QFontMetricsF fm(font);
-                    QPointF pos(a, b + fm.ascent());
-                    if (f > 0.5) {
-                        pos.setX(a - fm.horizontalAdvance(t) / 2.0);
-                        pos.setY(b - fm.height() / 2.0 + fm.ascent());
-                    }
-                    p.drawText(pos, t);
+                    const int ah = (int)f / 4, av = (int)f % 4;
+                    const double w = fm.horizontalAdvance(t);
+                    const double dx = ah == 1 ? -w / 2.0 : ah == 2 ? -w : 0.0;
+                    const double dy = av == 1   ? -fm.height() / 2.0
+                                      : av == 2 ? -fm.ascent()
+                                      : av == 3 ? -fm.height()
+                                                : 0.0;
+                    p.drawText(QPointF(a + dx, b + dy + fm.ascent()), t);
                     break;
                 }
                 case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts

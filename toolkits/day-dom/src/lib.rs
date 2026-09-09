@@ -30,8 +30,8 @@ use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, FontSpec,
     FontWeight, GestureKind, Lifecycle, ListSource, MenuItem, NodeId, Paint, PieceKind, Platform,
-    Point, Proposal, Rect, Registry, Renderer, Shape, Size, Support, TextAnchor, Toolkit,
-    Transform, WindowOptions, kinds,
+    Point, Proposal, Rect, Registry, Renderer, Shape, Size, Support, Toolkit, Transform,
+    WindowOptions, kinds,
     present::{PresentButton, PresentResult, PresentSpec},
 };
 
@@ -3281,10 +3281,7 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                     2.0,
                     pack_color(*color),
                     *size,
-                    match anchor {
-                        TextAnchor::Leading => 0.0,
-                        TextAnchor::Centered => 1.0,
-                    },
+                    anchor.pack(),
                     at.x,
                     at.y,
                     off,

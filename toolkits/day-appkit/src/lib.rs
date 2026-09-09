@@ -3332,10 +3332,15 @@ fn draw_op(op: &DrawOp) {
                 let attrs = canvas_text_attrs(&font, *color);
                 let ns = NSString::from_str(text);
                 let mut origin = NSPoint::new(at.x, at.y);
-                if *anchor == day_spec::TextAnchor::Centered {
+                // `drawAtPoint:` takes the top-leading corner of the line box, so any other
+                // anchor is an offset from it. The size comes from the attributes the draw is
+                // about to use, which is why the alignment belongs here and not in the app: the
+                // caller would have to ask for these same metrics through `measure_text` first.
+                if *anchor != day_spec::TextAnchor::LEADING {
                     let sz: NSSize = msg_send![&ns, sizeWithAttributes: &*attrs];
-                    origin.x -= sz.width / 2.0;
-                    origin.y -= sz.height / 2.0;
+                    let (dx, dy) = anchor.offset(sz.width, sz.height, font.ascender());
+                    origin.x += dx;
+                    origin.y += dy;
                 }
                 let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
             }

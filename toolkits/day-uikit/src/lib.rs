@@ -5693,10 +5693,13 @@ mod imp {
                     let attrs = canvas_text_attrs(&font, *color);
                     let ns = NSString::from_str(text);
                     let mut origin = CGPoint::new(at.x, at.y);
-                    if *anchor == day_spec::TextAnchor::Centered {
+                    // `drawAtPoint:` takes the line box's top-leading corner; every other anchor
+                    // is an offset from it, computed from the metrics this draw already holds.
+                    if *anchor != day_spec::TextAnchor::LEADING {
                         let sz: CGSize = msg_send![&ns, sizeWithAttributes: &*attrs];
-                        origin.x -= sz.width / 2.0;
-                        origin.y -= sz.height / 2.0;
+                        let (dx, dy) = anchor.offset(sz.width, sz.height, font.ascender());
+                        origin.x += dx;
+                        origin.y += dy;
                     }
                     let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
                 }

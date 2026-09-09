@@ -174,7 +174,7 @@ impl Default for TextStyle {
         TextStyle {
             size: 12.0,
             color: Color::BLACK,
-            anchor: day_spec::TextAnchor::Leading,
+            anchor: day_spec::TextAnchor::LEADING,
             font: day_spec::CanvasFont::default(),
         }
     }

@@ -1751,7 +1751,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             place_shape(canvas, p, cur);
             break;
         }
-        case 7: { // text at (a,b); e=size, f=anchor (0 top-leading / 1 centered)
+        case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
             std::string t = ti < texts.size() ? texts[ti++] : std::string();
             WUXC::TextBlock tb;
             tb.Text(hs(t.c_str()));
@@ -1761,14 +1761,19 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
                 canvas_font_apply(tb, fWeight, fItalic, fFamily);
             }
             // A TextBlock's layout box IS the line box (ascent + descent), so the top-leading
-            // anchor is its top-left and the centered one offsets by half its desired size.
+            // anchor is its top-left and every other one is an offset from it — the same
+            // arithmetic as TextAnchor::offset in day-spec, over metrics the block just laid out.
             double ox = a, oy = b;
-            if (f > 0.5) {
+            const int ah = (int)f / 4, av = (int)f % 4;
+            if (ah != 0 || av != 0) {
                 tb.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
                                      std::numeric_limits<float>::infinity() });
                 auto ds = tb.DesiredSize();
-                ox -= ds.Width / 2;
-                oy -= ds.Height / 2;
+                ox += ah == 1 ? -ds.Width / 2 : ah == 2 ? -ds.Width : 0.0;
+                oy += av == 1   ? -ds.Height / 2
+                      : av == 2 ? -tb.BaselineOffset()
+                      : av == 3 ? -ds.Height
+                                : 0.0;
             }
             // Placed under the CTM like a shape (place_shape), so text rotates and scales with
             // the drawing instead of only having its anchor moved.

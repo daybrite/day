@@ -2840,18 +2840,108 @@ impl From<RadialGradient> for Paint {
     }
 }
 
-/// How canvas text hangs on its `at` point (style rule: no bare bools in public APIs).
-///
-/// Both anchors are positions of the LINE BOX (ascent + descent at the font's size), the same
-/// box [`Toolkit::measure_text`] reports, so `at.y + TextMetrics::ascent` is the baseline for a
-/// `Leading` anchor on every backend.
+/// Where `at` sits vertically. `Top`, `Middle` and `Bottom` are edges of the LINE BOX (ascent +
+/// descent at the font's size, the box [`Toolkit::measure_text`] reports); `Baseline` is the
+/// typographic baseline itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum TextAnchor {
-    /// `at` is the top-leading corner of the line box.
+pub enum TextVAlign {
+    /// `at` is the top of the line box.
     #[default]
-    Leading,
-    /// `at` is the center of the line box.
-    Centered,
+    Top,
+    /// `at` is the vertical middle of the line box.
+    Middle,
+    /// `at` IS the baseline — what every native 2-D text call takes, and what a run of labels
+    /// sharing a line should align on rather than their individual boxes.
+    Baseline,
+    /// `at` is the bottom of the line box.
+    Bottom,
+}
+
+/// How canvas text hangs on its `at` point: one placement per axis (docs/canvas.md "Text").
+///
+/// Two axes rather than a list of named positions, because that is the shape of the problem and
+/// of every native API underneath — `NSAttributedString` drawing, Pango extents,
+/// `QFontMetricsF`, `Paint.Align`, Canvas2D's `textAlign`/`textBaseline`. The alignment is done
+/// by the backend, which is both cheaper and more accurate than doing it in app code: it already
+/// has the laid-out metrics, where an app has to ask for them through
+/// [`Toolkit::measure_text`] first.
+///
+/// [`TextAnchor::LEADING`] and [`TextAnchor::CENTERED`] name the two placements that used to be
+/// this type's only variants.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct TextAnchor {
+    /// The horizontal placement — the SAME three-way leading/center/trailing a wrapped label's
+    /// lines take ([`props::TextAlign`]), because it is the same question with the same RTL rule.
+    /// `Trailing` is what an axis label right-aligned against its axis wants, and the reason the
+    /// horizontal axis is settable at all: emulating it in app code costs a
+    /// [`Toolkit::measure_text`] call per label, where the backend already holds the width it is
+    /// about to draw with.
+    pub h: props::TextAlign,
+    pub v: TextVAlign,
+}
+
+impl TextAnchor {
+    /// The top-leading corner of the line box — the default.
+    pub const LEADING: TextAnchor = TextAnchor {
+        h: props::TextAlign::Leading,
+        v: TextVAlign::Top,
+    };
+    /// The center of the line box, both ways.
+    pub const CENTERED: TextAnchor = TextAnchor {
+        h: props::TextAlign::Center,
+        v: TextVAlign::Middle,
+    };
+    /// The top-trailing corner of the line box.
+    pub const TRAILING: TextAnchor = TextAnchor {
+        h: props::TextAlign::Trailing,
+        v: TextVAlign::Top,
+    };
+
+    /// Where the text's top-leading corner goes, as an offset from `at`, given the line box this
+    /// text measures to. The single definition of what an anchor MEANS: every backend that draws
+    /// in Rust calls this, and the C++/Java/JS shims repeat exactly this arithmetic.
+    ///
+    /// `height` is the line box (ascent + descent) and `ascent` the baseline's offset from its
+    /// top — the two numbers [`TextMetrics`] carries.
+    pub fn offset(self, width: f64, height: f64, ascent: f64) -> (f64, f64) {
+        let dx = match self.h {
+            props::TextAlign::Leading => 0.0,
+            props::TextAlign::Center => -width / 2.0,
+            props::TextAlign::Trailing => -width,
+        };
+        let dy = match self.v {
+            TextVAlign::Top => 0.0,
+            TextVAlign::Middle => -height / 2.0,
+            TextVAlign::Baseline => -ascent,
+            TextVAlign::Bottom => -height,
+        };
+        (dx, dy)
+    }
+
+    /// The anchor as one number, for the numeric op stream the serializing backends share:
+    /// `h * 4 + v`, so it still occupies the single slot the two-variant enum did.
+    pub fn pack(self) -> f64 {
+        (self.h as u8 * 4 + self.v as u8) as f64
+    }
+
+    /// Inverse of [`TextAnchor::pack`]. An unrecognized code answers the default rather than
+    /// failing: a stream is only ever written by a matching encoder, and a drawing with text in
+    /// the wrong corner beats one that panics inside a native draw callback.
+    pub fn unpack(code: f64) -> TextAnchor {
+        let c = code.round().clamp(0.0, 11.0) as u8;
+        let h = match c / 4 {
+            1 => props::TextAlign::Center,
+            2 => props::TextAlign::Trailing,
+            _ => props::TextAlign::Leading,
+        };
+        let v = match c % 4 {
+            1 => TextVAlign::Middle,
+            2 => TextVAlign::Baseline,
+            3 => TextVAlign::Bottom,
+            _ => TextVAlign::Top,
+        };
+        TextAnchor { h, v }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -5020,7 +5110,7 @@ pub trait Toolkit: Sized + 'static {
     }
 
     /// Measure one line of canvas text at `size` points in `font`, in the SAME engine
-    /// [`Toolkit::replay`] draws [`DrawOp::Text`] with, so a `TextAnchor::Leading` anchor plus
+    /// [`Toolkit::replay`] draws [`DrawOp::Text`] with, so a `TextAnchor::LEADING` anchor plus
     /// the returned `ascent` lands on the drawn baseline. `None` = cannot measure; the facade
     /// then answers [`TextMetrics::approximate`].
     fn measure_text(&mut self, _text: &str, _size: f64, _font: &CanvasFont) -> Option<TextMetrics> {
@@ -5935,10 +6025,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     0.0,
                     0.0,
                     *size,
-                    match anchor {
-                        TextAnchor::Leading => 0.0,
-                        TextAnchor::Centered => 1.0,
-                    },
+                    anchor.pack(),
                     0.0,
                     *color,
                     &mut nums,
@@ -6174,7 +6261,7 @@ mod encode_ops_tests {
                 at: Point::new(7.0, 8.0),
                 size: 12.0,
                 color: red,
-                anchor: TextAnchor::Leading,
+                anchor: TextAnchor::LEADING,
                 font: CanvasFont::default(),
             },
             DrawOp::Text {
@@ -6182,7 +6269,7 @@ mod encode_ops_tests {
                 at: Point::new(7.0, 8.0),
                 size: 12.0,
                 color: red,
-                anchor: TextAnchor::Centered,
+                anchor: TextAnchor::CENTERED,
                 font: CanvasFont {
                     family: Some("Day Sans".into()),
                     weight: Some(FontWeight::Bold),
@@ -6563,5 +6650,66 @@ mod cursor_tests {
         assert_eq!(seen.len(), Cursor::NAMED.len());
         assert_eq!(Cursor::native("dragCopy").css_name(), "dragCopy");
         assert_eq!(Cursor::default(), Cursor::Default);
+    }
+}
+
+#[cfg(test)]
+mod text_anchor_tests {
+    /// The anchor arithmetic every backend repeats. A drawing whose text lands in the wrong
+    /// corner is a per-backend bug that only a screenshot catches, so the shared definition is
+    /// pinned here and each shim is written to match it.
+    #[test]
+    fn text_anchor_offsets_place_the_line_box() {
+        use crate::props::TextAlign;
+        use crate::{TextAnchor, TextVAlign};
+        // A 40-wide, 20-tall line box whose baseline sits 16 below its top.
+        let (w, h, asc) = (40.0, 20.0, 16.0);
+        let at = |ha, va| TextAnchor { h: ha, v: va }.offset(w, h, asc);
+
+        // The default is the drawing origin itself — every backend's native "draw here".
+        assert_eq!(at(TextAlign::Leading, TextVAlign::Top), (0.0, 0.0));
+        assert_eq!(TextAnchor::default(), TextAnchor::LEADING);
+        // Horizontal: the box's leading edge, its middle, its trailing edge.
+        assert_eq!(at(TextAlign::Center, TextVAlign::Top).0, -20.0);
+        assert_eq!(at(TextAlign::Trailing, TextVAlign::Top).0, -40.0);
+        // Vertical: top, middle, the baseline itself, bottom.
+        assert_eq!(at(TextAlign::Leading, TextVAlign::Middle).1, -10.0);
+        assert_eq!(at(TextAlign::Leading, TextVAlign::Baseline).1, -16.0);
+        assert_eq!(at(TextAlign::Leading, TextVAlign::Bottom).1, -20.0);
+        // The two named placements are the ones the two-variant enum used to have.
+        assert_eq!(TextAnchor::CENTERED.offset(w, h, asc), (-20.0, -10.0));
+        assert_eq!(TextAnchor::TRAILING.offset(w, h, asc), (-40.0, 0.0));
+    }
+
+    /// The wire code the serializing backends (qt, xaml, arkui, android, web) decode by hand.
+    #[test]
+    fn text_anchor_packs_into_one_slot_and_round_trips() {
+        use crate::props::TextAlign;
+        use crate::{TextAnchor, TextVAlign};
+        let mut seen = std::collections::BTreeSet::new();
+        for h in [TextAlign::Leading, TextAlign::Center, TextAlign::Trailing] {
+            for v in [
+                TextVAlign::Top,
+                TextVAlign::Middle,
+                TextVAlign::Baseline,
+                TextVAlign::Bottom,
+            ] {
+                let a = TextAnchor { h, v };
+                let code = a.pack();
+                assert!(
+                    (0.0..=11.0).contains(&code),
+                    "{code} outside the packed range"
+                );
+                assert!(seen.insert(code as u64), "two anchors share code {code}");
+                assert_eq!(TextAnchor::unpack(code), a);
+            }
+        }
+        assert_eq!(seen.len(), 12);
+        // The shims decode as `h = code / 4`, `v = code % 4` in integer arithmetic.
+        assert_eq!(TextAnchor::LEADING.pack(), 0.0);
+        assert_eq!(TextAnchor::CENTERED.pack(), 5.0);
+        // Junk answers the default rather than failing inside a native draw callback.
+        assert_eq!(TextAnchor::unpack(-3.0), TextAnchor::LEADING);
+        assert_eq!(TextAnchor::unpack(99.0), TextAnchor::unpack(11.0));
     }
 }

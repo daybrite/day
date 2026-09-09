@@ -15,13 +15,13 @@ SwiftUI-like terseness where it doesn't. The rule, in priority order:
 
 1. **No bare `bool` (or otherwise unreadable literal) in a public signature.**
    A call site must not read `d.text(…, true)`. Use a two-variant enum
-   (`TextAnchor::Centered`, `Boundary::Yes`) or a builder toggle instead.
+   (`TextAlign::Center`, `Boundary::Yes`) or a builder toggle instead.
 
 2. **Required bundles of 3+ concrete-typed values → a struct parameter** with named
    fields at the call site. This is the closest Rust gets to named arguments:
 
    ```rust
-   d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::Centered, ..Default::default() });
+   d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::CENTERED, ..Default::default() });
    ```
 
    This is already the house style at the spec boundary (`NavProps { title, split }`,

@@ -2074,7 +2074,7 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
         d.stroke(arc_path(r, 135.0, 270.0), Color::rgba(0.5, 0.5, 0.55, 0.35), 6.0);
         d.stroke(arc_path(r, 135.0, 270.0 * value.get() / 100.0), Color::hex(0x2F6FDE), 6.0);
         d.text(&format!("{:.0}", value.get()), r.center(),
-               TextStyle { size: 22.0, color: Color::hex(0x2F6FDE), anchor: TextAnchor::Centered, ..Default::default() });
+               TextStyle { size: 22.0, color: Color::hex(0x2F6FDE), anchor: TextAnchor::CENTERED, ..Default::default() });
     })
     .frame(120.0, 120.0)
     .a11y(|a| a.role(Role::Meter))

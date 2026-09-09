@@ -1565,29 +1565,37 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
             case 6: // line from (a,b) to (c,d)
                 OH_Drawing_CanvasDrawLine(cv, a, b, c, dd);
                 break;
-            case 7: { // text: size=e, anchor=f (0 top-leading, 1 centered); string on the text channel
+            case 7: { // text: size=e, anchor=f packed as h*4+v (TextAnchor::pack); string on the text channel
                 std::string s = text_i < texts.size() ? texts[text_i++] : std::string();
                 OH_Drawing_Typeface* tf = nullptr;
                 OH_Drawing_Font* font = make_canvas_font(e, fontp, &tf);
                 OH_Drawing_TextBlob* blob = OH_Drawing_TextBlobCreateFromString(
                     s.c_str(), font, TEXT_ENCODING_UTF8);
-                // DrawTextBlob takes the BASELINE; both anchors position the line box from
+                // DrawTextBlob takes the BASELINE; the anchor positions the line box from
                 // the font metrics (Skia-style: ascent negative, descent positive) — the
-                // same formula as the Android canvas backend, so glyphs land in the same
-                // place on every platform (the 2048 tile digits are the acid test).
+                // same formula as TextAnchor::offset and the Android canvas backend, so glyphs
+                // land in the same place on every platform (the 2048 tile digits are the acid
+                // test).
                 OH_Drawing_Font_Metrics m;
                 OH_Drawing_FontGetMetrics(font, &m);
+                const int ah = (int)f / 4, av = (int)f % 4;
+                const float lineH = m.descent - m.ascent;
                 float x = a, y = b - m.ascent;
-                if (f == 1.0f) {
+                if (ah != 0) {
                     float w = 0.0f;
                     if (OH_Drawing_FontMeasureText(font, s.c_str(), s.size(),
                                                    TEXT_ENCODING_UTF8, nullptr,
-                                                   &w) == OH_DRAWING_SUCCESS) {
-                        x = a - w / 2.0f;
-                    } else {
-                        x = a - (float)s.size() * e * 0.28f; // fallback guess
+                                                   &w) != OH_DRAWING_SUCCESS) {
+                        w = (float)s.size() * e * 0.56f; // fallback guess
                     }
+                    x = a + (ah == 1 ? -w / 2.0f : -w);
+                }
+                if (av == 1) {
                     y = b - (m.ascent + m.descent) / 2.0f;
+                } else if (av == 2) {
+                    y = b; // `at` IS the baseline
+                } else if (av == 3) {
+                    y = b - lineH - m.ascent;
                 }
                 OH_Drawing_CanvasDrawTextBlob(cv, blob, x, y);
                 OH_Drawing_TextBlobDestroy(blob);

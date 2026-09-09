@@ -118,18 +118,27 @@ public class DayCanvasView extends View {
                 case 5: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g);
                         cv.drawArc(new RectF(a, b, a+c, b+d), e, f, false, paint); break;
                 case 6: paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(g); cv.drawLine(a, b, c, d, paint); break;
-                case 7: { // text at (a,b); e=size, f=anchor (0 top-leading / 1 centered)
+                case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
                     String t = ti < texts.length ? texts[ti++] : "";
                     paint.setStyle(Paint.Style.FILL);
                     paint.setTextSize(e);
                     paint.setTypeface(fontPending ? DayBridge.canvasTypeface(fFamily, fWeight, fItalic) : null);
-                    // drawText takes the BASELINE; both anchors position the line box
-                    // (ascent + descent, Skia-style: ascent negative), the box measureText reports.
+                    // drawText takes the BASELINE; the anchor positions the line box
+                    // (ascent + descent, Skia-style: ascent negative), the box measureText
+                    // reports — the same arithmetic as TextAnchor::offset in day-spec.
                     Paint.FontMetrics fm = paint.getFontMetrics();
+                    int ah = (int) f / 4, av = (int) f % 4;
                     float x = a, y = b - fm.ascent;
-                    if (f > 0.5f) {
-                        x -= paint.measureText(t) / 2f;
+                    if (ah != 0) {
+                        float w = paint.measureText(t);
+                        x = a + (ah == 1 ? -w / 2f : -w);
+                    }
+                    if (av == 1) {
                         y = b - (fm.ascent + fm.descent) / 2f;
+                    } else if (av == 2) {
+                        y = b; // `at` IS the baseline
+                    } else if (av == 3) {
+                        y = b - fm.descent;
                     }
                     cv.drawText(t, x, y, paint);
                     paint.setTypeface(null);
