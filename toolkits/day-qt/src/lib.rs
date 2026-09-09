@@ -1395,19 +1395,21 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                 build_qt_menu(sub, items);
             }
             day_spec::MenuItem::Action {
-                id,
+                action,
                 label,
                 shortcut,
                 enabled,
+                checked,
                 role,
                 icon,
+                ..
             } => {
                 // A nonzero id ALWAYS wins (the appkit precedence, docs/menus.md): the item
                 // dispatches the day action, with the role only supplying label/shortcut
                 // defaults — the auto Preferences item and `MenuRole::NewWindow` arrive
                 // this way. Routing them through the role-only path dropped the dispatch
                 // id, leaving visible-but-dead items (the macos-qt bug).
-                if *id != 0 {
+                if *action != 0 {
                     let text = match role {
                         Some(r) if label.is_empty() => qt_role_label(*r).to_string(),
                         _ => label.clone(),
@@ -1422,11 +1424,12 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                         ffi::day_qt_menu_add_action(
                             menu,
                             cstr(&text).as_ptr(),
-                            *id,
+                            *action,
                             cstr(&sc).as_ptr(),
                             *enabled as c_int,
                             cstr(&ic).as_ptr(),
                             ic_fallback,
+                            checked.map_or(-1, c_int::from),
                         )
                     };
                 } else if let Some(role) = role {

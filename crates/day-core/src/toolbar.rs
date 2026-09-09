@@ -598,7 +598,7 @@ fn shape_of(item: &ToolbarItem) -> ToolbarItem {
 fn blank_menu_ids(items: &mut [day_spec::MenuItem]) {
     for item in items {
         match item {
-            day_spec::MenuItem::Action { id, .. } => *id = 0,
+            day_spec::MenuItem::Action { action, .. } => *action = 0,
             day_spec::MenuItem::Submenu { items, .. } => blank_menu_ids(items),
             day_spec::MenuItem::Separator => {}
         }
@@ -637,8 +637,8 @@ fn rebind_menu(next: &mut [day_spec::MenuItem], prev: &[day_spec::MenuItem]) {
     for (new, old) in next.iter_mut().zip(prev) {
         match (new, old) {
             (
-                day_spec::MenuItem::Action { id: new_id, .. },
-                day_spec::MenuItem::Action { id: old_id, .. },
+                day_spec::MenuItem::Action { action: new_id, .. },
+                day_spec::MenuItem::Action { action: old_id, .. },
             ) => {
                 if new_id != old_id {
                     crate::menu::rebind_action(*new_id, *old_id);

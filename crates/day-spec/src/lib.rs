@@ -1103,15 +1103,33 @@ pub struct UndoState {
 /// One entry in a menu (recursive — a `Submenu` nests).
 #[derive(Clone, Debug, PartialEq)]
 pub enum MenuItem {
-    /// A command. `id` (nonzero) dispatches [`Event::MenuAction`] to the app; a `role`-only item uses
-    /// the native standard command instead (id 0). `label`/`shortcut` override the role's defaults.
-    /// `icon` is the platform's own glyph beside the title where menus carry one (macOS,
+    /// A command. `action` (nonzero) dispatches [`Event::MenuAction`] to the app; a `role`-only item
+    /// uses the native standard command instead (action 0). `label`/`shortcut` override the role's
+    /// defaults. `icon` is the platform's own glyph beside the title where menus carry one (macOS,
     /// Windows, GNOME, KDE, Android); a backend whose menus are text-only ignores it.
+    ///
+    /// The `id`/`action` split is [`ToolbarItem`]'s: `id` NAMES the item and `action` is what it
+    /// runs. They are separate because a label cannot serve as a name — it is localized, and an
+    /// item that shows its own state changes it — so anything addressing an item from outside
+    /// (dayscript's `menu: { id: … }`) needs something that does not move.
     Action {
-        id: u64,
+        /// The app's own name for this item, where it gave one. Stable across locales and across
+        /// a change of `checked`, and unique within the menu it is installed in.
+        id: Option<String>,
+        /// The item's command, as a dispatch id from the same registry [`Event::MenuAction`] uses
+        /// (0 = no command), so a toolbar button and its menu twin can share one closure.
+        action: u64,
         label: String,
         shortcut: Option<Shortcut>,
         enabled: bool,
+        /// On/off state where the item stands for a setting or one of several choices, drawn with
+        /// the platform's own check mark. `None` is a plain command and reserves no mark; `Some`
+        /// makes the item checkable and says which way it currently sits.
+        ///
+        /// The item still runs its `action` when chosen — a backend never flips this on its own.
+        /// The app owns the state, and re-installing the menu (`app_menu_reactive`) is what moves
+        /// the mark, so what the menu shows can never disagree with what the app thinks.
+        checked: Option<bool>,
         role: Option<MenuRole>,
         icon: Option<Icon>,
     },
@@ -4608,6 +4626,10 @@ pub mod present {
         /// An app-writable scratch directory. Backends whose OS temp dir isn't app-writable
         /// (Android → `getCacheDir()`) set this at startup; elsewhere it stays `None` and callers
         /// fall back to `std::env::temp_dir()`.
+        // False positive, and only when checking an android target — the initializer already IS
+        // the `const` block the lint asks for. Android's TLS model makes the macro expand to a
+        // form clippy reads as lazy, so the suggestion is unfollowable as well as unneeded.
+        #[allow(clippy::missing_const_for_thread_local)]
         static APP_TEMP_DIR: std::cell::RefCell<Option<std::path::PathBuf>> =
             const { std::cell::RefCell::new(None) };
     }

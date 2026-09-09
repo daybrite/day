@@ -32,8 +32,8 @@ use objc2_app_kit::{
 };
 use objc2_app_kit::{
     NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,
-    NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl,
-    NSControlTextEditingDelegate, NSCursor, NSCursorFrameResizeDirections,
+    NSBitmapImageFileType, NSBox, NSBoxType, NSButton, NSColor, NSControl, NSControlStateValueOff,
+    NSControlStateValueOn, NSControlTextEditingDelegate, NSCursor, NSCursorFrameResizeDirections,
     NSCursorFrameResizePosition, NSEvent, NSEventModifierFlags, NSEventType, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
     NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch, NSText, NSTextField,
@@ -54,8 +54,9 @@ use objc2_foundation::{
     NSObject, NSPoint, NSRect, NSSize, NSString,
 };
 use objc2_quartz_core::{
-    CAMediaTimingFunction, kCAMediaTimingFunctionEaseIn, kCAMediaTimingFunctionEaseInEaseOut,
-    kCAMediaTimingFunctionEaseOut, kCAMediaTimingFunctionLinear,
+    CAMediaTimingFunction, CATransaction, kCAMediaTimingFunctionEaseIn,
+    kCAMediaTimingFunctionEaseInEaseOut, kCAMediaTimingFunctionEaseOut,
+    kCAMediaTimingFunctionLinear,
 };
 
 use day_spec::ffi_guard;
@@ -6739,10 +6740,12 @@ impl Toolkit for AppKit {
         let app_item = NSMenuItem::new(mtm);
         let mut app_menu_items = vec![
             day_spec::MenuItem::Action {
-                id: 0,
+                id: None,
+                action: 0,
                 label: about_label(&self.app_name),
                 shortcut: None,
                 enabled: true,
+                checked: None,
                 role: Some(day_spec::MenuRole::About),
                 icon: None,
             },
@@ -6753,10 +6756,12 @@ impl Toolkit for AppKit {
             app_menu_items.push(day_spec::MenuItem::Separator);
         }
         app_menu_items.push(day_spec::MenuItem::Action {
-            id: 0,
+            id: None,
+            action: 0,
             label: quit_label(&self.app_name),
             shortcut: None,
             enabled: true,
+            checked: None,
             role: Some(day_spec::MenuRole::Quit),
             icon: None,
         });
@@ -7627,6 +7632,15 @@ fn snapshot_via_window_server(content: &NSView, chrome: bool) -> Result<Vec<u8>,
     if number <= 0 {
         return Err(format!("window {number} is not on screen"));
     }
+    // The server hands back the frame it last COMPOSITED, which is the previous one whenever the
+    // app has changed the view tree since. A capture taken right after a state change then shows
+    // the state before it — a `when` whose outgoing arm is already gone from the tree and from the
+    // view hierarchy still appears in the image, so a walkthrough asserting on pixels reads a
+    // stale frame as "the change did not happen". Push the pending work out first: lay out, draw,
+    // then commit the layer tree to the render server.
+    unsafe { content.layoutSubtreeIfNeeded() };
+    window.displayIfNeeded();
+    CATransaction::flush();
     // CGRectNull asks for the window's own bounds rather than a screen region.
     let null_rect = objc2_core_foundation::CGRect::new(
         objc2_core_foundation::CGPoint::new(f64::INFINITY, f64::INFINITY),
@@ -8140,12 +8154,14 @@ pub(crate) fn build_ns_menu(
                 menu.addItem(&it);
             }
             MI::Action {
-                id,
+                action,
                 label,
                 shortcut,
                 enabled,
+                checked,
                 role,
                 icon,
+                ..
             } => {
                 // Resolve label/nav host/shortcut, folding in the role's native defaults.
                 let (mut lbl, sel, mut sc) = match role {
@@ -8177,7 +8193,7 @@ pub(crate) fn build_ns_menu(
                             | day_spec::MenuRole::SelectAll
                     )
                 );
-                let custom = *id != 0 && !responder_role;
+                let custom = *action != 0 && !responder_role;
                 let key = sc
                     .as_ref()
                     .map(|s| ns_key_equivalent(&s.key))
@@ -8203,9 +8219,18 @@ pub(crate) fn build_ns_menu(
                 if custom {
                     let tobj: &objc2::runtime::AnyObject = target.as_ref();
                     unsafe { it.setTarget(Some(tobj)) };
-                    it.setTag(*id as isize);
+                    it.setTag(*action as isize);
                 }
                 it.setEnabled(*enabled);
+                // A checkable item takes NSMenuItem's own state, so macOS draws the ✓ it draws
+                // everywhere else and reserves the mark's column when it is off (docs/menus.md).
+                if let Some(on) = checked {
+                    it.setState(if *on {
+                        NSControlStateValueOn
+                    } else {
+                        NSControlStateValueOff
+                    });
+                }
                 // The item's glyph, drawn the way NSMenuItem draws its own (docs/menus.md):
                 // template-tinted, sized to the menu's text.
                 if let Some(icon) = icon

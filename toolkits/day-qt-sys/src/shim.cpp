@@ -2978,10 +2978,17 @@ static void day_qt_apply_shortcut(QAction *a, const char *shortcut) {
 
 void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
                             const char *shortcut, int enabled, const char *icon,
-                            int icon_fallback) {
+                            int icon_fallback, int checked) {
     QAction *a = static_cast<QMenu *>(menu)->addAction(QString::fromUtf8(label));
     day_qt_apply_shortcut(a, shortcut);
     a->setEnabled(enabled != 0);
+    // checked: -1 a plain command, 0/1 a checkable action sitting off/on. Qt toggles a checkable
+    // action itself on trigger; day's rule is that the app owns the state and the next menu
+    // install carries it, so that flip is undone below and the mark only ever comes from here.
+    if (checked >= 0) {
+        a->setCheckable(true);
+        a->setChecked(checked != 0);
+    }
     // The item's glyph, resolved exactly like a toolbar item's (docs/menus.md): theme name,
     // Day's own outline, then the QStyle standard set.
     if ((icon && *icon) || icon_fallback >= 0) {
@@ -2992,7 +2999,11 @@ void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
         if (!ic.isNull()) a->setIcon(ic);
     }
     uint64_t aid = id;
-    QObject::connect(a, &QAction::triggered, [aid]() {
+    QObject::connect(a, &QAction::triggered, [a, aid, checked]() {
+        if (checked >= 0) {
+            const QSignalBlocker block(a);
+            a->setChecked(checked != 0);
+        }
         if (g_menu_cb) g_menu_cb(aid);
     });
 }

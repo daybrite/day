@@ -124,7 +124,7 @@ fn shape_of(item: &day_spec::MenuItem) -> day_spec::MenuItem {
 fn blank_ids(items: &mut [day_spec::MenuItem]) {
     for item in items {
         match item {
-            day_spec::MenuItem::Action { id, .. } => *id = 0,
+            day_spec::MenuItem::Action { action, .. } => *action = 0,
             day_spec::MenuItem::Submenu { items, .. } => blank_ids(items),
             day_spec::MenuItem::Separator => {}
         }
@@ -136,8 +136,8 @@ fn rebind_menu(next: &mut [day_spec::MenuItem], prev: &[day_spec::MenuItem]) {
     for (new, old) in next.iter_mut().zip(prev) {
         match (new, old) {
             (
-                day_spec::MenuItem::Action { id: new_id, .. },
-                day_spec::MenuItem::Action { id: old_id, .. },
+                day_spec::MenuItem::Action { action: new_id, .. },
+                day_spec::MenuItem::Action { action: old_id, .. },
             ) => {
                 if new_id != old_id {
                     rebind_action(*new_id, *old_id);
@@ -243,9 +243,11 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
         use day_spec::MenuItem as M;
         for it in items.iter_mut() {
             match it {
-                M::Action { id, role, .. } if *role == Some(day_spec::MenuRole::Preferences) => {
-                    if *id == 0 {
-                        *id = prefs_id;
+                M::Action { action, role, .. }
+                    if *role == Some(day_spec::MenuRole::Preferences) =>
+                {
+                    if *action == 0 {
+                        *action = prefs_id;
                     }
                     return true;
                 }
@@ -263,12 +265,14 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
         return items;
     }
     let item = day_spec::MenuItem::Action {
-        id: prefs_id,
+        id: None,
+        action: prefs_id,
         // Empty label: each backend falls back to its localized role label
         // ("Settings…" on macOS, "Preferences" elsewhere).
         label: String::new(),
         shortcut: Some(day_spec::Shortcut::new(",")),
         enabled: true,
+        checked: None,
         role: Some(day_spec::MenuRole::Preferences),
         icon: None,
     };
@@ -289,7 +293,7 @@ fn collect_action_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {
     fn walk(items: &[day_spec::MenuItem], ids: &mut Vec<u64>) {
         for it in items {
             match it {
-                day_spec::MenuItem::Action { id, .. } if *id != 0 => ids.push(*id),
+                day_spec::MenuItem::Action { action, .. } if *action != 0 => ids.push(*action),
                 day_spec::MenuItem::Submenu { items, .. } => walk(items, ids),
                 _ => {}
             }
@@ -346,10 +350,12 @@ impl MenuBarStyle {
     pub fn stock(self, role: day_spec::MenuBarRole) -> Option<day_spec::MenuItem> {
         use day_spec::{MenuBarRole as B, MenuItem as MI, MenuRole as R};
         let act = |r: R| MI::Action {
-            id: 0,
+            id: None,
+            action: 0,
             label: String::new(),
             shortcut: None,
             enabled: true,
+            checked: None,
             role: Some(r),
             icon: None,
         };

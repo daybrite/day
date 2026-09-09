@@ -46,10 +46,62 @@ The pieces, all in the `day_pieces` prelude:
 
 | Builder | Produces |
 |---|---|
-| `menu_item(label)` | A clickable command. Chain `.action(f)`, `.key("s")`, `.shortcut(_)`, `.enabled(bool)`. |
+| `menu_item(label)` | A clickable command. Chain `.action(f)`, `.key("s")`, `.shortcut(_)`, `.enabled(bool)`, `.id("…")`, `.checked(bool)`. |
 | `sub_menu(label, vec![…])` | A nested submenu (arbitrarily deep on desktop; see platform notes). |
 | `menu_separator()` | A divider between groups. |
 | `menu_role(role)` | A standard system command; see [Standard roles](#standard-roles). |
+
+## Naming an item: `.id`
+
+`.key("s")` sets the item's ⌘/Ctrl SHORTCUT. To NAME an item, use `.id`:
+
+```rust
+menu_item(tr("view-grid")).id("view-grid").action(|| grid.set(!grid.get()))
+```
+
+An id is what something outside the menu addresses the item by — a dayscript
+`menu: { id: "view-grid" }` step, or a `tap` on the row of the
+[composed presentation](#the-composed-presentation-web-dom). A label cannot do that job: it is
+localized, so it changes with the run's language, and a [checked](#checked-items) item rewrites its
+own label whenever the state moves. Give an id to any item a script drives; leave it off the rest.
+
+Ids are the app's own vocabulary and need only be unique within the menu they are installed in.
+They never reach the user.
+
+## Checked items
+
+`.checked(bool)` draws the platform's own check mark beside the item — for a setting the menu
+toggles, or one of several mutually exclusive choices:
+
+```rust
+app_menu_reactive(move || vec![sub_menu(tr("menu-view"), vec![
+    menu_item(tr("view-grid")).id("view-grid").checked(grid.get()).action(move || grid.set(!grid.get())),
+    menu_separator(),
+    menu_item(tr("view-day")).id("view-day").key("1").checked(mode.get() == 0).action(move || mode.set(0)),
+    menu_item(tr("view-both")).id("view-both").key("2").checked(mode.get() == 1).action(move || mode.set(1)),
+])]);
+```
+
+An item that never calls `.checked` is a plain command and reserves no room for a mark. One that
+calls it is *checkable* whichever way it sits, so a run of choices lines up on its titles instead of
+stepping in and out by a tick's width as the selection moves.
+
+**The app owns the state.** Choosing a checked item runs its `.action` and nothing else — no backend
+flips the mark by itself, and the ones whose native control would (GTK's stateful action, Qt's
+checkable `QAction`, WinUI's `ToggleMenuFlyoutItem`) have that flip suppressed. The mark moves when
+the menu is re-installed carrying the new value, which is what [`app_menu_reactive`](#runtime-language-changes-app_menu_reactive)
+does on its own as soon as the builder reads the signal. So what the menu shows can never disagree
+with what the app thinks, and an action that declines to change anything leaves the mark where it was.
+
+| Backend | Drawn as |
+|---|---|
+| appkit | `NSMenuItem.state` — the system ✓ |
+| uikit | `UIAction.state` — the system ✓ |
+| gtk | a stateful boolean `GAction`; GTK renders the check from the action's state |
+| qt | a checkable `QAction` |
+| xaml | `ToggleMenuFlyoutItem` |
+| android | `MenuItem.setCheckable` — Material's check |
+| dom | a ✓ in a fixed check column of the composed row |
 
 ## Icons
 
@@ -326,6 +378,12 @@ matrix.
 - **Separators** render as dividers everywhere; on Android they become menu-group boundaries (dividers
   on API 28+).
 - A `context_menu(vec![])` (empty) or a later reconfigure detaches/replaces the menu on the Piece.
+- **Checked items** reach every backend that renders a menu at all. Android draws the check inside a
+  single level of submenu like any other item; the composed presentation draws its own ✓ column.
+  One observed gap: under **macos-gtk** the item dispatches and its state is correct, but the mark
+  does not appear in the global menu bar — GTK derives the check from the action's state, and the
+  quartz bridge that mirrors the model into `NSMenu` does not carry it across. Linux GTK's
+  in-window `PopoverMenuBar` resolves the same action group directly and is unaffected.
 
 ## Future surfaces: dock, taskbar, and launcher menus
 
@@ -357,6 +415,11 @@ Window menu. The mechanics (injection into an installed menu, role rewiring, and
 `register_new_window` builder) are described in [docs/windows.md](windows.md).
 
 ## Driving menus from dayscript
+
+`menu: { id: "view-grid" }` invokes the item the app NAMED with [`.id`](#naming-an-item-id). Prefer
+it to everything below: it is the only address that survives a locale change or a moving check mark,
+and it never falls back to matching a label, so a step naming an id that is not in the menu fails
+instead of quietly hitting some other item that reads the same.
 
 `menu: { item: "Save" }` invokes a unique app-menu action by exact label;
 `menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable:

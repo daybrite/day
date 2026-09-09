@@ -17,11 +17,13 @@ use std::rc::Rc;
 /// Attach to a Piece via [`Decorate::context_menu`] or install app-wide via [`app_menu`].
 #[derive(Clone)]
 pub struct MenuEntry {
+    id: Option<String>,
     label: String,
     shortcut: Option<day_spec::Shortcut>,
     enabled: bool,
     role: Option<day_spec::MenuRole>,
     icon: Option<day_spec::Icon>,
+    checked: Option<bool>,
     action: Option<Rc<dyn Fn()>>,
     children: Option<Vec<MenuEntry>>,
     separator: bool,
@@ -31,12 +33,14 @@ pub struct MenuEntry {
 impl MenuEntry {
     fn command(label: impl Into<String>) -> MenuEntry {
         MenuEntry {
+            id: None,
             label: label.into(),
             shortcut: None,
             enabled: true,
             role: None,
             icon: None,
             bar_role: None,
+            checked: None,
             action: None,
             children: None,
             separator: false,
@@ -68,9 +72,38 @@ impl MenuEntry {
         self.shortcut = Some(s);
         self
     }
-    /// Convenience: the platform's primary modifier (⌘ / Ctrl) + `key`.
+    /// Convenience: the platform's primary modifier (⌘ / Ctrl) + `key`. This sets the item's
+    /// SHORTCUT — to name the item, use [`MenuEntry::id`].
     pub fn key(mut self, key: impl Into<String>) -> MenuEntry {
         self.shortcut = Some(day_spec::Shortcut::new(key));
+        self
+    }
+
+    /// Name this item, so something outside the menu can address it: a dayscript
+    /// `menu: { id: "view-both" }` step, or a `tap` on the composed menu's row where the platform
+    /// has no native menus.
+    ///
+    /// A label cannot do that job. It is localized, so it changes with the run's language, and an
+    /// item that shows its own state changes it whenever the state moves — which is exactly the
+    /// case [`MenuEntry::checked`] creates. Give an id to any item a script drives.
+    pub fn id(mut self, id: impl Into<String>) -> MenuEntry {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Draw this item with the platform's check mark, on or off — for a setting the menu toggles
+    /// or one of several mutually exclusive choices. An item that never calls this is a plain
+    /// command and reserves no room for a mark.
+    ///
+    /// Choosing the item still runs its [`action`](MenuEntry::action); no backend flips the mark
+    /// by itself. The app owns the state, so install the menu with [`app_menu_reactive`] and read
+    /// the signal here — the mark then follows the state instead of tracking it separately.
+    ///
+    /// ```ignore
+    /// menu_item(tr("view-grid")).id("view-grid").checked(grid.get()).action(move || grid.set(!grid.get()))
+    /// ```
+    pub fn checked(mut self, on: bool) -> MenuEntry {
+        self.checked = Some(on);
         self
     }
     pub fn enabled(mut self, on: bool) -> MenuEntry {
@@ -183,53 +216,53 @@ fn lower_menu_with(
                     role: e.bar_role,
                 }
             } else {
-                let mut id = e.action.map(register).unwrap_or(0);
+                let mut action = e.action.map(register).unwrap_or(0);
                 let mut enabled = e.enabled;
                 let mut shortcut = e.shortcut;
                 // Window roles have no native selector on any platform: an action-less item
                 // lowers to the registered day dispatcher (docs/windows.md) — live when the
                 // app registered a builder/preferences piece, disabled otherwise.
-                if id == 0 {
+                if action == 0 {
                     match e.role {
                         Some(day_spec::MenuRole::NewWindow) => {
-                            id = day_core::windows::new_window_action_id();
-                            enabled = enabled && id != 0;
+                            action = day_core::windows::new_window_action_id();
+                            enabled = enabled && action != 0;
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("n")));
                         }
                         // The undo pair and the clipboard trio lower to standing dispatchers
                         // too, for toolkits whose role items come back as plain menu actions
                         // (Android's app-bar menu, the iOS menu, web context menus). Toolkits
-                        // with a native responder route ignore the id and keep their selector
+                        // with a native responder route ignore the action and keep their selector
                         // — see each backend's menu build. Each also takes the platform-neutral
                         // STANDARD shortcut (primary+Z/X/C/V/A, shift for redo) unless the app
                         // set its own — AppKit's native items already carry these, so this is
                         // what gives GTK/Qt/web the same accelerators.
                         Some(day_spec::MenuRole::Undo) => {
-                            id = day_core::undo_action_id(false);
+                            action = day_core::undo_action_id(false);
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("z")));
                         }
                         Some(day_spec::MenuRole::Redo) => {
-                            id = day_core::undo_action_id(true);
+                            action = day_core::undo_action_id(true);
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("z").shift()));
                         }
                         Some(day_spec::MenuRole::Cut) => {
-                            id = day_core::edit_action_id(day_spec::EditOp::Cut);
+                            action = day_core::edit_action_id(day_spec::EditOp::Cut);
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("x")));
                         }
                         Some(day_spec::MenuRole::Copy) => {
-                            id = day_core::edit_action_id(day_spec::EditOp::Copy);
+                            action = day_core::edit_action_id(day_spec::EditOp::Copy);
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("c")));
                         }
                         Some(day_spec::MenuRole::Paste) => {
-                            id = day_core::edit_action_id(day_spec::EditOp::Paste);
+                            action = day_core::edit_action_id(day_spec::EditOp::Paste);
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("v")));
                         }
                         Some(day_spec::MenuRole::SelectAll) => {
-                            id = day_core::edit_action_id(day_spec::EditOp::SelectAll);
+                            action = day_core::edit_action_id(day_spec::EditOp::SelectAll);
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new("a")));
                         }
                         Some(day_spec::MenuRole::Preferences) => {
-                            id = day_core::windows::preferences_action_id();
+                            action = day_core::windows::preferences_action_id();
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new(",")));
                         }
                         _ => {}
@@ -240,10 +273,12 @@ fn lower_menu_with(
                     _ => e.label,
                 };
                 day_spec::MenuItem::Action {
-                    id,
+                    id: e.id,
+                    action,
                     label,
                     shortcut,
                     enabled,
+                    checked: e.checked,
                     role: e.role,
                     icon: e.icon,
                 }
@@ -291,6 +326,9 @@ pub fn app_menu_reactive(builder: impl Fn() -> Vec<MenuEntry> + 'static) {
 // per-summon action scoping are exactly what a native backend would have received.
 // ---------------------------------------------------------------------------
 
+/// The composed menu's stand-in for a native check mark, and the blank that holds its column.
+const COMPOSED_CHECK_ON: &str = "\u{2713}\u{2002}";
+const COMPOSED_CHECK_OFF: &str = "\u{2002}\u{2002}";
 /// Panel width of the composed menu, and the extra indent inlined submenu items take.
 const COMPOSED_MENU_W: f64 = 220.0;
 const COMPOSED_SUBMENU_INDENT: f64 = 12.0;
@@ -411,23 +449,38 @@ fn composed_menu_rows(
                 composed_menu_rows(items, indent + COMPOSED_SUBMENU_INDENT, next, open, out);
             }
             day_spec::MenuItem::Action {
-                id, label, enabled, ..
+                id,
+                action,
+                label,
+                enabled,
+                checked,
+                ..
             } => {
                 let n = *next;
                 *next += 1;
-                let base = crate::label(label.clone())
+                // A checkable item reserves the mark's column whichever way it sits, so a run of
+                // choices lines up on its titles instead of stepping in and out by a tick's width.
+                let text = match checked {
+                    Some(true) => format!("{COMPOSED_CHECK_ON}{label}"),
+                    Some(false) => format!("{COMPOSED_CHECK_OFF}{label}"),
+                    None => label.clone(),
+                };
+                // The app's own name where it gave one, so a dayscript `tap` addresses the row it
+                // means; the positional fallback keeps every other row reachable.
+                let element_id = id.clone().unwrap_or_else(|| format!("day-menu-item-{n}"));
+                let base = crate::label(text)
                     .padding(day_spec::Insets::symmetric(12.0 + indent, 5.0))
                     .width(COMPOSED_MENU_W);
-                let row = if *enabled && *id != 0 {
-                    let id = *id;
+                let row = if *enabled && *action != 0 {
+                    let action = *action;
                     base.background(day_spec::Color::rgba(0.0, 0.0, 0.0, 0.0))
                         .on_tap(move || {
                             open.set(None);
-                            day_core::dispatch_menu_action(id);
+                            day_core::dispatch_menu_action(action);
                         })
-                        .id(format!("day-menu-item-{n}"))
+                        .id(element_id)
                 } else {
-                    base.opacity(0.45).id(format!("day-menu-item-{n}"))
+                    base.opacity(0.45).id(element_id)
                 };
                 out.push(day_core::AnyPiece::new(row));
             }
@@ -529,14 +582,17 @@ mod tests {
             ("a", false),
         ];
         for (item, (key, shift)) in lowered.iter().zip(expect) {
-            let MenuItem::Action { shortcut, id, .. } = item else {
+            let MenuItem::Action {
+                shortcut, action, ..
+            } = item
+            else {
                 panic!("role item lowered to a non-action");
             };
             let sc = shortcut.as_ref().expect("role item has a default shortcut");
             assert_eq!(sc.key, key);
             assert!(sc.primary);
             assert_eq!(sc.shift, shift);
-            assert_ne!(*id, 0, "role item carries its standing dispatcher");
+            assert_ne!(*action, 0, "role item carries its standing dispatcher");
         }
     }
 }

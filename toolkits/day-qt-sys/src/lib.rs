@@ -410,6 +410,8 @@ unsafe extern "C" {
         // the same icon spec toolbar items take.
         icon: *const c_char,
         icon_fallback: c_int,
+        // -1 for a plain command; 0/1 makes the action checkable and sets the mark.
+        checked: c_int,
     );
     pub fn day_qt_menu_add_role(
         menu: *mut c_void,

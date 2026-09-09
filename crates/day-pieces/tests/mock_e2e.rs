@@ -5168,10 +5168,10 @@ fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
     let found = {
         fn find_prefs(items: &[day_spec::MenuItem]) -> Option<u64> {
             items.iter().find_map(|it| match it {
-                day_spec::MenuItem::Action { id, role, .. }
+                day_spec::MenuItem::Action { action, role, .. }
                     if *role == Some(day_spec::MenuRole::Preferences) =>
                 {
-                    Some(*id)
+                    Some(*action)
                 }
                 day_spec::MenuItem::Submenu { items, .. } => find_prefs(items),
                 _ => None,
@@ -6898,4 +6898,64 @@ fn a_window_that_crosses_a_breakpoint_re_presents_without_rebuilding() {
         after_wide,
         "crossing the breakpoint rebuilt the page instead of re-homing it"
     );
+}
+
+#[test]
+fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
+    let probe = boot(|| label("main").any());
+    let grid = Signal::new(true);
+    // The state the mark shows is READ here, so `app_menu_reactive` re-lowers on every change
+    // (docs/menus.md) — the whole reason a backend never flips a check itself.
+    app_menu_reactive(move || {
+        vec![sub_menu(
+            "View",
+            vec![
+                menu_item("Grid").id("view-grid").checked(grid.get()),
+                menu_item("Ruler").id("view-ruler").checked(false),
+                menu_item("Zoom In").id("view-zoom"),
+            ],
+        )]
+    });
+    flush_sync();
+
+    fn view_items() -> Vec<(Option<String>, Option<bool>)> {
+        fn walk(items: &[day_spec::MenuItem], out: &mut Vec<(Option<String>, Option<bool>)>) {
+            for it in items {
+                match it {
+                    day_spec::MenuItem::Action { id, checked, .. } => {
+                        out.push((id.clone(), *checked))
+                    }
+                    day_spec::MenuItem::Submenu { items, .. } => walk(items, out),
+                    day_spec::MenuItem::Separator => {}
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&day_core::menu::app_menu_model(), &mut out);
+        out
+    }
+
+    assert_eq!(
+        view_items(),
+        vec![
+            (Some("view-grid".into()), Some(true)),
+            (Some("view-ruler".into()), Some(false)),
+            // An item that never called `.checked` stays a plain command and reserves no mark.
+            (Some("view-zoom".into()), None),
+        ]
+    );
+
+    // The mark follows the signal, and the ids do not move with it — which is the point of
+    // having them: a label carrying a tick would be a different string on either side of this.
+    grid.set(false);
+    flush_sync();
+    assert_eq!(
+        view_items(),
+        vec![
+            (Some("view-grid".into()), Some(false)),
+            (Some("view-ruler".into()), Some(false)),
+            (Some("view-zoom".into()), None),
+        ]
+    );
+    drop(probe);
 }

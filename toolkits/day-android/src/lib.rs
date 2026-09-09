@@ -1557,8 +1557,9 @@ mod imp {
     }
 
     /// Flatten the day-neutral menu tree to the line format `DayBridge.buildMenu` parses:
-    /// `kind \t id \t enabled \t label` per line, where kind ∈ {A action, S submenu-open,
-    /// E submenu-close, `-` separator}. Roles become plain actions with id 0.
+    /// `kind \t action \t enabled \t checked \t label` per line, where kind ∈ {A action,
+    /// S submenu-open, E submenu-close, `-` separator}. Roles become plain actions with action 0,
+    /// and `checked` is -1 for a plain command or 0/1 for a checkable one.
     /// The window toolbar as one record per item — `\u{1e}` between records, `\u{1f}` between
     /// fields: id, kind, label, icon, enabled, action, extra. A menu item's extra is the app-menu
     /// spec `serialize_menu` writes (its own `\t`/`\n` never collide with these separators); a
@@ -1633,32 +1634,39 @@ mod imp {
         fn clean(s: &str) -> String {
             s.replace(['\t', '\n'], " ")
         }
+        // `kind \t action \t enabled \t checked \t label`. The label stays LAST so its own
+        // spaces need no escaping, and every kind writes the full field count so the Java side
+        // can index it — `checked` is -1 for a plain command, 0/1 for a checkable one.
         for item in items {
             match item {
-                day_spec::MenuItem::Separator => out.push_str("-\t0\t1\t\n"),
+                day_spec::MenuItem::Separator => out.push_str("-\t0\t1\t-1\t\n"),
                 day_spec::MenuItem::Submenu { label, items, .. } => {
-                    out.push_str(&format!("S\t0\t1\t{}\n", clean(label)));
+                    out.push_str(&format!("S\t0\t1\t-1\t{}\n", clean(label)));
                     serialize_menu(items, out);
-                    out.push_str("E\t0\t1\t\n");
+                    out.push_str("E\t0\t1\t-1\t\n");
                 }
                 day_spec::MenuItem::Action {
-                    id,
+                    action,
                     label,
                     shortcut: _,
                     enabled,
+                    checked,
                     role,
-                    // Material's overflow menu is text-only by convention (an app-bar ACTION
-                    // carries the icon), so an item's `icon` is deliberately unused here.
-                    icon: _,
+                    // The rest deliberately unread: Material's overflow menu is text-only by
+                    // convention (an app-bar ACTION carries the icon), so `icon` never applies
+                    // here, and `id` is the app's own name for a script rather than anything the
+                    // native item needs.
+                    ..
                 } => {
                     let text = match role {
                         Some(r) if label.is_empty() => android_role_label(*r).to_string(),
                         _ => label.clone(),
                     };
                     out.push_str(&format!(
-                        "A\t{}\t{}\t{}\n",
-                        id,
+                        "A\t{}\t{}\t{}\t{}\n",
+                        action,
                         *enabled as i32,
+                        checked.map_or(-1, i32::from),
                         clean(&text)
                     ));
                 }

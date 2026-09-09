@@ -929,18 +929,25 @@ fn menu_items_json(json: &mut String, items: &[day_spec::MenuItem]) {
                 json.push('}');
             }
             day_spec::MenuItem::Action {
-                id,
+                action,
                 label,
                 enabled,
+                checked,
                 icon,
                 ..
             } => {
                 json.push_str("{\"label\":");
                 json_str(json, label);
                 json.push_str(",\"id\":");
-                json.push_str(&id.to_string());
+                json.push_str(&action.to_string());
                 json.push_str(",\"enabled\":");
                 json.push_str(if *enabled { "true" } else { "false" });
+                // Absent for a plain command; true/false makes the row checkable and says which
+                // way, so the shim can reserve the mark's column for a whole run of choices.
+                if let Some(on) = checked {
+                    json.push_str(",\"checked\":");
+                    json.push_str(if *on { "true" } else { "false" });
+                }
                 let url = match icon {
                     Some(day_spec::Icon::Image(name)) => Some(image_url(name)),
                     Some(day_spec::Icon::Symbol(sym)) => symbol_svg(*sym),

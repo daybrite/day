@@ -2424,14 +2424,16 @@ public final class DayBridge {
         int[] group = {0};
         for (String line : spec.split("\n")) {
             if (line.isEmpty()) continue;
-            String[] f = line.split("\t", 4);
+            // kind \t action \t enabled \t checked \t label — the label is last so its own
+            // spaces survive, and every kind writes all five fields so the indices never shift.
+            String[] f = line.split("\t", 5);
             if (f.length < 1) continue;
             String kind = f[0];
             Menu cur = stack.get(stack.size() - 1);
             if (kind.equals("-")) {
                 group[0]++; // next items land in a new group → a divider is drawn between them
             } else if (kind.equals("S")) {
-                String label = f.length > 3 ? f[3] : "";
+                String label = f.length > 4 ? f[4] : "";
                 // SubMenu.addSubMenu is unsupported; when already in a submenu, flatten.
                 if (cur instanceof SubMenu) {
                     stack.add(cur);
@@ -2443,9 +2445,16 @@ public final class DayBridge {
             } else { // "A" = action (roles too, with id 0)
                 final long id = f.length > 1 ? parseLong(f[1]) : 0L;
                 boolean enabled = f.length > 2 && f[2].equals("1");
-                String label = f.length > 3 ? f[3] : "";
+                String checked = f.length > 3 ? f[3] : "-1";
+                String label = f.length > 4 ? f[4] : "";
                 MenuItem it = cur.add(group[0], Menu.NONE, order[0]++, label);
                 it.setEnabled(enabled);
+                // A checkable row draws Material's own check. Android never flips it by itself,
+                // so the mark stays exactly what the app's next menu install says it is.
+                if (!checked.equals("-1")) {
+                    it.setCheckable(true);
+                    it.setChecked(checked.equals("1"));
+                }
                 it.setOnMenuItemClickListener(new MenuItem.OnMenuItemClickListener() {
                     public boolean onMenuItemClick(MenuItem mi) {
                         nativeOnEvent(id, K_MENU_ACTION, 0.0, "");

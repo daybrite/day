@@ -360,6 +360,8 @@ fn warn_no_nav_store(key: &str) {
         return;
     }
     thread_local! {
+        // Android-only false positive, as with day-spec's `APP_TEMP_DIR`: already a `const` block.
+        #[allow(clippy::missing_const_for_thread_local)]
         static WARNED: Cell<bool> = const { Cell::new(false) };
     }
     WARNED.with(|w| {

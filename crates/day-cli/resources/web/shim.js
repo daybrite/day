@@ -54,6 +54,14 @@ function toggleToolbarMenu(anchor, items) {
         ic.style.webkitMaskImage = `url("${it.icon}")`;
         row.append(ic);
       }
+      // A checkable row carries the mark's column whichever way it sits, so a run of choices
+      // lines up on its titles rather than stepping in and out by a tick's width.
+      if (it.checked !== undefined) {
+        const mark = document.createElement('span');
+        mark.className = 'day-toolbar-menu-check';
+        mark.textContent = it.checked ? '\u2713' : '';
+        row.append(mark);
+      }
       const t = document.createElement('span');
       t.textContent = it.label;
       row.append(t);

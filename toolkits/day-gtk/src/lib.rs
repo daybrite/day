@@ -961,18 +961,37 @@ pub(crate) fn build_gio_menu(
                 section.append_submenu(Some(label), &build_gio_menu(items, group));
             }
             MI::Action {
-                id,
+                action: dispatch,
                 label,
                 shortcut,
                 enabled,
+                checked,
                 role,
                 icon,
+                ..
             } => {
-                if *id != 0 {
-                    let name = format!("a{id}");
-                    let action = gtk4::gio::SimpleAction::new(&name, None);
+                if *dispatch != 0 {
+                    let name = format!("a{dispatch}");
+                    // A checkable item is a STATEFUL boolean GAction: GTK draws the check from the
+                    // action's state, so the mark and the model cannot drift apart. The state is
+                    // set from the app's value on every install and never toggled here — day's
+                    // rule is that the app owns it (docs/menus.md).
+                    let action = match checked {
+                        Some(on) => {
+                            gtk4::gio::SimpleAction::new_stateful(&name, None, &(*on).to_variant())
+                        }
+                        None => gtk4::gio::SimpleAction::new(&name, None),
+                    };
                     action.set_enabled(*enabled);
-                    let aid = *id;
+                    if checked.is_some() {
+                        // Swallow GTK's own toggle. A stateful boolean GAction flips its state on
+                        // activation unless something handles `change-state`, which would let the
+                        // mark move even when the app's action decides not to — the one way the
+                        // menu could end up disagreeing with the app. Connecting an empty handler
+                        // leaves the state settable only by the next install.
+                        action.connect_change_state(|_, _| {});
+                    }
+                    let aid = *dispatch;
                     action.connect_activate(move |_, _| {
                         ffi_guard::contain((), || {
                             emit(day_spec::WINDOW_NODE, Event::MenuAction(aid));
@@ -1018,12 +1037,12 @@ fn set_menu_accels(app: &gtk4::Application, items: &[day_spec::MenuItem]) {
         match item {
             MI::Submenu { items, .. } => set_menu_accels(app, items),
             MI::Action {
-                id,
+                action,
                 shortcut: Some(sc),
                 ..
-            } if *id != 0 => {
+            } if *action != 0 => {
                 let accel = accel_string(sc);
-                app.set_accels_for_action(&format!("daymenu.a{id}"), &[accel.as_str()]);
+                app.set_accels_for_action(&format!("daymenu.a{action}"), &[accel.as_str()]);
             }
             _ => {}
         }
@@ -1039,10 +1058,10 @@ fn register_app_prefs_action(app: &gtk4::Application, items: &[day_spec::MenuIte
     fn find_prefs_id(items: &[day_spec::MenuItem]) -> Option<u64> {
         items.iter().find_map(|item| match item {
             MI::Submenu { items, .. } => find_prefs_id(items),
-            MI::Action { id, role, .. }
-                if *id != 0 && *role == Some(day_spec::MenuRole::Preferences) =>
+            MI::Action { action, role, .. }
+                if *action != 0 && *role == Some(day_spec::MenuRole::Preferences) =>
             {
-                Some(*id)
+                Some(*action)
             }
             _ => None,
         })

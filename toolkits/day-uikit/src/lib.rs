@@ -997,8 +997,15 @@ mod imp {
                     let mut els: Vec<Retained<UIMenuElement>> = Vec::new();
                     for (i, seg) in segments.iter().enumerate() {
                         let (action, id, enabled) = (item.action, item.id.clone(), item.enabled);
-                        let el =
-                            ui_action(mtm, &seg.title, enabled, seg.icon.as_ref(), move || {
+                        // The chosen segment is the checked row — the pull-down's way of showing
+                        // which one is in force.
+                        let el = ui_action(
+                            mtm,
+                            &seg.title,
+                            enabled,
+                            Some(i == *selected),
+                            seg.icon.as_ref(),
+                            move || {
                                 let changed = WINDOW_TOOLBARS.with(|t| {
                                     let mut t = t.borrow_mut();
                                     let bar = t.get_mut(&root)?;
@@ -1021,12 +1028,8 @@ mod imp {
                                         value: day_spec::ToolbarValue::Selected(i),
                                     },
                                 );
-                            });
-                        if i == *selected
-                            && let Some(a) = el.downcast_ref::<UIAction>()
-                        {
-                            unsafe { a.setState(objc2_ui_kit::UIMenuElementState::On) };
-                        }
+                            },
+                        );
                         els.push(el);
                     }
                     let menu = unsafe {
@@ -1164,22 +1167,19 @@ mod imp {
             TB_BUTTON
         };
         let (action, id) = (item.action, item.id.clone());
-        let el = ui_action(mtm, &title, item.enabled, item.icon.as_ref(), move || {
-            fire_toolbar_item(action, kind, &id, root)
-        });
-        if let K::Toggle { on } = item.kind
-            && let Some(a) = el.downcast_ref::<UIAction>()
-        {
-            // A toggle reads as a checked row in a menu, the way it reads as a pressed button
-            // on the bar.
-            unsafe {
-                a.setState(if on {
-                    objc2_ui_kit::UIMenuElementState::On
-                } else {
-                    objc2_ui_kit::UIMenuElementState::Off
-                })
-            };
-        }
+        // A toggle reads as a checked row in a menu, the way it reads as a pressed button on the bar.
+        let checked = match item.kind {
+            K::Toggle { on } => Some(on),
+            _ => None,
+        };
+        let el = ui_action(
+            mtm,
+            &title,
+            item.enabled,
+            checked,
+            item.icon.as_ref(),
+            move || fire_toolbar_item(action, kind, &id, root),
+        );
         Some(el)
     }
 
@@ -2153,6 +2153,7 @@ mod imp {
         mtm: MainThreadMarker,
         title: &str,
         enabled: bool,
+        checked: Option<bool>,
         icon: Option<&day_spec::Icon>,
         handler: impl Fn() + 'static,
     ) -> Retained<UIMenuElement> {
@@ -2170,6 +2171,15 @@ mod imp {
         if !enabled {
             unsafe { action.setAttributes(UIMenuElementAttributes::Disabled) };
         }
+        // UIKit's own on/off state, so the item gets the system check mark and reserves its
+        // column when off — the same look UIKit gives a picker's selected row (docs/menus.md).
+        if let Some(on) = checked {
+            action.setState(if on {
+                objc2_ui_kit::UIMenuElementState::On
+            } else {
+                objc2_ui_kit::UIMenuElementState::Off
+            });
+        }
         Retained::into_super(action)
     }
 
@@ -2186,12 +2196,14 @@ mod imp {
                     out.push(Retained::into_super(build_ui_menu(mtm, label, items)));
                 }
                 day_spec::MenuItem::Action {
-                    id,
+                    action: dispatch,
                     label,
                     shortcut: _,
                     enabled,
+                    checked,
                     role,
                     icon,
+                    ..
                 } => {
                     if let Some(role) = role {
                         let title = if label.is_empty() {
@@ -2200,25 +2212,39 @@ mod imp {
                             label.clone()
                         };
                         let sel = ui_role_selector(*role);
-                        let id = *id;
-                        out.push(ui_action(mtm, &title, *enabled, icon.as_ref(), move || {
-                            if let Some(sel) = sel {
-                                let app = UIApplication::sharedApplication(mtm);
-                                unsafe {
-                                    app.sendAction_to_from_forEvent(sel, None, None, None);
+                        let id = *dispatch;
+                        out.push(ui_action(
+                            mtm,
+                            &title,
+                            *enabled,
+                            *checked,
+                            icon.as_ref(),
+                            move || {
+                                if let Some(sel) = sel {
+                                    let app = UIApplication::sharedApplication(mtm);
+                                    unsafe {
+                                        app.sendAction_to_from_forEvent(sel, None, None, None);
+                                    }
+                                } else if id != 0 {
+                                    // No UIKit nav host for this role (Undo/Redo): the item
+                                    // carries the day dispatcher id instead — the same route a
+                                    // labeled action takes, landing on the installed undo bridge.
+                                    emit(WINDOW_NODE, Event::MenuAction(id));
                                 }
-                            } else if id != 0 {
-                                // No UIKit nav host for this role (Undo/Redo): the item
-                                // carries the day dispatcher id instead — the same route a
-                                // labeled action takes, landing on the installed undo bridge.
-                                emit(WINDOW_NODE, Event::MenuAction(id));
-                            }
-                        }));
+                            },
+                        ));
                     } else {
-                        let id = *id;
-                        out.push(ui_action(mtm, label, *enabled, icon.as_ref(), move || {
-                            emit(WINDOW_NODE, Event::MenuAction(id));
-                        }));
+                        let id = *dispatch;
+                        out.push(ui_action(
+                            mtm,
+                            label,
+                            *enabled,
+                            *checked,
+                            icon.as_ref(),
+                            move || {
+                                emit(WINDOW_NODE, Event::MenuAction(id));
+                            },
+                        ));
                     }
                 }
             }

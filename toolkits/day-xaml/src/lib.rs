@@ -1292,7 +1292,9 @@ fn win_keycode(key: &str) -> i32 {
 }
 
 /// Serialize the day-neutral tree to the shim's line format:
-/// `kind \t id \t role \t key \t mods \t enabled \t label` (kinds A/R/S/E/`-`).
+/// `kind \t action \t role \t key \t mods \t enabled \t label \t glyph \t checked`
+/// (kinds A/R/S/E/`-`). Fields are APPENDED, never reordered, so a shim reading only the first
+/// seven is unaffected by the two that came later.
 fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
     fn clean(s: &str) -> String {
         s.replace(['\t', '\n'], " ")
@@ -1306,12 +1308,14 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                 out.push_str("E\t0\t-1\t0\t0\t1\t\n");
             }
             day_spec::MenuItem::Action {
-                id,
+                action,
                 label,
                 shortcut,
                 enabled,
+                checked,
                 role,
                 icon,
+                ..
             } => {
                 let en = *enabled as i32;
                 // Label/shortcut fall back to the role's platform defaults; the DISPATCH
@@ -1339,24 +1343,28 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                     Some(day_spec::Icon::Symbol(s)) => toolbar::glyph_for(*s),
                     _ => "",
                 };
+                // A 9th field: -1 a plain command, 0/1 a ToggleMenuFlyoutItem sitting off/on.
+                let chk = checked.map_or(-1, i32::from);
                 match role {
-                    Some(r) if *id == 0 => out.push_str(&format!(
-                        "R\t0\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                    Some(r) if *action == 0 => out.push_str(&format!(
+                        "R\t0\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                         *r as i32,
                         key,
                         mods,
                         en,
                         clean(&text),
-                        glyph
+                        glyph,
+                        chk
                     )),
                     _ => out.push_str(&format!(
-                        "A\t{}\t-1\t{}\t{}\t{}\t{}\t{}\n",
-                        id,
+                        "A\t{}\t-1\t{}\t{}\t{}\t{}\t{}\t{}\n",
+                        action,
                         key,
                         mods,
                         en,
                         clean(&text),
-                        glyph
+                        glyph,
+                        chk
                     )),
                 }
             }

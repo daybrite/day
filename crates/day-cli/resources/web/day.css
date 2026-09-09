@@ -650,6 +650,13 @@ body.day-has-toolbar #day-root {
 .day-toolbar-menu-item.header,
 .day-toolbar-menu-item.disabled { color: var(--day-fg-dim); }
 .day-toolbar-menu-item .day-toolbar-icon { width: 16px; height: 16px; }
+/* The check column of a checkable row. Fixed width so a run of choices aligns on its titles
+   whether or not any of them is the one in force. */
+.day-toolbar-menu-check {
+  width: 12px;
+  flex: none;
+  text-align: center;
+}
 .day-toolbar-menu-sep {
   height: 1px;
   margin: 4px 10px;

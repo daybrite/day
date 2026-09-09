@@ -4023,7 +4023,20 @@ static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> 
         } else if (kind == "E") {
             if (stack.size() > 1) stack.pop_back();
         } else { // "A" action, "R" role
-            WUXC::MenuFlyoutItem item;
+            // A 9th field, when present, is the item's checked state: -1 a plain command, 0/1 a
+            // checkable one. A checkable item is a ToggleMenuFlyoutItem (which derives from
+            // MenuFlyoutItem, so everything below still applies to it) — WinUI's own checked row,
+            // with the mark's column reserved when it is off.
+            int checked = f.size() > 8 && !f[8].empty() ? std::atoi(f[8].c_str()) : -1;
+            WUXC::ToggleMenuFlyoutItem toggle{nullptr};
+            WUXC::MenuFlyoutItem item{nullptr};
+            if (checked >= 0) {
+                toggle = WUXC::ToggleMenuFlyoutItem{};
+                toggle.IsChecked(checked != 0);
+                item = toggle;
+            } else {
+                item = WUXC::MenuFlyoutItem{};
+            }
             item.Text(hs(label.c_str()));
             // An 8th field, when present, is the item's Segoe Fluent code point in hex
             // (docs/menus.md) — the same table the toolbar's icons come from.
@@ -4062,8 +4075,11 @@ static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> 
                 closes_window = role == 11;
             }
             if (fire || closes_window) {
-                item.Click([fire, closes_window](WF::IInspectable const& s,
-                                                 WUX::RoutedEventArgs const&) {
+                item.Click([fire, closes_window, toggle, checked](WF::IInspectable const& s,
+                                                                  WUX::RoutedEventArgs const&) {
+                    // ToggleMenuFlyoutItem flips itself on click. Put it back: whether the mark
+                    // moves is the app's decision, and it arrives as the next menu install.
+                    if (toggle) toggle.IsChecked(checked != 0);
                     if (closes_window) {
                         // Same WM_CLOSE the title-bar X sends, so both routes tear the window
                         // down through one path (secondary: hide + day-side teardown; primary:

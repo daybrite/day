@@ -248,7 +248,14 @@ pub enum Step {
     /// `key: day-preferences`). `path` disambiguates with ancestor submenu labels (suffix
     /// match). Items that run a native selector instead of a day action (role items with
     /// id 0) are not invokable this way.
+    /// Choose an app-menu item. Address it by `id:` — the name the app gave it with
+    /// `MenuEntry::id` — in preference to anything else: a label is localized, and an item that
+    /// shows a check mark rewrites its own label as the state moves, so neither is a stable
+    /// address. `item:` matches the literal label, `key:` a built-in role key (`day-copy`) or a
+    /// Fluent key resolved in the run's locale.
     Menu {
+        #[serde(default)]
+        id: Option<String>,
         #[serde(default)]
         item: Option<String>,
         #[serde(default)]
@@ -805,6 +812,7 @@ fn find_menu_actions(
     items: &[day_spec::MenuItem],
     target_label: &str,
     target_key: Option<&str>,
+    target_id: Option<&str>,
     path: &[(String, String)],
 ) -> Vec<(u64, bool, Vec<String>)> {
     // Mirrors day-pieces' role_catalog_key (docs/menus.md) — the stable `day-*` key set.
@@ -827,11 +835,13 @@ fn find_menu_actions(
             R::NewWindow => "day-new-window",
         }
     }
+    #[allow(clippy::too_many_arguments)]
     fn walk(
         items: &[day_spec::MenuItem],
         trail: &mut Vec<String>,
         target_label: &str,
         target_key: Option<&str>,
+        target_id: Option<&str>,
         path: &[(String, String)],
         out: &mut Vec<(u64, bool, Vec<String>)>,
     ) {
@@ -839,26 +849,33 @@ fn find_menu_actions(
             match it {
                 day_spec::MenuItem::Action {
                     id,
+                    action,
                     label,
                     enabled,
                     role,
                     ..
                 } => {
-                    let by_label = !label.is_empty() && label == target_label;
-                    let by_key = target_key.is_some_and(|k| role.is_some_and(|r| role_key(r) == k));
+                    // An `id:` step is an EXACT address and nothing else may answer it: matching
+                    // the label too would let a step that named a missing id quietly hit some
+                    // other item whose title happened to read the same.
+                    let by_id = target_id.is_some_and(|w| id.as_deref() == Some(w));
+                    let by_label =
+                        target_id.is_none() && !label.is_empty() && label == target_label;
+                    let by_key = target_id.is_none()
+                        && target_key.is_some_and(|k| role.is_some_and(|r| role_key(r) == k));
                     let path_ok = path.is_empty()
                         || (path.len() <= trail.len()
                             && trail[trail.len() - path.len()..]
                                 .iter()
                                 .zip(path)
                                 .all(|(seen, want)| seen == &want.0 || seen == &want.1));
-                    if (by_label || by_key) && path_ok {
-                        out.push((*id, *enabled, trail.clone()));
+                    if (by_id || by_label || by_key) && path_ok {
+                        out.push((*action, *enabled, trail.clone()));
                     }
                 }
                 day_spec::MenuItem::Submenu { label, items, .. } => {
                     trail.push(label.clone());
-                    walk(items, trail, target_label, target_key, path, out);
+                    walk(items, trail, target_label, target_key, target_id, path, out);
                     trail.pop();
                 }
                 day_spec::MenuItem::Separator => {}
@@ -871,6 +888,7 @@ fn find_menu_actions(
         &mut Vec::new(),
         target_label,
         target_key,
+        target_id,
         path,
         &mut out,
     );
@@ -1271,12 +1289,18 @@ fn exec(step: Step) -> Reply {
                     }
                 }
             }
-            Step::Menu { item, key, path } => {
-                let target_label = match (&item, &key) {
-                    (Some(l), _) => l.clone(),
-                    (None, Some(k)) => format_key(k, None),
-                    (None, None) => {
-                        return Err(Reply::fail("menu: needs `item:` or `key:`", false));
+            Step::Menu {
+                id,
+                item,
+                key,
+                path,
+            } => {
+                let target_label = match (&id, &item, &key) {
+                    (Some(_), _, _) => String::new(),
+                    (None, Some(l), _) => l.clone(),
+                    (None, None, Some(k)) => format_key(k, None),
+                    (None, None, None) => {
+                        return Err(Reply::fail("menu: needs `id:`, `item:` or `key:`", false));
                     }
                 };
                 // Each `path:` entry matches an ancestor submenu by its literal label OR by
@@ -1294,6 +1318,7 @@ fn exec(step: Step) -> Reply {
                     &day_core::menu::app_menu_model(),
                     &target_label,
                     key.as_deref(),
+                    id.as_deref(),
                     &path,
                 );
                 // The AUTO items (docs/windows.md) exist even when the app never installed a
@@ -1315,35 +1340,38 @@ fn exec(step: Step) -> Reply {
                     day_reactive::flush_sync();
                     return Ok(Reply::ok());
                 }
+                // Name the item back the way the step named it, so a failure says which spelling
+                // it was actually asked to find.
+                let what = match &id {
+                    Some(want) => format!("id {want:?}"),
+                    None => format!("{target_label:?}"),
+                };
                 match matches.as_slice() {
                     [] => Err(Reply::fail(
                         // Retryable: the (reactive) app menu may not have installed yet.
-                        format!("menu: no item {target_label:?}"),
+                        format!("menu: no item {what}"),
                         true,
                     )),
-                    [(id, enabled, _)] => {
-                        if *id == 0 {
+                    [(action, enabled, _)] => {
+                        if *action == 0 {
                             Err(Reply::fail(
                                 format!(
-                                    "menu: {target_label:?} runs a native selector (no day \
-                                     action) — not invokable from dayscript"
+                                    "menu: {what} runs a native selector (no day action) — not \
+                                     invokable from dayscript"
                                 ),
                                 false,
                             ))
                         } else if !enabled {
-                            Err(Reply::fail(
-                                format!("menu: {target_label:?} is disabled"),
-                                false,
-                            ))
+                            Err(Reply::fail(format!("menu: {what} is disabled"), false))
                         } else {
-                            day_core::dispatch_menu_action(*id);
+                            day_core::dispatch_menu_action(*action);
                             day_reactive::flush_sync();
                             Ok(Reply::ok())
                         }
                     }
                     many => Err(Reply::fail(
                         format!(
-                            "menu: {target_label:?} is ambiguous — disambiguate with path: {:?}",
+                            "menu: {what} is ambiguous — disambiguate with path: {:?}",
                             many.iter()
                                 .map(|(_, _, p)| p.join(" ▸ "))
                                 .collect::<Vec<_>>()
@@ -1969,5 +1997,63 @@ mod tests {
             );
         }
         unsafe { std::env::remove_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS") };
+    }
+
+    /// `menu: { id: … }` is the address that survives a label change — which is exactly what a
+    /// checked item does to itself on every state flip — and it never falls back to the label,
+    /// so a step naming an id that is not there fails instead of hitting a lookalike.
+    #[test]
+    fn menu_id_addresses_an_item_whose_label_moves() {
+        use day_spec::MenuItem as MI;
+        let model = |mark: &str| {
+            vec![MI::Submenu {
+                label: "View".into(),
+                role: None,
+                items: vec![
+                    MI::Action {
+                        id: Some("view-grid".into()),
+                        action: 42,
+                        label: format!("{mark}Grid"),
+                        shortcut: None,
+                        enabled: true,
+                        checked: Some(mark == "\u{2713} "),
+                        role: None,
+                        icon: None,
+                    },
+                    MI::Action {
+                        id: None,
+                        action: 7,
+                        label: "Grid".into(),
+                        shortcut: None,
+                        enabled: true,
+                        checked: None,
+                        role: None,
+                        icon: None,
+                    },
+                ],
+            }]
+        };
+        let by_id = |items: &[MI]| {
+            find_menu_actions(items, "", None, Some("view-grid"), &[])
+                .into_iter()
+                .map(|(a, _, _)| a)
+                .collect::<Vec<_>>()
+        };
+        // Same id on either side of the flip, though the label is a different string each time.
+        assert_eq!(by_id(&model("\u{2713} ")), vec![42]);
+        assert_eq!(by_id(&model("    ")), vec![42]);
+        // The unmarked spelling matches the OTHER item by label, which is the ambiguity an id
+        // exists to avoid.
+        assert_eq!(
+            find_menu_actions(&model("    "), "Grid", None, None, &[])
+                .into_iter()
+                .map(|(a, _, _)| a)
+                .collect::<Vec<_>>(),
+            vec![7]
+        );
+        // An id that is not in the model matches nothing — never the same-named item by label.
+        assert!(
+            find_menu_actions(&model("    "), "Grid", None, Some("view-ruler"), &[]).is_empty()
+        );
     }
 }
