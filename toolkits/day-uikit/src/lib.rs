@@ -302,7 +302,7 @@ mod imp {
     ///
     /// day-uikit deploys to iOS 15 and is built against a much newer SDK, so anything newer than
     /// the floor has to be asked for at runtime. objc2 compiles the call whatever the SDK
-    /// version; the OS is what decides whether the selector exists, and an unrecognized selector
+    /// version; the OS is what decides whether the nav host exists, and an unrecognized nav host
     /// is a crash, not a no-op.
     ///
     /// Cached: `NSProcessInfo` is a lookup per call otherwise, and the answer cannot change
@@ -2111,7 +2111,7 @@ mod imp {
         }
     }
 
-    /// The UIResponder standard-edit selector a role routes to (None → a no-op labeled action, since
+    /// The UIResponder standard-edit nav host a role routes to (None → a no-op labeled action, since
     /// iOS has no responder equivalent — e.g. Quit/About/window management).
     fn ui_role_selector(role: day_spec::MenuRole) -> Option<objc2::runtime::Sel> {
         use day_spec::MenuRole::*;
@@ -2208,7 +2208,7 @@ mod imp {
                                     app.sendAction_to_from_forEvent(sel, None, None, None);
                                 }
                             } else if id != 0 {
-                                // No UIKit selector for this role (Undo/Redo): the item
+                                // No UIKit nav host for this role (Undo/Redo): the item
                                 // carries the day dispatcher id instead — the same route a
                                 // labeled action takes, landing on the installed undo bridge.
                                 emit(WINDOW_NODE, Event::MenuAction(id));
@@ -2270,7 +2270,7 @@ mod imp {
     // -----------------------------------------------------------------------
 
     /// The adaptive half of a nav host (docs/size-classes.md) — present only when the host was
-    /// lowered as `Split`. A host lowered `Stack` is a stack at every size (a nested `stack()`
+    /// lowered as `Split`. A host lowered `Stack` is a stack at every size (a nested `nav_stack()`
     /// under a split host), and realizes as a plain navigation controller instead: a
     /// `UISplitViewController` assumes it owns the window, and nesting one inside a pane breaks
     /// its layout (the embedded-split trap).
@@ -3711,7 +3711,7 @@ mod imp {
         /// The `UITab` per page, parallel to `vcs`. Each carries its index as its IDENTIFIER,
         /// which is what turns a delegate callback back into a Day row and what `Select` looks up.
         tabs: Vec<Retained<objc2_ui_kit::UITab>>,
-        /// Row labels and glyphs from the host's NAV_MENU, which is where a selector's rows live.
+        /// Row labels and glyphs from the host's NAV_MENU, which is where a nav host's rows live.
         titles: Vec<String>,
         icons: Vec<Option<String>>,
         /// The NAV_MENU's node — a tab tap emits against it, exactly as a sidebar row click does,
@@ -3797,10 +3797,10 @@ mod imp {
         /// from its identifier rather than from `selectedIndex`, which cannot see into a group.
         ///
         /// Declared OUTSIDE the protocol block on purpose. A protocol block asks the RUNTIME for
-        /// the selector's type encoding, and `tabBarController:didSelectTab:previousTab:` is iOS
+        /// the nav host's type encoding, and `tabBarController:didSelectTab:previousTab:` is iOS
         /// 18's — on an older runtime the class fails to register at all ("method not found"),
         /// which took the whole scene down the moment a tabs host was realized. As a plain method
-        /// objc2 derives the encoding from these types instead, UIKit dispatches it by selector
+        /// objc2 derives the encoding from these types instead, UIKit dispatches it by nav host
         /// where it exists, and nothing asks for it where it does not.
         impl DayNavTabsDelegate {
             #[unsafe(method(tabBarController:didSelectTab:previousTab:))]
@@ -6509,7 +6509,7 @@ mod imp {
         ///
         /// `UNUserNotificationCenter.setBadgeCount:` (iOS 16+) rather than the deprecated
         /// `UIApplication.applicationIconBadgeNumber`. Hand-rolled through `msg_send!` on two
-        /// selectors instead of taking `objc2-user-notifications` as a toolkit dependency — the
+        /// nav hosts instead of taking `objc2-user-notifications` as a toolkit dependency — the
         /// same budget `day-part-permissions` keeps for this exact class.
         fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
             use day_spec::AppBadge;
@@ -6627,7 +6627,7 @@ mod imp {
                 // The same pipeline generalized: app-declared actions on either edge, with
                 // the full-swipe shortcut on the first (docs/list.md).
                 | Cap::ListSwipeActions
-                // A `UISplitViewController` hosts every `selector(Sidebar)`, so two columns are
+                // A `UISplitViewController` hosts every `nav(Sidebar)`, so two columns are
                 // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
                 // iPhone in landscape (docs/size-classes.md).
                 // `.tabSidebar` (docs/navigation.md): ONE `UITabBarController` that draws a tab
@@ -6640,7 +6640,7 @@ mod imp {
                 // below 18 and let the resolver fall back. That made iOS 15.5 and 17.5 worse,
                 // not safer: the fallback lowers a different host shape and broke the scaffold's
                 // walkthrough on both, while the unguarded call ran clean on both. Apple shipped
-                // the selector before annotating it. An app on iOS 15 therefore gets a plain tab
+                // the nav host before annotating it. An app on iOS 15 therefore gets a plain tab
                 // bar — what it would have drawn anyway — and only the sidebar half is new.
                 | Cap::NavTabsAdaptive
                 | Cap::NavTabs
@@ -6714,7 +6714,7 @@ mod imp {
                         .with(|w| w.borrow().clone())
                         .and_then(|w| w.rootViewController());
                     // `presentation: Stack` in props means a stack at EVERY size — a nested
-                    // `stack()` under a split host (docs/size-classes.md) — realized as a PLAIN
+                    // `nav_stack()` under a split host (docs/size-classes.md) — realized as a PLAIN
                     // navigation controller. A `UISplitViewController` assumes it owns the
                     // window; nested inside a detail pane its column layout collapses into
                     // garbage (the embedded-split trap), which is exactly what a pane-sized
@@ -6726,7 +6726,7 @@ mod imp {
                         let tabbar = unsafe { UITabBarController::new(mtm) };
                         // `mode` is annotated `ios(18.0)` but responds on 15.5 and 17.5, which is
                         // measured, not assumed (docs/size-classes.md). Guard on whether the
-                        // object ANSWERS the selector rather than on a version number: that is
+                        // object ANSWERS the nav host rather than on a version number: that is
                         // the fact the call actually depends on, it needs no table of which OS
                         // shipped what, and it degrades to a plain tab bar — an iOS 17 app's own
                         // shape — instead of dying, on any runtime that really lacks it.
@@ -7006,7 +7006,7 @@ mod imp {
                     let view = view_of(table);
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
                     // Remember the rows for a `.tabSidebar` host: UIKit draws BOTH its tab bar
-                    // and its sidebar from the tabs, so a selector's row labels have to reach the
+                    // and its sidebar from the tabs, so a nav host's row labels have to reach the
                     // tabs rather than only this table (docs/navigation.md).
                     NAV_MENU_ROWS.with(|m| {
                         m.borrow_mut().insert(
@@ -9962,7 +9962,7 @@ mod imp {
 
         unsafe impl NSObjectProtocol for AppDelegate {}
 
-        /// The end of the responder chain for the standard edit selectors: a focused text
+        /// The end of the responder chain for the standard edit nav hosts: a focused text
         /// field answered them long before the chain got here, so what arrives is the app's.
         impl AppDelegate {
             #[unsafe(method(cut:))]
@@ -10124,7 +10124,7 @@ mod imp {
             }
         }
 
-        // Inherent (non-protocol) selectors: NSNotificationCenter targets land here — objc2
+        // Inherent (non-protocol) nav hosts: NSNotificationCenter targets land here — objc2
         // verifies protocol impl blocks against the protocol, and keyboardWillChange: is ours.
         impl AppDelegate {
             /// Keyboard show/hide/height change: clamp the root's bottom to the keyboard top

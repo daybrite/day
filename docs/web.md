@@ -78,7 +78,7 @@ The browser owns geometry in two places:
   are absolutely placed inside a sized content `<div>`, the browser scrolls it natively.
 - **Nav and tab panes** are CSS-framed (flex split view, stacked pages); each pane reports its
   size back through a ResizeObserver as `Event::FrameChanged`, the DayNavPage contract
-  ([docs/navigation.md](navigation.md)). Split-vs-stack for a `selector(Sidebar)` is decided once at launch from
+  ([docs/navigation.md](navigation.md)). Split-vs-stack for a `nav(Sidebar)` is decided once at launch from
   the initial viewport width (`SPLIT_MODE`, ≥ 700 px) and never re-evaluated on resize; a
   window widened past the threshold stays a stack until reload.
 

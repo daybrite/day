@@ -637,10 +637,10 @@ pub trait TreeOps {
     fn set_focusable(&mut self, node: RNode, focusable: bool);
     /// Mirror a `FocusChanged` event into the node's dayscript probe (pump-only).
     fn set_probe_focused(&mut self, node: RNode, focused: bool);
-    /// Record which ROW of a selector is current, on the `kinds::NAV` host that `.id()` tags
+    /// Record which ROW of a nav host is current, on the `kinds::NAV` host that `.id()` tags
     /// (docs/navigation.md). The host's own `NavPatch::Select` carries a resident-page index —
     /// visit order, which only coincides with row order when every page is built up front — so
-    /// the selector reports the row index here instead. `None` = nothing selected (`-1`).
+    /// the nav host reports the row index here instead. `None` = nothing selected (`-1`).
     fn set_probe_selected(&mut self, node: RNode, selected: Option<usize>);
     /// Record an EXTERNAL piece's current value in the node's dayscript probe — both the
     /// numeric form (`assert_value`) and its display text (`assert_text`). The core patch
@@ -716,7 +716,7 @@ pub trait TreeOps {
     fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::A11ySnapshot)>;
     fn find_by_id(&self, id: &str) -> Option<RNode>;
     /// Show/hide the sidebar pane of the navigation host `host` — what the sidebar affordance
-    /// a `selector(Sidebar)` contributes for itself drives. `false` when the toolkit has no
+    /// a `nav(Sidebar)` contributes for itself drives. `false` when the toolkit has no
     /// pane to toggle there (or no sidebar concept at all). Per host, so a second window's
     /// button collapses its own sidebar (docs/toolbars.md, docs/navigation.md).
     fn toggle_sidebar(&mut self, _host: RNode) -> bool {
@@ -1169,7 +1169,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn set_probe_selected(&mut self, node: RNode, selected: Option<usize>) {
         if let Some(n) = self.nodes.get_mut(node) {
             // Both fields, as a picker does: `assert_value` reads `value` for a number and
-            // `assert_selected` reads `selected`, and a selector answers either.
+            // `assert_selected` reads `selected`, and a nav host answers either.
             n.probe.selected = selected.map(|i| i as i64).unwrap_or(-1);
             n.probe.value = n.probe.selected as f64;
         }

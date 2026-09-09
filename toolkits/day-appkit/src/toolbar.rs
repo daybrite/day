@@ -341,7 +341,7 @@ fn column_items(
 const LIST_SEPARATOR_ID: &str = "day.toolbar.list-separator";
 
 fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
-    // The sidebar affordance a `selector(Sidebar)` contributes for itself resolves to AppKit's
+    // The sidebar affordance a `nav(Sidebar)` contributes for itself resolves to AppKit's
     // OWN item (docs/toolbars.md): the system glyph, the localized name, the position beside the
     // split's divider, and the `toggleSidebar:` action `NSSplitViewController` implements. Day's
     // button is never built — one affordance, the platform's.

@@ -118,7 +118,7 @@ day_core::tls_group! {
 
 // Navigation host — always a native `NavigationView` (docs/navigation.md), in one of two modes
 // chosen by NavProps.presentation:
-//  • Split       → the idiomatic Windows sidebar+header selector (as in Settings): MenuItems are the
+//  • Split       → the idiomatic Windows sidebar+header nav host (as in Settings): MenuItems are the
 //    destinations, the Header names the current one, Content holds the detail page.
 //  • Stack       → a push/pop stack: no menu, the back button appears once a page is pushed, and
 //    pages stack in the content region.
@@ -1512,7 +1512,7 @@ impl Toolkit for Xaml {
                     let Some(p) = props_of::<NavProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
-                    // Both presentations are a native NavigationView: a sidebar+header selector
+                    // Both presentations are a native NavigationView: a sidebar+header nav host
                     // (split) or a push/pop stack with a back button (docs/navigation.md).
                     // Only a real push/pop stack stacks. `Tabs` and `Rail` are this same
                     // NavigationView wearing a different pane (`rows_are_chrome`), and their pages
@@ -2262,12 +2262,12 @@ impl Toolkit for Xaml {
     }
 
     fn insert(&mut self, parent: &WinHandle, child: &WinHandle, index: usize) {
-        // Nav host: for a selector, page index 0 = sidebar (PaneHeader), the rest = detail. For a
+        // Nav host: for a nav host, page index 0 = sidebar (PaneHeader), the rest = detail. For a
         // stack, every page stacks in the content region.
         enum NavInsert {
             No,
             Done,
-            /// A page landed in the content region: seed its frame. `stack` also re-syncs the
+            /// A page landed in the content region: seed its frame. `nav_stack` also re-syncs the
             /// stack's top-page visibility + back button.
             Content {
                 node: NodeId,

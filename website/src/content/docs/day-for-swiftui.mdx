@@ -38,8 +38,8 @@ pages.
 | `VStack` / `HStack` / `ZStack` / `Spacer` | `column` / `row` / `zstack` / `spacer()` |
 | `.font(.title)` / `.padding()` | `.font(Font::Title)` / `.padding(16.0)` |
 | `List` / `ForEach(id:)` | `list` / `each` — the key function is required |
-| `NavigationSplitView` | `selector(…).style(SelectorStyle::Sidebar)` |
-| `NavigationStack(path:)` | `stack(path, root)`, driven by a path signal |
+| `NavigationSplitView` | `nav(…).style(NavStyle::Sidebar)` |
+| `NavigationStack(path:)` | `nav_stack(path, root)`, driven by a path signal |
 | `@Environment(\.horizontalSizeClass)` | `size_class()` — five width buckets, one table on every backend |
 | `.environment` / `@Environment` | `with_environment` / `environment::<T>()` |
 | `Task { }` + `@MainActor` | `day::task` — continuations land on the UI thread |
@@ -205,7 +205,7 @@ navigate("album-42");
 
 </Compare>
 
-`NavigationSplitView` maps to `selector(…).style(SelectorStyle::Sidebar)`: a real
+`NavigationSplitView` maps to `nav(…).style(NavStyle::Sidebar)`: a real
 `NSSplitView` source list on macOS, and the platform's own idiom elsewhere (a pushing list on
 phones, libadwaita's split view on GTK). On top of the signals sits a thin route layer:
 `navigate("library/album-42")`, `current_route()`, and `DAY_DEEPLINK` cover programmatic
@@ -235,11 +235,11 @@ var body: some View {
 ```
 
 ```rust
-// A selector already does this: it re-presents on every breakpoint crossing
+// A nav host already does this: it re-presents on every breakpoint crossing
 // and re-homes the pages it built, so scroll offsets, focus, and the search
 // query survive the morph.
-selector(page)
-    .style(SelectorStyle::Sidebar)
+nav host(page)
+    .style(NavStyle::Sidebar)
     .destination(|key| page_for(key))
 
 // Where a view wants to make the same call itself:

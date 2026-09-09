@@ -512,7 +512,7 @@ pub fn toolbar_model() -> Vec<ToolbarItem> {
 }
 
 /// Show/hide the sidebar pane of the navigation host `host` — the behavior behind the sidebar
-/// affordance a selector contributes for itself (`day_spec::SIDEBAR_TOGGLE_ID`). `false` when
+/// affordance a nav host contributes for itself (`day_spec::SIDEBAR_TOGGLE_ID`). `false` when
 /// the toolkit has no pane to toggle there. The item's action makes this call, and dayscript's
 /// `toolbar:` step presses the item like any other, so a walkthrough drives the same path a
 /// click does (docs/toolbars.md).

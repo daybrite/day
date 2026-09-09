@@ -42,7 +42,7 @@ DOM elements on the web. Your app looks native everywhere rather than identical 
 | `Column` / `Row` / `Box` / `Spacer` | `column` / `row` / `zstack` / `spacer()` |
 | `Modifier.padding(16.dp)` | `.padding(16.0)` — modifiers are builder methods |
 | `LazyColumn` | `list` — recycling rows, key required |
-| `NavHost` + `NavController` | `selector`, `stack`, and string routes |
+| `NavHost` + `NavController` | `nav`, `nav_stack`, and string routes |
 | `currentWindowAdaptiveInfo().windowSizeClass` | `size_class()` — the same breakpoint table, everywhere |
 | `CompositionLocal` | `with_environment` / `environment::<T>()` |
 | `ViewModel` + `StateFlow` | structs of signals; `Setter` for background threads |
@@ -214,7 +214,7 @@ navigate("album-42");
 
 Because navigation is state, the system back gesture writes a pop into your signal, deep links
 are `DAY_DEEPLINK=library/album-42` at launch, and a UI test asserts `current_route()` as a
-string. Sections (the role of a bottom bar or nav rail) are `selector`, which renders each
+string. Sections (the role of a bottom bar or nav rail) are `nav`, which renders each
 platform's idiom: tabs on phones, a sidebar split view on desktop. See
 [Navigation](/docs/navigation).
 
@@ -222,7 +222,7 @@ platform's idiom: tabs on phones, a sidebar split view on desktop. See
 
 `SizeClass` uses Android's window size classes verbatim, on every backend, so a 700pt window
 is `Medium` on a Mac and in a browser exactly as it is on a tablet. In Compose you pick the
-scaffold per class; in Day the `selector` re-presents itself.
+scaffold per class; in Day the `nav` re-presents itself.
 
 <Compare lhs="Compose">
 
@@ -239,11 +239,11 @@ NavigationSuiteScaffold(
 ```
 
 ```rust
-// One selector, both presentations. Day re-resolves on every breakpoint
+// One nav host, both presentations. Day re-resolves on every breakpoint
 // crossing and re-homes the pages it already built, so scroll offsets and
 // focus survive the morph rather than being rebuilt.
-selector(page)
-    .style(SelectorStyle::Sidebar)
+nav host(page)
+    .style(NavStyle::Sidebar)
     .destination(|key| page_for(key))
 
 // Where the app wants to make the same call itself:
@@ -437,7 +437,7 @@ label(res::str::unread(count))   // generated, compile-checked
 </Compare>
 
 `res::str` plays the role of `R`: `res::str::unread` is generated at build time, so a missing
-key or wrong argument count is a compile error, and a plural selector is typed numeric. On
+key or wrong argument count is a compile error, and a plural nav host is typed numeric. On
 Android the staging target is the `res/` system itself: `resource/images/` becomes density-bucketed
 `res/drawable-*` entries crunched by aapt2, fonts land in `res/font/`. The same sources also
 become asset catalogs on iOS and GResource bundles on GTK, from one directory. Unlike

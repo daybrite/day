@@ -3,7 +3,7 @@
 
 //! Navigation. Imperative helpers (`navigate`, `nav_back`, `current_route`, `nav_link`); typed
 //! routes (the `Route` trait, the `routes!` macro, `RoutePath`); and the host pieces that project
-//! an app-owned `Signal` into native navigation — `selector` (tabs/sidebar), `stack` (push/pop),
+//! an app-owned `Signal` into native navigation — `nav` (tabs/sidebar), `nav_stack` (push/pop),
 //! and `cover` (modal) — including nested-stack merging.
 
 use std::cell::{Cell, RefCell};
@@ -16,7 +16,7 @@ use day_spec::{Event, Size, kinds};
 use crate::*;
 
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md) — selector + stack, each a
+// Navigation (docs/navigation.md) — nav + stack, each a
 // projection of an app-owned Signal.
 // ---------------------------------------------------------------------------
 
@@ -72,8 +72,8 @@ pub fn nav_link<M>(label: impl IntoText<M>, path: &str) -> Button {
 /// A typed route key — the compile-checked alternative to raw string keys.
 ///
 /// Implement on an enum (one variant per destination) and use it everywhere a key goes:
-/// `selector(Signal<Option<Section>>)` + `.item(Section::Controls, …)`,
-/// `stack(Signal<Vec<Drill>>, …)` + `.destination(|d: &Drill| …)`, [`navigate_to`], [`route`].
+/// `nav(Signal<Option<Section>>)` + `.item(Section::Controls, …)`,
+/// `nav_stack(Signal<Vec<Drill>>, …)` + `.destination(|d: &Drill| …)`, [`navigate_to`], [`route`].
 /// The string layer stays the wire format — deep links, dayscript, and [`current_route`]
 /// still speak [`Route::key`] strings — but app code never assembles or splits them.
 ///
@@ -88,7 +88,7 @@ pub trait Route: Clone + PartialEq + 'static {
     /// Parse a path segment back into the typed value; `None` = not one of this type's routes.
     fn from_key(key: &str) -> Option<Self>;
     /// The human-readable title shown in the native navigation bar when this route is the top of
-    /// a [`stack`]. Defaults to [`key`](Route::key); override it to show a display name (e.g. an
+    /// a [`nav_stack`]. Defaults to [`key`](Route::key); override it to show a display name (e.g. an
     /// app's name) instead of the wire key.
     fn title(&self) -> String {
         self.key()
@@ -105,7 +105,7 @@ impl Route for String {
     }
 }
 
-/// `None` ↔ `""` (no selection) — the key type for a sidebar [`selector`], whose collapsed
+/// `None` ↔ `""` (no selection) — the key type for a sidebar [`nav`], whose collapsed
 /// mobile state IS "nothing selected". `.item(Section::X, …)` still takes the bare value
 /// (`Section: Into<Option<Section>>`).
 impl<R: Route> Route for Option<R> {
@@ -130,7 +130,7 @@ impl<R: Route> Route for Option<R> {
 /// day::routes! {
 ///     pub enum Section { Controls => "controls", Text => "text" }
 /// }
-/// selector(section).item(Section::Controls, tr("controls"), controls_page)
+/// nav(section).item(Section::Controls, tr("controls"), controls_page)
 /// ```
 ///
 /// Variants that carry data (`Item { id: u32 }` ↔ `"item-42"`) implement [`Route`] by hand.
@@ -212,7 +212,7 @@ pub fn nav_link_to<M>(label: impl IntoText<M>, path: RoutePath) -> Button {
 }
 
 // ---------------------------------------------------------------------------
-// Nested-nav merge (docs/navigation.md): a `stack()` built inside a page of an enclosing NAV
+// Nested-nav merge (docs/navigation.md): a `nav_stack()` built inside a page of an enclosing NAV
 // host that presents as a push stack (mobile, `split == false`) pushes its pages onto THAT host
 // instead of minting a second native container — one native nav chain, one back button. The
 // enclosing host is threaded to nested pieces at build time via a thread-local context stack;
@@ -248,7 +248,7 @@ day_reactive::tls_group! {
     /// when every gate above it answers true.
     static NAV_PAGE_ACTIVE: RefCell<Vec<Rc<dyn Fn() -> bool>>> = const { RefCell::new(Vec::new()) };
 
-    /// How many routed one-of-N surfaces (`selector`/tabs) are live at each nesting depth. Two at
+    /// How many routed one-of-N surfaces (`nav`/tabs) are live at each nesting depth. Two at
     /// the same depth are siblings whose keys both flow into `current_route()` — the case that
     /// wants `.local()` (docs/navigation.md). Used only to warn; never changes behavior.
     static ROUTED_ONE_OF_N: RefCell<std::collections::HashMap<usize, usize>> =
@@ -374,7 +374,7 @@ fn register_route_surface(
     Scope::current().on_cleanup(move || day_core::unregister_nav(token));
 }
 
-/// Note a routed selector/tabs at the current nav depth and, in debug builds, warn if it is a
+/// Note a routed nav/tabs at the current nav depth and, in debug builds, warn if it is a
 /// sibling of another routed one-of-N surface — the `.local()` footgun (docs/navigation.md). The
 /// count is decremented when the surface's scope disposes, so switching sections doesn't leak.
 /// A stack is exempt (its whole path is one surface's contribution; sibling stacks are a
@@ -413,15 +413,15 @@ fn warn_sibling_selectors(kind: &str) {
 fn warn_sibling_selectors(_kind: &str) {}
 
 // ===========================================================================
-// Selector — one-of-N, bound to a Signal<String> of the active key.
+// Nav — one-of-N, bound to a Signal<String> of the active key.
 // ===========================================================================
 
-/// How a [`selector`] presents its one-of-N choice (docs/navigation.md).
+/// How a [`nav`] presents its one-of-N choice (docs/navigation.md).
 ///
-/// The default is [`Self::Automatic`]: unless you say otherwise, a selector wears whatever the
+/// The default is [`Self::Automatic`]: unless you say otherwise, a nav wears whatever the
 /// platform wears at the window's current width, and changes as the window does.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum SelectorStyle {
+pub enum NavStyle {
     /// **The default.** The platform's own answer at this size: a tab bar on a phone-shaped
     /// window, a rail in the middle, a sidebar beside the detail when there is room — and it
     /// re-presents live as the window crosses a breakpoint (docs/size-classes.md).
@@ -442,7 +442,7 @@ pub enum SelectorStyle {
     Sidebar,
 }
 
-/// A built detail page of a selector, and what it takes to tear it down. Exactly one of these
+/// A built detail page of a nav, and what it takes to tear it down. Exactly one of these
 /// exists per shown page in a split or stacked presentation; one per VISITED page in a
 /// presentation whose rows are chrome, where pages are resident (docs/navigation.md).
 struct ResidentPage {
@@ -455,14 +455,14 @@ struct ResidentPage {
     node: RNode,
 }
 
-/// Builds the page for a data-driven key (`&K` → piece) — a selector's `.destination` fallback
+/// Builds the page for a data-driven key (`&K` → piece) — a nav's `.destination` fallback
 /// or a stack's `.destination`.
 type DestFn<K> = Rc<dyn Fn(&K) -> AnyPiece>;
 
-/// Which destinations show the content-list pane (`Selector::content_list_for`).
+/// Which destinations show the content-list pane (`Nav::content_list_for`).
 type ListPred<K> = Rc<dyn Fn(&K) -> bool>;
 
-/// Completions for a search field's current text (`Selector::search_suggestions`).
+/// Completions for a search field's current text (`Nav::search_suggestions`).
 type SuggestFn = Rc<dyn Fn(&str) -> Vec<String>>;
 
 /// The toolbar item id a `.searchable()` surface's field carries when its placement resolves to
@@ -471,9 +471,9 @@ type SuggestFn = Rc<dyn Fn(&str) -> Vec<String>>;
 /// the item.
 pub const SEARCH_ITEM_ID: &str = "day.search";
 
-/// The flattened live rows a selector's dynamic blocks derive to: per-row key strings, typed
+/// The flattened live rows a nav's dynamic blocks derive to: per-row key strings, typed
 /// keys, titles, and icons (index-aligned). Carried through the reconcile `bind`.
-/// One tracked derive of a selector's rows: (key strings, typed keys, titles, icons, badges,
+/// One tracked derive of a nav's rows: (key strings, typed keys, titles, icons, badges,
 /// section headers). Compared by equality to gate the re-patch, so every decoration a backend
 /// renders has to ride along — a badge that changed but was not carried here would not repaint.
 type DerivedRows<K> = (
@@ -512,11 +512,11 @@ struct SelItem<K> {
     /// backends with an immersive nav mode; standard opaque bar otherwise.
     immersive: bool,
     /// A static item carries its own page builder; a dynamic item (from `.items`) leaves this
-    /// `None` and its page is built by the selector's `.destination` fallback.
+    /// `None` and its page is built by the nav's `.destination` fallback.
     build: Option<Box<dyn Fn() -> AnyPiece>>,
 }
 
-/// One data-driven selector item, returned by [`item`] inside a [`Selector::items`] mapper.
+/// One data-driven nav item, returned by [`item`] inside a [`Nav::items`] mapper.
 pub struct NavItem<K = String> {
     key: K,
     title: TextSource,
@@ -530,9 +530,9 @@ pub struct NavItem<K = String> {
     immersive: bool,
 }
 
-/// A selector item for a data-driven list: `item(room.id, room.name).icon(res::images::room)`
+/// A nav item for a data-driven list: `item(room.id, room.name).icon(res::images::room)`
 /// (docs/navigation.md). Used inside the `.items(signal, |t| …)` mapper; the page it selects is
-/// built by the selector's [`Selector::destination`].
+/// built by the nav's [`Nav::destination`].
 pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
     NavItem {
         key: key.into(),
@@ -550,7 +550,7 @@ pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
 
 impl<K> NavItem<K> {
     /// A bundled-image name for the item's native icon (same convention as
-    /// [`Selector::item_icon`]).
+    /// [`Nav::item_icon`]).
     pub fn icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
         self.icon = Some(icon.into().as_str().to_owned());
         self
@@ -567,7 +567,7 @@ impl<K> NavItem<K> {
     /// menus drop it (see the matrix in docs/menus.md).
     pub fn context_menu(mut self, entries: Vec<crate::menus::MenuEntry>) -> Self {
         // Scoped: row menus are re-lowered on every derive; the previous build's closures
-        // are reclaimed when the registering scope (the selector's surface) is disposed.
+        // are reclaimed when the registering scope (the nav's surface) is disposed.
         self.menu = crate::menus::lower_menu_scoped(entries);
         self
     }
@@ -601,17 +601,17 @@ impl<K> NavItem<K> {
         self
     }
     /// Mark this item's pushed page immersive-chrome (docs/navigation.md) — the data-driven
-    /// counterpart of [`Selector::immersive`].
+    /// counterpart of [`Nav::immersive`].
     pub fn immersive(mut self) -> Self {
         self.immersive = true;
         self
     }
 }
 
-/// A source of selector items: a fixed item, or a signal-driven block that re-derives its items
+/// A source of nav items: a fixed item, or a signal-driven block that re-derives its items
 /// when the signal changes (docs/navigation.md).
 // Boxing `Static` would trade a real allocation PER ROW for a saving that is nominal here: these
-// enums live in one `Vec` built once when a selector is constructed, a few dozen entries at most,
+// enums live in one `Vec` built once when a nav is constructed, a few dozen entries at most,
 // and the static case is the overwhelmingly common one. The gap is only this wide because a row
 // carries its decorations inline (icon, tint, badge text, badge glyph, section, menu).
 #[allow(clippy::large_enum_variant)]
@@ -621,13 +621,13 @@ enum ItemSource<K> {
     Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
 }
 
-// A selector's item sources reduced to what both `build_sidebar` and `build_tabs` need: a
+// A nav's item sources reduced to what both `build_sidebar` and `build_tabs` need: a
 // per-key page builder for STATIC items, the ordered metadata sources (statics + dynamic
 // blocks) that `derive` walks to produce the live row list, and the `.destination` fallback
 // for data-driven keys. `derive` is called untracked for the first build and tracked inside a
 // reactive effect that re-patches the native rows when a dynamic block's signal changes.
 // Boxing `Static` would trade a real allocation PER ROW for a saving that is nominal here: these
-// enums live in one `Vec` built once when a selector is constructed, a few dozen entries at most,
+// enums live in one `Vec` built once when a nav is constructed, a few dozen entries at most,
 // and the static case is the overwhelmingly common one. The gap is only this wide because a row
 // carries its decorations inline (icon, tint, badge text, badge glyph, section, menu).
 #[allow(clippy::large_enum_variant)]
@@ -636,7 +636,7 @@ enum MetaSource<K> {
     Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
 }
 
-/// The non-title decorations of one selector row.
+/// The non-title decorations of one nav row.
 #[derive(Clone, Default)]
 struct RowMeta {
     icon: Option<String>,
@@ -648,7 +648,7 @@ struct RowMeta {
     section: Option<TextSource>,
 }
 
-/// One selector's live rows, flattened across its static items and dynamic blocks.
+/// One nav's live rows, flattened across its static items and dynamic blocks.
 struct NavRows<K> {
     keys: Vec<K>,
     titles: Vec<String>,
@@ -788,7 +788,7 @@ impl<K: Route> SelItems<K> {
     }
 }
 
-/// A one-of-N selector whose active key is an app-owned signal (two-way, exactly like
+/// A one-of-N nav whose active key is an app-owned signal (two-way, exactly like
 /// `Picker`/`Toggle`). Deep links and dayscript address items by key (docs/navigation.md).
 ///
 /// The key type is any [`Route`]: `String` for raw keys, or a typed enum — use
@@ -797,55 +797,55 @@ impl<K: Route> SelItems<K> {
 ///
 /// ```ignore
 /// let section = Signal::new("home".to_string());   // or Signal::new(None::<Section>)
-/// selector(section).style(SelectorStyle::Sidebar)
+/// nav(section).style(NavStyle::Sidebar)
 ///     .item("home", tr("home"), home_page)         // or .item(Section::Home, …)
 ///     .item("settings", tr("settings"), settings_page)
 /// ```
-pub struct Selector<S: Binding<K>, K: Route = String> {
+pub struct Nav<S: Binding<K>, K: Route = String> {
     selection: S,
-    style: SelectorStyle,
+    style: NavStyle,
     title: TextSource,
     header: Option<Box<dyn FnOnce() -> AnyPiece>>,
     sources: Vec<ItemSource<K>>,
     /// Builds the page for a key with no static item (a data-driven item from `.items`).
     destination: Option<DestFn<K>>,
-    /// Whether this selector contributes to the app route (deep links / dayscript). `false`
-    /// (`.local()`) for a selector used as a self-contained widget, so it does not add a segment
+    /// Whether this nav contributes to the app route (deep links / dayscript). `false`
+    /// (`.local()`) for a nav used as a self-contained widget, so it does not add a segment
     /// to `current_route` or intercept `navigate` (docs/navigation.md).
     routed: bool,
-    /// The persistence key set by [`Selector::restore`]: the selected item's key is saved here on
+    /// The persistence key set by [`Nav::restore`]: the selected item's key is saved here on
     /// every change and restored at build (unless a launch deep link is pending). `None` = not
     /// persisted.
     restore: Option<String>,
-    /// A header from [`Selector::section`] waiting to be attached to the next item added.
+    /// A header from [`Nav::section`] waiting to be attached to the next item added.
     pending_section: Option<TextSource>,
-    /// Items declared on this host's own chrome ([`Selector::toolbar`]).
+    /// Items declared on this host's own chrome ([`Nav::toolbar`]).
     toolbar: Vec<crate::ToolbarSource>,
-    /// Draw the platform's own sidebar toggle ([`Selector::sidebar_toggle`]).
+    /// Draw the platform's own sidebar toggle ([`Nav::sidebar_toggle`]).
     sidebar_toggle: bool,
-    /// Search over this surface ([`Selector::searchable`]). `None` unless set.
+    /// Search over this surface ([`Nav::searchable`]). `None` unless set.
     search: Option<SearchSpec>,
-    /// The presentation pinned by [`Selector::presentation`]; `None` = automatic, resolved from
+    /// The presentation pinned by [`Nav::presentation`]; `None` = automatic, resolved from
     /// the window's size class and re-resolved whenever it changes.
     presentation: Option<day_spec::props::NavPresentation>,
-    /// The content-list pane builder ([`Selector::content_list`], docs/navigation.md) — the
+    /// The content-list pane builder ([`Nav::content_list`], docs/navigation.md) — the
     /// Mail shape's middle column, built ONCE and resident for the host's life. `None` = the
-    /// classic two-pane selector.
+    /// classic two-pane nav.
     content_list: Option<Rc<dyn Fn() -> AnyPiece>>,
     /// Preferred width of the content-list pane in points.
     content_list_width: f64,
-    /// Which destinations show the pane ([`Selector::content_list_for`]); `None` = all of them.
+    /// Which destinations show the pane ([`Nav::content_list_for`]); `None` = all of them.
     content_list_pred: Option<ListPred<K>>,
-    /// Whether the DETAIL is showing, two-way ([`Selector::detail_visible`]) — what gates the
+    /// Whether the DETAIL is showing, two-way ([`Nav::detail_visible`]) — what gates the
     /// detail push in a stacked presentation with a content list, and what native back writes
     /// `false` into. `None` = the detail behaves classically (pushed on selection).
     detail_visible: Option<Signal<bool>>,
     /// The navigation-bar title of the detail layer a content list opens
-    /// ([`Selector::detail_title`]). `None` = the destination's own title.
+    /// ([`Nav::detail_title`]). `None` = the destination's own title.
     detail_title: Option<TextSource>,
 }
 
-/// A pending search declaration ([`Selector::searchable`] and its modifiers). The query and the
+/// A pending search declaration ([`Nav::searchable`] and its modifiers). The query and the
 /// scope are app-owned signals, which is what lets the FIELD move between the toolbar and the
 /// navigation list without the STATE moving with it (docs/search.md).
 struct SearchSpec {
@@ -1041,10 +1041,10 @@ impl SearchSpec {
     }
 }
 
-pub fn selector<K: Route, S: Binding<K>>(selection: S) -> Selector<S, K> {
-    Selector {
+pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
+    Nav {
         selection,
-        style: SelectorStyle::default(),
+        style: NavStyle::default(),
         pending_section: None,
         sidebar_toggle: true,
         title: TextSource::Static(String::new()),
@@ -1064,8 +1064,8 @@ pub fn selector<K: Route, S: Binding<K>>(selection: S) -> Selector<S, K> {
     }
 }
 
-impl<K: Route, S: Binding<K>> Selector<S, K> {
-    pub fn style(mut self, style: SelectorStyle) -> Self {
+impl<K: Route, S: Binding<K>> Nav<S, K> {
+    pub fn style(mut self, style: NavStyle) -> Self {
         self.style = style;
         self
     }
@@ -1079,7 +1079,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     /// a section is a grouping hint, never a source of items the user cannot otherwise reach.
     ///
     /// ```ignore
-    /// selector(sel)
+    /// nav(sel)
     ///     .section(res::str::smart_feeds())
     ///     .item_icon("today", res::str::today(), res::images::today, today_page)
     ///     .section(res::str::feeds())
@@ -1129,7 +1129,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     }
     /// Pin the presentation instead of letting the window's size decide (docs/size-classes.md).
     ///
-    /// Leave this unset — the default — and the selector shows sidebar+detail on a window wide
+    /// Leave this unset — the default — and the nav shows sidebar+detail on a window wide
     /// enough for both and stacks on one that is not, re-presenting live as the window is resized
     /// or the device rotated. Pin it when the content only works one way: a settings sidebar whose
     /// detail is meaningless alone, a wizard that must stay a stack.
@@ -1147,7 +1147,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     ///
     /// Where the toolkit has a native pane (`Cap::NavContentList`) the list gets its own
     /// column — an AppKit `contentList` split item, a UIKit supplementary column — and
-    /// otherwise the selector composes it beside (split) or in place of (stacked) each
+    /// otherwise the nav composes it beside (split) or in place of (stacked) each
     /// destination. Pair with [`Self::detail_visible`] so compact widths get the
     /// list-then-detail push flow, and [`Self::content_list_for`] to give full-width
     /// destinations (a settings page) the whole detail area.
@@ -1189,7 +1189,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
         self
     }
     /// Add a destination. `key` addresses it (navigate / deep link / dayscript); `title` is
-    /// its label; `build` runs when the item is first shown. For a typed selector over
+    /// its label; `build` runs when the item is first shown. For a typed nav over
     /// `Option<Section>` pass the bare `Section::X`.
     pub fn item<M, P: Piece>(
         mut self,
@@ -1256,7 +1256,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     ///
     /// The static counterpart to [`NavItem::icon_tint`], and the same last-added-item shape as
     /// [`immersive`](Self::immersive) — a tint belongs to one row, but `.item_icon(…)` returns
-    /// the selector rather than the item, so the row is named by position rather than by handle.
+    /// the nav rather than the item, so the row is named by position rather than by handle.
     ///
     /// Untinted glyphs follow the theme, which is usually what a navigation list wants; reach
     /// for this where the color CARRIES something (a per-section identity, a status).
@@ -1280,7 +1280,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
         map: impl Fn(&T) -> NavItem<K> + 'static,
     ) -> Self {
         // `items` is a TRACKED reader (a `Signal<Vec<T>>` via its `Fn()` deref, or a closure) —
-        // reading it inside the derive effect subscribes the selector to changes.
+        // reading it inside the derive effect subscribes the nav to changes.
         // A pending `.section(…)` heads the block's FIRST row, wherever the data starts.
         let section = self.pending_section.take();
         self.sources.push(ItemSource::Dynamic(Box::new(move || {
@@ -1311,18 +1311,18 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
         self
     }
     /// Build the page for a data-driven key (one added by [`items`](Self::items) with no static
-    /// item). Mirrors [`Stack::destination`]; unused for a purely static selector.
+    /// item). Mirrors [`NavStack::destination`]; unused for a purely static nav.
     pub fn destination<P: Piece>(mut self, build: impl Fn(&K) -> P + 'static) -> Self {
         self.destination = Some(Rc::new(move |k| AnyPiece::new(build(k))));
         self
     }
-    /// Use this selector as a LOCAL widget: its selection is not part of the app route, so it
+    /// Use this nav as a LOCAL widget: its selection is not part of the app route, so it
     /// neither adds a segment to `current_route` nor intercepts `navigate`/deep links.
     ///
     /// Reach for this when a page **already routes** and you embed a *second* one-of-N control in
     /// it (a filter tab strip, a secondary sidebar). Two routing selectors at the same level both
     /// feed `current_route()`, so you'd get `section/childA/childB` and `navigate("childB")` would
-    /// be ambiguous — mark all but the primary one `.local()`. A selector nested one level *deeper*
+    /// be ambiguous — mark all but the primary one `.local()`. A nav nested one level *deeper*
     /// (a `Tabs` inside a `Sidebar` section) is a different case and should stay routed: that
     /// cascade is the point. In debug builds, two routed one-of-N surfaces at the same level log a
     /// warning naming this fix (docs/navigation.md).
@@ -1334,7 +1334,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     /// under `key` on every change and restored at build — so the app reopens on the tab/section
     /// the user last had — unless a launch deep link is pending, which wins. Restore is a no-op
     /// until the app installs a store (e.g. `day_part_prefs::install_nav_store`); a stale saved
-    /// key (its item no longer exists) is ignored. Works whether or not the selector is
+    /// key (its item no longer exists) is ignored. Works whether or not the nav is
     /// [`routed`](Self::local).
     pub fn restore(mut self, key: impl Into<String>) -> Self {
         self.restore = Some(key.into());
@@ -1352,7 +1352,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     /// its reactive reads change.
     ///
     /// ```ignore
-    /// selector(section)
+    /// nav(section)
     ///     .toolbar(toolbar_button("add", tr("add")).icon(Symbol::Add).action(add_item))
     /// ```
     pub fn toolbar<M>(mut self, content: impl crate::ToolbarContent<M>) -> Self {
@@ -1377,8 +1377,8 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     /// moves the state.
     ///
     /// ```ignore
-    /// selector(section)
-    ///     .style(SelectorStyle::Sidebar)
+    /// nav(section)
+    ///     .style(NavStyle::Sidebar)
     ///     .searchable(query)
     ///     .items(move || destinations().filter(|d| matches(d, &query.get())), …)
     /// ```
@@ -1394,7 +1394,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
         self
     }
 
-    /// The search field's empty-state prompt. No-op unless [`Selector::searchable`] was called.
+    /// The search field's empty-state prompt. No-op unless [`Nav::searchable`] was called.
     pub fn search_prompt<M>(mut self, prompt: impl IntoText<M>) -> Self {
         if let Some(s) = self.search.as_mut() {
             s.prompt = Some(prompt.into_text());
@@ -1438,7 +1438,7 @@ impl<K: Route, S: Binding<K>> Selector<S, K> {
     }
 }
 
-impl<K: Route, S: Binding<K>> Piece for Selector<S, K> {
+impl<K: Route, S: Binding<K>> Piece for Nav<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         // ONE builder for all three styles. The styles differ only in which presentations the
         // resolver may produce, and a presentation differs only in chrome and page residency —
@@ -1448,7 +1448,7 @@ impl<K: Route, S: Binding<K>> Piece for Selector<S, K> {
     }
 }
 
-/// Apply a selector's `.restore` at build: seed `selection` from the key saved under `restore`,
+/// Apply a nav's `.restore` at build: seed `selection` from the key saved under `restore`,
 /// so the app reopens on the section/tab the user last chose. A pending launch deep link wins
 /// (skip). Only a saved key that parses AND is a current item is honored — plus the empty
 /// "deselected" key, for a sidebar's collapsed state — so a stale key left by an older build is
@@ -1468,7 +1468,7 @@ fn restore_selection<K: Route, S: Binding<K>>(
     }
 }
 
-/// Persist a selector's selection under its `.restore` key on every change (docs/navigation.md).
+/// Persist a nav's selection under its `.restore` key on every change (docs/navigation.md).
 /// The binding lives in the current scope, so it stops with the surface. Consumes `restore`.
 fn persist_selection<K: Route, S: Binding<K>>(restore: Option<String>, selection: &S) {
     if let Some(key) = restore {
@@ -1487,28 +1487,28 @@ fn persist_selection<K: Route, S: Binding<K>>(restore: Option<String>, selection
 // is a nested navigation host of its own — the platform's stack controller inside the tab,
 // the list at its root, the detail pushed over it. In a stacked presentation the list renders
 // inline in the destination's (already pushed) page and the detail pushes onto the ENCLOSING
-// host, exactly as a merged `stack()`'s pages do. Both give the compact flow what the native
+// host, exactly as a merged `nav_stack()`'s pages do. Both give the compact flow what the native
 // idiom always had: a navigation bar, a title, and a back that pops.
 // ---------------------------------------------------------------------------
 
-/// What the gated flow needs from its selector, cloneable into the `when` branches that build
+/// What the gated flow needs from its nav, cloneable into the `when` branches that build
 /// one shape or the other as the presentation changes.
 struct GatedDetail<K: Route> {
-    /// Whether the detail layer is up — the selector's `detail_visible` signal, two-way.
+    /// Whether the detail layer is up — the nav's `detail_visible` signal, two-way.
     open: Signal<bool>,
     /// Builds the content list, the root layer.
     list: Rc<dyn Fn() -> AnyPiece>,
-    /// The selector's items: the detail content builder and the immersive flag.
+    /// The nav's items: the detail content builder and the immersive flag.
     items: Rc<SelItems<K>>,
     key: K,
     /// The destination's resolved title — the root layer's bar — and its live source.
     title: String,
     retitle: Option<TextSource>,
-    /// The pushed detail's title source (`Selector::detail_title`); `None` = `title`.
+    /// The pushed detail's title source (`Nav::detail_title`); `None` = `title`.
     detail_title: Option<TextSource>,
-    /// The enclosing selector's host — the merge target while stacked.
+    /// The enclosing nav's host — the merge target while stacked.
     host_cx: NavHostCx,
-    /// The selector's own toolbar sources, re-homed onto the nested host in a chrome
+    /// The nav's own toolbar sources, re-homed onto the nested host in a chrome
     /// presentation, whose tabs chrome draws none of its own.
     toolbar: Vec<crate::ToolbarSource>,
 }
@@ -1535,7 +1535,7 @@ impl<K: Route> Clone for GatedDetail<K> {
 /// The condition asks the FULL question — chrome rows AND a compact window — rather than
 /// leaning on the enclosing side-by-side `when` to have ruled the wide case out. The two
 /// react to the same signals, and their evaluation order in one flush is not promised: a
-/// `Stack → Rail` morph on a desktop flips both at once, and a condition that only asked
+/// `NavStack → Rail` morph on a desktop flips both at once, and a condition that only asked
 /// "chrome?" would build a nested navigation host for the one evaluation before the outer
 /// branch replaces it — a whole native host realized and torn down in a single flush, which
 /// wedged Qt.
@@ -1569,7 +1569,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
             kinds::NAV,
             &NavProps {
                 title: cfg.title.clone(),
-                // A permanent stack, like the `stack()` piece: the chrome above already
+                // A permanent stack, like the `nav_stack()` piece: the chrome above already
                 // adapts, so this host must never try to.
                 presentation: NavPresentation::Stack,
                 adaptive: false,
@@ -1601,7 +1601,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
             },
             &sizes,
         );
-        // The list is this host's ROOT page, so a `stack()` inside it merges here: a drill-down
+        // The list is this host's ROOT page, so a `nav_stack()` inside it merges here: a drill-down
         // from the list (a category, then its items) pushes onto the tab's own navigation
         // controller, and the gated detail lands on top of whatever it pushed
         // (docs/navigation.md). Only the native resident pane is a barrier.
@@ -1619,7 +1619,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
                 },
             );
         });
-        // The selector's own items, re-homed: a chrome presentation draws no bar of its own, so
+        // The nav's own items, re-homed: a chrome presentation draws no bar of its own, so
         // this nested host's root page IS where the list's commands belong (docs/toolbars.md).
         for source in cfg.toolbar.clone() {
             crate::contribute(day_core::Chrome::Page(root_page), source);
@@ -1647,13 +1647,13 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
 }
 
 /// A stacked presentation's gated destination: the list renders inline in the destination's
-/// own page and the detail pushes onto the ENCLOSING host — the same merge a nested `stack()`
+/// own page and the detail pushes onto the ENCLOSING host — the same merge a nested `nav_stack()`
 /// performs, so the whole chain stays one native stack with one back button
 /// (docs/navigation.md).
 fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
     piece_fn(move |cx| {
         let target = cfg.host_cx.clone();
-        // The list is inline in a page of the enclosing stack, so a `stack()` inside it merges
+        // The list is inline in a page of the enclosing stack, so a `nav_stack()` inside it merges
         // there, as one inside any pushed page does (docs/navigation.md).
         // Same rule as the nested shape: the detail pushes over this list, so the list's own
         // commands leave the bar while it is covered (docs/toolbars.md).
@@ -1857,7 +1857,7 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
     });
 }
 
-fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx) -> RNode {
+fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> RNode {
     use day_spec::props::{
         NavMenuPatch, NavMenuProps, NavPageProps, NavPatch, NavPresentation, NavProps, Pane,
     };
@@ -1901,7 +1901,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // before adaptive navigation existed. Degrading to the OLD shape rather than to a hole is what
     // lets this land one backend at a time (docs/navigation.md).
     let style = match sel.style {
-        SelectorStyle::Automatic if !can_tabs => SelectorStyle::Sidebar,
+        NavStyle::Automatic if !can_tabs => NavStyle::Sidebar,
         s => s,
     };
     // The resolver owns every "can this toolkit do it" question, so `NavProps` always carries a
@@ -1924,9 +1924,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
         }
         match style {
             // Pinned tabs: the same bar at every size, so the window never enters into it.
-            SelectorStyle::Tabs => NavPresentation::Tabs,
+            NavStyle::Tabs => NavPresentation::Tabs,
             // Today's resolution, unchanged: split where there is room, stacked where there isn't.
-            SelectorStyle::Sidebar => match class {
+            NavStyle::Sidebar => match class {
                 _ if !can_split => NavPresentation::Stack,
                 Some(c) if size_decides && !c.prefers_split() => NavPresentation::Stack,
                 _ => NavPresentation::Split,
@@ -1939,7 +1939,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
             // collapses to a stack instead, which is what `Sidebar` has always done and what a
             // Mac or GNOME app does when you drag it narrow. The rail and the split are the same
             // everywhere.
-            SelectorStyle::Automatic => {
+            NavStyle::Automatic => {
                 let compact = if adaptive_tabs {
                     NavPresentation::Tabs
                 } else {
@@ -1970,41 +1970,37 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // What the HOST PROPS carry is a different question from what this build currently shows.
     // An Emulated toolkit's adaptive container collapses and expands ITSELF, so its host is
     // lowered as `Split` — "build the adaptive container" — even when the window is compact
-    // right now. `Stack` in props is thereby reserved for hosts that are stacks at EVERY size
-    // (a pinned request, a toolkit that cannot split, the `stack()` piece), which a backend
+    // right now. `NavStack` in props is thereby reserved for hosts that are stacks at EVERY size
+    // (a pinned request, a toolkit that cannot split, the `nav_stack()` piece), which a backend
     // may take literally and realize as a plain navigation container: nesting an adaptive
     // split container inside a pane is exactly what breaks (docs/size-classes.md).
     // An Emulated toolkit's adaptive container collapses and expands ITSELF, so it is lowered the
     // ROOMIEST presentation the app's style admits — "build the adaptive container" — even when
-    // the window is compact right now. `Stack` in props is thereby reserved for hosts that are
-    // stacks at EVERY size (a pinned request, a toolkit that cannot split, the `stack()` piece),
+    // the window is compact right now. `NavStack` in props is thereby reserved for hosts that are
+    // stacks at EVERY size (a pinned request, a toolkit that cannot split, the `nav_stack()` piece),
     // which a backend may take literally: nesting an adaptive container inside a pane is exactly
     // what breaks (docs/size-classes.md). `adaptive` carries whether it may morph at all.
     let adaptive = requested.is_none();
-    let lowered = if toolkit_drives
-        && adaptive
-        && can_tabs
-        && adaptive_tabs
-        && style != SelectorStyle::Sidebar
-    {
-        // The toolkit has an adaptive container that wears BOTH chromes itself — iOS 18's
-        // `UITabBarController` in `.tabSidebar` mode is the archetype: one controller that draws
-        // a tab bar when compact and a sidebar when not, with its own animation and its own
-        // user-facing toggle. Lowering `Tabs` says "build that", and the toolkit reports what it
-        // settled on. Its pages are resident at every size, which is why such a host stays in the
-        // chrome-rows model rather than flipping to push/pop as it widens.
-        //
-        // Only for a style that ADMITS a tab bar. `Sidebar` is a app's explicit "this is a list
-        // beside a detail", and its compact answer has always been the stack — one navigation
-        // controller the list pushes onto, which is what a phone app with more sections than fit
-        // a tab bar looks like. Handing that app a tab container instead puts a bar under every
-        // page and (below iOS 18, where there is no sidebar mode to switch to) leaves it there.
-        NavPresentation::Tabs
-    } else if toolkit_drives && adaptive && can_split && style != SelectorStyle::Tabs {
-        NavPresentation::Split
-    } else {
-        presentation
-    };
+    let lowered =
+        if toolkit_drives && adaptive && can_tabs && adaptive_tabs && style != NavStyle::Sidebar {
+            // The toolkit has an adaptive container that wears BOTH chromes itself — iOS 18's
+            // `UITabBarController` in `.tabSidebar` mode is the archetype: one controller that draws
+            // a tab bar when compact and a sidebar when not, with its own animation and its own
+            // user-facing toggle. Lowering `Tabs` says "build that", and the toolkit reports what it
+            // settled on. Its pages are resident at every size, which is why such a host stays in the
+            // chrome-rows model rather than flipping to push/pop as it widens.
+            //
+            // Only for a style that ADMITS a tab bar. `Sidebar` is a app's explicit "this is a list
+            // beside a detail", and its compact answer has always been the stack — one navigation
+            // controller the list pushes onto, which is what a phone app with more sections than fit
+            // a tab bar looks like. Handing that app a tab container instead puts a bar under every
+            // page and (below iOS 18, where there is no sidebar mode to switch to) leaves it there.
+            NavPresentation::Tabs
+        } else if toolkit_drives && adaptive && can_split && style != NavStyle::Tabs {
+            NavPresentation::Split
+        } else {
+            presentation
+        };
     // A `.tabSidebar`-style host is a TABS host at every width — its pages are resident whether
     // it is drawing a bar or a sidebar — so the resolved presentation has to agree with what the
     // backend was told to build. Left disagreeing, day-core would model push/pop while the
@@ -2054,8 +2050,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // Automatic resolves to a sidebar wherever the window is wide enough, so the affordance
     // follows what the toolkit CAN present rather than what the app spelled out — an app that
     // never wrote `.style(Sidebar)` still gets the platform's own toggle on a desktop.
-    let sidebar_toggle = sel.sidebar_toggle
-        && matches!(sel.style, SelectorStyle::Sidebar | SelectorStyle::Automatic);
+    let sidebar_toggle =
+        sel.sidebar_toggle && matches!(sel.style, NavStyle::Sidebar | NavStyle::Automatic);
     let detail_title = sel.detail_title;
     // Search over this surface (docs/search.md). Lowered to the host's props with its CURRENT
     // values; the live bindings below keep the field in step through targeted patches, so the
@@ -2432,7 +2428,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                 with_tree(|t| t.patch(m, Box::new(NavMenuPatch::Selected(idx)), false));
             }
             // And onto the host, which is the node `.id()` names — a script asserting on a
-            // selector addresses the selector, not the row list nested inside it. Every path that
+            // nav addresses the nav, not the row list nested inside it. Every path that
             // changes the selection lands here, so this is the one place that has to record it.
             with_tree(|t| t.set_probe_selected(host, idx));
         }
@@ -2636,7 +2632,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
                     Some(c) => c(&typed_key),
                     None => items.build_page(&typed_key),
                 };
-                // A resident page is a merge BARRIER: a `stack` inside a tab keeps its own native
+                // A resident page is a merge BARRIER: a `nav_stack` inside a tab keeps its own native
                 // container rather than pushing onto the enclosing host, because the enclosing
                 // host is not a stack (docs/navigation.md).
                 let inner = if chrome { None } else { Some(host_cx.clone()) };
@@ -2986,7 +2982,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
     // Re-derive the row set when a dynamic block's signal changes (re-patch the native menu,
     // reset the selection if its item vanished) and when the locale changes (tracked title
     // resolution — same keys, new titles). Installed unconditionally: a fully static
-    // selector's derive subscribes to nothing and this effect simply never re-fires.
+    // nav's derive subscribes to nothing and this effect simply never re-fires.
     {
         let (items_e, typed_e, titles_e, mh_e, sel_e) = (
             items.clone(),
@@ -3214,7 +3210,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Selector<S, K>, cx: &mut BuildCx
 }
 
 // ===========================================================================
-// Stack — a genuine push/pop navigation stack bound to a Signal<Vec<String>>.
+// NavStack — a genuine push/pop navigation stack bound to a Signal<Vec<String>>.
 // The native UINavigationController / AdwNavigationView / back-stack is reconciled
 // to the path; the back button writes the pop back into the path.
 // ===========================================================================
@@ -3225,7 +3221,7 @@ struct StackEntry<K> {
     page: RNode,
 }
 
-/// What a [`Stack::on_back`] guard returns for one back-like event (a native back gesture/button,
+/// What a [`NavStack::on_back`] guard returns for one back-like event (a native back gesture/button,
 /// or [`nav_back`]). Programmatic path writes are NOT guarded — the guard is a policy on the
 /// user's back affordance, matching Jetpack Compose's `BackHandler` (docs/navigation.md).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -3237,7 +3233,7 @@ pub enum BackResponse {
     Handled,
 }
 
-/// The deferred pop handed to a [`Stack::on_back`] guard. Hold it, then call [`proceed`] to
+/// The deferred pop handed to a [`NavStack::on_back`] guard. Hold it, then call [`proceed`] to
 /// perform the back the guard consumed (the unsaved-changes → confirm → leave flow).
 ///
 /// [`proceed`]: BackRequest::proceed
@@ -3265,24 +3261,24 @@ impl BackRequest {
 ///
 /// ```ignore
 /// let path = Signal::new(Vec::<Drill>::new());
-/// stack(path.clone(), home_view).destination(|d: &Drill| detail_view(d))
+/// nav_stack(path.clone(), home_view).destination(|d: &Drill| detail_view(d))
 /// // push:  path.update(|p| p.push(Drill::Item { id: 42 }));
 /// ```
-pub struct Stack<S: Binding<Vec<K>>, K: Route = String> {
+pub struct NavStack<S: Binding<Vec<K>>, K: Route = String> {
     path: S,
     title: TextSource,
     root: AnyPiece,
     destination: Rc<dyn Fn(&K) -> AnyPiece>,
     on_back: Option<Rc<dyn Fn(BackRequest) -> BackResponse>>,
-    /// The persistence key set by [`Stack::restore`]: the path is saved here (its keys `/`-joined)
+    /// The persistence key set by [`NavStack::restore`]: the path is saved here (its keys `/`-joined)
     /// on every change and restored at build. `None` = not persisted.
     restore: Option<String>,
-    /// Items declared on the stack's ROOT page chrome ([`Stack::toolbar`]).
+    /// Items declared on the stack's ROOT page chrome ([`NavStack::toolbar`]).
     toolbar: Vec<crate::ToolbarSource>,
 }
 
-pub fn stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Stack<S, K> {
-    Stack {
+pub fn nav_stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> NavStack<S, K> {
+    NavStack {
         path,
         title: TextSource::Static(String::new()),
         root: AnyPiece::new(root),
@@ -3295,7 +3291,7 @@ pub fn stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Stack<S
     }
 }
 
-impl<K: Route, S: Binding<Vec<K>>> Stack<S, K> {
+impl<K: Route, S: Binding<Vec<K>>> NavStack<S, K> {
     pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
         self.title = t.into_text();
         self
@@ -3338,10 +3334,10 @@ impl<K: Route, S: Binding<Vec<K>>> Stack<S, K> {
     }
 }
 
-impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
+impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         use day_spec::props::{NavPageProps, NavPatch, NavPresentation, NavProps, Pane};
-        let Stack {
+        let NavStack {
             path,
             title,
             root,
@@ -3411,17 +3407,17 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
                     // there is nothing for a size-class change to re-present.
                     title: title_s.clone(),
                     presentation: NavPresentation::Stack,
-                    // Never adaptive: the `stack()` piece is a push/pop surface at every size, so
+                    // Never adaptive: the `nav_stack()` piece is a push/pop surface at every size, so
                     // an Emulated toolkit must build a PLAIN navigation container for it rather
                     // than its adaptive one (docs/size-classes.md).
                     adaptive: false,
                     // A stack has no sidebar pane, so nothing to toggle.
                     sidebar_toggle: false,
-                    // Stacks are not searchable yet — `.searchable()` is on `Selector` only
+                    // Stacks are not searchable yet — `.searchable()` is on `Nav` only
                     // (docs/search.md); a stack gains the same surface when the placement
                     // resolver lands, since it is the same lowering.
                     search: None,
-                    // A content list is a selector shape; a stack has no sidebar to sit beside.
+                    // A content list is a nav shape; a stack has no sidebar to sit beside.
                     list_width: None,
                     // A stack never has a content-list pane, so this says nothing.
                     list_visible: true,
@@ -3583,8 +3579,8 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
                         });
                     });
                     with_tree(|t| {
-                        // Stack destinations are standard chrome in v1; the immersive flag is a
-                        // selector-item concept today (docs/navigation.md).
+                        // NavStack destinations are standard chrome in v1; the immersive flag is a
+                        // nav-item concept today (docs/navigation.md).
                         t.patch(
                             host,
                             Box::new(NavPatch::Pushed {
@@ -3747,7 +3743,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for Stack<S, K> {
 // Cover — a fullscreen modal surface bound to a Signal<Option<Route>> (docs/cover.md).
 // ===========================================================================
 
-/// A fullscreen cover: the modal counterpart of [`stack`], bound to a `Signal<Option<R>>`.
+/// A fullscreen cover: the modal counterpart of [`nav_stack`], bound to a `Signal<Option<R>>`.
 /// `Some(r)` presents the built content over the whole window (edge-to-edge, slide-up where
 /// the platform animates modals); `None` dismisses it. The SwiftUI analogue is
 /// `fullScreenCover(item:)`. Build one with [`cover`].
@@ -4019,10 +4015,10 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Selector`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Nav`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait SelectorBuilder<K: Route>: Sized {
-    fn style(self, style: SelectorStyle) -> Self;
+pub trait NavBuilder<K: Route>: Sized {
+    fn style(self, style: NavStyle) -> Self;
     fn title<M>(self, t: impl IntoText<M>) -> Self;
     fn section<M>(self, title: impl IntoText<M>) -> Self;
     fn badge<M>(self, badge: impl IntoText<M>) -> Self;
@@ -4063,30 +4059,30 @@ pub trait SelectorBuilder<K: Route>: Sized {
     fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self;
 }
 
-impl<K: Route, S: Binding<K>> SelectorBuilder<K> for Selector<S, K> {
-    fn style(self, style: SelectorStyle) -> Self {
-        Selector::style(self, style)
+impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
+    fn style(self, style: NavStyle) -> Self {
+        Nav::style(self, style)
     }
     fn title<M>(self, t: impl IntoText<M>) -> Self {
-        Selector::title(self, t)
+        Nav::title(self, t)
     }
     fn section<M>(self, title: impl IntoText<M>) -> Self {
-        Selector::section(self, title)
+        Nav::section(self, title)
     }
     fn badge<M>(self, badge: impl IntoText<M>) -> Self {
-        Selector::badge(self, badge)
+        Nav::badge(self, badge)
     }
     fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self {
-        Selector::badge_icon(self, icon)
+        Nav::badge_icon(self, icon)
     }
     fn badge_tint(self, color: day_spec::Color) -> Self {
-        Selector::badge_tint(self, color)
+        Nav::badge_tint(self, color)
     }
     fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
-        Selector::header(self, build)
+        Nav::header(self, build)
     }
     fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self {
-        Selector::presentation(self, presentation)
+        Nav::presentation(self, presentation)
     }
     fn item<M, P: Piece>(
         self,
@@ -4094,7 +4090,7 @@ impl<K: Route, S: Binding<K>> SelectorBuilder<K> for Selector<S, K> {
         title: impl IntoText<M>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
-        Selector::item(self, key, title, build)
+        Nav::item(self, key, title, build)
     }
     fn item_icon<M, P: Piece>(
         self,
@@ -4103,58 +4099,58 @@ impl<K: Route, S: Binding<K>> SelectorBuilder<K> for Selector<S, K> {
         icon: impl Into<day_spec::ImageName>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
-        Selector::item_icon(self, key, title, icon, build)
+        Nav::item_icon(self, key, title, icon, build)
     }
     fn immersive(self) -> Self {
-        Selector::immersive(self)
+        Nav::immersive(self)
     }
     fn icon_tint(self, color: day_spec::Color) -> Self {
-        Selector::icon_tint(self, color)
+        Nav::icon_tint(self, color)
     }
     fn items<T: Clone + 'static>(
         self,
         items: impl Fn() -> Vec<T> + 'static,
         map: impl Fn(&T) -> NavItem<K> + 'static,
     ) -> Self {
-        Selector::items(self, items, map)
+        Nav::items(self, items, map)
     }
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
-        Selector::destination(self, build)
+        Nav::destination(self, build)
     }
     fn detail_title<M>(self, t: impl IntoText<M>) -> Self {
-        Selector::detail_title(self, t)
+        Nav::detail_title(self, t)
     }
     fn local(self) -> Self {
-        Selector::local(self)
+        Nav::local(self)
     }
     fn restore(self, key: impl Into<String>) -> Self {
-        Selector::restore(self, key)
+        Nav::restore(self, key)
     }
     fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
-        Selector::toolbar(self, content)
+        Nav::toolbar(self, content)
     }
     fn sidebar_toggle(self, on: bool) -> Self {
-        Selector::sidebar_toggle(self, on)
+        Nav::sidebar_toggle(self, on)
     }
     fn searchable(self, query: Signal<String>) -> Self {
-        Selector::searchable(self, query)
+        Nav::searchable(self, query)
     }
     fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self {
-        Selector::search_prompt(self, prompt)
+        Nav::search_prompt(self, prompt)
     }
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
-        Selector::search_placement(self, placement)
+        Nav::search_placement(self, placement)
     }
     fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
-        Selector::search_scopes(self, scope, titles)
+        Nav::search_scopes(self, scope, titles)
     }
     fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self {
-        Selector::search_suggestions(self, f)
+        Nav::search_suggestions(self, f)
     }
 }
 
-impl<K: Route, Inner: SelectorBuilder<K> + Piece> SelectorBuilder<K> for Decorated<Inner> {
-    fn style(self, style: SelectorStyle) -> Self {
+impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> {
+    fn style(self, style: NavStyle) -> Self {
         self.map_inner(|inner_piece| inner_piece.style(style))
     }
     fn title<M>(self, t: impl IntoText<M>) -> Self {
@@ -4243,9 +4239,9 @@ impl<K: Route, Inner: SelectorBuilder<K> + Piece> SelectorBuilder<K> for Decorat
     }
 }
 
-/// [`Stack`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`NavStack`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait StackBuilder<K: Route>: Sized {
+pub trait NavStackBuilder<K: Route>: Sized {
     fn title<M>(self, t: impl IntoText<M>) -> Self;
     fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self;
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self;
@@ -4253,30 +4249,30 @@ pub trait StackBuilder<K: Route>: Sized {
     fn restore(self, key: impl Into<String>) -> Self;
 }
 
-impl<K: Route, S: Binding<Vec<K>>> StackBuilder<K> for Stack<S, K> {
+impl<K: Route, S: Binding<Vec<K>>> NavStackBuilder<K> for NavStack<S, K> {
     fn title<M>(self, t: impl IntoText<M>) -> Self {
-        Stack::title(self, t)
+        NavStack::title(self, t)
     }
     fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
-        Stack::toolbar(self, content)
+        NavStack::toolbar(self, content)
     }
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
-        Stack::destination(self, build)
+        NavStack::destination(self, build)
     }
     fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self {
-        Stack::on_back(self, guard)
+        NavStack::on_back(self, guard)
     }
     fn restore(self, key: impl Into<String>) -> Self {
-        Stack::restore(self, key)
+        NavStack::restore(self, key)
     }
 }
 
-impl<K: Route, Inner: StackBuilder<K> + Piece> StackBuilder<K> for Decorated<Inner> {
+impl<K: Route, Inner: NavStackBuilder<K> + Piece> NavStackBuilder<K> for Decorated<Inner> {
     fn title<M>(self, t: impl IntoText<M>) -> Self {
         self.map_inner(|inner_piece| inner_piece.title(t))
     }
     fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
-        self.map_inner(|inner_piece| StackBuilder::toolbar(inner_piece, content))
+        self.map_inner(|inner_piece| NavStackBuilder::toolbar(inner_piece, content))
     }
     fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.destination(build))

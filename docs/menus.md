@@ -125,8 +125,8 @@ app_menu(vec![
 
 | Role | AppKit | GTK | Qt | UIKit | Android | XAML |
 |---|---|---|---|---|---|---|
-| Cut/Copy/Paste | `cut:`/`copy:`/`paste:` selectors — a focused text view answers first, then the app's edit bridge⁴ | `clipboard.*` actions | dispatched to the focused `QLineEdit`/`QTextEdit` | responder chain, then the edit bridge⁴ | edit bridge⁴ (text keeps its own selection toolbar¹) | accelerator² |
-| SelectAll | `selectAll:` selector — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² |
+| Cut/Copy/Paste | `cut:`/`copy:`/`paste:` nav hosts — a focused text view answers first, then the app's edit bridge⁴ | `clipboard.*` actions | dispatched to the focused `QLineEdit`/`QTextEdit` | responder chain, then the edit bridge⁴ | edit bridge⁴ (text keeps its own selection toolbar¹) | accelerator² |
+| SelectAll | `selectAll:` nav host — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² |
 | Undo/Redo | `undo:`/`redo:` (responder chain — the acting `NSUndoManager`, a focused text field's before the document's) | stock actions (`text.undo`) | focused editor | installed undo bridge³ | installed undo bridge³ | — |
 | Quit / Close / Minimize / Fullscreen | standard App-menu items | window actions | window / `qApp` | — | — | Quit closes the window |
 | About / Preferences | moved into the App menu | — | `menuRole` → app menu (mac) | — | — | — |
@@ -302,7 +302,7 @@ bar"), where the rebuild also took the keyboard focus out of the search field.
 
 ## Nav-row context menus
 
-A selector's rows can each carry their own context menu (`item(…).context_menu(vec![…])`
+A nav host's rows can each carry their own context menu (`item(…).context_menu(vec![…])`
 inside the `.items` mapper, [docs/navigation.md](navigation.md)) for the sidebar idioms every desktop app
 grows: per-feed "Mark all read", per-project "Reveal in Finder", the Showcase's per-page
 "Show Source". The entries are the same builders as everywhere else and lower through the

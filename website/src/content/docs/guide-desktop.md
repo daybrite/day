@@ -128,7 +128,7 @@ segmented control, `toolbar_menu(id, label, entries)` for a pull-down built from
 `.label_style(…)`, and `.prominent()`.
 
 Search has no toolbar item. Declare it on the navigation surface it filters, with
-`selector(section).searchable(query)`, and Day draws the field where the platform puts search.
+`nav(section).searchable(query)`, and Day draws the field where the platform puts search.
 That lets it move into the navigation list on a window too narrow for a [sidebar](/docs/glossary#sidebar) without your code
 changing. A sidebar supplies its own toggle button, so an app declares nothing for that either.
 

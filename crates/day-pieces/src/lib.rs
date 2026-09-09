@@ -73,19 +73,18 @@ pub mod prelude {
         ColumnBuilder, Confirm, Corner, Cover, Decorate, Decorated, Drag, Draw, FileUrl, Form,
         FormSection, Grid, GridRow, HAlign, Inspector, IntoFocusBinding, IntoFraction,
         IntoReactive, IntoText, ItemSlot, LabelBuilder, Labeled, Link, List, MenuEntry, Modifier,
-        NativeRef, NavItem, OpenFile, Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route,
-        RoutePath, RowBuilder, RowFit, SaveFile, Selector, SelectorStyle, ShapeKind, ShapePiece,
-        Stack, SwipeAction, TextBuilder, VAlign, VectorWeight, When, ZStack, alert,
-        app_environment, app_menu, app_menu_reactive, arc, button, canvas, capsule, circle, column,
-        confirm, cover, current_route, divider, each, ellipse, environment, focused_environment,
-        form, frame_clock, grid, grid_row, image, inspector, item, items, label, labeled, line,
-        link, list, menu_item, menu_role, menu_separator, nav_back, nav_link, nav_link_to,
-        navigate, navigate_to, open_file, picker, polygon, progress, prompt, rectangle,
-        rounded_rectangle, route, route_param, route_params, row, save_file, scroll, section,
-        segment, selector, shape, shape_group, shape_group_fn, slider, spacer, spinner, stack,
-        sub_menu, swipe_action, text_area, text_field, toggle, toolbar_button, toolbar_label,
-        toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector, when,
-        with_environment, zstack,
+        NativeRef, Nav, NavItem, NavStack, NavStyle, OpenFile, Pan, PathBuilder, Pinch, Prompt,
+        Reactive, Reorder, Route, RoutePath, RowBuilder, RowFit, SaveFile, ShapeKind, ShapePiece,
+        SwipeAction, TextBuilder, VAlign, VectorWeight, When, ZStack, alert, app_environment,
+        app_menu, app_menu_reactive, arc, button, canvas, capsule, circle, column, confirm, cover,
+        current_route, divider, each, ellipse, environment, focused_environment, form, frame_clock,
+        grid, grid_row, image, inspector, item, items, label, labeled, line, link, list, menu_item,
+        menu_role, menu_separator, nav, nav_back, nav_link, nav_link_to, nav_stack, navigate,
+        navigate_to, open_file, picker, polygon, progress, prompt, rectangle, rounded_rectangle,
+        route, route_param, route_params, row, save_file, scroll, section, segment, shape,
+        shape_group, shape_group_fn, slider, spacer, spinner, sub_menu, swipe_action, text_area,
+        text_field, toggle, toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented,
+        toolbar_separator, toolbar_toggle, vector, when, with_environment, zstack,
     };
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{
@@ -98,8 +97,8 @@ pub mod prelude {
     // `RowBuilder` sit in the list above, in alphabetical company.)
     pub use crate::{
         CoverBuilder, FormSectionBuilder, GridBuilder, GridRowBuilder, ImageBuilder,
-        InspectorBuilder, LinkBuilder, ListBuilder, PickerBuilder, ScrollBuilder, SelectorBuilder,
-        ShapePieceBuilder, SliderBuilder, StackBuilder, TextAreaBuilder, TextFieldBuilder,
+        InspectorBuilder, LinkBuilder, ListBuilder, NavBuilder, NavStackBuilder, PickerBuilder,
+        ScrollBuilder, ShapePieceBuilder, SliderBuilder, TextAreaBuilder, TextFieldBuilder,
         ToggleBuilder, VectorBuilder, WhenBuilder, ZStackBuilder,
     };
     #[cfg(feature = "model")]
@@ -113,7 +112,7 @@ pub mod prelude {
     pub use day_reactive::{
         Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
-    // `Selector::presentation` takes one (docs/size-classes.md); apps that leave the
+    // `Nav::presentation` takes one (docs/size-classes.md); apps that leave the
     // presentation automatic never name it.
     pub use day_spec::props::NavPresentation;
     pub use day_spec::props::PaneEdge;

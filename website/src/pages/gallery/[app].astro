@@ -12,7 +12,7 @@ import PlatformIcon from '../../components/PlatformIcon.astro';
 //
 // Layout: one ROW per captured screen, every platform's capture of that screen laid out
 // horizontally in a scrolling strip. Where the app captured more than one theme or language,
-// segmented selectors swap every visible tile between its captures client-side — each <img>
+// segmented nav hosts swap every visible tile between its captures client-side — each <img>
 // carries all of them as data attributes, and the inline script resolves the best available
 // (falling back visibly when a combination wasn't captured).
 export function getStaticPaths() {
@@ -32,7 +32,7 @@ const generated = app.indexGeneratedAt
     })
   : null;
 
-// A selector appears only for a dimension the app actually varied: most apps capture one theme,
+// A nav host appears only for a dimension the app actually varied: most apps capture one theme,
 // several capture one language, and a row of buttons with nothing to choose between is noise.
 const themes = app.themes.length > 1 ? app.themes : [];
 const locales = app.locales.length > 1 ? app.locales : [];

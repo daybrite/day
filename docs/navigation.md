@@ -1,6 +1,6 @@
 ---
 title: "Navigation"
-description: "selector and stack: native sidebars, tabs, and push navigation from one declarative model, plus routes and deep-link intake."
+description: "nav host and stack: native sidebars, tabs, and push navigation from one declarative model, plus routes and deep-link intake."
 ---
 
 <!--
@@ -8,16 +8,16 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Navigation (`selector`, `stack`)
+# Navigation (`nav`, `nav_stack`)
 
 Day models navigation the way it models everything else: as a projection of an app-owned
 `Signal`. There is no imperative navigation controller in app code; you own the state, and
 the native container is reconciled to it. Two primitives cover the field, matching what every
 native toolkit provides:
 
-- **`selector`**: a flat one-of-N choice, bound to a `Signal` of the active key. Its
+- **`nav`**: a flat one-of-N choice, bound to a `Signal` of the active key. Its
   `.style` picks the native chrome.
-- **`stack`**: a push/pop stack, bound to a `Signal<Vec<_>>` **path**.
+- **`nav_stack`**: a push/pop stack, bound to a `Signal<Vec<_>>` **path**.
 
 Both are generic over the key type, any [`Route`](#typed-routes): plain `String`s for
 stringly-keyed quick starts, or an app-defined enum for compile-checked navigation whose
@@ -25,11 +25,11 @@ variants can carry data. A thin string-route adapter (`navigate`, `nav_back`, `c
 sits underneath so deep links and dayscript address surfaces by key either way, but the
 surfaces themselves run on their signals.
 
-## `selector`: one-of-N
+## `nav`: one-of-N
 
 ```rust
 let section = Signal::new("home".to_string());
-selector(section)                       // adaptive by default; .style() pins a shape
+nav host(section)                       // adaptive by default; .style() pins a shape
     .title(tr("app-title"))
     .header(sidebar_header)             // optional piece above the list
     .item("home",     tr("home"),     home_page)
@@ -38,7 +38,7 @@ selector(section)                       // adaptive by default; .style() pins a 
 
 ### Styles
 
-| `SelectorStyle` | What it draws |
+| `NavStyle` | What it draws |
 |---|---|
 | `Automatic` **(default)** | The platform's own answer at this width — see the ladder below. |
 | `Tabs` | A tab bar at every size, however wide the window gets. |
@@ -53,7 +53,7 @@ selector(section)                       // adaptive by default; .style() pins a 
 | `Compact` (< 600pt) | `Tabs` where a tab bar is the idiom, `Stack` where it is not |
 
 That last row is `Cap::NavTabsAdaptive`, and it describes the platform rather than its widget
-set. Every desktop can draw a tab bar (an app is free to pin `SelectorStyle::Tabs`), and none of
+set. Every desktop can draw a tab bar (an app is free to pin `NavStyle::Tabs`), and none of
 them grows one when its window is dragged narrow: a narrow Mail.app hides its sidebar and pushes.
 The phones and the web are the opposite, and they are the surfaces whose window size ranges from
 a phone to a desktop. So `Automatic` and `Sidebar` behave identically on a desktop, and differ on
@@ -94,7 +94,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 | `Tabs` | the rows drawn as a tab bar: `UITabBarController` / Material `NavigationBarView` / `NavigationView.PaneDisplayMode = Top` / an `NSSegmentedControl` docked below the pages on macOS / a composed bar on Qt and web-dom. |
 | `Rail` | the rows as a narrow strip: Material `NavigationRailView`, `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
 
-`selector` is one primitive, a selection-bound switcher, and a presentation is chrome plus page
+`nav` is one primitive, a selection-bound switcher, and a presentation is chrome plus page
 lifetime rather than a different host. That is why a window crossing a breakpoint re-presents
 (`NavPatch::Presentation`) rather than rebuilding: the pages it already has are re-homed, so
 nothing loses a scroll offset, a focused field, or an animation in flight.
@@ -109,7 +109,7 @@ navigation existed.
 |---------|-------------------|----------|
 | macos-appkit | `NSSegmentedControl` docked below the pages | no; a Mac narrows to a stack |
 | ios-uikit | `UITabBarController` in `.tabSidebar` mode, driven by `UITab` on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
-| android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width. A `SelectorStyle::Sidebar` pane is a `NavigationView` too (2026-09) — see below | yes |
+| android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width. A `NavStyle::Sidebar` pane is a `NavigationView` too (2026-09) — see below | yes |
 | linux-gtk | `AdwViewStack` under a `.linked` grouped-toggle switcher, docked at the foot | no |
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
@@ -117,10 +117,10 @@ navigation existed.
 | windows-xaml | the same `NavigationView` with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
 
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
-desktop may pin one with `SelectorStyle::Tabs`, but narrowing hides its sidebar and pushes.
+desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and pushes.
 
 > [!NOTE]
-> **Renamed.** `selector(sel).style(Tabs)` was `tabs()`, and `selector(sel).style(Sidebar)` was `nav()`.
+> **Renamed.** `nav(sel).style(Tabs)` was `tabs()`, and `nav(sel).style(Sidebar)` was `nav()`.
 
 ### Keyboard
 
@@ -146,7 +146,7 @@ get the standard opaque bar. Every other backend ignores the flag. Pair it with
 `day::safe_area()` ([docs/layout](https://daybrite.dev/docs/layout)): the immersive page paints its background unpadded and pads
 its content by the reported insets.
 
-## `stack`: push/pop with a value path
+## `nav_stack`: push/pop with a value path
 
 ```rust
 let path = Signal::new(Vec::<String>::new());
@@ -171,29 +171,29 @@ TOOLBAR ITEM declared on the piece it acts on ([docs/toolbars.md](toolbars.md)),
 rides follows from that:
 
 ```rust
-selector(section)
+nav host(section)
     .toolbar(toolbar_button("add", tr("add")).icon(Symbol::Add).action(add_item))  // the list's
     .destination(|k| page(k).toolbar(share_button()))                              // the page's
 ```
 
-`Selector::toolbar` and `Stack::toolbar` put items on that host's own chrome — the sidebar column
+`Nav::toolbar` and `NavStack::toolbar` put items on that host's own chrome — the sidebar column
 where the presentation has one, the root list when it has collapsed. Items declared on a
 destination page ride the detail. Both leave the bar when what they act on leaves the screen, so
 neither needs a scope to be spelled out.
 
 The affordance that shows and hides the sidebar is the toolkit's, not the app's: a
-`selector(Sidebar)` supplies it, and `.sidebar_toggle(false)` suppresses it.
+`nav(Sidebar)` supplies it, and `.sidebar_toggle(false)` suppresses it.
 
-## Data-driven items (`selector().items`)
+## Data-driven items (`nav().items`)
 
-`selector` items can come from a signal, so a sidebar or tab set grows and shrinks with your data
+`nav` items can come from a signal, so a sidebar or tab set grows and shrinks with your data
 (a rooms list, open documents). Static `.item`s and dynamic `.items` blocks mix; pair `.items`
-with `.destination` to build the page for a data-driven key (like `stack`).
+with `.destination` to build the page for a data-driven key (like `nav_stack`).
 
 ```rust
 let tabs = Signal::new(vec!["general".to_string(), "random".to_string()]);
-selector(current)
-    .style(SelectorStyle::Tabs)
+nav host(current)
+    .style(NavStyle::Tabs)
     .items(move || tabs.get(), |k: &String| item(k.clone(), k.clone()))
     .destination(|k: &String| room_page(k))
 ```
@@ -224,11 +224,11 @@ the trailing slot of the AppKit cell, the GTK row box, a `QStyledItemDelegate` o
 `QListWidgetItem` has only the leading icon slot), the `end` compound drawable on Android, the
 composed `NavigationViewItem.Content` on XAML, between label and chevron on ArkUI, a masked
 element on web-dom, and a trailing `UIImageView` on UIKit, which is also where the nav badge slot
-first appeared on that backend. A selector used as a self-contained widget inside a
+first appeared on that backend. A nav host used as a self-contained widget inside a
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 
-**Section headers.** `selector(…).section(title)` opens a header before the NEXT item added —
+**Section headers.** `nav(…).section(title)` opens a header before the NEXT item added —
 a static `.item` or the first row of the next `.items` block — and `item(key, title).section(title)`
 does the same from inside a data-driven mapper, which is how a derived list keeps its groups
 under a search filter: attach the header to the first surviving row of each group, and a group
@@ -241,7 +241,7 @@ share its text with an item ("Controls" over Controls) without the two collapsin
 UIKit and Android draw them from their list's own header slot, described below.
 
 ```rust
-selector(section)
+nav host(section)
     .section(res::str::smart_feeds())
     .item_icon("today", res::str::today(), res::images::today, today_page)
     .section(res::str::feeds())
@@ -304,19 +304,19 @@ the sync asks the CONTROLLER whether it answers `setTabs:` — the same shape th
 addresses a page by INDEX, and the delegate's `didSelectViewController:` reports a tap. An iOS 17
 device therefore gets the plain tab bar an iOS 17 app always had rather than a crash. The
 `didSelectTab:previousTab:` method is declared OUTSIDE the delegate's protocol block for the same
-reason: a protocol block asks the runtime for the selector's type encoding, and asking for an iOS
-18 selector on an older runtime fails the class registration itself, which took down the whole
+reason: a protocol block asks the runtime for the nav host's type encoding, and asking for an iOS
+18 nav host on an older runtime fails the class registration itself, which took down the whole
 scene as soon as a tabs host was realized.
 
 `UITabGroup` is deliberately NOT used. Day's `NavMenuProps::sections` are headings — "a section
 header introducing the row at the same index" — whereas a `UITabGroup` is a destination that
 CONTAINS others: in a sidebar it draws as a heading, but in the compact tab bar the whole group
 collapses to a single tab. Mapping flat sections onto it would turn N tab-bar destinations into G.
-It becomes the right realization if Day's selector ever grows real hierarchy.
+It becomes the right realization if Day's nav host ever grows real hierarchy.
 
 ### The iOS sidebar is a collection-view list
 
-`selector(SelectorStyle::Sidebar)` realizes on ios-uikit as a `UICollectionView` laid out by
+`nav(NavStyle::Sidebar)` realizes on ios-uikit as a `UICollectionView` laid out by
 `UICollectionLayoutListConfiguration` with the **`.sidebar` appearance**, in the primary column of
 a `UISplitViewController`. That appearance publishes the `listEnvironment` trait the cells'
 adaptive `UIListContentConfiguration::cellConfiguration` reads, and it is what gives the Settings
@@ -339,7 +339,7 @@ keeps speaking in flat row indices.
 
 ### The Android sidebar is a NavigationView
 
-`selector(SelectorStyle::Sidebar)` realizes on android-mdc as a Material
+`nav(NavStyle::Sidebar)` realizes on android-mdc as a Material
 [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView),
 the class Android means for a standing navigation column. It was a `LinearLayout` of `TextView`
 rows in a `ScrollView` until 2026-09, with the 48dp height, the padding, the ripple and the 24dp
@@ -379,7 +379,7 @@ Two consequences worth knowing before touching it:
 
 ## Back interception (`on_back`)
 
-`Stack::on_back` intercepts the user's back affordance (a native gesture/button, or `nav_back()`)
+`NavStack::on_back` intercepts the user's back affordance (a native gesture/button, or `nav_back()`)
 to run a policy before the pop. It does not run for a programmatic `path.set` (a write is not a
 back), matching Jetpack Compose's `BackHandler`.
 
@@ -428,7 +428,7 @@ address the whole tree. The grammar:
 
 ```text
 route    = segment *( "/" segment ) [ "?" query ]     e.g.  mail/inbox/msg-42?hint=shared
-segment  = a selector/tabs item key, or a stack destination key
+segment  = a nav host/tabs item key, or a stack destination key
 query    = name "=" value *( "&" name "=" value )     (params for the destination builders)
 ```
 
@@ -436,7 +436,7 @@ Reserved characters inside a segment or param value (`/ ? & = %`) are percent-en
 `day_core::nav::{parse_route, encode_route}` do this for you. Two addressing modes:
 
 - **A single key is relative**: `navigate("inbox")` reaches the innermost surface first and
-  falls through outward. For a `selector`/tabs it sets the active key; a `stack` claims only
+  falls through outward. For a `nav`/tabs it sets the active key; a `nav_stack` claims only
   `""` (pop to root), so sibling keys fall through to the enclosing surface. This is what a
   button deep inside a page wants: address the nearest thing that knows the key.
 - **A `/`-separated path is absolute**: `navigate("mail/inbox/msg-42")` anchors at the
@@ -472,15 +472,15 @@ state instead.
   hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as
   `Event::RouteRequested` and navigates. Other backends inherit the no-op default.
 
-Because each surface owns its own signal, a `selector(Tabs)` or a `stack` nests inside a
-`selector(Sidebar)` section with no extra wiring. There is no global navigation controller
+Because each surface owns its own signal, a `nav(Tabs)` or a `nav_stack` nests inside a
+`nav(Sidebar)` section with no extra wiring. There is no global navigation controller
 to arbitrate, only this string adapter for addressing.
 
 **Sibling one-of-N surfaces need `.local()`.** Every routed surface contributes to the full
-route, so *two* `selector`/tabs at the **same level** (a filter tab strip beside a main tab bar)
+route, so *two* `nav`/tabs at the **same level** (a filter tab strip beside a main tab bar)
 both feed `current_route()`: you get `section/mainKey/filterKey`, and `navigate("filterKey")` is
 ambiguous. Mark all but the primary one `.local()`; it then drives its own signal without touching
-the route. A selector nested one level *deeper* (a `Tabs` inside a `Sidebar` section) is the
+the route. A nav host nested one level *deeper* (a `Tabs` inside a `Sidebar` section) is the
 opposite case and should stay routed; that cascade is what nesting is for. In debug builds,
 two routed one-of-N surfaces at the same level log a warning naming this fix.
 
@@ -500,14 +500,14 @@ When you want a surface to reopen where the user left it, mark it with `.restore
 instead of wiring `current_route()` by hand:
 
 ```rust
-selector(section).restore("nav.section")   // reopens on the last-viewed section
+nav host(section).restore("nav.section")   // reopens on the last-viewed section
 stack(path, home).restore("mail.path")     // rebuilds the pushed path
 ```
 
 The selected key (or the stack's `/`-joined path) is saved under `key` on every change and read
 back at build. A pending launch deep link **wins**: a `DAY_DEEPLINK` (or a `set_launch_deeplink`
 hint) routes one turn after mount, so `.restore` steps aside and the link decides where the app
-opens. A saved value that no longer fits (a selector key whose item is gone, a stack segment that
+opens. A saved value that no longer fits (a nav host key whose item is gone, a stack segment that
 no longer parses) is ignored rather than restoring a broken state.
 
 `.restore` reads and writes through a store the app installs once at startup; nothing persists
@@ -553,12 +553,12 @@ day::routes! {
 }
 
 let section = Signal::new(None::<Section>);        // None = the collapsed mobile list
-selector(section)
+nav host(section)
     .item(Section::Home,  tr("home"),  home_page)  // compile-checked, no raw keys
     .item(Section::Stack, tr("stack"), stack_page)
 ```
 
-A sidebar `selector` keys on `Option<Section>` (`None` ↔ `""`, the no-selection list state);
+A sidebar `nav` keys on `Option<Section>` (`None` ↔ `""`, the no-selection list state);
 tabs always have a selection, so they key on the bare enum (`Signal::new(Tab::One)`). Blanket
 impls cover both: `Option<R>` is a `Route` whenever `R` is, and `.item` takes the bare variant
 either way.
@@ -594,7 +594,7 @@ nav_link_to(tr("open-42"), route(&Section::Stack).then(&Drill::Item { id: 42 }))
 
 Everything downstream is unchanged: `current_route()` still returns the encoded string (which
 is what you persist), deep links and dayscript still speak segments, and the two layers meet
-only at `key`/`from_key`. Mixed trees are fine: a typed selector over a `String` stack, or
+only at `key`/`from_key`. Mixed trees are fine: a typed nav host over a `String` stack, or
 vice versa.
 
 ## Composition
@@ -602,30 +602,30 @@ vice versa.
 The Mail.app / Files.app pattern falls out by nesting:
 
 ```rust
-selector(section).style(SelectorStyle::Sidebar)
+nav host(section).style(NavStyle::Sidebar)
     .item("library", tr("library"), || stack(lib_path, library_root).destination(detail))
 ```
 
-The sidebar selection drives which section shows; the selected section is itself a `stack` that
+The sidebar selection drives which section shows; the selected section is itself a `nav_stack` that
 drills down. Each surface owns its signal.
 
 **Nested stacks share one native container on mobile.** When the enclosing host presents as a
 push stack (a phone, or any window too narrow for two panes; see
-[size classes](size-classes.md)), a `stack` built inside one of its pages does **not** mint a second native
+[size classes](size-classes.md)), a `nav_stack` built inside one of its pages does **not** mint a second native
 navigation controller; it pushes its own pages onto the enclosing host, so the whole chain
-(list → section → drill-down) is one native stack with a single back button. The inner `stack`
+(list → section → drill-down) is one native stack with a single back button. The inner `nav_stack`
 keeps its own path signal and route registration (so `current_route()`, deep links, and
 `nav_back()` fall-through are unchanged); only the native container is shared. Where the
-enclosing host presents as split panes a nested `stack` is *not* merged; it renders in the
+enclosing host presents as split panes a nested `nav_stack` is *not* merged; it renders in the
 detail pane with its own back-header, which matches the desktop idiom. A resident container
-(`selector(Tabs)`) is a merge barrier: a `stack` inside a tab keeps its own host.
+(`nav(Tabs)`) is a merge barrier: a `nav_stack` inside a tab keeps its own host.
 
 ## Split or stacked
 
-A `selector(Sidebar)` shows its list beside the selected page in a wide window and pushes the
+A `nav(Sidebar)` shows its list beside the selected page in a wide window and pushes the
 page over the list in a narrow one. That follows the window, not the platform: it is resolved
 from the window's size class and re-resolved whenever the window crosses a breakpoint, so one
-`selector` is right on a desktop, a tablet, and a phone. `.presentation(…)` pins it where the
+`nav` is right on a desktop, a tablet, and a phone. `.presentation(…)` pins it where the
 content only works one way. [docs/size-classes.md](size-classes.md) is normative; it covers the
 breakpoints, what survives a re-presentation, and which backends morph today.
 
@@ -634,26 +634,26 @@ breakpoints, what survives a re-presentation, and which backends morph today.
 > **Status: implemented** (2026-08). Native pane on macos-appkit (a real `contentList`
 > `NSSplitViewItem`), on Qt (the middle pane of the navigation `QSplitter`, since 2026-09) and
 > ios-uikit (`UISplitViewController` triple-column, merging into the stack at compact width);
-> composed by the selector everywhere else, including the mock.
+> composed by the nav host everywhere else, including the mock.
 > `Cap::NavContentList` carries the three-way answer. Since 2026-08 the composed compact flow
 > is push navigation: a list-backed tab is a nested navigation controller, not a swap.
 
 > [!IMPORTANT]
 > A tab bar has nowhere to place the list as a column (on `ios-uikit` a `Pane::List` page
 > handed to a `.tabSidebar` controller becomes a stray tab), so a host presenting as tabs is
-> never given the native pane. The selector composes the flow instead, and with
+> never given the native pane. The nav host composes the flow instead, and with
 > `detail_visible` the list-backed tab is a navigation controller of its own: the list at the
 > tab's root under its own bar and title, the detail pushed over it with a native back. So an
-> `Automatic` selector declares the pane freely; a phone gets all three layers either way
+> `Automatic` nav host declares the pane freely; a phone gets all three layers either way
 > (the sections, the list, and the detail).
 
-`.content_list(build)` gives a selector the Mail shape: sidebar, content list, detail
+`.content_list(build)` gives a nav host the Mail shape: sidebar, content list, detail
 (mailboxes, message list, message). The list is built once and stays resident for the
 host's life; its content follows the app's own signals (the sidebar selection scoping it, the
 row chosen from it), so switching sections re-scopes it without a rebuild.
 
 ```rust
-selector(section).style(SelectorStyle::Sidebar)
+nav host(section).style(NavStyle::Sidebar)
     .content_list(timeline_pane)               // the middle column, built once
     .content_list_width(400.0)                 // preferred; drag limits are the backend's
     .content_list_for(|k| k != "settings")     // full-page sections collapse the pane
@@ -675,7 +675,7 @@ selector(section).style(SelectorStyle::Sidebar)
   host: a change between the two on a wide window rebuilds the host with fresh column
   controllers and moves the pages across, which is what SwiftUI does when a
   `NavigationSplitView` changes column count. Day's handle for the host is a container the
-  split's view fills, so the rebuild never touches the tree. `Unsupported` (everything else): the selector
+  split's view fills, so the rebuild never touches the tree. `Unsupported` (everything else): the nav host
   composes the list beside each list-backed destination while split, and as the root layer of
   the gated push flow while compact.
 - **`detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts
@@ -685,7 +685,7 @@ selector(section).style(SelectorStyle::Sidebar)
   out. In a chrome presentation (a tab bar, a rail) the same flow runs inside the tab: the
   destination's page is a nested navigation host (a `UINavigationController` in the tab, a
   Material toolbar over the fragment back stack), so the tab gets a navigation bar, a title,
-  and a native back, and the selector's bar actions ride that bar (a tabs chrome otherwise
+  and a native back, and the nav host's bar actions ride that bar (a tabs chrome otherwise
   draws none). Without `detail_visible` a stacked host behaves classically (the detail pushes
   on selection).
 - **`detail_title`** names the detail layer's navigation bar: the pushed editor on a phone,
@@ -700,9 +700,9 @@ selector(section).style(SelectorStyle::Sidebar)
   the pane needs a selection to scope itself to, so a collapsed host opens on the list rather
   than on bare sidebar rows.
 - The native resident pane (`Native`, and `Emulated` while expanded) is a merge barrier like a
-  chrome page: a `stack` inside it keeps its own container, with the desktop back header above
+  chrome page: a `nav_stack` inside it keeps its own container, with the desktop back header above
   its pages. The composed compact flow is the opposite: there the list is the root page of a
-  push stack (the tab's own navigation controller, or the enclosing host's), so a `stack` inside
+  push stack (the tab's own navigation controller, or the enclosing host's), so a `nav_stack` inside
   it merges, and a drill-down from the list (a category, then its stations) is real pushes with
   the native back, with the gated detail pushed on top of whatever the stack pushed.
 
@@ -715,7 +715,7 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
 - **GTK** adopts libadwaita throughout (`adw::Application` loads the Adwaita stylesheet). The
   window is an `AdwApplicationWindow` whose content is an `AdwToolbarView` (an `AdwHeaderBar`
   supplies the title, window controls, and drag; Day's content sits below it). Navigation:
-  `Sidebar` → `AdwOverlaySplitView` with `AdwNavigationPage` sidebar/content; `stack` →
+  `Sidebar` → `AdwOverlaySplitView` with `AdwNavigationPage` sidebar/content; `nav_stack` →
   `AdwNavigationView` (push/pop + back gesture; its `popped` signal writes native back into the
   path). Page content is a `GtkFixed` wrapped in an `AdwNavigationPage`; Day sizes it from the
   host width (sidebar is a fixed width, detail fills the rest). The split's **content** pane puts
@@ -737,7 +737,7 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
 > capture rather than an offscreen one.
 
 - **macOS `NSSplitView` / Qt `QSplitter`** honor the resolved presentation: `Split` shows both panes; a
-  `stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane,
+  `nav_stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane,
   with a **back header** (chevron + centered title, hidden at the root) above the pages;
   desktop has no system back affordance, so a pushed page carries its own way out. The button
   emits the same `NavBack` event mobile back does, writing the pop into the path signal.
@@ -755,17 +755,17 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   predictive-back animation behind Developer options → "Predictive back animations"
   (`adb shell settings put global enable_back_animation 1`), and gesture navigation must be
   active; Android 15+ enables it by default.
-- **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `stack`. A
-  `stack` nested inside such a host's page merges into it (one `UINavigationController` /
+- **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `nav_stack`. A
+  `nav_stack` nested inside such a host's page merges into it (one `UINavigationController` /
   `DayNavHost`, one back button) rather than nesting a second controller; see Composition. No
   backend change is involved: the shared host receives NAV_PAGE pushes/pops from both the outer
   surface and the inner stack identically to a single-surface stack.
 
 ## Testing
 
-`crates/day-pieces/tests/mock_e2e.rs`: selector tabs/sidebar two-way binding, stack
+`crates/day-pieces/tests/mock_e2e.rs`: nav host tabs/sidebar two-way binding, stack
 push/pop/reconcile, native-back-into-path, deep-link, nested fall-through, and typed routes
 (a `Signal<Option<Area>>` sidebar over a data-carrying `Leg(u32)` stack, including segment
-validation). The showcase's top-level nav is a typed `selector(Sidebar)` over a `Section`
-enum, its Tabs page a typed `selector(Tabs)`, and its Stack page a `stack` over a
+validation). The showcase's top-level nav is a typed `nav(Sidebar)` over a `Section`
+enum, its Tabs page a typed `nav(Tabs)`, and its Stack page a `nav_stack` over a
 data-carrying `Drill` enum, all driven through the walkthrough on all five local targets.

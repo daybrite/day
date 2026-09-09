@@ -313,7 +313,7 @@ enum Cmd {
         /// and the published gallery gives each its own column (docs/screenshots.md).
         /// Orthogonal to `--variant`: theme and locale still vary underneath it.
         ///
-        /// A LABEL, not a device selector — `--ios-simulator` picks what to launch on, and
+        /// A LABEL, not a device nav host — `--ios-simulator` picks what to launch on, and
         /// already answers to `--device`, which is why this one is spelled out.
         #[arg(long = "device-slug")]
         device: Option<String>,

@@ -689,12 +689,12 @@ fn ids_land_as_a11y_identifiers() {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md) — selector + stack
+// Navigation (docs/navigation.md) — nav + stack
 // ---------------------------------------------------------------------------
 
 fn tabs_selector(sel: Signal<String>) -> AnyPiece {
-    selector(sel)
-        .style(SelectorStyle::Tabs)
+    nav(sel)
+        .style(NavStyle::Tabs)
         .item("one", "One", || label("one-content"))
         .item("two", "Two", || label("two-content"))
         .item("three", "Three", || label("three-content"))
@@ -702,7 +702,7 @@ fn tabs_selector(sel: Signal<String>) -> AnyPiece {
         .any()
 }
 
-/// A pinned-`Tabs` selector is a NAV host wearing a tab bar — there is no second host kind
+/// A pinned-`Tabs` nav is a NAV host wearing a tab bar — there is no second host kind
 /// (docs/navigation.md). Where the rows are the CHROME every destination is built at mount,
 /// because a tab bar needs an item per destination: `UITabBarController` and Material's
 /// navigation bar both build their chrome from the full set, so an unbuilt page is a missing tab.
@@ -760,8 +760,8 @@ fn selector_tabs_builds_every_destination_and_keeps_them() {
 }
 
 fn sidebar_selector(sel: Signal<String>) -> AnyPiece {
-    selector(sel)
-        .style(SelectorStyle::Sidebar)
+    nav(sel)
+        .style(NavStyle::Sidebar)
         .title("Home")
         .item("about", "About", || label("about-content"))
         .item("extra", "Extra", || label("extra-content"))
@@ -928,7 +928,7 @@ fn widening_from_an_unselected_stack_selects_the_first_item() {
 fn a_pinned_presentation_does_not_morph() {
     let sel = Signal::new(String::new());
     let probe = boot_splittable(Size::new(390.0, 844.0), move || {
-        selector(sel)
+        nav(sel)
             .presentation(day_spec::props::NavPresentation::Split)
             .item("about", "About", || label("about-content"))
             .item("extra", "Extra", || label("extra-content"))
@@ -965,7 +965,7 @@ fn selector_sidebar_deep_link_at_startup() {
 }
 
 fn stack_root(path: Signal<Vec<String>>) -> AnyPiece {
-    stack(path, label("home-content"))
+    nav_stack(path, label("home-content"))
         .destination(|key| label(format!("detail:{key}")))
         .id("nav-stack")
         .any()
@@ -1049,8 +1049,8 @@ fn selector_data_driven_items_reconcile() {
     let current = Signal::new(Option::<String>::None);
     let rooms_r = rooms;
     let probe = boot(move || {
-        selector(current)
-            .style(SelectorStyle::Sidebar)
+        nav(current)
+            .style(NavStyle::Sidebar)
             .items(
                 move || rooms_r.get(),
                 |r: &String| item(r.clone(), r.clone()),
@@ -1102,8 +1102,8 @@ fn selector_filtered_rows_keep_a_live_detail() {
     let all = ["canvas", "controls", "sensors"];
     let q = query;
     let probe = boot(move || {
-        selector(current)
-            .style(SelectorStyle::Sidebar)
+        nav(current)
+            .style(NavStyle::Sidebar)
             .items(
                 move || {
                     let needle = q.get();
@@ -1199,8 +1199,8 @@ fn boot_content_list(
 }
 
 fn content_list_selector(sel: Signal<String>, dv: Option<Signal<bool>>) -> AnyPiece {
-    let s = selector(sel)
-        .style(SelectorStyle::Sidebar)
+    let s = nav(sel)
+        .style(NavStyle::Sidebar)
         .title("Home")
         .content_list(|| label("the-list"))
         .content_list_for(|k: &String| k != "extra")
@@ -1212,7 +1212,7 @@ fn content_list_selector(sel: Signal<String>, dv: Option<Signal<bool>>) -> AnyPi
     }
 }
 
-/// `Cap::NavContentList` Unsupported: the selector COMPOSES the pane into each list-backed
+/// `Cap::NavContentList` Unsupported: the nav COMPOSES the pane into each list-backed
 /// destination — beside the detail while split, and never into an excluded one.
 #[test]
 fn content_list_composes_where_unsupported() {
@@ -1285,10 +1285,10 @@ fn content_list_native_pane_and_visibility() {
     );
 }
 
-/// An ADAPTIVE selector that also has a content list, on a compact phone: the rows are a tab bar,
+/// An ADAPTIVE nav that also has a content list, on a compact phone: the rows are a tab bar,
 /// and the list is that tab's own screen rather than a column squeezed beside the editor.
 ///
-/// Both halves are the regression. The scaffold pinned `SelectorStyle::Sidebar` to get the pane a
+/// Both halves are the regression. The scaffold pinned `NavStyle::Sidebar` to get the pane a
 /// column, which cost it the tab bar on every phone; and the composed pane keyed its side-by-side
 /// layout on `rows_are_chrome()`, which is true of an adaptive tab bar — the compact rung — so
 /// un-pinning the style alone would have paired a 320pt list with an editor across a 400pt screen.
@@ -1298,7 +1298,7 @@ fn content_list_on_a_compact_tab_bar_is_the_tab_s_own_screen() {
     let dv = Signal::new(false);
     let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(400.0, 700.0), {
         move || {
-            selector(sel)
+            nav(sel)
                 .title("Home")
                 .content_list(|| label("the-list"))
                 .item("about", "About", || label("about-content"))
@@ -1311,7 +1311,7 @@ fn content_list_on_a_compact_tab_bar_is_the_tab_s_own_screen() {
     assert_eq!(
         hosts[0].1.presentation,
         Some(day_spec::props::NavPresentation::Tabs),
-        "an adaptive selector on a compact window is a tab bar, content list or not",
+        "an adaptive nav on a compact window is a tab bar, content list or not",
     );
 
     let texts = || -> Vec<String> {
@@ -1349,7 +1349,7 @@ fn a_tabs_host_composes_its_content_list_instead_of_asking_for_a_pane() {
     let dv = Signal::new(false);
     let probe = boot_content_list(day_spec::Support::Emulated, Size::new(400.0, 700.0), {
         move || {
-            selector(sel)
+            nav(sel)
                 .title("Home")
                 .content_list(|| label("the-list"))
                 .item("about", "About", || label("about-content"))
@@ -1389,8 +1389,8 @@ fn content_list_starts_collapsed_when_the_first_destination_is_excluded() {
     let sel = Signal::new(String::new());
     let probe = boot_content_list(day_spec::Support::Native, Size::new(1000.0, 700.0), {
         move || {
-            selector(sel)
-                .style(SelectorStyle::Sidebar)
+            nav(sel)
+                .style(NavStyle::Sidebar)
                 .title("Home")
                 .content_list(|| label("the-list"))
                 .content_list_for(|k: &String| k != "welcome")
@@ -1510,7 +1510,7 @@ fn content_list_emulated_gates_detail_on_visibility() {
 }
 
 /// The composed gated flow in a CHROME presentation (docs/navigation.md): a compact adaptive
-/// selector's list-backed tab is a NESTED navigation host — the list at its root, the detail a
+/// nav's list-backed tab is a NESTED navigation host — the list at its root, the detail a
 /// real push with a native back and the app's `detail_title` on its bar — not an in-place swap.
 #[test]
 fn composed_gated_detail_is_a_nested_stack_inside_a_tab() {
@@ -1520,7 +1520,7 @@ fn composed_gated_detail_is_a_nested_stack_inside_a_tab() {
     let title_r = title;
     let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(400.0, 700.0), {
         move || {
-            selector(sel)
+            nav(sel)
                 .title("Home")
                 .content_list(|| label("the-list"))
                 .content_list_for(|k: &String| k == "about")
@@ -1719,7 +1719,7 @@ fn stack_on_back_guard_intercepts_and_defers() {
     let block = Rc::new(Cell::new(true)); // guard consumes while true
     let (held_c, block_c) = (held.clone(), block.clone());
     let probe = boot(move || {
-        stack(path, label("root"))
+        nav_stack(path, label("root"))
             .destination(|k: &String| label(format!("d:{k}")))
             .on_back(move |req| {
                 if block_c.get() {
@@ -1779,8 +1779,8 @@ fn shown_page_retitles_native_bar_live() {
     let name = Signal::new(String::from("Inbox"));
     let title = name;
     let probe = boot(move || {
-        selector(section)
-            .style(SelectorStyle::Sidebar)
+        nav(section)
+            .style(NavStyle::Sidebar)
             .title("Root")
             .item("mail", move || title.get(), || label("mail-content"))
             .any()
@@ -1805,17 +1805,17 @@ fn nested_stack_in_selector_falls_through() {
     let section = Signal::new(String::new());
     let path = Signal::new(Vec::<String>::new());
     let probe = boot(move || {
-        selector(section)
-            .style(SelectorStyle::Sidebar)
+        nav(section)
+            .style(NavStyle::Sidebar)
             .title("Root")
             .item("plain", "Plain", || label("plain-content"))
             .item("drill", "Drill", move || {
-                stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+                nav_stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
             })
             .any()
     });
 
-    // Enter the drill section: the selector shows it and its inner stack registers on top.
+    // Enter the drill section: the nav shows it and its inner stack registers on top.
     assert!(navigate("drill"));
     flush_sync();
     assert!(
@@ -1824,7 +1824,7 @@ fn nested_stack_in_selector_falls_through() {
             .iter()
             .any(|(_, w)| w.text == "drill-root")
     );
-    // Full route: the selector's key; the inner stack is at its root and contributes nothing.
+    // Full route: the nav's key; the inner stack is at its root and contributes nothing.
     assert_eq!(day_core::current_route().as_deref(), Some("drill"));
 
     // Push onto the inner stack via its path (app state).
@@ -1839,7 +1839,7 @@ fn nested_stack_in_selector_falls_through() {
     );
 
     // navigate a sibling section key: the stack doesn't own it, so it FALLS THROUGH to the
-    // enclosing selector — which switches sections (disposing the stack).
+    // enclosing nav — which switches sections (disposing the stack).
     assert!(navigate("plain"));
     flush_sync();
     assert_eq!(section.get_untracked(), "plain");
@@ -1860,7 +1860,7 @@ fn nested_stack_in_selector_falls_through() {
 /// An absolute route reaches a stack inside a destination that was ALREADY built.
 ///
 /// The registry's order is how routing reads nesting: `navigate_absolute` anchors on the surface
-/// showing the first segment and offers the rest only to surfaces registered after it. A selector
+/// showing the first segment and offers the rest only to surfaces registered after it. A nav
 /// that built its pages before registering itself would land at the END of that registry — behind
 /// the very stack it contains — and the detail segment would be offered to nobody. Where the rows
 /// are chrome every destination is built at mount, so this is the ordinary case there, not a
@@ -1869,12 +1869,12 @@ fn nested_stack_in_selector_falls_through() {
 fn absolute_route_descends_into_an_already_built_stack() {
     let section = Signal::new("drill".to_string());
     let probe = boot(move || {
-        selector(section)
-            .style(SelectorStyle::Tabs)
+        nav(section)
+            .style(NavStyle::Tabs)
             .item("plain", "Plain", || label("plain-content"))
             .item("drill", "Drill", || {
                 let path = Signal::new(Vec::<String>::new());
-                stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+                nav_stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
             })
             .any()
     });
@@ -1901,7 +1901,7 @@ fn absolute_route_descends_into_an_already_built_stack() {
 
 #[test]
 fn absolute_route_descends_into_lazily_mounted_stack() {
-    // navigate("drill/one/two?hint=linked"): the selector anchors "drill", the stack — which
+    // navigate("drill/one/two?hint=linked"): the nav anchors "drill", the stack — which
     // only MOUNTS as the section switch takes effect — consumes "one","two" as it registers,
     // and the destination builders see the query params (docs/navigation.md).
     let section = Signal::new(String::new());
@@ -1909,8 +1909,8 @@ fn absolute_route_descends_into_lazily_mounted_stack() {
     let probe = boot({
         let seen = seen_params.clone();
         move || {
-            selector(section)
-                .style(SelectorStyle::Sidebar)
+            nav(section)
+                .style(NavStyle::Sidebar)
                 .title("Root")
                 .item("plain", "Plain", || label("plain-content"))
                 .item("drill", "Drill", {
@@ -1918,7 +1918,7 @@ fn absolute_route_descends_into_lazily_mounted_stack() {
                     move || {
                         let path = Signal::new(Vec::<String>::new());
                         let seen = seen.clone();
-                        stack(path, label("drill-root")).destination(move |k| {
+                        nav_stack(path, label("drill-root")).destination(move |k| {
                             seen.borrow_mut()
                                 .push(format!("{k}:{}", route_param("hint").unwrap_or_default()));
                             label(format!("drill:{k}"))
@@ -1963,12 +1963,12 @@ fn absolute_route_resets_inner_surfaces_of_the_anchor() {
     // previously pushed "deep" page pops (absolute path = the whole state, set-semantics).
     let section = Signal::new(String::new());
     let probe = boot(move || {
-        selector(section)
-            .style(SelectorStyle::Sidebar)
+        nav(section)
+            .style(NavStyle::Sidebar)
             .title("Root")
             .item("drill", "Drill", move || {
                 let path = Signal::new(Vec::<String>::new());
-                stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+                nav_stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
             })
             .any()
     });
@@ -1988,11 +1988,11 @@ fn absolute_route_resets_inner_surfaces_of_the_anchor() {
 /// The sidebar-over-stack fixture: mock reports `NavSplit=Unsupported`, so the sidebar collapses
 /// to a push stack and a stack in its detail runs the merged path (docs/navigation.md).
 fn merge_fixture(section: Signal<String>, path: Signal<Vec<String>>) -> AnyPiece {
-    selector(section)
-        .style(SelectorStyle::Sidebar)
+    nav(section)
+        .style(NavStyle::Sidebar)
         .item("plain", "Plain", || label("plain-content"))
         .item("drill", "Drill", move || {
-            stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
+            nav_stack(path, label("drill-root")).destination(|k| label(format!("drill:{k}")))
         })
         .any()
 }
@@ -2123,11 +2123,11 @@ fn grandchild_stack_merges() {
     let outer = Signal::new(Vec::<String>::new());
     let inner = Signal::new(Vec::<String>::new());
     let probe = boot(move || {
-        selector(section)
-            .style(SelectorStyle::Sidebar)
+        nav(section)
+            .style(NavStyle::Sidebar)
             .item("drill", "Drill", move || {
-                stack(outer, label("outer-root")).destination(move |_k| {
-                    stack(inner, label("inner-root")).destination(|k2| label(format!("g:{k2}")))
+                nav_stack(outer, label("outer-root")).destination(move |_k| {
+                    nav_stack(inner, label("inner-root")).destination(|k2| label(format!("g:{k2}")))
                 })
             })
             .any()
@@ -3644,7 +3644,7 @@ fn custom_font_flows_to_the_toolkit() {
 }
 
 // ---------------------------------------------------------------------------
-// Typed routes (docs/navigation.md): Route enums over selector/stack.
+// Typed routes (docs/navigation.md): Route enums over nav/stack.
 // ---------------------------------------------------------------------------
 
 day_pieces::routes! {
@@ -3688,8 +3688,8 @@ fn typed_routes_drive_selector_and_stack() {
     let probe = boot({
         let seen = seen.clone();
         move || {
-            selector(section)
-                .style(SelectorStyle::Sidebar)
+            nav(section)
+                .style(NavStyle::Sidebar)
                 .title("Root")
                 .item(Area::Home, "Home", || label("home-content"))
                 .item(Area::Drill, "Drill", {
@@ -3697,7 +3697,7 @@ fn typed_routes_drive_selector_and_stack() {
                     move || {
                         let path = Signal::new(Vec::<Leg>::new());
                         let seen = seen.clone();
-                        stack(path, label("drill-root")).destination(move |leg: &Leg| {
+                        nav_stack(path, label("drill-root")).destination(move |leg: &Leg| {
                             seen.borrow_mut().push(format!(
                                 "{}:{}",
                                 leg.0,
@@ -4411,13 +4411,13 @@ fn install_store(pairs: &[(&str, &str)]) -> MemStore {
 
 #[test]
 fn selector_restore_reopens_last_tab_and_persists() {
-    // A store already holding a last-selected tab: the selector reopens on it, and a later
+    // A store already holding a last-selected tab: the nav reopens on it, and a later
     // selection is written back through the store.
     let store = install_store(&[("day.nav.tabs", "three")]);
     let sel = Signal::new("one".to_string());
     let probe = boot(move || {
-        selector(sel)
-            .style(SelectorStyle::Tabs)
+        nav(sel)
+            .style(NavStyle::Tabs)
             .restore("day.nav.tabs")
             .item("one", "One", || label("one-content"))
             .item("two", "Two", || label("two-content"))
@@ -4450,12 +4450,12 @@ fn selector_restore_reopens_last_tab_and_persists() {
 
 #[test]
 fn selector_restore_ignores_stale_key() {
-    // A saved key whose item no longer exists is ignored — the selector opens on the app default.
+    // A saved key whose item no longer exists is ignored — the nav opens on the app default.
     install_store(&[("day.nav.tabs", "gone")]);
     let sel = Signal::new("one".to_string());
     let probe = boot(move || {
-        selector(sel)
-            .style(SelectorStyle::Tabs)
+        nav(sel)
+            .style(NavStyle::Tabs)
             .restore("day.nav.tabs")
             .item("one", "One", || label("one-content"))
             .item("two", "Two", || label("two-content"))
@@ -4476,7 +4476,7 @@ fn stack_restore_reopens_saved_path_and_persists() {
     let store = install_store(&[("day.nav.stack", "a/b")]);
     let path = Signal::new(Vec::<String>::new());
     let probe = boot(move || {
-        stack(path, label("home-content"))
+        nav_stack(path, label("home-content"))
             .destination(|key| label(format!("detail:{key}")))
             .restore("day.nav.stack")
             .any()
@@ -4512,7 +4512,7 @@ fn stack_restore_round_trips_a_key_containing_a_slash() {
     let store = install_store(&[]);
     let path = Signal::new(Vec::<String>::new());
     let probe = boot(move || {
-        stack(path, label("home"))
+        nav_stack(path, label("home"))
             .destination(|k| label(format!("d:{k}")))
             .restore("np.stack")
             .any()
@@ -4530,7 +4530,7 @@ fn stack_restore_round_trips_a_key_containing_a_slash() {
     // A fresh launch restores the SAME single key — one pushed page, not two.
     let path2 = Signal::new(Vec::<String>::new());
     let probe2 = boot(move || {
-        stack(path2, label("home"))
+        nav_stack(path2, label("home"))
             .destination(|k| label(format!("d:{k}")))
             .restore("np.stack")
             .any()
@@ -4555,8 +4555,8 @@ fn restore_yields_to_launch_deeplink() {
     install_store(&[("day.nav.dl", "three")]);
     let sel = Signal::new("one".to_string());
     let probe = boot_with_env(Some(("DAY_DEEPLINK", "two")), move || {
-        selector(sel)
-            .style(SelectorStyle::Tabs)
+        nav(sel)
+            .style(NavStyle::Tabs)
             .restore("day.nav.dl")
             .item("one", "One", || label("one-content"))
             .item("two", "Two", || label("two-content"))
@@ -4583,12 +4583,12 @@ fn local_selector_stays_out_of_the_route() {
     let b = Signal::new("b1".to_string());
     let probe = boot(move || {
         column((
-            selector(a)
-                .style(SelectorStyle::Tabs)
+            nav(a)
+                .style(NavStyle::Tabs)
                 .item("a1", "A1", || label("a1"))
                 .item("a2", "A2", || label("a2")),
-            selector(b)
-                .style(SelectorStyle::Tabs)
+            nav(b)
+                .style(NavStyle::Tabs)
                 .local()
                 .item("b1", "B1", || label("b1"))
                 .item("b2", "B2", || label("b2")),
@@ -4596,17 +4596,13 @@ fn local_selector_stays_out_of_the_route() {
         .any()
     });
     flush_sync();
-    // Only the routed selector's key is in the route.
+    // Only the routed nav's key is in the route.
     assert_eq!(day_core::current_route().as_deref(), Some("a1"));
     // `navigate` addresses the routed one; the local one is untouched by it.
     assert!(navigate("a2"));
     flush_sync();
     assert_eq!(a.get_untracked(), "a2");
-    assert_eq!(
-        b.get_untracked(),
-        "b1",
-        "the .local() selector is not routable"
-    );
+    assert_eq!(b.get_untracked(), "b1", "the .local() nav is not routable");
     let _ = probe;
 }
 
@@ -4619,12 +4615,12 @@ fn two_routed_siblings_concatenate_into_the_route() {
     let b = Signal::new("b1".to_string());
     let _probe = boot(move || {
         column((
-            selector(a)
-                .style(SelectorStyle::Tabs)
+            nav(a)
+                .style(NavStyle::Tabs)
                 .item("a1", "A1", || label("a1"))
                 .item("a2", "A2", || label("a2")),
-            selector(b)
-                .style(SelectorStyle::Tabs)
+            nav(b)
+                .style(NavStyle::Tabs)
                 .item("b1", "B1", || label("b1"))
                 .item("b2", "B2", || label("b2")),
         ))
@@ -5217,8 +5213,8 @@ fn searchable_binds_the_query_both_ways() {
     let rows = ["alpha".to_string(), "beta".to_string()];
     let q_r = query;
     let probe = boot(move || {
-        selector(section)
-            .style(SelectorStyle::Sidebar)
+        nav(section)
+            .style(NavStyle::Sidebar)
             .searchable(q_r)
             .search_prompt("Find")
             .search_scopes(scope, vec!["All", "Recent"])
@@ -5547,8 +5543,8 @@ fn content_list_survives_a_presentation_round_trip() {
         move || {
             // ADAPTIVE, not `Sidebar`: only the styles that resolve to chrome build every
             // destination, and that build is what strands the pane.
-            selector(sel)
-                .style(SelectorStyle::Automatic)
+            nav(sel)
+                .style(NavStyle::Automatic)
                 .title("Home")
                 .content_list(|| label("the-list"))
                 .content_list_for(|k: &String| k != "extra")
@@ -5584,21 +5580,21 @@ fn content_list_survives_a_presentation_round_trip() {
 }
 
 // ---------------------------------------------------------------------------
-// Adaptive navigation — SelectorStyle::Automatic (docs/navigation.md,
+// Adaptive navigation — NavStyle::Automatic (docs/navigation.md,
 // docs/size-classes.md). One host, four presentations, chosen by the window.
 // ---------------------------------------------------------------------------
 
 use day_spec::props::NavPresentation as NP;
 
 /// Three sections under whatever style the caller pins — or none, to exercise the default.
-fn adaptive_selector(sel: Signal<String>, style: Option<SelectorStyle>) -> AnyPiece {
-    let s = selector(sel)
+fn adaptive_selector(sel: Signal<String>, style: Option<NavStyle>) -> AnyPiece {
+    let s = nav(sel)
         .title("Home")
         .item("one", "One", || label("one-content"))
         .item("two", "Two", || label("two-content"))
         .item("three", "Three", || label("three-content"));
     // `.style()` before `.id()`: the id decorator wraps the piece, and the style belongs to the
-    // selector itself.
+    // nav itself.
     match style {
         Some(st) => s.style(st).id("nav").any(),
         None => s.id("nav").any(),
@@ -5609,7 +5605,7 @@ fn presentation_of(probe: &MockProbe) -> Option<NP> {
     probe.find_by_kind("day.nav")[0].1.presentation
 }
 
-/// The bare `selector(x)` — no `.style()` — is adaptive. On the mock's default phone-shaped
+/// The bare `nav(x)` — no `.style()` — is adaptive. On the mock's default phone-shaped
 /// window that means a tab bar, where the old `Sidebar` default gave a list you press back
 /// out of.
 #[test]
@@ -5630,7 +5626,7 @@ fn automatic_walks_tabs_rail_split_by_width() {
     let sel = Signal::new("one".to_string());
     // Launch expanded, so the first frame is the split end of the ladder.
     let probe = boot_splittable(Size::new(1000.0, 700.0), move || {
-        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+        adaptive_selector(sel, Some(NavStyle::Automatic))
     });
     assert_eq!(presentation_of(&probe), Some(NP::Split), "840dp+ splits");
 
@@ -5653,7 +5649,7 @@ fn automatic_walks_tabs_rail_split_by_width() {
 fn automatic_never_stacks_when_tabs_are_available() {
     let sel = Signal::new("one".to_string());
     let probe = boot_splittable(Size::new(390.0, 844.0), move || {
-        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+        adaptive_selector(sel, Some(NavStyle::Automatic))
     });
     assert_eq!(presentation_of(&probe), Some(NP::Tabs));
     assert_ne!(presentation_of(&probe), Some(NP::Stack));
@@ -5677,7 +5673,7 @@ fn automatic_degrades_to_the_sidebar_resolver_without_nav_tabs() {
             size: Size::new(390.0, 844.0),
             ..Default::default()
         },
-        move || adaptive_selector(sel, Some(SelectorStyle::Automatic)),
+        move || adaptive_selector(sel, Some(NavStyle::Automatic)),
     );
     assert_eq!(
         presentation_of(&probe),
@@ -5695,7 +5691,7 @@ fn automatic_degrades_to_the_sidebar_resolver_without_nav_tabs() {
 fn morphing_out_of_tabs_keeps_the_visible_page_and_drops_the_rest() {
     let sel = Signal::new("one".to_string());
     let probe = boot_splittable(Size::new(390.0, 844.0), move || {
-        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+        adaptive_selector(sel, Some(NavStyle::Automatic))
     });
     assert_eq!(presentation_of(&probe), Some(NP::Tabs));
 
@@ -5744,7 +5740,7 @@ fn morphing_out_of_tabs_keeps_the_visible_page_and_drops_the_rest() {
 fn morphing_into_tabs_completes_the_rows_and_reuses_the_shown_page() {
     let sel = Signal::new("two".to_string());
     let probe = boot_splittable(Size::new(1000.0, 700.0), move || {
-        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+        adaptive_selector(sel, Some(NavStyle::Automatic))
     });
     assert_eq!(presentation_of(&probe), Some(NP::Split));
     assert_eq!(
@@ -5784,7 +5780,7 @@ fn morphing_into_tabs_completes_the_rows_and_reuses_the_shown_page() {
 fn a_pinned_presentation_outranks_the_window_and_falls_back_when_undrawable() {
     let sel = Signal::new("one".to_string());
     let probe = boot_splittable(Size::new(390.0, 844.0), move || {
-        selector(sel)
+        nav(sel)
             .presentation(NP::Split)
             .item("one", "One", || label("one-content"))
             .item("two", "Two", || label("two-content"))
@@ -5814,7 +5810,7 @@ fn a_pinned_presentation_outranks_the_window_and_falls_back_when_undrawable() {
             ..Default::default()
         },
         move || {
-            selector(sel2)
+            nav(sel2)
                 .presentation(NP::Tabs)
                 .item("one", "One", || label("one-content"))
                 .any()
@@ -5826,7 +5822,7 @@ fn a_pinned_presentation_outranks_the_window_and_falls_back_when_undrawable() {
 /// A DESKTOP toolkit draws a pinned tab bar but never grows one (docs/navigation.md).
 ///
 /// The two capabilities are deliberately separate: `Cap::NavTabs` is "can this toolkit draw a tab
-/// bar", which every desktop can and must, because an app is free to pin `SelectorStyle::Tabs`.
+/// bar", which every desktop can and must, because an app is free to pin `NavStyle::Tabs`.
 /// `Cap::NavTabsAdaptive` is "should a narrow window BECOME one", which no desktop should — a
 /// narrow Mail.app hides its sidebar and pushes rather than sprouting a bottom bar.
 #[test]
@@ -5844,7 +5840,7 @@ fn a_desktop_idiom_collapses_to_a_stack_instead_of_growing_a_tab_bar() {
             size: Size::new(1000.0, 700.0),
             ..Default::default()
         },
-        move || adaptive_selector(sel, Some(SelectorStyle::Automatic)),
+        move || adaptive_selector(sel, Some(NavStyle::Automatic)),
     );
     assert_eq!(presentation_of(&probe), Some(NP::Split), "wide: a sidebar");
 
@@ -5864,7 +5860,7 @@ fn a_desktop_idiom_collapses_to_a_stack_instead_of_growing_a_tab_bar() {
     assert_eq!(
         presentation_of(&probe),
         Some(NP::Stack),
-        "compact on a desktop: collapse, exactly as SelectorStyle::Sidebar always has"
+        "compact on a desktop: collapse, exactly as NavStyle::Sidebar always has"
     );
     assert_ne!(presentation_of(&probe), Some(NP::Tabs));
 }
@@ -5875,7 +5871,7 @@ fn a_desktop_idiom_collapses_to_a_stack_instead_of_growing_a_tab_bar() {
 fn a_mobile_idiom_grows_a_tab_bar_at_the_same_breakpoint() {
     let sel = Signal::new(String::new());
     let probe = boot_splittable(Size::new(390.0, 844.0), move || {
-        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+        adaptive_selector(sel, Some(NavStyle::Automatic))
     });
     assert_eq!(presentation_of(&probe), Some(NP::Tabs));
     day_core::set_size_class(day_spec::SizeClass::from_size(700.0, 800.0));
@@ -5904,7 +5900,7 @@ fn a_pinned_tab_bar_still_draws_on_a_desktop_idiom() {
             size: Size::new(1000.0, 700.0),
             ..Default::default()
         },
-        move || adaptive_selector(sel, Some(SelectorStyle::Tabs)),
+        move || adaptive_selector(sel, Some(NavStyle::Tabs)),
     );
     assert_eq!(presentation_of(&probe), Some(NP::Tabs), "pinned wins");
 }
@@ -5916,7 +5912,7 @@ fn a_pinned_tab_bar_still_draws_on_a_desktop_idiom() {
 fn switching_sections_repeatedly_keeps_switching() {
     let sel = Signal::new("one".to_string());
     let probe = boot_splittable(Size::new(1000.0, 700.0), move || {
-        adaptive_selector(sel, Some(SelectorStyle::Automatic))
+        adaptive_selector(sel, Some(NavStyle::Automatic))
     });
     assert_eq!(presentation_of(&probe), Some(NP::Split));
     let shown = |p: &MockProbe| {
@@ -6478,7 +6474,7 @@ fn ambient_resolves_inside_a_nav_destination() {
     let probe = boot(|| {
         Scene::scoped(|_scene| {
             let sec = Signal::new(Sec::One);
-            selector(sec)
+            nav(sec)
                 // Both shapes the scaffold uses: a static item with its own builder, and the
                 // `.items(…)` + `.destination(…)` fallback the settings row goes through.
                 .item(Sec::One, "One", page)
@@ -6734,9 +6730,9 @@ fn window_title_names_the_window_it_is_built_into() {
 // window's size, and a re-present that rebuilds pages instead of re-homing them.
 // ---------------------------------------------------------------------------------------------
 
-/// A selector whose presentation is left automatic, so it follows whatever class its window is in.
+/// A nav whose presentation is left automatic, so it follows whatever class its window is in.
 fn adaptive_shell() -> AnyPiece {
-    selector(Signal::new("one".to_string()))
+    nav(Signal::new("one".to_string()))
         .item("one", "One", || label("one-content"))
         .item("two", "Two", || label("two-content"))
         .any()
@@ -6868,7 +6864,7 @@ fn a_window_that_crosses_a_breakpoint_re_presents_without_rebuilding() {
     let counted = builds.clone();
     let probe = boot(move || {
         let counted2 = counted.clone();
-        selector(Signal::new("one".to_string()))
+        nav(Signal::new("one".to_string()))
             .item("one", "One", move || {
                 counted.set(counted.get() + 1);
                 label("one-content")

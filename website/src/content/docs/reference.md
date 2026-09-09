@@ -27,7 +27,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [text-runs](/docs/internal/text-runs) | styled runs inside one label |
 | [markdown](/docs/internal/markdown) | inline Markdown in labels |
 | [buttons](/docs/internal/buttons) | button styles per backend |
-| [navigation](/docs/internal/navigation) | selector/stack mapping per platform, routes |
+| [navigation](/docs/internal/navigation) | nav host/stack mapping per platform, routes |
 | [deep-links](/docs/internal/deep-links) | custom URL schemes, delivery, launcher shortcuts |
 | [dialogs](/docs/internal/dialogs) | alert/confirm/prompt, native presentation, results |
 | [menus](/docs/internal/menus) | app menu bar, context menus, roles and shortcuts |

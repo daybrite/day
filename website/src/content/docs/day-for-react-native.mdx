@@ -41,8 +41,8 @@ HarmonyOS, web) come from one repository.
 | Context | `with_environment` / `environment::<T>()` |
 | Redux / Zustand / Jotai | signals in plain Rust (module statics, structs) |
 | `<FlatList>` | `list` (recycling), `each` (keyed) |
-| React Navigation | `selector`, `stack`, and string routes |
-| `useWindowDimensions()` + your own breakpoints | `size_class()`, and a `selector` that re-presents itself |
+| React Navigation | `nav`, `nav_stack`, and string routes |
+| `useWindowDimensions()` + your own breakpoints | `size_class()`, and a `nav` that re-presents itself |
 | `package.json` + Metro | `Cargo.toml` (package) + `Day.toml` (app manifest) |
 | `require('./logo.png')` | `image(res::images::logo)`, a generated constant |
 | i18next / react-intl | Fluent `.ftl` + generated `res::str` functions |
@@ -214,7 +214,7 @@ See [Navigation](/docs/navigation).
 React Native gives you `useWindowDimensions()` and leaves the breakpoints to you (or to a library
 like react-native-paper's adaptive components). Day buckets the window into
 [size classes](/docs/internal/size-classes) (Android's numbers, used verbatim on every
-backend), and a `selector` re-presents itself when the window crosses one, on a tablet, in
+backend), and a `nav` re-presents itself when the window crosses one, on a tablet, in
 split-screen, or in a resized desktop window.
 
 <Compare lhs="React Native">
@@ -233,11 +233,11 @@ return (
 ```
 
 ```rust
-// One selector, both presentations. Day re-resolves on every breakpoint
+// One nav host, both presentations. Day re-resolves on every breakpoint
 // crossing and re-homes the pages it already built, so scroll offsets and
 // focus survive the morph rather than being rebuilt.
-selector(page)
-    .style(SelectorStyle::Sidebar)
+nav host(page)
+    .style(NavStyle::Sidebar)
     .destination(|key| page_for(key))
 
 // Where the app wants to make the same call itself:

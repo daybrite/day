@@ -708,7 +708,7 @@ fn collect_expr_vars(e: &fluent_syntax::ast::Expression<&str>, out: &mut Params,
     match e {
         Expression::Inline(ie) => collect_inline_vars(ie, out, numeric),
         Expression::Select { selector, variants } => {
-            // A plural/number select makes its selector numeric; a string select (`$gender ->
+            // A plural/number select makes its nav host numeric; a string select (`$gender ->
             // [male]…`) does not. Variant bodies are ordinary (non-numeric) context.
             collect_inline_vars(selector, out, is_number_select(variants));
             for v in variants {
@@ -910,7 +910,7 @@ fn collect_inline_calls(
     }
 }
 
-/// Whether a `select` is a **plural / number** select (selector is a number) rather than a string
+/// Whether a `select` is a **plural / number** select (nav host is a number) rather than a string
 /// select (e.g. `$gender -> [male] [female]`): true if any variant key is a number literal or a CLDR
 /// plural category other than the ambiguous `other` (which both plural and string selects use).
 fn is_number_select(variants: &[fluent_syntax::ast::Variant<&str>]) -> bool {
@@ -1424,7 +1424,7 @@ mod tests {
     fn extracts_keys_params_numeric_and_doc() {
         let root = tmp("str-extract");
         // `counter_value` uses $count in a plural select (multiline) — same variable SET as a flat
-        // value, and numeric (a plural selector); `greeting` has one non-numeric param; `nav_home`
+        // value, and numeric (a plural nav host); `greeting` has one non-numeric param; `nav_home`
         // has none. The doc captures the reference-locale value text (#5).
         ftl(
             &root,
@@ -1438,7 +1438,7 @@ mod tests {
         assert_eq!(names(entry(&plan, "greeting")), vec!["name"]);
         assert_eq!(entry(&plan, "greeting").doc, "Hello, { $name }!"); // #5
         assert!(!entry(&plan, "greeting").params[0].numeric);
-        // #2: a plural-select selector is typed numeric.
+        // #2: a plural-select nav host is typed numeric.
         assert_eq!(names(entry(&plan, "counter_value")), vec!["count"]);
         assert!(entry(&plan, "counter_value").params[0].numeric);
         std::fs::remove_dir_all(&root).ok();
@@ -1447,7 +1447,7 @@ mod tests {
     #[test]
     fn string_select_selector_is_not_numeric() {
         let root = tmp("str-gender");
-        // A `select` on a string (gender) must NOT force its selector numeric.
+        // A `select` on a string (gender) must NOT force its nav host numeric.
         ftl(
             &root,
             "en",
@@ -1469,7 +1469,7 @@ mod tests {
     #[test]
     fn numeric_is_ored_across_locales() {
         let root = tmp("str-numeric-or");
-        // `en` uses $count as a plural selector (numeric); `zh` uses it as a flat interpolation.
+        // `en` uses $count as a plural nav host (numeric); `zh` uses it as a flat interpolation.
         // The param must be numeric because SOME locale needs a number.
         ftl(
             &root,

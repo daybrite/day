@@ -804,7 +804,7 @@ struct NavState {
     pages: Vec<(QtHandle, NodeId)>,
     /// The host's sidebar page, once it has one (docs/size-classes.md).
     sidebar_page: Option<QtHandle>,
-    /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
+    /// Sidebar+detail split (nav host Sidebar) vs. a pure push/pop stack (`nav_stack`).
     split: bool,
     /// Whether the sidebar pane is showing. Tracked rather than read back because the shim
     /// exposes `day_qt_set_visible` and no getter — what the sidebar toggle flips.
@@ -830,7 +830,7 @@ struct NavState {
 }
 
 /// Show/hide the sidebar of the navigation host `host` — what the sidebar affordance a
-/// selector contributes for itself drives (`day_spec::SIDEBAR_TOGGLE_ID`, docs/toolbars.md).
+/// nav host contributes for itself drives (`day_spec::SIDEBAR_TOGGLE_ID`, docs/toolbars.md).
 /// Per host, so a second window's button toggles that window's own pane. `false` when the
 /// host is not split (nothing to toggle).
 pub(crate) fn toggle_sidebar(host: *mut std::os::raw::c_void) -> bool {
@@ -1641,7 +1641,7 @@ impl Toolkit for Qt {
                     // widgets and shows one at a time, so the pages stay resident and
                     // `NavPatch::Select` drives the bar instead of push/pop.
                     //
-                    // A desktop only reaches this by PINNING `SelectorStyle::Tabs`;
+                    // A desktop only reaches this by PINNING `NavStyle::Tabs`;
                     // `Cap::NavTabsAdaptive` is off here, so a narrowing window hides the sidebar
                     // and pushes rather than growing a bar.
                     if nav_props.is_some_and(|p| p.presentation.rows_are_chrome()) {

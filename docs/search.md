@@ -8,8 +8,8 @@ description: "searchable(): a declared search surface each platform presents nat
 Search is declared on the **surface**, not on the toolbar.
 
 ```rust
-selector(section)
-    .style(SelectorStyle::Sidebar)
+nav host(section)
+    .style(NavStyle::Sidebar)
     .searchable(query)                   // Signal<String>, two-way
     .search_prompt(tr("search-sections"))
     .items(move || destinations_matching(query.get()), row)
@@ -181,7 +181,7 @@ for an app that wants to act on the choice itself.
 
 ## What is searchable
 
-`Selector` today. A `stack` gains the same surface when the placement resolver lands, since it is the
+`Nav` today. A `nav_stack` gains the same surface when the placement resolver lands, since it is the
 same lowering. Search on arbitrary page content is out of scope, because every backend
 would need a placement answer for content that is not navigation chrome.
 

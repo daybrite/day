@@ -32,7 +32,7 @@ reader_page(article).toolbar([
 | Declared on | Rides |
 |---|---|
 | the window's root piece | every page of that window |
-| a `selector` host (`Selector::toolbar`) | its sidebar column, and the root list when collapsed |
+| a nav host (`Nav::toolbar`) | its sidebar column, and the root list when collapsed |
 | a content-list pane | the list column, and the middle layer when collapsed |
 | a destination page | the detail column, and every page pushed onto it |
 | any piece inside a page | that page's chrome |
@@ -104,7 +104,7 @@ Degradation always removes the specialization and keeps the command.
 
 ## The sidebar affordance
 
-A `selector(Sidebar)` supplies its own, so an app declares nothing for it. It reaches the backends
+A `nav(Sidebar)` supplies its own, so an app declares nothing for it. It reaches the backends
 as an ordinary button under the reserved id `day_spec::SIDEBAR_TOGGLE_ID` whose action names the
 host it was built for (`Toolkit::toggle_sidebar(host)`), so a second window's button collapses
 that window's sidebar and a dayscript `toolbar:` step presses it like any other item. Each
@@ -129,7 +129,7 @@ There are no spacers. Alignment is [placement](#placement), which is a fact abou
 IS rather than about where it happens to sit in a list, and it survives a bar that has to fold.
 
 **Search is declared elsewhere.** It belongs to the navigation surface it filters
-(`Selector::searchable`, [docs/search.md](search.md)), and Day merges the resulting field into this bar under the
+(`Nav::searchable`, [docs/search.md](search.md)), and Day merges the resulting field into this bar under the
 reserved id `day.search`. Declaring it on the surface lets the platform move it (into the
 navigation list on a window too narrow for a sidebar) without the app re-declaring anything.
 

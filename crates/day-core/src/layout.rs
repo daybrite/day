@@ -1665,7 +1665,7 @@ pub use day_spec::{NAV_LIST_WIDTH, NAV_SIDEBAR_WIDTH};
 
 impl NavLayout {
     /// A host with no sidebar pane and no re-presenting to do: a tab strip's page area, or a
-    /// `stack` piece, both of which stay stacked at every size.
+    /// `nav_stack` piece, both of which stay stacked at every size.
     pub fn stack(
         sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
     ) -> Self {

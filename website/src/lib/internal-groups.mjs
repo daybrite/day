@@ -21,7 +21,7 @@ export const groups = [
       ['text-runs', 'styled runs inside one label'],
       ['markdown', 'inline Markdown in labels'],
       ['buttons', 'button styles per backend'],
-      ['navigation', 'selector/stack mapping per platform, routes'],
+      ['navigation', 'nav host/stack mapping per platform, routes'],
       ['deep-links', 'custom URL schemes, delivery, launcher shortcuts'],
       ['dialogs', 'alert/confirm/prompt, native presentation, results'],
       ['menus', 'app menu bar, context menus, roles and shortcuts'],

@@ -47,7 +47,7 @@ export const glossary = [
     id: 'page',
     term: 'Page',
     definition:
-      "One screen's worth of UI: a function that returns a piece, registered under a route and shown by a `selector` or a `stack`. Pages live under `src/pages/` by convention. A window can show more than one at a time: a phone shows a single page, while the same app on a tablet or desktop may lay out a sidebar, a list, a detail page, and an inspector across several navigation levels.",
+      "One screen's worth of UI: a function that returns a piece, registered under a route and shown by a `nav` or a `nav_stack`. Pages live under `src/pages/` by convention. A window can show more than one at a time: a phone shows a single page, while the same app on a tablet or desktop may lay out a sidebar, a list, a detail page, and an inspector across several navigation levels.",
     see: { title: 'Navigation', href: '/docs/navigation' },
   },
   {
@@ -129,38 +129,38 @@ export const glossary = [
     also: ['modifier'],
   },
   {
-    id: 'selector',
-    term: 'Selector',
+    id: 'nav',
+    term: 'Nav',
     definition:
       "The navigation piece for one of several top-level sections, bound to a `Signal<String>` holding the active item's key. It becomes a sidebar on the desktop and tabs where that is the platform's idiom.",
-    see: { title: 'Navigation', href: '/docs/navigation#sections-selector' },
+    see: { title: 'Navigation', href: '/docs/navigation#sections-nav' },
   },
   {
     id: 'sidebar',
     term: 'Sidebar',
     definition:
       "A list of sections beside the content. Day builds the selected page on demand and disposes it when the selection changes, so a sidebar's page state lives in your signals.",
-    see: { title: 'Navigation', href: '/docs/navigation#sections-selector' },
+    see: { title: 'Navigation', href: '/docs/navigation#sections-nav' },
   },
   {
     id: 'split-view',
     term: 'Split view',
     definition:
-      'A window divided into a section list and a detail pane. It is how the platform draws a sidebar selector when there is room; on narrow screens the same selector pushes pages instead.',
+      'A window divided into a section list and a detail pane. It is how the platform draws a sidebar nav host when there is room; on narrow screens the same nav host pushes pages instead.',
     see: { title: 'API tour', href: '/docs/api-tour#navigation' },
   },
   {
     id: 'route',
     term: 'Route',
     definition:
-      'A typed navigation destination declared with the `routes!` macro: what `selector`, `stack`, deep links, and dayscript `navigate` speak. Written as `segments/joined/by/slashes`; a single key is relative and a multi-segment path is absolute.',
+      'A typed navigation destination declared with the `routes!` macro: what `nav`, `nav_stack`, deep links, and dayscript `navigate` speak. Written as `segments/joined/by/slashes`; a single key is relative and a multi-segment path is absolute.',
     see: { title: 'Navigation', href: '/docs/navigation#routes-and-deep-links' },
   },
   {
     id: 'size-class',
     term: 'Size class',
     definition:
-      "A bucket for a window's width or height in points, using Android's window size classes on every platform: `Compact`, `Medium`, `Expanded`, `Large`, and `ExtraLarge` for width. The class can change while the app runs, when a phone rotates or a desktop, tablet, or browser window is resized, and navigation re-resolves its shape each time, so one selector fits a phone, a tablet, and a desktop window.",
+      "A bucket for a window's width or height in points, using Android's window size classes on every platform: `Compact`, `Medium`, `Expanded`, `Large`, and `ExtraLarge` for width. The class can change while the app runs, when a phone rotates or a desktop, tablet, or browser window is resized, and navigation re-resolves its shape each time, so one nav host fits a phone, a tablet, and a desktop window.",
     see: { title: 'Size classes', href: '/docs/internal/size-classes' },
   },
   {

@@ -1860,7 +1860,7 @@ mod imp {
                 // menu items shown as actions: one bar per window, at every width, with what
                 // the bar cannot fit folding into its overflow.
                 | Cap::Toolbar
-                // A SlidingPaneLayout hosts every `selector(Sidebar)`, so two panes are
+                // A SlidingPaneLayout hosts every `nav(Sidebar)`, so two panes are
                 // available wherever they fit — a tablet, a foldable open, a phone in landscape
                 // if the widths allow (docs/size-classes.md).
                 | Cap::NavSplit
@@ -2121,7 +2121,7 @@ mod imp {
                         return host;
                     }
                     // `Stack` in props is literal — a host that is a stack at EVERY size (a
-                    // nested `stack()` under a split host, docs/size-classes.md) — so it gets a
+                    // nested `nav_stack()` under a split host, docs/size-classes.md) — so it gets a
                     // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
                     // nesting one inside a pane re-runs the whole tiling decision at pane width.
                     let adaptive = p.presentation != day_spec::props::NavPresentation::Stack;

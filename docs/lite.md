@@ -199,7 +199,7 @@ day.nav.navigateBack()                             // pop
 day.nav.reLaunch('home')                           // reset stack
 ```
 
-Pages map to a day `stack` inside the miniapp's host surface (the reference superapp presented
+Pages map to a day `nav_stack` inside the miniapp's host surface (the reference superapp presented
 that surface in a fullscreen cover with the standard X-to-exit affordance). Each page
 presentation runs its builder inside a fresh reactive `Scope`; `onUnload` coincides with
 scope cleanup, so signals and watches created in a page die with it.

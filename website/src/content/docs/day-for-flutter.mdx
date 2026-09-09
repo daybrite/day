@@ -33,8 +33,8 @@ system XAML, and ArkUI widgets elsewhere), so your app looks native everywhere i
 | `build()` re-runs on change | nothing re-runs; one binding patches one widget |
 | `ValueNotifier` / Provider / Riverpod | `Signal` and `Memo`, built in |
 | `const` constructors, keys | not needed — the tree is built once |
-| `Navigator` / go_router | `selector`, `stack`, and string routes |
-| `MediaQuery.sizeOf` + your own breakpoints | `size_class()`, and a `selector` that re-presents itself |
+| `Navigator` / go_router | `nav`, `nav_stack`, and string routes |
+| `MediaQuery.sizeOf` + your own breakpoints | `size_class()`, and a `nav` that re-presents itself |
 | `pubspec.yaml` | `Cargo.toml` (package) + `Day.toml` (app manifest) |
 | assets section in pubspec | the `resource/` directory, by convention |
 | ARB files + `intl` codegen | Fluent `.ftl` files + generated `res::str` functions |
@@ -191,8 +191,8 @@ reconciliation is always by identity.
 
 ## Navigation
 
-go_router declares routes as configuration. Day models navigation as state you own: a `selector`
-projects a one-of-N signal onto a sidebar or tabs, and a `stack` projects a `Vec<String>` path
+go_router declares routes as configuration. Day models navigation as state you own: a `nav`
+projects a one-of-N signal onto a sidebar or tabs, and a `nav_stack` projects a `Vec<String>` path
 onto the platform's push/pop container (`UINavigationController` on iOS, the Android back
 stack), so the edge-swipe and back button come from the OS.
 
@@ -242,7 +242,7 @@ enums that make the keys compile-checked.
 In Flutter you read `MediaQuery.sizeOf`, pick your own breakpoints, and swap `NavigationRail`
 for `NavigationBar` yourself. Day buckets the window into
 [size classes](/docs/internal/size-classes) (Android's numbers, used verbatim on every
-backend), and a `selector` re-presents itself when the window crosses one.
+backend), and a `nav` re-presents itself when the window crosses one.
 
 <Compare lhs="Flutter">
 
@@ -260,11 +260,11 @@ return Scaffold(
 ```
 
 ```rust
-// One selector, both presentations. Day re-resolves on every breakpoint
+// One nav host, both presentations. Day re-resolves on every breakpoint
 // crossing and re-homes the pages it already built, so scroll offsets and
 // focus survive the morph rather than being rebuilt.
-selector(page)
-    .style(SelectorStyle::Sidebar)
+nav host(page)
+    .style(NavStyle::Sidebar)
     .destination(|key| page_for(key))
 
 // Where the app wants to make the same call itself:
@@ -449,7 +449,7 @@ label(res::str::unread_count(unread))   // generated, compile-checked
 </Compare>
 
 `res::str::unread_count` is generated at build time from the `.ftl` files. Wrong key or wrong
-argument count is a compile error, and a `$count` used as a plural selector is typed numeric so
+argument count is a compile error, and a `$count` used as a plural nav host is typed numeric so
 you can't pass a string. Adding a language is adding a `resource/locales/<lang>/` directory;
 `res::locales::install()` registers whatever directories exist. The locale is a signal, so
 switching languages live re-renders every string. See [Localization](/docs/localization).

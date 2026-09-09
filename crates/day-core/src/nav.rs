@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Route registry (docs/navigation.md): every mounted `selector()` / `stack()` host
+//! Route registry (docs/navigation.md): every mounted `nav()` / `nav_stack()` host
 //! register a controller here. Registrations form a STACK so hosts can nest — e.g. a `tabs()`
 //! inside a `nav()` route — and the stack order IS the nesting order (outermost first).
 //!
@@ -33,17 +33,17 @@ pub struct NavController {
     /// Current route path ("" while showing the root).
     pub current: Box<dyn Fn() -> String>,
     /// Consume one segment of an ABSOLUTE path. Selectors/tabs accept a declared key (same as
-    /// `push`); a `stack` accepts ANY segment by pushing it (its destinations are open-ended).
+    /// `push`); a `nav_stack` accepts ANY segment by pushing it (its destinations are open-ended).
     /// Distinct from `push` so a relative `navigate("key")` can still fall through a stack.
     pub enter: Box<dyn Fn(&str) -> bool>,
-    /// This surface's contribution to the full route: `[]` at root, `[key]` for a selector /
+    /// This surface's contribution to the full route: `[]` at root, `[key]` for a nav host /
     /// tabs, the whole path for a stack.
     pub segments: Box<dyn Fn() -> Vec<String>>,
     /// How deeply this surface is NESTED — 0 for one mounted at the window root, 1 for one built
     /// inside another surface's page, and so on.
     ///
     /// An absolute path walks outermost-inward, and registration ORDER is not that order: a
-    /// selector builds its pages before registering itself, so a stack inside a page registers
+    /// nav host builds its pages before registering itself, so a stack inside a page registers
     /// FIRST. Ordering the descent by depth instead of by position is what lets `section/detail`
     /// find the stack no matter which of the two registered first.
     pub depth: usize,
@@ -505,7 +505,7 @@ pub fn set_nav_observer(observer: Option<Box<NavObserver>>) {
     LAST_ROUTE.with(|r| *r.borrow_mut() = current_route().unwrap_or_default());
 }
 
-/// Announce a navigation to `route` from its SOURCE — a nav host (the sidebar selector) calls
+/// Announce a navigation to `route` from its SOURCE — a nav host (the sidebar nav host) calls
 /// this the instant it changes the bound selection, so the observer sees it synchronously instead
 /// of waiting for the route to settle into `NAV_STACK` a frame later (which `maybe_notify_route_change`
 /// reads). Deduped like the pump-boundary path. `route` is the host's local key, which replays as a

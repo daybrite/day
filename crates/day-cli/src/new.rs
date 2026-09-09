@@ -2828,7 +2828,7 @@ mod tests {
                         flags.contains(&flag.to_string()),
                         "`day new {id}` has no {flag} (field {fid}); it has {flags:?}",
                     ),
-                    // A field with no flag is either the positional name or a selector between
+                    // A field with no flag is either the positional name or a nav host between
                     // two code paths — both must say so rather than just omitting `flag`.
                     None => assert!(
                         field["positional"].as_bool().unwrap_or(false) || fid == "native",

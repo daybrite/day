@@ -288,7 +288,7 @@ impl LiteApp {
             .unwrap_or_default();
         let nav = self.services.nav;
         let root = build_page(&root_route, "");
-        stack(nav, root)
+        nav_stack(nav, root)
             .destination(|entry: &NavEntry| build_page(&entry.route, &entry.params))
             .any()
     }

@@ -48,7 +48,7 @@ the architecture-level view and the rationale.
 
 | subsystem | normative doc | overview here |
 |---|---|---|
-| navigation — `routes!`, `selector`, `stack`, deep links, predictive back | [docs/navigation.md](docs/navigation.md) | [§10.5](#105-navigation-and-presentation) |
+| navigation — `routes!`, `nav`, `nav_stack`, deep links, predictive back | [docs/navigation.md](docs/navigation.md) | [§10.5](#105-navigation-and-presentation) |
 | native recycling lists | [docs/list.md](docs/list.md) | [§10](#10-native-list-integration) |
 | scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | [docs/scroll.md](docs/scroll.md) | [§7.6](#76-scroll) |
 | baseline alignment — form rows and `VAlign::FirstBaseline` sitting text on one line | [docs/baseline.md](docs/baseline.md) | [§7.10](#710-baseline-alignment) |
@@ -237,7 +237,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | **Backend crate** | The Rust crate implementing `day-spec` for one toolkit (`toolkits/day-appkit`, `toolkits/day-gtk`, …). One backend is linked per binary. |
 | **Realized tree** | The runtime tree of mounted pieces: each node owns a native handle (or is layout-only), a reactive scope, and layout state. |
 | **Signal / Memo / Effect / Scope** | The reactive primitives ([§4](#4-reactive-core-day-reactive)). |
-| **Route** | A typed navigation destination declared with the `routes!` macro; what `selector`/`stack`, deep links, and dayscript `navigate` speak ([docs/navigation.md](docs/navigation.md)). |
+| **Route** | A typed navigation destination declared with the `routes!` macro; what `nav`/`nav_stack`, deep links, and dayscript `navigate` speak ([docs/navigation.md](docs/navigation.md)). |
 | **dayffi** | *(superseded)* The C ABI designed for polyglot extensions; never shipped. The shipped mechanism is `[package.metadata.day.<platform>]` ([§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **dayscript** | The Maestro-inspired YAML UI-scripting language and its embedded engine ([§14](#14-scripting-dayscript)); a project's scripts live in `dayscript/` and the showcase's main script is "the walkthrough". |
 | **Day.toml** | The project manifest ([§17.3](#173-daytoml)). |
@@ -331,7 +331,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
 | `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
-| `day-pieces` | the built-in vocabulary ([§5.3](#53-built-in-pieces-mvp-set)), the `Decorate` modifier set, `routes!`, forms, `selector`/`stack` navigation, dialogs, canvas + shape pieces, the prelude | day-core |
+| `day-pieces` | the built-in vocabulary ([§5.3](#53-built-in-pieces-mvp-set)), the `Decorate` modifier set, `routes!`, forms, `nav`/`nav_stack` navigation, dialogs, canvas + shape pieces, the prelude | day-core |
 | `day-fluent` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-l10n |
 | `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
@@ -767,7 +767,7 @@ tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-ad
                                    //   COMPOSED onto list() everywhere else (web-dom, qt)
 
 // navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
-selector(section)                  // sidebar / tabs / segmented, per SelectorStyle
+nav host(section)                  // sidebar / tabs / segmented, per NavStyle
     .content_list(build)           //   the Mail shape's middle column (2026-08): a resident
                                    //   Pane::List page — a real contentList split item on
                                    //   appkit, the uikit triple-column supplementary column,
@@ -969,7 +969,7 @@ column((…))
 
 The named-`Style`-value layer can be added later as sugar over these methods without breaking
 anything; nothing has needed it. `ButtonStyle` (`.bordered()`/`.prominent()`/custom impls) and
-`SelectorStyle` (sidebar/tabs/segmented) are the two piece-specific style enums that did ship.
+`NavStyle` (sidebar/tabs/segmented) are the two piece-specific style enums that did ship.
 
 Style properties remain **honest about native limits**: each documents its per-toolkit mapping
 (e.g. `corner_radius` → CALayer / GTK CSS provider / QSS / drawable), and the surface is a
@@ -1383,7 +1383,7 @@ pub trait Toolkit: Sized + 'static {
     // rebuild (and refocus) the bar. Defaulted no-ops.
     fn set_toolbar(&mut self, h, items: &[ToolbarItem]) {}
     fn update_toolbar(&mut self, h, patch: &ToolbarPatch) {}
-    // Show/hide the window's `selector(Sidebar)` pane — what the reserved
+    // Show/hide the window's `nav(Sidebar)` pane — what the reserved
     // `day_spec::SIDEBAR_TOGGLE_ID` item drives. A DUTY rather than a dispatch id, because that
     // item carries no app closure: the native button and dayscript's `toolbar:` step both land
     // here, so a walkthrough exercises the path a click takes. `false` = no sidebar in this
@@ -1535,7 +1535,7 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > hold them together (2026-07 — after a kind collision silently swallowed the resize rail).
 > Additions since: `BridgeKind::SafeArea = 19` (2026-07) feeds `day_core::set_safe_area` from an
 > edge-to-edge backend — px insets in `text`, no `Event` emitted — and `NavPatch::Pushed` gained
-> an `immersive: bool` (the selector item's `.immersive()` flag; day-android flips the pushed
+> an `immersive: bool` (the nav host item's `.immersive()` flag; day-android flips the pushed
 > page between the floating-scrim and opaque bars, other backends ignore it). docs/layout.md and
 > [docs/navigation.md](docs/navigation.md) are normative. The built-in facts that rode `Event::Custom` tags became
 > typed variants (2026-08): `ListReorder`/`ListDelete` (the list piece's deferred commit echoes,
@@ -1923,12 +1923,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 > - **Typed routes.** `day::routes! { enum Section { Controls => "controls", … } }` declares
 >   the destinations; deep links, dayscript `navigate`, and `current_route()` all speak the
 >   same keys, compile-checked.
-> - **`selector(signal)`** — one signal of the active destination, presented per platform and
->   `SelectorStyle` (desktop sidebar + detail split, mobile list-push, tabs, segmented);
+> - **`nav(signal)`** — one signal of the active destination, presented per platform and
+>   `NavStyle` (desktop sidebar + detail split, mobile list-push, tabs, segmented);
 >   `Cap::NavSplit`/`Cap::NavHeader` let pages adapt to what the toolkit provides.
-> - **Adaptive navigation** *(2026-08)* — `SelectorStyle::Automatic` is now the DEFAULT, and
+> - **Adaptive navigation** *(2026-08)* — `NavStyle::Automatic` is now the DEFAULT, and
 >   `NavPresentation` gained `Tabs` and `Rail` beside `Split`/`Stack`. One host wears all four:
->   `build_tabs` is gone and `selector(sel).style(Tabs)` lowers to `kinds::NAV`, so a tab bar is a
+>   `build_tabs` is gone and `nav(sel).style(Tabs)` lowers to `kinds::NAV`, so a tab bar is a
 >   presentation rather than a second host kind ([docs/navigation.md](docs/navigation.md) records the
 >   retirement). The ladder is `Split` ≥ 840pt, `Rail` at 600–839, and when compact either `Tabs`
 >   or `Stack` — `Cap::NavTabsAdaptive` decides, separately from `Cap::NavTabs` ("can draw one"),
@@ -1939,19 +1939,19 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   which four presentations can no longer encode in a lowered `Split`. Drawn today by
 >   macos-appkit and web-dom; the rest answer `Cap::NavTabs = Unsupported` and take the
 >   pre-adaptive sidebar ladder ([docs/navigation.md](docs/navigation.md) is normative).
-> - **Section headers in a derived sidebar** *(2026-09)* — `selector(…).section(title)` and
+> - **Section headers in a derived sidebar** *(2026-09)* — `nav(…).section(title)` and
 >   `item(…).section(title)` open a group header before the next row, so a data-driven,
 >   search-filtered sidebar (the showcase's eight groups) keeps its grouping through the derive;
 >   flat-list backends ignore it. The AppKit outline used the row's NSString as its item
 >   identity and `NSOutlineView` matches items with `isEqual:`, so a header titled like an item
 >   collapsed onto it and wore its icon; rows are keyed by index (an `NSNumber`) now.
-> - **The content list** *(2026-08)* — `selector(…).content_list(build)` adds the Mail shape's
+> - **The content list** *(2026-08)* — `nav(…).content_list(build)` adds the Mail shape's
 >   middle column as a third pane role: `Pane::List`, one resident page whose content follows
 >   the app's signals. `Cap::NavContentList` carries where it lands — `Native` on macos-appkit
 >   (a real `contentList` `NSSplitViewItem` that persists through every presentation),
 >   `Emulated` on ios-uikit (`UISplitViewController` triple-column, merged into the stack at
 >   compact width, interposed by `NavPatch::ListInStack` and gated by the app's
->   `.detail_visible(sig)` binding), composed by the selector everywhere else.
+>   `.detail_visible(sig)` binding), composed by the nav host everywhere else.
 >   `.content_list_for(pred)` collapses the pane per destination (`NavPatch::ListVisible`).
 >   Outcome (2026-09): Qt answers `Native` too — the middle pane of its three-pane
 >   navigation `QSplitter`, and its toolbar packs columns over the panes. On ios-uikit a
@@ -1960,7 +1960,7 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   supplementary, so a change between the two on a wide window rebuilds the host with fresh
 >   column controllers, as SwiftUI rebuilds a `NavigationSplitView` whose column count
 >   changes ([docs/navigation.md](docs/navigation.md)).
-  Since 2026-09 the composed compact flow's list is a merge target: a `stack` built inside it
+  Since 2026-09 the composed compact flow's list is a merge target: a `nav_stack` built inside it
   pushes onto the tab's navigation controller (a drill-down with a native back), while the
   native resident pane stays a barrier.
 >   The keyboard half rides `Decorate::focusable` — the canvas focus contract generalized to
@@ -1970,9 +1970,9 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   composed (`Cap::NavContentList` Unsupported, and every tabs presentation), a list-backed
 >   destination with `.detail_visible` no longer swaps list and detail in place. In a chrome
 >   presentation the destination's page is a NESTED nav host — a `UINavigationController`
->   inside the tab, a Material toolbar over the fragment back stack — carrying the selector's
+>   inside the tab, a Material toolbar over the fragment back stack — carrying the nav host's
 >   bar actions (a tabs chrome draws none of its own); stacked, the detail pushes onto the
->   enclosing host, the same merge a nested `stack()` performs. The native back writes the
+>   enclosing host, the same merge a nested `nav_stack()` performs. The native back writes the
 >   signal `false`; a pop-only route surface lets `nav_back()` close the layer first. The new
 >   `.detail_title(text)` names the detail layer's bar, reactively, on the native pane shapes
 >   too. To keep a mid-build inner push ordered, a stacked destination page is now PRESENTED
@@ -1991,12 +1991,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   that API fills from the trailing edge inward), Android as `MaterialToolbar` menu actions tinted
 >   from the bar's OWN background luminance rather than a fixed white, HarmonyOS as `.menus()`
 >   items with a root-scoped action bringing out the otherwise-hidden root title bar. A MERGED
->   `stack()` has no bar of its own and warns rather than dropping them silently.
+>   `nav_stack()` has no bar of its own and warns rather than dropping them silently.
 >   [docs/navigation.md](docs/navigation.md) is normative.
 > - **Size-class presentation** *(2026-08)* — the split-vs-stack choice moved off `Cap::NavSplit`
 >   alone and onto the WINDOW: `SizeClass` (Android's breakpoints, one table for every backend)
 >   rides a per-window reactive signal that day-core derives from `Event::WindowResized`, and
->   `NavProps::presentation` is re-resolved on every change. A `selector` re-presents in place
+>   `NavProps::presentation` is re-resolved on every change. A `nav` re-presents in place
 >   through `NavPatch::Presentation` — the toolkit rebuilds its chrome and RE-HOMES the pages it
 >   already has, keyed by `NavPageProps::pane` (`Sidebar`/`Detail`, a model fact rather than a
 >   drawing one), so scroll offsets, focus, and the search query survive a morph that a rebuild
@@ -2008,10 +2008,10 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   (`UISplitViewController`) and android-mdc (`SlidingPaneLayout`) (observed). GTK and XAML keep
 >   the pre-size-class behavior; ArkUI is untouched. `safe_area` moved to the same per-window
 >   signal in the same change. [docs/size-classes.md](docs/size-classes.md) is normative.
-> - **`stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
+> - **`nav_stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
 >   (iOS swipe/button, Android system + predictive back) arrives as
 >   `Event::NavBack { already_popped }` so the path signal reconciles without double-popping. A
->   `stack` nested inside a page of an enclosing push-stack host (mobile) **merges** into that
+>   `nav_stack` nested inside a page of an enclosing push-stack host (mobile) **merges** into that
 >   host — pushing its pages onto the one native container for a single back button — instead of
 >   nesting a second controller; under a SPLIT host it stays standalone in the detail pane, and
 >   its host is lowered `presentation: Stack` — literal *(2026-08)*: the backend realizes it as a
@@ -2210,7 +2210,7 @@ label(tr("app-title"))                        // dynamic-key escape hatch
   `Day.toml [app] title` un-localized. The design stands for when a store submission needs it.
 - Pseudolocales ship built-in: **`en-XA`** (expansion + accents) and **`ar-XB`** (RTL, [§7.8](#78-rtl-and-bidi)).
   Pseudolocalization parses messages with `fluent-syntax` and transforms only `TextElement`s
-  (naive string transforms corrupt placeables and selectors), and pseudolocales bypass negotiation
+  (naive string transforms corrupt placeables and nav hosts), and pseudolocales bypass negotiation
   (an explicit pre-negotiation check — otherwise `en-XA` silently negotiates to `en`):
   `day launch --locale en-XA`.
 
@@ -3767,7 +3767,7 @@ for `tr("greeting").arg("name", name)`. `day-build` parses each `.ftl` with `flu
 each function's signature from the message's `$variables` (`res::str::hello_world()`,
 `res::str::counter_value(count)`, `res::str::deviceinfo_system(name, version)`), so a missing key or wrong
 argument count is a compile error, not a runtime `⟨key⟩`. A variable used as a **plural / `select`
-selector** (`{ $count -> … }`) is typed `impl IntoNumberFArg` rather than `impl IntoFArg`, so a string can't
+nav host** (`{ $count -> … }`) is typed `impl IntoNumberFArg` rather than `impl IntoFArg`, so a string can't
 be passed where CLDR plural rules need a number (a string select like `$gender ->` is left un-numeric); and
 each function's **doc comment carries the reference-locale value** (`/// \`greeting\` — \`Hello, { $name }!\``)
 so hover shows the actual text. Two build-time rules apply: every key must be a valid Rust identifier (so
@@ -4205,7 +4205,7 @@ of day's, and turned an advisory container diff into a spurious hard failure.
   binary carries TWO slots for `_objc_msgSend` — one for the classic `__stubs` path, one for the
   `__objc_stubs` section Xcode 14 added — with byte-identical GOT contents, and which consumer
   gets which slot is not stable. The two builds were equivalent; the linker flipped a coin.
-  `-fno-objc-msgsend-selector-stubs` leaves one slot, so there is no coin. Note this also means
+  `-fno-objc-msgsend-nav host-stubs` leaves one slot, so there is no coin. Note this also means
   the same-runner comparison passing for iOS was a ~50/50 result, not evidence.
 - `linux-gtk` / `linux-qt` — two symbols differ only in their `.llvm.<moduleId>` suffix, which
   cascades into `NT_GNU_BUILD_ID` and a two-byte `.strtab` change.
@@ -4561,7 +4561,7 @@ panic/catch_unwind policy ([§8.5](#85-panics-and-crashes)); per-toolkit a11y-id
 to automation, `uniqueId` is API 33+ ([§13](#13-accessibility)); native-tree `a11y_audit` step — nothing previously
 verified `set_a11y` landed ([§14.2](#142-the-embedded-engine)); dayscript step tiers + actionability preconditions — no more
 green taps on disabled/occluded elements ([Appendix C](#appendix-c--dayscript-reference-v1)); dayffi threading/async-command/
-ABI-negotiation/JNI-packed-frame ([§15.3](#153-dayffi-the-c-abi-superseded--never-built)); piece.yaml re-keyed by target selectors ([§15.2](#152-package-layout-and-aggregation));
+ABI-negotiation/JNI-packed-frame ([§15.3](#153-dayffi-the-c-abi-superseded--never-built)); piece.yaml re-keyed by target nav hosts ([§15.2](#152-package-layout-and-aggregation));
 arg-less `day xcode-backend` + configuration-cache-safe Gradle task + conveyance-drift detection +
 per-target `CARGO_TARGET_DIR` + scaffold-version handshake ([§16](#16-the-day-cli)–[§17](#17-the-conventional-day-project-and-daytoml)); NDJSON hello/protocol
 version ([§16.3](#163-global-contract-every-subcommand)); CI-realistic signing — notarytool API-key auth, Windows HSM provider enum,
@@ -4960,7 +4960,7 @@ level with an unbounded cache. Day-Bench gained the measuring apparatus: `persis
 > demonstrates. It moved out of this repository in 2026-08 (§20); CI checks it out to keep testing
 > the framework against it.
 
-What the shipped showcase covers, by sidebar group (a `selector` sidebar with section headers
+What the shipped showcase covers, by sidebar group (a `nav` sidebar with section headers
 on desktop, a list-push on mobile — [docs/navigation.md](docs/navigation.md); regrouped 2026-09):
 **Overview** (About, with the live lifecycle readout); **Controls** (a catalogue of every control
 Day ships, family by family, with the composition-tier pieces and the control crates; Text —
@@ -5032,7 +5032,7 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > [!NOTE]
 > **Shipped** as `parts/day-part-battery` — the first **part** ([docs/battery.md](docs/battery.md)). Per-OS Rust
 > halves selected by `cfg(target_os)` (IOKit on Apple targets — including `macos-gtk`/`-qt`,
-> exactly the selector case the design worried about; upower on Linux; `GetSystemPowerStatus`
+> exactly the nav host case the design worried about; upower on Linux; `GetSystemPowerStatus`
 > on Windows) plus a small Java shim staged via `[package.metadata.day.android]`. No dayffi:
 > events re-enter through `Setter`/`on_main`, values are signals.
 

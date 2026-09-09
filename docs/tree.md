@@ -1116,7 +1116,7 @@ label defect noted under M4).
 ## Day Sketch: the layer panel
 
 **The pane.** Day has no leading utility pane: [`inspector`](inspector.md) is the trailing one
-and `selector(Sidebar)` is a navigation split. `InspectorProps` grows an `edge: Edge`
+and `nav(Sidebar)` is a navigation split. `InspectorProps` grows an `edge: Edge`
 (defaulting to `Trailing`, so no existing app moves), and the four backends that realize the
 inspector map it: `NSSplitViewItem.sidebar` rather than `.inspector`, `AdwOverlaySplitView`'s
 start side, the first pane of the `QSplitter`, WinUI's `SplitView` pane. On phones the leading

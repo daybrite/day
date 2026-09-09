@@ -10,10 +10,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Size classes and re-presenting navigation
 
-A window's width decides how much can be on screen at once. A `selector` in a wide window shows
-its list beside the selected page; the same selector in a narrow one shows the list, then pushes
+A window's width decides how much can be on screen at once. A `nav` in a wide window shows
+its list beside the selected page; the same nav host in a narrow one shows the list, then pushes
 the page over it. Day resolves that from the window's **size class** and re-resolves it whenever
-the class changes, so one `selector` is right on a desktop, a tablet, a phone, and a browser
+the class changes, so one `nav` is right on a desktop, a tablet, a phone, and a browser
 window someone is dragging narrower as they read.
 
 ## The breakpoints
@@ -61,13 +61,13 @@ A toolkit reports geometry and never a class, which keeps the breakpoint table i
 
 ## What a nav host does with it
 
-A `selector` presents as `Split` (list beside detail), `Stack` (one page at a time,
+A `nav` presents as `Split` (list beside detail), `Stack` (one page at a time,
 back-navigable), `Tabs` (the rows as a tab bar) or `Rail` (the rows as a narrow strip). Left alone
 it resolves that automatically:
 
 ```rust
-selector(section)                       // automatic: follows the window
-selector(section).presentation(NavPresentation::Split)   // pinned
+nav host(section)                       // automatic: follows the window
+nav host(section).presentation(NavPresentation::Split)   // pinned
 ```
 
 Resolution answers four questions in order:
@@ -93,7 +93,7 @@ and rebuilt, because a rebuild would drop every scroll offset, text selection, a
 field, and would restart any animation in flight.
 
 That works because a page's `Pane` is a fact about the model rather than about the current
-drawing. A selector's list page is `Pane::Sidebar` whether the host is split or stacked; the
+drawing. A nav host's list page is `Pane::Sidebar` whether the host is split or stacked; the
 presentation decides only where the pane lands:
 
 | pane | `Split` | `Stack` | `Tabs` | `Rail` |
@@ -150,7 +150,7 @@ working backend rather than an addition to it.
 One lowering rule falls out of this policy: an `Emulated` toolkit's adaptive host is lowered
 with `presentation: Split` (meaning "build the adaptive container") even when the window is compact at
 build time, because the container collapses itself. `Stack` in `NavProps` is thereby literal: it
-marks a host that is a stack at *every* size (a pinned request, or the nested `stack()` piece
+marks a host that is a stack at *every* size (a pinned request, or the nested `nav_stack()` piece
 under a split host), and the backend realizes it as a plain navigation controller.
 
 The following traps fail silently:

@@ -473,7 +473,7 @@ fn op_focused(
             let n = inner(cx);
             // Echo cell: the control's focus state as last reported by the NATIVE side. An
             // apply whose desired state matches it is the echo of a native change (or already
-            // satisfied) and must not re-drive the toolkit — the selector echo-cell rule.
+            // satisfied) and must not re-drive the toolkit — the nav host echo-cell rule.
             let native = Rc::new(Cell::new(false));
             {
                 let native = native.clone();

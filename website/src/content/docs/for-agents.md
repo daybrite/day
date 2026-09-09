@@ -166,8 +166,8 @@ each(
 ```rust
 // one-of-N (Sidebar → split view; Tabs → native tabs):
 let section = Signal::new(String::new());
-selector(section)
-    .style(SelectorStyle::Sidebar)
+nav host(section)
+    .style(NavStyle::Sidebar)
     .title("My App")
     .item("home", "Home", home_page)
     .item("settings", "Settings", settings_page)
@@ -237,7 +237,7 @@ macos-qt, which have no AppKit view tree.
 | conditional · list | `when(cond, view)` · `each(items, key, row)` |
 | progress · busy | `progress(frac)` · `spinner()` |
 | custom drawing | `canvas(\|d, size\| …)` (native 2D; Day never rasterizes) |
-| nav (one-of-N / stack) | `selector(sig)` / `stack(path, root)` |
+| nav (one-of-N / stack) | `nav(sig)` / `nav_stack(path, root)` |
 | localize | `tr("key").arg("n", val)` |
 | accessibility | `.a11y(\|a\| a.role(Role::…).label("…"))` |
 | identify for tests | `.id("stable-id")` / `.id_keyed("row", key)` |
@@ -267,7 +267,7 @@ day mcp-server                        # serve all of the above as MCP tools (std
 ## Verifying your work (dayscript)
 
 Assert a *running* app with a cross-platform YAML script; Pieces are addressed by their `.id`, routes by
-`selector`/`stack` keys.
+`nav`/`nav_stack` keys.
 
 ```yaml
 name: check

@@ -339,8 +339,8 @@ fn find_native_target_id(pbxproj: &str) -> Option<String> {
 /// is unaffected — the debug info moves out of the shipped binary rather than being discarded.
 /// `STRIP_STYLE=debugging` keeps the dynamic symbol table intact, so backtraces still resolve
 /// exported frames.
-/// The second half is the ObjC selector stubs, and it fixes a different failure. Xcode 14 added a
-/// size optimization where the compiler emits `_objc_msgSend$<selector>` references and the LINKER
+/// The second half is the ObjC nav host stubs, and it fixes a different failure. Xcode 14 added a
+/// size optimization where the compiler emits `_objc_msgSend$<nav host>` references and the LINKER
 /// synthesizes an `__objc_stubs` section for them. That leaves the binary with TWO `__got` slots for
 /// `_objc_msgSend` — one for the classic `__stubs` path, one for `__objc_stubs` — and which
 /// consumer gets which slot is not stable: two CI builds of the same commit differed in exactly

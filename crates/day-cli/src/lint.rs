@@ -355,14 +355,14 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
 }
 
 /// The first path segment of a route string (`"a/b?x=1"` → `"a"`) — the part a lint can check
-/// against declared selector/tabs item keys. Deeper segments are open-ended (stack destination
+/// against declared nav host/tabs item keys. Deeper segments are open-ended (stack destination
 /// builders accept any key), so only the first is validated.
 fn route_first_segment(route: &str) -> &str {
     route.split(['/', '?']).next().unwrap_or("")
 }
 
 /// Collect the `Variant => "key"` literals declared inside `routes! { … }` blocks — typed
-/// selectors declare their keys there instead of at `.item("key", …)` call sites.
+/// nav hosts declare their keys there instead of at `.item("key", …)` call sites.
 fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
         let mut rest = src;

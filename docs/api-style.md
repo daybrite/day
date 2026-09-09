@@ -64,7 +64,7 @@ A builder method must not throw away the piece's type. Two rules follow from tha
    `Decorated::map_inner`. That forwarding makes `label(…).padding(8.0).font(…)` resolve, so a
    piece never imposes a "typed modifiers first" ordering rule on its callers. Name the trait
    after the piece (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder`, `RowBuilder`); `*Style`
-   names belong to the value enums (`PickerStyle`, `SelectorStyle`).
+   names belong to the value enums (`PickerStyle`, `NavStyle`).
 
 Erasure stays explicit and one-way: `.any()` at a boundary that needs a single `AnyPiece` (a
 `PieceVec`, an `-> AnyPiece` signature, a stored piece). It is free on a piece

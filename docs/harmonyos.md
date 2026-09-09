@@ -167,7 +167,7 @@ all connected devices, building whatever ABIs they need.
 `harmony-arkui` is a maintained target. Pieces render as ArkUI Native NodeAPI nodes, verified
 on the Oniro emulator:
 
-- **Nav shell** (`selector`) — a scrollable list that pushes detail pages.
+- **Nav shell** (`nav`) — a scrollable list that pushes detail pages.
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
 - **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list

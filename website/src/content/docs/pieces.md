@@ -138,7 +138,7 @@ The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 | Structure | `when`, `each`, `with_environment` |
 | Collections | `list` (native recycling) |
 | Drawing | `canvas`, `shape` (`rectangle`, `circle`, `capsule`, `arc`, …), `image`, `vector` |
-| Navigation | `selector`, `stack`, `nav_link`, `toolbar` |
+| Navigation | `nav`, `nav_stack`, `nav_link`, `toolbar` |
 | Presentation | `alert`, `confirm`, `prompt`, `cover`, menus |
 
 Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an

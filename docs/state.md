@@ -80,7 +80,7 @@ fn my_page() -> impl Piece {
 ```
 
 `ambient()` is the read to reach for when a piece cannot take the value as an argument:
-`selector(…).item_icon(key, title, icon, my_page)` takes a bare `fn() -> impl Piece`, and that is
+`nav(…).item_icon(key, title, icon, my_page)` takes a bare `fn() -> impl Piece`, and that is
 the case SwiftUI's `@EnvironmentObject` exists for. When you *can* pass it, pass it: an
 argument is clearer than a lookup, and `Scene` is `Copy`.
 

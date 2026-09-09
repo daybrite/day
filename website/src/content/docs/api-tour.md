@@ -164,21 +164,21 @@ canvas(move |d, size| {
 Day models navigation as a projection of an app-owned signal: you own the state, and the native
 container is reconciled to it. There are two primitives:
 
-**`selector`** is a one-of-N choice bound to a `Signal<String>`. Its `.style` picks the native
+**`nav`** is a one-of-N choice bound to a `Signal<String>`. Its `.style` picks the native
 chrome: `Sidebar` becomes a `NavigationSplitView` (an `AdwNavigationSplitView` on GTK, an
 `NSSplitView` source list on macOS, a pushing list on mobile); `Tabs` becomes a native tab widget.
 
 ```rust
 let section = Signal::new(String::new());
-selector(section)
-    .style(SelectorStyle::Sidebar)
+nav host(section)
+    .style(NavStyle::Sidebar)
     .title("My App")
     .header(sidebar_header)
     .item("home",     "Home",     home_page)
     .item("settings", "Settings", settings_page)
 ```
 
-**`stack`** is a push/pop stack bound to a `Signal<Vec<String>>` path. Day reconciles the
+**`nav_stack`** is a push/pop stack bound to a `Signal<Vec<String>>` path. Day reconciles the
 native stack (`UINavigationController`, `AdwNavigationView`, the Android back stack) to the path.
 
 ```rust
@@ -188,10 +188,10 @@ stack(path, home_view).destination(|key| detail_view(key))
 // the native back button writes the pop back into `path`.
 ```
 
-Because each surface owns its own signal, nesting costs nothing: a `Tabs` [selector](/docs/glossary#selector) or a `stack`
-inside a `Sidebar` selector needs no extra wiring. Keys don't have to be strings: declare a
+Because each surface owns its own signal, nesting costs nothing: a `Tabs` [nav host](/docs/glossary#nav host) or a `nav_stack`
+inside a `Sidebar` nav host needs no extra wiring. Keys don't have to be strings: declare a
 `day::routes! { enum Section { Home => "home", … } }` enum (or implement `Route` by hand for
-keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the selector to
+keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the nav host to
 `Signal<Option<Section>>` and the stack to `Signal<Vec<Item>>`. It's the same API, compile-checked
 ([navigation guide](/docs/navigation#typed-routes)).
 

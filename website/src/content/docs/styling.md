@@ -108,7 +108,7 @@ never shipped, and `cfg!` branches are the settled idiom. Either way, where plat
 Day gives you a targeted override.
 
 Piece-specific style hooks exist where a control has real variants (`button(...).style(...)`
-takes a `ButtonStyle`, `selector(...).style(SelectorStyle::Sidebar)` picks [sidebar](/docs/glossary#sidebar) vs. tab
+takes a `ButtonStyle`, `nav(...).style(NavStyle::Sidebar)` picks [sidebar](/docs/glossary#sidebar) vs. tab
 presentation), and these map to native variants, not custom drawing.
 
 ## What you can't restyle

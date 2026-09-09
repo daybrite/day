@@ -118,10 +118,10 @@ Day passes `DEPLOYMENT_POSTPROCESSING=YES STRIP_INSTALLED_PRODUCT=YES STRIP_STYL
 strips the map. Xcode runs `dsymutil` before `strip`, so the `.dSYM` still appears and symbolication
 still works; `STRIP_STYLE=debugging` keeps the symbol table so in-process backtraces resolve.
 
-Xcode 14 added **ObjC selector stubs**, where the compiler emits `_objc_msgSend$<selector>`
+Xcode 14 added **ObjC nav host stubs**, where the compiler emits `_objc_msgSend$<nav host>`
 references and the linker synthesizes an `__objc_stubs` section. That leaves two `__got` slots for
 `_objc_msgSend` with byte-identical contents, and which consumer gets which slot is not stable. Day
-disables the optimization with `-fno-objc-msgsend-selector-stubs`, which leaves one slot. For a
+disables the optimization with `-fno-objc-msgsend-nav host-stubs`, which leaves one slot. For a
 Swift-heavy app this also makes the binary slightly smaller.
 
 `ditto -c -k` copies each file's modification time into the ZIP and has no flag to suppress it, so

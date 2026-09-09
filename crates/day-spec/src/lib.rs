@@ -1364,7 +1364,7 @@ pub struct ToolbarSegment {
     pub icon: Option<Icon>,
 }
 
-/// The reserved id of the sidebar affordance a `selector(Sidebar)` supplies for itself
+/// The reserved id of the sidebar affordance a `nav(Sidebar)` supplies for itself
 /// (docs/toolbars.md). Backends with a SYSTEM item for the job — AppKit's
 /// `NSToolbarToggleSidebarItem` — recognize it by this id and draw theirs instead; dayscript
 /// recognizes it to drive the toolkit's own duty rather than an app closure.
@@ -1900,7 +1900,7 @@ pub enum Cap {
     /// ([`props::NavPresentation::Rail`]). Like [`Self::NavSplit`] this is a statement about the
     /// toolkit, not about the window it is drawing right now.
     ///
-    /// This is what `SelectorStyle::Automatic` resolves against (docs/navigation.md): a backend
+    /// This is what `NavStyle::Automatic` resolves against (docs/navigation.md): a backend
     /// answering `Unsupported` gets the sidebar resolver instead (`Split` ↔ `Stack`), which is
     /// what every backend did before adaptive navigation existed. So an unimplemented backend
     /// degrades to its previous behavior rather than to a hole.
@@ -1913,7 +1913,7 @@ pub enum Cap {
     /// which only says the toolkit *can* draw one.
     ///
     /// The two differ on every desktop. macOS, GNOME, Qt and Windows can all draw a tab bar, and
-    /// must, because an app is free to pin `SelectorStyle::Tabs`; but none of them grows one when
+    /// must, because an app is free to pin `NavStyle::Tabs`; but none of them grows one when
     /// its window is dragged narrow. A narrow Mail.app hides its sidebar and pushes — it does not
     /// sprout a bottom tab bar, and an app that did would look like a port. The phones and the web
     /// are the opposite: those are the surfaces whose window size genuinely ranges from a phone to
@@ -1921,11 +1921,11 @@ pub enum Cap {
     ///
     /// So this is a statement about the platform's IDIOM, not about its widget set:
     ///
-    /// - `Native`/`Emulated` — `SelectorStyle::Automatic` may resolve to
+    /// - `Native`/`Emulated` — `NavStyle::Automatic` may resolve to
     ///   [`props::NavPresentation::Tabs`] on a compact window (ios-uikit, android-mdc,
     ///   harmony-arkui, web-dom).
     /// - `Unsupported` — it may not; a compact window collapses to
-    ///   [`props::NavPresentation::Stack`] instead, exactly as `SelectorStyle::Sidebar` has always
+    ///   [`props::NavPresentation::Stack`] instead, exactly as `NavStyle::Sidebar` has always
     ///   done (macos-appkit, linux-gtk, linux-qt, windows-xaml).
     ///
     /// [`props::NavPresentation::Rail`] is NOT gated by this. A narrow sidebar is an ordinary
@@ -1963,7 +1963,7 @@ pub enum Cap {
     ///   ([`props::NavPatch::ListInStack`]) and gates the detail push on the app's
     ///   `detail_visible` binding.
     /// - `Unsupported` — the backend never sees [`props::Pane::List`] or
-    ///   [`props::NavProps::list_width`]; the selector piece composes the pane beside (split)
+    ///   [`props::NavProps::list_width`]; the nav piece composes the pane beside (split)
     ///   or in place of (stacked) the destination content itself.
     NavContentList,
     /// The toolkit shows the current destination's title in a NATIVE header/bar — so a page
@@ -4046,7 +4046,7 @@ pub mod props {
     /// How a navigation host lays its panes out (docs/navigation.md).
     ///
     /// This is the RESOLVED presentation — what the toolkit must draw right now. The app asks for
-    /// one through `Selector::presentation`, where leaving it unset means "automatic": the pieces
+    /// one through `Nav::presentation`, where leaving it unset means "automatic": the pieces
     /// layer resolves it from the window's [`SizeClass`] and the toolkit's `Cap::NavSplit`, and
     /// re-resolves it whenever the class changes. There is deliberately no `Auto` variant here —
     /// a backend can only ever draw a concrete one, so the undecided state stays on the app's side
@@ -4094,8 +4094,8 @@ pub mod props {
         pub title: String,
         /// The presentation to draw now; re-presented in place by [`NavPatch::Presentation`].
         pub presentation: NavPresentation,
-        /// The app left the presentation AUTOMATIC (`SelectorStyle::Automatic`, or a `Sidebar`
-        /// selector with no `.presentation(…)` pin), so it is free to follow the window.
+        /// The app left the presentation AUTOMATIC (`NavStyle::Automatic`, or a `Sidebar`
+        /// nav host with no `.presentation(…)` pin), so it is free to follow the window.
         ///
         /// Only a toolkit answering `Cap::NavRepresent = Emulated` needs this: its own adaptive
         /// container owns the morph, and it must know whether the app asked for one at all before
@@ -4106,13 +4106,13 @@ pub mod props {
         /// and so do toolkits that cannot re-present.
         pub adaptive: bool,
         /// Draw the platform's own show/hide-sidebar affordance on this host's chrome
-        /// (docs/toolbars.md). `true` for every `selector(Sidebar)` unless the app opted out:
+        /// (docs/toolbars.md). `true` for every `nav(Sidebar)` unless the app opted out:
         /// the toolkit owns both the button and the behavior
         /// (`NSToolbarToggleSidebarItemIdentifier`, the split view's collapse on GTK,
         /// `NavigationView.IsPaneOpen` on XAML), so an app that once declared the item by hand
         /// now declares nothing. Hosts with no sidebar ignore it.
         pub sidebar_toggle: bool,
-        /// Search over this navigation surface (`Selector::searchable`, docs/search.md).
+        /// Search over this navigation surface (`Nav::searchable`, docs/search.md).
         /// `None` = the surface is not searchable and no field is rendered anywhere.
         pub search: Option<SearchProps>,
         /// `Some(width)` = this host has a CONTENT-LIST pane ([`Pane::List`]) at this preferred
@@ -4124,7 +4124,7 @@ pub mod props {
         /// the prop is never set.
         pub list_width: Option<f64>,
         /// Whether that pane is SHOWING for the destination the host opens on
-        /// (`Selector::content_list_for`). Read at realize, like `list_width`, and for a
+        /// (`Nav::content_list_for`). Read at realize, like `list_width`, and for a
         /// related reason: a backend whose pane is a real split item can only honor a
         /// collapsed state reliably by setting it BEFORE the item joins the split. Told
         /// afterwards — by `NavPatch::ListVisible`, on a window that has not been displayed
@@ -4199,7 +4199,7 @@ pub mod props {
         Popped,
         /// Current top-of-stack title changed.
         Title(String),
-        /// The top page has a back guard (`Stack::on_back`, docs/navigation.md): while `true`,
+        /// The top page has a back guard (`NavStack::on_back`, docs/navigation.md): while `true`,
         /// the toolkit must NOT auto-pop on a native back gesture/button — instead route it to
         /// Day as `Event::NavBack { already_popped: false }` so the app's guard decides. On
         /// backends whose back already routes through Day (AppKit/Qt/XAML/web custom headers)
@@ -4228,7 +4228,7 @@ pub mod props {
         /// push/pop there instead.
         Select(usize),
         /// Show or collapse the CONTENT-LIST pane ([`Pane::List`]) — the per-destination
-        /// visibility switch (`Selector::content_list_for`, docs/navigation.md): a selector
+        /// visibility switch (`Nav::content_list_for`, docs/navigation.md): a nav host
         /// section that spans the whole detail area (a settings page) collapses the pane, and
         /// selecting a list-backed section brings it back. Only sent to hosts whose
         /// [`NavProps::list_width`] is set. Applied directly, not through an animator proxy —
@@ -4248,7 +4248,7 @@ pub mod props {
     /// Which pane of a navigation host a page belongs to (docs/navigation.md).
     ///
     /// A page's pane is a fact about the MODEL, not about how the host currently draws it: a
-    /// selector's list page is [`Pane::Sidebar`] whether the toolkit is showing a sidebar beside
+    /// nav host's list page is [`Pane::Sidebar`] whether the toolkit is showing a sidebar beside
     /// a detail or stacking the two. What the presentation decides is where each pane lands —
     /// its own splitter pane in [`NavPresentation::Split`], the root of the stack in
     /// [`NavPresentation::Stack`]. Keeping the two separate is what lets a host RE-PRESENT on a
@@ -4256,14 +4256,14 @@ pub mod props {
     /// instead of tearing the tree down and rebuilding it.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub enum Pane {
-        /// The list / master pane of a selector. At most one page per host.
+        /// The list / master pane of a nav host. At most one page per host.
         Sidebar,
         /// The content-list pane between the sidebar and the detail — Mail's message list
-        /// (`Selector::content_list`, docs/navigation.md). At most one page per host, and only
+        /// (`Nav::content_list`, docs/navigation.md). At most one page per host, and only
         /// on hosts whose [`NavProps::list_width`] is set; a backend answering
         /// [`crate::Cap::NavContentList`] `Unsupported` never sees one.
         List,
-        /// A destination page. Every page of a `stack` presentation is one of these.
+        /// A destination page. Every page of a `nav_stack` presentation is one of these.
         #[default]
         Detail,
     }
@@ -4382,7 +4382,7 @@ pub mod props {
         /// Programmatic highlight sync — toolkits apply WITHOUT re-emitting
         /// SelectionChanged (the TextField from_native echo rule).
         Selected(Option<usize>),
-        /// The item set changed (data-driven `selector().items(signal, …)`): rebuild the rows
+        /// The item set changed (data-driven `nav().items(signal, …)`): rebuild the rows
         /// from these labels/icons, then apply `selected` (docs/navigation.md). Applied WITHOUT
         /// re-emitting SelectionChanged.
         Items {
@@ -5019,7 +5019,7 @@ pub trait Toolkit: Sized + 'static {
         self.snapshot_window()
     }
     /// Show/hide the sidebar pane of the navigation host `host` — what the sidebar affordance
-    /// a `selector(Sidebar)` contributes for itself drives ([`SIDEBAR_TOGGLE_ID`]). `false`
+    /// a `nav(Sidebar)` contributes for itself drives ([`SIDEBAR_TOGGLE_ID`]). `false`
     /// when `host` has no pane to toggle (a stack, a tab bar, no sidebar concept at all).
     ///
     /// Per HOST, not per process: a second window's button collapses that window's sidebar

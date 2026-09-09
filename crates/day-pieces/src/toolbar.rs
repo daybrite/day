@@ -7,12 +7,12 @@
 //!
 //! WHERE an item appears is decided by the piece that declares it, so an app never says it twice:
 //! items declared on a destination page ride the detail chrome and leave when the page does,
-//! items on a `selector` ride its sidebar column, and items on a window's root piece ride every
+//! items on a `nav` ride its sidebar column, and items on a window's root piece ride every
 //! page of that window. [`day_spec::ToolbarPlacement`] then says where on that chrome the item
 //! sits.
 //!
 //! SEARCH is not here. It is declared on the navigation surface it filters
-//! (`Selector::searchable`, docs/search.md), which is what lets the platform move it — into the
+//! (`Nav::searchable`, docs/search.md), which is what lets the platform move it — into the
 //! navigation list on a narrow window — without the app re-declaring anything.
 //!
 //! A toolbar is chrome, not a piece: it is not laid out by day and does not live in the tree. It
@@ -39,7 +39,7 @@ use crate::{IntoText, MenuEntry, TextSource};
 /// button with [`toolbar_toggle`], a pull-down with [`toolbar_menu`], one control over a set of
 /// choices with [`toolbar_segmented`], static text with [`toolbar_label`], and a divider with
 /// [`toolbar_separator`]. Search is declared on the navigation surface instead
-/// (`Selector::searchable`, docs/search.md).
+/// (`Nav::searchable`, docs/search.md).
 #[derive(Clone)]
 pub struct ToolbarEntry {
     id: String,
@@ -315,7 +315,7 @@ pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
 /// Register `content` against `chrome` for as long as the CURRENT reactive scope lives.
 ///
 /// The one path every declaration takes: [`crate::Decorate::toolbar`] resolves the chrome from
-/// where the piece sits, and a `selector` names its own sidebar page explicitly. A fixed list
+/// where the piece sits, and a `nav` names its own sidebar page explicitly. A fixed list
 /// lowers once; a derived one lowers inside an `Effect`, and each pass owns its bindings through
 /// a child scope the next pass disposes, so a re-derived bar leaves no binding writing patches at
 /// items that no longer exist.

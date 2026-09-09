@@ -40,7 +40,7 @@ impl TextSource {
     }
     /// Resolve the current text, TRACKED: inside a reactive computation this subscribes to
     /// whatever the source reads — a `Signal`, or the locale behind a localized string. The
-    /// selector derive effects rely on this so native rows retitle on locale change.
+    /// nav host derive effects rely on this so native rows retitle on locale change.
     pub(crate) fn resolve(&self) -> String {
         match self {
             TextSource::Static(s) => s.clone(),

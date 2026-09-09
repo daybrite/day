@@ -536,7 +536,7 @@ the per-target build pipelines, and how [resources](/docs/glossary#resource) are
 
 **dayscript** is a YAML language that drives and asserts a *running* app over a socket, using the
 same script on every platform. Pieces are addressed by the same stable `.id` you give them in
-Rust, and routes are the same keys your `selector`/`stack` use, so one script exercises the app
+Rust, and routes are the same keys your `nav`/`nav_stack` use, so one script exercises the app
 identically everywhere. It has its own guide: [Testing with dayscript](/docs/dayscript).
 
 ## Continuous integration

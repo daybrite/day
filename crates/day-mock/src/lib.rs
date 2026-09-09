@@ -120,7 +120,7 @@ pub struct MockState {
     /// (docs/size-classes.md). Off by default, so the mock keeps modeling a phone.
     pub nav_split: bool,
     /// `Cap::NavTabs` answers `Unsupported` — the harness for the DEGRADATION path, where an
-    /// `Automatic` selector falls back to the sidebar resolver (docs/navigation.md). Inverted
+    /// `Automatic` nav host falls back to the sidebar resolver (docs/navigation.md). Inverted
     /// like `no_multi_window` because the capability is ON by default: a phone has a tab bar,
     /// so a mock that models a phone must have one too, or the default resolution is a fiction.
     pub no_nav_tabs: bool,
@@ -533,14 +533,14 @@ impl MockProbe {
         self.state.borrow_mut().no_multi_window = v;
     }
 
-    /// Make `Cap::NavSplit` answer `Native` — the harness for a selector that presents as split
+    /// Make `Cap::NavSplit` answer `Native` — the harness for a nav host that presents as split
     /// panes and re-presents on a size-class change (docs/size-classes.md). Unlike the window
     /// toggles this is read during the BUILD, so set it before launching.
     pub fn set_nav_split(&self, v: bool) {
         self.state.borrow_mut().nav_split = v;
     }
 
-    /// Make `Cap::NavTabs` answer `Unsupported` — the harness for an `Automatic` selector on a
+    /// Make `Cap::NavTabs` answer `Unsupported` — the harness for an `Automatic` nav host on a
     /// toolkit that cannot draw a tab bar, which must degrade to the sidebar resolver rather
     /// than to a hole (docs/navigation.md). Read during the BUILD, so set it before launching.
     pub fn set_no_nav_tabs(&self, v: bool) {
@@ -548,7 +548,7 @@ impl MockProbe {
     }
 
     /// Model a DESKTOP toolkit: `Cap::NavTabs` stays on (a pinned tab bar still draws) but
-    /// `Cap::NavTabsAdaptive` answers `Unsupported`, so an `Automatic` selector collapses a
+    /// `Cap::NavTabsAdaptive` answers `Unsupported`, so an `Automatic` nav host collapses a
     /// narrow window to a stack rather than growing a tab bar (docs/navigation.md). Read during
     /// the BUILD, so set it before launching.
     pub fn set_desktop_idiom(&self, v: bool) {
@@ -557,7 +557,7 @@ impl MockProbe {
 
     /// What `Cap::NavContentList` answers (docs/navigation.md) — the content-list pane
     /// harness. `Native` = persistent pane, `Emulated` = merges into the collapsed stack,
-    /// `Unsupported` (the default) = the selector composes. Read during the BUILD.
+    /// `Unsupported` (the default) = the nav host composes. Read during the BUILD.
     pub fn set_nav_content_list(&self, v: day_spec::Support) {
         self.state.borrow_mut().nav_content_list = v;
     }
@@ -689,7 +689,7 @@ impl Toolkit for MockToolkit {
             Cap::ListReorder => Support::Native,
             // The probe drives the whole tree seam (`tree_children`/`tree_bind`/`tree_move`).
             Cap::Tree | Cap::TreeMove => Support::Native,
-            // Off by default: the mock models a phone, so a selector stacks unless a test opts in.
+            // Off by default: the mock models a phone, so a nav host stacks unless a test opts in.
             // A mock that can split can also re-present — it records the patch, which is exactly
             // what the morph tests assert against.
             Cap::NavSplit | Cap::NavRepresent => {
@@ -793,7 +793,7 @@ impl Toolkit for MockToolkit {
             };
         } else if let Some(p) = props.downcast_ref::<NavPageProps>() {
             w.text = p.title.clone();
-            // The page's PANE, not the presentation drawing it — a selector's list page reads
+            // The page's PANE, not the presentation drawing it — a nav host's list page reads
             // `sidebar` whether the host is split or stacked (docs/size-classes.md).
             w.flag = p.pane == day_spec::props::Pane::Sidebar;
             detail = format!(" title={:?} pane={:?}", p.title, p.pane);

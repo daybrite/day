@@ -416,7 +416,7 @@ impl DayCursorOwner {
 /// (`Cursor::None`, which the owner hides instead, and a native name AppKit does not have).
 /// AppKit has no wait, progress, help, or move shape, so those take the arrow; the zoom, frame
 /// (diagonal) resize, and column/row resize cursors arrived in macOS 15 and are probed by
-/// selector, with the nearest older shape below it.
+/// nav host, with the nearest older shape below it.
 // `resizeLeftRightCursor` and `resizeUpDownCursor` are deprecated in favor of the macOS 15
 // column/row resize cursors, which are probed above them; below 15 they are the shape.
 #[allow(deprecated)]
@@ -3722,7 +3722,7 @@ define_class!(
 
     unsafe impl NSObjectProtocol for DayWinDelegate {}
 
-    /// The responder chain's LAST stop for the standard edit selectors: a focused text view
+    /// The responder chain's LAST stop for the standard edit nav hosts: a focused text view
     /// answered `cut:`/`copy:`/`paste:` long before the window asked its delegate, so what
     /// arrives here is the app's to handle — the same precedence the undo manager route uses.
     impl DayWinDelegate {
@@ -6239,7 +6239,7 @@ impl Toolkit for AppKit {
                 // rows page and so does not exist until the page is inserted.
                 needs_tabbar = state.presentation == NavPresentation::Tabs;
             }
-            // Split (selector Sidebar): the sidebar pane's page goes in the sidebar; the rest are
+            // Split (nav host Sidebar): the sidebar pane's page goes in the sidebar; the rest are
             // detail pages. Stack: every page — including the sidebar's, which is the stack's
             // root — lives in the detail pane so push/pop visibility covers them all.
             // The rows page goes to the sidebar pane in every presentation but `Stack`, where
@@ -7942,7 +7942,7 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
 /// The standard Window menu (docs/windows.md): Minimize ⌘M / Zoom / Bring All to Front,
 /// registered as `NSApp.windowsMenu` — AppKit then appends the open-window list and, with
 /// tabbing live, the tab commands (Show Next/Previous Tab, Merge All Windows) itself. All
-/// selectors are nil-targeted (responder chain), so they act on the key window.
+/// nav hosts are nil-targeted (responder chain), so they act on the key window.
 fn install_windows_menu(mtm: MainThreadMarker, app: &NSApplication, menubar: &NSMenu) {
     let menu = unsafe {
         NSMenu::initWithTitle(
@@ -8082,7 +8082,7 @@ fn ns_key_equivalent(key: &str) -> String {
     }
 }
 
-/// A standard role → (default label, selector, default shortcut). Selector `None` = no native action
+/// A standard role → (default label, nav host, default shortcut). Nav host `None` = no native action
 /// (the app should attach its own via a custom item); the role then only supplies label placement.
 fn role_spec(
     role: day_spec::MenuRole,
@@ -8147,7 +8147,7 @@ pub(crate) fn build_ns_menu(
                 role,
                 icon,
             } => {
-                // Resolve label/selector/shortcut, folding in the role's native defaults.
+                // Resolve label/nav host/shortcut, folding in the role's native defaults.
                 let (mut lbl, sel, mut sc) = match role {
                     Some(r) => {
                         let (dl, ds, dsc) = role_spec(*r);
@@ -8161,10 +8161,10 @@ pub(crate) fn build_ns_menu(
                 if shortcut.is_some() {
                     sc = shortcut.clone();
                 }
-                // Custom action (nonzero id) overrides any role selector and targets our
+                // Custom action (nonzero id) overrides any role nav host and targets our
                 // trampoline — except the responder-routed set (undo pair, clipboard trio),
                 // whose nonzero ids are only the OTHER platforms' fallback dispatchers: here
-                // the nil-target selectors must stay, so the responder chain resolves the
+                // the nil-target nav hosts must stay, so the responder chain resolves the
                 // acting object (a focused text field before the app's bridge).
                 let responder_role = matches!(
                     role,

@@ -1060,7 +1060,7 @@ fn register_app_prefs_action(app: &gtk4::Application, items: &[day_spec::MenuIte
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md): libadwaita. selector(Sidebar) → AdwNavigationSplitView;
+// Navigation (docs/navigation.md): libadwaita. nav host(Sidebar) → AdwNavigationSplitView;
 // stack → AdwNavigationView (push/pop). Each page's GtkFixed is wrapped in an
 // AdwNavigationPage; Day sizes content from the host width via FrameChanged (nav_report).
 // ---------------------------------------------------------------------------
@@ -1068,7 +1068,7 @@ fn register_app_prefs_action(app: &gtk4::Application, items: &[day_spec::MenuIte
 /// The sidebar's fixed width in the split view (Day sizes detail content = host − this).
 const NAV_SIDEBAR_W: f64 = day_spec::NAV_SIDEBAR_WIDTH;
 
-/// selector(Sidebar) → AdwNavigationSplitView; stack → AdwNavigationView (push/pop).
+/// nav host(Sidebar) → AdwNavigationSplitView; stack → AdwNavigationView (push/pop).
 enum NavPresent {
     /// The GNOME idiom: a pinned sidebar with libadwaita's own split treatment, whose
     /// `show-sidebar` property is what a `SidebarToggle` flips.
@@ -1092,7 +1092,7 @@ enum NavPresent {
     /// the retiring `tabs()` piece put it: an app reaching for this presentation is asking for a
     /// tab bar, and a tab bar is at the bottom on every platform Day targets.
     ///
-    /// A desktop only ever gets here by PINNING `SelectorStyle::Tabs` — `Cap::NavTabsAdaptive` is
+    /// A desktop only ever gets here by PINNING `NavStyle::Tabs` — `Cap::NavTabsAdaptive` is
     /// off here, so a narrowing window hides the sidebar and pushes instead of growing a bar.
     Suite {
         stack: adw::ViewStack,
@@ -1105,13 +1105,13 @@ enum NavPresent {
     Stack(adw::NavigationView),
 }
 
-/// Whether this process draws its `selector(Sidebar)` with a GtkPaned instead of libadwaita's
+/// Whether this process draws its `nav(Sidebar)` with a GtkPaned instead of libadwaita's
 /// AdwNavigationSplitView (docs/navigation.md).
 fn paned_split() -> bool {
     std::env::var("DAY_GTK_SPLIT").is_ok_and(|v| v == "paned")
 }
 
-/// Show/hide the sidebar of this process's `selector(Sidebar)` host — what a
+/// Show/hide the sidebar of this process's `nav(Sidebar)` host — what a
 /// [`day_spec::ToolbarItemKind::SidebarToggle`] item drives (docs/toolbars.md). `false` when
 /// there is no split host to toggle, which is how the item knows to render disabled.
 ///
@@ -1144,7 +1144,7 @@ pub(crate) fn toggle_sidebar(host: &Handle) -> bool {
 
 struct NavState {
     present: NavPresent,
-    /// Sidebar+detail split (selector Sidebar) vs. a pure push/pop stack (`stack`).
+    /// Sidebar+detail split (nav host Sidebar) vs. a pure push/pop stack (`nav_stack`).
     split: bool,
     /// (page GtkFixed key, node id, its AdwNavigationPage) in order (index 0 = sidebar/root).
     pages: Vec<(usize, NodeId, adw::NavigationPage)>,

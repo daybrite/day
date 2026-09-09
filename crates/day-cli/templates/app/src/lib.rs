@@ -80,7 +80,7 @@ fn window_shell(primary: bool) -> impl Piece {
         );
         // Tabs on a phone, a rail on a tablet, a sidebar on a desktop
         // (https://daybrite.dev/docs/navigation).
-        let nav = selector(scene.section)
+        let nav = nav(scene.section)
             .title(res::str::app_title())
             // The list is a content-list pane: its own column where there is room, a pushed
             // layer on a phone.

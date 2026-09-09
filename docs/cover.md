@@ -18,7 +18,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.
 
 A `cover` presents a Day subtree over the whole window (edge-to-edge, above every other
-surface): the SwiftUI `fullScreenCover(item:)` shape. Like `selector` and `stack`
+surface): the SwiftUI `fullScreenCover(item:)` shape. Like `nav` and `nav_stack`
 ([docs/navigation.md](navigation.md)), it is a projection of an app-owned signal, not an imperative controller:
 
 ```rust

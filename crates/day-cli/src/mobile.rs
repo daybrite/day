@@ -492,7 +492,7 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 ///
 /// # `-objc_stubs_small`, and why a reproducibility fix rides along here
 ///
-/// ld's default (`-objc_stubs_fast`) gives every `objc_msgSend$<selector>` stub its OWN GOT slot
+/// ld's default (`-objc_stubs_fast`) gives every `objc_msgSend$<nav host>` stub its OWN GOT slot
 /// for `_objc_msgSend`, so a binary carrying both kinds of call ends up with two slots bound to
 /// that one symbol: one the ordinary `__stubs` entry reads, one the `__objc_stubs` entry reads.
 /// The two are interchangeable — same symbol, same value — so nothing decides which consumer gets
@@ -502,7 +502,7 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 /// anyone can read off it. Measured on the `day new` scaffold: of 736 archive members exactly one
 /// differed, and only in that suffix.
 ///
-/// `-objc_stubs_small` emits one shared `_objc_msgSend` stub for the selector stubs to branch to,
+/// `-objc_stubs_small` emits one shared `_objc_msgSend` stub for the nav host stubs to branch to,
 /// so there is one slot and nothing left to order. It costs a branch per objc dispatch on a path
 /// Day barely uses, and it buys a byte-identical relink from any directory.
 ///
@@ -1758,7 +1758,7 @@ pub(crate) struct AndroidDevice {
     pub abi: String,
 }
 
-/// `adb` with an optional device selector (`-s <serial>`). Multi-device installs/launches MUST
+/// `adb` with an optional device nav host (`-s <serial>`). Multi-device installs/launches MUST
 /// pin the serial, or adb errors ("more than one device/emulator").
 fn adb(serial: Option<&str>) -> Command {
     let mut c = Command::new(day_toolchain::adb_bin());

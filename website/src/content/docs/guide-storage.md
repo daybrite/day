@@ -70,7 +70,7 @@ day::prefs::bind("controls.count", count);
 ```
 
 The same store also backs navigation persistence: call `day::prefs::install_nav_store()` once in
-`main` and a `selector` or `stack` marked `.restore(key)` remembers its state across launches.
+`main` and a `nav` or `nav_stack` marked `.restore(key)` remembers its state across launches.
 See [navigation](/docs/navigation).
 
 ## 3. Write and read files

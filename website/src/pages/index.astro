@@ -57,8 +57,8 @@ fn counter() -> impl Piece {
 }`;
 
 const navCode = `let section = Signal::new(String::new());
-selector(section)
-    .style(SelectorStyle::Sidebar)   // native split view / tabs / pushing list
+nav host(section)
+    .style(NavStyle::Sidebar)   // native split view / tabs / pushing list
     .item("home",     "Home",     home_page)
     .item("settings", "Settings", settings_page)`;
 

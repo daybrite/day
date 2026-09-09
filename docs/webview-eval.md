@@ -137,7 +137,7 @@ Both methods must be called on the main thread; the handler is documented to alw
 never re-entrantly. There is no cancellation of any kind.
 
 Availability note: `objc2-web-kit` binds `WKWebView` for **macOS only**, so the UIKit arm must send
-these by selector, exactly as it already hand-rolls the rest of its `WKWebView` usage.
+these by nav host, exactly as it already hand-rolls the rest of its `WKWebView` usage.
 
 ### GTK — WebKitGTK 6
 
