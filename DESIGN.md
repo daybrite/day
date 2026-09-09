@@ -1404,8 +1404,10 @@ pub trait Toolkit: Sized + 'static {
     fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11
     fn font_families(&mut self) -> Vec<FontFamilyInfo> { … }          // the platform font list (Cap::FontList, docs/fonts.md)
     fn measure_text(&mut self, text, size, font: &CanvasFont) -> Option<TextMetrics> { … } // canvas text metrics
-                                                                      // — memoized above the seam:
-                                                                      // pure in (text, size, font),
+                                                                      // — the LINE box, the cap
+                                                                      // height and the INK box;
+                                                                      // memoized above the seam
+                                                                      // (pure in text/size/font),
                                                                       // docs/fonts.md
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> { … }    // dayscript §14, docs/window-image.md
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> { … } // + titlebar/status bar

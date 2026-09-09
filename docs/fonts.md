@@ -77,27 +77,61 @@ CoreText); `face_for` says which.
 ## Measurement
 
 ```rust
-let m = day::measure_text("Aa Bb", 24.0, &font);   // TextMetrics { width, height, ascent }
-let frame = Rect::new(at.x, at.y, m.width, m.height);
+let m = day::measure_text("Aa Bb", 24.0, &font);
+let frame    = Rect::new(at.x, at.y, m.width, m.height);          // the line box
 let baseline = at.y + m.ascent;
+let cap_line = at.y + m.ascent - m.cap_height;
+let marks    = Rect::new(at.x + m.ink.origin.x, at.y + m.ink.origin.y,
+                         m.ink.size.width, m.ink.size.height);    // the ink box
 ```
 
-`measure_text` measures one line in the same engine `replay` draws it with, so the box it
-returns is the box [the anchors](canvas.md#anchors) position: `width` is the advance width, `height` the line box
-(ascent + descent, plus the line gap where the engine reports one), and `ascent` the baseline's
-offset from the top. A toolkit that cannot measure answers `TextMetrics::approximate` — 0.6 ×
-size per character, 1.2 × size tall, the baseline at 0.9 × size — so a caller always gets a
-usable box; there is no capability to probe for measurement.
+`measure_text` measures one line in the same engine `replay` draws it with, so what it reports is
+what gets drawn.
 
-| Backend | Engine |
-| --- | --- |
-| AppKit / UIKit | `sizeWithAttributes:` + the font's `ascender` |
-| GTK | a Pango layout's logical extents and `baseline()` |
-| Qt | `QFontMetricsF` |
-| Android | `Paint.measureText` + `FontMetrics` |
-| HarmonyOS | `OH_Drawing_FontMeasureText` + `OH_Drawing_FontGetMetrics` |
-| Windows (XAML) | a `TextBlock`'s desired size and `BaselineOffset` |
-| web-dom | `measureText` with `fontBoundingBoxAscent` / `Descent` |
+**Two boxes, and which one you want depends on the question.**
+
+- `width` × `height` is the **line box** — the typographic slot, `ascent + descent` at this size
+  (plus the line gap where the engine reports one). It is the same for every string in a face at a
+  size, it is what [the anchors](canvas.md#anchors) position, and it is what lays text out in a
+  column.
+- `ink` is the **ink box** — the tight bounds of what is actually drawn, its origin relative to the
+  line box's top-leading corner. It is what centers text on a rule, or keeps a label clear of a
+  mark. Empty for text that draws nothing, a space included.
+
+`ascent` is the baseline's offset from the line box's top. `cap_height` is the face's cap height at
+this size: baseline to the top of a capital — a property of the FONT rather than of this string,
+reported here because it is what optical centering needs and asking separately would be a second
+measurement.
+
+**Why cap height matters.** Capitals and digits look centered on a rule when their CAP box straddles
+it, not their line box: the line box reserves descender room that digits never use, so centering by
+it sits every label a little low. The cap middle is `ascent - cap_height / 2.0` below the line
+box's top. `day-piece-charts` shifts its y-axis labels by exactly that difference, which is what
+puts them ON their gridlines instead of just under them.
+
+A toolkit that cannot measure at all answers `TextMetrics::approximate` — 0.6 × size per character,
+1.2 × size tall, the baseline at 0.9 × size, caps at 0.7 × size, ink equal to the line box. There
+is no capability to probe for measurement; a caller always gets a usable box.
+
+**Where a number is exact and where it is not.** An ink box a backend cannot compute is reported as
+the whole line box, which is a *superset* — an overlap test against it can only be too cautious,
+never wrong. Cap height falls back to 0.7 × size.
+
+| Backend | Line box | Cap height | Ink box |
+| --- | --- | --- | --- |
+| AppKit / UIKit | `sizeWithAttributes:` + `ascender` | `NSFont`/`UIFont.capHeight` | `boundingRectWithSize:` + `usesDeviceMetrics` |
+| GTK | a Pango layout's logical extents and `baseline()` | the ink ascent of `H` — Pango has no cap metric | the same layout's ink extents |
+| Qt | `QFontMetricsF` | `capHeight()` | `tightBoundingRect()` |
+| Android | `Paint.measureText` + `FontMetrics` | the ink ascent of `H` — `Paint` has no cap metric | `getTextBounds` |
+| HarmonyOS | `OH_Drawing_FontMeasureText` + `OH_Drawing_FontGetMetrics` | the metrics' `capHeight` | **the line box** — no tight-bounds call in the C surface |
+| Windows (XAML) | a `TextBlock`'s desired size and `BaselineOffset` | **0.7 × size** — a `TextBlock` reports neither | **the line box** — likewise |
+| web-dom | `measureText` with `fontBoundingBoxAscent` / `Descent` | the ink ascent of `H` | `actualBoundingBox*` |
+
+The three backends taking "the ink ascent of `H`" pay one extra measurement of a one-character
+string, [memoized](#it-is-cached) per `(size, font)`, so a whole process pays for it once. XAML's
+two approximations are the only ones without an exact answer behind them: DirectWrite holds both
+(`IDWriteFontFace::GetMetrics`, `GetGlyphRunMetrics`), but reaching them means a slab of COM that
+backend does not otherwise touch, and it is the one target nothing here can run to check.
 
 ### It is cached
 
@@ -136,6 +170,14 @@ Two defaulted `Toolkit` duties — `font_families()` (default: none) and `measur
 (default: `None`) — plus `Cap::FontList`. Measure with the engine `replay` draws with, and put
 a `Leading` anchor at the top-leading corner of the line box: baseline-origin APIs draw at
 `at.y + ascent`.
+
+`TextMetrics` has two constructors so a backend does not have to do the shifting itself.
+`TextMetrics::from_baseline(width, ascent, descent, cap_height, ink)` takes ink in the
+baseline-relative, y-up-negative form Core Text, Skia and Qt all report; `TextMetrics::from_slots`
+reads the eight-f64 array the C-ABI shims fill (advance, line height, ascent, cap height, then the
+ink box already relative to the line box's top-leading corner). Report the whole line box as the
+ink box where the platform gives no tight bounds — a superset is the safe direction to be wrong in
+— and 0.7 × size for a cap height it cannot supply.
 
 On the wire (`day_spec::encode_ops`), a non-default font precedes its text record as
 `OpCode::SetFont = 19`: `a` = the CSS weight (100 … 900, 0 = default), `b` = italic (0/1), the

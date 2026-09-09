@@ -3153,7 +3153,7 @@ impl FontFamilyInfo {
 /// what [`TextAnchor`] positions. [`ink`](TextMetrics::ink) is the **ink box**: where the glyphs
 /// actually put marks. A line of digits leaves the descender space of its line box empty, so the
 /// two disagree, and which one is wanted depends on the question: laying text out in a column
-/// wants the line box, and centring it on a rule or keeping it clear of a mark wants the ink.
+/// wants the line box, and centering it on a rule or keeping it clear of a mark wants the ink.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMetrics {
     /// The advance width of the whole string.
@@ -3166,9 +3166,9 @@ pub struct TextMetrics {
     /// The face's cap height at this size: baseline to the top of a capital.
     ///
     /// A property of the FONT, not of this string — reported here because it is what optical
-    /// centring needs and asking for it separately would be a second measurement. Text made of
-    /// capitals and digits looks centred on a rule when its CAP box straddles it, not its line
-    /// box: the line box reserves descender room that digits never use, so centring by it sits
+    /// centering needs and asking for it separately would be a second measurement. Text made of
+    /// capitals and digits looks centered on a rule when its CAP box straddles it, not its line
+    /// box: the line box reserves descender room that digits never use, so centering by it sits
     /// every label a little low. The cap middle is `ascent - cap_height / 2.0` below the line
     /// box's top.
     pub cap_height: f64,
@@ -6777,5 +6777,56 @@ mod text_anchor_tests {
         // Junk answers the default rather than failing inside a native draw callback.
         assert_eq!(TextAnchor::unpack(-3.0), TextAnchor::LEADING);
         assert_eq!(TextAnchor::unpack(99.0), TextAnchor::unpack(11.0));
+    }
+
+    /// The two shapes a backend's own metrics arrive in. Both land on the same contract: the line
+    /// box's top-leading corner is the origin, and `ink` is relative to it.
+    #[test]
+    fn metrics_convert_from_a_backends_own_shape() {
+        use crate::{Rect, TextMetrics};
+        // Baseline-relative, y up-negative — Core Text, Skia and Qt all report like this.
+        let m = TextMetrics::from_baseline(
+            40.0,
+            16.0,
+            4.0,
+            11.0,
+            // Ink starting 1 right of the origin, from 11 above the baseline to 2 below it.
+            Rect::new(1.0, -11.0, 38.0, 13.0),
+        );
+        assert_eq!(
+            (m.width, m.height, m.ascent, m.cap_height),
+            (40.0, 20.0, 16.0, 11.0)
+        );
+        // Shifted down by the ascent: the ink now starts 5 below the line box's top, which is
+        // where a cap begins in a slot whose baseline is at 16.
+        assert_eq!(m.ink, Rect::new(1.0, 5.0, 38.0, 13.0));
+        assert_eq!(m.ascent - m.cap_height, m.ink.origin.y);
+
+        // The eight-slot wire form is already line-box-relative and passes straight through.
+        let w = TextMetrics::from_slots(&[40.0, 20.0, 16.0, 11.0, 1.0, 5.0, 38.0, 13.0]);
+        assert_eq!(w, m);
+    }
+
+    /// The fallback must be usable, not merely present: a caller frames text with it on a toolkit
+    /// that cannot measure, and every relation it relies on has to hold.
+    #[test]
+    fn the_approximation_is_internally_consistent() {
+        use crate::TextMetrics;
+        let m = TextMetrics::approximate("Agy", 20.0);
+        assert!(m.ascent < m.height, "the baseline sits inside the line box");
+        assert!(
+            m.cap_height < m.ascent,
+            "caps do not reach above the ascent"
+        );
+        // The ink box is the whole line box: a SUPERSET, so an overlap test using it can only be
+        // too cautious. Never a claim to be tighter than it knows.
+        assert_eq!(m.ink.origin.x, 0.0);
+        assert_eq!(m.ink.origin.y, 0.0);
+        assert_eq!(m.ink.size.width, m.width);
+        assert_eq!(m.ink.size.height, m.height);
+        // Empty text still answers a usable (zero-width, full-height) slot.
+        let e = TextMetrics::approximate("", 20.0);
+        assert_eq!(e.width, 0.0);
+        assert!(e.height > 0.0);
     }
 }
