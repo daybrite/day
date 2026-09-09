@@ -83,7 +83,7 @@ let baseline = at.y + m.ascent;
 ```
 
 `measure_text` measures one line in the same engine `replay` draws it with, so the box it
-returns is the box the anchors position: `width` is the advance width, `height` the line box
+returns is the box [the anchors](canvas.md#anchors) position: `width` is the advance width, `height` the line box
 (ascent + descent, plus the line gap where the engine reports one), and `ascent` the baseline's
 offset from the top. A toolkit that cannot measure answers `TextMetrics::approximate` — 0.6 ×
 size per character, 1.2 × size tall, the baseline at 0.9 × size — so a caller always gets a
@@ -98,6 +98,37 @@ usable box; there is no capability to probe for measurement.
 | HarmonyOS | `OH_Drawing_FontMeasureText` + `OH_Drawing_FontGetMetrics` |
 | Windows (XAML) | a `TextBlock`'s desired size and `BaselineOffset` |
 | web-dom | `measureText` with `fontBoundingBoxAscent` / `Descent` |
+
+### It is cached
+
+A measurement is a pure function of `(text, size, font)`: canvas text takes absolute points, so
+it carries neither the reader's font-scale setting nor the window's scale factor, and no backend's
+measurement reads anything else. `measure_text` therefore memoizes, and a repeat costs a hash of
+the key instead of a trip into the toolkit — around **0.26 µs against 23 µs** on AppKit, which
+builds an `NSString` and an attribute dictionary for every measurement it is asked for.
+
+That matters because measuring repeats constantly. A chart's axes measure the same tick labels on
+every frame they record; `day-piece-charts`' tick search measures candidate label sets, most of
+which it has already seen. Redrawing one chart page went from 0.076 ms of measurement to 0.011 ms
+once warm, and the code that got faster asks for nothing — there is no cached variant to call.
+
+The cache holds up to 1024 distinct measurements, in two generations: a hit in the older one is
+promoted, and when the newer fills, the older is dropped whole. Prefer **shorter strings measured
+often** to long ones measured once, which is the usual shape anyway.
+
+```rust
+let s = day::text_metrics_cache_stats();   // { hits, misses, entries } — a diagnostic
+day::clear_text_metrics_cache();           // for a face registered at RUNTIME (see below)
+```
+
+Nothing in day calls `clear_text_metrics_cache`. The font set is fixed for the process
+([the font list](#the-font-list) is enumerated once for the same reason), so a cached measurement
+cannot go stale on its own. It exists for an app or toolkit that registers a face while running
+and so genuinely does change what a family name measures to.
+
+One answer is deliberately **not** cached: the `TextMetrics::approximate` fallback. "The toolkit
+could not answer" is a fact about the moment — Android's measurement returns nothing until its VM
+is up — not about the text, and caching it would pin a guess for the life of the process.
 
 ## For backend authors
 

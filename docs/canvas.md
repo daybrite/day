@@ -162,9 +162,11 @@ from `measure_text` gets a frame that hugs what is drawn on every backend, and
 `TextVAlign::Baseline` is `at.y + metrics.ascent` below `Top`.
 
 **Let the anchor do it rather than measuring.** Right-aligning a label by measuring it and
-subtracting the width costs a `measure_text` call per label — a real cost, since measuring crosses
-into the toolkit — and the backend is about to lay the same text out anyway. `day-piece-charts`
-drew every y-axis label that way until `Trailing` existed; the measurement per label is now gone.
+subtracting the width costs a `measure_text` call per label, and the backend is about to lay the
+same text out anyway. `day-piece-charts` drew every y-axis label that way until `Trailing`
+existed; the measurement per label is now gone. (Measuring is memoized —
+[docs/fonts.md](fonts.md#it-is-cached) — so the repeat is cheap; it is still work that the anchor
+does for free and more accurately.)
 
 (Before fonts arrived, gtk, qt, android, arkui and web-dom put a `Leading` anchor on the baseline
 instead; a caller that compensated for that with an offset can drop it.)

@@ -316,6 +316,9 @@ pub fn window_image_support() -> day_spec::Support {
 // cached for the process, `measure_text()` always answers (approximating where a toolkit
 // cannot measure). Probe `Cap::FontList` before offering a font menu.
 pub use day_core::{font_families, measure_text};
+// The measurement memo (docs/fonts.md "It is cached"): a diagnostic pair. Nothing in day needs
+// `clear_text_metrics_cache` — it is for an app that registers a face while running.
+pub use day_core::{TextMetricsCacheStats, clear_text_metrics_cache, text_metrics_cache_stats};
 
 /// The request built by [`window_image`].
 #[derive(Clone, Copy, Debug)]

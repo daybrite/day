@@ -162,6 +162,9 @@ day_reactive::tls_slots! {
 
     static FONT_FAMILIES: std::cell::OnceCell<std::rc::Rc<[day_spec::FontFamilyInfo]>> =
         const { std::cell::OnceCell::new() };
+
+    static TEXT_METRICS: std::cell::RefCell<TextMetricsCache> =
+        std::cell::RefCell::new(TextMetricsCache::new());
 }
 
 use day_spec::{Platform, WindowOptions};
@@ -931,15 +934,156 @@ pub fn font_families() -> std::rc::Rc<[day_spec::FontFamilyInfo]> {
     })
 }
 
+/// Distinct measurements held per generation. Two generations are live at once, so the cache
+/// holds up to twice this before the older one is dropped whole.
+///
+/// 512 is far more than a drawing measures per frame (a chart with two axes, their titles and a
+/// legend is around twenty) and small enough that the worst case — a text tool measuring a
+/// different string every keystroke — costs tens of kilobytes rather than growing without end.
+const TEXT_METRICS_CAP: usize = 512;
+
+/// The `measure_text` cache: a **pure** memo, because every backend's measurement is a function
+/// of `(text, size, font)` and nothing else. Nothing in a running app changes the answer — canvas
+/// text takes absolute points, so it carries neither the reader's font-scale setting nor the
+/// window's scale factor (docs/canvas.md "Text") — which is what makes caching it correct rather
+/// than merely fast.
+///
+/// Two generations rather than an LRU list: a hit in `previous` is promoted into `current`, and
+/// when `current` fills, `previous` is replaced by it wholesale. That approximates least-recently-
+/// used closely enough for a working set that repeats every frame, is O(1) amortized with no
+/// eviction scan, and needs no ordering structure beside the maps.
+struct TextMetricsCache {
+    /// Reused so a HIT allocates nothing at all: the key is rebuilt into this buffer, compared,
+    /// and only copied into the map on a miss.
+    key: String,
+    current: std::collections::HashMap<String, day_spec::TextMetrics>,
+    previous: std::collections::HashMap<String, day_spec::TextMetrics>,
+    hits: u64,
+    misses: u64,
+}
+
+impl TextMetricsCache {
+    fn new() -> Self {
+        TextMetricsCache {
+            key: String::new(),
+            current: std::collections::HashMap::new(),
+            previous: std::collections::HashMap::new(),
+            hits: 0,
+            misses: 0,
+        }
+    }
+
+    /// Write the key for one measurement into the scratch buffer.
+    ///
+    /// The family's LENGTH is written before the family, so the encoding is injective whatever a
+    /// family name contains — the alternative, a separator, is only injective while no font is
+    /// ever named with it in it. `size` goes in as its bit pattern: exact, and two sizes that
+    /// differ only in representation would measure the same anyway.
+    fn build_key(&mut self, text: &str, size: f64, font: &day_spec::CanvasFont) {
+        use std::fmt::Write;
+        let family = font.family_str();
+        self.key.clear();
+        let _ = write!(
+            self.key,
+            "{:x}:{}:{}:{}:{family}{text}",
+            size.to_bits(),
+            font.css_weight(),
+            u8::from(font.italic),
+            family.len(),
+        );
+    }
+
+    /// A hit promotes an older-generation entry into the current one, so a working set that
+    /// survives a generation flip is not measured again.
+    fn lookup(&mut self) -> Option<day_spec::TextMetrics> {
+        if let Some(m) = self.current.get(&self.key) {
+            self.hits += 1;
+            return Some(*m);
+        }
+        let m = *self.previous.get(&self.key)?;
+        self.hits += 1;
+        self.current.insert(self.key.clone(), m);
+        Some(m)
+    }
+
+    fn insert(&mut self, m: day_spec::TextMetrics) {
+        self.misses += 1;
+        if self.current.len() >= TEXT_METRICS_CAP {
+            self.previous = std::mem::take(&mut self.current);
+        }
+        self.current.insert(self.key.clone(), m);
+    }
+}
+
+/// What [`measure_text`]'s cache has done on this thread — a diagnostic, for an app that wants to
+/// see whether its drawing is measuring the same strings over and over (it usually is).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextMetricsCacheStats {
+    /// Measurements answered without asking the toolkit.
+    pub hits: u64,
+    /// Measurements that had to cross into the toolkit.
+    pub misses: u64,
+    /// Distinct measurements currently held, across both generations.
+    pub entries: usize,
+}
+
+/// Read the [`measure_text`] cache's counters (docs/fonts.md).
+pub fn text_metrics_cache_stats() -> TextMetricsCacheStats {
+    TEXT_METRICS.with(|c| {
+        let c = c.borrow();
+        TextMetricsCacheStats {
+            hits: c.hits,
+            misses: c.misses,
+            entries: c.current.len() + c.previous.len(),
+        }
+    })
+}
+
+/// Drop every cached measurement (the counters keep running).
+///
+/// Nothing in day needs this: a measurement is a pure function of its key, and the font set is
+/// fixed for the process (see [`font_families`]). It exists for a toolkit or app that registers a
+/// face at runtime and so genuinely does change what a family name measures to.
+pub fn clear_text_metrics_cache() {
+    TEXT_METRICS.with(|c| {
+        let mut c = c.borrow_mut();
+        c.current.clear();
+        c.previous.clear();
+    });
+}
+
 /// Measure one line of canvas text at `size` points in `font` (docs/fonts.md), in the engine
 /// that draws `DrawOp::Text`; a toolkit that cannot measure answers
 /// `TextMetrics::approximate`, so a caller always gets a usable box.
+///
+/// **Memoized** (`TextMetricsCache`): measuring crosses into the toolkit and lays the text out
+/// there — around 29 µs a call on AppKit, which builds an `NSString` and an attribute dictionary
+/// every time — and a drawing measures the same handful of strings on every frame it records. A
+/// repeat costs a hash of the key and nothing else.
 pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_spec::TextMetrics {
+    if let Some(m) = TEXT_METRICS.with(|c| {
+        let mut c = c.borrow_mut();
+        c.build_key(text, size, font);
+        c.lookup()
+    }) {
+        return m;
+    }
+    // The toolkit call happens with NO borrow of the cache held: `replay` and a piece's own
+    // measurement can reach back into day-core, and a borrow spanning the seam would panic.
     // Headless (no tree on this thread) answers the approximation too, so a model unit test
     // that frames text runs without a toolkit.
-    tree::try_with_tree(|t| t.measure_text(text, size, font))
-        .flatten()
-        .unwrap_or_else(|| day_spec::TextMetrics::approximate(text, size))
+    let Some(m) = tree::try_with_tree(|t| t.measure_text(text, size, font)).flatten() else {
+        // Deliberately NOT cached. "The toolkit could not answer" is a fact about this moment —
+        // Android's returns nothing until its VM is up — not about the text, and caching it would
+        // pin a guess for the life of the process.
+        return day_spec::TextMetrics::approximate(text, size);
+    };
+    TEXT_METRICS.with(|c| {
+        let mut c = c.borrow_mut();
+        c.build_key(text, size, font);
+        c.insert(m);
+    });
+    m
 }
 
 /// The reactive backing for [`dark_mode`], lazily seeded from the toolkit's answer.

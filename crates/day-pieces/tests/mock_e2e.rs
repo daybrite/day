@@ -6959,3 +6959,109 @@ fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
     );
     drop(probe);
 }
+
+#[test]
+fn measure_text_asks_the_toolkit_once_per_distinct_string() {
+    let probe = boot(|| label("main").any());
+    day_core::clear_text_metrics_cache();
+    let before = probe.log().len();
+    let count = |p: &MockProbe| {
+        p.log()[before..]
+            .iter()
+            .filter(|l| l.starts_with("measure_text"))
+            .count()
+    };
+
+    let font = day_spec::CanvasFont::default();
+    // The shape a chart's axis has: the same handful of labels, every frame.
+    for _frame in 0..20 {
+        for label in ["0", "50", "100", "150"] {
+            day_core::measure_text(label, 12.0, &font);
+        }
+    }
+    assert_eq!(
+        count(&probe),
+        4,
+        "80 measurements of 4 distinct strings must cross into the toolkit 4 times"
+    );
+    let s = day_core::text_metrics_cache_stats();
+    assert_eq!((s.hits, s.misses, s.entries), (76, 4, 4));
+
+    // Every part of the key is part of the identity: a different size, weight, slant or family
+    // is a different measurement, and none of them may answer for another.
+    day_core::measure_text("0", 13.0, &font);
+    day_core::measure_text(
+        "0",
+        12.0,
+        &day_spec::CanvasFont {
+            weight: Some(day_spec::FontWeight::Bold),
+            ..Default::default()
+        },
+    );
+    day_core::measure_text(
+        "0",
+        12.0,
+        &day_spec::CanvasFont {
+            italic: true,
+            ..Default::default()
+        },
+    );
+    day_core::measure_text(
+        "0",
+        12.0,
+        &day_spec::CanvasFont {
+            family: Some("Day Sans".into()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(count(&probe), 8, "each key component must miss on its own");
+
+    // A cached measurement is the toolkit's own answer, not a re-derivation.
+    let m = day_core::measure_text("100", 12.0, &font);
+    assert_eq!(m, day_spec::TextMetrics::approximate("100", 12.0));
+
+    // Clearing drops the entries and measures afresh; the counters keep running.
+    day_core::clear_text_metrics_cache();
+    assert_eq!(day_core::text_metrics_cache_stats().entries, 0);
+    day_core::measure_text("0", 12.0, &font);
+    assert_eq!(count(&probe), 9);
+    drop(probe);
+}
+
+#[test]
+fn the_metrics_cache_holds_two_generations_and_stops_growing() {
+    let probe = boot(|| label("main").any());
+    day_core::clear_text_metrics_cache();
+    let font = day_spec::CanvasFont::default();
+    // Far past one generation: the cap is per generation and two are live, so the ceiling is
+    // twice it — a text tool measuring a new string every keystroke must not grow without end.
+    for i in 0..5_000 {
+        day_core::measure_text(&format!("s{i}"), 12.0, &font);
+    }
+    let s = day_core::text_metrics_cache_stats();
+    assert!(s.entries <= 1024, "held {} entries", s.entries);
+    assert_eq!(s.hits, 0, "5000 distinct strings share no measurement");
+    drop(probe);
+}
+
+#[test]
+fn a_second_font_holds_its_own_entries_beside_the_first() {
+    let probe = boot(|| label("main").any());
+    day_core::clear_text_metrics_cache();
+    let a = day_spec::CanvasFont::default();
+    let b = day_spec::CanvasFont {
+        family: Some("Day Serif".into()),
+        ..Default::default()
+    };
+    // The Canvas page's shape: four specimens, then the same four in another family.
+    for f in [&a, &b] {
+        for _ in 0..2 {
+            for t in ["specimen", "Bold", "Italic", "Bold Italic"] {
+                day_core::measure_text(t, 20.0, f);
+            }
+        }
+    }
+    let s = day_core::text_metrics_cache_stats();
+    assert_eq!((s.hits, s.misses, s.entries), (8, 8, 8));
+    drop(probe);
+}
