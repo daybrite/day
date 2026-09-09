@@ -4994,12 +4994,30 @@ impl Toolkit for Gtk {
         layout.set_font_description(Some(&canvas_font_desc(size, &pending)));
         layout.set_single_paragraph_mode(true);
         layout.set_text(text);
-        let (_, logical) = layout.extents();
+        // Pango hands back BOTH boxes from one layout; the ink one used to be discarded.
+        let (ink, logical) = layout.extents();
         let scale = f64::from(gtk4::pango::SCALE);
+        let px = |v: i32| f64::from(v) / scale;
+        let ascent = px(layout.baseline());
+        // Pango has no cap-height metric. The ink top of a capital IS the cap height, and asking
+        // for it is one more measurement of a one-character string — memoized per (size, font)
+        // like every other, so a whole process pays for it once (docs/fonts.md "It is cached").
+        let cap = {
+            let probe = gtk4::pango::Layout::new(&context);
+            probe.set_font_description(layout.font_description().as_ref());
+            probe.set_single_paragraph_mode(true);
+            probe.set_text("H");
+            let (pink, _) = probe.extents();
+            px(probe.baseline()) - px(pink.y())
+        };
         Some(day_spec::TextMetrics {
-            width: f64::from(logical.width()) / scale,
-            height: f64::from(logical.height()) / scale,
-            ascent: f64::from(layout.baseline()) / scale,
+            width: px(logical.width()),
+            height: px(logical.height()),
+            ascent,
+            cap_height: cap,
+            // Pango's extents are already relative to the LOGICAL box's top-leading corner, which
+            // is exactly this field's origin — no baseline shift to undo.
+            ink: day_spec::Rect::new(px(ink.x()), px(ink.y()), px(ink.width()), px(ink.height())),
         })
     }
 

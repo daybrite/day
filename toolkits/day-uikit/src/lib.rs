@@ -9157,12 +9157,32 @@ mod imp {
             let attrs = canvas_text_attrs(&uifont, day_spec::Color::BLACK);
             let ns = NSString::from_str(text);
             let sz: CGSize = unsafe { msg_send![&ns, sizeWithAttributes: &*attrs] };
-            Some(day_spec::TextMetrics {
-                width: sz.width,
-                height: sz.height,
-                // SAFETY: a font UIKit handed back; `ascender` is a plain metric read.
-                ascent: unsafe { uifont.ascender() },
-            })
+            // SAFETY: a font UIKit handed back; these are plain metric reads.
+            let (ascent, cap) = unsafe { (uifont.ascender(), uifont.capHeight()) };
+            // The INK box (see the AppKit twin): `usesDeviceMetrics` turns the layout box into
+            // the glyphs' own bounds, reported baseline-relative with y up.
+            let unbounded = CGSize::new(f64::MAX, f64::MAX);
+            let ink: CGRect = unsafe {
+                msg_send![
+                    &ns,
+                    boundingRectWithSize: unbounded,
+                    options: objc2_ui_kit::NSStringDrawingOptions::UsesDeviceMetrics,
+                    attributes: &*attrs,
+                    context: std::ptr::null::<objc2::runtime::AnyObject>(),
+                ]
+            };
+            Some(day_spec::TextMetrics::from_baseline(
+                sz.width,
+                ascent,
+                sz.height - ascent,
+                cap,
+                day_spec::Rect::new(
+                    ink.origin.x,
+                    -(ink.origin.y + ink.size.height),
+                    ink.size.width,
+                    ink.size.height,
+                ),
+            ))
         }
 
         /// The window rather than Day's content view. On iOS the "chrome" is the navigation bar,

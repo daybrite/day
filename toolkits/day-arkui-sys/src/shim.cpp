@@ -1324,9 +1324,18 @@ int32_t day_ark_measure_text(const char* text, double size, int32_t weight, int3
     }
     OH_Drawing_Font_Metrics m;
     OH_Drawing_FontGetMetrics(font, &m);
+    // Skia-shaped metrics: ascent is NEGATIVE (above the baseline), descent positive.
+    const float ascent = -m.ascent;
     out[0] = w;
     out[1] = m.descent - m.ascent;
-    out[2] = -m.ascent;
+    out[2] = ascent;
+    out[3] = m.capHeight;
+    // No tight-bounds call in the OH_Drawing C surface, so the ink box is the whole line box —
+    // the SUPERSET the contract allows (docs/fonts.md), never a claim to be tighter than it knows.
+    out[4] = 0.0;
+    out[5] = 0.0;
+    out[6] = w;
+    out[7] = out[1];
     OH_Drawing_FontDestroy(font);
     if (tf) OH_Drawing_TypefaceDestroy(tf);
     return 1;

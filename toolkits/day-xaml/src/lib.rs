@@ -2934,8 +2934,8 @@ impl Toolkit for Xaml {
                 .map(canvas_family)
                 .unwrap_or_default(),
         );
-        let mut out = [0.0f64; 3];
-        // SAFETY: both strings outlive the call and `out` has the three slots the shim fills.
+        let mut out = [0.0f64; 8];
+        // SAFETY: both strings outlive the call and `out` has the eight slots the shim fills.
         let rc = unsafe {
             ffi::day_xaml_measure_text(
                 text.as_ptr(),
@@ -2946,11 +2946,7 @@ impl Toolkit for Xaml {
                 out.as_mut_ptr(),
             )
         };
-        (rc == 0).then_some(day_spec::TextMetrics {
-            width: out[0],
-            height: out[1],
-            ascent: out[2],
-        })
+        (rc == 0).then(|| day_spec::TextMetrics::from_slots(&out))
     }
 }
 

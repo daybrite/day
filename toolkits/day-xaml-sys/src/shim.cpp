@@ -368,8 +368,16 @@ char* day_xaml_font_families(void) try {
 void day_xaml_string_free(char* p) { free(p); }
 
 // Measure one line of canvas text as the replay draws it (a TextBlock with the same font):
-// `out` receives the desired width, the desired height (the line box) and the baseline
-// offset. Returns 0 on success.
+// `out` receives the desired width, the desired height (the line box), the baseline offset, the
+// cap height, and the ink box relative to the line box's top-leading corner. Returns 0 on success.
+//
+// Cap height and ink are both APPROXIMATED here, and this is the one backend where they are.
+// A WinUI TextBlock reports neither: its DesiredSize is the line box whatever the text, and there
+// is no tight-bounds call. The exact answers live in DirectWrite (`IDWriteFontFace::GetMetrics`
+// for the cap height, `GetGlyphRunMetrics` for the ink), which is a slab of COM this backend does
+// not otherwise touch and which nothing here can run to check. A documented approximation that
+// errs the safe way beats untested COM: the cap height matches `TextMetrics::approximate`'s own
+// 0.7 × em, and the ink box is the whole line box — the superset the contract allows.
 int day_xaml_measure_text(const char* text, double size, int weight, int italic,
                           const char* family, double* out) try {
     WUXC::TextBlock tb;
@@ -382,6 +390,11 @@ int day_xaml_measure_text(const char* text, double size, int weight, int italic,
     out[0] = ds.Width;
     out[1] = ds.Height;
     out[2] = tb.BaselineOffset();
+    out[3] = 0.7 * size;
+    out[4] = 0.0;
+    out[5] = 0.0;
+    out[6] = ds.Width;
+    out[7] = ds.Height;
     return 0;
 } catch (...) {
     return 1;

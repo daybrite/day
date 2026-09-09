@@ -327,12 +327,34 @@ public final class DayBridge {
      * UNSCALED size (the canvas replay scales by density, so the answer is in dp): the advance
      * width, the line height and the ascent, comma-joined.
      */
+    /**
+     * Comma-joined: advance, line height, ascent, cap height, then the ink box relative to the
+     * line box's top-leading corner (x, y, w, h) — the eight numbers day-spec's TextMetrics reads.
+     *
+     * Paint has no cap-height metric, but getTextBounds gives INK, and the ink ascent of a capital
+     * IS the cap height. That is one extra measurement of a one-character string, memoized per
+     * (size, font) on day's side, so a process pays for it once (docs/fonts.md).
+     */
     public static String measureText(String text, double size, int weight, boolean italic, String family) {
         android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         paint.setTextSize((float) size);
         paint.setTypeface(canvasTypeface(family, weight, italic));
         android.graphics.Paint.FontMetrics fm = paint.getFontMetrics();
-        return paint.measureText(text) + "," + (fm.descent - fm.ascent) + "," + (-fm.ascent);
+        float ascent = -fm.ascent;
+        android.graphics.Rect ink = new android.graphics.Rect();
+        paint.getTextBounds(text, 0, text.length(), ink);
+        android.graphics.Rect cap = new android.graphics.Rect();
+        paint.getTextBounds("H", 0, 1, cap);
+        return paint.measureText(text)
+                + "," + (fm.descent - fm.ascent)
+                + "," + ascent
+                + "," + (-cap.top)
+                // getTextBounds is baseline-relative with y DOWN (top negative): shift by the
+                // ascent to make it relative to the line box's top.
+                + "," + ink.left
+                + "," + (ink.top + ascent)
+                + "," + ink.width()
+                + "," + ink.height();
     }
 
     /**

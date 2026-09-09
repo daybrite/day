@@ -2336,8 +2336,8 @@ mod imp {
             ensure_canvas_fonts();
             let text = cstr(text);
             let family = cstr(font.family_str());
-            let mut out = [0.0f64; 3];
-            // SAFETY: both strings outlive the call and `out` has the three slots the shim fills.
+            let mut out = [0.0f64; 8];
+            // SAFETY: both strings outlive the call and `out` has the eight slots the shim fills.
             let ok = unsafe {
                 ffi::day_ark_measure_text(
                     text.as_ptr(),
@@ -2348,11 +2348,7 @@ mod imp {
                     out.as_mut_ptr(),
                 )
             };
-            (ok == 1).then_some(day_spec::TextMetrics {
-                width: out[0],
-                height: out[1],
-                ascent: out[2],
-            })
+            (ok == 1).then(|| day_spec::TextMetrics::from_slots(&out))
         }
 
         /// In-process capture of the window root (docs/window-image.md). `hdc shell

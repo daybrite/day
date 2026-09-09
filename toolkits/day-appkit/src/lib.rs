@@ -7062,11 +7062,30 @@ impl Toolkit for AppKit {
         let attrs = canvas_text_attrs(&nsfont, day_spec::Color::BLACK);
         let ns = NSString::from_str(text);
         let sz: NSSize = unsafe { msg_send![&ns, sizeWithAttributes: &*attrs] };
-        Some(day_spec::TextMetrics {
-            width: sz.width,
-            height: sz.height,
-            ascent: nsfont.ascender(),
-        })
+        // The INK box: `NSStringDrawingUsesDeviceMetrics` is what turns `boundingRectWithSize:`
+        // from the layout box into the glyphs' own bounds, and it comes back baseline-relative
+        // with y up — hence the flip. An unbounded size so nothing wraps: this measures one line.
+        let unbounded = NSSize::new(f64::MAX, f64::MAX);
+        let ink: NSRect = unsafe {
+            msg_send![
+                &ns,
+                boundingRectWithSize: unbounded,
+                options: objc2_app_kit::NSStringDrawingOptions::UsesDeviceMetrics,
+                attributes: &*attrs,
+            ]
+        };
+        Some(day_spec::TextMetrics::from_baseline(
+            sz.width,
+            nsfont.ascender(),
+            sz.height - nsfont.ascender(),
+            nsfont.capHeight(),
+            day_spec::Rect::new(
+                ink.origin.x,
+                -(ink.origin.y + ink.size.height),
+                ink.size.width,
+                ink.size.height,
+            ),
+        ))
     }
 
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {

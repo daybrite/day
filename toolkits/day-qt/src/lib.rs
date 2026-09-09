@@ -2947,8 +2947,8 @@ impl Toolkit for Qt {
     ) -> Option<day_spec::TextMetrics> {
         let text = cstr(text);
         let family = cstr(font.family_str());
-        let mut out = [0.0f64; 3];
-        // SAFETY: both strings outlive the call and `out` has the three slots the shim fills.
+        let mut out = [0.0f64; 8];
+        // SAFETY: both strings outlive the call and `out` has the eight slots the shim fills.
         unsafe {
             ffi::day_qt_measure_text(
                 text.as_ptr(),
@@ -2959,11 +2959,7 @@ impl Toolkit for Qt {
                 out.as_mut_ptr(),
             )
         };
-        Some(day_spec::TextMetrics {
-            width: out[0],
-            height: out[1],
-            ascent: out[2],
-        })
+        Some(day_spec::TextMetrics::from_slots(&out))
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

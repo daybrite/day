@@ -3583,13 +3583,13 @@ mod imp {
                 }
                 env.dstr(&as_jstring(obj)).ok()
             })?;
-            let mut it = reply.split(',').map(|v| v.trim().parse::<f64>().ok());
-            let (width, height, ascent) = (it.next()??, it.next()??, it.next()??);
-            Some(day_spec::TextMetrics {
-                width,
-                height,
-                ascent,
-            })
+            // The eight numbers `DayBridge.measureText` joins, in the order `from_slots` reads.
+            let mut out = [0.0f64; 8];
+            let mut it = reply.split(',');
+            for slot in &mut out {
+                *slot = it.next()?.trim().parse::<f64>().ok()?;
+            }
+            Some(day_spec::TextMetrics::from_slots(&out))
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

@@ -153,7 +153,8 @@ unsafe extern "C" {
     /// the bundled `document.fonts` faces — by the `day_dom_env` buffer protocol.
     fn day_dom_fonts(out: *mut u8, cap: usize) -> usize;
     /// Measure one line of canvas text with the CSS font the canvas replay draws it in;
-    /// `out` receives width, height and ascent (three f64).
+    /// `out` receives the eight f64 `TextMetrics::from_slots` reads — width, the line box, the
+    /// ascent, the cap height, then the ink box (docs/fonts.md).
     fn day_dom_canvas_measure_text(
         text: *const u8,
         len: usize,
@@ -2369,7 +2370,7 @@ impl Toolkit for Dom {
         font: &day_spec::CanvasFont,
     ) -> Option<day_spec::TextMetrics> {
         let family = font.family_str();
-        let mut out = [0.0f64; 3];
+        let mut out = [0.0f64; 8];
         unsafe {
             day_dom_canvas_measure_text(
                 text.as_ptr(),
@@ -2382,11 +2383,7 @@ impl Toolkit for Dom {
                 out.as_mut_ptr(),
             )
         };
-        Some(day_spec::TextMetrics {
-            width: out[0],
-            height: out[1],
-            ascent: out[2],
-        })
+        Some(day_spec::TextMetrics::from_slots(&out))
     }
 
     fn ui_idle(&mut self) -> bool {

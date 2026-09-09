@@ -1205,15 +1205,31 @@ const env = {
     mem().set(bytes, out);
     return bytes.length;
   },
-  // One line of canvas text measured in the font the replay draws it in: width, the line box
-  // (ascent + descent) and the ascent, into three f64 at `out`.
+  // One line of canvas text measured in the font the replay draws it in, into EIGHT f64 at `out`:
+  // width, the line box (ascent + descent), the ascent, the cap height, then the ink box relative
+  // to the line box's top-leading corner (docs/fonts.md).
   day_dom_canvas_measure_text(text, len, size, weight, italic, fam, famLen, out) {
     const ctx = measureContext();
     const t = str(text, len);
     ctx.font = canvasFont(size, weight, italic, famLen > 0 ? str(fam, famLen) : '');
     const [asc, desc] = fontBox(ctx, t, size);
-    const width = ctx.measureText(t).width;
-    new Float64Array(wasm.memory.buffer, out, 3).set([width, asc + desc, asc]);
+    const m = ctx.measureText(t);
+    const width = m.width;
+    // Canvas2D's `actualBoundingBox*` IS the ink box, reported from the drawing origin on the
+    // baseline with left/ascent measured POSITIVE in the -x / -y directions.
+    const num = (v, fallback) => (Number.isFinite(v) ? v : fallback);
+    const inkL = -num(m.actualBoundingBoxLeft, 0);
+    const inkR = num(m.actualBoundingBoxRight, width);
+    const inkA = num(m.actualBoundingBoxAscent, asc);
+    const inkD = num(m.actualBoundingBoxDescent, desc);
+    // No cap-height metric that Safari reports, so take the ink ascent of a capital — which is
+    // exactly what a cap height is. Memoized per (size, font) on day's side.
+    const capM = ctx.measureText('H');
+    const cap = num(capM.actualBoundingBoxAscent, size * 0.7);
+    new Float64Array(wasm.memory.buffer, out, 8).set([
+      width, asc + desc, asc, cap,
+      inkL, asc - inkA, inkR - inkL, inkA + inkD,
+    ]);
   },
   day_dom_warn: (ptr, len) => console.warn(str(ptr, len)),
   // Logging (docs/logging.md). std's stdout/stderr on wasm32-unknown-unknown accept bytes and

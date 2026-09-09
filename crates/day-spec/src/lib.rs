@@ -3147,6 +3147,13 @@ impl FontFamilyInfo {
 }
 
 /// Single-line text measurement in canvas points ([`Toolkit::measure_text`], docs/fonts.md).
+///
+/// Two boxes, and the difference between them matters. `width`/`height` is the **line box** — the
+/// typographic slot the text occupies, the same for every string in a face at a size — and it is
+/// what [`TextAnchor`] positions. [`ink`](TextMetrics::ink) is the **ink box**: where the glyphs
+/// actually put marks. A line of digits leaves the descender space of its line box empty, so the
+/// two disagree, and which one is wanted depends on the question: laying text out in a column
+/// wants the line box, and centring it on a rule or keeping it clear of a mark wants the ink.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TextMetrics {
     /// The advance width of the whole string.
@@ -3156,16 +3163,75 @@ pub struct TextMetrics {
     pub height: f64,
     /// The baseline's offset from the TOP of the line box.
     pub ascent: f64,
+    /// The face's cap height at this size: baseline to the top of a capital.
+    ///
+    /// A property of the FONT, not of this string — reported here because it is what optical
+    /// centring needs and asking for it separately would be a second measurement. Text made of
+    /// capitals and digits looks centred on a rule when its CAP box straddles it, not its line
+    /// box: the line box reserves descender room that digits never use, so centring by it sits
+    /// every label a little low. The cap middle is `ascent - cap_height / 2.0` below the line
+    /// box's top.
+    pub cap_height: f64,
+    /// The ink box — the tight bounds of what is actually drawn — with its origin relative to the
+    /// line box's top-leading corner, so `ink.origin` is where the marks start inside the slot.
+    ///
+    /// Empty (zero-size) for text that draws nothing, a space included. Where a toolkit cannot
+    /// report ink it answers the whole line box, which is a SUPERSET: an overlap test against it
+    /// can only be too cautious, never wrong.
+    pub ink: Rect,
 }
 
 impl TextMetrics {
     /// The portable guess `day::measure_text` falls back to when a toolkit cannot measure:
-    /// 0.6 × size per character, 1.2 × size tall, the baseline at 0.9 × size.
+    /// 0.6 × size per character, 1.2 × size tall, the baseline at 0.9 × size, caps at 0.7 × size.
+    /// Its ink is the whole line box — the safe direction to be wrong in (see
+    /// [`ink`](TextMetrics::ink)).
     pub fn approximate(text: &str, size: f64) -> TextMetrics {
+        let (width, height) = (0.6 * size * text.chars().count() as f64, 1.2 * size);
         TextMetrics {
-            width: 0.6 * size * text.chars().count() as f64,
-            height: 1.2 * size,
+            width,
+            height,
             ascent: 0.9 * size,
+            cap_height: 0.7 * size,
+            ink: Rect::new(0.0, 0.0, width, height),
+        }
+    }
+
+    /// Read the eight-slot form the serializing backends (qt, xaml, arkui, web) fill across their
+    /// C ABI: advance, line height, ascent, cap height, then the ink box relative to the line
+    /// box's top-leading corner. One definition so four shims cannot drift from each other.
+    pub fn from_slots(out: &[f64; 8]) -> TextMetrics {
+        TextMetrics {
+            width: out[0],
+            height: out[1],
+            ascent: out[2],
+            cap_height: out[3],
+            ink: Rect::new(out[4], out[5], out[6], out[7]),
+        }
+    }
+
+    /// The line box's top-leading corner, given a baseline-relative measurement — the shape every
+    /// backend's own metrics come in. `ink_*` are relative to the drawing origin on the baseline
+    /// (`ink_top` negative above it), the convention Skia, Core Text and Qt all report in.
+    pub fn from_baseline(
+        width: f64,
+        ascent: f64,
+        descent: f64,
+        cap_height: f64,
+        ink: Rect,
+    ) -> TextMetrics {
+        TextMetrics {
+            width,
+            height: ascent + descent,
+            ascent,
+            cap_height,
+            // Baseline-relative to line-box-relative is one shift by the ascent.
+            ink: Rect::new(
+                ink.origin.x,
+                ink.origin.y + ascent,
+                ink.size.width,
+                ink.size.height,
+            ),
         }
     }
 }

@@ -1591,14 +1591,25 @@ void day_qt_string_free(char *p) { free(p); }
 
 /// Measure one line of canvas text with the font `day_qt_canvas_font` resolves: `out` receives
 /// the advance width, the line height (ascent + descent) and the ascent, in points.
+// out: advance, line height, ascent, cap height, then the INK box relative to the line box's
+// top-leading corner (x, y, w, h) — eight slots (docs/fonts.md).
 void day_qt_measure_text(const char *text, double size, int weight, int italic,
                          const char *family, double *out) {
     const QFont font = day_qt_canvas_font(QApplication::font(), size, weight, italic != 0,
                                           QString::fromUtf8(family ? family : ""));
     const QFontMetricsF fm(font);
-    out[0] = fm.horizontalAdvance(QString::fromUtf8(text ? text : ""));
+    const QString s = QString::fromUtf8(text ? text : "");
+    out[0] = fm.horizontalAdvance(s);
     out[1] = fm.height();
     out[2] = fm.ascent();
+    out[3] = fm.capHeight();
+    // tightBoundingRect is baseline-relative with y DOWN (top negative); the line box's top is
+    // one ascent above the baseline.
+    const QRectF ink = fm.tightBoundingRect(s);
+    out[4] = ink.x();
+    out[5] = ink.y() + fm.ascent();
+    out[6] = ink.width();
+    out[7] = ink.height();
 }
 
 } // extern "C"
