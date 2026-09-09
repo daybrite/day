@@ -1499,6 +1499,10 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     PendingFont fontp;
     // Dash effects created during this replay, destroyed once the last op has been drawn.
     std::vector<OH_Drawing_PathEffect*> dash_effects;
+    // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+    // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
+    std::vector<std::pair<float, float>> stampAt;
+    int stampN = 0;
     for (size_t i = 0; i + 8 < n.size(); i += 9) {
         int kind = (int)n[i];
         float a = (float)n[i + 1], b = (float)n[i + 2], c = (float)n[i + 3], dd = (float)n[i + 4];
@@ -1541,6 +1545,28 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         }
         if (stroke) OH_Drawing_CanvasAttachPen(cv, pen);
         else OH_Drawing_CanvasAttachBrush(cv, brush);
+        // Stamp prefix and its coordinate records: collected, never drawn on their own.
+        if (kind == 20) { stampAt.clear(); stampN = (int)a; continue; }
+        if (kind == 21) {
+            // Four points per record; the LAST record of a run is padded with zeros, so the
+            // header's count is what says where the real ones stop.
+            const float xs[4] = { a, c, e, (float)n[i + 8] };
+            const float ys[4] = { b, dd, f, g };
+            for (int q = 0; q < 4 && (int)stampAt.size() < stampN; ++q)
+                stampAt.push_back({ xs[q], ys[q] });
+            continue;
+        }
+        // The template is replayed once per position under a translated canvas. `text_i` is
+        // rewound each time so a template with a texts payload reads the SAME entry every
+        // repetition and consumes it exactly once overall.
+        const int reps = stampAt.empty() ? 1 : (int)stampAt.size();
+        const size_t tiStart = text_i;
+        for (int rep = 0; rep < reps; ++rep) {
+        text_i = tiStart;
+        if (!stampAt.empty()) {
+            OH_Drawing_CanvasSave(cv);
+            OH_Drawing_CanvasTranslate(cv, stampAt[rep].first, stampAt[rep].second);
+        }
         switch (kind) {
             case 0:
             case 1: { // rect fill / stroke
@@ -1787,6 +1813,9 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
             default:
                 break;
         }
+        if (!stampAt.empty()) OH_Drawing_CanvasRestore(cv);
+        }
+        stampAt.clear();
         if (stroke) OH_Drawing_CanvasDetachPen(cv);
         else OH_Drawing_CanvasDetachBrush(cv);
         // A style record applies to ONE stroke; anything else clears it.

@@ -5591,6 +5591,32 @@ mod imp {
         use day_spec::DrawOp;
         unsafe {
             match op {
+                // ONE path for the whole batch, then one fill or stroke — the AppKit twin
+                // (docs/canvas.md "Stamping"). `apply` is UIBezierPath's own transform, so each
+                // copy is the template translated without touching the graphics state.
+                DrawOp::Stamp(st) => {
+                    let batch = unsafe { objc2_ui_kit::UIBezierPath::bezierPath() };
+                    for p in &st.at {
+                        if let Some(copy) = bezier(&st.shape.translated(p.x, p.y)) {
+                            unsafe { batch.appendPath(&copy) };
+                        }
+                    }
+                    let color = match &st.paint {
+                        day_spec::Paint::Solid(c) => *c,
+                        _ => day_spec::Color::WHITE,
+                    };
+                    match &st.stroke {
+                        None => {
+                            uicolor(color).setFill();
+                            unsafe { batch.fill() };
+                        }
+                        Some(style) => {
+                            uicolor(color).setStroke();
+                            apply_stroke_style(&batch, style);
+                            unsafe { batch.stroke() };
+                        }
+                    }
+                }
                 DrawOp::Fill(shape, paint) => match paint {
                     day_spec::Paint::Solid(color) => {
                         uicolor(*color).setFill();

@@ -7065,3 +7065,53 @@ fn a_second_font_holds_its_own_entries_beside_the_first() {
     assert_eq!((s.hits, s.misses, s.entries), (8, 8, 8));
     drop(probe);
 }
+
+#[test]
+fn a_stamp_encodes_as_one_prefix_its_points_and_one_template() {
+    use day_spec::{Color, DrawOp, Paint, Point, Rect, Shape, Stamp};
+    // Seven points: two full coordinate records and a third carrying three, padded.
+    let at: Vec<Point> = (0..7)
+        .map(|i| Point::new(i as f64, i as f64 * 2.0))
+        .collect();
+    let ops = vec![DrawOp::Stamp(Box::new(Stamp {
+        shape: Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0)),
+        at: at.clone(),
+        paint: Paint::Solid(Color::BLACK),
+        stroke: None,
+    }))];
+    let (nums, texts) = day_spec::encode_ops(&ops);
+    assert!(texts.is_empty(), "an ellipse template carries no payload");
+    let codes: Vec<day_spec::OpCode> = nums
+        .chunks(9)
+        .map(|r| day_spec::OpCode::from_wire(r[0]).expect("known code"))
+        .collect();
+    use day_spec::OpCode::*;
+    assert_eq!(
+        codes,
+        vec![Stamp, StampPoints, StampPoints, FillEllipse],
+        "prefix, ceil(7/4) = 2 coordinate records, then the template"
+    );
+    // The header's count is what a decoder trims the padding by.
+    assert_eq!(nums[1], 7.0);
+    // Coordinates fill each record edge to edge, the last one padded with zeros.
+    let read: Vec<Point> = nums[9..9 + 18]
+        .chunks(9)
+        .flat_map(|r| (0..4).map(move |i| Point::new(r[1 + i * 2], r[2 + i * 2])))
+        .take(7)
+        .collect();
+    assert_eq!(read, at);
+    // The second record holds points 4..6 and one padded pair in its last two slots.
+    assert_eq!(&nums[25..27], &[0.0, 0.0], "tail is padded");
+
+    // One op, whatever the count: this is the whole point of the variant.
+    let big = vec![DrawOp::Stamp(Box::new(Stamp {
+        shape: Shape::Rect(Rect::new(-1.0, -1.0, 2.0, 2.0)),
+        at: (0..50_000).map(|i| Point::new(i as f64, 0.0)).collect(),
+        paint: Paint::Solid(Color::BLACK),
+        stroke: None,
+    }))];
+    assert_eq!(big.len(), 1);
+    // …and the wire is a quarter of what fifty thousand individual records would be.
+    let (wire, _) = day_spec::encode_ops(&big);
+    assert!(wire.len() < 50_000 * 9 / 3, "{} wire numbers", wire.len());
+}

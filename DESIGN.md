@@ -1401,7 +1401,10 @@ pub trait Toolkit: Sized + 'static {
     // pillars
     fn set_a11y(&mut self, h, a11y: &A11yProps) {}                    // §13
     fn read_a11y(&self, h) -> A11ySnapshot { … }                      // the a11y_audit's native read
-    fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11
+    fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11 — `DrawOp::Stamp`
+                                                                      // is ONE op for many copies
+                                                                      // of a shape (docs/canvas.md
+                                                                      // "Stamping")
     fn font_families(&mut self) -> Vec<FontFamilyInfo> { … }          // the platform font list (Cap::FontList, docs/fonts.md)
     fn measure_text(&mut self, text, size, font: &CanvasFont) -> Option<TextMetrics> { … } // canvas text metrics
                                                                       // — the LINE box, the cap

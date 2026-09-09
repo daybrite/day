@@ -3223,6 +3223,28 @@ fn push_paint(buf: &mut Vec<f64>, paint: &Paint, bounds: Rect) {
     }
 }
 
+/// The stroke style bytes shared by `Stroke` and a stroked `Stamp`: width, cap, join, miter,
+/// dash phase, dash count, then the dashes.
+fn push_stroke_style(buf: &mut Vec<f64>, style: &day_spec::StrokeStyle) {
+    buf.extend([
+        style.width,
+        match style.cap {
+            day_spec::LineCap::Butt => 0.0,
+            day_spec::LineCap::Round => 1.0,
+            day_spec::LineCap::Square => 2.0,
+        },
+        match style.join {
+            day_spec::LineJoin::Miter => 0.0,
+            day_spec::LineJoin::Round => 1.0,
+            day_spec::LineJoin::Bevel => 2.0,
+        },
+        style.miter_limit,
+        style.dash_phase,
+        style.dash.len() as f64,
+    ]);
+    buf.extend(style.dash.iter().copied());
+}
+
 fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
     let mut buf = Vec::with_capacity(ops.len() * 8);
     let mut strs: Vec<u8> = Vec::new();
@@ -3233,28 +3255,35 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
                 push_paint(&mut buf, paint, shape.bounds());
                 push_shape(&mut buf, shape);
             }
+            DrawOp::Stamp(st) => {
+                // [7, strokeFlag, (stroke style…)?, count, x0,y0 …, paint, template shape].
+                // This encoder is variable-length already, so the coordinates ride it directly —
+                // no separate record kind and no padding (docs/canvas.md "Stamping").
+                buf.push(7.0);
+                match &st.stroke {
+                    None => buf.push(0.0),
+                    Some(style) => {
+                        buf.push(1.0);
+                        push_stroke_style(&mut buf, style);
+                    }
+                }
+                buf.push(st.at.len() as f64);
+                for p in &st.at {
+                    buf.push(p.x);
+                    buf.push(p.y);
+                }
+                // The paint resolves against the TEMPLATE's bounds, which is the batch's own
+                // geometry repeated — a gradient therefore shades each copy identically rather
+                // than across the group, matching what a per-mark fill would have done.
+                push_paint(&mut buf, &st.paint, st.shape.bounds());
+                push_shape(&mut buf, &st.shape);
+            }
             DrawOp::Stroke(shape, paint, style) => {
                 // [1, width, cap, join, miter, dashPhase, dashCount, dashes…] then paint, then
                 // shape. Style is inline rather than a separate record: this encoder is already
                 // variable-length, so there is nothing to gain from a modifier record here.
-                buf.extend([
-                    1.0,
-                    style.width,
-                    match style.cap {
-                        day_spec::LineCap::Butt => 0.0,
-                        day_spec::LineCap::Round => 1.0,
-                        day_spec::LineCap::Square => 2.0,
-                    },
-                    match style.join {
-                        day_spec::LineJoin::Miter => 0.0,
-                        day_spec::LineJoin::Round => 1.0,
-                        day_spec::LineJoin::Bevel => 2.0,
-                    },
-                    style.miter_limit,
-                    style.dash_phase,
-                    style.dash.len() as f64,
-                ]);
-                buf.extend(style.dash.iter().copied());
+                buf.push(1.0);
+                push_stroke_style(&mut buf, style);
                 push_paint(&mut buf, paint, shape.bounds());
                 push_shape(&mut buf, shape);
             }

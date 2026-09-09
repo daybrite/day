@@ -73,6 +73,10 @@ public class DayCanvasView extends View {
         cv.scale(density, density);
         int ti = 0;
         gradPending = false;
+        // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+        // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
+        java.util.ArrayList<float[]> stampAt = new java.util.ArrayList<float[]>();
+        int stampN = 0;
         for (int i = 0; i + 8 < nums.length; i += 9) {
             int k = (int) nums[i];
             float a = (float) nums[i+1], b = (float) nums[i+2], c = (float) nums[i+3], d = (float) nums[i+4];
@@ -93,6 +97,26 @@ public class DayCanvasView extends View {
                 paint.setPathEffect(null);
             }
             if (!gradPending) paint.setShader(null);
+            // Stamp prefix and its coordinate records: collected, never drawn on their own.
+            if (k == 20) { stampAt.clear(); stampN = (int) a; continue; }
+            if (k == 21) {
+                // Four points per record; the LAST record of a run is padded with zeros, so the
+                // header's count is what says where the real ones stop.
+                float[] xs = { a, c, e, (float) nums[i+8] };
+                float[] ys = { b, d, f, g };
+                for (int q = 0; q < 4 && stampAt.size() < stampN; q++) {
+                    stampAt.add(new float[] { xs[q], ys[q] });
+                }
+                continue;
+            }
+            // The template is replayed once per position under a translated canvas. `ti` is
+            // rewound each time so a template with a texts payload (a polygon, a path) reads the
+            // SAME entry every repetition and consumes it exactly once overall.
+            int reps = stampAt.isEmpty() ? 1 : stampAt.size();
+            int tiStart = ti;
+            for (int rep = 0; rep < reps; rep++) {
+            ti = tiStart;
+            if (!stampAt.isEmpty()) { cv.save(); cv.translate(stampAt.get(rep)[0], stampAt.get(rep)[1]); }
             switch (k) {
                 case 0: paint.setStyle(Paint.Style.FILL);
                         if (gradPending) applyGradient(new RectF(a, b, a+c, b+d));
@@ -294,6 +318,9 @@ public class DayCanvasView extends View {
                     break;
                 }
             }
+            if (!stampAt.isEmpty()) cv.restore();
+            }
+            stampAt.clear();
             // A style record applies to ONE stroke, so anything else clears it; a font record
             // likewise applies to one text.
             if (k != 18) stylePending = false;

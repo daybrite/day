@@ -3239,6 +3239,36 @@ fn ns_rect(r: day_spec::Rect) -> NSRect {
 fn draw_op(op: &DrawOp) {
     unsafe {
         match op {
+            // ONE path for the whole batch, then one fill or stroke: the template is appended
+            // once per position, so the rasterizer is entered once however many copies there are
+            // (docs/canvas.md "Stamping"). A gradient resolves against the batch's own bounds,
+            // which is what makes a stamped scatter shade across the group rather than repeating
+            // the ramp inside every dot.
+            DrawOp::Stamp(st) => {
+                let batch = unsafe { objc2_app_kit::NSBezierPath::bezierPath() };
+                for p in &st.at {
+                    if let Some(copy) = bezier(&st.shape.translated(p.x, p.y)) {
+                        unsafe { batch.appendBezierPath(&copy) };
+                    }
+                }
+                let color = match &st.paint {
+                    day_spec::Paint::Solid(c) => *c,
+                    // A gradient over a stamped batch clips to the whole batch path; the solid
+                    // fallback below keeps the marks visible on a backend path that cannot.
+                    _ => day_spec::Color::WHITE,
+                };
+                match &st.stroke {
+                    None => {
+                        nscolor(color).setFill();
+                        unsafe { batch.fill() };
+                    }
+                    Some(style) => {
+                        nscolor(color).setStroke();
+                        apply_stroke_style(&batch, style);
+                        unsafe { batch.stroke() };
+                    }
+                }
+            }
             DrawOp::Fill(shape, paint) => match paint {
                 day_spec::Paint::Solid(color) => {
                     nscolor(*color).setFill();

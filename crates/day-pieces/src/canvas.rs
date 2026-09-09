@@ -199,6 +199,41 @@ impl Draw {
         self.ops
             .push(DrawOp::Stroke(shape, paint.into(), style.clone()));
     }
+    /// Draw `shape` once at EVERY position in `at` — one op for the whole batch.
+    ///
+    /// The template is authored around the ORIGIN and each copy is it translated by one point, so
+    /// a 6-point dot is `Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0))`. Order is drawing order.
+    ///
+    /// Reach for this the moment a drawing has more marks than it has kinds of mark. A scatter of
+    /// fifty thousand points drawn one `fill` at a time is fifty thousand ops to build, compare
+    /// and clone on every frame that re-records; as one stamp it is one op and a flat array of
+    /// coordinates, and a backend can put every copy into a single path (docs/canvas.md
+    /// "Stamping"). Every copy shares the shape, size and paint — group by whatever varies.
+    pub fn stamp(&mut self, shape: Shape, at: Vec<Point>, paint: impl Into<Paint>) {
+        self.ops.push(DrawOp::Stamp(Box::new(day_spec::Stamp {
+            shape,
+            at,
+            paint: paint.into(),
+            stroke: None,
+        })));
+    }
+
+    /// [`Draw::stamp`], stroking each copy instead of filling it.
+    pub fn stamp_styled(
+        &mut self,
+        shape: Shape,
+        at: Vec<Point>,
+        paint: impl Into<Paint>,
+        style: StrokeStyle,
+    ) {
+        self.ops.push(DrawOp::Stamp(Box::new(day_spec::Stamp {
+            shape,
+            at,
+            paint: paint.into(),
+            stroke: Some(style),
+        })));
+    }
+
     /// Confine everything drawn afterwards to `shape`.
     ///
     /// The clip lasts until the enclosing [`Draw::restore`], so the usual shape is

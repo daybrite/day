@@ -28,6 +28,8 @@ canvas(|d, size| {
 | `fill(shape, paint)` | Fill with a color or a linear/radial gradient |
 | `stroke(shape, color, width)` | Stroke at a width, everything else default |
 | `stroke_styled(shape, paint, style)` | Stroke with dash, cap, join, and any paint |
+| `stamp(shape, at, paint)` | Fill ONE shape at many positions, as one op ([Stamping](#stamping)) |
+| `stamp_styled(shape, at, paint, style)` | The same, stroking each copy |
 | `clip(shape)` / `clipped(shape, f)` | Confine what follows to a shape |
 | `text(text, at, style)` | One line of text at a point, in a size, color and [font](fonts.md) |
 | `save` / `restore` / `concat(affine)` | Transform and clip state |
@@ -227,9 +229,37 @@ on Qt, and pinch plus a two-finger pan recognizer on iOS; one-finger drags still
 events yet; apps that offer zoom controls in a toolbar or menu (as Day-Sketch does) lose no
 capability there, only the gesture shortcut.
 
+## Stamping
+
+One shape at many positions is **one op**:
+
+```rust
+let dot = Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0));   // authored around the ORIGIN
+d.stamp(dot, positions, color);                              // …translated to each point
+d.stamp_styled(cross, positions, color, StrokeStyle::width(1.5));   // stroked instead of filled
+```
+
+Each copy is the template translated by one point, and every copy shares the shape, the size and
+the paint — so anything that varies means another stamp. For a chart that is one per series, which
+is what `day-piece-charts` does: it groups its point marks by symbol, size, color and stroke width
+and emits a stamp per group.
+
+**Why it exists.** A `DrawOp` is 168 bytes, and a canvas re-records its whole op list on any
+tracked read. Fifty thousand points drawn one `fill` at a time is 8.4 MB of ops to build, compare
+against the previous frame and clone into the tree — about **3.6 ms per frame before a backend
+draws anything**. As one stamp it is 800 KB and 1.2 ms: the equality check is 9× faster, the clone
+23×, and the whole per-frame overhead 3.1×. On the wire to a serializing backend it is a quarter
+of the numbers. Day-Viz's scatter records **120,037 marks as 40 ops**.
+
+Backends draw a batch as a single native path — one `NSBezierPath`, one `Path2D`, one `QPainter`
+transform per copy into one geometry — so the rasterizer is entered once however many copies there
+are, rather than once per mark.
+
 ## Performance
 
 `CanvasProps` holds the whole op list and a change replaces it, so a canvas is cheapest when its
-op count is stable and small. Prefer one path over many segments: Day Tradr's chart line went from
-one `Shape::Line` per sample (about 250 ops for a year of daily closes, every corner unjoined) to
-a single path op.
+op count is stable and small. Two ways to keep it that way:
+
+- **One path over many segments.** Day Tradr's chart line went from one `Shape::Line` per sample
+  (about 250 ops for a year of daily closes, every corner unjoined) to a single path op.
+- **One stamp over many identical marks** — see [Stamping](#stamping) above.

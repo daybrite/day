@@ -470,6 +470,10 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
     let mut pending: Option<PendingGradient> = None;
     let mut pending_stroke: Option<PendingStroke> = None;
     let mut pending_font: Option<PendingFont> = None;
+    // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+    // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
+    let mut stamp_at: Vec<(f64, f64)> = Vec::new();
+    let mut stamp_n = 0usize;
     for chunk in nums.chunks(9) {
         let (k, a, b, c, d, e, f, g, col) = (
             chunk[0] as i32,
@@ -491,144 +495,40 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
         if k != 19 && k != 7 {
             pending_font = None;
         }
-        match k {
-            0 | 1 => {
-                cr.rectangle(a, b, c, d);
-                if k == 0 {
-                    if let Some(gr) = pending.take() {
-                        gr.set_source(cr, a, b, c, d);
-                    }
-                    let _ = cr.fill();
-                } else {
-                    cr.set_line_width(g);
-                    let _ = cr.stroke();
+        // Stamp prefix and its coordinate records: collected, never drawn on their own.
+        if k == 20 {
+            stamp_at.clear();
+            stamp_n = a as usize;
+            stamp_at.reserve(stamp_n);
+            continue;
+        }
+        if k == 21 {
+            // Four points per record; the LAST record of a run is padded with zeros, so the
+            // header's count is what says where the real ones stop.
+            for pair in [(a, b), (c, d), (e, f), (g, col)] {
+                if stamp_at.len() < stamp_n {
+                    stamp_at.push(pair);
                 }
             }
-            // Rounded rect (2 fill / 13 stroke): cairo has no primitive, so trace the four corner
-            // arcs (radius clamped to half the short side).
-            2 | 13 => {
-                let r = e.min(c / 2.0).min(d / 2.0).max(0.0);
-                use std::f64::consts::FRAC_PI_2;
-                cr.new_sub_path();
-                cr.arc(a + c - r, b + r, r, -FRAC_PI_2, 0.0);
-                cr.arc(a + c - r, b + d - r, r, 0.0, FRAC_PI_2);
-                cr.arc(a + r, b + d - r, r, FRAC_PI_2, 2.0 * FRAC_PI_2);
-                cr.arc(a + r, b + r, r, 2.0 * FRAC_PI_2, 3.0 * FRAC_PI_2);
-                cr.close_path();
-                if k == 2 {
-                    if let Some(gr) = pending.take() {
-                        gr.set_source(cr, a, b, c, d);
-                    }
-                    let _ = cr.fill();
-                } else {
-                    cr.set_line_width(g);
-                    let _ = cr.stroke();
-                }
-            }
-            3 | 4 => {
+            continue;
+        }
+        // The template is replayed once per position under a translated CTM. `ti` is rewound
+        // each time so a template with a texts payload (a polygon, a path) reads the SAME entry
+        // every repetition and consumes it exactly once overall.
+        let reps = stamp_at.len().max(1);
+        let ti_start = ti;
+        for rep in 0..reps {
+            ti = ti_start;
+            if let Some((dx, dy)) = stamp_at.get(rep) {
                 cr.save().ok();
-                cr.translate(a + c / 2.0, b + d / 2.0);
-                cr.scale(c / 2.0, d / 2.0);
-                cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
-                cr.restore().ok();
-                if k == 3 {
-                    if let Some(gr) = pending.take() {
-                        gr.set_source(cr, a, b, c, d);
-                    }
-                    let _ = cr.fill();
-                } else {
-                    cr.set_line_width(g);
-                    let _ = cr.stroke();
-                }
+                cr.translate(*dx, *dy);
             }
-            5 => {
-                let (cx_, cy) = (a + c / 2.0, b + d / 2.0);
-                let radius = c.min(d) / 2.0;
-                let start = e.to_radians();
-                let end = (e + f).to_radians();
-                cr.set_line_width(g);
-                cr.set_line_cap(gtk4::cairo::LineCap::Round);
-                cr.arc(cx_, cy, radius, start, end);
-                let _ = cr.stroke();
-            }
-            6 => {
-                cr.set_line_width(g);
-                cr.move_to(a, b);
-                cr.line_to(c, d);
-                let _ = cr.stroke();
-            }
-            // Text (7): a Pango layout, drawn from its top-left — which IS the `LEADING`
-            // anchor — offset by whatever the packed anchor asks for, using the layout's own
-            // logical extents and baseline. The layout picks up the cairo CTM, so it rotates and
-            // scales with the drawing.
-            7 => {
-                let text = texts.get(ti).cloned().unwrap_or_default();
-                ti += 1;
-                let font = pending_font.take().unwrap_or_default();
-                let layout = pangocairo::functions::create_layout(cr);
-                layout.set_font_description(Some(&canvas_font_desc(e, &font)));
-                layout.set_single_paragraph_mode(true);
-                layout.set_text(&text);
-                let anchor = day_spec::TextAnchor::unpack(f);
-                let (mut x, mut y) = (a, b);
-                if anchor != day_spec::TextAnchor::LEADING {
-                    let (_, logical) = layout.extents();
-                    let scale = f64::from(gtk4::pango::SCALE);
-                    let (dx, dy) = anchor.offset(
-                        f64::from(logical.width()) / scale,
-                        f64::from(logical.height()) / scale,
-                        f64::from(layout.baseline()) / scale,
-                    );
-                    x += dx;
-                    y += dy;
-                }
-                cr.move_to(x, y);
-                pangocairo::functions::show_layout(cr, &layout);
-                // The layout leaves cairo's current point where the text ended; the next
-                // arc/ellipse would draw a line from there to its start. Clear it.
-                cr.new_path();
-            }
-            // Font (19): applies to the NEXT text record only.
-            19 => {
-                let family = texts.get(ti).cloned().unwrap_or_default();
-                ti += 1;
-                pending_font = Some(PendingFont {
-                    weight: a,
-                    italic: b > 0.5,
-                    family,
-                });
-            }
-            8 => {
-                cr.save().ok();
-            }
-            9 => {
-                cr.restore().ok();
-            }
-            // Polygon (11 fill / 12 stroke): points ride the texts channel as "x,y x,y …".
-            11 | 12 => {
-                let pts = texts.get(ti).cloned().unwrap_or_default();
-                ti += 1;
-                let mut first = true;
-                let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-                for pair in pts.split(' ') {
-                    if let Some((x, y)) = pair.split_once(',')
-                        && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
-                    {
-                        (x0, y0) = (x0.min(x), y0.min(y));
-                        (x1, y1) = (x1.max(x), y1.max(y));
-                        if first {
-                            cr.move_to(x, y);
-                            first = false;
-                        } else {
-                            cr.line_to(x, y);
-                        }
-                    }
-                }
-                if !first {
-                    cr.close_path();
-                    if k == 11 {
+            match k {
+                0 | 1 => {
+                    cr.rectangle(a, b, c, d);
+                    if k == 0 {
                         if let Some(gr) = pending.take() {
-                            gr.set_source(cr, x0, y0, x1 - x0, y1 - y0);
+                            gr.set_source(cr, a, b, c, d);
                         }
                         let _ = cr.fill();
                     } else {
@@ -636,146 +536,283 @@ fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
                         let _ = cr.stroke();
                     }
                 }
-            }
-            // Path (15 fill / 16 stroke): segments ride the texts channel; slot f is the fill
-            // rule (0 non-zero, 1 even-odd) and slot g the stroke width.
-            15 | 16 => {
-                let spec = texts.get(ti).cloned().unwrap_or_default();
-                ti += 1;
-                let (bx, by, bw, bh) = cairo_trace_path(cr, &spec);
-                if k == 15 {
-                    cr.set_fill_rule(if f > 0.5 {
-                        gtk4::cairo::FillRule::EvenOdd
+                // Rounded rect (2 fill / 13 stroke): cairo has no primitive, so trace the four corner
+                // arcs (radius clamped to half the short side).
+                2 | 13 => {
+                    let r = e.min(c / 2.0).min(d / 2.0).max(0.0);
+                    use std::f64::consts::FRAC_PI_2;
+                    cr.new_sub_path();
+                    cr.arc(a + c - r, b + r, r, -FRAC_PI_2, 0.0);
+                    cr.arc(a + c - r, b + d - r, r, 0.0, FRAC_PI_2);
+                    cr.arc(a + r, b + d - r, r, FRAC_PI_2, 2.0 * FRAC_PI_2);
+                    cr.arc(a + r, b + r, r, 2.0 * FRAC_PI_2, 3.0 * FRAC_PI_2);
+                    cr.close_path();
+                    if k == 2 {
+                        if let Some(gr) = pending.take() {
+                            gr.set_source(cr, a, b, c, d);
+                        }
+                        let _ = cr.fill();
                     } else {
-                        gtk4::cairo::FillRule::Winding
-                    });
-                    if let Some(gr) = pending.take() {
-                        gr.set_source(cr, bx, by, bw, bh);
+                        cr.set_line_width(g);
+                        let _ = cr.stroke();
                     }
-                    let _ = cr.fill();
-                    cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
-                } else {
+                }
+                3 | 4 => {
+                    cr.save().ok();
+                    cr.translate(a + c / 2.0, b + d / 2.0);
+                    cr.scale(c / 2.0, d / 2.0);
+                    cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+                    cr.restore().ok();
+                    if k == 3 {
+                        if let Some(gr) = pending.take() {
+                            gr.set_source(cr, a, b, c, d);
+                        }
+                        let _ = cr.fill();
+                    } else {
+                        cr.set_line_width(g);
+                        let _ = cr.stroke();
+                    }
+                }
+                5 => {
+                    let (cx_, cy) = (a + c / 2.0, b + d / 2.0);
+                    let radius = c.min(d) / 2.0;
+                    let start = e.to_radians();
+                    let end = (e + f).to_radians();
                     cr.set_line_width(g);
-                    if let Some(gr) = pending.take() {
-                        gr.set_source(cr, bx, by, bw, bh);
-                    }
+                    cr.set_line_cap(gtk4::cairo::LineCap::Round);
+                    cr.arc(cx_, cy, radius, start, end);
                     let _ = cr.stroke();
                 }
-            }
-            // Clip (17): slot f names the shape (0 rect, 1 rounded rect, 2 ellipse, 3 path,
-            // 4 polygon); geometry in a..d, corner radius or fill rule in e.
-            17 => {
-                match f as i32 {
-                    1 => {
-                        // Same corner trace as the rounded-rect fill above.
-                        let r = e.min(c / 2.0).min(d / 2.0);
-                        let (x, y, w, h) = (a, b, c, d);
-                        cr.new_sub_path();
-                        cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
-                        cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
-                        cr.arc(
-                            x + r,
-                            y + h - r,
-                            r,
-                            std::f64::consts::FRAC_PI_2,
-                            std::f64::consts::PI,
+                6 => {
+                    cr.set_line_width(g);
+                    cr.move_to(a, b);
+                    cr.line_to(c, d);
+                    let _ = cr.stroke();
+                }
+                // Text (7): a Pango layout, drawn from its top-left — which IS the `LEADING`
+                // anchor — offset by whatever the packed anchor asks for, using the layout's own
+                // logical extents and baseline. The layout picks up the cairo CTM, so it rotates and
+                // scales with the drawing.
+                7 => {
+                    let text = texts.get(ti).cloned().unwrap_or_default();
+                    ti += 1;
+                    let font = pending_font.take().unwrap_or_default();
+                    let layout = pangocairo::functions::create_layout(cr);
+                    layout.set_font_description(Some(&canvas_font_desc(e, &font)));
+                    layout.set_single_paragraph_mode(true);
+                    layout.set_text(&text);
+                    let anchor = day_spec::TextAnchor::unpack(f);
+                    let (mut x, mut y) = (a, b);
+                    if anchor != day_spec::TextAnchor::LEADING {
+                        let (_, logical) = layout.extents();
+                        let scale = f64::from(gtk4::pango::SCALE);
+                        let (dx, dy) = anchor.offset(
+                            f64::from(logical.width()) / scale,
+                            f64::from(logical.height()) / scale,
+                            f64::from(layout.baseline()) / scale,
                         );
-                        cr.arc(
-                            x + r,
-                            y + r,
-                            r,
-                            std::f64::consts::PI,
-                            3.0 * std::f64::consts::FRAC_PI_2,
-                        );
+                        x += dx;
+                        y += dy;
+                    }
+                    cr.move_to(x, y);
+                    pangocairo::functions::show_layout(cr, &layout);
+                    // The layout leaves cairo's current point where the text ended; the next
+                    // arc/ellipse would draw a line from there to its start. Clear it.
+                    cr.new_path();
+                }
+                // Font (19): applies to the NEXT text record only.
+                19 => {
+                    let family = texts.get(ti).cloned().unwrap_or_default();
+                    ti += 1;
+                    pending_font = Some(PendingFont {
+                        weight: a,
+                        italic: b > 0.5,
+                        family,
+                    });
+                }
+                8 => {
+                    cr.save().ok();
+                }
+                9 => {
+                    cr.restore().ok();
+                }
+                // Polygon (11 fill / 12 stroke): points ride the texts channel as "x,y x,y …".
+                11 | 12 => {
+                    let pts = texts.get(ti).cloned().unwrap_or_default();
+                    ti += 1;
+                    let mut first = true;
+                    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                    for pair in pts.split(' ') {
+                        if let Some((x, y)) = pair.split_once(',')
+                            && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
+                        {
+                            (x0, y0) = (x0.min(x), y0.min(y));
+                            (x1, y1) = (x1.max(x), y1.max(y));
+                            if first {
+                                cr.move_to(x, y);
+                                first = false;
+                            } else {
+                                cr.line_to(x, y);
+                            }
+                        }
+                    }
+                    if !first {
                         cr.close_path();
+                        if k == 11 {
+                            if let Some(gr) = pending.take() {
+                                gr.set_source(cr, x0, y0, x1 - x0, y1 - y0);
+                            }
+                            let _ = cr.fill();
+                        } else {
+                            cr.set_line_width(g);
+                            let _ = cr.stroke();
+                        }
                     }
-                    2 => {
-                        cr.save().ok();
-                        cr.translate(a + c / 2.0, b + d / 2.0);
-                        cr.scale(c / 2.0, d / 2.0);
-                        cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
-                        cr.restore().ok();
-                    }
-                    3 => {
-                        let spec = texts.get(ti).cloned().unwrap_or_default();
-                        ti += 1;
-                        cairo_trace_path(cr, &spec);
-                        cr.set_fill_rule(if e > 0.5 {
+                }
+                // Path (15 fill / 16 stroke): segments ride the texts channel; slot f is the fill
+                // rule (0 non-zero, 1 even-odd) and slot g the stroke width.
+                15 | 16 => {
+                    let spec = texts.get(ti).cloned().unwrap_or_default();
+                    ti += 1;
+                    let (bx, by, bw, bh) = cairo_trace_path(cr, &spec);
+                    if k == 15 {
+                        cr.set_fill_rule(if f > 0.5 {
                             gtk4::cairo::FillRule::EvenOdd
                         } else {
                             gtk4::cairo::FillRule::Winding
                         });
-                    }
-                    4 => {
-                        let pts = texts.get(ti).cloned().unwrap_or_default();
-                        ti += 1;
-                        let mut first = true;
-                        for pair in pts.split(' ') {
-                            if let Some((x, y)) = pair.split_once(',')
-                                && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
-                            {
-                                if first {
-                                    cr.move_to(x, y);
-                                    first = false;
-                                } else {
-                                    cr.line_to(x, y);
-                                }
-                            }
+                        if let Some(gr) = pending.take() {
+                            gr.set_source(cr, bx, by, bw, bh);
                         }
-                        if !first {
+                        let _ = cr.fill();
+                        cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
+                    } else {
+                        cr.set_line_width(g);
+                        if let Some(gr) = pending.take() {
+                            gr.set_source(cr, bx, by, bw, bh);
+                        }
+                        let _ = cr.stroke();
+                    }
+                }
+                // Clip (17): slot f names the shape (0 rect, 1 rounded rect, 2 ellipse, 3 path,
+                // 4 polygon); geometry in a..d, corner radius or fill rule in e.
+                17 => {
+                    match f as i32 {
+                        1 => {
+                            // Same corner trace as the rounded-rect fill above.
+                            let r = e.min(c / 2.0).min(d / 2.0);
+                            let (x, y, w, h) = (a, b, c, d);
+                            cr.new_sub_path();
+                            cr.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
+                            cr.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
+                            cr.arc(
+                                x + r,
+                                y + h - r,
+                                r,
+                                std::f64::consts::FRAC_PI_2,
+                                std::f64::consts::PI,
+                            );
+                            cr.arc(
+                                x + r,
+                                y + r,
+                                r,
+                                std::f64::consts::PI,
+                                3.0 * std::f64::consts::FRAC_PI_2,
+                            );
                             cr.close_path();
                         }
+                        2 => {
+                            cr.save().ok();
+                            cr.translate(a + c / 2.0, b + d / 2.0);
+                            cr.scale(c / 2.0, d / 2.0);
+                            cr.arc(0.0, 0.0, 1.0, 0.0, std::f64::consts::TAU);
+                            cr.restore().ok();
+                        }
+                        3 => {
+                            let spec = texts.get(ti).cloned().unwrap_or_default();
+                            ti += 1;
+                            cairo_trace_path(cr, &spec);
+                            cr.set_fill_rule(if e > 0.5 {
+                                gtk4::cairo::FillRule::EvenOdd
+                            } else {
+                                gtk4::cairo::FillRule::Winding
+                            });
+                        }
+                        4 => {
+                            let pts = texts.get(ti).cloned().unwrap_or_default();
+                            ti += 1;
+                            let mut first = true;
+                            for pair in pts.split(' ') {
+                                if let Some((x, y)) = pair.split_once(',')
+                                    && let (Ok(x), Ok(y)) = (x.parse::<f64>(), y.parse::<f64>())
+                                {
+                                    if first {
+                                        cr.move_to(x, y);
+                                        first = false;
+                                    } else {
+                                        cr.line_to(x, y);
+                                    }
+                                }
+                            }
+                            if !first {
+                                cr.close_path();
+                            }
+                        }
+                        _ => cr.rectangle(a, b, c, d),
                     }
-                    _ => cr.rectangle(a, b, c, d),
+                    cr.clip();
+                    cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
                 }
-                cr.clip();
-                cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
-            }
-            // Stroke style (18): applies to the NEXT stroke record only.
-            18 => {
-                let raw = texts.get(ti).cloned().unwrap_or_default();
-                ti += 1;
-                pending_stroke = Some(PendingStroke {
-                    cap: a,
-                    join: b,
-                    miter: c,
-                    phase: d,
-                    dashes: raw
+                // Stroke style (18): applies to the NEXT stroke record only.
+                18 => {
+                    let raw = texts.get(ti).cloned().unwrap_or_default();
+                    ti += 1;
+                    pending_stroke = Some(PendingStroke {
+                        cap: a,
+                        join: b,
+                        miter: c,
+                        phase: d,
+                        dashes: raw
+                            .split(' ')
+                            .filter_map(|s| s.parse::<f64>().ok())
+                            .collect(),
+                    });
+                }
+                10 => {
+                    // Packed affine (a,b,c,d,tx,ty); cairo Matrix is (xx,yx,xy,yy,x0,y0) with the
+                    // same row-vector meaning as day_geometry::Affine.
+                    let m = gtk4::cairo::Matrix::new(a, b, c, d, e, f);
+                    cr.transform(m);
+                }
+                // Set-gradient (f = type: 0 linear a,b→c,d; 1 radial a,b center + c radius);
+                // "offset,aarrggbb …" stops ride the texts channel. Applies to the next
+                // fill-shape record (encode_ops contract).
+                14 => {
+                    let raw = texts.get(ti).cloned().unwrap_or_default();
+                    ti += 1;
+                    let stops = raw
                         .split(' ')
-                        .filter_map(|s| s.parse::<f64>().ok())
-                        .collect(),
-                });
+                        .filter_map(|s| {
+                            let (o, c) = s.split_once(',')?;
+                            Some((o.parse::<f64>().ok()?, u32::from_str_radix(c, 16).ok()?))
+                        })
+                        .collect();
+                    pending = Some(PendingGradient {
+                        kind: f as u8,
+                        a,
+                        b,
+                        c,
+                        d,
+                        stops,
+                    });
+                }
+                _ => {}
             }
-            10 => {
-                // Packed affine (a,b,c,d,tx,ty); cairo Matrix is (xx,yx,xy,yy,x0,y0) with the
-                // same row-vector meaning as day_geometry::Affine.
-                let m = gtk4::cairo::Matrix::new(a, b, c, d, e, f);
-                cr.transform(m);
+            if stamp_at.get(rep).is_some() {
+                cr.restore().ok();
             }
-            // Set-gradient (f = type: 0 linear a,b→c,d; 1 radial a,b center + c radius);
-            // "offset,aarrggbb …" stops ride the texts channel. Applies to the next
-            // fill-shape record (encode_ops contract).
-            14 => {
-                let raw = texts.get(ti).cloned().unwrap_or_default();
-                ti += 1;
-                let stops = raw
-                    .split(' ')
-                    .filter_map(|s| {
-                        let (o, c) = s.split_once(',')?;
-                        Some((o.parse::<f64>().ok()?, u32::from_str_radix(c, 16).ok()?))
-                    })
-                    .collect();
-                pending = Some(PendingGradient {
-                    kind: f as u8,
-                    a,
-                    b,
-                    c,
-                    d,
-                    stops,
-                });
-            }
-            _ => {}
         }
+        stamp_at.clear();
         if is_stroke {
             reset_stroke(cr);
         }

@@ -1886,6 +1886,32 @@ function replay(canvas, ops, strs, w, h) {
         ctx.save(); ctx.clip(p); ctx.translate(cx, cy); ctx.scale(rx, ry);
         ctx.fillStyle = paint.g; ctx.fillRect(-1, -1, 2, 2); ctx.restore();
       } else { ctx.fillStyle = paint; ctx.fill(p, p.__rule || 'nonzero'); }
+    } else if (op === 7) { // stamp: strokeFlag, (style)?, count, xy…, paint, template shape
+      const stroked = next();
+      if (stroked) {
+        ctx.lineWidth = next();
+        ctx.lineCap = ['butt', 'round', 'square'][next()] || 'butt';
+        ctx.lineJoin = ['miter', 'round', 'bevel'][next()] || 'miter';
+        ctx.miterLimit = next();
+        ctx.lineDashOffset = next();
+        const nd = next(); const dash = [];
+        for (let k = 0; k < nd; k++) dash.push(next());
+        ctx.setLineDash(dash);
+      }
+      const n = next();
+      const at = new Float64Array(n * 2);
+      for (let k = 0; k < n * 2; k++) at[k] = next();
+      const paint = readPaint(); const p = path();
+      // ONE Path2D holding every copy, then one fill or stroke: the whole batch enters the
+      // rasterizer once, however many positions it has (docs/canvas.md "Stamping").
+      const batch = new Path2D();
+      const m = new DOMMatrix();
+      for (let k = 0; k < n; k++) {
+        m.e = at[k * 2]; m.f = at[k * 2 + 1];
+        batch.addPath(p, m);
+      }
+      if (stroked) { ctx.strokeStyle = paint.__radial ? '#000' : paint; ctx.stroke(batch); ctx.setLineDash([]); }
+      else { ctx.fillStyle = paint.__radial ? '#000' : paint; ctx.fill(batch, p.__rule || 'nonzero'); }
     } else if (op === 1) { // stroke: width, cap, join, miter, dash phase + pattern, paint, shape
       ctx.lineWidth = next();
       ctx.lineCap = ['butt', 'round', 'square'][next()] || 'butt';

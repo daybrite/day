@@ -2548,6 +2548,53 @@ pub enum Shape {
 }
 
 impl Shape {
+    /// The same shape moved by `(dx, dy)`.
+    ///
+    /// What a [`Stamp`] means by "the template translated by one point", and the one definition of
+    /// it: a backend builds each copy of a batch with this rather than reaching for its own
+    /// platform transform, so every toolkit stamps to the same coordinates.
+    pub fn translated(&self, dx: f64, dy: f64) -> Shape {
+        let r = |r: &Rect| {
+            Rect::new(
+                r.origin.x + dx,
+                r.origin.y + dy,
+                r.size.width,
+                r.size.height,
+            )
+        };
+        let p = |p: &Point| Point::new(p.x + dx, p.y + dy);
+        match self {
+            Shape::Rect(rect) => Shape::Rect(r(rect)),
+            Shape::RoundedRect(rect, rad) => Shape::RoundedRect(r(rect), *rad),
+            Shape::Ellipse(rect) => Shape::Ellipse(r(rect)),
+            Shape::Arc {
+                rect,
+                start_deg,
+                sweep_deg,
+            } => Shape::Arc {
+                rect: r(rect),
+                start_deg: *start_deg,
+                sweep_deg: *sweep_deg,
+            },
+            Shape::Line(a, b) => Shape::Line(p(a), p(b)),
+            Shape::Polygon(pts) => Shape::Polygon(pts.iter().map(p).collect()),
+            Shape::Path(path) => Shape::Path(Path {
+                segs: path
+                    .segs
+                    .iter()
+                    .map(|seg| match seg {
+                        PathSeg::Move(a) => PathSeg::Move(p(a)),
+                        PathSeg::Line(a) => PathSeg::Line(p(a)),
+                        PathSeg::Quad(c, a) => PathSeg::Quad(p(c), p(a)),
+                        PathSeg::Cubic(c1, c2, a) => PathSeg::Cubic(p(c1), p(c2), p(a)),
+                        PathSeg::Close => PathSeg::Close,
+                    })
+                    .collect(),
+                rule: path.rule,
+            }),
+        }
+    }
+
     /// The shape's bounding rectangle — the box gradient [`UnitPoint`]s resolve against.
     pub fn bounds(&self) -> Rect {
         match self {
@@ -2812,6 +2859,27 @@ impl RadialGradient {
     }
 }
 
+/// The payload of [`DrawOp::Stamp`]: one shape drawn at every position in `at`.
+///
+/// A scatter plot is the case this exists for. Drawn as individual ops, fifty thousand points are
+/// fifty thousand `DrawOp`s — rebuilt, compared and cloned on every frame that re-records, before
+/// a backend draws anything. As one `Stamp` they are one op and a flat array of coordinates, and
+/// a backend can put every copy into ONE path and hand the rasterizer a single fill.
+///
+/// Every copy shares the shape, the size and the paint. Varying any of those means more than one
+/// stamp — group by what varies, which for a chart is usually the series color.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stamp {
+    /// The template, authored around the ORIGIN: each copy is this shape translated by one point.
+    /// A 6-point dot is `Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0))`.
+    pub shape: Shape,
+    /// Where the copies go. Order is the drawing order, so later points paint over earlier ones.
+    pub at: Vec<Point>,
+    pub paint: Paint,
+    /// `None` fills each copy; `Some` strokes it with this style.
+    pub stroke: Option<StrokeStyle>,
+}
+
 /// A fill source: a solid color, or a linear/radial gradient (docs/shapes.md §3.2 — angular and
 /// semantic tokens are later phases). `From<Color>` keeps every existing `fill(shape, color)`
 /// call site compiling unchanged.
@@ -2961,6 +3029,12 @@ pub enum DrawOp {
         anchor: TextAnchor,
         font: CanvasFont,
     },
+    /// Draw ONE shape at MANY positions — the batched form of [`DrawOp::Fill`]/[`DrawOp::Stroke`]
+    /// (docs/canvas.md "Stamping").
+    ///
+    /// Boxed because the payload is wider than the largest other op, and a bigger `DrawOp` would
+    /// cost every op in every drawing — the exact thing this variant exists to stop paying.
+    Stamp(Box<Stamp>),
     /// Intersect the clip with `shape`; everything drawn afterwards is confined to it.
     ///
     /// Scoped by [`DrawOp::Save`]/[`DrawOp::Restore`], which is the only way to widen a clip
@@ -5637,12 +5711,25 @@ pub enum OpCode {
     /// follows and then cleared; a default [`CanvasFont`] emits no record at all, so a drawing
     /// without fonts encodes exactly as it did before this op existed.
     SetFont = 19,
+    /// The NEXT shape record is a TEMPLATE, drawn once per stamped position rather than once
+    /// (docs/canvas.md "Stamping"). `a` = how many positions follow. Like [`OpCode::SetGradient`],
+    /// [`OpCode::StrokeStyle`] and [`OpCode::SetFont`] it is a prefix, consumed by the record it
+    /// applies to and then cleared.
+    ///
+    /// Between this and that template record come `ceil(a / 4)` [`OpCode::StampPoints`] records
+    /// carrying the coordinates. A drawing with no stamps encodes exactly as it did before.
+    Stamp = 20,
+    /// Four stamped positions, filling the record edge to edge: `[op, x0, y0, x1, y1, x2, y2,
+    /// x3, y3]` — the ONE record that uses its last slot for geometry instead of a color, because
+    /// it carries no color of its own. The final record of a run is padded; the count in the
+    /// [`OpCode::Stamp`] header says how many of the pairs are real.
+    StampPoints = 21,
 }
 
 impl OpCode {
     /// Every code, in wire order — the density test iterates this so a new variant that
     /// forgets to join fails loudly.
-    pub const ALL: [OpCode; 20] = [
+    pub const ALL: [OpCode; 22] = [
         OpCode::FillRect,
         OpCode::StrokeRect,
         OpCode::FillRrect,
@@ -5663,6 +5750,8 @@ impl OpCode {
         OpCode::Clip,
         OpCode::StrokeStyle,
         OpCode::SetFont,
+        OpCode::Stamp,
+        OpCode::StampPoints,
     ];
 
     /// The code back from a wire number (a decoder-side aid and the round-trip test's
@@ -5739,6 +5828,43 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     ) {
         nums.extend_from_slice(&[k as i32 as f64, a, b, c, d, e, f, g, color_bits(col)]);
     }
+    /// The kind-18 prefix a non-plain stroke style emits, applying to the NEXT stroke record —
+    /// the same "modifier record" rule the gradient and font records follow. A plain style emits
+    /// nothing, so a drawing without dashes or caps encodes exactly as it always did.
+    fn stroke_style_record(style: &StrokeStyle, nums: &mut Vec<f64>, texts: &mut Vec<String>) {
+        if style.is_plain() {
+            return;
+        }
+        push(
+            OpCode::StrokeStyle,
+            match style.cap {
+                LineCap::Butt => 0.0,
+                LineCap::Round => 1.0,
+                LineCap::Square => 2.0,
+            },
+            match style.join {
+                LineJoin::Miter => 0.0,
+                LineJoin::Round => 1.0,
+                LineJoin::Bevel => 2.0,
+            },
+            style.miter_limit,
+            style.dash_phase,
+            style.dash.len() as f64,
+            0.0,
+            0.0,
+            Color::CLEAR,
+            nums,
+        );
+        texts.push(
+            style
+                .dash
+                .iter()
+                .map(|d| d.to_string())
+                .collect::<Vec<_>>()
+                .join(" "),
+        );
+    }
+
     /// One shape record (the fill/stroke kinds shared by both ops).
     fn shape_record(
         stroke: bool,
@@ -5933,40 +6059,86 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 };
                 shape_record(false, shape, 0.0, col, &mut nums, &mut texts);
             }
+            DrawOp::Stamp(st) => {
+                // A prefix record, then the coordinates, then the TEMPLATE shape record — the
+                // "applies to the next record" rule the gradient, stroke style and font records
+                // already follow, so a decoder needs no new kind of state, only one more slot in
+                // the state it keeps. The template goes last because a decoder has to hold the
+                // points before it can draw with them.
+                //
+                // The points are numbers on the numeric channel, deliberately NOT the texts
+                // channel a polygon's points ride: this op exists for tens of thousands of them,
+                // and formatting that many floats into a string every frame would cost more than
+                // the individual ops it replaces.
+                let col = match &st.paint {
+                    Paint::Solid(c) => *c,
+                    Paint::Linear(g) => {
+                        gradient_record(
+                            [g.start.x, g.start.y, g.end.x, g.end.y],
+                            0.0,
+                            &g.stops,
+                            &mut nums,
+                            &mut texts,
+                        );
+                        Color::WHITE
+                    }
+                    Paint::Radial(g) => {
+                        gradient_record(
+                            [g.center.x, g.center.y, g.radius, 0.0],
+                            1.0,
+                            &g.stops,
+                            &mut nums,
+                            &mut texts,
+                        );
+                        Color::WHITE
+                    }
+                };
+                push(
+                    OpCode::Stamp,
+                    st.at.len() as f64,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    Color::CLEAR,
+                    &mut nums,
+                );
+                for chunk in st.at.chunks(4) {
+                    // Written directly rather than through `push`: this is the one record whose
+                    // last slot is a coordinate rather than a color, which is what lets four
+                    // points fit with nothing wasted.
+                    let mut rec = [
+                        OpCode::StampPoints as i32 as f64,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                        0.0,
+                    ];
+                    for (i, p) in chunk.iter().enumerate() {
+                        rec[1 + i * 2] = p.x;
+                        rec[2 + i * 2] = p.y;
+                    }
+                    nums.extend_from_slice(&rec);
+                }
+                match &st.stroke {
+                    None => shape_record(false, &st.shape, 0.0, col, &mut nums, &mut texts),
+                    Some(style) => {
+                        stroke_style_record(style, &mut nums, &mut texts);
+                        shape_record(true, &st.shape, style.width, col, &mut nums, &mut texts);
+                    }
+                }
+            }
             DrawOp::Stroke(shape, paint, style) => {
                 // A styled stroke emits one kind-18 record first, applying to the NEXT stroke
                 // only — the same "modifier record" shape the gradient uses, so decoders keep
                 // one rule: consume, apply to the next shape record, reset.
-                if !style.is_plain() {
-                    push(
-                        OpCode::StrokeStyle,
-                        match style.cap {
-                            LineCap::Butt => 0.0,
-                            LineCap::Round => 1.0,
-                            LineCap::Square => 2.0,
-                        },
-                        match style.join {
-                            LineJoin::Miter => 0.0,
-                            LineJoin::Round => 1.0,
-                            LineJoin::Bevel => 2.0,
-                        },
-                        style.miter_limit,
-                        style.dash_phase,
-                        style.dash.len() as f64,
-                        0.0,
-                        0.0,
-                        Color::CLEAR,
-                        &mut nums,
-                    );
-                    texts.push(
-                        style
-                            .dash
-                            .iter()
-                            .map(|d| d.to_string())
-                            .collect::<Vec<_>>()
-                            .join(" "),
-                    );
-                }
+                stroke_style_record(style, &mut nums, &mut texts);
                 let col = match paint {
                     Paint::Solid(c) => *c,
                     Paint::Linear(g) => {

@@ -1638,6 +1638,10 @@ protected:
         QVector<qreal> sDash;
         // A decoded kind-19 record (font), applied to the NEXT text record only.
         bool fontPending = false;
+        // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+        // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
+        QVector<QPointF> stampAt;
+        int stampN = 0;
         int fWeight = 0; bool fItalic = false; QString fFamily;
         // Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into a QPainterPath.
         auto parsePath = [](const QString &spec, int rule) {
@@ -1695,6 +1699,25 @@ protected:
                 }
                 // Consumed by whichever stroke record this is; cleared at the end of the case.
             }
+            // Stamp prefix and its coordinate records: collected, never drawn on their own.
+            if (k == 20) { stampAt.clear(); stampN = (int)a; continue; }
+            if (k == 21) {
+                // Four points per record; the LAST record of a run is padded with zeros, so the
+                // header's count is what says where the real ones stop.
+                const double xs[4] = { a, c, e, (double)nums[i+8] };
+                const double ys[4] = { b, d, f, g };
+                for (int q = 0; q < 4 && stampAt.size() < stampN; ++q)
+                    stampAt.append(QPointF(xs[q], ys[q]));
+                continue;
+            }
+            // The template is replayed once per position under a translated transform. `ti` is
+            // rewound each time so a template with a texts payload (a polygon, a path) reads the
+            // SAME entry every repetition and consumes it exactly once overall.
+            const int reps = stampAt.isEmpty() ? 1 : stampAt.size();
+            const int tiStart = ti;
+            for (int rep = 0; rep < reps; ++rep) {
+            ti = tiStart;
+            if (!stampAt.isEmpty()) { p.save(); p.translate(stampAt[rep]); }
             switch (k) {
                 case 0:
                     if (gradPending) { p.setPen(Qt::NoPen); p.setBrush(gradBrush(QRectF(a, b, c, d))); p.drawRect(QRectF(a, b, c, d)); }
@@ -1825,6 +1848,9 @@ protected:
                     break;
                 }
             }
+            if (!stampAt.isEmpty()) p.restore();
+            }
+            stampAt.clear();
             // A style record applies to ONE stroke; anything else that consumed the pen clears it
             // too, so it can never leak into a later record. Same for a font and its text.
             if (k != 18) stylePending = false;

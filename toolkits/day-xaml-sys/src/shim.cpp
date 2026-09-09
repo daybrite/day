@@ -1654,11 +1654,41 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         return brush_bits(col);
     };
 
+    // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+    // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
+    std::vector<std::pair<double, double>> stampAt;
+    int stampN = 0;
     for (int i = 0; i + 8 < n; i += 9) {
         int k = static_cast<int>(nums[i]);
         double a = nums[i + 1], b = nums[i + 2], c = nums[i + 3], d = nums[i + 4];
         double e = nums[i + 5], f = nums[i + 6], g = nums[i + 7];
         unsigned col = static_cast<unsigned>(nums[i + 8]);
+        // Stamp prefix and its coordinate records: collected, never drawn on their own.
+        if (k == 20) { stampAt.clear(); stampN = (int)a; continue; }
+        if (k == 21) {
+            // Four points per record; the LAST record of a run is padded with zeros, so the
+            // header's count is what says where the real ones stop.
+            const double xs[4] = { a, c, e, nums[i + 8] };
+            const double ys[4] = { b, d, f, g };
+            for (int q = 0; q < 4 && (int)stampAt.size() < stampN; ++q)
+                stampAt.push_back({ xs[q], ys[q] });
+            continue;
+        }
+        // The template is replayed once per position under a translated CTM — this backend places
+        // every shape through `cur`, so the translation is a matrix rather than a context call.
+        // `ti` is rewound each time so a template with a texts payload reads the SAME entry every
+        // repetition and consumes it exactly once overall.
+        const int reps = stampAt.empty() ? 1 : (int)stampAt.size();
+        const size_t tiStart = ti;
+        const WUXM::Matrix curSaved = cur;
+        for (int rep = 0; rep < reps; ++rep) {
+        ti = tiStart;
+        if (!stampAt.empty()) {
+            WUXM::Matrix t = mat_identity();
+            t.OffsetX = stampAt[rep].first;
+            t.OffsetY = stampAt[rep].second;
+            cur = mat_mul(t, curSaved);
+        }
         switch (k) {
         case 8:
             stack.push_back(cur);
@@ -1951,6 +1981,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             break;
         }
         }
+        if (!stampAt.empty()) { cur = curSaved; stampAt.clear(); }
         // A style record applies to ONE stroke; anything else clears it. A font record
         // likewise applies to one text.
         if (k != 18) stylePending = false;
