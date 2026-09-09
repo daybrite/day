@@ -8,7 +8,7 @@ description: "searchable(): a declared search surface each platform presents nat
 Search is declared on the **surface**, not on the toolbar.
 
 ```rust
-nav host(section)
+nav(section)
     .style(NavStyle::Sidebar)
     .searchable(query)                   // Signal<String>, two-way
     .search_prompt(tr("search-sections"))

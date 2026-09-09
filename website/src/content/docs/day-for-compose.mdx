@@ -200,7 +200,7 @@ nav.navigate("album/42")
 ```rust
 let path = Signal::new(Vec::<String>::new());
 
-stack(path, home_page())
+nav_stack(path, home_page())
     .title("Home")
     .destination(|key| album_page(key))
 
@@ -242,7 +242,7 @@ NavigationSuiteScaffold(
 // One nav host, both presentations. Day re-resolves on every breakpoint
 // crossing and re-homes the pages it already built, so scroll offsets and
 // focus survive the morph rather than being rebuilt.
-nav host(page)
+nav(page)
     .style(NavStyle::Sidebar)
     .destination(|key| page_for(key))
 
@@ -437,7 +437,7 @@ label(res::str::unread(count))   // generated, compile-checked
 </Compare>
 
 `res::str` plays the role of `R`: `res::str::unread` is generated at build time, so a missing
-key or wrong argument count is a compile error, and a plural nav host is typed numeric. On
+key or wrong argument count is a compile error, and a plural selector is typed numeric. On
 Android the staging target is the `res/` system itself: `resource/images/` becomes density-bucketed
 `res/drawable-*` entries crunched by aapt2, fonts land in `res/font/`. The same sources also
 become asset catalogs on iOS and GResource bundles on GTK, from one directory. Unlike

@@ -66,8 +66,8 @@ back-navigable), `Tabs` (the rows as a tab bar) or `Rail` (the rows as a narrow 
 it resolves that automatically:
 
 ```rust
-nav host(section)                       // automatic: follows the window
-nav host(section).presentation(NavPresentation::Split)   // pinned
+nav(section)                       // automatic: follows the window
+nav(section).presentation(NavPresentation::Split)   // pinned
 ```
 
 Resolution answers four questions in order:

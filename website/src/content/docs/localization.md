@@ -56,7 +56,7 @@ button(res::str::save()).action(save)
 ```
 
 Each function's signature mirrors the message's `{ $variables }`: a parameter accepts a value or
-a `Signal`, and a variable used as a plural nav host is typed numeric, so passing a string where
+a `Signal`, and a variable used as a plural selector is typed numeric, so passing a string where
 CLDR plural rules need a number is a compile error. So is a missing key or a wrong argument
 count. Hovering a function in your IDE shows the message's text in the default locale.
 

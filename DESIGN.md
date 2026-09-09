@@ -767,7 +767,7 @@ tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-ad
                                    //   COMPOSED onto list() everywhere else (web-dom, qt)
 
 // navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
-nav host(section)                  // sidebar / tabs / segmented, per NavStyle
+nav(section)                       // sidebar / tabs / segmented, per NavStyle
     .content_list(build)           //   the Mail shape's middle column (2026-08): a resident
                                    //   Pane::List page — a real contentList split item on
                                    //   appkit, the uikit triple-column supplementary column,
@@ -777,7 +777,7 @@ nav host(section)                  // sidebar / tabs / segmented, per NavStyle
                                    //   compact push flow two-way — a nested nav host inside a
                                    //   tab, a merged push while stacked — and
                                    //   .detail_title(text) names the detail layer's bar, live
-stack(path, root)                  // push/pop navigation bound to a Vec<Route> signal
+nav_stack(path, root)              // push/pop navigation bound to a Vec<Route> signal
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
                                    //   split where Cap::Inspector is Native, composed pane +

@@ -22,7 +22,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 >
 > One naming decision landed differently from the plan below: the surface is `app_badge`
 > throughout (`Toolkit::set_app_badge`, `Cap::AppBadgeCount`, `day::set_app_badge`), to keep it
-> clear of `SelectorItem::badge`.
+> clear of `NavItem::badge`.
 
 ## The recommendation: a Toolkit duty
 
@@ -159,7 +159,7 @@ on iOS a badge is invisible until the user has allowed notifications, and the du
 
 ## A naming collision to resolve first
 
-`badge` is already taken in the piece vocabulary: `SelectorItem::badge` is the count on a **sidebar
+`badge` is already taken in the piece vocabulary: `NavItem::badge` is the count on a **sidebar
 row** (`crates/day-pieces/src/nav.rs`), and `Decorate::overlay_aligned`'s docs describe corner
 badges. Those are in-window annotations and have nothing to do with the app icon.
 

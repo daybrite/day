@@ -193,7 +193,7 @@ navigation.navigate('Album', { id: '42' });
 ```rust
 let path = Signal::new(Vec::<String>::new());
 
-stack(path, home_page())
+nav_stack(path, home_page())
     .title("Home")
     .destination(|key| album_page(key))
 
@@ -236,7 +236,7 @@ return (
 // One nav host, both presentations. Day re-resolves on every breakpoint
 // crossing and re-homes the pages it already built, so scroll offsets and
 // focus survive the morph rather than being rebuilt.
-nav host(page)
+nav(page)
     .style(NavStyle::Sidebar)
     .destination(|key| page_for(key))
 

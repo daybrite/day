@@ -1,6 +1,6 @@
 ---
 title: "Navigation"
-description: "nav host and stack: native sidebars, tabs, and push navigation from one declarative model, plus routes and deep-link intake."
+description: "Native sidebars, tabs, and push navigation from one declarative model, plus routes and deep-link intake."
 ---
 
 <!--
@@ -29,7 +29,7 @@ surfaces themselves run on their signals.
 
 ```rust
 let section = Signal::new("home".to_string());
-nav host(section)                       // adaptive by default; .style() pins a shape
+nav(section)                       // adaptive by default; .style() pins a shape
     .title(tr("app-title"))
     .header(sidebar_header)             // optional piece above the list
     .item("home",     tr("home"),     home_page)
@@ -150,7 +150,7 @@ its content by the reported insets.
 
 ```rust
 let path = Signal::new(Vec::<String>::new());
-stack(path, home_view)
+nav_stack(path, home_view)
     .destination(|key| detail_view(key))
 // push:  path.update(|p| p.push("item-42".into()));
 // pop:   path.update(|p| { p.pop(); });
@@ -171,7 +171,7 @@ TOOLBAR ITEM declared on the piece it acts on ([docs/toolbars.md](toolbars.md)),
 rides follows from that:
 
 ```rust
-nav host(section)
+nav(section)
     .toolbar(toolbar_button("add", tr("add")).icon(Symbol::Add).action(add_item))  // the list's
     .destination(|k| page(k).toolbar(share_button()))                              // the page's
 ```
@@ -192,7 +192,7 @@ with `.destination` to build the page for a data-driven key (like `nav_stack`).
 
 ```rust
 let tabs = Signal::new(vec!["general".to_string(), "random".to_string()]);
-nav host(current)
+nav(current)
     .style(NavStyle::Tabs)
     .items(move || tabs.get(), |k: &String| item(k.clone(), k.clone()))
     .destination(|k: &String| room_page(k))
@@ -241,7 +241,7 @@ share its text with an item ("Controls" over Controls) without the two collapsin
 UIKit and Android draw them from their list's own header slot, described below.
 
 ```rust
-nav host(section)
+nav(section)
     .section(res::str::smart_feeds())
     .item_icon("today", res::str::today(), res::images::today, today_page)
     .section(res::str::feeds())
@@ -257,7 +257,7 @@ combining a rich master list with native master-detail push is a separate, not-y
 `ios-uikit` sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/XAML
 tab widgets is in progress (those backends ignore the item-set patch until then, so the initial set
 still shows). The item logic is backend-independent and covered by
-`mock_e2e::selector_data_driven_items_reconcile`.
+`mock_e2e::nav_data_driven_items_reconcile`.
 
 ### The iOS tabs host is driven by `UITab`
 
@@ -385,7 +385,7 @@ back), matching Jetpack Compose's `BackHandler`.
 
 ```rust
 let dirty = Signal::new(false);
-stack(path, home_view)
+nav_stack(path, home_view)
     .destination(|k| detail_view(k))
     .on_back(move |req| {
         if dirty.get() {
@@ -419,7 +419,7 @@ gesture and route the back through Day instead (`NavPatch::GuardTop`). What that
 | macOS / Qt / XAML / web | no-op — the back button already routes through Day, so the guard runs with no native arming needed |
 
 The guard's logic (intercept, defer, proceed, never-on-programmatic-write) is identical everywhere
-and covered by `mock_e2e::stack_on_back_guard_intercepts_and_defers`.
+and covered by `mock_e2e::nav_stack_on_back_guard_intercepts_and_defers`.
 
 ## Routes: the string-route adapter (deep links & dayscript)
 
@@ -500,8 +500,8 @@ When you want a surface to reopen where the user left it, mark it with `.restore
 instead of wiring `current_route()` by hand:
 
 ```rust
-nav host(section).restore("nav.section")   // reopens on the last-viewed section
-stack(path, home).restore("mail.path")     // rebuilds the pushed path
+nav(section).restore("nav.section")   // reopens on the last-viewed section
+nav_stack(path, home).restore("mail.path")     // rebuilds the pushed path
 ```
 
 The selected key (or the stack's `/`-joined path) is saved under `key` on every change and read
@@ -540,7 +540,7 @@ pub trait Route: Clone + PartialEq + 'static {
 }
 ```
 
-`title()` is the label a [stack](#stack-pushpop-with-a-value-path) shows in the native navigation bar
+`title()` is the label a [stack](#nav_stack-pushpop-with-a-value-path) shows in the native navigation bar
 for a pushed page. It defaults to the wire `key`, so override it to display a name when the key
 is not presentable (e.g. a route that carries only an id can look the name up from your data).
 
@@ -553,7 +553,7 @@ day::routes! {
 }
 
 let section = Signal::new(None::<Section>);        // None = the collapsed mobile list
-nav host(section)
+nav(section)
     .item(Section::Home,  tr("home"),  home_page)  // compile-checked, no raw keys
     .item(Section::Stack, tr("stack"), stack_page)
 ```
@@ -570,7 +570,7 @@ either way.
 enum Drill { Depth(u32), Item { id: u32 } }        // "3" ↔ Depth(3), "item-42" ↔ Item{id:42}
 
 let path = Signal::new(Vec::<Drill>::new());
-stack(path, root).destination(|d: &Drill| match d {
+nav_stack(path, root).destination(|d: &Drill| match d {
     Drill::Depth(n)    => level_page(*n),          // parsed, not string-split
     Drill::Item { id } => item_page(*id),
 })
@@ -602,8 +602,8 @@ vice versa.
 The Mail.app / Files.app pattern falls out by nesting:
 
 ```rust
-nav host(section).style(NavStyle::Sidebar)
-    .item("library", tr("library"), || stack(lib_path, library_root).destination(detail))
+nav(section).style(NavStyle::Sidebar)
+    .item("library", tr("library"), || nav_stack(lib_path, library_root).destination(detail))
 ```
 
 The sidebar selection drives which section shows; the selected section is itself a `nav_stack` that
@@ -653,7 +653,7 @@ host's life; its content follows the app's own signals (the sidebar selection sc
 row chosen from it), so switching sections re-scopes it without a rebuild.
 
 ```rust
-nav host(section).style(NavStyle::Sidebar)
+nav(section).style(NavStyle::Sidebar)
     .content_list(timeline_pane)               // the middle column, built once
     .content_list_width(400.0)                 // preferred; drag limits are the backend's
     .content_list_for(|k| k != "settings")     // full-page sections collapse the pane

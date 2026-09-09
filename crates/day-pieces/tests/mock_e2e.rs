@@ -707,7 +707,7 @@ fn tabs_selector(sel: Signal<String>) -> AnyPiece {
 /// because a tab bar needs an item per destination: `UITabBarController` and Material's
 /// navigation bar both build their chrome from the full set, so an unbuilt page is a missing tab.
 #[test]
-fn selector_tabs_builds_every_destination_and_keeps_them() {
+fn nav_tabs_builds_every_destination_and_keeps_them() {
     let sel = Signal::new("one".to_string());
     let probe = boot(move || tabs_selector(sel));
     let hosts = probe.find_by_kind("day.nav");
@@ -769,7 +769,7 @@ fn sidebar_selector(sel: Signal<String>) -> AnyPiece {
 }
 
 #[test]
-fn selector_sidebar_lists_items_and_navigates() {
+fn nav_sidebar_lists_items_and_navigates() {
     // Mock reports NavSplit=Unsupported → stack (mobile) presentation.
     let sel = Signal::new(String::new());
     let probe = boot(move || sidebar_selector(sel));
@@ -836,7 +836,7 @@ fn selector_sidebar_lists_items_and_navigates() {
 /// A wide window presents split; a narrow one stacks. The class decides, not the toolkit alone
 /// (docs/size-classes.md).
 #[test]
-fn selector_presentation_follows_the_launch_size_class() {
+fn nav_presentation_follows_the_launch_size_class() {
     let sel = Signal::new(String::new());
     let probe = boot_splittable(Size::new(1000.0, 700.0), move || sidebar_selector(sel));
     let host = probe.find_by_kind("day.nav")[0].1.clone();
@@ -949,7 +949,7 @@ fn a_pinned_presentation_does_not_morph() {
 }
 
 #[test]
-fn selector_sidebar_deep_link_at_startup() {
+fn nav_sidebar_deep_link_at_startup() {
     let sel = Signal::new(String::new());
     let probe = boot_with_env(Some(("DAY_DEEPLINK", "extra")), move || {
         sidebar_selector(sel)
@@ -964,7 +964,7 @@ fn selector_sidebar_deep_link_at_startup() {
     );
 }
 
-fn stack_root(path: Signal<Vec<String>>) -> AnyPiece {
+fn nav_stack_root(path: Signal<Vec<String>>) -> AnyPiece {
     nav_stack(path, label("home-content"))
         .destination(|key| label(format!("detail:{key}")))
         .id("nav-stack")
@@ -972,9 +972,9 @@ fn stack_root(path: Signal<Vec<String>>) -> AnyPiece {
 }
 
 #[test]
-fn stack_pushes_pops_and_reconciles_to_path() {
+fn nav_stack_pushes_pops_and_reconciles_to_path() {
     let path = Signal::new(Vec::<String>::new());
-    let probe = boot(move || stack_root(path));
+    let probe = boot(move || nav_stack_root(path));
     assert_eq!(probe.find_by_kind("day.nav_page").len(), 1, "root only");
     assert!(
         probe
@@ -1022,9 +1022,9 @@ fn stack_pushes_pops_and_reconciles_to_path() {
 }
 
 #[test]
-fn stack_native_back_writes_into_path() {
+fn nav_stack_native_back_writes_into_path() {
     let path = Signal::new(vec!["a".to_string()]);
-    let probe = boot(move || stack_root(path));
+    let probe = boot(move || nav_stack_root(path));
     flush_sync();
     assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
     let host = node_id(&probe, "day.nav", 0);
@@ -1042,7 +1042,7 @@ fn stack_native_back_writes_into_path() {
 }
 
 #[test]
-fn selector_data_driven_items_reconcile() {
+fn nav_data_driven_items_reconcile() {
     // A sidebar whose rows come from a signal: adding/removing rooms re-patches the menu, and
     // navigating a data-driven key shows its .destination page.
     let rooms = Signal::new(vec!["general".to_string(), "random".to_string()]);
@@ -1092,7 +1092,7 @@ fn selector_data_driven_items_reconcile() {
 }
 
 #[test]
-fn selector_filtered_rows_keep_a_live_detail() {
+fn nav_filtered_rows_keep_a_live_detail() {
     // A search-filtered sidebar (docs/navigation.md): the row set and the selection change in
     // the SAME batch, which used to leave the detail pane empty for good — the selection bind
     // is created before the derive effect, so it ran against the pre-filter rows, found no
@@ -1709,7 +1709,7 @@ fn composed_gated_detail_merges_onto_a_stacked_host() {
 }
 
 #[test]
-fn stack_on_back_guard_intercepts_and_defers() {
+fn nav_stack_on_back_guard_intercepts_and_defers() {
     use std::cell::Cell;
     use std::rc::Rc;
     // The guard consumes back-like events (nav_back / native NavBack) but NEVER a programmatic
@@ -4410,7 +4410,7 @@ fn install_store(pairs: &[(&str, &str)]) -> MemStore {
 }
 
 #[test]
-fn selector_restore_reopens_last_tab_and_persists() {
+fn nav_restore_reopens_last_tab_and_persists() {
     // A store already holding a last-selected tab: the nav reopens on it, and a later
     // selection is written back through the store.
     let store = install_store(&[("day.nav.tabs", "three")]);
@@ -4449,7 +4449,7 @@ fn selector_restore_reopens_last_tab_and_persists() {
 }
 
 #[test]
-fn selector_restore_ignores_stale_key() {
+fn nav_restore_ignores_stale_key() {
     // A saved key whose item no longer exists is ignored — the nav opens on the app default.
     install_store(&[("day.nav.tabs", "gone")]);
     let sel = Signal::new("one".to_string());
@@ -4471,7 +4471,7 @@ fn selector_restore_ignores_stale_key() {
 }
 
 #[test]
-fn stack_restore_reopens_saved_path_and_persists() {
+fn nav_stack_restore_reopens_saved_path_and_persists() {
     // A store holding a two-deep path: the stack rebuilds it at launch, and a pop is written back.
     let store = install_store(&[("day.nav.stack", "a/b")]);
     let path = Signal::new(Vec::<String>::new());
@@ -4506,7 +4506,7 @@ fn stack_restore_reopens_saved_path_and_persists() {
 }
 
 #[test]
-fn stack_restore_round_trips_a_key_containing_a_slash() {
+fn nav_stack_restore_round_trips_a_key_containing_a_slash() {
     // A `String` stack key that itself contains the path separator must survive persist→restore:
     // it is percent-encoded on the way out (like the rest of nav), not split into two segments.
     let store = install_store(&[]);

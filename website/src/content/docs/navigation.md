@@ -20,7 +20,7 @@ driven by plain [signals](/docs/glossary#signal), so navigation state is app sta
 ```rust
 let section = Signal::new("home".to_string());
 
-nav host(section)
+nav(section)
     .style(NavStyle::Sidebar)
     .title("My App")
     .item("home",     tr("nav_home"),     || home_page())
@@ -42,7 +42,7 @@ matters.
 ```rust
 let path = Signal::new(Vec::<String>::new());
 
-stack(path, library_page())
+nav_stack(path, library_page())
     .title(tr("nav_library"))
     .destination(|key| detail_page(key))
 ```
@@ -72,7 +72,7 @@ the page on macOS and Qt, libadwaita's own header on GTK.
 A `nav`'s items can come from a signal, so a sidebar or tab set follows your data:
 
 ```rust
-nav host(current)
+nav(current)
     .style(NavStyle::Tabs)
     .items(move || rooms.get(), |r: &Room| item(r.id.clone(), r.name.clone()))
     .destination(|k| room_page(k))
@@ -96,7 +96,7 @@ the unsaved-changes-confirm case. A programmatic `path.set` is never guarded (a 
 back); this mirrors Jetpack Compose's `BackHandler`.
 
 ```rust
-stack(path, editor())
+nav_stack(path, editor())
     .destination(|k| detail(k))
     .on_back(move |req| {
         if dirty.get() {
@@ -132,7 +132,7 @@ mounted yet:
 navigate("library/album-42?hint=shared");   // section, then push, with params
 
 // in the destination builder:
-stack(path, root).destination(|key| {
+nav_stack(path, root).destination(|key| {
     let hint = route_param("hint");         // Some("shared") when opened via that route
     album_page(key, hint)
 })
@@ -145,8 +145,8 @@ out, `navigate(&saved)` on the way back in.
 For a single surface, `.restore(key)` does that for you without any `current_route()` calls:
 
 ```rust
-nav host(section).restore("nav.section")   // reopens on the last-viewed section
-stack(path, home).restore("mail.path")     // rebuilds the pushed path
+nav(section).restore("nav.section")   // reopens on the last-viewed section
+nav_stack(path, home).restore("mail.path")     // rebuilds the pushed path
 ```
 
 It saves the selected key (or the stack's path) on every change and reads it back at build. A
@@ -173,7 +173,7 @@ day::routes! {
 }
 
 let section = Signal::new(None::<Section>);      // None = nothing selected (mobile list)
-nav host(section)
+nav(section)
     .item(Section::Home,     tr("nav_home"),     || home_page())
     .item(Section::Library,  tr("nav_library"),  || library_page())
     .item(Section::Settings, tr("nav_settings"), || settings_page())
@@ -206,7 +206,7 @@ impl Route for Media {
 }
 
 let path = Signal::new(Vec::<Media>::new());
-stack(path, library_page()).destination(|m: &Media| match m {
+nav_stack(path, library_page()).destination(|m: &Media| match m {
     Media::Album { id } => album_page(*id),           // parsed, not string-split
     Media::Track { id } => track_page(*id),
 })

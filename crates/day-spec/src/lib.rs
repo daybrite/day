@@ -1720,7 +1720,7 @@ pub enum Subcontrol {
 
 /// What to show on the app's icon in the Dock, launcher, home screen, or taskbar (docs/badge.md).
 ///
-/// Distinct from `SelectorItem::badge`, which annotates a sidebar ROW inside the window. This one
+/// Distinct from `NavItem::badge`, which annotates a sidebar ROW inside the window. This one
 /// decorates the application itself and is drawn by the shell, not by Day.
 ///
 /// What each payload needs is asked separately — `Cap::AppBadgeCount`, `AppBadgeText`,

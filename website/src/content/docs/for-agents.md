@@ -166,7 +166,7 @@ each(
 ```rust
 // one-of-N (Sidebar → split view; Tabs → native tabs):
 let section = Signal::new(String::new());
-nav host(section)
+nav(section)
     .style(NavStyle::Sidebar)
     .title("My App")
     .item("home", "Home", home_page)
@@ -175,11 +175,11 @@ nav host(section)
 
 // push/pop stack bound to a path Signal:
 let path = Signal::new(Vec::<String>::new());
-stack(path, home_view).destination(|key| detail_view(key));
+nav_stack(path, home_view).destination(|key| detail_view(key));
 // push: path.update(|p| p.push("item-42".into()));  pop is written back by the native back button.
 
 navigate("settings");  nav_back();  current_route();   // string-route adapter (also deep links + dayscript)
-stack(path, root).on_back(|req| if dirty.get() { BackResponse::Handled } else { BackResponse::Proceed })  // intercept back
+nav_stack(path, root).on_back(|req| if dirty.get() { BackResponse::Handled } else { BackResponse::Proceed })  // intercept back
 ```
 
 ### Text, fonts, color, accessibility

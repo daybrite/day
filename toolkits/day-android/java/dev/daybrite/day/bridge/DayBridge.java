@@ -1581,7 +1581,7 @@ public final class DayBridge {
     public static void setNavSuiteSelected(View suite, int index) {
         if (suite instanceof DayTabs) ((DayTabs) suite).select(index);
     }
-    /** The navigation surface for `selector(SelectorStyle::Sidebar)` (docs/navigation.md): a
+    /** The navigation surface for `nav(NavStyle::Sidebar)` (docs/navigation.md): a
      *  Material {@link NavigationView}, the class Android means for exactly this.
      *
      *  It used to be a hand-built `LinearLayout` of `TextView` rows in a `ScrollView`, with the
@@ -1633,7 +1633,7 @@ public final class DayBridge {
         return nav;
     }
 
-    /** The item set changed (day's NavMenuPatch::Items — a data-driven `selector().items(…)`
+    /** The item set changed (day's NavMenuPatch::Items — a data-driven `nav().items(…)`
      *  block re-derived): rebuild the menu so every item's id carries its CURRENT index.
      *  Reusing stale rows after a removal shifts every later selection by one. */
     public static void updateNavMenu(View v, String joinedItems, String joinedIcons,

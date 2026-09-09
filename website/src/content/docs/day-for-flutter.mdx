@@ -220,7 +220,7 @@ context.go('/album/42');
 ```rust
 let path = Signal::new(Vec::<String>::new());
 
-stack(path, home_page())
+nav_stack(path, home_page())
     .title("Home")
     .destination(|key| album_page(key))
 
@@ -263,7 +263,7 @@ return Scaffold(
 // One nav host, both presentations. Day re-resolves on every breakpoint
 // crossing and re-homes the pages it already built, so scroll offsets and
 // focus survive the morph rather than being rebuilt.
-nav host(page)
+nav(page)
     .style(NavStyle::Sidebar)
     .destination(|key| page_for(key))
 
@@ -449,7 +449,7 @@ label(res::str::unread_count(unread))   // generated, compile-checked
 </Compare>
 
 `res::str::unread_count` is generated at build time from the `.ftl` files. Wrong key or wrong
-argument count is a compile error, and a `$count` used as a plural nav host is typed numeric so
+argument count is a compile error, and a `$count` used as a plural selector is typed numeric so
 you can't pass a string. Adding a language is adding a `resource/locales/<lang>/` directory;
 `res::locales::install()` registers whatever directories exist. The locale is a signal, so
 switching languages live re-renders every string. See [Localization](/docs/localization).

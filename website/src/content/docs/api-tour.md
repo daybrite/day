@@ -170,7 +170,7 @@ chrome: `Sidebar` becomes a `NavigationSplitView` (an `AdwNavigationSplitView` o
 
 ```rust
 let section = Signal::new(String::new());
-nav host(section)
+nav(section)
     .style(NavStyle::Sidebar)
     .title("My App")
     .header(sidebar_header)
@@ -183,7 +183,7 @@ native stack (`UINavigationController`, `AdwNavigationView`, the Android back st
 
 ```rust
 let path = Signal::new(Vec::<String>::new());
-stack(path, home_view).destination(|key| detail_view(key))
+nav_stack(path, home_view).destination(|key| detail_view(key))
 // push:  path.update(|p| p.push("item-42".into()));
 // the native back button writes the pop back into `path`.
 ```
