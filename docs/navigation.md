@@ -390,25 +390,36 @@ Two consequences worth knowing before touching it:
 
 ### How iOS tells a user's back from its own
 
-Two rules, and no inference between them (2026-09-10; before this, `didShow` counts were
-compared against the mirror through a settle loop, and both back bugs of that month lived in the
-comparison — one of them the first back after launch snapping straight back to the page).
+There is no mirror of the stack on iOS (2026-09-10; before this, day-uikit kept a copy of the
+intended stack, re-applied it wholesale on every change, inferred the user's pops from `didShow`
+counts through a settle loop, and absorbed Day's answering pops with a counter — and both back
+bugs of that month lived in the bookkeeping). UIKit's `viewControllers` is the stack. Two rules:
 
-- **Day's changes are one `setViewControllers:animated:` from the mirrored stack, confirmed by
-  their own transition.** `nav_sync_stack` registers a completion on the transition coordinator
-  the set started; a cancelled transition (a window capture mid-flight does that on iOS 26+)
-  re-applies the mirror from there. A set with no coordinator — a controller with no window yet,
-  which is every app's launch — happened synchronously and has nothing to confirm.
+- **Day's changes are one delta, computed from what UIKit reports.** The insert duty that hands
+  a page's controller to the host pushes it (`push_page`: the active controller's current pages
+  plus this one, in one `setViewControllers:animated:`), and the remove duty that takes it back
+  pops it (`pop_page`: the current pages minus this one). A collapsed triple column is driven
+  through UIKit's own column APIs instead (`showColumn`, `popToViewController:`), since a
+  wholesale set destroys the bookkeeping its merge keeps. A merge on iOS 26 nests the secondary
+  controller onto the primary as one entry, so `day_pages` flattens a nested controller into its
+  pages wherever a stack is read. A transition UIKit cancels (a window capture mid-flight does
+  that on iOS 26+) is applied once more from its completion.
 - **The user's back is observed where it starts.** `DayNavController` overrides
   `popViewControllerAnimated:`, `popToViewController:animated:` and
   `popToRootViewControllerAnimated:`: UIKit routes the back button there once `shouldPopItem:`
   agrees, the swipe there under an interactive transition, and the history menu to the
   `popTo…` pair. Day never calls those for its own changes, and its two pops on a collapsed
   triple column announce themselves (`with_day_pop`), so a call that reaches super is the
-  user's. `observe_user_pop` then waits for that pop's own transition — a swipe let go early is
-  cancelled, and Day hears nothing — and `confirm_user_pop` prunes the mirror to the native
-  count and emits one `NavBack { already_popped: true }` per level, each answered by a
-  `NavPatch::Popped` the `native_pops` counter absorbs.
+  user's. `observe_user_pop` waits for that pop's own transition — a swipe let go early is
+  cancelled, and Day hears nothing — and `confirm_user_pop` emits one
+  `NavBack { already_popped: true }` per Day page that left. Day answers each by popping its
+  model and removing the page, and `pop_page` finds the page already gone: that no-op is the
+  whole protocol between the two, and nothing is counted.
+
+`NavPatch::ListInStack` is not consulted here: UIKit's collapse folds the content list onto the
+merged stack by itself (the list is the supplementary column's root), and `NavPatch::ListVisible`
+shows or pops it there. `NavPatch::Presentation` never reaches a toolkit whose container
+re-presents (the pieces layer gates it on `Cap::NavRepresent`).
 
 The guard has the same two doors: `shouldPopItem:` vetoes the button, and the controller is the
 swipe recognizer's delegate, whose `gestureRecognizerShouldBegin:` vetoes the swipe; both emit
@@ -418,7 +429,7 @@ that proceeds pops through Day's rail and the next swipe works with nothing to r
 `nav_back:` in a walkthrough drives Day's rail and reaches none of this; `nav_back: { native: true }`
 presses the bar's button (`Toolkit::native_back` → `DayNavController::press_back`), which asks
 `shouldPopItem:` through its selector and pops through the override, so a script covers the code
-a tap runs. Trace it with `--env DAY_DIAG_NAV=1`: `user pop native=N levels=1`.
+a tap runs. Trace it with `--env DAY_DIAG_NAV=1`: `user pop levels=1`, `exec SET native=N -> target=M`.
 
 ## Back interception (`on_back`)
 

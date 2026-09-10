@@ -2351,7 +2351,7 @@ mod imp {
         /// Triple-column only: a blank root the SECONDARY stack holds whenever Day has no
         /// detail page. Older runtimes (iOS 16) throw "Cannot display a nested
         /// UINavigationController with zero viewControllers" the moment a collapse nests an
-        /// empty column; the placeholder keeps the nav non-empty and `nav_sync_stack` swaps
+        /// empty column; the placeholder keeps the nav non-empty and `apply_ops` swaps
         /// it for real pages. Never in the `vcs` mirror.
         secondary_placeholder: Option<Retained<UIViewController>>,
         _split_delegate: Retained<DaySplitDelegate>,
@@ -2366,23 +2366,12 @@ mod imp {
         /// page belongs in and the pop detector knows when a count change was a merge. Always
         /// `false` for a plain stack host.
         collapsed: std::cell::Cell<bool>,
-        /// Our mirror of the intended VC stack (index 0 = root page). This is the SOURCE for
-        /// `nav_sync_stack`: day-initiated changes apply it wholesale, so it is pruned eagerly
-        /// on `NavPatch::Popped` rather than waiting for the `remove()` duty.
-        vcs: Vec<Retained<UIViewController>>,
-        /// Native user-back pops (swipe / back button) awaiting Day's answering `NavPatch::Popped`.
-        /// The native stack already popped, so that answering patch must be ABSORBED (decrement)
-        /// rather than re-pruning the mirror for a pop that already happened
-        /// (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
-        native_pops: std::cell::Cell<usize>,
-        /// Set around Day's OWN calls to a pop method (`Act::TriplePop`, the collapsed
-        /// triple's pops), so `DayNavController`'s pop overrides — the observation point for
-        /// the user's back button, swipe and history menu — know those are not the user's.
+        /// Set around Day's OWN calls to a pop method (the collapsed triple column's pops),
+        /// so `DayNavController`'s pop overrides — the observation point for the user's back
+        /// button, swipe and history menu — know those are not the user's. There is no mirror
+        /// of the stack (docs/navigation.md): UIKit's `viewControllers` is read whenever a
+        /// change is computed, and a page that has already left it is simply not there.
         day_pop: std::cell::Cell<bool>,
-        /// Whether the pieces layer has the content-list page interposed in the collapsed
-        /// stack (`NavPatch::ListInStack`, docs/navigation.md) — with the collapse flag, what
-        /// the mirror's floor and the collapse rebase count.
-        list_in_stack: std::cell::Cell<bool>,
         _delegate: Retained<DayNavDelegate>,
         /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
@@ -2694,8 +2683,8 @@ mod imp {
             fn pop_view_controller(&self, animated: bool) -> Option<Retained<UIViewController>> {
                 let popped: Option<Retained<UIViewController>> =
                     unsafe { msg_send![super(self), popViewControllerAnimated: animated] };
-                if popped.is_some() {
-                    self.note_pop();
+                if let Some(p) = &popped {
+                    self.note_pop(vec![p.clone()]);
                 }
                 popped
             }
@@ -2709,8 +2698,8 @@ mod imp {
                 let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> = unsafe {
                     msg_send![super(self), popToViewController: vc, animated: animated]
                 };
-                if popped.as_ref().is_some_and(|p| p.count() > 0) {
-                    self.note_pop();
+                if let Some(p) = popped.as_ref().filter(|p| p.count() > 0) {
+                    self.note_pop(p.iter().collect());
                 }
                 popped
             }
@@ -2722,8 +2711,8 @@ mod imp {
             ) -> Option<Retained<objc2_foundation::NSArray<UIViewController>>> {
                 let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> =
                     unsafe { msg_send![super(self), popToRootViewControllerAnimated: animated] };
-                if popped.as_ref().is_some_and(|p| p.count() > 0) {
-                    self.note_pop();
+                if let Some(p) = popped.as_ref().filter(|p| p.count() > 0) {
+                    self.note_pop(p.iter().collect());
                 }
                 popped
             }
@@ -2755,12 +2744,12 @@ mod imp {
 
         /// A pop just went through one of the overrides above: the user's, unless Day
         /// announced its own (`with_day_pop`).
-        fn note_pop(&self) {
+        fn note_pop(&self, popped: Vec<Retained<UIViewController>>) {
             let host = self.ivars().host.get();
             let day = NAV_STATE.with(|m| m.borrow().get(&host).map(|s| s.day_pop.get()));
             // `Some(true)` is Day's own pop; `None` a controller no host owns any more.
             if day == Some(false) {
-                observe_user_pop(host, self);
+                observe_user_pop(host, self, popped);
             }
         }
 
@@ -2898,20 +2887,21 @@ mod imp {
                         // while it belongs to the destination (`NavPatch::ListInStack`);
                         // a destination without one leaves the sidebar root on top, which
                         // is what a phone opening on such a section must show.
-                        let column = if !state.vcs.is_empty() {
+                        let detail =
+                            !day_pages(&state.nav, parts.secondary_placeholder.as_deref()).is_empty();
+                        let column = if detail {
                             objc2_ui_kit::UISplitViewControllerColumn::Secondary
-                        } else if parts.supplementary_nav.is_some() && state.list_in_stack.get() {
+                        } else if parts.supplementary_nav.is_some() && parts.list_shown.get() {
                             objc2_ui_kit::UISplitViewControllerColumn::Supplementary
                         } else {
                             objc2_ui_kit::UISplitViewControllerColumn::Primary
                         };
                         if *DIAG_NAV {
                             log::debug!(
-                                "DAYDIAG collapse top column proposed={} chosen={} mirror={} list_in_stack={}",
+                                "DAYDIAG collapse top column proposed={} chosen={} detail={detail} list_shown={}",
                                 proposed.0,
                                 column.0,
-                                state.vcs.len(),
-                                state.list_in_stack.get()
+                                parts.list_shown.get()
                             );
                         }
                         column
@@ -2945,7 +2935,7 @@ mod imp {
             state.collapsed.set(!expanded);
             if *DIAG_NAV {
                 log::debug!(
-                    "DAYDIAG split {} primary={} secondary={} supplementary={:?} mirror={}",
+                    "DAYDIAG split {} primary={} secondary={} supplementary={:?}",
                     if expanded { "EXPANDED" } else { "COLLAPSED" },
                     unsafe { parts.primary_nav.viewControllers() }.count(),
                     unsafe { state.nav.viewControllers() }.count(),
@@ -2953,34 +2943,8 @@ mod imp {
                         .supplementary_nav
                         .as_ref()
                         .map(|n| unsafe { n.viewControllers() }.count()),
-                    state.vcs.len(),
                 );
             }
-            // Reconcile the mirror with the merge UIKit just performed. `vcs` is Day's picture of
-            // the LIVE stack, and the pop detector compares its length against the native count —
-            // so the sidebar page has to join it exactly when UIKit merges it in and leave when
-            // it is lifted back out, or every subsequent back is misread.
-            let sidebar_vc = unsafe { parts.primary_nav.viewControllers() }.firstObject();
-            if let Some(vc) = sidebar_vc.as_ref() {
-                let already = state.vcs.iter().any(|v| std::ptr::eq(&**v, &**vc));
-                if expanded && already {
-                    state.vcs.retain(|v| !std::ptr::eq(&**v, &**vc));
-                } else if !expanded && !already {
-                    state.vcs.insert(0, vc.clone());
-                }
-            }
-            // The list page leaves the mirror with the expand, by its RETAINED identity
-            // (`SplitParts::list_vc` — while merged, the supplementary column's own stack is
-            // empty, so it cannot answer). It JOINS only through `NavPatch::ListInStack`.
-            let list_vc = parts.list_vc.borrow().clone();
-            if expanded && let Some(lv) = list_vc.as_ref() {
-                state.vcs.retain(|v| !std::ptr::eq(&**v, &**lv));
-                state.list_in_stack.set(false);
-            }
-            // A triple-column EXPAND rebuilds every column deterministically (deferred,
-            // below): the collapsed stack was set WHOLESALE by `nav_sync_stack`, so UIKit's
-            // own separation can only guess which controller belonged where — and guesses
-            // the detail into the primary.
             // Nothing rebuilds columns here: the collapsed stack is only ever driven through
             // UIKit's own APIs (`Act::Triple*`), so its bookkeeping stays intact and its own
             // expand puts every column back where it belongs.
@@ -3322,7 +3286,7 @@ mod imp {
                 parts.primary_nav.clone(),
                 parts.supplementary_nav.clone(),
                 state.nav.clone(),
-                state.vcs.clone(),
+                day_pages(&state.nav, parts.secondary_placeholder.as_deref()),
                 parts.list_vc.borrow().clone(),
                 parts.container.clone(),
                 parts._split_delegate.clone(),
@@ -3428,94 +3392,361 @@ mod imp {
     /// execution time is idempotent: however calls interleave, the LAST sync applies the
     /// final model and every intermediate state converges. A sync's settled count equals the
     /// mirror's by construction, so `didShow` can never mistake it for a user pop.
-    fn nav_sync_stack(host: usize) {
-        let target = NAV_STATE.with(|m| {
-            let m = m.borrow();
-            m.get(&host).map(|s| {
-                let mut vcs = s.vcs.clone();
-                // NEVER wholesale-set a COLLAPSED triple-column stack: UIKit nests its
-                // columns into the merge on the older runtimes and keeps private bookkeeping
-                // a set destroys — the expand then re-guesses columns wrong and throws. The
-                // collapsed triple is driven exclusively through UIKit's own column APIs
-                // (`Act::Triple*`), so a sync arriving here has nothing to do.
-                if s.collapsed.get()
-                    && s.split
-                        .as_ref()
-                        .is_some_and(|p| p.supplementary_nav.is_some())
-                {
-                    return None;
-                }
-                // A triple-column secondary must never go EMPTY (see
-                // `secondary_placeholder`): with no detail page, the placeholder is the
-                // stack. Only while expanded — collapsed, the active stack is the primary's
-                // and always holds at least the merged sidebar root.
-                if vcs.is_empty()
-                    && !s.collapsed.get()
-                    && let Some(ph) = s
-                        .split
-                        .as_ref()
-                        .and_then(|p| p.secondary_placeholder.clone())
-                {
-                    vcs.push(ph);
-                }
-                Some((s.active_nav(), vcs))
+    /// The stack UIKit reports for `nav`, flattened: a merge on iOS 26 nests the secondary
+    /// controller onto the primary as one entry, so a nested navigation controller reads as
+    /// its own pages. `placeholder` — a triple host's blank secondary root — is left out.
+    fn day_pages(
+        nav: &objc2_ui_kit::UINavigationController,
+        placeholder: Option<&UIViewController>,
+    ) -> Vec<Retained<UIViewController>> {
+        let mut out = Vec::new();
+        for vc in unsafe { nav.viewControllers() }.iter() {
+            if let Some(nested) = vc.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+                out.extend(day_pages(nested, placeholder));
+            } else if !placeholder.is_some_and(|p| std::ptr::eq(p, &*vc)) {
+                out.push(vc);
+            }
+        }
+        out
+    }
+
+    /// Whether `vc` is a Day page at all (a nav page's controller, `PAGE_VCS`), and which pane
+    /// it was declared for.
+    fn pane_of(vc: &UIViewController) -> Option<Option<day_spec::props::Pane>> {
+        let handle = PAGE_VCS.with(|m| {
+            m.borrow()
+                .iter()
+                .find(|(_, v)| std::ptr::eq(&***v, vc))
+                .map(|(h, _)| *h)
+        })?;
+        Some(PAGE_PANE.with(|t| t.get(handle)))
+    }
+
+    /// The detail pages on a host's active stack — everything that is a Day page and neither
+    /// the sidebar nor the content list — in stack order.
+    fn detail_pages(state: &NavState) -> Vec<Retained<UIViewController>> {
+        let placeholder = state
+            .split
+            .as_ref()
+            .and_then(|p| p.secondary_placeholder.clone());
+        day_pages(&state.active_nav(), placeholder.as_deref())
+            .into_iter()
+            .filter(|vc| {
+                // A Day page that is neither the sidebar nor the content list.
+                matches!(
+                    pane_of(vc),
+                    Some(pane) if !matches!(
+                        pane,
+                        Some(day_spec::props::Pane::Sidebar) | Some(day_spec::props::Pane::List)
+                    )
+                )
             })
-        });
-        let Some(Some((nav, vcs))) = target else {
-            return;
-        };
-        let current = unsafe { nav.viewControllers() };
-        let unchanged = current.count() == vcs.len()
-            && (0..vcs.len()).all(|i| std::ptr::eq(&*current.objectAtIndex(i), &*vcs[i]));
+            .collect()
+    }
+
+    /// The Day page on top of `nav`, through a nested merge.
+    fn top_page(nav: &objc2_ui_kit::UINavigationController) -> Option<Retained<UIViewController>> {
+        day_pages(nav, None).pop()
+    }
+
+    /// Apply `target` to `nav` — one `setViewControllers:animated:` — and, if UIKit cancels
+    /// the transition under it (a window capture mid-flight does that on iOS 26+), apply it
+    /// once more. Callers compute `target` from what UIKit REPORTS at that moment
+    /// (`day_pages`) plus their one change, never from a copy Day keeps: there is no mirror
+    /// to fall out of step with (docs/navigation.md).
+    fn set_stack(
+        host: usize,
+        generation: u64,
+        nav: &DayNavController,
+        target: Vec<Retained<UIViewController>>,
+        retry: bool,
+    ) {
+        let current = day_pages(nav, None);
+        let unchanged = current.len() == target.len()
+            && current
+                .iter()
+                .zip(&target)
+                .all(|(a, b)| std::ptr::eq(&**a, &**b));
         if unchanged {
+            settled(host, generation);
             return;
         }
         if *DIAG_NAV {
             log::debug!(
-                "DAYDIAG exec SYNC native={} -> target={}",
-                current.count(),
-                vcs.len()
+                "DAYDIAG exec SET native={} -> target={}",
+                current.len(),
+                target.len()
             );
         }
-        let arr = objc2_foundation::NSArray::from_retained_slice(&vcs);
-        // Re-stamp the transition clock at EXECUTION, not only at dispatch: this closure can
-        // sit in the modal queue past `ui_idle`'s 250ms settle margin, and the transition
-        // coordinator is only born once the set below runs — without this second stamp a
-        // screenshot lands in that blind window and captures a mid-slide frame.
+        let arr = objc2_foundation::NSArray::from_retained_slice(&target);
+        // Re-stamp the transition clock at execution (docs: `ui_idle`), and never ANIMATE to
+        // an empty stack — that transition never completes and holds `ui_idle` false.
         note_ui_transition();
-        // Never ANIMATE to an empty stack (deselecting in the expanded split empties the
-        // detail column): with no destination controller the transition sets up but never
-        // completes — the stack keeps its old contents and the orphaned transition
-        // coordinator holds `ui_idle` false forever, failing every later screenshot.
-        let animated = !vcs.is_empty();
+        let animated = !target.is_empty();
         unsafe { nav.setViewControllers_animated(&arr, animated) };
-        // The change is confirmed by ITS OWN transition, never inferred from a later
-        // `didShow` count (docs/navigation.md). With no coordinator the stack was set
-        // synchronously — a controller with no window yet, every app's launch sync — and there
-        // is nothing to wait for. A cancelled transition (a window capture mid-flight does that
-        // on iOS 26+) leaves the stack short of the mirror with nothing else coming, so the
-        // completion re-applies the mirror; off the callback's stack, because UIKit is still
-        // tearing the transition down there.
+        let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
+            // No transition: the set applied on the spot.
+            settled(host, generation);
+            return;
+        };
+        if !retry {
+            return;
+        }
         use objc2_ui_kit::{
             UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
         };
-        if let Some(coordinator) = unsafe { nav.transitionCoordinator() } {
+        {
+            let mtm = MainThreadMarker::new().expect("nav changes run on main");
+            let again = dispatch2::MainThreadBound::new((nav.retain(), target), mtm);
+            let again = std::rc::Rc::new(std::cell::RefCell::new(Some(again)));
             let completion = block2::RcBlock::new(
                 move |ctx: NonNull<
                     ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
                 >| {
-                    if unsafe { ctx.as_ref().isCancelled() } {
-                        if *DIAG_NAV {
-                            log::debug!("DAYDIAG exec SYNC cancelled -> resync");
-                        }
-                        dispatch2::DispatchQueue::main().exec_async(move || {
-                            day_spec::ffi_guard::contain((), || nav_sync_stack(host));
-                        });
+                    if !unsafe { ctx.as_ref().isCancelled() } {
+                        settled(host, generation);
+                        return;
                     }
+                    if *DIAG_NAV {
+                        log::debug!("DAYDIAG exec SET cancelled -> once more");
+                    }
+                    let Some(again) = again.borrow_mut().take() else {
+                        return;
+                    };
+                    dispatch2::DispatchQueue::main().exec_async(move || {
+                        let mtm = MainThreadMarker::new().expect("dispatched to main");
+                        let (nav, target) = again.into_inner(mtm);
+                        day_spec::ffi_guard::contain((), || {
+                            set_stack(host, generation, &nav, target, false)
+                        });
+                    });
                 },
             );
             unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
         }
+    }
+
+    /// The stack changes a host has been asked for and not yet applied, and the target of the
+    /// change last applied while its transition is still running.
+    ///
+    /// The only stack state Day keeps, and only while something is in flight. iOS 18 DEFERS a
+    /// `setViewControllers:animated:` issued during another transition and keeps reporting
+    /// the old stack until it lands, so a push computed from that read put the page the
+    /// previous pop had just removed straight back — one leaked page per route change, and a
+    /// twenty-deep stack by the end of a walkthrough (iOS 26 reports the new stack at once).
+    /// So changes issued in one turn coalesce into one set, and a change issued while a set is
+    /// in flight is based on that set's target rather than on the read. At rest, UIKit's
+    /// `viewControllers` is the truth and this holds nothing.
+    struct NavQueue {
+        ops: Vec<NavOp>,
+        scheduled: bool,
+        in_flight: Option<Vec<Retained<UIViewController>>>,
+        generation: u64,
+    }
+
+    enum NavOp {
+        Push(Retained<UIViewController>),
+        Pop(Retained<UIViewController>),
+    }
+
+    thread_local! {
+        static NAV_OPS: RefCell<HashMap<usize, NavQueue>> = RefCell::new(HashMap::new());
+    }
+
+    /// A Day page joins a host's stack (the insert duty).
+    fn push_page(host: usize, vc: Retained<UIViewController>) {
+        queue_op(host, NavOp::Push(vc));
+    }
+
+    /// A Day page leaves a host (the remove duty): off the active stack if it is still there.
+    /// After a user's back it is not — the override reported that pop already — and the change
+    /// is a no-op, which is the whole protocol between the two.
+    fn pop_page(host: usize, vc: Retained<UIViewController>) {
+        queue_op(host, NavOp::Pop(vc));
+    }
+
+    fn queue_op(host: usize, op: NavOp) {
+        let schedule = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let entry = q.entry(host).or_insert_with(|| NavQueue {
+                ops: Vec::new(),
+                scheduled: false,
+                in_flight: None,
+                generation: 0,
+            });
+            entry.ops.push(op);
+            let first = !entry.scheduled;
+            entry.scheduled = true;
+            first
+        });
+        if schedule {
+            note_ui_transition();
+            // Deferred past any in-flight modal transition, like every stack change: issued the
+            // instant a scripted dialog dismissal starts, it races the dismissal and wedges the
+            // controller.
+            modal_after_idle(move || apply_ops(host));
+        }
+    }
+
+    /// Apply everything queued for `host` as ONE stack change — or, on a collapsed triple
+    /// column, one UIKit column call per change, since that stack is driven only through
+    /// UIKit's own APIs (docs/navigation.md).
+    fn apply_ops(host: usize) {
+        let ops = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let Some(entry) = q.get_mut(&host) else {
+                return Vec::new();
+            };
+            entry.scheduled = false;
+            std::mem::take(&mut entry.ops)
+        });
+        if ops.is_empty() {
+            return;
+        }
+        let Some((active, placeholder, triple, secondary, svc)) = NAV_STATE.with(|m| {
+            m.borrow().get(&host).map(|s| {
+                let triple = s.collapsed.get()
+                    && s.split
+                        .as_ref()
+                        .is_some_and(|p| p.supplementary_nav.is_some());
+                (
+                    s.active_nav(),
+                    s.split
+                        .as_ref()
+                        .and_then(|p| p.secondary_placeholder.clone()),
+                    triple,
+                    s.nav.clone(),
+                    s.split.as_ref().map(|p| p.split_vc.clone()),
+                )
+            })
+        }) else {
+            return;
+        };
+        if triple && let Some(svc) = svc {
+            for op in ops {
+                match op {
+                    NavOp::Push(vc) => {
+                        // Offstage content first, then UIKit pushes it onto the merged stack.
+                        let mut details = NAV_STATE
+                            .with(|m| m.borrow().get(&host).map(detail_pages))
+                            .unwrap_or_default();
+                        details.push(vc);
+                        if *DIAG_NAV {
+                            log::debug!("DAYDIAG exec TriplePush details={}", details.len());
+                        }
+                        let arr = objc2_foundation::NSArray::from_retained_slice(&details);
+                        unsafe {
+                            secondary.setViewControllers(&arr);
+                            svc.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Secondary);
+                        }
+                    }
+                    NavOp::Pop(vc) => {
+                        // Through UIKit's own pop, to the entry below `vc` in whichever
+                        // controller holds it — the merged primary, or the secondary nested on
+                        // it. A page already gone is a no-op.
+                        let Some((owner, below)) = owner_of(&active, &vc) else {
+                            continue;
+                        };
+                        if *DIAG_NAV {
+                            log::debug!("DAYDIAG exec TriplePop to_root={}", below.is_none());
+                        }
+                        let pop = || unsafe {
+                            match &below {
+                                Some(b) => {
+                                    let _ = owner.popToViewController_animated(b, false);
+                                }
+                                None => {
+                                    let _ = owner.popToRootViewControllerAnimated(false);
+                                }
+                            }
+                        };
+                        match owner.downcast_ref::<DayNavController>() {
+                            Some(d) => with_day_pop(d, pop),
+                            None => pop(),
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        // Base the target on the change still in flight, if any, else on what UIKit reports.
+        let base = NAV_OPS
+            .with(|q| q.borrow().get(&host).and_then(|e| e.in_flight.clone()))
+            .unwrap_or_else(|| day_pages(&active, placeholder.as_deref()));
+        let mut target = base;
+        for op in ops {
+            match op {
+                NavOp::Push(vc) => target.push(vc),
+                NavOp::Pop(vc) => target.retain(|v| !std::ptr::eq(&**v, &*vc)),
+            }
+        }
+        let generation = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let Some(entry) = q.get_mut(&host) else {
+                return 0;
+            };
+            entry.generation += 1;
+            entry.in_flight = Some(target.clone());
+            entry.generation
+        });
+        set_stack(host, generation, &active, target, true);
+    }
+
+    /// The change `generation` on `host` has settled: the stack UIKit reports is the truth
+    /// again, unless a newer change has been issued since.
+    fn settled(host: usize, generation: u64) {
+        NAV_OPS.with(|q| {
+            if let Some(entry) = q.borrow_mut().get_mut(&host)
+                && entry.generation == generation
+            {
+                entry.in_flight = None;
+            }
+        });
+    }
+
+    /// The Day page on top of `host`'s active stack, as the app will see it: the top of the
+    /// change in flight if there is one, else what UIKit reports.
+    fn current_top(host: usize, active: &DayNavController) -> Option<Retained<UIViewController>> {
+        NAV_OPS
+            .with(|q| {
+                q.borrow()
+                    .get(&host)
+                    .and_then(|e| e.in_flight.as_ref().and_then(|t| t.last().cloned()))
+            })
+            .or_else(|| top_page(active))
+    }
+
+    /// Which navigation controller directly holds `vc` — `nav` itself or a controller nested
+    /// on its stack — and the entry below it there (`None` for a root). A nested controller
+    /// whose root is `vc` is popped as a whole from `nav`, so that case answers `nav` and the
+    /// entry below the nested controller.
+    fn owner_of(
+        nav: &objc2_ui_kit::UINavigationController,
+        vc: &UIViewController,
+    ) -> Option<(
+        Retained<objc2_ui_kit::UINavigationController>,
+        Option<Retained<UIViewController>>,
+    )> {
+        let stack: Vec<Retained<UIViewController>> =
+            unsafe { nav.viewControllers() }.iter().collect();
+        for (i, entry) in stack.iter().enumerate() {
+            if std::ptr::eq(&**entry, vc) {
+                let below = (i > 0).then(|| stack[i - 1].clone());
+                return Some((nav.retain(), below));
+            }
+            if let Some(nested) = entry.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+                let inner: Vec<Retained<UIViewController>> =
+                    unsafe { nested.viewControllers() }.iter().collect();
+                if inner.first().is_some_and(|r| std::ptr::eq(&**r, vc)) {
+                    let below = (i > 0).then(|| stack[i - 1].clone());
+                    return Some((nav.retain(), below));
+                }
+                if let Some(j) = inner.iter().position(|v| std::ptr::eq(&**v, vc)) {
+                    return Some((nested.retain(), Some(inner[j - 1].clone())));
+                }
+            }
+        }
+        None
     }
 
     /// Run one of Day's OWN pop calls on `nav` (the collapsed triple column's
@@ -3542,14 +3773,21 @@ mod imp {
     /// transition says when, and a swipe let go early is a cancelled pop that Day never hears
     /// of, because the page never left. Nothing is inferred from a `didShow` count any more
     /// (docs/navigation.md).
-    fn observe_user_pop(host: usize, nav: &objc2_ui_kit::UINavigationController) {
+    fn observe_user_pop(
+        host: usize,
+        nav: &objc2_ui_kit::UINavigationController,
+        popped: Vec<Retained<UIViewController>>,
+    ) {
         use objc2_ui_kit::{
             UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
         };
         let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
-            confirm_user_pop(host);
+            confirm_user_pop(host, popped);
             return;
         };
+        let mtm = MainThreadMarker::new().expect("nav pops run on main");
+        let popped = dispatch2::MainThreadBound::new(popped, mtm);
+        let popped = std::rc::Rc::new(std::cell::RefCell::new(Some(popped)));
         let completion = block2::RcBlock::new(
             move |ctx: NonNull<
                 ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
@@ -3560,53 +3798,46 @@ mod imp {
                     }
                     return;
                 }
+                let Some(popped) = popped.borrow_mut().take() else {
+                    return;
+                };
                 // Off the callback's stack: the report re-enters day-core, which pops the
                 // model and patches this host, and UIKit is still inside the transition here.
                 dispatch2::DispatchQueue::main().exec_async(move || {
-                    day_spec::ffi_guard::contain((), || confirm_user_pop(host));
+                    let mtm = MainThreadMarker::new().expect("dispatched to main");
+                    let popped = popped.into_inner(mtm);
+                    day_spec::ffi_guard::contain((), || confirm_user_pop(host, popped));
                 });
             },
         );
         unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
     }
 
-    /// The user's pop has happened: the active stack is now shorter than the mirror by what
-    /// they popped. Prune the mirror to it and tell Day, one `NavBack` per level, each of
-    /// which Day answers with a `NavPatch::Popped` the `native_pops` counter absorbs (the
-    /// stack already moved).
-    fn confirm_user_pop(host: usize) {
-        let report = NAV_STATE.with(|m| {
-            let mut m = m.borrow_mut();
-            let state = m.get_mut(&host)?;
-            // A split host mid-collapse or mid-expand moves controllers between its columns;
-            // a count read during that is a merge, not a pop (docs/size-classes.md).
-            if let Some(parts) = state.split.as_ref()
-                && (state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
-                    || unsafe { parts.split_vc.transitionCoordinator() }.is_some())
-            {
-                return None;
+    /// The user's pop has happened. Tell Day, one `NavBack` per Day page that left the stack
+    /// (a nested controller popped as a whole counts each page inside it). Day answers each
+    /// with a `NavPatch::Popped` and a `remove` of the page, which finds it already gone.
+    fn confirm_user_pop(host: usize, popped: Vec<Retained<UIViewController>>) {
+        let Some(node) = NAV_STATE.with(|m| m.borrow().get(&host).map(|s| s.host_node)) else {
+            return;
+        };
+        let mut pages = Vec::new();
+        for vc in popped {
+            match vc.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+                Some(nested) => pages.extend(day_pages(nested, None)),
+                None => pages.push(vc),
             }
-            let native = unsafe { state.active_nav().viewControllers() }.count();
-            if native == 0 || native >= state.vcs.len() {
-                return None;
-            }
-            let levels = state.vcs.len() - native;
-            state.vcs.truncate(native);
-            state.native_pops.set(state.native_pops.get() + levels);
-            if *DIAG_NAV {
-                log::debug!("DAYDIAG user pop native={native} levels={levels}");
-            }
-            Some((state.host_node, levels))
-        });
-        if let Some((node, levels)) = report {
-            for _ in 0..levels {
-                emit(
-                    node,
-                    Event::NavBack {
-                        already_popped: true,
-                    },
-                );
-            }
+        }
+        let levels = pages.iter().filter(|vc| pane_of(vc).is_some()).count();
+        if *DIAG_NAV {
+            log::debug!("DAYDIAG user pop levels={levels} of {} popped", pages.len());
+        }
+        for _ in 0..levels {
+            emit(
+                node,
+                Event::NavBack {
+                    already_popped: true,
+                },
+            );
         }
     }
 
@@ -3634,7 +3865,7 @@ mod imp {
                 // where it starts — `DayNavController`'s pop overrides, for the button, the
                 // swipe and the history menu alike — and confirmed by its own transition;
                 // Day's changes are one `setViewControllers:` confirmed by theirs
-                // (`nav_sync_stack`). This callback is left with the window toolbar, which
+                // (`apply_ops`). This callback is left with the window toolbar, which
                 // rides every page and arrives on none of them, and a trace line.
                 day_spec::ffi_guard::contain((), || {
                     if let Some(vc) = vc {
@@ -3648,7 +3879,7 @@ mod imp {
                                 .map(|s| {
                                     let a = s.active_nav();
                                     (
-                                        s.vcs.len(),
+                                        day_pages(&a, None).len(),
                                         std::ptr::addr_eq(
                                             (&*a as *const DayNavController)
                                                 .cast::<std::ffi::c_void>(),
@@ -7245,9 +7476,6 @@ mod imp {
                                         .is_some_and(|s| unsafe { s.split_vc.isCollapsed() }),
                                 ),
                                 split,
-                                vcs: Vec::new(),
-                                native_pops: std::cell::Cell::new(0),
-                                list_in_stack: std::cell::Cell::new(false),
                                 day_pop: std::cell::Cell::new(false),
                                 _delegate: delegate,
                                 search,
@@ -7971,63 +8199,17 @@ mod imp {
                         // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
                         // the delegate synchronously, which re-borrows NAV_STATE.
                         enum Act {
-                            Sync,
                             Title(Retained<UIViewController>, String),
                             /// Show/hide the supplementary column (expanded triple only).
                             Column,
-                            /// Collapsed triple-column ops (docs/navigation.md): UIKit nests
-                            /// its columns into the merge and keeps private bookkeeping a
-                            /// wholesale set destroys, so the merged stack is driven ONLY
-                            /// through its own APIs — offstage column content + showColumn,
-                            /// and plain pops.
-                            TriplePush {
-                                svc: Retained<objc2_ui_kit::UISplitViewController>,
-                                secondary: Retained<DayNavController>,
-                                details: Vec<Retained<UIViewController>>,
-                            },
-                            /// Pop the merged stack back to the MIRROR's top (the root when
-                            /// it holds only the sidebar) rather than by one: the pop is
-                            /// deferred, and two Day pops issued back to back would otherwise
-                            /// queue two animated pops on iOS 26, whose intermediate `didShow`
-                            /// counts read as a user back that pops the section itself (the
-                            /// Showcase's Stack page on an iPhone). Popping to a target is
-                            /// idempotent, so the second deferred pop finds nothing left to
-                            /// do. The target is read from the mirror at EXECUTION, not
-                            /// here: a `TriplePush` dispatched after this pop can run before
-                            /// it (the deferrals interleave with the queued transitions), and
-                            /// a target frozen at dispatch then popped the page that push had
-                            /// just landed (the Showcase's Text page on an iPhone).
-                            TriplePop {
-                                active: Retained<DayNavController>,
-                            },
+                            /// Collapsed triple only: the content list joins or leaves the
+                            /// merged stack through UIKit's own column APIs.
                             TripleList {
                                 svc: Retained<objc2_ui_kit::UISplitViewController>,
                                 primary: Retained<DayNavController>,
                                 show: bool,
                             },
                             None,
-                        }
-                        // The mirror's detail slice: everything that is not the merged
-                        // sidebar root and not the interposed list page.
-                        fn detail_slice(state: &NavState) -> Vec<Retained<UIViewController>> {
-                            let list_vc = state
-                                .split
-                                .as_ref()
-                                .and_then(|p| p.list_vc.borrow().clone());
-                            let sidebar_vc = state.split.as_ref().and_then(|p| {
-                                unsafe { p.primary_nav.viewControllers() }.firstObject()
-                            });
-                            state
-                                .vcs
-                                .iter()
-                                .filter(|v| {
-                                    !list_vc.as_ref().is_some_and(|l| std::ptr::eq(&***v, &**l))
-                                        && !sidebar_vc
-                                            .as_ref()
-                                            .is_some_and(|s| std::ptr::eq(&***v, &**s))
-                                })
-                                .cloned()
-                                .collect()
                         }
                         let act = NAV_STATE.with(|m| {
                             let mut m = m.borrow_mut();
@@ -8040,53 +8222,14 @@ mod imp {
                                     .as_ref()
                                     .is_some_and(|p| p.supplementary_nav.is_some());
                             match p {
-                                NavPatch::Pushed { .. } => {
-                                    if collapsed_triple {
-                                        let parts = state.split.as_ref().expect("triple");
-                                        Act::TriplePush {
-                                            svc: parts.split_vc.clone(),
-                                            secondary: state.nav.clone(),
-                                            details: detail_slice(state),
-                                        }
-                                    } else {
-                                        Act::Sync
-                                    }
-                                }
-                                NavPatch::Popped => {
-                                    // Answering a native user-back? The stack already popped, so
-                                    // absorb it — syncing again would be a no-op anyway, but the
-                                    // counter keeps the mirror bookkeeping honest.
-                                    if state.native_pops.get() > 0 {
-                                        state.native_pops.set(state.native_pops.get() - 1);
-                                        Act::None
-                                    } else {
-                                        // Day-initiated: prune the mirror NOW — the sync target
-                                        // derives from it, and the remove() duty only arrives
-                                        // after this patch. Never below the merged stack's
-                                        // sidebar root, nor below an interposed content list
-                                        // (docs/size-classes.md, docs/navigation.md).
-                                        let floor = usize::from(state.collapsed.get())
-                                            + usize::from(
-                                                state.collapsed.get() && state.list_in_stack.get(),
-                                            );
-                                        if state.vcs.len() > floor {
-                                            state.vcs.pop();
-                                        }
-                                        if collapsed_triple {
-                                            Act::TriplePop {
-                                                active: state.active_nav(),
-                                            }
-                                        } else {
-                                            Act::Sync
-                                        }
-                                    }
-                                }
+                                // The page itself arrives through the insert duty and leaves
+                                // through the remove duty, which carry its identity; the stack
+                                // change is made there (`push_page`, `pop_page`).
+                                NavPatch::Pushed { .. } | NavPatch::Popped => Act::None,
                                 // Retitle the TOP page's controller — the navigation bar
                                 // mirrors the top item's title live.
-                                NavPatch::Title(t) => state
-                                    .vcs
-                                    .last()
-                                    .map(|vc| Act::Title(vc.clone(), t.clone()))
+                                NavPatch::Title(t) => current_top(ptr_of(h), &state.active_nav())
+                                    .map(|vc| Act::Title(vc, t.clone()))
                                     .unwrap_or(Act::None),
                                 // Arm the back guard: `shouldPopItem:` vetoes the button and
                                 // `gestureRecognizerShouldBegin:` the swipe, both asking Day
@@ -8095,60 +8238,29 @@ mod imp {
                                     state.active_nav().ivars().guarded.set(*on);
                                     Act::None
                                 }
-                                // Unreachable: this backend answers `Cap::NavRepresent =
-                                // Unsupported`, so the pieces layer never sends it. The plan for
-                                // iOS is to adopt `UISplitViewController` and OBSERVE its own
-                                // collapse/expand rather than be told (docs/size-classes.md).
-                                NavPatch::Presentation(_) => Act::None,
-                                // Resident-page switch: `.tabSidebar` keeps a controller per tab
-                                // at every width, so switching is a selection rather than a push.
-                                NavPatch::Select(_) => Act::None,
-                                // Per-destination pane visibility, EXPANDED only — while
-                                // collapsed the columns are one stack and `ListInStack` is the
-                                // membership switch (docs/navigation.md).
+                                // `Presentation` never reaches a toolkit whose container
+                                // re-presents (the pieces layer gates it on `Cap::NavRepresent`);
+                                // `Select` is a tabs host's; `ListInStack` is the model's own
+                                // bookkeeping of a merge UIKit performs by itself here
+                                // (docs/navigation.md).
+                                NavPatch::Presentation(_)
+                                | NavPatch::Select(_)
+                                | NavPatch::ListInStack(_) => Act::None,
+                                // Per-destination content list: a column while expanded, an
+                                // entry on the merged stack while collapsed.
                                 NavPatch::ListVisible(v) => {
                                     if let Some(p) = state.split.as_ref() {
                                         p.list_shown.set(*v);
                                     }
-                                    if state.collapsed.get() {
-                                        Act::None
-                                    } else {
+                                    if !state.collapsed.get() {
                                         Act::Column
-                                    }
-                                }
-                                // The interposed list joins/leaves the collapsed stack right
-                                // above the sidebar root — through UIKit's own column APIs;
-                                // the mirror splice is COUNT bookkeeping for the pop detector.
-                                NavPatch::ListInStack(v) => {
-                                    state.list_in_stack.set(*v);
-                                    // By RETAINED identity (`SplitParts::list_vc`): while
-                                    // merged, the supplementary column's own stack is empty.
-                                    let list_vc = state
-                                        .split
-                                        .as_ref()
-                                        .and_then(|p| p.list_vc.borrow().clone());
-                                    if let Some(vc) = list_vc {
-                                        let already =
-                                            state.vcs.iter().any(|x| std::ptr::eq(&**x, &*vc));
-                                        if *v && !already && state.collapsed.get() {
-                                            let at = 1.min(state.vcs.len());
-                                            state.vcs.insert(at, vc);
-                                        } else if !*v && already {
-                                            state.vcs.retain(|x| !std::ptr::eq(&**x, &*vc));
-                                        }
-                                    }
-                                    if collapsed_triple {
+                                    } else if collapsed_triple {
                                         let parts = state.split.as_ref().expect("triple");
                                         Act::TripleList {
                                             svc: parts.split_vc.clone(),
                                             primary: parts.primary_nav.clone(),
                                             show: *v,
                                         }
-                                    } else if state.collapsed.get() {
-                                        // A collapsed DOUBLE-column host (its first destination
-                                        // had no list): the list is a page of the merged
-                                        // stack like any other, applied from the mirror.
-                                        Act::Sync
                                     } else {
                                         Act::None
                                     }
@@ -8159,79 +8271,11 @@ mod imp {
                         // instant a (scripted) dialog dismissal starts races the dismissal
                         // transition and wedges the navigation controller.
                         match act {
-                            Act::Sync => {
-                                note_ui_transition();
-                                let host = ptr_of(h);
-                                modal_after_idle(move || nav_sync_stack(host));
-                            }
                             Act::Title(vc, t) => unsafe {
                                 vc.setTitle(Some(&NSString::from_str(&t)));
                             },
                             // The host the destination calls for (`SplitParts::list_shown`).
                             Act::Column => rehost_split(ptr_of(h)),
-                            Act::TriplePush {
-                                svc,
-                                secondary,
-                                details,
-                            } => {
-                                note_ui_transition();
-                                modal_after_idle(move || unsafe {
-                                    // Offstage content first, then UIKit pushes it onto the
-                                    // merged stack itself — the documented compact flow.
-                                    if *DIAG_NAV {
-                                        log::debug!(
-                                            "DAYDIAG exec TriplePush details={} secondary_native={}",
-                                            details.len(),
-                                            secondary.viewControllers().count()
-                                        );
-                                    }
-                                    let arr =
-                                        objc2_foundation::NSArray::from_retained_slice(&details);
-                                    secondary.setViewControllers(&arr);
-                                    svc.showColumn(
-                                        objc2_ui_kit::UISplitViewControllerColumn::Secondary,
-                                    );
-                                });
-                            }
-                            Act::TriplePop { active } => {
-                                note_ui_transition();
-                                let host = ptr_of(h);
-                                modal_after_idle(move || unsafe {
-                                    let target = NAV_STATE.with(|m| {
-                                        m.borrow().get(&host).and_then(|s| s.vcs.last().cloned())
-                                    });
-                                    let stack = active.viewControllers();
-                                    let on_stack = target.as_ref().is_some_and(|t| {
-                                        stack.iter().any(|v| std::ptr::eq(&*v, &**t))
-                                    });
-                                    if *DIAG_NAV {
-                                        log::debug!(
-                                            "DAYDIAG exec TriplePop native={} target={} on_stack={on_stack}",
-                                            stack.count(),
-                                            target.is_some()
-                                        );
-                                    }
-                                    // Unanimated: a push dispatched behind this pop (a route
-                                    // jump is a pop and a push) went onto UIKit's transition
-                                    // queue behind an animated pop and never landed — the
-                                    // pop's own didShow arrived only with the next keyboard
-                                    // event, at a count the detector read as a user back.
-                                    // Only Day's route changes pop this way; the user's own
-                                    // back button and swipe animate as ever.
-                                    match target {
-                                        Some(t) if on_stack => with_day_pop(&active, || {
-                                            let _ = active.popToViewController_animated(&t, false);
-                                        }),
-                                        // The mirror's top is not on the stack yet: the push
-                                        // that lands it is still on its way, and lands it
-                                        // above whatever this pop would have removed.
-                                        Some(_) => {}
-                                        None => with_day_pop(&active, || {
-                                            let _ = active.popToRootViewControllerAnimated(false);
-                                        }),
-                                    }
-                                });
-                            }
                             Act::TripleList { svc, primary, show } => {
                                 note_ui_transition();
                                 modal_after_idle(move || unsafe {
@@ -8618,6 +8662,9 @@ mod imp {
             NAV_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            NAV_OPS.with(|q| {
+                q.borrow_mut().remove(&ptr_of(&h));
+            });
             NAV_PAGES.with(|set| {
                 set.borrow_mut().remove(&ptr_of(&h));
             });
@@ -8766,82 +8813,35 @@ mod imp {
             // Nav host: pages join the VC stack; the first one becomes the root VC now, later
             // pages are presented by the Pushed patch.
             // Copy out of NAV_STATE before setViewControllers (same re-entrancy rule).
-            let set_root = NAV_STATE.with(|m| {
+            let placed = NAV_STATE.with(|m| {
                 let mut m = m.borrow_mut();
                 let state = m.get_mut(&ptr_of(parent))?;
                 let vc = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())?;
-                state.vcs.push(vc.clone());
-                // Inline search rides the ROOT page only (docs/search.md): it filters the
-                // TOP-LEVEL list, so it belongs to that list's navigation item and not to every
-                // pushed detail page. `hidesSearchBarWhenScrolling` defaults to true, which is
-                // what puts it behind the pull-down.
                 if is_sidebar && let Some((sc, _)) = state.search.as_ref() {
                     let item = unsafe { vc.navigationItem() };
                     unsafe {
                         item.setSearchController(Some(sc));
-                        // Auto-hide, explicitly rather than by default — and LARGE TITLES on this
-                        // page, because that is the configuration the collapse actually belongs
-                        // to. Mail, Settings and Files all do this: the search bar sits under a
-                        // large title and the two collapse together as the list scrolls, then
-                        // come back on a pull down. With a small centered title UIKit keeps the
-                        // field pinned and nothing hides (docs/search.md).
-                        // Whether it PINS is the presentation's call, not this insert's:
-                        // `isCollapsed` is not meaningful yet on a host that has no window, so
-                        // `pin_sidebar_search` settles it here for the shape we have and again
-                        // whenever the split collapses or expands.
                         pin_sidebar_search(&item, &state.nav);
-                        // The collapse is driven by a SCROLL VIEW the navigation controller can
-                        // track, and tracking needs the content to extend UNDER the bar rather
-                        // than start below it. `DayNavPageView` pins to the safe area, so without
-                        // these two the list never overlaps the bar, UIKit has nothing to couple
-                        // to, and the field stays put no matter how far you scroll — which is
-                        // exactly what the flag alone did not fix.
                         vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);
                         vc.setExtendedLayoutIncludesOpaqueBars(true);
                     }
                 } else if !is_sidebar {
-                    // Pushed detail pages keep the compact title: the large one belongs to the
-                    // top-level list that owns the search field.
                     unsafe {
                         vc.navigationItem().setLargeTitleDisplayMode(
                             objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never,
                         )
                     };
                 }
-                // The sidebar page ALWAYS becomes the primary column, in both presentations
-                // (docs/size-classes.md). Never conditionally the stack's root: `isCollapsed`
-                // is not yet meaningful when a host is realized — it has no window — so branching
-                // on it here put the page in the stack AND left UIKit's own merge with nothing to
-                // move, stranding a phantom entry under every detail. Letting UIKit own the move
-                // means one code path and no guess: it merges the column into the stack when it
-                // collapses, which IS the phone shape, and lifts it back out when it expands.
                 if is_sidebar && let Some(parts) = state.split.as_ref() {
-                    state.vcs.retain(|v| !std::ptr::eq(&**v, &*vc));
                     let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
                     unsafe { parts.primary_nav.setViewControllers(&arr) };
-                    // Handled — Some(None), NOT None: the outer match reads None as "parent is
-                    // not a nav host" and reparents the child via addSubview, which STEALS the
-                    // content view out of its DayNavPageView (addSubview moves a view). The page
-                    // then has nothing to pin to the safe area, and the sidebar's content draws
-                    // from the split view's origin at whatever size it was last laid out for —
-                    // the cut-off landscape list and the stale overlay after a collapse.
                     return Some(None);
                 }
-                // A PLAIN host's first page becomes its root right here: a nested stack's root
-                // is part of the host build and no `NavPatch::Pushed` follows it (only pushed
-                // destinations patch). The adaptive host never takes this path — UIKit's
-                // collapse puts the sidebar column at the stack root, and detail pages arrive
-                // through `NavPatch::Pushed`.
-                if state.split.is_none() && state.vcs.len() == 1 {
-                    return Some(Some((state.nav.clone(), vc)));
-                }
-                Some(None::<(Retained<DayNavController>, Retained<UIViewController>)>)
+                Some(Some(vc))
             });
+            let set_root = placed.map(|detail| detail.map(|vc| (ptr_of(parent), vc)));
             match set_root {
-                Some(Some((nav, vc))) => {
-                    let arr = objc2_foundation::NSArray::from_retained_slice(&[vc]);
-                    unsafe { nav.setViewControllers(&arr) };
-                }
+                Some(Some((host, vc))) => push_page(host, vc),
                 Some(None) => {}
                 None => {
                     // A cover's content view already lives inside its DayCoverVC's view —
@@ -8886,16 +8886,12 @@ mod imp {
         }
 
         fn remove(&mut self, parent: &Handle, child: &Handle) {
-            let nav_child = NAV_STATE.with(|m| {
-                let mut m = m.borrow_mut();
-                let Some(state) = m.get_mut(&ptr_of(parent)) else {
-                    return false;
-                };
-                if let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned()) {
-                    state.vcs.retain(|v| !std::ptr::eq(&**v, &*vc));
-                }
-                true
-            });
+            let nav_child = NAV_STATE.with(|m| m.borrow().contains_key(&ptr_of(parent)));
+            if nav_child
+                && let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())
+            {
+                pop_page(ptr_of(parent), vc);
+            }
             if !nav_child {
                 unsafe { child.removeFromSuperview() };
             }

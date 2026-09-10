@@ -160,11 +160,12 @@ The following traps fail silently:
   with nothing to merge into, it drops the navigation bar entirely on phones and breaks
   first-responder handling, so `becomeFirstResponder` fails quietly. Which controller owns the
   stack therefore depends on the presentation.
-- **iOS, again.** Day-initiated stack changes are one `setViewControllers:animated:` derived
-  from the mirrored stack, never incremental push/pop calls. A selection change is a pop and a
-  push; issued separately while the first still animates, `viewControllers` reports a transient
-  state and any decision read from it (a count, a top page) can wipe or double an entry. The
-  atomic set is idempotent, so however calls interleave, the last one applies the final model.
+- **iOS, again.** Day-initiated stack changes are one `setViewControllers:animated:` each,
+  computed at execution from the pages UIKit reports plus or minus the one page that joined or
+  left (`push_page`, `pop_page`). Nothing is kept on Day's side to fall out of step: a page that
+  the user already popped is simply not in what UIKit reports, and removing it is a no-op. UIKit
+  keeps `viewControllers` current from the moment a set is issued, so two changes queued behind
+  each other each see the other's result.
 - **iOS, a third time.** Never *animate* to an empty stack (deselecting in the expanded split
   empties the detail column): with no destination controller the transition sets up but never
   completes, the stack keeps its old contents, and the orphaned transition coordinator reports
