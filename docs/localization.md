@@ -172,6 +172,16 @@ once. Modifier schemes
 (`menu_role(MenuRole::Copy)`, [docs/menus.md](menus.md)) keep the platform's own system
 shortcuts and never localize them.
 
+## Permission reasons
+
+The text a phone shows when the app asks for the camera or your location is catalog copy too:
+a `permission_<name>` message per declared permission (`permission_camera`,
+`permission_NSBluetoothAlwaysUsageDescription` for a raw key), which `day build` writes into
+`Info.plist` and its `InfoPlist.xcstrings` and into HarmonyOS's per-locale `string.json`.
+No `res::str` accessor is needed, since the app never renders these itself; the coverage lint
+therefore never reports them unused, and `missing-reason` names the locale that lacks one.
+[docs/permissions.md](permissions.md), "Localized reasons".
+
 ## Formatted values: `NUMBER()` and `DATETIME()`
 
 Every bundle (app and core, registered automatically by `day-l10n`) provides icu4x-backed

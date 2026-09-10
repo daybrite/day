@@ -717,7 +717,7 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
     };
     let platform = if macos { "macos" } else { "ios" };
     let contributed = crate::pieces::contributed_permissions(project, &["uikit"]);
-    let plan = crate::permissions::resolve(&project.manifest, platform, &contributed)
+    let plan = crate::permissions::resolve_project(project, platform, &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
 
     let want = crate::permissions::apple_keys(&plan, macos);
@@ -732,23 +732,140 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
         std::fs::read_to_string(&plist).map_err(|e| format!("{}: {e}", plist.display()))?;
     let after = crate::plist::apply_string_keys(&before, &want, &remove)
         .map_err(|e| format!("{}: {e}", plist.display()))?;
-    if after == before {
-        return Ok(()); // touch only when changed — keeps Xcode's incremental build warm
-    }
-    std::fs::write(&plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
+    if after != before {
+        // Touch only when changed — keeps Xcode's incremental build warm.
+        std::fs::write(&plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
 
-    // Apple's own parser gets the last word. macOS-only, so elsewhere this costs checking, not
-    // correctness — and on failure the original file is restored rather than left corrupt.
-    if cfg!(target_os = "macos")
-        && let Ok(out) = Command::new("plutil").arg("-lint").arg(&plist).output()
-        && !out.status.success()
-    {
-        let _ = std::fs::write(&plist, &before);
-        return Err(format!(
-            "generated Info.plist failed `plutil -lint` and was restored: {}",
-            String::from_utf8_lossy(&out.stdout).trim()
-        ));
+        // Apple's own parser gets the last word. macOS-only, so elsewhere this costs checking,
+        // not correctness — and on failure the original file is restored rather than left corrupt.
+        if cfg!(target_os = "macos")
+            && let Ok(out) = Command::new("plutil").arg("-lint").arg(&plist).output()
+            && !out.status.success()
+        {
+            let _ = std::fs::write(&plist, &before);
+            return Err(format!(
+                "generated Info.plist failed `plutil -lint` and was restored: {}",
+                String::from_utf8_lossy(&out.stdout).trim()
+            ));
+        }
     }
+
+    // The translations, beside the plist (docs/permissions.md, "Localized reasons").
+    if !macos {
+        sync_info_plist_strings(
+            project,
+            &plist,
+            &plan.default_locale,
+            &crate::permissions::apple_keys_localized(&plan, macos),
+        )?;
+    }
+    Ok(())
+}
+
+/// The string catalog beside the plist: `InfoPlist.xcstrings`, where Xcode 15+ reads the
+/// localized values of `Info.plist` keys. Written from the same plan as the plist, every
+/// locale the catalogs translate, byte-stable across builds. A single-locale app that has no
+/// catalog file yet gets none — materializing one would dirty a tree the app never asked to
+/// localize — but a file that exists (every scaffold since 2026-09 ships one) is always kept
+/// current, and the Xcode project is taught about it the first time it matters.
+pub(crate) fn sync_info_plist_strings(
+    project: &Project,
+    plist: &Path,
+    default_locale: &str,
+    keys: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
+) -> Result<(), String> {
+    let path = plist.with_file_name(INFO_PLIST_STRINGS);
+    let translated = crate::permissions::has_translations(keys, default_locale);
+    if !translated && !path.exists() {
+        return Ok(());
+    }
+    let want = crate::permissions::xcstrings_json(default_locale, keys);
+    let have = std::fs::read_to_string(&path).unwrap_or_default();
+    if have != want {
+        std::fs::write(&path, &want).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    ensure_info_plist_strings_reference(project)
+}
+
+/// The string catalog's file name.
+pub(crate) const INFO_PLIST_STRINGS: &str = "InfoPlist.xcstrings";
+
+/// Make sure the Xcode project copies `InfoPlist.xcstrings` into the bundle: a file reference,
+/// a build file, the Runner group child, and the Resources phase entry — the four lines a
+/// scaffold generated before 2026-09 lacks. Text insertion at the section anchors, like the
+/// other pbxproj edits (`knownRegions`, the strings phase); ids are fixed and checked free.
+pub(crate) fn ensure_info_plist_strings_reference(project: &Project) -> Result<(), String> {
+    let pbx = project
+        .root
+        .join("platform/ios/DayApp.xcodeproj/project.pbxproj");
+    let Ok(text) = std::fs::read_to_string(&pbx) else {
+        return Ok(());
+    };
+    if text.contains(INFO_PLIST_STRINGS) {
+        return Ok(());
+    }
+    const FILE_REF: &str = "DA0000000000000000000008";
+    const BUILD_FILE: &str = "DA0000000000000000000105";
+    if text.contains(FILE_REF) || text.contains(BUILD_FILE) {
+        status(
+            "Warning",
+            &format!(
+                "{}: cannot add {INFO_PLIST_STRINGS} (its ids are taken); add the file to the \
+                 Runner target's Copy Bundle Resources in Xcode",
+                pbx.display()
+            ),
+        );
+        return Ok(());
+    }
+    let mut out = text.clone();
+    let insert_after = |out: &mut String, anchor: &str, line: &str| -> Result<(), String> {
+        let at = out
+            .find(anchor)
+            .ok_or_else(|| format!("{}: no `{}`", pbx.display(), anchor.trim()))?
+            + anchor.len();
+        out.insert_str(at, line);
+        Ok(())
+    };
+    insert_after(
+        &mut out,
+        "/* Begin PBXBuildFile section */\n",
+        &format!(
+            "\t\t{BUILD_FILE} /* {INFO_PLIST_STRINGS} in Resources */ = {{isa = PBXBuildFile; \
+             fileRef = {FILE_REF} /* {INFO_PLIST_STRINGS} */; }};\n"
+        ),
+    )?;
+    insert_after(
+        &mut out,
+        "/* Begin PBXFileReference section */\n",
+        &format!(
+            "\t\t{FILE_REF} /* {INFO_PLIST_STRINGS} */ = {{isa = PBXFileReference; \
+             lastKnownFileType = text.json.xcstrings; path = {INFO_PLIST_STRINGS}; sourceTree = \
+             \"<group>\"; }};\n"
+        ),
+    )?;
+    // The Runner group: right after Info.plist, which every scaffold lists there.
+    insert_after(
+        &mut out,
+        "/* Info.plist */,\n",
+        &format!("\t\t\t\t{FILE_REF} /* {INFO_PLIST_STRINGS} */,\n"),
+    )?;
+    // The Resources phase: the first `files = (` after its `isa`.
+    let phase = out
+        .find("isa = PBXResourcesBuildPhase;")
+        .ok_or_else(|| format!("{}: no PBXResourcesBuildPhase", pbx.display()))?;
+    let files = out[phase..]
+        .find("files = (\n")
+        .map(|i| phase + i + "files = (\n".len())
+        .ok_or_else(|| format!("{}: Resources phase has no files list", pbx.display()))?;
+    out.insert_str(
+        files,
+        &format!("\t\t\t\t{BUILD_FILE} /* {INFO_PLIST_STRINGS} in Resources */,\n"),
+    );
+    std::fs::write(&pbx, out).map_err(|e| format!("{}: {e}", pbx.display()))?;
+    status(
+        "Adding",
+        &format!("{INFO_PLIST_STRINGS} to the Xcode project"),
+    );
     Ok(())
 }
 
@@ -962,7 +1079,7 @@ fn dirs_home() -> Option<std::path::PathBuf> {
 /// grant. Used to check the two agree before signing rather than after the app fails to register.
 pub(crate) fn ios_wants_push(project: &Project) -> Result<bool, String> {
     let contributed = crate::pieces::contributed_permissions(project, &["uikit"]);
-    let plan = crate::permissions::resolve(&project.manifest, "ios", &contributed)
+    let plan = crate::permissions::resolve_project(project, "ios", &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
     Ok(plan.resolved.iter().any(|r| r.spec.name == "notifications"))
 }

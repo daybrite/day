@@ -7,12 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		DA0000000000000000000105 /* InfoPlist.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000008 /* InfoPlist.xcstrings */; };
 		DA0000000000000000000101 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000001 /* main.swift */; };
 		DA0000000000000000000102 /* DayPieces in Frameworks */ = {isa = PBXBuildFile; productRef = DA0000000000000000000071 /* DayPieces */; };
 		DA0000000000000000000104 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DA0000000000000000000005 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		DA0000000000000000000008 /* InfoPlist.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = InfoPlist.xcstrings; sourceTree = "<group>"; };
 		DA0000000000000000000001 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		DA0000000000000000000002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		DA0000000000000000000003 /* $(PRODUCT_NAME).app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "$(PRODUCT_NAME).app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -49,6 +51,7 @@
 			children = (
 				DA0000000000000000000001 /* main.swift */,
 				DA0000000000000000000002 /* Info.plist */,
+				DA0000000000000000000008 /* InfoPlist.xcstrings */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -121,6 +124,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DA0000000000000000000105 /* InfoPlist.xcstrings in Resources */,
 				DA0000000000000000000104 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

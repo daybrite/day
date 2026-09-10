@@ -914,6 +914,9 @@ fn collect(project: &Project) -> Vec<Finding> {
         used.retain(|h| seen_variants.insert(h.text.clone()));
         used.sort_by(|a, b| a.text.cmp(&b.text));
         let declared = &project.manifest.permissions.declared;
+        // Reasons may live in the catalogs rather than in Day.toml (docs/permissions.md,
+        // "Localized reasons"), so "has a reason" asks both.
+        let catalog = crate::permissions::Catalog::load(&project.root);
         for hit in &used {
             let variant = &hit.text;
             let at = hit.location(&project.root);
@@ -941,8 +944,16 @@ fn collect(project: &Project) -> Vec<Finding> {
                     ..Default::default()
                 }
                 .located(at.clone())),
-                Some(decl) if spec.needs_reason && decl.reason_for("ios").is_none() => findings
-                    .push(Finding {
+                Some(decl)
+                    if spec.needs_reason
+                        && decl.reason_for("ios").is_none()
+                        && catalog
+                            .text(
+                                &catalog.default_locale,
+                                &crate::permissions::message_id(spec.name),
+                            )
+                            .is_none() =>
+                    findings.push(Finding {
                         code: "day::lint::missing-reason",
                         message: format!(
                             "[permissions] {:?} has no reason — it is the text iOS and HarmonyOS \
@@ -956,12 +967,14 @@ fn collect(project: &Project) -> Vec<Finding> {
             }
         }
 
+        check_permission_reasons(project, &catalog, &mut findings);
+
         // Has a build actually written the declarations into the checked-in iOS manifest? The
         // Android overlay is gitignored and regenerated every build, so there is nothing stale to
         // find there — checking it would only produce false alarms on a fresh clone.
         if let Some(plist) = crate::mobile::app_info_plist(project)
             && let Ok(text) = std::fs::read_to_string(&plist)
-            && let Ok(plan) = crate::permissions::resolve(&project.manifest, "ios", &[])
+            && let Ok(plan) = crate::permissions::resolve_project(project, "ios", &[])
         {
             let have = crate::plist::read_string_keys(&text);
             // Permission usage descriptions only. Day.toml `[window]`'s minimum is NOT checked
@@ -989,6 +1002,25 @@ fn collect(project: &Project) -> Vec<Finding> {
                     ),
                     ..Default::default()
                 });
+            }
+            // The translations beside it: InfoPlist.xcstrings must match what the plan says
+            // every other locale reads, for the same reason.
+            let localized = crate::permissions::apple_keys_localized(&plan, false);
+            if crate::permissions::has_translations(&localized, &plan.default_locale) {
+                let strings = plist.with_file_name(crate::mobile::INFO_PLIST_STRINGS);
+                let want = crate::permissions::xcstrings_json(&plan.default_locale, &localized);
+                if std::fs::read_to_string(&strings).ok().as_deref() != Some(want.as_str()) {
+                    findings.push(Finding {
+                        code: "day::lint::stale-manifest",
+                        message: format!(
+                            "platform/ios/Runner/{} is missing or out of date for the localized \
+                             permission reasons — run `day build -p ios-uikit` to regenerate it \
+                             and commit the result (docs/permissions.md)",
+                            crate::mobile::INFO_PLIST_STRINGS
+                        ),
+                        ..Default::default()
+                    });
+                }
             }
         }
     }
@@ -1079,6 +1111,11 @@ fn collect(project: &Project) -> Vec<Finding> {
             // naming its own language for pickers — docs/localization.md), so no `res::str::` or
             // `tr("…")` reference exists for the scan to find.
             if k == "language_name" {
+                continue;
+            }
+            // Permission reasons are consumed by the declaration pipeline (docs/permissions.md,
+            // "Localized reasons"), never by app source; the reason checks above own them.
+            if k.starts_with(crate::permissions::MESSAGE_PREFIX) {
                 continue;
             }
             if !is_referenced(k, &used, &literals) {
@@ -1619,6 +1656,116 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
                     });
                 }
             }
+        }
+    }
+}
+
+/// Every declared permission that prompts must have its reason text, in every locale the app
+/// ships (docs/permissions.md, "Localized reasons"): the catalog's `permission_<id>` message,
+/// or Day.toml's inline text for a single-locale app. Reported per declaration and per locale,
+/// so a translator sees exactly which catalog is short, and a text given twice — inline and in
+/// the default catalog — is named too, since only the catalog's copy reaches the phone.
+fn check_permission_reasons(
+    project: &crate::meta::Project,
+    catalog: &crate::permissions::Catalog,
+    findings: &mut Vec<Finding>,
+) {
+    let default = catalog.default_locale.as_str();
+    // (what to call it, message id, the inline text if any)
+    let mut wanted: Vec<(String, String, Option<String>)> = Vec::new();
+    for (name, decl) in &project.manifest.permissions.declared {
+        let Some(spec) = day_build::permissions::find(name) else {
+            continue;
+        };
+        if !decl.enabled() || !spec.needs_reason {
+            continue;
+        }
+        wanted.push((
+            format!("[permissions] {}", spec.name),
+            crate::permissions::message_id(spec.name),
+            decl.reason_for("ios").map(str::to_string),
+        ));
+    }
+    let raw = &project.manifest.permissions.raw;
+    for (table, keys) in [("ios", &raw.ios), ("macos", &raw.macos)] {
+        for (key, value) in keys {
+            if value.enabled() {
+                wanted.push((
+                    format!("[permissions.raw] {table} {key}"),
+                    crate::permissions::message_id(key),
+                    value.literal().map(str::to_string),
+                ));
+            }
+        }
+    }
+    for p in &raw.ohos {
+        wanted.push((
+            format!("[permissions.raw] ohos {}", p.name),
+            crate::permissions::message_id(&p.name),
+            p.reason.clone(),
+        ));
+    }
+    let locale_file = |locale: &str| -> Location {
+        let dir = project.root.join("resource/locales").join(locale);
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .map(|d| d.flatten().map(|f| f.path()).collect())
+            .unwrap_or_default();
+        files.sort();
+        match files
+            .iter()
+            .find(|f| f.extension().is_some_and(|x| x == "ftl"))
+        {
+            Some(f) => Location::head(rel(&project.root, f)),
+            None => Location::head(format!("resource/locales/{locale}")),
+        }
+    };
+    for (what, id, inline) in wanted {
+        let in_default = catalog.text(default, &id).is_some();
+        match (in_default, inline.as_deref()) {
+            (false, None) => findings.push(
+                Finding {
+                    code: "day::lint::missing-reason",
+                    message: format!(
+                        "{what} has no reason: give it inline in Day.toml, or as `{id}` in \
+                         resource/locales/{default}/app.ftl to make it translatable (docs/permissions.md)"
+                    ),
+                    ..Default::default()
+                }
+                .located(Location::head("Day.toml")),
+            ),
+            (true, Some(_)) => findings.push(
+                Finding {
+                    code: "day::lint::duplicate-reason",
+                    message: format!(
+                        "{what} has a reason in Day.toml AND `{id}` in resource/locales/{default}; \
+                         the catalog's is what ships — drop the inline text (or set the key to \
+                         `true`) so the two cannot drift"
+                    ),
+                    ..Default::default()
+                }
+                .located(Location::head("Day.toml")),
+            ),
+            (false, Some(_)) => {
+                // Inline only: fine for one locale. Every other locale the app ships is then
+                // missing a translation of a text its users will be shown.
+                for locale in catalog.locales() {
+                    if locale != default && catalog.text(locale, &id).is_none() {
+                        findings.push(
+                            Finding {
+                                code: "day::lint::missing-reason",
+                                message: format!(
+                                    "resource/locales/{locale}: no `{id}` message — {locale} users \
+                                     are shown the {default} reason for {what} (docs/permissions.md)"
+                                ),
+                                ..Default::default()
+                            }
+                            .located(locale_file(locale)),
+                        );
+                    }
+                }
+            }
+            // Catalog only: the missing-translation check reports the locales that lack it.
+            (true, None) => {}
         }
     }
 }

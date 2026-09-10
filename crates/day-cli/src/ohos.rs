@@ -537,7 +537,7 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
         return Ok(());
     }
     let contributed = crate::pieces::contributed_permissions(project, &["arkui"]);
-    let plan = crate::permissions::resolve(&project.manifest, "ohos", &contributed)
+    let plan = crate::permissions::resolve_project(project, "ohos", &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
     let entries = crate::permissions::ohos_entries(&plan);
     for e in &entries {
@@ -578,10 +578,7 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
     // from its commit, and a build that edits tracked files means it is not. An app that already
     // HAS a region still falls through, so removing the last permission still empties it.
     if entries.is_empty() && !before.contains("// day:permissions-begin") {
-        return write_ohos_reason_strings(
-            project,
-            &crate::permissions::ohos_reason_strings(&plan, &project.manifest),
-        );
+        return write_ohos_reason_strings(project, &plan);
     }
     let with_region = crate::json5::ensure_region(&before, "requestPermissions", "permissions")?;
     let after = crate::json5::replace_region(&with_region, "permissions", &body)
@@ -590,23 +587,37 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
         std::fs::write(&module, after).map_err(|e| format!("{}: {e}", module.display()))?;
     }
 
-    write_ohos_reason_strings(
-        project,
-        &crate::permissions::ohos_reason_strings(&plan, &project.manifest),
-    )
+    write_ohos_reason_strings(project, &plan)
 }
 
-/// Merge the generated `day_perm_reason_*` entries into the module's `string.json`, preserving every
-/// other entry in its existing order.
+/// Merge the generated `day_perm_reason_*` entries into the module's `string.json`s, preserving
+/// every other entry in its existing order: the default locale into `base/`, and every locale
+/// the catalogs translate into its own qualifier directory (`zh_CN/`, `fr/` — the tag with the
+/// hyphen HarmonyOS does not allow replaced), created when missing.
 fn write_ohos_reason_strings(
     project: &Project,
-    reasons: &std::collections::BTreeMap<String, String>,
+    plan: &crate::permissions::Plan,
 ) -> Result<(), String> {
-    let path = harmony_dir(project).join("entry/src/main/resources/base/element/string.json");
-    if !path.exists() {
+    let resources = harmony_dir(project).join("entry/src/main/resources");
+    let base = resources.join("base/element/string.json");
+    if !base.exists() {
         return Ok(());
     }
-    merge_day_strings(&path, "day_perm_reason_", reasons)
+    merge_day_strings(
+        &base,
+        "day_perm_reason_",
+        &crate::permissions::ohos_reason_strings(plan),
+    )?;
+    for (locale, reasons) in crate::permissions::ohos_reason_strings_localized(plan) {
+        if locale == plan.default_locale {
+            continue;
+        }
+        let path = resources
+            .join(locale.replace('-', "_"))
+            .join("element/string.json");
+        merge_day_strings(&path, "day_perm_reason_", &reasons)?;
+    }
+    Ok(())
 }
 
 /// Merge day-owned entries into a `string.json`, preserving every other entry in its existing

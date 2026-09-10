@@ -2679,6 +2679,13 @@ ets = ["ohos/ets"]                         # ArkTS source dirs, staged into the 
 [package.metadata.day.permissions]
 uses = ["camera"]                          # PORTABLE permissions this crate needs (docs/permissions.md)
 ```
+> [!NOTE]
+> **Localized reasons (2026-09).** A reason is a catalog message (`permission_<name>` in
+> `resource/locales/<tag>/app.ftl`) as well as inline Day.toml text; `day build` writes the
+> translations to `platform/ios/Runner/InfoPlist.xcstrings` and to per-locale HarmonyOS
+> `string.json`s, `day lint` reports the locale that lacks one, and `day metadata --json` carries
+> `reasons` per locale ([docs/permissions.md](docs/permissions.md), "Localized reasons").
+
 
 `[package.metadata.day.permissions]` is machine-facing only: a library declares WHICH permissions it
 needs, never the user-facing reason, which is app copy and lives in the app's `[permissions]` table

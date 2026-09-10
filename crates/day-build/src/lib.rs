@@ -423,6 +423,18 @@ pub fn res_str_ident(key: &str) -> String {
     key.replace('.', "_")
 }
 
+/// Message key → value text for every message in a Fluent resource (attributes excluded;
+/// placeables rendered as `{ $var }`) — for tooling that reads a catalog message as DATA rather
+/// than as UI copy: the permission reasons `day build` writes into each platform's manifest
+/// (docs/permissions.md, "Localized reasons").
+pub fn message_texts(ftl_src: &str) -> Vec<(String, String)> {
+    ftl_messages(ftl_src)
+        .into_iter()
+        .filter(|m| !m.key.contains('.'))
+        .map(|m| (m.key, m.value_text))
+        .collect()
+}
+
 pub fn message_keys(ftl_src: &str) -> Vec<String> {
     ftl_messages(ftl_src)
         .into_iter()

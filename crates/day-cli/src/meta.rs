@@ -360,14 +360,37 @@ pub struct RawPermissions {
     /// Android permission ids, e.g. `"android.permission.READ_CONTACTS"`.
     #[serde(default)]
     pub android: Vec<String>,
-    /// `Info.plist` key → usage description.
+    /// `Info.plist` key → usage description: the text itself, or `true` for "the text is the
+    /// catalog's `permission_<Key>` message" (docs/permissions.md, "Localized reasons").
     #[serde(default)]
-    pub ios: BTreeMap<String, String>,
+    pub ios: BTreeMap<String, RawText>,
     #[serde(default)]
-    pub macos: BTreeMap<String, String>,
+    pub macos: BTreeMap<String, RawText>,
     /// HarmonyOS entries, each needing its own reason and scene.
     #[serde(default)]
     pub ohos: Vec<RawOhosPermission>,
+}
+
+/// A raw Apple usage description: literal text, or `true` to take it from the catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum RawText {
+    Text(String),
+    Catalog(bool),
+}
+
+impl RawText {
+    /// The literal, when the declaration carries one.
+    pub fn literal(&self) -> Option<&str> {
+        match self {
+            RawText::Text(s) => Some(s.as_str()),
+            RawText::Catalog(_) => None,
+        }
+    }
+    /// `false` is an explicit "not this key".
+    pub fn enabled(&self) -> bool {
+        !matches!(self, RawText::Catalog(false))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1168,7 +1191,7 @@ ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when
                 .raw
                 .ios
                 .get("NSContactsUsageDescription")
-                .map(String::as_str),
+                .and_then(RawText::literal),
             Some("Find friends.")
         );
         assert_eq!(

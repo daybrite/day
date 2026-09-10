@@ -111,7 +111,9 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
             // The home-screen presentation of the web build (docs/web.md).
             "web": m.web,
             "resolved": resolved,
-            "permissions": declared_permissions(m),
+            "permissions": declared_permissions(project),
+            // `[permissions.raw]`, with the same per-locale reasons (docs/permissions.md).
+            "rawPermissions": raw_permissions(project),
         },
         "host": { "os": host_os() },
         "targetCatalog": catalog,
@@ -145,17 +147,29 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
 /// The app's declared permissions, resolved from Day.toml alone — no `cargo metadata`, so
 /// `day metadata` stays as fast as it has always been. Library contributions are therefore NOT
 /// included here; `day build` unions them at build time (docs/permissions.md).
-fn declared_permissions(m: &crate::meta::Manifest) -> Vec<serde_json::Value> {
-    m.permissions
+fn declared_permissions(project: &Project) -> Vec<serde_json::Value> {
+    let catalog = crate::permissions::Catalog::load(&project.root);
+    project
+        .manifest
+        .permissions
         .declared
         .iter()
         .filter(|(_, d)| d.enabled())
         .filter_map(|(name, decl)| {
             let spec = day_build::permissions::find(name)?;
+            // The reason in every locale (docs/permissions.md, "Localized reasons"): the
+            // catalog's `permission_<id>` message, Day.toml's inline text for the default.
+            let mut reasons = catalog_texts(&catalog, &crate::permissions::message_id(spec.name));
+            if let Some(inline) = decl.reason_for("ios")
+                && !reasons.contains_key(&catalog.default_locale)
+            {
+                reasons.insert(catalog.default_locale.clone(), inline.to_string());
+            }
             Some(serde_json::json!({
                 "name": spec.name,
                 "variant": spec.variant,
-                "reason": decl.reason_for("ios"),
+                "reason": reasons.get(&catalog.default_locale),
+                "reasons": reasons,
                 "android": spec.android.iter().map(|p| p.name).collect::<Vec<_>>(),
                 "ios": spec.ios,
                 "macos": spec.macos,
@@ -163,6 +177,59 @@ fn declared_permissions(m: &crate::meta::Manifest) -> Vec<serde_json::Value> {
             }))
         })
         .collect()
+}
+
+/// `id` in every locale the catalog has it: locale → text.
+fn catalog_texts(
+    catalog: &crate::permissions::Catalog,
+    id: &str,
+) -> std::collections::BTreeMap<String, String> {
+    catalog
+        .locales()
+        .filter_map(|l| catalog.text(l, id).map(|t| (l.clone(), t.to_string())))
+        .collect()
+}
+
+/// `[permissions.raw]`: the Android names, the Apple keys with their reasons per locale, and
+/// the HarmonyOS entries with theirs.
+fn raw_permissions(project: &Project) -> serde_json::Value {
+    let catalog = crate::permissions::Catalog::load(&project.root);
+    let raw = &project.manifest.permissions.raw;
+    let with_reasons = |id: &str, inline: Option<&str>| {
+        let mut reasons = catalog_texts(&catalog, id);
+        if let Some(inline) = inline
+            && !reasons.contains_key(&catalog.default_locale)
+        {
+            reasons.insert(catalog.default_locale.clone(), inline.to_string());
+        }
+        serde_json::json!({
+            "reason": reasons.get(&catalog.default_locale),
+            "reasons": reasons,
+        })
+    };
+    let apple = |table: &std::collections::BTreeMap<String, crate::meta::RawText>| {
+        table
+            .iter()
+            .filter(|(_, v)| v.enabled())
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    with_reasons(&crate::permissions::message_id(k), v.literal()),
+                )
+            })
+            .collect::<serde_json::Map<_, _>>()
+    };
+    serde_json::json!({
+        "android": raw.android,
+        "ios": apple(&raw.ios),
+        "macos": apple(&raw.macos),
+        "ohos": raw.ohos.iter().map(|p| {
+            let mut v = with_reasons(&crate::permissions::message_id(&p.name), p.reason.as_deref());
+            v["name"] = serde_json::Value::String(p.name.clone());
+            v["when"] = serde_json::Value::String(p.when.clone().unwrap_or_else(|| "inuse".into()));
+            v
+        }).collect::<Vec<_>>(),
+    })
 }
 
 /// Every permission Day can declare, mirroring `targetCatalog`: tooling (day-vscode's completion

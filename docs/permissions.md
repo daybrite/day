@@ -43,6 +43,35 @@ notifications        = true          # needs no reason on any platform
 The reason text is what the OS shows the user in its own prompt. `day lint` flags a permission your
 code requests but Day.toml doesn't declare, so this is caught in CI rather than on a device.
 
+### Localized reasons
+
+The inline text above is the single-language shortcut. An app with more than one locale keeps
+each reason in its catalogs instead, as a `permission_<name>` message beside the rest of its
+copy, so translators see it where they work and the prompt speaks the user's language:
+
+```toml
+[permissions]
+camera = true                 # declared; the text is the catalog's
+location-when-in-use = true
+
+[permissions.raw]
+ios = { NSBluetoothAlwaysUsageDescription = true }
+```
+
+```ftl
+# resource/locales/en/app.ftl
+permission_camera = Attach photos to your notes.
+permission_location_when_in_use = Show stations near you.
+permission_NSBluetoothAlwaysUsageDescription = Find your bike's lock.
+```
+
+The message id is `permission_` plus the portable name with every non-alphanumeric character
+as `_`, or plus the native key itself for a raw entry. The catalog's message wins over inline
+text in the default locale; inline text still fills the default locale when the catalog has no
+message, so a single-locale app never has to move anything. `day localize add` copies the
+messages into a new locale with the rest of the catalog, and `day metadata --json` reports every
+declaration's `reasons` by locale for tooling such as the project site.
+
 ## Authoring
 
 ```rust
@@ -194,9 +223,17 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   the diff shows only what changed, and a hand-added key Day doesn't model is never touched. Two
   consecutive builds produce a byte-identical file. This is an exception to "aggregation
   never mutates the scaffolds" (DESIGN §15.2), because the alternative broke `⌘R` in Xcode.
+  The plist carries the default locale's text; the translations go to `InfoPlist.xcstrings`
+  beside it, the string catalog Xcode 15+ reads localized `Info.plist` values from, one
+  `stringUnit` per key and locale in Xcode's own locale spelling (`zh-Hans`). The scaffold
+  ships an empty catalog already wired into the target; an older project gets the file and its
+  four project entries the first time a build has a translation to write. Regenerated from the
+  same plan as the plist and byte-stable, so open it in Xcode to read, not to edit.
 - **HarmonyOS** — a marker region in `module.json5` (`// day:permissions-begin` … `-end`), inserted
   once on an older scaffold and replaced thereafter, plus `day_perm_reason_*` entries in
-  `string.json`. Region editing rather than JSON5 parsing, because a round-trip would delete the
+  `string.json`: the default locale's in `resources/base/`, and each translation in its own
+  qualifier directory (`resources/zh_CN/`, `resources/fr/`, the tag's hyphen replaced), created
+  when missing. Region editing rather than JSON5 parsing, because a round-trip would delete the
   file's comments.
 
 ## `day lint`
@@ -204,9 +241,10 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 | code | fires when |
 |---|---|
 | `day::lint::undeclared-permission` | code requests `Permission::X` that Day.toml doesn't declare |
-| `day::lint::missing-reason` | a declared permission that needs a reason has none |
+| `day::lint::missing-reason` | a declared permission that needs a reason has none — or has inline text only while another locale's catalog lacks its `permission_<name>` message |
+| `day::lint::duplicate-reason` | a reason given both inline and in the default catalog (the catalog's ships; the other can drift) |
 | `day::lint::unused-permission` | declared, referenced by nothing (a warning — over-declaring gets apps rejected) |
-| `day::lint::stale-manifest` | the checked-in `Info.plist` disagrees with Day.toml; run `day build -p ios-uikit` |
+| `day::lint::stale-manifest` | the checked-in `Info.plist` or `InfoPlist.xcstrings` disagrees with Day.toml and the catalogs; run `day build -p ios-uikit` |
 
 ## What it shows about the extension system
 
