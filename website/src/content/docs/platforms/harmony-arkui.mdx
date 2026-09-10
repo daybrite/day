@@ -12,10 +12,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import PlatformShots from '../../../components/PlatformShots.astro';
 
-`harmony-arkui` drives ArkUI through its **NDK C node API** (`ARKUI_NODE_BUTTON` and friends)
-from a Rust `cdylib`, inside an ArkTS host project that hvigor packages into a `.hap`. It is
-Day's newest backend ([Tier 3 · Experimental](/docs/platforms#support-tiers)), and this page
-lists where that shows.
+`harmony-arkui` drives ArkUI through its **NDK C node API** (the `ARKUI_NODE_*` types) from a Rust
+`cdylib`, inside an ArkTS host project that hvigor packages into a `.hap`. It is Day's newest
+backend ([Tier 3 · Experimental](/docs/platforms#support-tiers)), and this page lists where that
+shows.
 
 <PlatformShots platform="harmony-arkui" shots={["home", "controls", "canvas", "list"]} />
 
@@ -39,36 +39,36 @@ artifact without a vendor account. `day pack -p harmony-arkui` produces the rele
 with your own material when configured.
 
 The [`day ohos`](/docs/cli) subcommand wraps the emulator: `day ohos emulator launch` (add
-`--headless` for CI) boots the Oniro QEMU image and connects `hdc` without leaving the CLI. It
-does not download images: point `DAY_OHOS_EMULATOR` at a directory holding the Oniro emulator
-images (default `~/ohos/emulator/images`), or the command errors naming what is missing.
+`--headless` for CI) boots the Oniro QEMU image and connects `hdc`. It does not download images:
+point `DAY_OHOS_EMULATOR` at a directory holding the Oniro emulator images (default
+`~/ohos/emulator/images`), or the command errors naming what is missing.
 
-## Caveats and special considerations
+## Caveats
 
-This backend implements the widget vocabulary well and the surrounding platform integration
-partially:
+The widget vocabulary is implemented; platform integration is partial:
 
-- **No dialogs.** `present()` handles file open/save; alerts and prompts are ignored. If your UI
-  depends on a confirmation dialog, it will silently do nothing here.
-- **Several external pieces have no ArkUI arm**: media, map, Lottie, search field, combo box,
+- `present()` handles file open/save; alerts and prompts are ignored. If your UI depends on a
+  confirmation dialog, it will silently do nothing here.
+- Several external pieces have no ArkUI arm: media, map, Lottie, search field, combo box,
   activity indicator, and remote image all render a placeholder. The date/time pickers and
   pull-to-refresh have native arms, and the web view has an **ArkTS** arm: the crate ships its own
   ArkTS component, staged into the host project via `[package.metadata.day.ohos]`, with load,
   back/forward, stop, and reload working.
-- **All three picker styles collapse to one control**: menu, segmented, and inline all become
+- All three picker styles collapse to one control: menu, segmented, and inline all become
   `ARKUI_NODE_TEXT_PICKER`.
-- **Layout is measured for very few kinds.** Labels, buttons and the text area ask ArkUI to
-  measure; nearly everything else uses a fixed size, so unusual content may not fit as snugly as
-  it does on other targets.
-- **Much of the platform requires ArkTS**, reached through the host project because the C API
+- Layout is measured for very few kinds. Labels, buttons and the text area ask ArkUI to measure;
+  nearly everything else uses a fixed size, so unusual content may not fit as it does on other
+  targets.
+- Much of the platform requires ArkTS, reached through the host project because the C API
   does not expose it: navigation (`Navigation`/`NavPathStack`), file pickers, opening a URL,
   bundled resources, custom font registration, and app bootstrap. Day wires all of this in the
   scaffold; you meet the ArkTS side when you go past what Day models.
-- **Emulator behavior in CI is tolerated-flaky**; the build and packaging steps gate hard.
+- Emulator behavior in CI is tolerated-flaky; the build and packaging steps gate hard.
 
 ## What each piece becomes
 
-The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
+The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+this table adds links and notes.
 
 Day calls the ArkUI native node API directly, so the mapping below is in terms of `ArkUI_NodeType`
 values. Where HarmonyOS's [NDK development guides](https://developer.huawei.com/consumer/en/doc/harmonyos-guides/arkts-use-ndk)

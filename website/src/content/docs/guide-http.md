@@ -10,11 +10,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day apps fetch through each platform's own networking stack: `NSURLSession` on macOS and iOS,
-OkHttp on Android, WinHTTP on Windows, the browser's `fetch()` on the web, and a bundled
-ureq + rustls client on Linux and HarmonyOS. The request inherits what the OS already knows
-(system proxies and PAC scripts, VPN routing, Low Data Mode, certificate stores), and the
-native targets bundle no TLS code at all. The call site is:
+Day apps fetch through each platform's own networking stack: `NSURLSession` on macOS and iOS, OkHttp
+on Android, WinHTTP on Windows, the browser's `fetch()` on the web, and a bundled ureq + rustls
+client on Linux and HarmonyOS. The request inherits what the OS already knows (system proxies and
+PAC scripts, VPN routing, Low Data Mode, certificate stores), and TLS on the native targets comes
+from the OS. The call site is:
 
 ```rust
 day::task(async move {
@@ -73,11 +73,11 @@ fn forecast_row() -> impl Piece {
 
 The contract differs from ureq-style clients on error statuses and on timeouts.
 
-- **4xx/5xx are `Ok`.** An HTTP error status is a response (`resp.status == 404`), not an
-  `HttpError`, which is why the sample checks the status range. Errors are transport-level
-  only: `BadUrl`, `Timeout`, `Dns`, `Connect`, `Tls`, `Io`, `Cancelled`, `Unsupported`.
-- **`timeout` bounds progress, not the transfer.** It covers connecting, awaiting the response
-  head, and idle gaps; a long download that keeps moving is never cut off. Default 30 s.
+- 4xx/5xx are `Ok`. An HTTP error status is a response (`resp.status == 404`), not an `HttpError`,
+  which is why the sample checks the status range. Errors are transport-level only: `BadUrl`,
+  `Timeout`, `Dns`, `Connect`, `Tls`, `Io`, `Cancelled`, `Unsupported`.
+- `timeout` bounds progress, not the transfer. It covers connecting, awaiting the response head, and
+  idle gaps; a long download that keeps moving is never cut off. Default 30 s.
 
 `Response` is `{ status, headers, body }` plus `text()` (lossy UTF-8) and a case-insensitive
 `header(name)` lookup. There is no built-in JSON layer; parse `resp.body` with `serde_json`,
@@ -92,13 +92,12 @@ let data: Result<Forecast, _> = serde_json::from_slice(&resp.body);
 
 ## 2. Cancel an in-flight request
 
-Tasks are not owned by the scope that spawned them: leaving the page does not stop a running
-fetch. To cancel, keep the `TaskHandle` that `day::task` returns and call `.abort()`. Aborting
-drops the task's future, and **dropping the `FetchFuture` cancels the platform
-request**: `NSURLSessionTask.cancel` on Apple, OkHttp `Call.cancel` on Android, the fetch's
-`AbortController` on web. Windows and the Rust fallback can't cancel mid-flight; they run the
-request out on a worker thread and discard the result. Re-tapping below supersedes the
-previous request:
+Tasks are not owned by the scope that spawned them: leaving the page does not stop a running fetch.
+To cancel, keep the `TaskHandle` that `day::task` returns and call `.abort()`. Aborting drops the
+task's future, and dropping the `FetchFuture` cancels the platform request:
+`NSURLSessionTask.cancel` on Apple, OkHttp `Call.cancel` on Android, the fetch's `AbortController`
+on web. Windows and the Rust fallback can't cancel mid-flight; they run the request out on a worker
+thread and discard the result. Re-tapping below supersedes the previous request:
 
 ```rust
 let inflight: Rc<Cell<Option<day::TaskHandle>>> = Rc::new(Cell::new(None));
@@ -172,17 +171,17 @@ cancel). To cache a response across launches, write `resp.body` with `day-part-f
 
 ## Pitfalls
 
-- **Don't block the UI thread.** `fetch`, `fetch_to_file`, and `fetch_streamed` block their
+- Don't block the UI thread. `fetch`, `fetch_to_file`, and `fetch_streamed` block their
   calling thread; run them on your own thread, or use the futures under `day::task`. On web
   the blocking calls return `Unsupported`; the single browser thread cannot wait.
-- **`fetch_async` completes on a background thread.** Never touch signals directly in its
+- `fetch_async` completes on a background thread. Never touch signals directly in its
   callback; capture a `Setter` (`signal.setter()`), which hops to the UI thread itself. Under
   `day::task`, `fetch_future` resumes on the UI thread and needs none of this.
-- **Cleartext `http://` is platform policy.** Apple's ATS refuses non-HTTPS URLs without a
+- Cleartext `http://` is platform policy. Apple's ATS refuses non-HTTPS URLs without a
   scoped Info.plist exception (loopback is exempt); Android blocks cleartext app-wide since
   targetSdk 28, loopback included; scope an exception in `network_security_config.xml`. The
   Rust fallback enforces no such policy, another reason `tier()` exists.
-- **The browser adds CORS.** On web, cross-origin requests need the server's opt-in, and
+- The browser adds CORS. On web, cross-origin requests need the server's opt-in, and
   browser-controlled request headers (`Host`, `Cookie`, `Origin`) are ignored per the fetch
   spec. Network-level failures surface as `HttpError::Io`, since browsers hide DNS/TLS detail.
 

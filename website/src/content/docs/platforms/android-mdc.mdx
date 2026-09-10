@@ -37,29 +37,30 @@ build started from the IDE rebuilds the Rust `.so` the same way.
 day pack -p android-mdc           # release-signed .apk + .aab
 ```
 
-## Caveats and special considerations
+## Caveats
 
-- **Immersive top chrome is an opt-in.** A `dev.daybrite.day.EDGE_TO_EDGE` `<meta-data>` entry
-  in the app manifest makes the status bar transparent and floats the nav bar over full-bleed
-  pages; nav host items marked [`.immersive()`](/docs/navigation) keep the floating scrim bar,
-  other pages get an opaque `colorPrimary` bar. Content pads itself by `day::safe_area()`
-  ([Layout](/docs/layout)). Without the opt-in, everything renders below the bars as before.
-- **Accessibility annotations are partial**; see [the current limits](/docs/accessibility#current-limits).
-- **Process death is a cold start** unless your app persists its own state. Day does not restore a
+- Immersive top chrome is an opt-in. A `dev.daybrite.day.EDGE_TO_EDGE` `<meta-data>` entry in
+  the app manifest makes the status bar transparent and floats the nav bar over full-bleed pages;
+  nav host items marked [`.immersive()`](/docs/navigation) keep the floating scrim bar, other pages
+  get an opaque `colorPrimary` bar. Content pads itself by `day::safe_area()`
+  ([Layout](/docs/layout)). Without the opt-in, content renders below the bars.
+- Accessibility annotations are partial; see [the current limits](/docs/accessibility#current-limits).
+- Process death is a cold start unless your app persists its own state. Day does not restore a
   navigation stack for you.
-- **No map piece.** `day-piece-map` has no Android arm (it would pull in a Google Play services
-  dependency); it renders as a placeholder.
-- **Runtime permissions are yours to request.** Day generates the manifest entries from your
+- `day-piece-map` has no Android arm (it would pull in a Google Play services dependency); it
+  renders as a placeholder.
+- Runtime permissions are yours to request. Day generates the manifest entries from your
   `[permissions]` table, and `day-part-permissions` performs the request, but Android's
   never-asked and permanently-denied states are indistinguishable without app-side persistence.
-- **The emulator leg in CI tolerates flakes**; the build itself gates hard.
+- The emulator leg in CI tolerates flakes; the build itself gates hard.
 
 ## What each piece becomes
 
-The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
+The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+this table adds links and notes.
 
-Both Material Components and framework `android.widget` classes are in play; the table names
-which one each piece uses.
+Pieces map to both Material Components and framework `android.widget` classes; the table names which
+one each piece uses.
 
 | Day piece | Android class |
 |---|---|
@@ -99,8 +100,7 @@ which one each piece uses.
 | *external* `lottie()` | `LottieAnimationView` ([lottie-android](https://github.com/airbnb/lottie-android)) |
 
 **Text measurement** is Android's own `View.measure` with an `AT_MOST` width probe, so `TextView`
-does the actual line breaking.
+does the line breaking.
 
-**Gradle dependencies** come from the pieces you use: Lottie and SwipeRefreshLayout each
-contribute their own coordinate, and Day merges them into the app module. You never edit Gradle
-per piece.
+**Gradle dependencies** come from the pieces you use: Lottie and SwipeRefreshLayout each contribute
+their own coordinate, and Day merges them into the app module.

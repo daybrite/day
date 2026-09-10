@@ -13,8 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 A Day app is a normal Cargo package plus a small [`Day.toml`](/docs/glossary#day-toml) manifest and a few conventional
 directories. The [`day` CLI](/docs/glossary#day-cli) reads that layout to build every [target](/docs/glossary#target): the same Rust code becomes a
 plain desktop binary, a static library inside an Xcode app, a JNI `.so` inside a Gradle APK, or a
-NAPI `.so` inside a HarmonyOS `.hap`. This page walks the layout, then each build pipeline, then
-how [resources](/docs/glossary#resource) travel from your project into each platform's native store.
+NAPI `.so` inside a HarmonyOS `.hap`.
 
 ## The conventional project
 
@@ -45,21 +44,19 @@ my-app/
 └── build/day/                # generated: cargo target dirs, staged resources, screenshots
 ```
 
-These rules keep the layout predictable.
-
-- **`Day.toml` is the single manifest.** The app's Day-specific identity (`id`, `title`,
-  `artifact`, `build`), its declared `targets`, the default window geometry, and the
-  `[permissions]`, `[signing]`, and `[sbom]` sections live here, while `name` and `version` are
-  derived from Cargo.toml's `[package]`, so they can never drift. The identity properties
-  (`id`, `title`, `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
-  [toolkit](/docs/glossary#toolkit) (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform scaffolds read the
-  resolved values at build time.
-- **The scaffolds are thin hosts.** `platform/ios`, `platform/android`, and `platform/ohos` contain
-  no app logic. Each is a minimal native shell that loads the Rust library and hands it the root
-  view. They change so rarely that diffs to them are meaningful.
-- **Everything generated lands in `build/day/`:** Cargo target directories (one per target and
-  profile, so parallel builds never contend), staged resources, packed artifacts, and [dayscript](/docs/glossary#dayscript)
-  screenshots all live under one ignorable directory.
+- `Day.toml` is the single manifest. The app's Day-specific identity (`id`, `title`, `artifact`,
+  `build`), its declared `targets`, the default window geometry, and the `[permissions]`,
+  `[signing]`, and `[sbom]` sections live here, while `name` and `version` are derived from
+  Cargo.toml's `[package]`, so they can never drift. The identity properties (`id`, `title`,
+  `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
+  [toolkit](/docs/glossary#toolkit) (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform
+  scaffolds read the resolved values at build time.
+- The scaffolds are thin hosts. `platform/ios`, `platform/android`, and `platform/ohos` contain no
+  app logic. Each is a minimal native shell that loads the Rust library and hands it the root view.
+  They rarely change.
+- Everything generated lands in `build/day/`: Cargo target directories (one per target and profile,
+  so parallel builds never contend), staged resources, packed artifacts, and
+  [dayscript](/docs/glossary#dayscript) screenshots all live under one ignorable directory.
 
 ## How a build works
 
@@ -138,13 +135,13 @@ build/day/ios-uikit/Debug-iphonesimulator/MyApp.app
 xcrun simctl install booted … && simctl launch          (day launch)
 ```
 
-The callback design means opening `platform/ios` in Xcode and pressing Run also works: Xcode calls
-back into `day` for the Rust half, exactly as `day` calls into `xcodebuild` for the native half.
+The callback design means opening `platform/ios` in Xcode and pressing Run also works, because the
+build phase calls back into `day` for the Rust half.
 
 ### Android: `android-mdc`
 
-Android inverts iOS: `day` runs Cargo first, then hands Gradle a project whose source sets already
-point at everything Day staged:
+On Android, `day` runs Cargo first, then hands Gradle a project whose source sets already point at
+everything Day staged:
 
 ```text
 day build -p android-mdc
@@ -172,8 +169,8 @@ Studio rebuilds the Rust `.so` the same way.
 ### HarmonyOS: `harmony-arkui`
 
 The newest pipeline follows the Android shape with HarmonyOS tooling: an ArkTS host project in
-`platform/ohos/`, a cross-compiled NAPI library, and a post-build signing step that needs no vendor
-account:
+`platform/ohos/`, a cross-compiled NAPI library, and a post-build signing step with the public
+OpenHarmony development certificate:
 
 ```text
 day build -p harmony-arkui
@@ -224,12 +221,11 @@ opening `index.html` directly.
 
 ## How resources are packaged
 
-`resource/images/` and `resource/assets/` are looked up by name at runtime through the generated typed
-constants (`image(res::images::logo)`, `resource(res::assets::stations_json)`; a typo is a
-compile error). Day never rewrites your bytes. Before each platform build it stages
-the files into that target's **native resource store**, so the platform's own machinery does the
-optimizing, and the runtime read is native (and zero-copy wherever the store exposes a stable
-pointer):
+`resource/images/` and `resource/assets/` are looked up by name at runtime through the generated
+typed constants (`image(res::images::logo)`, `resource(res::assets::stations_json)`; a typo is a
+compile error). Before each platform build Day stages the files, unchanged, into that target's
+native resource store, so the platform's own machinery does the optimizing, and the runtime read is
+native (and zero-copy wherever the store exposes a stable pointer):
 
 ```text
                         day build -p <target>
@@ -270,8 +266,9 @@ by-name API (`UIImage(named:)`, `R.drawable`, `gtk_picture_new_for_resource`, `Q
 `resource://RAWFILE/…`), so density variants like `logo@2x.png` map onto the platform's own
 scale-selection mechanism.
 
-[Fluent](/docs/glossary#fluent) translations under `resource/locales/` take a different, simpler path: they are embedded into the
-binary at compile time with `include_str!`, so [locale](/docs/glossary#locale) switching never touches the filesystem.
+[Fluent](/docs/glossary#fluent) translations under `resource/locales/` take a different path: they
+are embedded into the binary at compile time with `include_str!`, so [locale](/docs/glossary#locale)
+switching never touches the filesystem.
 
 The full per-platform details, including the limits (what gets optimized where, and which stores
 allow zero-copy), are in the [resources reference](/docs/internal/resources); the HarmonyOS

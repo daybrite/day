@@ -10,15 +10,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day's reactive system is the reason a [Piece tree built once](/docs/pieces) can keep moving. It's
-a fine-grained signal graph in the SolidJS and floem tradition: state lives in **signals**,
-derived values in **memos**, and side effects (including every native-widget update) in
-**effects** that re-run when something they read changes.
+Day's reactive system updates a [Piece tree built once](/docs/pieces) in place. It's a fine-grained
+signal graph in the SolidJS and floem tradition: state lives in **signals**, derived values in
+**memos**, and side effects (including every native-widget update) in **effects** that re-run when
+something they read changes.
 
-If you've used SwiftUI, React, or Flutter, the difference to learn is how a state change
-propagates. A signal write re-runs exactly the closures that read that signal, and each of those
-typically ends in one native setter call. Your view function does not run again, and there is no
-tree to compare.
+A state change propagates differently than in SwiftUI, React, or Flutter. A signal write re-runs
+exactly the closures that read that signal, and each of those typically ends in one native setter
+call.
 
 ## Signals
 
@@ -101,8 +100,7 @@ apply: tree.patch(node, Text("3 clicks"))
 toolkit.update(handle, patch)   →   NSTextField.stringValue = "3 clicks"
 ```
 
-Nothing above the label in the tree is visited, and there is no render pass to schedule. The
-cost of a state change is proportional to the number of things that observe it.
+Only the label's binding runs. The cost of a state change is proportional to the number of things that observe it.
 
 ## Batching and the turn
 
@@ -128,8 +126,7 @@ and defer.
 Every signal, memo, effect, and event handler is owned by the `Scope` that was current when it
 was created. Day's structural Pieces manage scopes for you: each `when` arm and each `each`/`list`
 row gets a child scope, and when that arm or row goes away, disposing the scope tears down
-everything it owns: bindings stop firing, handlers are dropped, and the native widgets are
-released. There's no unsubscribe bookkeeping to forget.
+everything it owns: bindings stop firing, handlers are dropped, and the native widgets are released.
 
 ```text
 root scope
@@ -180,22 +177,18 @@ on_main(move || { /* touch signals freely here */ });
 ```
 
 A `Setter` checks liveness on arrival: if the target scope was disposed while the worker ran,
-the write drops silently. That's the behavior you want when a download finishes after its page
-was dismissed.
+the write drops silently. A download that finishes after its page was dismissed writes nothing.
 
-This model makes single-threaded UI code simple and makes the
-compiler enforce the threading rule, but there's no shared-state shortcut. Anything computed off
+Anything computed off
 the main thread comes back through a `Setter` or `on_main`, the same way it would with
 `DispatchQueue.main.async` or a `Handler`; Day expresses that rule as a type.
 
 ## What this model asks of you
 
-The cost of this build-once model is that *you* mark what's dynamic. A closure makes text
-live; a bare value doesn't. Structure changes only through `when`, `each`, and `list`. Deriving
-structure from a signal in plain Rust freezes it at build time. In diffing frameworks these
-distinctions don't exist because everything re-runs; here they're the price of nothing
-re-running. The rules are few, the runtime diagnostics catch the common misses, and the payoff
-is a UI whose update cost you can reason about line by line.
+The cost of this build-once model is that *you* mark what's dynamic. A closure makes text live; a
+bare value doesn't. Structure changes only through `when`, `each`, and `list`. Deriving structure
+from a signal in plain Rust freezes it at build time. Frameworks that re-run the view function don't
+need these distinctions; Day does, because nothing re-runs.
 
 ---
 

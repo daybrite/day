@@ -25,10 +25,10 @@ day_break::Config::new()
 ```
 
 **Works on:** Rust panics are captured on every native target. Native faults (SIGSEGV, SIGBUS,
-SIGILL, SIGFPE, SIGABRT, SIGTRAP) are caught on the Unix targets (macOS, iOS, Linux, Android,
-and HarmonyOS), and Android also records uncaught Java exceptions. Windows records panics but
-not native faults yet, and on the web `init` is a graceful no-op. The full matrix is in
-[the break reference](/docs/internal/break).
+SIGILL, SIGFPE, SIGABRT, SIGTRAP) are caught on the Unix targets (macOS, iOS, Linux, Android, and
+HarmonyOS), and Android also records uncaught Java exceptions. Windows records panics but not native
+faults yet, and on the web `init` is a no-op. The full matrix is in [the break
+reference](/docs/internal/break).
 
 ## 1. Arm capture before the UI mounts
 
@@ -66,10 +66,10 @@ uploaded. App identity (id, version, build) is baked in by `day build` from `Day
 
 ## 2. What gets captured
 
-Three crash classes produce reports: a Rust panic (the panic hook), a native fault or abort
-(the signal handlers), and, on Android, an uncaught Java exception. A panic that day-core
-contains at its trampoline boundaries (the app survives) is recorded too, as a distinct
-non-fatal report, so you also see the almost-crashes.
+Reports come from a Rust panic (the panic hook), a native fault or abort (the signal handlers), and,
+on Android, an uncaught Java exception. A panic that day-core contains at its trampoline boundaries
+(the app survives) is recorded too, as a distinct non-fatal report, so you also see the
+almost-crashes.
 
 A report is versioned JSON: app id, version, and build; the day version and backend; OS,
 device model, and locale; the session id and uptime; the panic message and source location, or
@@ -108,9 +108,6 @@ Effect::new(move || {
 });
 ```
 
-Whatever surface you build, the consent rule holds: show the user the report before offering
-"Send", and call `send` only from that action.
-
 ## 4. Pick a reporter
 
 Three transports ship with the crate:
@@ -140,17 +137,17 @@ a failure.
 
 ## Pitfalls
 
-- **Arm first.** The hook can't record a crash that happens before `init` runs, and `init`
+- Arm first. The hook can't record a crash that happens before `init` runs, and `init`
   also reconciles the previous session, so call it at the top of the app entry, before
   `day::launch`.
-- **Release backtraces carry symbols, not lines.** The release profile ships no debug info by
+- Release backtraces carry symbols, not lines. The release profile ships no debug info by
   default. For `file:line` in release reports, add `[profile.release] debug =
   "line-tables-only"` in your own workspace; day-break doesn't change the global profile. For
   native faults, `signal.pc - signal.slide` is the module-relative address to symbolize
   offline.
-- **`Unknown` is not a crash.** A leftover session with no crash artifact (an OS kill, power
+- `Unknown` is not a crash. A leftover session with no crash artifact (an OS kill, power
   loss) reconciles as `SessionEnd::Unknown`, never `Crashed`. Don't show crash UI for it.
-- **Not every crash class is caught everywhere.** Windows native faults, the iOS
+- Not every crash class is caught everywhere. Windows native faults, the iOS
   Objective-C exception handler, and HarmonyOS `errorManager` are deferred to a later version;
   on iOS an uncaught ObjC exception ends in `abort()`, which the SIGABRT handler does record.
 

@@ -60,8 +60,8 @@ public struct TemperatureDial: View {
 }
 ```
 
-It's a real package: it can depend on other SwiftPM packages, and `swift test` works in it.
-Internal types stay internal; only public `View` structs are exported. Views whose init uses
+It's an ordinary SwiftPM package: it can depend on other SwiftPM packages, and `swift test` works in
+it. Internal types stay internal; only public `View` structs are exported. Views whose init uses
 other types (a model struct, a closure) are skipped with a build warning; the escape hatch below
 covers them.
 
@@ -90,12 +90,11 @@ pub mod swiftui {
 }
 ```
 
-That is the entire configuration. Your `build.rs` (the scaffold's
-`day_build::generate_resources()`) scans the package and writes one constructor per exported
-view; `day build` compiles the package into the app and generates the hosting glue. On iOS the
-package joins the generated `DayPieces` SwiftPM package the Xcode scaffold already links; on
-macOS the same package is referenced by the `platform/macos/` Xcode host project and built
-inside the same xcodebuild run.
+Your `build.rs` (the scaffold's `day_build::generate_resources()`) scans the package and writes one
+constructor per exported view; `day build` compiles the package into the app and generates the
+hosting glue. On iOS the package joins the generated `DayPieces` SwiftPM package the Xcode scaffold
+already links; on macOS the same package is referenced by the `platform/macos/` Xcode host project
+and built inside the same xcodebuild run.
 
 ## 3. Call it
 
@@ -117,14 +116,12 @@ fn climate_card(temp: Signal<f64>) -> AnyPiece {
 }
 ```
 
-The arguments and the gate each follow a rule.
-
-- **Arguments are reactive.** Each parameter takes a constant, a `Signal`, or a closure. When a
-  reactive argument changes, Day re-invokes the view's initializer with the new values, and
-  SwiftUI reconciles it like any parent-driven update, so `@State` inside the view survives.
-- **Gate with `support()`.** `day_piece_swiftui::support()` is `Native` only on
-  `macos-appkit` and `ios-uikit`. A `#[cfg(target_os = "macos")]` is the wrong gate: it is also
-  true on `macos-gtk` and `macos-qt`, where there is no AppKit view tree to host into.
+- Arguments are reactive. Each parameter takes a constant, a `Signal`, or a closure. When a reactive
+  argument changes, Day re-invokes the view's initializer with the new values, and SwiftUI
+  reconciles it like any parent-driven update, so `@State` inside the view survives.
+- Gate with `support()`. `day_piece_swiftui::support()` is `Native` only on `macos-appkit` and
+  `ios-uikit`. A `#[cfg(target_os = "macos")]` is the wrong gate: it is also true on `macos-gtk` and
+  `macos-qt`, where there is no AppKit view tree to host into.
 
 The hosted view fills the space it's offered, like `image` or `canvas`; constrain it with
 `.frame(w, h)` when it shouldn't.
@@ -140,11 +137,11 @@ crate::swiftui::TemperatureDial(String::from("Living room"), move || temp.get())
     .state_key("climate-dial")
 ```
 
-Day then retains the hosting view under that key and hands the same instance back on the next
-mount: sliders, scroll positions, `@State`, and `@StateObject` all survive, and the mount's
-current arguments are re-applied. There are two rules: at most one mounted view per key, and a
-key pins its view for the app's lifetime, so use it for the handful of views that want
-persistence and not for per-row content.
+Day then retains the hosting view under that key and hands the same instance back on the next mount:
+sliders, scroll positions, `@State`, and `@StateObject` all survive, and the mount's current
+arguments are re-applied. At most one view may be mounted per key, and a key pins its view for the
+app's lifetime, so use it for the handful of views that want persistence and not for per-row
+content.
 
 ## When the scan isn't enough
 
@@ -166,19 +163,18 @@ day_piece_swiftui::swiftui("history_chart")
     .params(move || samples_as_json.get())
 ```
 
-`params` is one JSON string, reactive like the typed arguments. The generated constructors are
-this same mechanism with the ceremony generated for you.
+`params` is one JSON string, reactive like the typed arguments. The generated constructors wrap this
+same mechanism.
 
 ## Pitfalls
 
-- **Localized labels don't localize themselves.** Strings inside the Swift package don't go
-  through Fluent. Pass them in as arguments (`res::str::…().format()` closures on the Rust
-  side), so the hosted view follows the app's locale, including right-to-left layout, which the
-  hosting view inherits.
-- **Declare the floor you need.** SwiftUI APIs like `Grid` need iOS 16 / macOS 13; declare `platform`
+- Strings inside the Swift package don't go through Fluent. Pass them in as arguments
+  (`res::str::…().format()` closures on the Rust side), so the hosted view follows the app's locale,
+  including right-to-left layout, which the hosting view inherits.
+- Declare the floor you need. SwiftUI APIs like `Grid` need iOS 16 / macOS 13; declare `platform`
   and `day build` raises the deployment target for you. Xcode ⌘R builds don't see the override;
   raise `platform/ios/DayApp.xcodeproj` by hand if you build from the IDE.
-- **Provider not found renders `⟨name?⟩`.** A misspelled `@objc(DayView_…)` name or a package
+- Provider not found renders `⟨name?⟩`. A misspelled `@objc(DayView_…)` name or a package
   missing from the metadata shows a visible error view rather than crashing; the
   [reference](/docs/internal/swiftui) has the checklist.
 

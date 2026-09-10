@@ -12,9 +12,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import PlatformShots from '../../../components/PlatformShots.astro';
 
-`windows-xaml` hosts Windows' own XAML controls in a plain Win32 window through
-[XAML Islands](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/xaml-islands).
-There is no framework runtime for your users to install.
+`windows-xaml` hosts Windows' own XAML controls in a plain Win32 window through [XAML
+Islands](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/xaml-islands). The XAML it
+uses ships inside Windows 10 and 11.
 
 <PlatformShots platform="windows-xaml" shots={["home", "controls", "dates", "grid"]} />
 
@@ -54,29 +54,30 @@ day pack -p windows-xaml     # .msix plus an NSIS -setup.exe
 The NSIS installer is per-user: it runs without elevation, adds a normal Add/Remove Programs
 entry, and offers a silent `/S` mode for managed deployment.
 
-## Caveats and special considerations
+## Caveats
 
-- **Less real-application use** than the Apple, Linux, and Android targets. It builds and runs
-  the full UI walkthrough in CI on every push, but no large app ships on it yet.
-- **The web view needs the WebView2 Runtime.** Day hosts a
+- Fewer applications have shipped on it than on the Apple, Linux, and Android targets. It builds and
+  runs the full UI walkthrough in CI on every push, but no large app ships on it yet.
+- The web view needs the WebView2 Runtime. Day hosts a
   [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) composition visual
   (the legacy EdgeHTML `WebView` is not used). The runtime ships with Windows 11 and current
   Windows 10; if it is absent, the piece shows its URL-label fallback instead of failing.
-- **No native segmented control exists in system XAML**, so `picker().segmented()` is a horizontal
+- No native segmented control exists in system XAML, so `picker().segmented()` is a horizontal
   row of radio buttons.
-- **The inline time picker falls back to a flyout**, because system XAML has no inline clock.
-- **Text-area read-only and spell-check are native** (`TextBox.IsReadOnly` /
+- The inline time picker falls back to a flyout, because system XAML has no inline clock.
+- Text-area read-only and spell-check are native (`TextBox.IsReadOnly` /
   `IsSpellCheckEnabled`). `.selectable(false)` is emulated, because `TextBox` has no
   selection-enable property: the shim collapses each selection as it is reported and suppresses
   the context menu.
-- **Lottie and map have no XAML arm**; each renders its placeholder. `cover()` presents as
+- Lottie and map have no XAML arm; each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
-- **Radial gradients in a `canvas` are synthesized** into a bitmap brush, because system XAML has
+- Radial gradients in a `canvas` are synthesized into a bitmap brush, because system XAML has
   `LinearGradientBrush` but no `RadialGradientBrush` (that type is XAML-only).
 
 ## What each piece becomes
 
-The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
+The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+this table adds links and notes.
 
 | Day piece | XAML control (`Windows.UI.Xaml.Controls`) |
 |---|---|
@@ -117,19 +118,18 @@ after forcing layout when a templated control reports zero before the island's f
 
 ## Qt and GTK on a Windows host
 
-`windows-xaml` is the target you ship on Windows. But GTK and Qt are themselves portable, so the
-same machine can also run `windows-qt` and `windows-gtk`, which is useful for checking a change
-against three desktop toolkits before it reaches CI, and for teams standardizing on one toolkit
-across Linux and Windows. Both are development combos ([Tier 4](/docs/platforms#support-tiers)):
-`day pack` refuses them (bundling a toolkit into a Windows installer is deferred), and
-`windows-gtk` has no accessibility tree.
+`windows-xaml` is the target you ship on Windows. GTK and Qt are portable, so the same machine can
+also run `windows-qt` and `windows-gtk`, to check a change against three desktop toolkits before CI
+or to use one toolkit across Linux and Windows. Both are development combos ([Tier
+4](/docs/platforms#support-tiers)): `day pack` refuses them (bundling a toolkit into a Windows
+installer is deferred), and `windows-gtk` has no accessibility tree.
 
-Each needs two things: the toolkit's development libraries from [MSYS2](https://www.msys2.org),
-and **a second Rust toolchain whose ABI matches them**. MSYS2 ships GNU-format import libraries
+Each needs two things: the toolkit's development libraries from [MSYS2](https://www.msys2.org), and
+a second Rust toolchain whose ABI matches them. MSYS2 ships GNU-format import libraries
 (`libgtk-4.dll.a`, `libQt6Widgets.dll.a`) which MSVC's `link.exe` cannot read, so the
-`*-pc-windows-msvc` toolchain, the correct one for
-`windows-xaml`, cannot link either of these targets. Install the GNU toolchain *alongside* your
-default and select it per shell; don't `rustup default` it away from MSVC.
+`*-pc-windows-msvc` toolchain, the correct one for `windows-xaml`, cannot link either of these
+targets. Install the GNU toolchain *alongside* your default and select it per shell; don't `rustup
+default` it away from MSVC.
 
 Which MSYS2 environment and toolchain you want depends on the CPU:
 
@@ -182,8 +182,7 @@ day launch -p windows-gtk
 ```
 
 Setting `RUSTUP_TOOLCHAIN` per shell is the only switch: a shell without it still builds
-`windows-xaml` against MSVC, which that target needs. `PATH` and `RUSTUP_TOOLCHAIN` are the only
-two settings involved; `PKG_CONFIG_PATH`, `CC`/`CXX`, and `.cargo/config.toml` stay untouched.
+`windows-xaml` against MSVC, which that target needs.
 `day doctor` will still warn about `flatpak-builder` and `linuxdeploy`; those are Linux
 packaging tools and don't apply here.
 
@@ -198,10 +197,10 @@ $env:CC  = "C:/msys64/mingw64/bin/gcc.exe"
 $env:CXX = "C:/msys64/mingw64/bin/g++.exe"
 ```
 
-The first build is long, because these targets compile a whole native backend from scratch:
-roughly 9 minutes for GTK and 13 for Qt on a debug build of the showcase, an app of some size (Qt
-pays for its C++ shim on top). After that you're back to incremental compiles; editing one of the
-showcase's own source files and relaunching takes about 20 seconds.
+The first build is long, because these targets compile a whole native backend from scratch: roughly
+9 minutes for GTK and 13 for Qt on a debug build of the showcase (Qt pays for its C++ shim on top).
+After that you're back to incremental compiles; editing one of the showcase's own source files and
+relaunching takes about 20 seconds.
 
 ### What to expect
 
@@ -209,12 +208,12 @@ showcase's own source files and relaunching takes about 20 seconds.
   WebKitGTK 6, because both embed a browser engine that doesn't build under MinGW. So `webview()`
   shows its URL-label fallback on `windows-qt` and renders Day's placeholder leaf on `windows-gtk`.
   Everything else, including the external `combobox()`, `search_field()`, `date_picker()`,
-  `time_picker()`, `media()`, and `activity()` pieces, draws a real native widget.
+  `time_picker()`, `media()`, and `activity()` pieces, draws a native widget.
 - **Custom bundled fonts don't reach Pango on `windows-gtk`**, so labels asking for a bundled
   family fall back to the default face. The app logs each one at startup.
 - **Toolchains behave differently under the two linkers.** Day registers piece renderers through
-  [`linkme`](https://docs.rs/linkme) statics, and MinGW's GNU `ld` is known to dead-strip some of
-  them, leaving those pieces as placeholders. The clang/`lld` toolchain used by `CLANGARM64` +
-  `gnullvm` keeps them: a full sweep of the showcase there reports no dropped renderers beyond the
-  GTK web view, which has no Windows build. If pieces render as placeholders on an x86-64 MinGW
-  build, that linker is the cause; see [Platform support](/docs/platforms).
+  [`linkme`](https://docs.rs/linkme) statics, and MinGW's GNU `ld` dead-strips some of them, leaving
+  those pieces as placeholders. The clang/`lld` toolchain used by `CLANGARM64` + `gnullvm` keeps
+  them: a full sweep of the showcase there reports no dropped renderers beyond the GTK web view,
+  which has no Windows build. If pieces render as placeholders on an x86-64 MinGW build, that linker
+  is the cause; see [Platform support](/docs/platforms).

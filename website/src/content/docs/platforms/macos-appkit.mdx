@@ -52,24 +52,24 @@ package; on the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) `day build
 `swift build` and statically links the result into the cargo binary. An app with no Swift
 contributions needs no Swift toolchain either way.
 
-## Caveats and special considerations
+## Caveats
 
-- **`day launch` runs a bare binary, not a bundle.** Anything the OS gates on bundle identity
+- `day launch` runs a bare binary, not a bundle. Anything the OS gates on bundle identity
   (TCC permission prompts, some system services) only works from `day pack` output. Develop with
   `launch`, and verify permission flows against a packed build.
-- **No Lottie.** `day-piece-lottie` ships UIKit and Android arms only.
-- **Pull-to-refresh is emulated**: the piece observes `NSScrollView`'s elastic overscroll,
+- `day-piece-lottie` ships UIKit and Android arms only.
+- Pull-to-refresh is emulated: the piece observes `NSScrollView`'s elastic overscroll,
   because macOS has no native refresh control.
-- **Screenshots capture offscreen** (`cacheDisplayInRect:`), which cannot sample video layers or
+- Screenshots capture offscreen (`cacheDisplayInRect:`), which cannot sample video layers or
   `NSVisualEffectView` materials, so an `AVPlayerView` comes out black in `day pack` captures and
   in the gallery. The view itself renders correctly on screen.
 
 ## What each piece becomes
 
-The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
+The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+this table adds links and notes.
 
-Every row was read out of the backend source. Pieces marked *external* live in their own crates and
-are only present when you depend on them.
+Pieces marked *external* live in their own crates and are only present when you depend on them.
 
 | Day piece | AppKit class |
 |---|---|
@@ -106,9 +106,9 @@ are only present when you depend on them.
 | *external* `media()` | [`AVPlayerView`](https://developer.apple.com/documentation/avkit/avplayerview) |
 | *external* `map()` | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
 
-Day has no checkbox, radio, stepper or table piece: `toggle` is the only boolean control, radio
-behavior is `picker().inline()`, and `list` is the only collection. See
-[pieces](/docs/pieces) for the full vocabulary.
+`toggle` is the only boolean control, radio behavior is `picker().inline()`, and `list` is the only
+collection; there is no checkbox, stepper, or table piece. See [pieces](/docs/pieces) for the full
+vocabulary.
 
 **Text measurement** goes through AppKit itself (`cellSizeForBounds:` for labels, TextKit's layout
 manager for the text area, and `fittingSize` for everything else), so wrapping and hyphenation are
@@ -116,5 +116,5 @@ the system's own.
 
 ## Reaching AppKit directly
 
-When you need something Day doesn't model, a [tweak](/docs/tweaks) hands you the realized
-`NSView` for a node, so you can set any AppKit property without forking the framework.
+When you need something Day doesn't model, a [tweak](/docs/tweaks) hands you the realized `NSView`
+for a node, so you can set any AppKit property.

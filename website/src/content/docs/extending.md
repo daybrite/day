@@ -10,16 +10,15 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day keeps its core widget vocabulary small and expects to be extended. The extension model has
-one organizing idea: **an extension is an ordinary Cargo crate**. You depend
-on it, it registers itself, and the build tooling aggregates whatever native baggage it brings.
-Nothing about extending Day involves forking it or editing generated projects.
+Day keeps its core widget vocabulary small and expects to be extended. Every extension is an
+ordinary Cargo crate. You depend on it, it registers itself, and the build tooling aggregates
+whatever native baggage it brings.
 
 There are three tiers, ordered by cost; pick the lowest one that covers your need. When you
 only need to *configure* an existing widget, use a [tweak](/docs/tweaks), which is cheaper than
 every tier below and is not an extension at all.
 
-## Tier 0: composite pieces, pure composition
+## Tier 0: pieces composed from existing pieces
 
 A composite [piece](/docs/glossary#piece) is Rust code that arranges existing Pieces. It needs no native code or
 registration, and it works on every [target](/docs/glossary#target) automatically because it bottoms out in Pieces that
@@ -36,7 +35,7 @@ Most reusable UI in a Day app is this tier: cards, badges, form rows, charts dra
 `canvas`. The shipped `day-piece-rating` and `day-piece-settings` crates are composite pieces,
 and the [composite piece tutorial](/docs/tutorial-composite-piece) builds one end to end.
 
-## Tier 1: native pieces, a new leaf widget per toolkit
+## Tier 1: a native leaf widget per toolkit
 
 When the platform has a control Day doesn't wrap (a combo box, a web view, a map), you write a
 **native piece**: one cross-platform front end plus a renderer per [toolkit](/docs/glossary#toolkit) you support.
@@ -130,13 +129,9 @@ registration, adapted to Cargo.)
 
 ## Tier 2: native-language halves
 
-The original design reserved a third tier for pieces implemented in a platform's own language
-(Swift, Kotlin, C++) behind **dayffi**, a versioned C ABI. It was never built, and it is now
-retired, because none of it turned out to be needed (DESIGN.md §15.3). Day shipped the ladder
-above ([tweaks](/docs/glossary#tweak), then composition, then Rust renderers) plus **native halves**: the
-crate ships its own Swift, Java, ArkTS, or C++ sources, declares them under
-`[package.metadata.day.<platform>]`, and its tier-1 Rust renderer adopts the views those shims
-create.
+Pieces implemented partly in a platform's own language use **native halves**: the crate ships its
+own Swift, Java, ArkTS, or C++ sources, declares them under `[package.metadata.day.<platform>]`, and
+its tier-1 Rust renderer adopts the views those shims create.
 
 For code that must be *written* in Swift, that need is covered today by
 [SwiftUI embedding](/docs/internal/swiftui): a SwiftPM package's public views become typed Rust

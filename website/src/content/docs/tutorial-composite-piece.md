@@ -51,12 +51,10 @@ The composition toolkit lives in the prelude:
 - `ButtonStyle` / `FilledButtonStyle` + `Button::style`: a pluggable button appearance.
 - `with_environment(...)` / `environment::<T>()`: pass ambient values down a subtree.
 
-Every one of those is pure composition, and the rest of this tutorial is built from them.
-
 ## 2. Scaffold the crate
 
 Start with the scaffolder. `day new piece` generates a ready-to-build crate (`Cargo.toml`,
-`.gitignore`, `README.md`, and a sample `src/lib.rs`) so you never assemble the boilerplate by hand:
+`.gitignore`, `README.md`, and a sample `src/lib.rs`):
 
 ```bash
 day new piece day-piece-rating          # no --toolkits ⇒ a composite piece
@@ -94,12 +92,12 @@ day-reactive = { git = "https://github.com/daybrite/day.git" } # Signal (also re
 ```
 
 > [!NOTE] Inside the Day workspace
-> These are `{ workspace = true }` instead of a version. Either way, contrast
-> this with a native piece's `Cargo.toml`, which carries a `[features]` block (one feature per
-> backend) and often a `build.rs`. See [the native-piece tutorial](/docs/tutorial-native-piece).
+> These are `{ workspace = true }` instead of a version. A native piece's `Cargo.toml` also
+> carries a `[features]` block (one feature per backend) and often a `build.rs`; see
+> [the native-piece tutorial](/docs/tutorial-native-piece).
 
-Now `src/lib.rs`. Everything comes from the pieces prelude; we additionally name `RNode` from
-`day-core` because it is the return type of `Piece::build`:
+Now `src/lib.rs`. Everything comes from the pieces prelude; `RNode` also comes from `day-core`,
+because it is the return type of `Piece::build`:
 
 ```rust
 use day_core::RNode;
@@ -109,9 +107,9 @@ use day_pieces::prelude::*;
 ## 3. Design the builder
 
 Day pieces follow a **config-struct + chainable-setter** pattern (the same shape as `slider(...)`,
-`button(...)`, or the `combo_box` piece). A free function creates the piece with sensible defaults;
-methods return `Self` so calls chain. The two-way value is a `Signal` passed in by the caller: the
-control reads it to draw and writes it back on tap.
+`button(...)`, or the `combo_box` piece). A free function creates the piece with defaults; methods
+return `Self` so calls chain. The two-way value is a `Signal` passed in by the caller: the control
+reads it to draw and writes it back on tap.
 
 ```rust
 /// The default filled-star tint: a warm gold/amber.
@@ -240,8 +238,8 @@ impl Piece for Rating {
 
 That completes the piece. The row and its `max` canvases are built once. Tapping the third star
 calls `value.set(3)`; only the star canvases that read `value` re-record (the first three fill, the
-last two outline), and `build` never runs again. This is Day's build-once reactive model, and
-`canvas`'s tracked read wired the binding for you.
+last two outline), and `build` never runs again. This is Day's build-once reactive model; the
+tracked read in the `canvas` closure is the only binding.
 
 ## 5. Use it in an app
 
@@ -279,8 +277,7 @@ renders natively on each, drawn by that platform's own 2D API from the one `canv
 
 ## 6. Going further
 
-The star rating is one instance of a general pattern: build widgets by composing primitives, and
-let the native leaves do the platform work. The same idea covers most of a design system:
+The same approach covers most of a design system:
 
 - **A card** is a `Modifier`, a reusable transform you apply with `.modifier(m)`:
 
@@ -309,6 +306,3 @@ let the native leaves do the platform work. The same idea covers most of a desig
   `environment::<T>()`, so a value set once reaches every descendant without being passed through
   each builder.
 
-Every one of these is composite: pure Rust that works on every target the day you publish it.
-Reach for [the native-piece tutorial](/docs/tutorial-native-piece) only when you need a native
-control Day does not already wrap.

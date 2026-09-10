@@ -13,20 +13,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-React Native and Day both render the platform's real widgets: an RN `<Button>` is a `UIButton`,
-and so is a Day `button()` on iOS. This guide maps the
-rest (components to Pieces, hooks to signals, npm to Cargo) and shows where the architectures
-differ.
+React Native and Day both render the platform's own widgets: an RN `<Button>` is a `UIButton`, and
+so is a Day `button()` on iOS. This guide maps the rest (components to Pieces, hooks to signals, npm
+to Cargo) and shows where the architectures differ.
 
-They differ in two places. The first is the runtime: React Native runs your JavaScript in a VM
-and talks to native views through JSI and a shadow tree; Day is ahead-of-time compiled Rust
-calling toolkit APIs directly, and layout is computed in the same process rather than in a
-separate shadow tree. The second is the
-update model: React re-renders components and reconciles; Day builds the tree once and re-runs
-only the closures that read a changed signal. There are no dependency arrays because
-dependencies are tracked automatically. And where RN targets iOS and Android with community
-forks for desktop, Day's eight primary targets (macOS, Windows, Linux GTK and Qt, iOS, Android,
-HarmonyOS, web) come from one repository.
+React Native runs your JavaScript in a VM and talks to native views through JSI and a shadow tree;
+Day is ahead-of-time compiled Rust calling toolkit APIs directly, and layout is computed in the same
+process rather than in a separate shadow tree. React re-renders components and reconciles; Day
+builds the tree once and re-runs only the closures that read a changed signal. There are no
+dependency arrays because dependencies are tracked automatically. RN targets iOS and Android with
+community forks for desktop; Day's eight primary targets (macOS, Windows, Linux GTK and Qt, iOS,
+Android, HarmonyOS, web) come from one repository.
 
 ## React Native terms in Day
 
@@ -139,9 +136,9 @@ toggles, progress, pickers, and a recycling list as built-ins.)
 
 ## Lists
 
-`FlatList` maps to `list`: both virtualize, and both want a key. Day's rows recycle real
-native cells (`UITableView`-style), and the key function is a required argument, where
-`keyExtractor` is optional, so reconciliation is always by identity.
+`FlatList` maps to `list`: both virtualize, and both want a key. Day's rows recycle native cells
+(`UITableView`-style), and the key function is a required argument, where `keyExtractor` is
+optional, so reconciliation is always by identity.
 
 <Compare lhs="React Native">
 
@@ -212,10 +209,10 @@ See [Navigation](/docs/navigation).
 ## Adaptive layout
 
 React Native gives you `useWindowDimensions()` and leaves the breakpoints to you (or to a library
-like react-native-paper's adaptive components). Day buckets the window into
-[size classes](/docs/internal/size-classes) (Android's numbers, used verbatim on every
-backend), and a `nav` re-presents itself when the window crosses one, on a tablet, in
-split-screen, or in a resized desktop window.
+like react-native-paper's adaptive components). Day buckets the window into [size
+classes](/docs/internal/size-classes) (Android's numbers, unchanged on every backend), and a `nav`
+re-presents itself when the window crosses one, on a tablet, in split-screen, or in a resized
+desktop window.
 
 <Compare lhs="React Native">
 
@@ -251,9 +248,8 @@ answer for each.
 
 ## Styling and layout
 
-RN styles are flexbox via Yoga. Day also owns its layout engine; it uses a proposal protocol
-(parent proposes, child chooses), closer to SwiftUI than to CSS. The daily vocabulary
-translates directly:
+RN styles are flexbox via Yoga. Day also owns its layout engine; it uses a proposal protocol (parent
+proposes, child chooses), closer to SwiftUI than to CSS:
 
 <Compare lhs="React Native">
 
@@ -502,7 +498,7 @@ included. The hosts are already in your repository, so there is nothing to eject
 | Android store build | Gradle `bundleRelease` + signing config | `day pack -p android-mdc` → signed `.apk` + `.aab` |
 | iOS store build | Xcode archive / fastlane / EAS | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
 | macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -p macos-appkit` / `-p windows-xaml` / `-p linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` + `.appimage` |
-| web | react-native-web (renders DOM via the RN API) | `day build -p web-dom` — the same crate compiled to WebAssembly, driving real DOM elements |
+| web | react-native-web (renders DOM via the RN API) | `day build -p web-dom` — the same crate compiled to WebAssembly, driving DOM elements |
 | environment check | `npx react-native doctor` | `day doctor` |
 
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
@@ -511,11 +507,9 @@ today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#suppo
 [Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
 You give up Fast Refresh and the size of the npm ecosystem, and you write Rust instead of
-TypeScript. You ship one compiled binary per platform. One repository covers mobile, desktop,
-and web, UI tests run the same script everywhere, and `day pack` produces signed artifacts
-directly. Signing secrets are `${ENV_VAR}` references in `Day.toml`; a missing one degrades to
-a dev-signed build with a warning rather than failing. [Packaging](/docs/packaging) has the
-full table.
+TypeScript; in return one repository and one dayscript cover mobile, desktop, and web. Signing
+secrets are `${ENV_VAR}` references in `Day.toml`; a missing one degrades to a dev-signed build with
+a warning rather than failing. [Packaging](/docs/packaging) has the full table.
 
 ## Where to go next
 

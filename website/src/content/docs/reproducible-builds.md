@@ -23,23 +23,22 @@ commit from a second checkout at a different path and compares the two.
 ## Why it matters
 
 If you can rebuild an artifact and get the same bytes someone else got, you can check that a binary
-corresponds to the source it claims to come from. Without that, a published binary is something you
-take on trust: you cannot tell a clean build from one where a compromised build machine, a
-substituted dependency, or a modified toolchain inserted something the source never contained.
+corresponds to the source it claims to come from. Without that, you cannot tell a clean build from
+one where a compromised machine or a substituted dependency inserted code the source never
+contained.
 
-Reproducibility turns that trust into something you can test. Anyone can rebuild and compare, so a
-tampered artifact has to survive independent verification rather than a single signature. That is
-the argument the [Reproducible Builds project](https://reproducible-builds.org) makes in full, and
-its [documentation](https://reproducible-builds.org/docs/) is the reference for the general
-techniques: `SOURCE_DATE_EPOCH`, path normalization, archive metadata, and the rest. Day follows
-those conventions.
+Anyone can rebuild and compare, so a tampered artifact fails the comparison even if its signature is
+valid. That is the argument the [Reproducible Builds project](https://reproducible-builds.org) makes
+in full, and its [documentation](https://reproducible-builds.org/docs/) is the reference for the
+general techniques: `SOURCE_DATE_EPOCH`, path normalization, archive metadata, and the rest. Day
+follows those conventions.
 
 Reproducibility is not a substitute for signing. A signature says who built an artifact;
-reproducibility says the artifact matches its source. You want both.
+reproducibility says the artifact matches its source.
 
 ## What Day guarantees
 
-Day's CI grades a rebuild in two tiers, and they carry different weight.
+Day's CI grades a rebuild in two tiers.
 
 **Payload**: the compiled code, extracted from whatever container ships it. A mismatch here fails
 the build. It means the same sources produced different machine code, or a build path leaked into
@@ -57,10 +56,9 @@ anything before 1980, and an out-of-range value gets clamped back into per-run v
 Day also sets `codegen-units = 1` and `lto = "fat"` in the release profile. Both matter for
 reproducibility; the LTO choice is explained under Linux below.
 
-## Signing sets a ceiling
+## Signatures differ per build
 
-Two Day artifacts cannot be byte-identical no matter what the build does, and the reasons matter
-before you go looking for a bug.
+Two Day artifacts cannot be byte-identical no matter what the build does.
 
 A signed `.hap` uses `SHA256withECDSA`. ECDSA picks a random value per signature, so signing the
 same bytes twice produces two different signatures. A released `.dmg` is stapled: `xcrun stapler
@@ -109,19 +107,18 @@ builds post](https://blog.llvm.org/2019/11/deterministic-builds-with-clang-and-l
 
 ### ios-uikit
 
-The unsigned `.ipa` is byte-reproducible, including the container. Getting there took three fixes,
-and each became visible only after the previous one.
+The unsigned `.ipa` is byte-reproducible, including the container. Three settings make that so.
 
-Xcode's release defaults leave a **debug map** in the linked binary: one `N_OSO` entry per object
-file, each holding that file's absolute path under `SYMROOT`. The showcase app carried 267 of them.
-Day passes `DEPLOYMENT_POSTPROCESSING=YES STRIP_INSTALLED_PRODUCT=YES STRIP_STYLE=debugging`, which
-strips the map. Xcode runs `dsymutil` before `strip`, so the `.dSYM` still appears and symbolication
-still works; `STRIP_STYLE=debugging` keeps the symbol table so in-process backtraces resolve.
+Xcode's release defaults leave a debug map in the linked binary: one `N_OSO` entry per object file,
+each holding that file's absolute path under `SYMROOT`. Day passes `DEPLOYMENT_POSTPROCESSING=YES
+STRIP_INSTALLED_PRODUCT=YES STRIP_STYLE=debugging`, which strips the map. Xcode runs `dsymutil`
+before `strip`, so the `.dSYM` still appears and symbolication still works; `STRIP_STYLE=debugging`
+keeps the symbol table so in-process backtraces resolve.
 
-Xcode 14 added **ObjC nav host stubs**, where the compiler emits `_objc_msgSend$<nav host>`
-references and the linker synthesizes an `__objc_stubs` section. That leaves two `__got` slots for
+Xcode 14 added ObjC selector stubs, where the compiler emits `_objc_msgSend$<selector>` references
+and the linker synthesizes an `__objc_stubs` section. That leaves two `__got` slots for
 `_objc_msgSend` with byte-identical contents, and which consumer gets which slot is not stable. Day
-disables the optimization with `-fno-objc-msgsend-nav host-stubs`, which leaves one slot. For a
+disables the optimization with `-fno-objc-msgsend-selector-stubs`, which leaves one slot. For a
 Swift-heavy app this also makes the binary slightly smaller.
 
 `ditto -c -k` copies each file's modification time into the ZIP and has no flag to suppress it, so
@@ -165,15 +162,13 @@ guidance](https://docs.gradle.org/current/userguide/working_with_files.html) and
 [reproducible-builds.org on the JVM](https://reproducible-builds.org/docs/jvm/).
 
 Day ships a fixed dev keystore rather than generating one per project, which is what Android's own
-`debug.keystore` does. A freshly minted key meant a dev-tier `.apk` could never be reproducible,
-because two builds signed identical bytes with different keys. It also means a build from one
-machine can now upgrade an install from another, which Android otherwise refuses when a signature
-changes.
+`debug.keystore` does. A per-project key would sign identical bytes with different keys, so a
+dev-tier `.apk` could never be reproducible. The fixed key also lets a build from one machine
+upgrade an install from another, which Android refuses when a signature changes.
 
 What remains is inside the APK Signing Block. Zip entries and the central directory come out
 byte-identical, and `apksigner` produces identical output given the same key and input, so this is
-not an inherent property of APK signing the way ECDSA is for HarmonyOS. It is unresolved rather than
-impossible. The v2 and v3 signatures cover every byte of the file, so an APK has to be
+not an inherent property of APK signing the way ECDSA is for HarmonyOS.The v2 and v3 signatures cover every byte of the file, so an APK has to be
 identical *before* signing for any of this to hold: the constraint F-Droid documents in its
 [reproducible builds guide](https://f-droid.org/docs/Reproducible_Builds/).
 
@@ -185,22 +180,17 @@ The compiled `.so` is reproducible. A signed `.hap` cannot be.
 patches the archive's timestamps in place instead, and does it before signing. A `.hap` signature
 covers the local file headers, so rewriting them afterwards would invalidate it.
 
-`SHA256withECDSA` leaves one difference. Two haps of byte-identical content differ only in the
-signing block, and that difference is the signature itself.
+Two haps of byte-identical content differ only in the ECDSA signature block.
 
-One caveat applies even if you never check reproducibility: `DAY_OHOS_ARCH` takes
-precedence over any connected device. Before that, `day pack` built for whatever emulator or handset
-happened to be attached, so a hap packed next to a running x86_64 emulator shipped x86_64 while the
-same commit packed elsewhere shipped arm64. A distribution build should not change shape because
-something was plugged in.
+`DAY_OHOS_ARCH` selects the architecture and takes precedence over any connected device, so a hap
+packed next to an x86_64 emulator does not silently ship x86_64.
 
 ### windows-xaml
 
 The staged payload is reproducible.
 
 The Microsoft linker writes the wall clock into the PE header's `TimeDateStamp` and into the debug
-directory. Day passes `/Brepro`, which substitutes a hash of the input. Those 24 bytes were the only
-difference between two Windows builds.
+directory. Day passes `/Brepro`, which substitutes a hash of the input.
 
 For the NSIS installer, Day's generated script sets `SetDateSave off`, which stops NSIS storing and
 restoring each file's modification date. The `/SOLID lzma` compressor it already used is
@@ -237,7 +227,7 @@ they describe:
 `<artifact>` here is the packaged file itself; the dmg's buildinfo is
 `day-showcase-macos-appkit.dmg.buildinfo.json`.
 
-The SBOM answers *what went in*. The `.buildinfo` answers *what built it*:
+The SBOM lists the inputs; the `.buildinfo` records the tools:
 
 ```json
 {
@@ -268,9 +258,8 @@ as `<artifact>.buildinfo.deb822`, under Day's own sidecar naming rather than Deb
 `<source>_<version>_<arch>.buildinfo` convention, so the file name says which download it
 describes, and a Debian maintainer still has the fields the distribution's own tooling expects.
 
-Keep the sidecars with the artifact when you publish it. Without the SBOM there is no commit to
-rebuild from, and without the `.buildinfo` there is no way to tell whether your machine matches the
-one that built it.
+Publish the sidecars with the artifact: the SBOM names the commit to rebuild from, and the
+`.buildinfo` names the tools to match.
 
 ## Checking an artifact you did not build
 
@@ -290,7 +279,7 @@ the result against the artifact you were given, which is what `day rebuild` does
 ## Verifying with `day rebuild`
 
 Point `day rebuild` at any artifact that has its SBOM and `.buildinfo` beside it: one you built, or
-one you downloaded from someone else. It reads that information back and does the whole check:
+one you downloaded from someone else. It reads that information back and runs the check:
 
 ```sh
 day rebuild my-app-macos-appkit.dmg
@@ -334,7 +323,7 @@ what is missing and what to run:
 rebuild that differs tells you nothing, because the difference may be the tool you forced.
 
 A rebuild needs the commit to exist in the repository, so an artifact packed from a working tree
-with uncommitted changes is refused. Nothing describes what went into it.
+with uncommitted changes is refused.
 
 `--from-dir <dir>` rebuilds from a project directory you name instead of cloning the commit the
 SBOM records, for a source tree that is not in git; Day's own CI uses it to verify an artifact
@@ -389,6 +378,3 @@ Read the output against the sections above before filing a bug. A differing `LC_
 platforms, a differing signature block, or a differing `.dmg` is expected. A differing `.so`, `.exe`,
 or Mach-O executable, once the UUID is accounted for, is not.
 
-Day's CI runs `day rebuild --strict` against every artifact it ships, on a clean runner, for all six
-packing platforms. The same command is available to you, and it applies the same two-tier comparison
-described above.

@@ -24,10 +24,9 @@ myapp/
 ```
 
 All five subdirectories **use each platform's native resource system**. On Android your images
-become real `res/drawable-*` entries crunched by
-aapt2; on iOS they join an asset catalog; on GTK they compile into a GResource bundle; on Qt, a
-Qt resource file. `day build` does the staging automatically, per [target](/docs/glossary#target), before the platform
-build runs.
+become `res/drawable-*` entries crunched by aapt2; on iOS they join an asset catalog; on GTK they
+compile into a GResource bundle; on Qt, a Qt resource file. `day build` does the staging
+automatically, per [target](/docs/glossary#target), before the platform build runs.
 
 ## Typed names, generated at build
 

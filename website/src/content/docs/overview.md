@@ -1,6 +1,6 @@
 ---
 title: Overview
-description: What Day is, the bet it makes, the platforms it targets, and how the documentation is organized.
+description: What Day is, what it does itself, the platforms it targets, and how the documentation is organized.
 order: 1
 section: Start here
 ---
@@ -10,15 +10,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-**Day** is a Rust framework for building applications that look and behave like native
-applications on every platform, because they are native applications.
+**Day** is a Rust framework for building applications out of each platform's own native widgets.
 
-You write your UI once, in Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View
-and Flutter calls a Widget). Each Piece is realized by a real platform widget (an
-`NSTextField`, a `UILabel`, a Material button, a `GtkEntry`, a `QSlider`, a XAML `TextBox`)
-through a per-platform **toolkit [backend](/docs/glossary#backend)**. Day owns layout, reactivity, localization,
-accessibility policy, and scripting; the platform owns pixels, text input, scrolling physics,
-and assistive technology.
+You write your UI once, in Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View and
+Flutter calls a Widget). Each Piece is realized by a platform widget (an `NSTextField`, a `UILabel`,
+a Material button, a `GtkEntry`, a `QSlider`, a XAML `TextBox`) through a per-platform **toolkit
+[backend](/docs/glossary#backend)**. Day owns layout, reactivity, localization, accessibility
+policy, and scripting; the platform owns pixels, text input, scrolling physics, and assistive
+technology.
 
 ```rust
 use day::prelude::*;
@@ -56,8 +55,8 @@ don't share:
   ([Layout](/docs/layout));
 - fine-grained reactivity that builds the widget tree once and binds state directly to
   native attributes ([Reactivity](/docs/reactivity));
-- localization ([Fluent](/docs/glossary#fluent)), accessibility, and scripting designed into the core from
-  the start ([how they compose](/docs/benefits#localized-accessible-scriptable-extensible));
+- localization ([Fluent](/docs/glossary#fluent)), accessibility, and scripting in the core
+  ([how they compose](/docs/benefits#localized-accessible-scriptable-extensible));
 - a CLI that builds, runs, tests, and [packages](/docs/packaging) for every target from one
   machine.
 
@@ -142,7 +141,7 @@ The documentation is sequenced so each section assumes only the ones before it:
    [Android](/docs/platforms/android-mdc)).
 6. **Extend** — [how the extension model works](/docs/extending) and three worked tutorials.
 7. **Under the hood** — [architecture](/docs/architecture) and
-   [how rendering works](/docs/rendering), for when you want to see the machinery.
+   [how rendering works](/docs/rendering).
 8. **Reference** — [per-widget and per-subsystem reference pages](/docs/reference), a
    [condensed page for AI coding agents](/docs/for-agents), and a [glossary](/docs/glossary) of
    the words these pages use.

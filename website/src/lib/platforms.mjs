@@ -206,17 +206,17 @@ export const tiers = /** @type {Tier[]} */ ([
   {
     n: 1,
     name: 'Supported',
-    blurb: 'Fully supported and thoroughly tested; the highest attention to quality and correctness.',
+    blurb: 'Fully supported and tested; the tier that gets the most testing and maintenance.',
   },
   {
     n: 2,
     name: 'Demi-supported',
-    blurb: 'Very high priority, with less direct quality assurance and thorough testing than Tier 1.',
+    blurb: 'Supported, with less testing than Tier 1.',
   },
   {
     n: 3,
     name: 'Experimental',
-    blurb: 'Tested, but not comprehensively, and not yet exercised by real-world applications.',
+    blurb: 'Tested less thoroughly, and not yet used by a shipping app.',
   },
   {
     n: 4,

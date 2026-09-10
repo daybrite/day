@@ -12,8 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Every Day app builds from one Rust toolchain plus the SDK of whichever platform you target. This
 page lists what each development host needs, and what each target adds on top. Where an official
-installer or guide exists, this page links to it, because those instructions change and theirs
-is the copy that stays current.
+installer or guide exists, this page links to it, because those instructions change.
 
 ## Check with day doctor
 
@@ -42,7 +41,7 @@ Install Rust through **rustup**, not Homebrew or a distro package. Cross-compile
 Android, HarmonyOS, and the web) need rustup's per-target standard library, which a system rustc
 does not carry. `rustup update stable` keeps you current.
 
-Nothing else is universal. The rest depends on which targets you build.
+Everything else depends on which targets you build.
 
 ## Which targets build on which host
 
@@ -68,14 +67,14 @@ version your macOS supports, and check
 [Apple's minimum requirements](https://developer.apple.com/support/xcode/) if you are on an older
 release. Continuous integration builds on the current `macos-latest` runner (Apple silicon).
 
-**Command-line tools** cover `macos-appkit`, and are enough for the GTK, Qt, Android, and web
-targets too:
+Command-line tools cover `macos-appkit`, and are enough for the GTK, Qt, Android, and web targets
+too:
 
 ```bash
 xcode-select --install
 ```
 
-**Full Xcode** ([App Store](https://apps.apple.com/us/app/xcode/id497799835)) is required for
+Full Xcode ([App Store](https://apps.apple.com/us/app/xcode/id497799835)) is required for
 `ios-uikit`, whose build runs through `xcodebuild`. Point the command-line tools at it once
 installed:
 
@@ -88,7 +87,7 @@ A scaffolded app carries `platform/macos/DayApp.xcodeproj`, and `macos-appkit` b
 `xcodebuild`, so it wants full Xcode too. (An app that predates the scaffold adopts it with
 `day app add-toolkit macos-appkit`.)
 
-**[Homebrew](https://brew.sh)** provides the rest:
+[Homebrew](https://brew.sh) provides the rest:
 
 ```bash
 brew install gtk4 libadwaita pkg-config    # macos-gtk
@@ -102,9 +101,9 @@ Xcode and the command-line tools both provide it.
 
 ## Windows
 
-**Windows 10 or 11.** The `windows-xaml` target uses the XAML that ships inside those releases
-rather than WinUI 3, so there is no framework runtime for you or your users to install. See the
-[Windows platform page](/docs/platforms/windows-xaml) for what that means in practice.
+On Windows 10 or 11, the `windows-xaml` target uses the XAML that ships inside those releases rather
+than WinUI 3, so there is no framework runtime for you or your users to install. See the [Windows
+platform page](/docs/platforms/windows-xaml) for the details.
 
 For `windows-xaml`, install the
 [Visual Studio 2022 C++ Build Tools](https://visualstudio.microsoft.com/downloads/) (MSVC plus the
@@ -142,11 +141,11 @@ sudo apt install qt6-base-dev pkg-config                      # linux-qt
 ```
 
 The GTK minimums are hard requirements. Day builds navigation on `AdwNavigationView` and
-`AdwOverlaySplitView`, and its file and alert dialogs on `GtkFileDialog` and `GtkAlertDialog`;
-none of those exist in earlier releases. **Debian 12 ships GTK 4.8 and cannot build `linux-gtk`**;
-run `-p linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day doctor`
-reports the installed versions against these minimums, so run it first; a version miss otherwise
-surfaces as a build failure inside `gdk4-sys`.
+`AdwOverlaySplitView`, and its file and alert dialogs on `GtkFileDialog` and `GtkAlertDialog`; none
+of those exist in earlier releases. Debian 12 ships GTK 4.8 and cannot build `linux-gtk`; run `-p
+linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day doctor` reports the
+installed versions against these minimums, so run it first; a version miss otherwise surfaces as a
+build failure inside `gdk4-sys`.
 
 Fedora, Arch, and openSUSE ship the same libraries under their own names; check
 [GTK's installation page](https://www.gtk.org/docs/installations/linux) and
@@ -171,9 +170,8 @@ API and has no bottle, so `macos-gtk` builds without a web view. MSYS2 ships no 
 
 ## Optional: packaging tools
 
-These are needed only to produce an installable artifact with `day pack`; building and running
-an app needs none of them. [Packaging & distribution](/docs/packaging) covers the formats
-themselves.
+These are needed only to produce an installable artifact with `day pack`. [Packaging &
+distribution](/docs/packaging) covers the formats themselves.
 
 | Target | Tool | Install |
 |---|---|---|
@@ -239,7 +237,7 @@ xcrun simctl boot "iPhone 16 Pro"  # or open Simulator.app
 ```
 
 `day launch -p ios-uikit` installs into a booted simulator, so boot one first. Apps ship to a
-physical device through Xcode's normal signing setup; nothing extra is needed for the Simulator.
+physical device through Xcode's normal signing setup.
 
 ## HarmonyOS
 
@@ -292,7 +290,7 @@ rustup target add wasm32-unknown-unknown
 ```
 
 `day build -p web-dom` writes a self-contained static site, and `day launch -p web-dom` serves it
-and opens a browser. Rust and the `day` CLI are the entire toolchain.
+and opens a browser.
 
 ## What your apps require
 

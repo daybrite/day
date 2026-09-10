@@ -11,10 +11,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 [Architecture](/docs/architecture) covered the structure; this page follows a widget through the
-running system. It traces a
-widget from `build` to pixels, a click from the native event to your closure, and a [signal](/docs/glossary#signal) write
-back out to the screen. None of this is required reading to *use* Day, but once you can picture
-the mechanism, the framework's behavior is predictable.
+running system. It traces a widget from `build` to pixels, a click from the native event to your
+closure, and a [signal](/docs/glossary#signal) write back out to the screen. You don't need this
+page to use Day; it explains why the framework behaves as it does.
 
 ## The realized tree
 
@@ -118,8 +117,7 @@ native event(s)
 ```
 
 Each turn runs at most one layout pass and groups native mutations where the toolkit wants them.
-There is no per-frame tick, so an idle Day app runs no code, which is the runtime-profile claim
-in concrete form.
+There is no per-frame tick, so an idle Day app runs no code.
 
 ## Drawing: canvas as a display list
 
@@ -152,21 +150,19 @@ assert!(muts[0].contains("update day.label"));
 assert!(probe.measure_calls() <= 6);                // relayout stayed on the label's path
 ```
 
-Those assertions record the framework's core promises (one click, one native mutation; bounded
-measure calls per layout pass) as golden tests over the op log, so CI checks the fine-grained
-guarantee. Your own component tests run the same way, in an ordinary `cargo test` process that
-takes milliseconds per test.
+CI runs those assertions as golden tests over the op log, so a click that causes two native
+mutations, or an unbounded measure count, fails the build. Your own component tests run the same
+way, in an ordinary `cargo test` process that takes milliseconds per test.
 
 ## Teardown
 
 When structure changes (`when` flips, an `each` row leaves), the subtree's scope is disposed
 (bindings and handlers die with it), and the nodes go onto a release queue drained at the turn
-boundary, where the backend frees the native widgets (with toolkit-appropriate deferral, like
-Qt's `deleteLater`). A signal write racing a disposed binding is a checked no-op. The ownership
-model is short enough to state completely: the scope owns the [reactive](/docs/glossary#reactive) machinery, the tree owns
-the handles, and both are torn down together, once, at a safe point.
+boundary, where the backend frees the native widgets (with toolkit-appropriate deferral, like Qt's
+`deleteLater`). A signal write racing a disposed binding is a checked no-op. The scope owns the
+[reactive](/docs/glossary#reactive) machinery, the tree owns the handles, and both are torn down
+together at the turn boundary.
 
 ---
 
-The tree is built once and patched in place, one turn at a time. The
-[reference section](/docs/reference) documents each subsystem in more depth.
+The [reference section](/docs/reference) documents each subsystem in more depth.

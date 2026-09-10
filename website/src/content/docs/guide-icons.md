@@ -85,8 +85,8 @@ To change one platform's icon, add a source rather than editing an output:
 ## 3. Open the native project, and gate CI
 
 `day open -p ios-uikit` prepares and opens `platform/ios/DayApp.xcodeproj`; `day open -p
-android-mdc` does the same for Android Studio. The VS Code extension's "Open in Xcode" and
-"Open in Android Studio" run `day prepare` first too. On a fresh clone, that is the one step
+android-mdc` does the same for Android Studio. The VS Code extension's "Open in Xcode" and "Open in
+Android Studio" run `day prepare` first too. On a fresh clone, `day prepare` is the only step
 between checkout and the IDE.
 
 `day prepare --check` renders everything in memory, compares bytes against `build/day/host`,
@@ -130,20 +130,20 @@ and `bar_action` all accept a `res::vectors::` constant where they accept an ima
 
 ## Pitfalls
 
-- **Outline your text.** Day compiles no text shaper into either pipeline, so `<text>` in an
+- Outline your text. Day compiles no text shaper into either pipeline, so `<text>` in an
   icon master or a vector glyph is a hard build error in both. Convert text to
   outlines in your editor before exporting.
-- **Android ships a subset.** VectorDrawable covers solid fills and strokes; art with
+- Android ships a subset. VectorDrawable covers solid fills and strokes; art with
   gradients, clips, masks, or filters falls back to the 256 px raster, and `day lint` flags it
   as `day::lint::vector-raster-fallback` when `android-mdc` is a declared target. `day lint`
   also catches unreadable art, empty `.symbolset` bundles, and glyph-embedded text.
-- **Tint has coverage limits.** AppKit, UIKit, Android, GTK, and ArkUI recolor; Qt, WinUI, and
+- Tint has coverage limits. AppKit, UIKit, Android, GTK, and ArkUI recolor; Qt, WinUI, and
   web draw the authored colors. Author glyphs in a single color if a tint must read the same
   everywhere.
-- **Weights need template sources.** A plain SVG aliases Light and Bold to the same glyph, so
+- Weights need template sources. A plain SVG aliases Light and Bold to the same glyph, so
   `.weight(…)` degrades to Regular rather than to a missing asset. True weight variants come
   from SF template exports and `.symbolset` bundles.
-- **Regenerate after editing the master.** The committed `platform/` copies only change when
+- Regenerate after editing the master. The committed `platform/` copies only change when
   `day icon` runs; `day icon --check` in CI (exit 5) catches the forgotten run.
 
 ## Reference

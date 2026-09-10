@@ -30,8 +30,7 @@ appear together, in one format, on every platform.
 ## Don't use `println!`
 
 It is silent on the web. Rust's standard library has no stdout on `wasm32-unknown-unknown`: its
-implementation takes your bytes and discards them, with no error and no panic. An app that
-diagnoses itself with `println!` says nothing at all in a browser.
+implementation takes your bytes and discards them, with no error and no panic.
 
 On native targets `println!` **panics** if the write fails, and a closed pipe is ordinary when
 the launcher shuts an app down. Raised inside a platform callback, that
@@ -101,10 +100,9 @@ fn main() {
 }
 ```
 
-That is the entire opt-out. There is no feature to set, and every `info!` you have already
-written keeps working, because those are `log`'s macros. You gain whatever that logger offers,
-such as `env_logger`'s `RUST_LOG=warn,day_uikit=debug` per-target filtering or `tracing`'s spans
-via `tracing-log`.
+Every `info!` you have already written keeps working, because those are `log`'s macros. You gain
+whatever that logger offers, such as `env_logger`'s `RUST_LOG=warn,day_uikit=debug` per-target
+filtering or `tracing`'s spans via `tracing-log`.
 
 `env_logger` is a good choice for a desktop-focused app, and it is opt-in in Day because it writes
 ANSI text to stderr on every target: stderr is logcat's **ERROR** level on Android, a discarded

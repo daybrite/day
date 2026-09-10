@@ -17,11 +17,9 @@ An app's `Cargo.toml` resolves the framework from git:
 day = { git = "https://github.com/daybrite/day.git" }
 ```
 
-That is the right declaration for CI and for anyone who clones the app, since it builds from
-the published git source. It is the wrong resolution when you are changing the framework and
-the app in the same sitting: a new capability in a day crate, and the screen in your app that
-demonstrates it. For that, the app has to build against your checkout, and `day patch` makes
-the switch:
+CI and anyone who clones the app build from that git source. When you are changing a day crate and
+the app screen that demonstrates it, the app has to build against your checkout instead; `day patch`
+makes the switch:
 
 ```sh
 cd my-app
@@ -38,11 +36,10 @@ day patch --git https://github.com/acme/day.git@acme
 rm .cargo/config.toml        # back to the git dependency
 ```
 
-### One build instead of a mode
+### Trying a version for one build
 
-`day patch` puts the project in a state you stay in and eventually remember to leave. When you
-only want one look — does this branch fix the bug, is this PR's rendering different — pass
-`--day-src` to `day build` or `day launch` instead:
+`day patch` changes the project until you undo it. To build against another version once (to check
+whether a branch fixes a bug, say), pass `--day-src` to `day build` or `day launch` instead:
 
 ```sh
 day launch --day-src ../day                                               # a local checkout
@@ -50,10 +47,10 @@ day launch --day-src https://github.com/daybrite/day.git@experimental-nav  # a b
 day launch --day-src https://github.com/someone/day.git@fix-482            # a PR fork
 ```
 
-It computes the same `[patch]` table, hands it to that one cargo run, and writes nothing to the
-project — not `.cargo/config.toml`, and not `Cargo.lock`, which cargo rewrites during the build
-and the CLI restores after it. A git URL is cloned into the shared cache and cached per ref, so a
-second look at the same branch skips the clone.
+It computes the same `[patch]` table, hands it to that one cargo run, and leaves the project as it
+found it: cargo rewrites `Cargo.lock` during the build and the CLI restores after it. A git URL is
+cloned into the shared cache and cached per ref, so a second look at the same branch skips the
+clone.
 
 Each day-src also gets its own build tree, so you can leave two versions of the app running at
 once and switching between them is an incremental compile. In a debug build the window titles say
@@ -81,11 +78,9 @@ The file is machine-local and stays out of git; the scaffold's `.gitignore` cove
 CI resolves the git dependency exactly as a user's build would. Delete the file to switch
 back.
 
-You could write that table by hand, and the reason not to is that a missing entry does not
-fail. Cargo quietly resolves the missing crate from its git cache, and the build mixes your
-checkout with a published release: it compiles, it runs, and part of it is not the code you
-are editing. A hand-written table is hard to keep right because the crate set is bigger than
-it looks and changes over time:
+Writing that table by hand is risky because a missing entry does not fail: cargo resolves the
+missing crate from its git cache, and the build mixes your checkout with a published release, so
+part of it is not the code you are editing. The table is also hard to keep right:
 
 - The crate set is bigger than the app's manifest. Toolkit backends like `day-android` reach
   the app through the `day` umbrella crate's per-target dependency tables, so the app never

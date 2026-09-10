@@ -12,10 +12,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import PlatformShots from '../../../components/PlatformShots.astro';
 
-`ios-uikit` renders real `UINavigationController` pushes, a real `UITabBarController`, and system
-text handling, driven from Rust through [`objc2`](https://docs.rs/objc2). The scaffold is a
-checked-in Xcode project whose build phase calls back into `day`, so Xcode, `day launch` and CI all
-build the same way.
+`ios-uikit` renders `UINavigationController` pushes, a `UITabBarController`, and system text
+handling, driven from Rust through [`objc2`](https://docs.rs/objc2). The scaffold is a checked-in
+Xcode project whose build phase calls back into `day`, so Xcode, `day launch` and CI all build the
+same way.
 
 <PlatformShots platform="ios-uikit" shots={["home", "controls", "dates", "stack-detail"]} />
 
@@ -50,25 +50,26 @@ With `signing.ios` configured you get a signed App Store export; without it you 
 device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signing. See
 [packaging](/docs/packaging).
 
-## Caveats and special considerations
+## Caveats
 
-- **Development is Simulator-first.** Device debugging works but gets far less use than the
+- Development is Simulator-first. Device debugging works but gets far less use than the
   Simulator path.
-- **Declare permissions before you use them.** A gated API without its `NS*UsageDescription` key
+- Declare permissions before you use them. A gated API without its `NS*UsageDescription` key
   terminates the app on first use. Day generates those keys from your `[permissions]` table, and
   `day lint` fails the build when one is missing, so the mistake surfaces in CI.
-- **No combo box.** `day-piece-combobox` has no UIKit arm, because iOS has no native combo-box
-  control; it renders as a placeholder. Use `picker().menu()`.
-- **No menu bar.** iOS has no persistent menu bar, so `set_app_menu` is a no-op;
-  context menus work (`UIContextMenuInteraction`).
-- **Window screenshots** aren't implemented in-process; the walkthrough uses
+- `day-piece-combobox` has no UIKit arm, because iOS has no native combo-box control; it renders as
+  a placeholder. Use `picker().menu()`.
+- iOS has no persistent menu bar, so `set_app_menu` is a no-op; context menus work
+  (`UIContextMenuInteraction`).
+- Window screenshots aren't implemented in-process; the walkthrough uses
   `simctl io booted screenshot` instead.
-- **Dynamic Type is live**: labels set `adjustsFontForContentSizeCategory`, so text rescales with
+- Dynamic Type is live: labels set `adjustsFontForContentSizeCategory`, so text rescales with
   the user's system setting and your layout has to tolerate it.
 
 ## What each piece becomes
 
-The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
+The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+this table adds links and notes.
 
 | Day piece | UIKit class |
 |---|---|
@@ -105,8 +106,8 @@ The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is t
 | *external* `map()` | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) |
 | *external* `lottie()` | `LottieAnimationView` ([lottie-ios](https://github.com/airbnb/lottie-ios), via SwiftPM) |
 
-Day has no checkbox, radio, stepper or table piece: `toggle` is the only boolean control, radio
-behavior is `picker().inline()`, and `list` is the only collection.
+`toggle` is the only boolean control, radio behavior is `picker().inline()`, and `list` is the only
+collection; there is no checkbox, stepper, or table piece.
 
 **Text measurement** is UIKit's own `sizeThatFits:` on the realized view, so wrapping matches what
 the system would do anywhere else on the platform.

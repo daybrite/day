@@ -10,8 +10,8 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The `day` CLI (modeled on the architecture of `flutter_tools`) creates, builds, launches, packs,
-lints, and scripts projects. It works the same driven by hand, from CI, or from an IDE.
+The `day` CLI creates, builds, launches, packs, lints, and scripts projects. It works the same
+driven by hand, from CI, or from an IDE.
 
 ## The commands
 
@@ -160,10 +160,10 @@ day launch --git https://github.com/daybrite/Day-Showcase.git --script dayscript
 
 ### Trying another version of Day itself
 
-`--day-src` points the app's `day` dependencies somewhere else for **one build**. It takes a path
-to a day checkout, or a git URL with an optional `@<ref>` — a branch, a tag, a commit, or someone
-else's fork. It's on `day build` and `day launch` both, since answering "does this branch fix the
-bug?" means building with each version and looking at both:
+`--day-src` points the app's `day` dependencies somewhere else for one build. It takes a path to a
+day checkout, or a git URL with an optional `@<ref>` — a branch, a tag, a commit, or someone else's
+fork. It's on `day build` and `day launch` both, since answering "does this branch fix the bug?"
+means building with each version and looking at both:
 
 ```bash
 day launch --day-src ../day                                               # a local checkout
@@ -171,11 +171,11 @@ day launch --day-src https://github.com/daybrite/day.git@experimental-nav  # a b
 day launch --day-src https://github.com/someone/day.git@fix-482            # a PR fork
 ```
 
-Nothing in your project changes. `day patch` writes `.cargo/config.toml` and every later build
-uses it until you delete it; `--day-src` computes the same `[patch]` table, hands it to one cargo
-run, and leaves the project exactly as it found it — `Cargo.lock` included, which cargo rewrites
-during the build and which the CLI puts back afterwards. Use `day patch` when you're developing
-the framework and the app together for a while, and `--day-src` when you want one look.
+`day patch` writes `.cargo/config.toml` and every later build uses it until you delete it;
+`--day-src` computes the same `[patch]` table, hands it to one cargo run, and leaves the project
+exactly as it found it — `Cargo.lock` included, which cargo rewrites during the build and which the
+CLI puts back afterwards. Use `day patch` when you're developing the framework and the app together
+for a while, and `--day-src` when you want one look.
 
 Each day-src gets its own build tree under `build/day/day-src/<slug>/`, so two versions can be
 compared without either one's compile throwing away the other's:
@@ -191,9 +191,9 @@ Both apps can run at once, and in a debug build each window's title says which f
 from — `Day Rise (0.1.0+main-2d77edbf/appkit)` beside `Day Rise (0.1.0+day-4aea8304/appkit)`.
 Switching back to a version you've already built is an incremental compile, not a fresh one.
 
-There are two limits. On Android and HarmonyOS only the Rust half is isolated; Gradle and
-hvigor keep their own shared build directories, so the packaging step re-runs when you switch. And
-`day pack` takes no `--day-src`, so a shipped artifact always records the framework that built it.
+On Android and HarmonyOS only the Rust half is isolated; Gradle and hvigor keep their own shared
+build directories, so the packaging step re-runs when you switch. And `day pack` takes no
+`--day-src`, so a shipped artifact always records the framework that built it.
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 
@@ -222,10 +222,10 @@ expands the matrix internally, naming each run's variant `<theme>` (for the defa
 
 ### Simulators, emulators, and devices
 
-Without a device flag, a launch goes to **every** runtime of that kind it can see: every booted
-iOS simulator, every connected Android device and emulator. That is what a capture sweep wants.
-When you mean one specific phone, name it. Selection is one flag per runtime, so a single command
-can send each `-p` somewhere different:
+Without a device flag, a launch goes to every runtime of that kind it can see: every booted iOS
+simulator, every connected Android device and emulator. That suits a capture sweep. To target one
+phone, name it with a flag. Selection is one flag per runtime, so a single command can send each
+`-p` somewhere different:
 
 | Flag | Selects | Find them with |
 | --- | --- | --- |
@@ -234,7 +234,7 @@ can send each `-p` somewhere different:
 | `--android-device <serial>` | one device or emulator | `adb devices` |
 | `--ohos-device <key>` | one OpenHarmony device or emulator | `hdc list targets` |
 
-Or ask Day, which covers all three in one listing and needs no project:
+Or ask Day, which lists all three from any directory:
 
 ```bash
 day devices list                      # every mobile target
@@ -252,21 +252,18 @@ day devices shutdown -p android-mdc Pixel_9_API_36
 
 Booted simulators, attached phones, running emulators and reachable hdc targets come back under
 `devices`; simulators and AVDs that exist but are not running come back under `bootable`. Both
-halves name the **flag** that selects a device, so an editor can show a row for one before it has
+halves name the flag that selects a device, so an editor can show a row for one before it has
 booted. A target whose toolchain is missing reports `available: false` with a note, instead of
 looking like nothing is plugged in.
 
-`day devices boot` starts one of the `bootable` entries. That matters most on iOS, where an app
-cannot be installed onto a shut-down simulator: booting one is the step between "none running" and
-being able to launch at all.
+`day devices boot` starts one of the `bootable` entries. On iOS an app cannot be installed onto a
+shut-down simulator, so boot one before `day launch`.
 
-`day devices shutdown` is the other direction, for when a simulator or emulator has stopped being
-worth the memory it holds. Both spellings of an Android emulator work — the adb serial the listing
-reports, or the AVD name you booted it by — and the command waits until the emulator has actually
-gone, so the next listing describes the machine you are about to act on. Stopping something that
-is already stopped succeeds. Physical phones are refused: unplugging one is the real action, and
-powering off hardware someone is holding is a different thing entirely. The OpenHarmony emulator
-has no stop yet; close its window.
+`day devices shutdown` is the other direction. Both spellings of an Android emulator work — the adb
+serial the listing reports, or the AVD name you booted it by — and the command waits until the
+emulator has gone, so the next listing describes the machine you are about to act on. Stopping
+something that is already stopped succeeds. Physical phones are refused; unplug one instead. The
+OpenHarmony emulator has no stop yet; close its window.
 
 `--android-device` and `--ohos-device` take precedence over `ANDROID_SERIAL` and
 `DAY_OHOS_TARGET`, so an exported value keeps working as the default and the flag overrides it for
@@ -324,12 +321,12 @@ and takes the log watchers with it.
 
 ### What a physical iOS device needs
 
-Naming `--ios-device` changes the build, not just where it lands: the `iphoneos` SDK instead of
-the simulator's, and code signing, which a simulator build does not do at all. Day signs the
-bundle after the build against a **development provisioning profile** installed for the app's
-bundle id. The profile supplies both the signing identity (matched by fingerprint, so a machine
-holding several development certificates picks the right one) and the entitlements, so the
-signature cannot claim something its profile does not grant.
+Naming `--ios-device` also changes the build: the `iphoneos` SDK instead of the simulator's, and
+code signing, which a simulator build does not do at all. Day signs the bundle after the build
+against a development provisioning profile installed for the app's bundle id. The profile supplies
+both the signing identity (matched by fingerprint, so a machine holding several development
+certificates picks the right one) and the entitlements, so the signature cannot claim something its
+profile does not grant.
 
 So the prerequisites are a paired device and a profile that covers this app and lists that device.
 Install one by double-clicking the `.mobileprovision`; without a match, the launch stops and says
@@ -337,7 +334,7 @@ so rather than falling back to a simulator. Push is the case where the two halve
 if `Day.toml` declares `notifications`, the build fails when the profile has no `aps-environment`,
 instead of installing an app that cannot register.
 
-One error deserves a mention, because Apple reports it as `RequestDenied`:
+Apple reports a locked device as `RequestDenied`; Day translates it:
 
 ```
 [ios-uikit] the device is locked — unlock it and run again (iOS will not launch an app onto a locked screen)
@@ -396,13 +393,12 @@ crates.io yet; with `--registry` it pins the crates.io version instead.
 
 ## The conventional project
 
-A Day project is a normal Cargo package plus a small `Day.toml`: the project marker and the
-home of everything Day-specific. `name` and `version` are **derived from Cargo.toml's
-`[package]`** and never restated, so identity can't drift. Any `[app]` property can be
-**overridden per platform, per toolkit, or per target** (`[app.ios]`, `[app.qt]`,
-`[app.macos-appkit]`), with the most specific table winning. The build tool reads
-the resolved values when it derives platform metadata (an Android build's label and
-applicationId, for example).
+A Day project is a normal Cargo package plus a small `Day.toml`: the project marker and the home of
+everything Day-specific. `name` and `version` are derived from Cargo.toml's `[package]` and never
+restated, so identity can't drift. Any `[app]` property can be overridden per platform, per toolkit,
+or per target (`[app.ios]`, `[app.qt]`, `[app.macos-appkit]`), with the most specific table winning.
+The build tool reads the resolved values when it derives platform metadata (an Android build's label
+and applicationId, for example).
 
 ```toml
 # Day.toml
@@ -476,9 +472,9 @@ app on iOS, an unknown target in `Day.toml` is not read. Coverage gaps and store
 does.
 
 One rule that would pass that test stays a warning anyway. `unknown-key` (a `tr("…")` with no
-message, which renders the key itself on screen) is found by scanning for the literal after
-`tr("`, and that two-character name turns up inside other identifiers, where what follows it is
-not always a key. A text scan is weaker evidence than a parse, so the finding stays a warning.
+message, which renders the key itself on screen) is found by scanning for the literal after `tr("`,
+and that two-character name turns up inside other identifiers, where what follows it is not always a
+key.
 
 Some findings come with a repair. `day lint --fix` applies them and reports each one:
 
@@ -535,9 +531,9 @@ the per-target build pipelines, and how [resources](/docs/glossary#resource) are
 ## dayscript
 
 **dayscript** is a YAML language that drives and asserts a *running* app over a socket, using the
-same script on every platform. Pieces are addressed by the same stable `.id` you give them in
-Rust, and routes are the same keys your `nav`/`nav_stack` use, so one script exercises the app
-identically everywhere. It has its own guide: [Testing with dayscript](/docs/dayscript).
+same script on every platform. Pieces are addressed by the same stable `.id` you give them in Rust,
+and routes are the same keys your `nav`/`nav_stack` use. It has its own guide: [Testing with
+dayscript](/docs/dayscript).
 
 ## Continuous integration
 

@@ -40,7 +40,7 @@ plugin registry or runtime lookup; the [target](/docs/glossary#target) selects t
 
 ## Using parts
 
-The APIs are small. Here are some examples, verbatim from the crates:
+The APIs are small. Here are some examples from the crates:
 
 ```rust
 // Battery
@@ -71,10 +71,9 @@ column((
 ))
 ```
 
-Returns are `Option`/`bool` rather than panics: a desktop without a battery reports `None`, a
-denied clipboard read reports `None`, and your UI decides what that means. Check each part's
-reference page for the per-platform support matrix; not every capability exists everywhere, and
-each function's reference lists its per-platform support.
+Returns are `Option`/`bool` rather than panics: a desktop without a battery reports `None`, a denied
+clipboard read reports `None`, and your UI decides what that means. Check each part's reference page
+for the per-platform support matrix; not every capability exists everywhere.
 
 ## Writing your own
 
@@ -94,9 +93,9 @@ you write a part. The pattern scales from trivial to involved:
 - Permissions a part needs (say, vibration) are declared in the part's metadata and merged into
   each platform's manifest the same way.
 
-`day new part my-part` scaffolds the whole shape with per-OS stubs. The
-[part tutorial](/docs/tutorial-part) walks through a complete real example (a battery part with
-six platform implementations) and is the best template for your own.
+`day new part my-part` scaffolds that layout with per-OS stubs. The [part
+tutorial](/docs/tutorial-part) walks through a complete real example (a battery part with six
+platform implementations) and is the best template for your own.
 
 ### Foreign code, inline
 

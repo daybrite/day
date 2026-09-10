@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 This page shows the whole authoring surface in one pass, for people who learn from code.
-Everything below is real Day API. The snippets are lifted from the showcase app that produces the
+The snippets are lifted from the showcase app that produces the
 [gallery](/gallery), and `use day::prelude::*;` brings all of it in. The pages after this one
 ([Pieces](/docs/pieces), [Reactivity](/docs/reactivity), [Layout](/docs/layout)) explain the
 model behind what you'll see here.
