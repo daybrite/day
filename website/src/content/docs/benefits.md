@@ -11,8 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 Every cross-platform stack makes different choices. This page describes what Day gives you and
-what it asks of you, and names the situations where another tool is the better fit. Deciding
-now is cheaper than deciding three months in.
+what it asks of you, and names the situations where another tool is the better fit.
 
 ## The options
 
@@ -25,28 +24,28 @@ Four established ways to ship one app on many platforms:
 | Shared logic, native UI | Kotlin Multiplatform, Skip | Fully native UI | The single UI codebase; you still write each UI |
 | Native widgets, one codebase | **Day**, React Native* | Native widgets and one UI codebase | Pixel-identical branding; some framework-mediated control |
 
-\* React Native shares the "real native widgets" premise for mobile; it differs in language (JS +
-a bridge), in update model (re-render + reconcile), and in desktop coverage.
-
-Day's position: write the UI once in Rust; realize it with the platform's own widgets; keep the
-framework's surface area small enough that the platform, not the framework, defines how your app
-feels.
+\* React Native shares the native-widgets premise for mobile; it differs in language (JS + a
+bridge), in update model (re-render + reconcile), and in desktop coverage.
 
 ## What you get
 
-**Native fidelity without per-platform UI code.** Text rendering, input methods, spellcheck,
-scrolling physics, selection, drag, focus behavior, dark-mode chrome, screen readers: these come
-from the platform's widgets, which means they're correct in ways a reimplementation struggles to
-match, and they improve with OS updates you never ship. A Day app behaves the way that
-platform's users expect, because the parts they touch are the platform's own.
+### Native fidelity without per-platform UI code
 
-**A runtime profile you can reason about.** Day builds the widget tree once and binds state to
+Text rendering, input methods, spellcheck,
+scrolling physics, selection, drag, focus behavior, dark-mode chrome, screen readers: these come
+from the platform's widgets, and they improve with OS updates.
+
+### A runtime profile you can reason about
+
+Day builds the widget tree once and binds state to
 native attributes. A state change re-runs only the closures that read that value — a label's
 text closure, say — and each ends in one native setter call ([how this works](/docs/reactivity)).
 The compiler monomorphizes your app against one toolkit [backend](/docs/glossary#backend) per binary, so a widget update
 is a direct call. Binaries are ordinary Rust binaries that link the system's libraries.
 
-**One language for everything.** UI, state, logic, tests, and build tooling are Rust, so the
+### One language for everything
+
+UI, state, logic, tests, and build tooling are Rust, so the
 borrow checker applies to your UI code the same way it applies to everything else. Whether
 that's a benefit depends on your team; see the costs below.
 
@@ -56,33 +55,37 @@ These four compose: localized strings are [reactive](/docs/glossary#reactive), s
 [locale](/docs/glossary#locale) switches update a running app; accessibility identifiers double as automation ids; one
 [dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough), run per-locale, is simultaneously an end-to-end test
 ([dayscript](/docs/dayscript)), an accessibility audit ([accessibility](/docs/accessibility)),
-and a screenshot generator ([localization](/docs/localization)). These four are designed
-together, which is what lets one walkthrough serve all three jobs.
+and a screenshot generator ([localization](/docs/localization)).
 
 1. **Localizable** — Mozilla [Fluent](/docs/glossary#fluent) throughout, with ICU-correct plurals, number and date
    formatting, and collation-aware sorting, with locale data thinned to the locales you ship.
    The current locale is a [signal](/docs/glossary#signal). ([guide](/docs/localization))
-2. **Accessible** — real native widgets give a real native accessibility tree as the baseline;
-   Day adds uniform annotations and stable identifiers, and CI can diff the native tree against
-   your declarations. ([guide](/docs/accessibility))
+2. **Accessible** — native widgets give a native accessibility tree as the baseline; Day adds
+   uniform annotations and stable identifiers, and CI can diff the native tree against your
+   declarations. ([guide](/docs/accessibility))
 3. **Scriptable** — a YAML automation language drives the running app over a socket, identically
    on every platform. ([guide](/docs/dayscript))
 4. **Extensible** — new widgets plug in as ordinary crates, from pure composition down to
    per-toolkit native code, without forking Day. ([how](/docs/extending))
 
-**Tooling built for CI and agents as much as humans.** `day doctor` diagnoses all eight [target](/docs/glossary#target)
+### Tooling built for CI and agents as much as humans
+
+`day doctor` diagnoses all eight [target](/docs/glossary#target)
 toolchains with fix-it text; `day launch` runs any subset of twelve targets; `day pack`
-[produces signed installable artifacts](/docs/packaging); everything speaks JSON when asked.
+[produces signed installable artifacts](/docs/packaging); every command can print JSON.
 
 ## What you give up
 
-**Hot reload.** Rust compiles ahead of time. The edit loop is an incremental compile plus
+### Hot reload
+
+Rust compiles ahead of time. The edit loop is an incremental compile plus
 relaunch (seconds on desktop, longer for mobile targets), with dayscript replay to restore UI
 state. Flutter's sub-second stateful hot reload is better for exploratory UI work, and
-nothing in Day currently matches it. (Hot-swapping the app dylib is a researched possibility, not
-a promise.)
+nothing in Day currently matches it.
 
-**Pixel-level brand control.** Your app looks like a Mac app on macOS and a Material app on
+### Pixel-level brand control
+
+Your app looks like a Mac app on macOS and a Material app on
 Android. If the design brief is a custom design system rendered identically everywhere, with custom
 controls, custom motion, and brand color on every surface, Day's native-widget premise works against
 you, and a renderer (Flutter, or Rust-native options like Slint or egui) is the better fit.
@@ -90,29 +93,35 @@ you, and a renderer (Flutter, or Rust-native options like Slint or egui) is the 
 escape hatch is [SwiftUI embedding](/docs/internal/swiftui): a custom control written in SwiftUI
 drops into the Day tree as an ordinary [piece](/docs/glossary#piece).
 
-**Ecosystem maturity.** Flutter has years of production hardening, thousands of packages, and an
+### Ecosystem maturity
+
+Flutter has years of production hardening, thousands of packages, and an
 enormous community. Day is young: the widget vocabulary is small, some designed
 features aren't implemented yet (semantic color tokens, an animation scheduler,
 form validation; [Platform support](/docs/platforms) keeps the current list), and you will hit
-edges. The mitigations are partial: the architecture descends from several generations
-of working systems, a nontrivial Matrix chat client runs on five targets, and every target is
-exercised in CI with screenshot validation on every push. How much testing a given target gets
-varies, and [support tiers](/docs/platforms#support-tiers) say which ones get the most. Judge the
-risk for your project accordingly.
+edges. A Matrix chat client runs on five targets, and every target is exercised in CI with
+screenshot validation on every push. How much testing a given target gets varies, and
+[support tiers](/docs/platforms#support-tiers) say which ones get the most.
 
-**Rust, with a single-threaded UI.** If your team doesn't know Rust, the learning curve is the
-project's learning curve. UI state is main-thread-only by construction (`Signal` isn't `Send`);
-background work returns through explicit `Setter`/`on_main` doors. The compiler enforcing this
+### Rust, with a single-threaded UI
+
+If your team doesn't know Rust, learning it is part of the
+project. UI state is main-thread-only by construction (`Signal` isn't `Send`); background work
+returns through explicit `Setter`/`on_main` calls. The compiler enforcing this
 prevents a whole bug class, and it also means there's no casual shared-state shortcut when you
 want one.
 
-**Platform variance is still yours to test.** One codebase does not mean one behavior. Native
-widgets differ in focus order, dialog conventions, and text metrics, and while dayscript makes
-cross-platform testing cheap, it doesn't make it unnecessary. Day also can't script what it
+### Platform variance is still yours to test
+
+Native widgets differ in focus order, dialog
+conventions, and text metrics, so each platform still needs testing even though dayscript makes
+that cheap. Day also can't script what it
 doesn't own: native keyboards, IME composition, and OS dialogs still need occasional manual
 checks per platform.
 
-**Framework-mediated platform access.** When you need a platform API Day doesn't surface, you
+### Framework-mediated platform access
+
+When you need a platform API Day doesn't surface, you
 write it yourself; the [parts](/docs/parts) pattern makes this a normal, contained thing to do
 (a few `cfg`-gated functions per platform), but it's work a single-platform app wouldn't have.
 
@@ -122,8 +131,8 @@ Pick **Electron or Tauri** when your product *is* a web UI, your team is a web t
 integration depth matters less than shipping this quarter. Pick **Flutter** when design-system
 uniformity across platforms is a requirement, or when hot-reload-driven iteration speed dominates
 everything else. Pick **per-platform native** when you're on one platform, or when each platform
-app has its own team and roadmap. Pick **Day** when you want one Rust codebase, you want the
-result to feel native on each platform because it is, and you accept a young framework's gaps
+app has its own team and roadmap. Pick **Day** when you want one Rust codebase and each platform's
+own widgets, and you accept a young framework's gaps
 in exchange for a runtime model with very little between your code and the platform.
 
 ---

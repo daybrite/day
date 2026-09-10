@@ -10,12 +10,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day pack -p <target>` builds the app in release mode, signs it, and produces a **standalone
-installable artifact** in `build/day/dist/`, with a SHA-256 checksum and a signing tier in the
-result output. There is one command per platform, with the platform's own signing tools
-underneath. Day orchestrates `codesign`/`notarytool`, `xcodebuild -exportArchive`, Gradle signing,
-`flatpak-builder`, `linuxdeploy`, `makeappx`/`signtool`/`makensis`, and `hap-sign-tool`; it never reimplements
-them.
+`day pack -p <target>` builds the app in release mode, signs it, and produces a standalone
+installable artifact in `build/day/dist/`, with a SHA-256 checksum and a signing tier in the result
+output. There is one command per platform, with the platform's own signing tools underneath. Day
+orchestrates `codesign`/`notarytool`, `xcodebuild -exportArchive`, Gradle signing,
+`flatpak-builder`, `linuxdeploy`, `makeappx`/`signtool`/`makensis`, and `hap-sign-tool`.
 
 ## Artifacts per target
 
@@ -44,9 +43,9 @@ per project), and `--no-version-in-name` drops the version so a
 
 ## Signing configuration
 
-Signing lives in `Day.toml` under `[signing]`, with every secret referenced as `${ENV_VAR}`;
-values resolve from the environment at pack time and are **never** stored in the manifest or
-printed by the tool:
+Signing lives in `Day.toml` under `[signing]`, with every secret referenced as `${ENV_VAR}`; values
+resolve from the environment at pack time and are never stored in the manifest or printed by the
+tool:
 
 ```toml
 [signing.macos]
@@ -82,17 +81,17 @@ profile = "${DAY_OHOS_PROFILE}"
 ```
 
 `day sign --check` reports each platform's readiness (env vars set, key files present) without
-echoing a single secret value.
+printing any secret value.
 
 ## Signing tiers
 
 Every artifact carries a tier: **release**, **dev-signed**, or **unsigned**. When a `${VAR}` is
-unset (a laptop without the release keys, a fork PR without repository secrets), `day pack`
-**warns naming the variable and drops that platform to the dev tier** (ad-hoc codesign on macOS,
-the fixed dev keystore embedded in the CLI on Android, a self-signed certificate on Windows, the
-unsigned device `.ipa` on iOS) instead of failing. The Android dev keystore is fixed, so dev
-builds stay byte-reproducible and an install from one machine can be upgraded by a build from
-another. The result JSON and the console both say so:
+unset (a laptop without the release keys, a fork PR without repository secrets), `day pack` warns
+naming the variable and drops that platform to the dev tier (ad-hoc codesign on macOS, the fixed dev
+keystore embedded in the CLI on Android, a self-signed certificate on Windows, the unsigned device
+`.ipa` on iOS) instead of failing. The Android dev keystore is fixed, so dev builds stay
+byte-reproducible and an install from one machine can be upgraded by a build from another. The
+result JSON and the console both say so:
 
 ```text
      Warning signing.macos.identity: ${DAY_SIGN_MACOS_IDENTITY} is not set — degrading to the dev signing tier

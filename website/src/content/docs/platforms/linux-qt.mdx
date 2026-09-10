@@ -21,8 +21,8 @@ Windows.
 
 ## Getting started
 
-Qt 6 development packages and `pkg-config` are the requirement; the shim is built by `build.rs`,
-and no `moc` step is involved.
+Qt 6 development packages and `pkg-config` are the requirement; `build.rs` builds the shim without
+`moc`.
 
 ```sh
 sudo apt install qt6-base-dev pkg-config      # Debian/Ubuntu
@@ -58,20 +58,19 @@ If your binary links QtWebEngine, `day pack` adds the Qt WebEngine BaseApp (abou
 Chromium), because no runtime ships it. Apps that don't link it stay small; `day pack` inspects
 the built binary to decide.
 
-## Caveats and special considerations
+## Caveats
 
-- **`toggle` is a `QCheckBox`, not a switch.** Qt Widgets has no native switch control. This is the
-  one place where the same Day code produces a visibly different control shape than on the other
-  desktops.
-- **The list is emulated.** Day drives a `QScrollArea` with its own recycling rather than
+- `toggle` is a `QCheckBox`, because Qt Widgets has no native switch control, so the same Day code
+  shows a checkbox here and a switch elsewhere.
+- The list is emulated. Day drives a `QScrollArea` with its own recycling rather than
   `QListView`, so very large lists behave differently than a model/view Qt app would.
-- **Qt 6.8+ for forced light/dark.** `DAY_THEME` uses `QStyleHints::setColorScheme`; on older Qt
+- Forced light/dark needs Qt 6.8+. `DAY_THEME` uses `QStyleHints::setColorScheme`; on older Qt
   (Ubuntu 24.04 ships 6.4) Day falls back to the Fusion style with a hand-built dark palette.
-- **No spell-check**, because Qt ships none; `Cap::TextSpellCheck` reports unsupported and the
+- No spell-check, because Qt ships none; `Cap::TextSpellCheck` reports unsupported and the
   patch is a no-op.
-- **Lottie and map have no Qt arm**; each renders its placeholder. `cover()` presents as
+- Lottie and map have no Qt arm; each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
-- **Qt on macOS and Windows** (`macos-qt`, `windows-qt`) is a development combo, and stays at
+- Qt on macOS and Windows (`macos-qt`, `windows-qt`) is a development combo, and stays at
   [Tier 4](/docs/platforms#support-tiers), so `day pack` skips it.
   Windows builds against MSYS2's Qt 6 with a GNU Rust toolchain
   ([setup](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host)) and is marked experimental in CI.
@@ -81,7 +80,8 @@ the built binary to decide.
 
 ## What each piece becomes
 
-The generated, CI-checked [coverage matrix](/docs/internal/coverage-matrix) is the always-current version of this data across every backend; the table here adds the per-class links and notes.
+The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+this table adds links and notes.
 
 | Day piece | Qt class |
 |---|---|

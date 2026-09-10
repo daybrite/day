@@ -25,10 +25,9 @@ closures that read it, each ending in one native setter call. Stability
 annotations and `remember` bookkeeping have no equivalent because there is nothing to skip.
 
 The second is what's on screen. Compose draws its own Material widgets on a canvas (and Compose
-Multiplatform carries that renderer to other platforms). Day creates each platform's real
-widgets: Material Components views on Android, AppKit on macOS, system XAML on Windows, actual
-DOM elements on the web. Your app looks native everywhere rather than identical everywhere.
-[Why Day](/docs/benefits) lists what each approach costs and when Compose is the better fit.
+Multiplatform carries that renderer to other platforms). Day creates each platform's real widgets:
+Material Components views on Android, AppKit on macOS, system XAML on Windows, DOM elements on the
+web. [Why Day](/docs/benefits) lists what each approach costs and when Compose is the better fit.
 
 ## Compose terms in Day
 
@@ -89,11 +88,9 @@ fn counter() -> impl Piece {
 </Compare>
 
 There's no `remember` because the function runs once, so state never needs to survive a
-re-execution. The label's closure is the only code that runs on a tap, and it ends in one
-native `setText`. The habits Compose teaches around recomposition (hoisting state, stability
-annotations, skippability) have no Day equivalent, because there is no recomposition to manage.
-[Reactivity](/docs/reactivity) covers the model, including its cost, which is that you mark
-what's dynamic yourself (a closure makes text live; a bare value doesn't).
+re-execution. The label's closure is the only code that runs on a tap, and it ends in one native
+`setText`. [Reactivity](/docs/reactivity) covers the model and its cost: you mark what's dynamic
+yourself (a closure makes text live; a bare value doesn't).
 
 ## Two-way controls
 
@@ -140,8 +137,8 @@ column((
 
 </Compare>
 
-On Android these are real Material Components views (`TextInputLayout`, `MaterialSwitch`), so
-they track the OS's Material version rather than your Compose BOM.
+On Android these are Material Components views (`TextInputLayout`, `MaterialSwitch`), so they track
+the OS's Material version rather than your Compose BOM.
 
 ## Lists
 
@@ -170,9 +167,9 @@ list(
 
 </Compare>
 
-There are two differences. The key is a required argument, where Compose's `key` lambda is
-optional. And `list` recycles real native cells (a `RecyclerView` on Android), so the row
-builder runs per recycled slot rather than per composition.
+There are two differences. The key is a required argument, where Compose's `key` lambda is optional.
+And `list` recycles native cells (a `RecyclerView` on Android), so the row builder runs per recycled
+slot rather than per composition.
 
 ## Navigation
 
@@ -220,9 +217,9 @@ platform's idiom: tabs on phones, a sidebar split view on desktop. See
 
 ## Adaptive layout
 
-`SizeClass` uses Android's window size classes verbatim, on every backend, so a 700pt window
-is `Medium` on a Mac and in a browser exactly as it is on a tablet. In Compose you pick the
-scaffold per class; in Day the `nav` re-presents itself.
+`SizeClass` uses Android's window size classes unchanged on every backend, so a 700pt window is
+`Medium` on a Mac, in a browser, and on a tablet. In Compose you pick the scaffold per class; in Day
+the `nav` re-presents itself.
 
 <Compare lhs="Compose">
 
@@ -296,11 +293,11 @@ column((
 
 </Compare>
 
-`Font::Title` resolves to each platform's typography scale. Day inherits the platform's look
-and ships no design system of its own, which sets a limit: there is no `MaterialTheme`
-equivalent to recolor control chrome or to restyle a slider track or checkbox portably.
-[Styling](/docs/styling) lists what you can restyle and what stays native, and
-[tweaks](/docs/tweaks) reach per-platform knobs when one platform has the setting you need.
+`Font::Title` resolves to each platform's typography scale. Day inherits the platform's look and
+ships no design system of its own, so there is no `MaterialTheme` equivalent to recolor control
+chrome or to restyle a slider track or checkbox portably. [Styling](/docs/styling) lists what you
+can restyle and what stays native, and [tweaks](/docs/tweaks) reach per-platform knobs when one
+platform has the setting you need.
 
 ## State management: ViewModels, flows, and threads
 
@@ -397,14 +394,13 @@ camera = "Scan shelf barcodes to add albums."
 
 </Compare>
 
-A Gradle project still exists (`platform/android/` is a thin host that loads the Rust
-`cdylib`), but it isn't where configuration lives. `Day.toml` declares identity, version,
-window, and permissions once; `day build` writes the manifest entries (and the iOS plist keys,
-and the HarmonyOS profile) from it. A dependency with native platform code declares its Java
-sources, Gradle dependencies, and Maven repositories in its own crate metadata, and the host
-project reads them generically. Adding such a package to `Cargo.toml` completes the
-integration. On the Apple targets, Day can also embed your own SwiftUI views
-([SwiftUI embedding](/docs/internal/swiftui)).
+A Gradle project still exists (`platform/android/` is a thin host that loads the Rust `cdylib`), but
+it isn't where configuration lives. `Day.toml` declares identity, version, window, and permissions
+once; `day build` writes the manifest entries (and the iOS plist keys, and the HarmonyOS profile)
+from it. A dependency with native platform code declares its Java sources, Gradle dependencies, and
+Maven repositories in its own crate metadata, and the host project reads them generically. Adding
+the package to `Cargo.toml` is the only app-side step. On the Apple targets, Day can also embed your
+own SwiftUI views ([SwiftUI embedding](/docs/internal/swiftui)).
 
 ## Resources and localization
 

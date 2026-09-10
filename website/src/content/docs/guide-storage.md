@@ -10,10 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Apps remember two kinds of things: small settings (a theme choice, a volume, the last-open tab)
-and real data (documents, exports, caches). Day splits them across two parts. `day::prefs` is a
-string key/value store backed by each platform's own preferences facility; `day-part-fs` is
-private per-app file storage. One call each:
+Apps remember two kinds of things: small settings (a theme choice, a volume, the last-open tab) and
+files (documents, exports, caches). Day splits them across two parts. `day::prefs` is a string
+key/value store backed by each platform's own preferences facility; `day-part-fs` is private per-app
+file storage. One call each:
 
 ```rust
 day::prefs::set("theme", "dark");                       // NSUserDefaults, SharedPreferences, …
@@ -60,9 +60,9 @@ day::prefs::bind("settings.volume", volume);
 Call it right after creating the signal: the write-back is a reactive watch, and it stops when
 the creating scope is disposed.
 
-On the web this matters most, because a reload is part of normal life there. The showcase's
-Controls page binds its counter, name field, volume, and toggle on wasm only, so a reload keeps
-them while native launches start fresh:
+On the web this matters most, because pages reload often. The showcase's Controls page binds its
+counter, name field, volume, and toggle on wasm only, so a reload keeps them while native launches
+start fresh:
 
 ```rust
 #[cfg(target_arch = "wasm32")]
@@ -134,26 +134,25 @@ store yourself.
 
 ## Pitfalls
 
-- **Prefs is a small string store, not a database.** Keep values modest; large blobs belong in
-  a file. On the web, `localStorage` can throw (private browsing, storage pressure); failures
-  report as uncommitted writes or absent reads, never a panic.
-- **`bind`'s write-back stops with its scope.** Bind in the scope that owns the signal, right
+- Keep prefs values modest; large blobs belong in a file. On the web, `localStorage` can throw
+  (private browsing, storage pressure); failures report as uncommitted writes or absent reads, never
+  a panic.
+- `bind`'s write-back stops with its scope. Bind in the scope that owns the signal, right
   after creating it. A signal bound inside a page keeps persisting only while that page's scope
   is alive.
-- **The blocking fs calls don't exist on web.** They return `FsError::Unsupported`; the
+- The blocking fs calls don't exist on web. They return `FsError::Unsupported`; the
   `*_async` and `*_future` forms are the portable surface. Even natively, keep large files off
   the UI thread.
-- **A file is one buffer.** v1 has no streaming: `read` and `write` move the whole body through
+- A file is one buffer. v1 has no streaming: `read` and `write` move the whole body through
   memory, so don't store anything huge this way.
-- **OPFS is the only web store.** A pre-OPFS browser, or a private-browsing session (WebKit
+- OPFS is the only web store. A pre-OPFS browser, or a private-browsing session (WebKit
   gives ephemeral sessions no storage backing), answers `Unsupported` or `Io`; there is no
   silent fallback store.
-- **Launch overrides beat stored settings.** The settings pieces apply persisted theme/language
+- Launch overrides beat stored settings. The settings pieces apply persisted theme/language
   with an env-wins rule: when `DAY_THEME` or `DAY_LOCALE` is set (a `day launch --env` run, CI
   variants), the persisted value is not re-applied at boot.
-- **Testing persistence by hand on macOS:** an unbundled binary stores under the process-name
-  defaults domain; `defaults delete <name>` clears it (deleting the plist alone won't;
-  `cfprefsd` caches).
+- To test persistence by hand on macOS: an unbundled binary stores under the process-name defaults
+  domain; `defaults delete <name>` clears it (deleting the plist alone won't; `cfprefsd` caches).
 
 ## Reference
 

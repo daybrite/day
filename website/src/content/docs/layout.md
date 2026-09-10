@@ -16,8 +16,6 @@ bypasses them, computes every widget's frame itself, and positions widgets absol
 native container. Day still asks the platform to measure: the toolkit is always the authority on
 how big a piece of text or a control wants to be.
 
-This page explains the protocol, why it works this way, and where the costs are.
-
 ## Parent proposes, child chooses
 
 Day uses the SwiftUI-style negotiation protocol. A parent offers a child a **proposal** (an
@@ -52,7 +50,7 @@ overflow (usually: let `scroll` handle it).
 The `Layout` trait is public and has no private privileges; `column` is implemented with the
 same trait a custom masonry or flow container would use.
 
-One consequence to learn early is that **containers don't stretch children by default.** A
+Containers don't stretch children by default. A
 `column` is as wide as its widest child; a pane you want to fill available space needs `.grow()`.
 Forgetting this shows up as a view collapsing to its content size, or to nothing when it has no
 content.
@@ -136,14 +134,13 @@ Owning layout gives Day the same negotiation on every platform, testable on the
 [mock toolkit](/docs/rendering#the-mock-toolkit) without a display, and it is why per-locale
 reflow and RTL are features of the framework that every backend shares. It also has costs:
 
-- **You give up native layout idioms.** Auto Layout constraints, Compose modifiers, GTK size
-  groups: none of that applies inside a Day window. If your team's muscle memory is one
-  platform's layout system, Day's is a new (if small) one to learn.
-- **Measurement crosses the FFI:** the cache keeps this off the hot path, but a pathological
+- Native layout idioms don't apply: Auto Layout constraints, Compose modifiers, and GTK size groups
+  have no effect inside a Day window.
+- Measurement crosses the FFI. The cache keeps this off the hot path, but a pathological
   layout (thousands of unique text leaves invalidating at once) pays real per-leaf costs,
   especially over JNI. The native [`list`](/docs/internal/list) exists so that long
   scrolling content doesn't become that case.
-- **Deep negotiation is O(children) per level.** SwiftUI has the same cost; it is rarely a
+- Deep negotiation is O(children) per level. SwiftUI has the same cost; it is rarely a
   problem, but it becomes visible when you build a custom `Layout`.
 
 ---

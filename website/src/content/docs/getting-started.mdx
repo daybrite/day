@@ -57,8 +57,9 @@ HarmonyOS emulators.
 
 ### Run a sample app first
 
-If you'd rather see a real app before scaffolding your own, `--git` takes a repository URL and
-does the rest — clone, find the project inside, build for your host's default [toolkit](/docs/glossary#toolkit), run:
+If you'd rather see a sample app before scaffolding your own, `--git` takes a repository URL and
+clones it, finds the project inside, builds for your host's default
+[toolkit](/docs/glossary#toolkit), and runs it:
 
 ```bash
 day launch --git https://github.com/daybrite/Day-Rise.git
@@ -84,9 +85,8 @@ code --install-extension day-vscode.vsix
 works too: `git clone https://github.com/daybrite/day-vscode && cd day-vscode && npm install &&
 npx vsce package`, then install the produced `.vsix`.)
 
-Two companions are worth installing alongside it, and the extension recommends both in any Day
-workspace: **rust-analyzer** (the Rust language service) and **Even Better TOML** (which the Day
-extension wires up to validate [`Day.toml`](/docs/glossary#day-toml) against its published schema automatically).
+The extension recommends two companions in any Day workspace: **rust-analyzer** (the Rust
+language service) and **Even Better TOML** (which the Day extension wires up to validate [`Day.toml`](/docs/glossary#day-toml) against its published schema automatically).
 
 ## 3. Create a project
 
@@ -145,15 +145,14 @@ pub fn root() -> impl Piece {
 
 Press ▶ again (terminal: `day launch -p macos-appkit`). The compile is incremental — a few
 seconds — and the relaunched window shows your label above a native button that prints to the
-terminal when tapped. That loop, edit → relaunch → look, is the whole inner cycle;
-[Pieces](/docs/pieces) explains what `column`, `label`, and `button` return.
+terminal when tapped. [Pieces](/docs/pieces) explains what `column`, `label`, and `button` return.
 
 ## 6. Drive it from VS Code's agent mode
 
 Every launch embeds a **dayscript engine** (a loopback automation channel), and the Day
 extension exposes it to VS Code's agent mode through ten MCP tools (`day.mcp.enabled`, on by
 default): an agent can build, launch, relaunch, tap and type in the running app, and take
-screenshots it can actually see, on every platform you target.
+screenshots it can read, on every platform you target.
 [AI-assisted development](/docs/ai) walks the same loop from a plain terminal.
 
 Open the Chat view (**⌃⌘I**), switch to **Agent** mode, and try prompts like:
@@ -175,7 +174,7 @@ A well-behaved agent will follow the loop the scaffolded `AGENTS.md` teaches it:
    screenshot comes back as an image in the chat, so both of you can see the new page running
    natively. Ask it to verify on each of your targets.
 
-You stay in control: agent mode asks before running tools, and everything the agent can do, you
+Agent mode asks before running tools, and everything the agent can do, you
 can do from a terminal: `day drive -p macos-appkit --steps-json '[{"navigate":{"route":"configuration"}},{"screenshot":"check"}]'`
 drives the same engine by hand. The full protocol is documented in the
 [dayscript](/docs/dayscript) and [for agents](/docs/for-agents) pages.
@@ -198,4 +197,4 @@ day launch -p macos-appkit -p ios-uikit     # terminal equivalent
 - The [API tour](/docs/api-tour) — the whole surface in one pass, if you'd rather learn from
   code.
 - [CLI & projects](/docs/cli) — every command, and what `Day.toml` can say.
-- [Platform support](/docs/platforms) — how solid each target is today, per target.
+- [Platform support](/docs/platforms) — how solid each target is today.

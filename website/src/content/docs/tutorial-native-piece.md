@@ -26,12 +26,6 @@ We will build one throughout: a **native search field** bound two-way to a `Sign
 already exists in the tree as [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield),
 so you can read the finished crate alongside this tutorial. Every snippet below is lifted from it.
 
-> [!QUESTION] Do you need a native piece?
-> If your control can instead be *assembled* from existing Pieces (an HStack of a label and a
-> stepper, a card built from a `column` and a `divider`), you want the much lighter
-> [composite-piece tutorial](/docs/tutorial-composite-piece) instead. Reach for a native piece only when
-> there is an actual platform control underneath.
-
 ## 1. When you need a native piece
 
 The deciding question is whether you are wrapping a native control or arranging Pieces.
@@ -66,10 +60,10 @@ a commented `platform = "16.0"` floor key (iOS/`uikit`). Choosing `appkit` adds 
 day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,xaml
 ```
 
-Pick any subset of `appkit,gtk,qt,uikit,mdc,xaml`; passing `--toolkits` at all makes it a
-native piece rather than a composite one. The crate builds against a remote Day release out of
-the box (add `--local <path>` for a local Day checkout). Everything from here down describes what the
-scaffolder produces and how the halves fit together.
+Pick any subset of `appkit,gtk,qt,uikit,mdc,xaml`; passing `--toolkits` at all makes it a native
+piece rather than a composite one. The crate builds against a remote Day release (add `--local
+<path>` for a local Day checkout). Everything from here down describes what the scaffolder produces
+and how the halves fit together.
 
 One crate carries both halves of the piece:
 
@@ -80,7 +74,7 @@ One crate carries both halves of the piece:
   `lib-uikit.rs`, `lib-android.rs`, `lib-xaml.rs`), compiled only for its feature+target, that
   turns the `KIND` leaf into a native widget.
 
-The two halves never call each other directly. They communicate through a tiny typed protocol:
+The two halves never call each other directly. They communicate through a typed protocol:
 
 - **`KIND`**: a stable string (`"day.piece.searchfield"`) naming this piece to every backend.
 - **`Props`**: the full "realize" payload, handed to a backend's `make` when the widget is first
@@ -100,8 +94,8 @@ let mut registry = Registry::default();
 for f in RENDERERS { registry.register(f()); }   // your piece is now known to AppKit
 ```
 
-Because registration is link-time, adding a piece requires no edit to any Day crate. Linking your
-crate into the AppKit build inserts its renderer into the registry.
+Because registration is link-time, linking your crate into the AppKit build inserts its renderer
+into the registry.
 
 The `renderer!` macro keeps the backend bodies short. `Props` and `Patch` cross
 the backend boundary type-erased as `&dyn Any`; the macro inserts the downcast for you, so your
@@ -121,8 +115,8 @@ update: |backend, handle, patch| {
 },
 ```
 
-You never write a downcast. You write `fn make(backend: &mut AppKit, p: &SearchProps, id: NodeId)`
-and one `renderer!` line.
+You write `fn make(backend: &mut AppKit, p: &SearchProps, id: NodeId)` and one `renderer!` line; the
+macro owns the downcast.
 
 ## 3. The front-end
 
@@ -177,7 +171,7 @@ impl SearchField {
 
 This is the ordinary Day builder idiom: a free function returns a config struct, chained `.method()`
 calls fill it in. Because `SearchField` will `impl Piece`, it also gets `.id()`, `.a11y()`, and
-`.frame()` for free from the blanket `Decorate` impl. You do not write those.
+`.frame()` from the blanket `Decorate` impl.
 
 ### `impl Piece`: emit the leaf, bind reactivity, handle events
 
@@ -278,11 +272,10 @@ Every backend implements the same three functions and ends with one `renderer!` 
 
 ### AppKit: `NSSearchField` via objc2 (the fully worked backend)
 
-The Apple backends use the `objc2` crates: real Objective-C objects, driven from Rust. An
-`NSSearchField` *is* an `NSTextField`, so a per-node delegate implementing
-`controlTextDidChange:` delivers each keystroke. Programmatic `setStringValue:` does not fire that
-delegate, so this backend needs no echo guard of its own; `update` writes when the value
-differs.
+The Apple backends drive Objective-C objects from Rust through the `objc2` crates. An
+`NSSearchField` *is* an `NSTextField`, so a per-node delegate implementing `controlTextDidChange:`
+delivers each keystroke. Programmatic `setStringValue:` does not fire that delegate, so this backend
+needs no echo guard of its own; `update` writes when the value differs.
 
 ```rust
 // pieces/day-piece-searchfield/src/lib-appkit.rs (abridged)
@@ -480,7 +473,9 @@ hands the contributions to the `platform/macos/` Xcode host project. See the
 
 Two pieces of wiring connect the halves.
 
-**Per-backend `renderer!` line.** Each backend file ends with one macro call registering it into that
+### The per-backend `renderer!` line
+
+Each backend file ends with one macro call registering it into that
 toolkit's slice:
 
 ```rust
@@ -493,7 +488,9 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit, kind: KIND, props: SearchProp
 (For a piece configured once with no later updates, drop `patch:`/`update:`; the macro has a
 patchless form. Add `measure: day_pieces::fill_measure` for a growing leaf that fills its proposal.)
 
-**The crate's `[features]`.** One feature per backend, each pulling in that toolkit crate (and any
+### The crate's `[features]`
+
+One feature per backend, each pulling in that toolkit crate (and any
 objc2/gtk4 crates it needs). A no-op `mock` feature exists so apps can enable the piece uniformly on a
 toolkit with no real backend:
 
@@ -509,7 +506,9 @@ xaml  = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xam
 mock   = []                          # no renderer; falls back to Day's placeholder leaf
 ```
 
-**The `backends` marker (Tier A).** A piece declares the backends it carries a renderer feature
+### The `backends` marker
+
+A piece declares the backends it carries a renderer feature
 for, and the app depends on it without re-listing them:
 
 ```toml
@@ -582,19 +581,16 @@ Fix the contract first, then delegate each backend body:
    `renderer!` call at the bottom of the backend file, and the feature to `Cargo.toml`.
 
 Two properties of the design make this workflow safe. First, the typed macro means a body that
-compiles has type-checked `Props`/`Patch` handling; the model cannot silently mismatch
-the protocol. Second, an unwritten backend degrades to the placeholder rather than breaking
-the app, so you can ship AppKit + Android today and add Qt or XAML later without either half of the
-codebase blocking the other. Write the toolkits you can verify, generate the rest, and let the
-placeholder warnings tell you which ones are still stubs.
+compiles has type-checked `Props`/`Patch` handling; the model cannot silently mismatch the protocol.
+Second, an unwritten backend degrades to the placeholder rather than breaking the app, so you can
+ship AppKit + Android today and add Qt or XAML later without either half of the codebase blocking
+the other.
 
 ---
 
-A native piece, then, is one crate: a shared Rust front-end over a typed `KIND`/`Props`/`Patch`
-protocol, a native backend per toolkit registered link-time with no core changes, and a build that
-derives its own features. The reference crate to read end-to-end is
-[`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield);
-[`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield) shows the
-six-backend native realization of one piece, and [`day-piece-media`](https://github.com/daybrite/day/tree/main/pieces/day-piece-media)
-shows framework linking. The mechanism is documented in full in
+The reference crate to read end-to-end is
+[`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield),
+the six-backend native realization of one piece;
+[`day-piece-media`](https://github.com/daybrite/day/tree/main/pieces/day-piece-media) shows
+framework linking. The mechanism is documented in full in
 [`docs/extending.md`](https://github.com/daybrite/day/blob/main/docs/extending.md).

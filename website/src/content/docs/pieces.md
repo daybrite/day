@@ -11,12 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 A **Piece** is Day's unit of UI composition: the thing SwiftUI calls a View and Flutter calls a
-Widget. You compose your interface as a tree of Pieces, and Day realizes each one as a real
-native widget: a `label` becomes an `NSTextField` on macOS, a `TextView` on Android, a `GtkLabel`
+Widget. You compose your interface as a tree of Pieces, and Day realizes each one as a native
+widget: a `label` becomes an `NSTextField` on macOS, a `TextView` on Android, a `GtkLabel`
 on Linux.
 
-This page covers what a Piece is, how you compose them, and what actually happens when one is
-built. If you'd rather see the whole API in one sitting first, the [API tour](/docs/api-tour) is
+If you'd rather see the whole API in one sitting first, the [API tour](/docs/api-tour) is
 the faster read; come back here for the model behind it.
 
 ## A Piece is a description, built once
@@ -39,20 +38,17 @@ pub trait Piece: 'static {
 }
 ```
 
-Two parts of that signature shape everything else about Day.
+Two parts of that signature matter.
 
 - **`build` takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
-  view description that Day re-runs and diffs against the last frame. The builder is spent the
-  moment the native widget exists.
+  view description that Day re-runs and diffs against the last frame.
 - **It returns an `RNode`,** a handle to a node in the *realized tree*: the live structure that
   owns the native widget, its layout state, and the [reactive](/docs/glossary#reactive) scope its [bindings](/docs/glossary#binding) live in.
 
 Your Piece functions run once, at mount time. Everything dynamic afterward flows through
 [signals](/docs/reactivity), which are bound to individual native attributes during that single
-build. Day trades one thing for another here: you give up "re-run the view function and let the
-framework figure it out", and in exchange your UI code runs once and Day keeps no virtual tree to
-diff. The [reactivity page](/docs/reactivity) covers what that means for your code, including
-the costs.
+build. The [reactivity page](/docs/reactivity) covers what that means for your code, including the
+costs.
 
 ## Composing trees
 
@@ -108,7 +104,7 @@ fn settings_page() -> impl Piece {
 Nothing in Day's own vocabulary erases either: `column()` hands back a `Column`, `labeled()` a
 `Labeled`, and modifiers (`.id()`, `.padding()`, `.on_tap()` …) return `Decorated<P>`, which keeps
 the decorated piece's own type. So `.any()` is always your call, made where a single `AnyPiece` is
-actually required. Calling it on a piece that is already erased is free, because `AnyPiece` hands
+required. Calling it on a piece that is already erased is free, because `AnyPiece` hands
 itself back without boxing again.
 
 Because the type is kept, a piece's own builders can be chained after a generic modifier, in
@@ -141,12 +137,11 @@ The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 | Navigation | `nav`, `nav_stack`, `nav_link`, `toolbar` |
 | Presentation | `alert`, `confirm`, `prompt`, `cover`, menus |
 
-Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an
-[embedded SwiftUI view](/docs/internal/swiftui)) lives in a separate *piece crate*
-(`day-piece-*`) that you add as an ordinary Cargo dependency. The
-split keeps the core small enough to audit and port, and optional widgets cost you nothing unless
-you use them. The [extension model](/docs/extending) explains how those
-crates plug in without touching Day itself.
+Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an [embedded
+SwiftUI view](/docs/internal/swiftui)) lives in a separate *piece crate* (`day-piece-*`) that you
+add as an ordinary Cargo dependency. The split keeps the core small enough to audit and port, and
+optional widgets cost you nothing unless you use them. The [extension model](/docs/extending)
+explains how those crates plug in.
 
 Each built-in has a reference page with per-platform notes under
 [internal reference](/docs/reference), for example [text](/docs/internal/text),
@@ -178,8 +173,7 @@ When a Piece's `build` runs, three things are created together and live together
   widget at all and exist purely in Day's tree.
 - The **scope** owns every binding and event handler the build created. When the node is later
   removed (a `when` arm switches, an `each` row disappears), disposing the scope tears down its
-  bindings and handlers in one step, and the native widget is released. You never unsubscribe by
-  hand.
+  bindings and handlers in one step, and the native widget is released.
 
 The details of that machinery (the tree structure, measurement, and how events travel back)
 are on [How rendering works](/docs/rendering).
@@ -214,12 +208,12 @@ each(
 data; a [model](/docs/internal/model) collection supplies one directly, and `list` accepts the
 same sources.
 
-This is the one place Day does anything diff-like, and it diffs *keys*, not widget trees: `each`
-compares the old and new key sequences to decide which rows to keep, which to build, and which to
-dispose. A `when` flip or a row removal is a real structural edit (native widgets are added and
-removed), so it costs more than a bound-attribute update. For long scrolling data, prefer
-[`list`](/docs/internal/list), which hands rows to the platform's recycling list widget instead
-of materializing every row.
+This is the only place Day diffs anything, and it diffs *keys*, not widget trees: `each` compares
+the old and new key sequences to decide which rows to keep, which to build, and which to dispose. A
+`when` flip or a row removal is a real structural edit (native widgets are added and removed), so it
+costs more than a bound-attribute update. For long scrolling data, prefer
+[`list`](/docs/internal/list), which hands rows to the platform's recycling list widget instead of
+materializing every row.
 
 ## Identity, for testing and accessibility
 
@@ -229,9 +223,8 @@ Any Piece can carry a stable string id:
 button(tr("save")).action(save).id("save-button")
 ```
 
-Ids serve three audiences at once: [dayscript](/docs/dayscript) targets elements by id,
-[accessibility](/docs/accessibility) uses them as stable automation identifiers, and you'll see
-them in debug output. They're optional everywhere, but pages you intend to test should id their
+[dayscript](/docs/dayscript) targets elements by id, [accessibility](/docs/accessibility) uses them
+as stable automation identifiers, and debug output prints them. They're optional everywhere, but pages you intend to test should id their
 interactive elements; `day lint` catches an id used twice and a `navigate` to a [route](/docs/glossary#route) that
 doesn't exist.
 

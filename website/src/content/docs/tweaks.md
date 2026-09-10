@@ -11,11 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 Sometimes the widget Day gives you is exactly right except for one platform-specific detail: you
-want the standard button, but with AppKit's toolbar bezel; the standard slider, but with XAML's
-tick marks. Writing a whole custom [piece](/docs/glossary#piece) for two method calls is disproportionate, so Day has
-**tweaks**: a supported way to reach the real native widget behind a built-in piece and configure
-it, while Day keeps owning layout, lifecycle, and everything else. A piece with a tweak applied
-is a **Tweaked Piece**; it keeps the same widget and handle, with a little more configured.
+want the standard button, but with AppKit's toolbar bezel; the standard slider, but with XAML's tick
+marks. Writing a whole custom [piece](/docs/glossary#piece) for two method calls is
+disproportionate, so Day has **tweaks**: a supported way to reach the native widget behind a
+built-in piece and configure it, while Day keeps owning layout, lifecycle, and everything else. A
+piece with a tweak applied is a **Tweaked Piece**; it keeps the same widget and handle, with a
+little more configured.
 
 The showcase's Tweaks page (in the [gallery](/gallery)) demonstrates everything on this page.
 
@@ -56,11 +57,10 @@ downcast. On the raw tiers, where Rust can't introspect an opaque pointer, it's 
 C++ needs: pass it across the shim and guard the cast so the pointer is never reinterpreted as
 the wrong control.
 
-Two rules cover most of what can go wrong. Day re-applies the properties it *manages* (a
-button's title, a slider's value) on its next update, so tweak the properties Day doesn't touch
-(bezels, tick marks, selectability) and they're stable. And if a native call changes the widget's
-intrinsic size, tell layout with `day::invalidate_size(node)`, because Day can't see mutations it
-didn't make.
+Day re-applies the properties it *manages* (a button's title, a slider's value) on its next update,
+so tweak the properties Day doesn't touch (bezels, tick marks, selectability) and they're stable.
+And if a native call changes the widget's intrinsic size, tell layout with
+`day::invalidate_size(node)`, because Day can't see mutations it didn't make.
 
 ## Reaching a widget later
 
@@ -84,9 +84,9 @@ safe `None`, never a dangling widget. Reads are [reactive](/docs/glossary#reacti
 
 ## Packaged tweaks
 
-To reuse a tweak across apps, package it: a `day-tweak-*` crate wraps the per-toolkit calls in
-one modifier and no-ops on [toolkits](/docs/glossary#toolkit) it doesn't cover, so the *app* using it stays completely
-free of `#[cfg]`. Three in-tree examples span the range from trivial to fully cross-platform:
+To reuse a tweak across apps, package it: a `day-tweak-*` crate wraps the per-toolkit calls in one
+modifier and no-ops on [toolkits](/docs/glossary#toolkit) it doesn't cover, so the *app* using it
+stays free of `#[cfg]`. Three in-tree examples span the range from trivial to fully cross-platform:
 
 ```rust
 use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
@@ -98,12 +98,11 @@ button("Save").tooltip("Save your changes (⌘S)");  // AppKit, GTK, Android; no
 slider(v).tickmarks(Tickmarks::count(11).snap(true));  // six toolkits, incl. its own C++
 ```
 
-The tick-marks crate is the one to study when you write your own: it configures a native feature
-on six toolkits through every access tier Day has (objc2, gtk4-rs, JNI, and its *own* compiled
-Qt C++, WinRT C++, and ArkUI NDK code), and it documents each platform's behavior (Material
-sliders always snap when stepped; UIKit has no native tick API, so there it's a no-op). Publishing
-one is publishing a crate: consumers add a dependency, and `day build` wires the per-toolkit
-features automatically.
+The tick-marks crate is the one to study when you write your own: it configures a native feature on
+six toolkits through every access tier Day has (objc2, gtk4-rs, JNI, and its *own* compiled Qt C++,
+WinRT C++, and ArkUI NDK code), and it documents each platform's behavior (Material sliders always
+snap when stepped; UIKit has no native tick API, so there it's a no-op). To publish one, publish the
+crate: consumers add a dependency, and `day build` wires the per-toolkit features automatically.
 
 The [tweaks reference](/docs/internal/tweaks) has the full per-toolkit matrix, the native-code
 recipes, and the mechanics underneath. To add a new widget, write a

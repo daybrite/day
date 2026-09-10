@@ -59,8 +59,8 @@ current_route();                         // Option<String>
 ```
 
 Underneath, `nav_stack` uses the platform's navigation machinery (`UINavigationController` on
-iOS, the androidx Fragment back stack on Android), so you get the iOS edge-swipe back gesture
-and Android's back button without writing either. On Android 14+ the back gesture is fully
+iOS, the androidx Fragment back stack on Android), so the iOS edge-swipe back gesture and Android's
+back button both pop the stack. On Android 14+ the back gesture is fully
 **predictive**: the system seeks the actual pop transition under your finger; the page
 tracks it and either completes the pop or springs back when you release (on Android 13/14 the OS gates
 this behind Developer options → "Predictive back animations"; Android 15 enables it by
@@ -122,8 +122,8 @@ swipe is disabled and the back button is intercepted, on Android a back callback
 ## Routes and deep links
 
 A route is `segments/joined/by/slashes` with an optional `?name=value` query. A **single key is
-relative**: the innermost surface that knows it wins, falling through outward, right for a
-button deep inside a page. A **multi-segment path is absolute**: it anchors at the outermost
+relative**: the innermost surface that knows it wins, falling through outward, which suits a button
+deep inside a page. A **multi-segment path is absolute**: it anchors at the outermost
 surface that knows the first segment, resets everything inside, and descends. One string
 reaches a stack several levels deep, even on a cold start where the inner surfaces haven't
 mounted yet:
@@ -155,17 +155,17 @@ through a store you install once (`day_part_prefs::install_nav_store()` in `main
 disk-backed, so restore also survives an Android process death. With no store installed, `.restore`
 is a no-op, so you can persist on one [target](/docs/glossary#target) and start fresh on another with the same code.
 
-[dayscript](/docs/dayscript) uses the same mechanism: `navigate: { route: controls }` in
-a script performs the write your UI would, and `assert_route` compares the full
-`current_route()`. Testing a navigation flow is asserting on strings, and `day lint` checks
-that every literal route in your sources and scripts starts with a declared item key, so a typo
-is a lint warning instead of a silently-ignored tap.
+[dayscript](/docs/dayscript) uses the same mechanism: `navigate: { route: controls }` in a script
+performs the write your UI would, and `assert_route` compares the full `current_route()`. A
+navigation test asserts on route strings, and `day lint` checks that every literal route in your
+sources and scripts starts with a declared item key, so a typo is a lint warning instead of a
+silently-ignored tap.
 
 ## Typed routes
 
-Strings are the wire format; your code doesn't have to speak it. Declare the keys as an enum
-and both `nav` and `nav_stack` accept it directly; every `.item`, destination match, and
-navigation call site is then compile-checked:
+Routes travel as strings; in code you can declare them as an enum. Declare the keys as an enum and
+both `nav` and `nav_stack` accept it directly; every `.item`, destination match, and navigation call
+site is then compile-checked:
 
 ```rust
 day::routes! {

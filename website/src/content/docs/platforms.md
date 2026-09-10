@@ -10,21 +10,21 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The twelve [targets](/docs/glossary#target) differ in maturity, and this page records the differences. It reflects what
-runs in CI on every push and what real applications have exercised, and it is updated when that
-changes.
+The twelve [targets](/docs/glossary#target) differ in maturity, and this page records the
+differences. It reflects what runs in CI on every push and what shipping applications have
+exercised.
 
 ## Support tiers
 
-Every target sits in one of four support tiers. The tier says how much testing and maintenance
-that `(OS, toolkit)` pair gets, independent of how complete its [backend](/docs/glossary#backend) is. A Tier 4 target can
-render the whole [piece](/docs/glossary#piece) vocabulary and still be a combination nobody ships.
+Every target sits in one of four support tiers. The tier says how much testing and maintenance that
+`(OS, toolkit)` pair gets, independent of how complete its [backend](/docs/glossary#backend) is. A
+Tier 4 backend may be complete; the tier says nobody ships on that combination.
 
 | Tier | Targets | What the tier means |
 |---|---|---|
-| [Tier 1 · Supported](/docs/platforms#support-tiers) | `ios-uikit`, `android-mdc`, `macos-appkit` | Fully supported and thoroughly tested. These get the highest attention to quality and correctness: every screen of the walkthrough runs on them, real applications ship on them, and a regression on one holds a release. |
-| [Tier 2 · Demi-supported](/docs/platforms#support-tiers) | `linux-gtk`, `linux-qt`, `windows-xaml` | Very high priority, with less direct quality assurance than Tier 1. They build and run the walkthrough on every push, but get fewer hands-on passes and fewer hours in shipping applications. |
-| [Tier 3 · Experimental](/docs/platforms#support-tiers) | `harmony-arkui`, `web-dom` | Tested, but not comprehensively, and not yet exercised in the real world. Read the per-platform notes before you commit a product to one; the gaps listed below are those known today. |
+| [Tier 1 · Supported](/docs/platforms#support-tiers) | `ios-uikit`, `android-mdc`, `macos-appkit` | Fully supported and tested. Every screen of the walkthrough runs on them, applications ship on them, and a regression on one holds a release. |
+| [Tier 2 · Demi-supported](/docs/platforms#support-tiers) | `linux-gtk`, `linux-qt`, `windows-xaml` | They build and run the walkthrough on every push, but get fewer hands-on passes and fewer hours in shipping applications. |
+| [Tier 3 · Experimental](/docs/platforms#support-tiers) | `harmony-arkui`, `web-dom` | The walkthrough runs on them, but no application has shipped on them yet. Read the per-platform notes before you commit a product to one; the gaps listed below are those known today. |
 | [Tier 4 · Development](/docs/platforms#support-tiers) | `macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt` | For compatibility testing, and to show one toolkit running on several operating systems. Real applications aren't expected to ship on them: `day pack` produces no bundle, and the caveats are development caveats. |
 
 The badge appears wherever these docs name a target's support level, and links back to this
@@ -34,7 +34,7 @@ section.
 > A tier records the maintenance a target has today. Any target moves up
 > when there are people to keep it there: someone to own the
 > backend, run the [walkthrough](/docs/glossary#walkthrough) on real hardware, triage that platform's bugs, and review patches
-> against it. If that could be you or your team, start a discussion;
+> against it. To take one on, start a discussion;
 > [CONTRIBUTING](https://github.com/daybrite/day/blob/main/CONTRIBUTING.md#platform-support-tiers)
 > explains how, and what maintaining a tier commits you to.
 
@@ -59,14 +59,13 @@ section.
 [dayscript](/docs/dayscript) walkthrough (navigation, inputs, dialogs, screenshots) on that
 target on every push, with the captures feeding the [gallery](/gallery).
 
-Beyond CI, the strongest evidence is a real application: a Matrix chat client (login, encrypted
-rooms, live timeline, media) built on Day runs its full checklist on `macos-appkit`,
-`macos-gtk`, `macos-qt`, `ios-uikit` (Simulator), and `android-mdc`.
+Beyond CI, a Matrix chat client (login, encrypted rooms, live timeline, media) built on Day runs its
+full checklist on `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator), and
+`android-mdc`.
 
-[Tier 4 · Development](/docs/platforms#support-tiers)
-The GTK/Qt-on-macOS/Windows combos exist so one development machine can run five desktop
-[toolkits](/docs/glossary#toolkit), and because some teams standardize on Qt across Linux and Windows. They are not
-supported shipping targets. Packaging for them is deferred, and
+[Tier 4 · Development](/docs/platforms#support-tiers) The GTK/Qt-on-macOS/Windows combos exist so
+one development machine can run five desktop [toolkits](/docs/glossary#toolkit), and because some
+teams standardize on Qt across Linux and Windows. Packaging for them is deferred, and
 `macos-gtk`/`windows-gtk` have no accessibility tree.
 
 ## Per-platform notes
@@ -83,16 +82,16 @@ management. Packaging produces a signed, notarized `.dmg` when credentials are c
 
 ### iOS (`ios-uikit`) — [full page](/docs/platforms/ios-uikit)
 [Tier 1 · Supported](/docs/platforms#support-tiers)
-The scaffold is a real, checked-in Xcode project whose build phase calls back into `day` for the
+The scaffold is a checked-in Xcode project whose build phase calls back into `day` for the
 Rust static library, so Xcode, `day launch`, and CI all build the same way. Day-to-day
 development targets the Simulator; App Store `.ipa` export exists in `day pack` and needs your
-Apple credentials. Physical-device debugging workflows are still young compared to Simulator use.
+Apple credentials. Physical-device debugging gets less use than the Simulator.
 
 ### Android (`android-mdc`) — [full page](/docs/platforms/android-mdc)
 [Tier 1 · Supported](/docs/platforms#support-tiers)
 Day renders Material Components widgets over JNI, with a checked-in Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
-with the right ABI. Known rough edges: accessibility annotations are partial
+with the right ABI. Accessibility annotations are partial
 ([details](/docs/accessibility#current-limits)), and process-death restoration is a cold
 start unless your app persists its own state.
 
@@ -100,8 +99,7 @@ start unless your app persists its own state.
 [Tier 2 · Demi-supported](/docs/platforms#support-tiers)
 Day renders GTK 4 + libadwaita via `gtk4-rs`, and Qt 6 Widgets via a small compiled C++ shim.
 Both run the full walkthrough headlessly in CI. Flatpak packages both. The runtime supplies the
-toolkit, so bundles stay app-sized. GTK is the default recommendation; Qt matters when its
-cross-OS accessibility bridge or ecosystem is the deciding factor. The webview piece is
+toolkit, so bundles stay app-sized. Pick GTK by default; pick Qt for its cross-OS accessibility bridge or for the Qt library set. The webview piece is
 functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 
 ### Windows (`windows-xaml`) — [full page](/docs/platforms/windows-xaml)
@@ -109,7 +107,7 @@ functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 Day hosts XAML through XAML Islands, using the XAML stack that ships with Windows 10/11 itself
 rather than the WinAppSDK runtime, so there's no runtime bootstrap to install. It builds with
 MSVC, and its C++/WinRT shim follows the same pattern as Qt's. This target builds and walks
-through in CI but has had less real-application time than the Apple/Linux/Android targets.
+through in CI but fewer applications have shipped on it than on the Apple, Linux, and Android targets.
 
 ### HarmonyOS (`harmony-arkui`) — [full page](/docs/platforms/harmony-arkui)
 [Tier 3 · Experimental](/docs/platforms#support-tiers)
@@ -121,11 +119,10 @@ CI is tolerated-flaky.
 
 ### Web (`web-dom`) — [full page](/docs/platforms/web-dom)
 [Tier 3 · Experimental](/docs/platforms#support-tiers)
-The same Rust compiled to WebAssembly drives real DOM elements (`<button>`, `<dialog>`,
+The same Rust compiled to WebAssembly drives DOM elements (`<button>`, `<dialog>`,
 `<input type="range">`) that the browser lays out and draws; the build runs through cargo and
 the [`day` CLI](/docs/glossary#day-cli) alone. `day build -p web-dom` emits a self-contained static `dist/` you can host
-anywhere; there is no `day pack` step because `dist/` is already the artifact. It is
-**experimental**: most external pieces (web view, map, Lottie, pickers, search field) render
+anywhere; there is no `day pack` step because `dist/` is already the artifact. It is experimental: most external pieces (web view, map, Lottie, pickers, search field) render
 [placeholders](/docs/glossary#placeholder), there are no file dialogs or context menus, the list is emulated rather than
 recycled, and accessibility is thinner than on native because pieces that realize as `<div>`s
 carry no compensating ARIA roles. The
@@ -136,17 +133,17 @@ carry no compensating ARIA roles. The
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation is partial.** `with_animation(spec, || …)` ships, and four of the eight backends
-  execute opacity, transform, and frame changes natively: AppKit, UIKit, Android, and web. On GTK,
-  Qt, XAML, and ArkUI the changes apply at commit with no animation (`Cap::Animation` reports
-  unsupported), because Day never ticks its own frames for native widgets. An animated background
-  *color* interpolates on UIKit only, and the enter/exit `.transition` surface is not implemented.
+- **Animation**: partial. `with_animation(spec, || …)` ships, and four of the eight backends execute
+  opacity, transform, and frame changes natively: AppKit, UIKit, Android, and web. On GTK, Qt, XAML,
+  and ArkUI the changes apply at commit with no animation (`Cap::Animation` reports unsupported),
+  because Day never ticks its own frames for native widgets. An animated background *color*
+  interpolates on UIKit only, and the enter/exit `.transition` surface is not implemented.
 - **Multi-window:** [secondary windows](/docs/internal/windows) work on every backend — native
   windows on AppKit, GTK, Qt, XAML, and Android, UIScenes on iPad, a multiton ability on
   HarmonyOS; iPhone and web present them as a fullscreen cover in the primary window. Probe
   `Cap::MultiWindow` to adapt chrome.
-- **Semantic color tokens / automatic dark-mode for custom colors.**
-  ([styling](/docs/styling#color-backgrounds-shape))
+- **Semantic color tokens**: custom colors have no automatic dark-mode variant
+  ([styling](/docs/styling#color-backgrounds-shape)).
 - **Keyboard shortcuts** beyond native menu accelerators; no general key-event API.
 - **Gestures**: tap and drag are wired; pinch, rotation, and long-press are not.
 - **Forms**: no validation framework; roll your own with [signals](/docs/glossary#signal) and memos.

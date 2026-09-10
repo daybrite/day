@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A timer that finished, a download that completed, a reminder that should fire after the app has
-exited: `day-part-local-notify` posts and schedules the platform's own notifications from Rust.
-Everything runs on the device through the OS's own notification service; the call site is:
+`day-part-local-notify` posts and schedules the platform's own notifications from Rust: a finished
+timer, a completed download, or a reminder that fires after the app has exited. Everything runs on
+the device through the OS's own notification service; the call site is:
 
 ```rust
 Notification::new("Timer done")
@@ -67,10 +67,9 @@ flow (priming UI, `can_prompt`, the switch to Open Settings after a final denial
 
 ## 3. Post one now
 
-Every notification posts on a channel. Channels exist because Android has a real per-channel
-settings model the user owns; on Apple a channel still groups notifications and carries their
-importance and sound. Register the channel once, before posting to it; registration is
-idempotent:
+Every notification posts on a channel. Channels exist because Android has a per-channel settings
+model the user owns; on Apple a channel still groups notifications and carries their importance and
+sound. Register the channel once, before posting to it; registration is idempotent:
 
 ```rust
 use day_part_local_notify::{Channel, Importance, Notification};
@@ -123,16 +122,15 @@ Where `capabilities().schedule_while_dead` is true, the OS holds the trigger and
 the app has exited. On Apple the system holds the schedule itself. Android has no notification
 scheduler, so the part sets an `AlarmManager` alarm that wakes a receiver; a reboot clears every
 alarm, and the part's boot receiver re-arms schedules from persisted data. When Android withholds
-the exact-alarm grant, `capabilities().schedule_exact` is false and the notification still
-arrives, possibly late in Doze. Alarm-clock apps can go further. Declaring
-`android.permission.USE_EXACT_ALARM` in your app's `[package.metadata.day.android]` gets the
-install-time exact-alarm grant (Play restricts it to clock and calendar apps, so the part can't
-declare it for you), and scheduling on a channel registered with `Importance::Urgent` goes
-through `AlarmManager.setAlarmClock`, the Doze-exempt path that shows the status-bar alarm icon.
+the exact-alarm grant, `capabilities().schedule_exact` is false and the notification still arrives,
+possibly late in Doze. Declaring `android.permission.USE_EXACT_ALARM` in your app's
+`[package.metadata.day.android]` gets the install-time exact-alarm grant (Play restricts it to clock
+and calendar apps, so the part can't declare it for you), and scheduling on a channel registered
+with `Importance::Urgent` goes through `AlarmManager.setAlarmClock`, the Doze-exempt path that shows
+the status-bar alarm icon.
 
-A scheduled notification may fire in a process with no Day tree alive, so its content is
-snapshotted at post time as plain strings: a `Notification` cannot bind a signal or a closure.
-This is the one place Day's reactivity does not reach.
+A scheduled notification may fire in a process with no Day tree alive, so its content is snapshotted
+at post time as plain strings: a `Notification` cannot bind a signal or a closure.
 
 ## 5. Route the tap
 
@@ -162,23 +160,17 @@ notifications section can hide itself.
 
 ## Pitfalls
 
-Three of these fail silently, which is why they lead the [reference's](/docs/internal/notify)
-status notes.
-
-- **Nothing appears, no error (Apple).** Without granted consent, the system accepts the post and
-  drops it. Request `Permission::Notifications` first (step 2); `post()` returning `Ok` is not
-  proof of delivery.
-- **No banner on Android.** `Importance::Default` puts the notification in the shade only. Use
-  `Importance::High` or `Urgent` for a heads-up banner.
-- **Foreground posts on iOS are handled for you.** iOS suppresses a notification posted while the
-  app is frontmost unless a delegate opts in from `willPresent`. The crate ships that delegate; it
-  shows the banner, the list entry, and the channel's sound, and its `didReceive` delivers taps.
-  You don't write any of it, but if you install your own `UNUserNotificationCenterDelegate`, you
-  take that job over.
-- **Nothing appears from `day launch` on macOS.** `day launch` runs an unbundled binary, and
-  `UNUserNotificationCenter` does not exist without a bundle identifier; the crate reports
-  `Unsupported` rather than crashing. Run `day pack -p macos-appkit` and launch the `.app` to see
-  real notifications in the dev loop.
+- Without granted consent, Apple accepts the post and drops it silently. Request
+  `Permission::Notifications` first (step 2); `post()` returning `Ok` is not proof of delivery.
+- On Android, `Importance::Default` puts the notification in the shade only. Use `Importance::High`
+  or `Urgent` for a heads-up banner.
+- iOS suppresses a notification posted while the app is frontmost unless a delegate opts in from
+  `willPresent`. The crate ships that delegate; it shows the banner, the list entry, and the
+  channel's sound, and its `didReceive` delivers taps. If you install your own
+  `UNUserNotificationCenterDelegate`, you take that job over.
+- `day launch` runs an unbundled binary, and `UNUserNotificationCenter` does not exist without a
+  bundle identifier; the crate reports `Unsupported` rather than crashing. Run `day pack -p
+  macos-appkit` and launch the `.app` to see real notifications in the dev loop.
 
 ## Reference
 

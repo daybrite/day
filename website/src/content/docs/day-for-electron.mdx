@@ -13,19 +13,15 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-Electron and Day solve the same problem, one codebase for every desktop, from opposite starting points.
-Electron ships a browser and a Node runtime with each app and renders your UI as a web page; Day
-compiles Rust ahead of time and builds your UI from the platform's own widgets: `NSButton` and
-`NSMenu` on macOS, GTK 4 or Qt 6 on Linux, system XAML on Windows. The result differs in what
-you write (Rust instead of HTML/CSS/JS), what you ship (a native binary), and what the user sees
-(their platform's own controls).
+Electron and Day both build one codebase for every desktop, by different means. Electron ships a
+browser and a Node runtime with each app and renders your UI as a web page; Day compiles Rust ahead
+of time and builds your UI from the platform's own widgets: `NSButton` and `NSMenu` on macOS, GTK 4
+or Qt 6 on Linux, system XAML on Windows.
 
-Two structural differences drive everything in this guide. First, the process model: an Electron
-app is a Node main process and one Chromium renderer per window, talking over IPC, with a preload
-script policing the boundary; a Day app is one process, and "call the OS" is a function call.
-Second, the reach: Electron targets the three desktops, and Day's twelve targets add iOS,
-Android, HarmonyOS, and the web (the same crate compiles to WebAssembly driving real DOM
-elements) from the same repository.
+An Electron app is a Node main process and one Chromium renderer per window, talking over IPC, with
+a preload script policing the boundary; a Day app is one process, and "call the OS" is a function
+call. Electron targets the three desktops, and Day's twelve targets add iOS, Android, HarmonyOS, and
+the web (the same crate compiles to WebAssembly driving DOM elements) from the same repository.
 
 ## Electron terms in Day
 
@@ -84,11 +80,10 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-The parts match (a container, a text node, a click handler). On the Day side, `label` is a
-real native text widget, `button` a real native button, and the closure inside `label` is a
-binding: when `count` changes, Day re-runs that one closure and calls one native setter. That
-setter call is the whole update; there is no document tree to restyle or reconcile. If your
-Electron app is React inside the renderer, the mental shift is the same one plus one more: Day
+The parts match (a container, a text node, a click handler). On the Day side, `label` is a native
+text widget, `button` a native button, and the closure inside `label` is a binding: when `count`
+changes, Day re-runs that one closure and calls one native setter. There is no document tree to
+restyle or reconcile. If your Electron app is React inside the renderer, one more thing changes: Day
 never re-runs your component function, so hooks rules and dependency arrays have no equivalent.
 
 ## One process
@@ -137,12 +132,12 @@ button("Open…").action(move || {
 
 </Compare>
 
-The three-file round trip on the left is the cost of the process boundary: every capability
-needs a handler, a bridge entry, and a serializable payload. On the right the dialog is `open_file()`, the battery
-is `day_part_battery::status()`, the clipboard is `day_part_clipboard::get_text()`. All are
-plain functions, typed end to end, with nothing marshaled through strings. When a capability needs
-platform code Day doesn't ship (your N-API module case), you write a [part](/docs/parts): the
-platform halves live in one crate and calls into it stay ordinary Rust.
+The three-file round trip on the left is the cost of the process boundary: every capability needs a
+handler, a bridge entry, and a serializable payload. On the right the dialog is `open_file()`, the
+battery is `day_part_battery::status()`, the clipboard is `day_part_clipboard::get_text()`. All are
+plain functions, typed end to end. When a capability needs platform code Day doesn't ship (your
+N-API module case), you write a [part](/docs/parts): the platform halves live in one crate and calls
+into it stay ordinary Rust.
 
 ## Form controls are the platform's own
 
@@ -225,19 +220,17 @@ The [desktop guide](/docs/guide-desktop) walks all three subsystems.
 
 ## Binary size and process model
 
-An Electron app bundles Chromium and Node; a Day app is one process and one native binary
-linking the toolkit the OS already has. For scale, the Day Showcase (26 pages exercising every
-widget, chart, and part in this documentation) packs to a 5.7 MB notarized `.dmg`. Remote
-content goes through [`day-piece-webview`](/docs/internal/webview), which hosts the system web
-view (WKWebView, WebView2, WebKitGTK).
+A Day app links the toolkit the OS already has, so the binary stays small: the Day Showcase (26
+pages exercising every widget, chart, and part in this documentation) packs to a 5.7 MB notarized
+`.dmg`. Remote content goes through [`day-piece-webview`](/docs/internal/webview), which hosts the
+system web view (WKWebView, WebView2, WebKitGTK).
 
 ## Reusing web code
 
-Two paths keep existing web code useful. `web_view(url_signal)` embeds existing web screens
-in the system web view while you migrate page by page. And the whole app also runs as a
-website: `day build -p web-dom` compiles the same crate to WebAssembly driving real DOM
-elements, so the browser build comes from the same code. For a team that keeps writing
-TypeScript, [`day-lite`](/docs/internal/lite) runs JS/TS miniapps on top of Day's native
+Two paths keep existing web code useful. `web_view(url_signal)` embeds existing web screens in the
+system web view while you migrate page by page. And the whole app also runs as a website: `day build
+-p web-dom` compiles the same crate to WebAssembly driving DOM elements. For a team that keeps
+writing TypeScript, [`day-lite`](/docs/internal/lite) runs JS/TS miniapps on top of Day's native
 pieces; it hosts miniapps and is not a way to write the app itself.
 
 ## Package configuration
@@ -343,20 +336,19 @@ today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#suppo
 
 ## What you give up
 
-- **HTML, CSS, and the npm UI ecosystem.** Day's widget vocabulary is small and styled through
+- HTML, CSS, and the npm UI ecosystem are replaced by a small widget vocabulary styled through
   modifiers; custom visuals are drawn with `canvas` or a [piece](/docs/extending).
-- **DevTools.** There is no element inspector; debugging is Rust tooling plus
-  [dayscript](/docs/dayscript) assertions and screenshots.
-- **Hot reload.** The loop is an incremental compile and relaunch, seconds on desktop, with a
-  script to put you back on the screen you were editing.
-- **Auto-update.** Electron's `autoUpdater` has no Day equivalent yet; updates travel through
-  the stores and installers `day pack` produces.
-- **Tray and global shortcuts.** Day has no API for either yet. Menus carry per-item
-  accelerators, but there is no general key-event surface.
-- **Identical pixels everywhere.** Your app will look like a Mac app on macOS and a GTK app on
-  GNOME. If your brand requires one rendering on every OS, Electron's single renderer serves
-  it better.
-- **JavaScript.** The team writes Rust. Budget real ramp-up time; the compiler catches at build
+- DevTools have no equivalent; debugging is Rust tooling plus [dayscript](/docs/dayscript)
+  assertions and screenshots.
+- Hot reload becomes an incremental compile and relaunch, seconds on desktop, with a script to put
+  you back on the screen you were editing.
+- Electron's `autoUpdater` has no Day equivalent yet; updates travel through the stores and
+  installers `day pack` produces.
+- Day has no tray or global-shortcut API yet. Menus carry per-item accelerators, but there is no
+  general key-event surface.
+- Your app will look like a Mac app on macOS and a GTK app on GNOME. If your brand requires one
+  rendering on every OS, Electron's single renderer serves it better.
+- The team writes Rust instead of JavaScript. Budget ramp-up time; the compiler catches at build
   time much of what you currently catch in DevTools.
 
 ## Where to go next

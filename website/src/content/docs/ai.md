@@ -10,10 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day treats an AI agent as a full developer. Every launch embeds the
-[dayscript](/docs/dayscript) engine, and the `day` CLI exposes it as MCP tools an agent can
-call to build, relaunch, tap, type, assert, and screenshot. The agent drives the running app and
-checks the result on screen, on every platform you target.
+Day gives an AI agent the same tools you use. Every launch embeds the [dayscript](/docs/dayscript)
+engine, and the `day` CLI exposes it as MCP tools an agent can call to build, relaunch, tap, type,
+assert, and screenshot. The agent drives the running app and checks the result on screen, on every
+platform you target.
 
 This guide walks that loop end to end with [Claude Code](https://claude.com/claude-code) in a
 plain terminal: scaffold an app, have the agent add a weather page, script the page with
@@ -89,13 +89,13 @@ pub(crate) fn weather_page() -> impl Piece {
 ```
 
 If the result isn't right, say so in the same session ("the temperature should update when the
-city changes") and the agent re-drives the app to show the fix. You never leave the terminal,
-and every claim comes back with a screenshot.
+city changes") and the agent re-drives the app to show the fix. Every claim comes back with a
+screenshot.
 
 ## 4. Script it: dayscript
 
-Now freeze that verification into a script anyone can rerun: human, agent, or CI. Ask the
-agent to write it, or drop this in as `dayscript/weather.yaml`:
+Now put that verification in a script that CI can rerun. Ask the agent to write it, or drop
+this in as `dayscript/weather.yaml`:
 
 ```yaml
 flow:

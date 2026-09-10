@@ -13,7 +13,7 @@ const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.
   <div class="doc-cards">
     <a class="doc-card ref-card" href={url('docs/api')}>
       <h3>API reference ↗</h3>
-      <p>Generated rustdoc for every public Day crate — the exhaustive type-level reference.</p>
+      <p>Generated rustdoc for every public Day crate.</p>
     </a>
     {docs.map((d) => (
       <a class="doc-card" href={url(`docs/${d.id}`)}>

@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-This page is the map: which crates exist, why the boundaries sit where they do, and how a build
-actually happens on each platform. The companion page, [How rendering works](/docs/rendering),
-follows a widget through the running system.
+This page lists the crates, explains where their boundaries sit, and shows how a build runs on each
+platform. The companion page, [How rendering works](/docs/rendering), follows a widget through the
+running system.
 
 ## The crate graph
 
@@ -47,10 +47,10 @@ Support crates omitted from the diagram: `day-fonts` and `day-vector` (shared re
 CLI and runtime agree on), `day-toolchain` (SDK discovery), `day-break` (crash reporting), and
 `day-lite` (JS/TS miniapps).
 
-The boundary everything crosses is **`day-spec`**: it defines the `Toolkit` trait and the descriptor
-types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is written against
-that trait and monomorphized over the concrete backend, so core code calls native operations
-directly. Everything above `day-spec` is portable; everything below it is one platform's
+`day-spec` is the boundary between portable and platform code: it defines the `Toolkit` trait and
+the descriptor types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is
+written against that trait and monomorphized over the concrete backend, so core code calls native
+operations directly. Everything above `day-spec` is portable; everything below it is one platform's
 business.
 
 Around the core sit the extension surfaces: [`pieces/day-piece-*`](https://github.com/daybrite/day/tree/main/pieces) crates add widgets
@@ -123,9 +123,8 @@ Each backend crosses into its toolkit using the narrowest viable mechanism:
 | ArkUI | the ArkUI NDK C API (`day-arkui-sys`) |
 | DOM | a wasm32 `extern "C"` boundary implemented by a small JS shim the CLI embeds in the page |
 
-The shims are small: create widget, set property, forward event. All policy (layout, reactivity,
-when to update what) lives on the shared Rust side, which keeps each new backend's surface area
-small and auditable.
+Each shim creates widgets, sets properties, and forwards events. Layout, reactivity, and update
+policy live on the shared Rust side, so a new backend is a small amount of code.
 
 ## Where the CLI fits
 

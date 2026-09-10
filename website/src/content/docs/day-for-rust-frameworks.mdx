@@ -13,13 +13,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-Rust UI frameworks take one of three approaches: their own renderer (Iced, Slint, egui, Xilem),
-a web stack in a browser or web view (Tauri, Leptos, Dioxus), or the platform's own widgets,
-which is Day's: every Piece becomes an `NSButton`, a `MaterialButton`, or a `<button>`. This
-page shows the same job written in each, so a team that already knows one of them can see where
-Day differs.
+Rust UI frameworks take one of three approaches: their own renderer (Iced, Slint, egui, Xilem), a
+web stack in a browser or web view (Tauri, Leptos, Dioxus), or the platform's own widgets. Day takes
+the third: every Piece becomes an `NSButton`, a `MaterialButton`, or a `<button>`. This page shows
+the same job written in each, so a team that already knows one of them can see where Day differs.
 
-This is the abbreviated version, one section per framework with the same job written both ways.
 The [other guides in this section](/docs/day-for-flutter) go deeper, and
 [Why Day](/docs/benefits) covers the tradeoff in general terms, including the cases where one of
 these is the better tool.
@@ -41,11 +39,10 @@ vocabulary and a look it leaves to the platform.
 
 ## Tauri
 
-[Tauri](https://tauri.app) is the most widely used Rust UI project and the one least like
-Day: your interface is a web app in the OS's webview (WKWebView, WebView2, WebKitGTK), and Rust
-is the backend it talks to. Tauri 2 added iOS and Android, so the reach is comparable to Day's.
-The differences are the language boundary (every call is a serialized `invoke` across process
-lines) and permissions, which Tauri models explicitly in capability files.
+In [Tauri](https://tauri.app), your interface is a web app in the OS's webview (WKWebView, WebView2,
+WebKitGTK), and Rust is the backend it talks to. Tauri 2 added iOS and Android, so the reach is
+comparable to Day's. The differences are the language boundary (every call is a serialized `invoke`
+across process lines) and permissions, which Tauri models explicitly in capability files.
 
 <Compare lhs="Tauri 2">
 
@@ -135,16 +132,16 @@ const text = await readTextFile('notes/today.txt', { baseDir: BaseDirectory.AppD
 ```
 
 **Pick Tauri when** your UI is already a web app, your team's skill is web, or you want a design
-that looks identical everywhere and is styled by CSS. **Pick Day when** you want the platform's
-own controls, one language end to end, and a compact native binary.
+that looks identical everywhere and is styled by CSS. **Pick Day when** you want the platform's own
+controls, one language end to end, and a native binary.
 
 ## Slint
 
-[Slint](https://slint.dev) is the closest to Day in ambition (a native-feeling UI from one
-description, from microcontrollers up to desktop) and the furthest in method. UIs are written
-in a `.slint` DSL that compiles to Rust (or C++, or JS bindings), and Slint renders the result
-itself, so a Slint app looks like a Slint app on every platform. Its runtime fits in well under a
-megabyte, so it also targets embedded hardware and microcontrollers, which Day does not.
+[Slint](https://slint.dev) shares Day's aim, a native-feeling UI from one description from
+microcontrollers up to desktop, and differs in method. UIs are written in a `.slint` DSL that
+compiles to Rust (or C++, or JS bindings), and Slint renders the result itself, so a Slint app looks
+like a Slint app on every platform. Its runtime fits in well under a megabyte, so it also targets
+embedded hardware and microcontrollers, which Day does not.
 
 <Compare lhs="Slint 1.17">
 
@@ -200,8 +197,8 @@ fn main() -> Result<(), slint::PlatformError> {
 }
 ```
 
-Lists show the DSL boundary most clearly. Slint's markup iterates a model the Rust side owns;
-Day's list is a function call, and the key that identifies a row is an argument.
+Slint's markup iterates a model the Rust side owns; Day's list is a function call, and the key that
+identifies a row is an argument.
 
 <Compare lhs="Slint 1.17">
 
@@ -236,8 +233,8 @@ model.push(slint::SharedString::from("Blue Train"));
 ```
 
 **Pick Slint when** you target embedded or MCU hardware, want a live-preview design workflow, or
-want the same pixels on every screen. **Pick Day when** the app should wear each platform's own
-look, and you would rather write Rust than a second language for the UI.
+want the same pixels on every screen. **Pick Day when** the app should use each platform's own
+controls, and you would rather write Rust than a second language for the UI.
 
 ## Iced
 
@@ -291,9 +288,9 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-The two models diverge most on asynchronous work. Iced keeps `update` pure by returning a
-`Task` the runtime performs, delivering the result as another message. Day awaits inline and
-writes the signal, because the continuation already lands on the UI thread.
+The two models handle asynchronous work differently. Iced keeps `update` pure by returning a `Task`
+the runtime performs, delivering the result as another message. Day awaits inline and writes the
+signal, because the continuation already lands on the UI thread.
 
 <Compare lhs="Iced 0.14">
 
@@ -332,12 +329,11 @@ signal than name every transition.
 
 ## Leptos
 
-[Leptos](https://leptos.dev) is the closest relative Day has in this list. It is a full-stack
-web framework whose reactive core is the same idea as Day's: signals that track their readers,
-memos that recompute only when their inputs change, and effects that clean up with their scope.
-The counter is nearly line-for-line, and the target differs: Leptos patches DOM nodes in a
-browser (with SSR and hydration), and Day patches native widgets on nine backends, one of which
-is also the DOM.
+Of the four, [Leptos](https://leptos.dev) is closest to Day. It is a full-stack web framework whose
+reactive core is the same idea as Day's: signals that track their readers, memos that recompute only
+when their inputs change, and effects that clean up with their scope. The counter is nearly
+line-for-line, and the target differs: Leptos patches DOM nodes in a browser (with SSR and
+hydration), and Day patches native widgets on nine backends, one of which is also the DOM.
 
 <Compare lhs="Leptos 0.8">
 
@@ -370,7 +366,7 @@ fn counter() -> impl Piece {
 </Compare>
 
 Derived state is the same primitive with the same name, and both recompute only when the value
-actually changes:
+changes:
 
 <Compare lhs="Leptos 0.8">
 
@@ -409,7 +405,7 @@ wants a web build, [`web-dom`](/docs/platforms/web-dom) is that build.
 ## Where to go next
 
 - [Why Day](/docs/benefits) — the tradeoff in full, including when to pick something else.
-- [Overview](/docs/overview) — the targets, the model, and what Day is not.
+- [Overview](/docs/overview) — the targets and the model.
 - [Pieces](/docs/pieces) and [Reactivity](/docs/reactivity) — the authoring surface and the
   signal graph, for comparison against the models above.
-- [Platform support](/docs/platforms#support-tiers) — how much testing each target actually gets.
+- [Platform support](/docs/platforms#support-tiers) — how much testing each target gets.

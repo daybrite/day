@@ -10,9 +10,8 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A Day button is a real `NSButton`, a real Material button, a real `GtkButton`, so VoiceOver,
-TalkBack, Narrator, and Orca already know how to focus it, name its role, and activate it. You
-start from the platform's baseline.
+A Day button is an `NSButton`, a Material button, or a `GtkButton`, so VoiceOver, TalkBack,
+Narrator, and Orca already know how to focus it, name its role, and activate it.
 
 That baseline still needs your input in three places: labels for things whose purpose isn't their
 text, roles for things you drew yourself, and stable identifiers for automation. Day gives all
@@ -50,8 +49,7 @@ Hold yourself to these rules (`day lint` has no a11y rules yet; a missing-label 
 interactive pieces is a listed follow-up):
 
 - give every interactive Piece whose purpose isn't its text an accessible name;
-- never let an element id double as a label: ids are for machines, labels are for people, and a
-  screen reader reading `"save-button"` aloud is the bug.
+- never let an element id double as a label; a screen reader would read `"save-button"` aloud.
 
 ## Identifiers
 
@@ -81,11 +79,11 @@ declared:
 - a11y_audit:
 ```
 
-The audit walks id'd nodes, asks the [toolkit](/docs/glossary#toolkit) for the realized role, label, and value (via each
-[backend](/docs/glossary#backend)'s read-back hooks), and fails the script on mismatch. Run in CI, this turns "we set the
-labels" into a regression-tested claim. Read-back is implemented on the Apple backends (AppKit
-and UIKit); backends that can't yet read their native tree skip the audit (read-back for Qt and
-GTK is a listed follow-up).
+The audit walks id'd nodes, asks the [toolkit](/docs/glossary#toolkit) for the realized role, label,
+and value (via each [backend](/docs/glossary#backend)'s read-back hooks), and fails the script on
+mismatch. Run in CI, it fails the build when a declared label stops reaching the native tree.
+Read-back is implemented on the Apple backends (AppKit and UIKit); backends that can't yet read
+their native tree skip the audit (read-back for Qt and GTK is a listed follow-up).
 
 ## Current limits
 

@@ -79,10 +79,10 @@ main thread between flushes, so they are deterministic and behave identically on
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
 
-Any step can be gated per target: `skip_on:` drops it on the named targets or toolkits
-(`skip_on: [web-dom]`), and `only_on:` is its mirror, for a step whose expectations differ per
-target (an `assert_no_placeholders` allow list, say). One walkthrough then covers every [backend](/docs/glossary#backend)
-without forking per platform.
+Any step can be gated per target: `skip_on:` drops it on the named targets or toolkits (`skip_on:
+[web-dom]`), and `only_on:` is its mirror, for a step whose expectations differ per target (an
+`assert_no_placeholders` allow list, say). One walkthrough then covers every
+[backend](/docs/glossary#backend).
 
 ## How it works
 
@@ -123,9 +123,9 @@ The same scripts serve several jobs:
 
 ## Recording
 
-You don't have to write a script from scratch. `day::record` captures the taps, edits, selections,
-and navigation an app receives and turns them back into a dayscript. It observes the one point
-every backend funnels its events through, so it needs no per-toolkit code.
+`day::record` captures the taps, edits, selections, and navigation an app receives and turns them
+back into a dayscript. It observes the one point every backend funnels its events through, so it
+needs no per-toolkit code.
 
 Record headlessly from the CLI:
 
@@ -162,18 +162,16 @@ dayscript ▸ tap list-shuffle  "Shuffle"
 dayscript ▸ select unit-picker = 1  "Units"
 ```
 
-Nothing accumulates, so it is cheap to leave on for an app's whole life, and it reads as the script
-a recording would have written. That is useful for watching what a walkthrough will capture before
-you record it, and for making a bug report say what was actually pressed. The Showcase turns it on
-at launch; `DAY_LOG_ACTIONS=0` silences it. Logging and recording are independent: start a recording
-underneath a log and each action still prints once, with the prefix naming the mode
-(`day record ▸`).
+It is cheap to leave on for an app's whole life, and the lines are the script a recording would have
+written. That is useful for watching what a walkthrough will capture before you record it, and for
+making a bug report say what was pressed. The Showcase turns it on at launch; `DAY_LOG_ACTIONS=0`
+silences it. Logging and recording are independent: start a recording underneath a log and each
+action still prints once, with the prefix naming the mode (`day record ▸`).
 
 ## Limits
 
 dayscript can only see what Day owns. It cannot type through the native IME, verify the software
 keyboard, drive OS permission prompts or file dialogs, or assert native animations. The project's
 practice is scripted coverage for everything Day-side plus a short manual pass per platform for
-those native surfaces: text input, the keyboard, OS dialogs, and animations. Unit-level testing
-below the UI has a separate tool: the [mock toolkit](/docs/rendering#the-mock-toolkit) runs your
-Pieces headlessly in `cargo test`.
+those native surfaces. Unit-level testing below the UI has a separate tool: the [mock
+toolkit](/docs/rendering#the-mock-toolkit) runs your Pieces headlessly in `cargo test`.

@@ -16,11 +16,11 @@ import Compare from '../../components/Compare.astro';
 This page maps Flutter's vocabulary onto Day's, shows the same code in both, and covers the
 four places the workflow differs: state, packages, resources, and builds.
 
-**Flutter draws its own widgets; Day uses the platform's.** Flutter ships a renderer
-(Impeller/Skia) and repaints every pixel, so your app looks identical everywhere. Day creates
-each platform's real widgets (`NSButton` on macOS, a Material button on Android, GTK, Qt,
-system XAML, and ArkUI widgets elsewhere), so your app looks native everywhere instead.
-[Why Day](/docs/benefits) lists what each approach costs and when Flutter is the better pick.
+Flutter ships a renderer (Impeller/Skia) and repaints every pixel, so your app looks identical
+everywhere. Day creates each platform's real widgets (`NSButton` on macOS, a Material button on
+Android, GTK, Qt, system XAML, and ArkUI widgets elsewhere), so your app looks native everywhere
+instead. [Why Day](/docs/benefits) lists what each approach costs and when Flutter is the better
+pick.
 
 ## Flutter terms in Day
 
@@ -90,11 +90,10 @@ fn counter() -> impl Piece {
 
 </Compare>
 
-The Day version keeps its state in a `Signal` inside a plain function, so there is no `State`
-class or `BuildContext`, and `const` optimization has no equivalent because nothing rebuilds.
-`Signal<T>` is `Copy`, so it moves into both closures without a `.clone()`. The function runs
-once; after that, updates flow through the signal graph. [Reactivity](/docs/reactivity)
-explains the machinery.
+The Day version keeps its state in a `Signal` inside a plain function, so there is no `State` class
+or `BuildContext`, and `const` optimization has no equivalent because nothing rebuilds. `Signal<T>`
+is `Copy`, so it moves into both closures without a `.clone()`. The function runs once; after that,
+updates flow through the signal graph. [Reactivity](/docs/reactivity) explains the signal graph.
 
 ## Form controls: controllers vs. two-way signals
 
@@ -239,10 +238,10 @@ enums that make the keys compile-checked.
 
 ## Adaptive layout
 
-In Flutter you read `MediaQuery.sizeOf`, pick your own breakpoints, and swap `NavigationRail`
-for `NavigationBar` yourself. Day buckets the window into
-[size classes](/docs/internal/size-classes) (Android's numbers, used verbatim on every
-backend), and a `nav` re-presents itself when the window crosses one.
+In Flutter you read `MediaQuery.sizeOf`, pick your own breakpoints, and swap `NavigationRail` for
+`NavigationBar` yourself. Day buckets the window into [size classes](/docs/internal/size-classes)
+(Android's numbers, unchanged on every backend), and a `nav` re-presents itself when the window
+crosses one.
 
 <Compare lhs="Flutter">
 
@@ -273,14 +272,12 @@ let two_up = size_class().is_some_and(|c| c.width >= WidthClass::Expanded);
 
 </Compare>
 
-The class is per window, so a second window in a different size gets its own answer, whether
-in Stage Manager, in Android split-screen, or in a desktop window someone is dragging narrower
-as they read.
+The class is per window, so a second window at a different size (Stage Manager, Android
+split-screen, a resized desktop window) gets its own answer.
 
 ## Styling: decoration vs. modifiers
 
-Day's modifier chain is closer to SwiftUI's than to Flutter's wrapper widgets, but the
-translation is direct:
+Day's modifier chain is closer to SwiftUI's than to Flutter's wrapper widgets:
 
 <Compare lhs="Flutter">
 
@@ -411,18 +408,17 @@ height = 640
 
 </Compare>
 
-Files under `resource/` are found by convention, so the Day side has no assets or fonts
-list, and adding an image never touches a manifest. Dependencies are ordinary Cargo
-dependencies; a package with native platform code (the equivalent of a plugin) declares its
-per-platform pieces in its own crate metadata, and `day build` folds them into the app's Xcode
-and Gradle builds. The app never re-declares plugin wiring. Day can also embed your own SwiftUI
-views on the Apple targets ([SwiftUI embedding](/docs/internal/swiftui)).
+Files under `resource/` are found by convention, so the Day side has no assets or fonts list, and
+adding an image never touches a manifest. Dependencies are ordinary Cargo dependencies; a package
+with native platform code (the equivalent of a plugin) declares its per-platform pieces in its own
+crate metadata, and `day build` folds them into the app's Xcode and Gradle builds. Day can also
+embed your own SwiftUI views on the Apple targets ([SwiftUI embedding](/docs/internal/swiftui)).
 
 ## Resources and localization
 
-Both frameworks generate typed accessors from your translation files. The formats differ: ARB
-plus `intl` on one side, [Mozilla Fluent](https://projectfluent.org/) on the other. Fluent
-handles plural and gender grammar in the message itself rather than in code.
+Both frameworks generate typed accessors from your translation files. Flutter uses ARB plus `intl`;
+Day uses [Mozilla Fluent](https://projectfluent.org/). Fluent handles plural and gender grammar in
+the message itself rather than in code.
 
 <Compare lhs="Flutter — ARB + intl">
 
@@ -499,10 +495,9 @@ my-app/
 
 </Compare>
 
-The layout is the same, and Day moves per-app settings into `Day.toml`, so the host scaffolds
-rarely change. Where Flutter uses flavors and per-platform folders for variant config, any
-`Day.toml` app property can be overridden per platform, per toolkit, or per target (most
-specific wins):
+Day moves per-app settings into `Day.toml`, so the host scaffolds rarely change. Where Flutter uses
+flavors and per-platform folders for variant config, any `Day.toml` app property can be overridden
+per platform, per toolkit, or per target (most specific wins):
 
 ```toml
 [app]
@@ -517,8 +512,8 @@ id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
 On desktop targets the Cargo binary is the app, with no host project. Day also targets
-`harmony-arkui` for HarmonyOS and `web-dom`, which compiles the same crate to WebAssembly
-driving real DOM elements.
+`harmony-arkui` for HarmonyOS and `web-dom`, which compiles the same crate to WebAssembly driving
+DOM elements.
 
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
 today: each `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from [Tier
