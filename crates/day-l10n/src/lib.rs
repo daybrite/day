@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 day_reactive::tls_root! {
     collate: crate::collate::TlsGroupSlots,
+    decimal: crate::decimal::TlsGroupSlots,
     root: crate::TlsGroupSlots,
 }
 
@@ -26,10 +27,12 @@ use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use unic_langid::LanguageIdentifier;
 
 mod collate;
+mod decimal;
 mod intl;
 mod search;
 
 pub use collate::{compare, compare_in, sort_localized};
+pub use decimal::{format_decimal, format_decimal_in};
 pub use search::{matches_search, matches_search_in};
 
 /// The built-in core catalog: standard UI strings the framework needs, per language. Apps override

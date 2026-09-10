@@ -205,6 +205,28 @@ last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
   (`day::lint::bad-format-option`), and not-yet-supported options
   (`day::lint::unsupported-format-option`).
 
+## Numbers outside a message
+
+Not every number a person reads has a message to hang on: an axis label, a table column, a live
+readout. `day::format_decimal(v, fraction_digits)` renders one through the same icu4x formatter
+`NUMBER()` uses, and `format_decimal_in(locale, v, digits)` does it for a named locale:
+
+```rust
+label(move || format_decimal(total.get(), 2))   // 1,234.50 · 1 234,50 · 1.234,50
+```
+
+- **Grouping follows the locale's own rule**, not a fixed every-three: `en-IN` groups by lakh
+  (`12,34,567`), and several locales leave four-digit numbers ungrouped.
+- **The decimal mark and the digits are the locale's too** — a comma in `fr` and `de`,
+  Arabic-Indic digits where the locale resolves to that numbering system.
+- `format_decimal` reads the locale signal (**tracked**), so a label inside a reactive closure
+  re-renders on a locale switch; `format_decimal_in` does not.
+- A locale with no data, or a non-finite value, degrades to Rust's own formatting rather than
+  erroring — the digits always come out.
+
+`day-piece-charts` formats every numeric axis label this way, which is why a log axis reads
+`1,000,000` rather than `1e6`.
+
 ## Sorting: locale-aware collation
 
 `day::compare(a, b)`, `day::compare_in(locale, a, b)`, and `day::sort_localized(&mut items)`

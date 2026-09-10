@@ -5830,6 +5830,15 @@ impl Platform for Gtk {
             gtk4::glib::ControlFlow::Break
         });
     }
+
+    /// The frame clock (§8.4): a ~16 ms one-shot glib timeout on the main context approximates
+    /// vsync (GdkFrameClock is per-surface, and a game's clock outlives any one widget). Main
+    /// thread only, so the callback needs no `Send`.
+    fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
+        gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(16), move || {
+            ffi_guard::contain((), || cb(day_spec::frame_timestamp()));
+        });
+    }
 }
 
 use day_spec::WindowOptions;

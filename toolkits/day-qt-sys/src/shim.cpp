@@ -58,6 +58,7 @@
 #include <QPushButton>
 #include <QTabWidget>
 #include <QMetaObject>
+#include <QTimer>
 #include <cstdint>
 #include <map>
 #include <vector>
@@ -1391,6 +1392,10 @@ void day_qt_tabs_content_size(void *tabs, double *w, double *h) {
 void day_qt_post(void (*cb)(void *), void *data) {
     QMetaObject::invokeMethod(
         qApp, [cb, data]() { cb(data); }, Qt::QueuedConnection);
+}
+// A single-shot timer on the application's thread: the frame clock's ~16 ms tick (§8.4).
+void day_qt_post_delayed(int ms, void (*cb)(void *), void *data) {
+    QTimer::singleShot(ms, qApp, [cb, data]() { cb(data); });
 }
 int day_qt_snapshot_png(void *widget, const char *path) {
     QPixmap pm = static_cast<QWidget *>(widget)->grab();

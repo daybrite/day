@@ -394,7 +394,16 @@ const env = {
   day_dom_measure_text(t, tl, f, fl, maxW, out) {
     let text2, font;
     if (t === 0) { // measure element `tl`'s own text and computed font
-      const el = E(tl); text2 = el.textContent || ''; font = getComputedStyle(el).font;
+      const el = E(tl); font = getComputedStyle(el).font;
+      if (el.firstElementChild) {
+        // Styled runs (docs/text-runs.md): a bold span is wider than the same words in the
+        // base font, so the flat text would under-measure and the last word of a wrapped
+        // paragraph would land on a clipped third line. Measure the spans themselves.
+        const [w, h] = measureNodes(el, font, maxW);
+        f64(out, 2).set([w, h]);
+        return;
+      }
+      text2 = el.textContent || '';
     } else { text2 = str(t, tl); font = str(f, fl); }
     const [w, h] = measure(text2, font, maxW);
     f64(out, 2).set([w, h]);
@@ -1764,7 +1773,7 @@ function baselineMetrics(font) {
   return out;
 }
 
-function measure(text, font, maxW) {
+function prepareMeasurer(font, maxW) {
   if (!measurer) {
     measurer = div('');
     measurer.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre-wrap;overflow-wrap:break-word;';
@@ -1772,8 +1781,23 @@ function measure(text, font, maxW) {
   }
   measurer.style.font = font;
   measurer.style.maxWidth = (maxW < 1e5 ? maxW : 100000) + 'px';
+}
+
+function measure(text, font, maxW) {
+  prepareMeasurer(font, maxW);
   measurer.textContent = text || ' ';
   const r = measurer.getBoundingClientRect();
+  return [r.width, r.height];
+}
+
+// Measure an element's children (a label's styled spans) wrapped at `maxW`, in the same
+// measurer: clones keep each span's own weight, slant and family, so the answer is the
+// paragraph the browser will lay out.
+function measureNodes(el, font, maxW) {
+  prepareMeasurer(font, maxW);
+  measurer.replaceChildren(...Array.from(el.childNodes, (n) => n.cloneNode(true)));
+  const r = measurer.getBoundingClientRect();
+  measurer.textContent = '';
   return [r.width, r.height];
 }
 

@@ -54,6 +54,32 @@ d.fill(ring, TEAL);
 the opposite way. `FillRule::EvenOdd` makes any contour inside another a hole regardless of
 winding, which is what PDF's `f*` and SVG's `fill-rule: evenodd` mean.
 
+`arc_to(center, radius, start_deg, sweep_deg)` appends a circular arc — degrees, `0` = the +x
+axis, positive sweeping **clockwise**, the same convention `Shape::Arc` and `circle` use. It is a
+*segment*, not a shape, which is what lets a figure made of arcs be one closed contour:
+
+```rust
+// A donut wedge: out along the far edge, back along the near one.
+let wedge = PathBuilder::new()
+    .arc_to(center, 60.0, 20.0, 100.0)     // outer edge, clockwise
+    .arc_to(center, 34.0, 120.0, -100.0)   // inner edge, back the other way
+    .close()
+    .build();
+```
+
+An arc joins whatever came before it — reached by a line when the subpath has a current point,
+opening a new one when it does not (including straight after a `close`). That is the difference
+that matters: `Shape::Arc` draws an arc, `arc_to` builds a figure *out of* arcs, and a donut hole,
+an angular inset and a corner radius can only compose in the second form. `day-piece-charts` drew
+every pie and donut wedge from forty lines of hand-rolled cubics until this existed.
+
+It emits cubics rather than an arc op on the wire. Every rasterizer under Day has its own rule for
+joining an arc to the line before it and its own flattening tolerance, so the same beziers
+everywhere means the same pixels everywhere. A cubic cannot *be* a circle: the radial error peaks
+at 2.7 × 10⁻⁴ of the radius on the quarter turns this splits into — a quarter of a pixel on a
+circle a thousand points across — which is the same tradeoff Core Graphics, cairo and every SVG
+renderer make.
+
 `smooth_polyline(&points, tension)` fits a Catmull-Rom spline through points and emits it as
 cubics. It passes through every point, so it is a drawing of the data rather than a fit to it.
 A spline still implies values between the samples, which is why Day Tradr smooths its

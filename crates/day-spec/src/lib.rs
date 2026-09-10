@@ -5566,9 +5566,10 @@ pub trait Platform: Toolkit {
     /// Request a single main-thread callback aligned to the next display refresh (vsync), carrying
     /// the frame timestamp in seconds. The day-core animation driver re-arms it each tick while
     /// animations / game frame-clocks are live and stops requesting when none remain (no idle
-    /// wakeups → battery). Main-thread only. A backend without a display link may approximate with a
-    /// ~16 ms timer. Defaulted no-op: the canvas/self-driven animation path is inert until a backend
-    /// provides it (native-widget animation via `AnimSpec` is unaffected). (§8.4)
+    /// wakeups → battery). Main-thread only. A backend without a display link approximates with a
+    /// ~16 ms one-shot timer and stamps the frame with [`frame_timestamp`] (the desktop toolkits
+    /// and HarmonyOS do). Defaulted no-op only for the mock: there the canvas/self-driven animation
+    /// path is inert (native-widget animation via `AnimSpec` is unaffected). (§8.4)
     fn request_frame(_cb: Box<dyn FnOnce(f64) + 'static>) {}
 
     /// Ordered OS locale preference list (BCP-47), for fluent-langneg (§12.2).
@@ -5583,6 +5584,18 @@ pub trait Platform: Toolkit {
 
 /// The user's language preference from the POSIX environment, newest-first, as BCP-47 tags.
 ///
+/// Seconds on a monotonic clock since the first call — the frame timestamp for a backend that
+/// approximates [`Platform::request_frame`] with a timer rather than a display link (§8.4). The
+/// driver only ever differences consecutive stamps, so the origin is arbitrary. Not for the web
+/// build, where `Instant` is unavailable and `requestAnimationFrame` stamps the frame itself.
+pub fn frame_timestamp() -> f64 {
+    static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    ORIGIN
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_secs_f64()
+}
+
 /// `LANGUAGE` is the GNU multi-language list (`fr:en`); `LC_ALL`, `LC_MESSAGES` and `LANG` each
 /// carry one locale in POSIX form (`fr_FR.UTF-8`), which becomes `fr-FR`. Shared by the backends
 /// whose platform has no richer API to ask (§12.2, docs/localization.md).

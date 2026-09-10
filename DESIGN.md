@@ -389,8 +389,9 @@ Two structural rules carried over from pane, both still enforced:
   3. Size-affecting applies only *mark* layout dirty. **Layout, paint, and the release-queue drain
      run in one coalesced posted main-loop callback** — the *turn boundary*. `Setter` deliveries
      arriving outside any batch open one and schedule the posted drain.
-  4. There is no per-frame tick in v1 (no portable frame clock across AppKit < 14 / Qt Widgets);
-     aligning turn boundaries to CVDisplayLink / Choreographer / GdkFrameClock is post-MVP.
+  4. Turn boundaries are not frame-aligned: the frame clock ([§8.4](#84-animation-reserved-hooks--still-unimplemented)) is a
+     separate, opt-in consumer loop, and aligning the drain itself to CVDisplayLink /
+     Choreographer / GdkFrameClock remains post-MVP.
 
   `day_reactive::flush_sync()` runs steps 2–3 immediately — used by day-mock tests and dayscript's
   `wait_idle`; its scoped form `Scope::flush_now(scope)` serves the RowHost's sanctioned
@@ -1632,6 +1633,16 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > painter transform use. Storyboards are kept per (element, property) and stopped before
 > re-animating, since two live storyboards on one property fight and a stopped one snaps its
 > property back; `FillBehavior::HoldEnd` keeps the settled value.
+>
+> **Frame clock on every backend (2026-09).** `Platform::request_frame` was implemented only
+> by the mobile and web backends, so `frame_clock` game loops and self-driven canvas
+> animations were inert on macos-appkit, gtk, qt, and windows-xaml (Day-Games' clocks and
+> physics stood still on a desktop). The desktop backends now approximate vsync with a
+> ~16 ms one-shot on their main loop — a main-queue dispatch on AppKit, a glib timeout on
+> GTK, `QTimer::singleShot` on Qt, and the trait's threaded delay riding `post` on XAML —
+> stamping frames with `day_spec::frame_timestamp()`. Only the mock leaves the duty a no-op.
+> A true display link (NSView's CADisplayLink on macOS 14+, `CompositionTarget.Rendering` on
+> Windows) is the follow-up; the driver's re-arm contract is unchanged.
 
 Native-widget frameworks that bolt animation on later end up breaking their backend ABI — so the
 seam ships now even though MVP backends ignore it. Day commits to **backend-executed animation**:
@@ -2161,8 +2172,10 @@ decrement = Decrement
 > sketched below. The ICU4X-backed `NUMBER`/`DATETIME` Fluent functions **shipped** (2026-07):
 > `day-l10n` registers them — plus a bundle-wide number formatter, so plain `{ $n }`
 > interpolations localize too — on every bundle via icu4x 2.x (in-tree, not fluent-datetime),
-> with locale-aware collation (`compare`/`sort_localized`) alongside ([docs/localization.md](docs/localization.md)
-> "Formatted values"/"Sorting"/"Locale data" are normative). Apps embed icu4x's all-locale
+> with locale-aware collation (`compare`/`sort_localized`) and a standalone decimal formatter
+> (`format_decimal`, 2026-09, for the numbers that have no message to hang on — an axis label, a
+> table column) alongside ([docs/localization.md](docs/localization.md)
+> "Formatted values"/"Numbers outside a message"/"Sorting"/"Locale data" are normative). Apps embed icu4x's all-locale
 > `compiled_data`: the CLI's per-app thinning was removed in 2026-08, having cost more in the
 > CLI's own graph than it saved in an app's binary ([docs/localization.md](docs/localization.md) "Locale data").
 > Plural/`select` rules work (exercised by every locale in CI), and the `res::str` typing

@@ -4130,7 +4130,6 @@ mod imp {
                 kind: &NSString,
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> Retained<objc2_ui_kit::UICollectionReusableView> {
-                let mtm = self.mtm();
                 let view: Retained<objc2_ui_kit::UICollectionViewListCell> = unsafe {
                     cv.dequeueReusableSupplementaryViewOfKind_withReuseIdentifier_forIndexPath(
                         kind,
@@ -4144,8 +4143,11 @@ mod imp {
                     .groups()
                     .get(unsafe { index_path.section() } as usize)
                     .and_then(|(t, _, _)| t.clone());
-                let content =
-                    unsafe { objc2_ui_kit::UIListContentConfiguration::headerConfiguration(mtm) };
+                // The view's OWN default, which UIKit resolves for a header in this list's
+                // style. The adaptive class method `+headerConfiguration` would say the same
+                // thing, but it is iOS 18+, and on anything older the message is not ignored —
+                // it is `method not found` and an abort before the first frame.
+                let content = unsafe { view.defaultContentConfiguration() };
                 unsafe {
                     // A leading run of rows before the first heading has none to draw. The
                     // configuration still applies, so the header collapses to nothing rather than
@@ -4229,9 +4231,13 @@ mod imp {
                         content.imageProperties().setTintColor(Some(&uicolor(c)));
                     }
                     cell.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
-                    cell.setBackgroundConfiguration(Some(
-                        &objc2_ui_kit::UIBackgroundConfiguration::listCellConfiguration(mtm),
-                    ));
+                    // The cell's OWN default, for the same reason the content configuration is
+                    // taken from the cell above: it is resolved against this cell's list
+                    // environment. The class method `listCellConfiguration:` would do as well,
+                    // but it is iOS 18+, and calling it on anything older is not a missing
+                    // background — it is `+[UIBackgroundConfiguration listCellConfiguration]:
+                    // method not found` and an abort before the first frame.
+                    cell.setBackgroundConfiguration(Some(&cell.defaultBackgroundConfiguration()));
                     cell.setAccessories(&nav_accessories(mtm, bimg.as_deref(), btint));
                 }
                 objc2::rc::Retained::into_super(cell)

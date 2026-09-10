@@ -3212,4 +3212,24 @@ impl Platform for Xaml {
         let data = Box::into_raw(Box::new(f)) as *mut c_void;
         unsafe { ffi::day_xaml_post(run_posted, data) };
     }
+
+    /// The frame clock (§8.4): the trait's threaded ~16 ms delay rides `post` home to the UI
+    /// thread, where the parked main-thread-only callback runs. A `CompositionTarget.Rendering`
+    /// vsync source is the follow-up once this backend builds on its own host again.
+    fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
+        /// The one frame callback waiting for the timer (day-core never double-arms).
+        type PendingFrame = RefCell<Option<Box<dyn FnOnce(f64)>>>;
+        thread_local! {
+            static PENDING_FRAME: PendingFrame = const { RefCell::new(None) };
+        }
+        PENDING_FRAME.with(|p| *p.borrow_mut() = Some(cb));
+        Self::post_delayed(
+            16,
+            Box::new(|| {
+                if let Some(cb) = PENDING_FRAME.with(|p| p.borrow_mut().take()) {
+                    cb(day_spec::frame_timestamp());
+                }
+            }),
+        );
+    }
 }

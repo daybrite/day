@@ -366,6 +366,10 @@ pub use day_fluent::install as install_locales;
 // Locale-aware comparison/sorting (docs/localization.md "Sorting") — icu4x collation, so e.g. a
 // Chinese list sorts by pinyin. `compare` and `sort_localized` track the locale signal.
 pub use day_fluent::{compare, compare_in, sort_localized};
+// Locale-aware number formatting (docs/localization.md "Numbers outside a message") — the same
+// icu4x formatter `NUMBER()` uses, for the values that have no message to hang on: an axis label,
+// a table column, a readout. `format_decimal` tracks the locale signal.
+pub use day_fluent::{format_decimal, format_decimal_in};
 // Search matching (docs/localization.md "Searching"): case-insensitive, at the start of any
 // word, with words found by the locale's own segmentation. `matches_search` tracks the locale.
 pub use day_fluent::{matches_search, matches_search_in};

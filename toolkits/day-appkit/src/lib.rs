@@ -7721,6 +7721,30 @@ impl Platform for AppKit {
         dispatch2::DispatchQueue::main().exec_async(move || ffi_guard::contain((), f));
     }
 
+    /// The frame clock (§8.4): a ~16 ms one-shot on the main dispatch queue approximates vsync
+    /// (no display link is wired: CVDisplayLink is deprecated and NSView's CADisplayLink needs
+    /// macOS 14). The callback is main-thread-only, so it parks in a thread-local rather than
+    /// crossing into dispatch's `Send` closure.
+    fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
+        /// The one frame callback waiting for the timer (day-core never double-arms).
+        type PendingFrame = RefCell<Option<Box<dyn FnOnce(f64)>>>;
+        thread_local! {
+            static PENDING_FRAME: PendingFrame = const { RefCell::new(None) };
+        }
+        PENDING_FRAME.with(|p| *p.borrow_mut() = Some(cb));
+        let Ok(when) = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(16))
+        else {
+            return;
+        };
+        let _ = dispatch2::DispatchQueue::main().after(when, || {
+            ffi_guard::contain((), || {
+                if let Some(cb) = PENDING_FRAME.with(|p| p.borrow_mut().take()) {
+                    cb(day_spec::frame_timestamp());
+                }
+            })
+        });
+    }
+
     fn locale_hints(&self) -> Vec<String> {
         // The user's ordered language preference from Settings ("fr-FR", "en-US", …), which is
         // the ambient locale Day negotiates its catalogs against (§12.2, docs/localization.md).
