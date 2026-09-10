@@ -1566,7 +1566,10 @@ static WUXC::Canvas canvas_of(void* h) {
     return nullptr;
 }
 
-void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) {
+// A function-try-block for the same reason `guard` exists: this repaints ONE canvas, a
+// best-effort side effect, and it is reached from Rust's non-unwindable post-trampoline, so a
+// WinRT HRESULT escaping here would abort the app. Degrade to a partly-drawn canvas instead.
+void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) try {
     auto canvas = canvas_of(h);
     if (!canvas) return;
     canvas.Children().Clear();
@@ -1796,6 +1799,16 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         }
         case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
             std::string t = ti < texts.size() ? texts[ti++] : std::string();
+            // FontSize must be POSITIVE and finite: XAML throws E_INVALIDARG on 0, a negative,
+            // or a NaN, and that HRESULT unwinds out of this entry point through Rust's
+            // `extern "C"` post-trampoline, aborting the whole process (see `guard` above).
+            // Nothing is drawable at a non-positive size anyway, and the other backends render
+            // an empty run rather than failing (Qt's setPointSizeF ignores it), so drop the
+            // record and keep the same painted result. A canvas that sizes text off its OWN
+            // height — a Sudoku cell's `h * 0.55` — hits this on the FIRST replay, before
+            // layout has given the canvas a height. The texts cursor is advanced above, so the
+            // stream stays in sync with the records that follow.
+            if (!(e > 0.0) || !std::isfinite(e)) break;
             WUXC::TextBlock tb;
             tb.Text(hs(t.c_str()));
             tb.FontSize(e);
@@ -1988,7 +2001,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         if (k != 18) stylePending = false;
         if (k != 19) fontPending = false;
     }
-}
+} catch (...) {}
 
 // Recycling-list host: a real ScrollViewer whose Content is a Canvas that holds the row cells
 // (day positions each cell by absolute frame). `out_content` receives a handle to that Canvas so
