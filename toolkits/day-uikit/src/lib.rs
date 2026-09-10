@@ -2457,19 +2457,31 @@ mod imp {
                     if unsafe { self.window() }.is_none() {
                         return;
                     }
-                    // Pin the content subview to the safe area (below the navigation bar)
-                    // and report its size so NavLayout re-lays the Day content (§8.3).
+                    // Where the content goes depends on what it IS (§7.7). A page whose content
+                    // resolves to one scroll view — the sidebar list, a `scroll`-rooted detail,
+                    // a tree — fills the page's whole bounds, bars included, and UIKit's own
+                    // inset adjustment starts its CONTENT below the bar and lets it run under
+                    // the translucent chrome on the way past: Settings, Mail and every other
+                    // list-shaped screen on the platform. Everything else is pinned inside the
+                    // safe area, because a form or a canvas has no scroll insets to absorb a bar
+                    // and would put its first row under it.
                     let bounds = self.bounds();
                     let insets = self.safeAreaInsets();
-                    let frame = CGRect::new(
-                        CGPoint::new(insets.left, insets.top),
-                        CGSize::new(
-                            (bounds.size.width - insets.left - insets.right).max(0.0),
-                            (bounds.size.height - insets.top - insets.bottom).max(0.0),
-                        ),
-                    );
                     let subs = unsafe { self.subviews() };
-                    if let Some(content) = subs.firstObject() {
+                    let content = subs.firstObject();
+                    let full_bleed = content.as_ref().is_some_and(|c| scroll_leaf(c));
+                    let frame = if full_bleed {
+                        bounds
+                    } else {
+                        CGRect::new(
+                            CGPoint::new(insets.left, insets.top),
+                            CGSize::new(
+                                (bounds.size.width - insets.left - insets.right).max(0.0),
+                                (bounds.size.height - insets.top - insets.bottom).max(0.0),
+                            ),
+                        )
+                    };
+                    if let Some(content) = content {
                         unsafe { content.setFrame(frame) };
                         if *DIAG_NAV {
                             let a = content.frame();
@@ -2484,11 +2496,12 @@ mod imp {
                         let sup = unsafe { self.superview() }.map(|v| v.bounds()).unwrap_or(bounds);
                         let winf = unsafe { self.convertRect_toView(bounds, None) };
                         log::debug!(
-                            "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) -> report {}x{} super={}x{} hidden={}",
+                            "DAYDIAG page node={} bounds={}x{} win=({},{} {}x{}) safe(t{} b{} l{} r{}) bleed={} -> report {}x{} super={}x{} hidden={}",
                             self.ivars().node.0,
                             bounds.size.width, bounds.size.height,
                             winf.origin.x, winf.origin.y, winf.size.width, winf.size.height,
                             insets.top, insets.bottom, insets.left, insets.right,
+                            full_bleed,
                             frame.size.width, frame.size.height,
                             sup.size.width, sup.size.height,
                             self.isHidden(),
@@ -2516,6 +2529,35 @@ mod imp {
             unsafe { v.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor())) };
             v
         }
+    }
+
+    /// Whether a page's content is one scroll view and nothing else — the shape that fills the
+    /// page's bounds instead of the safe area (`DayNavPageView::layoutSubviews`).
+    ///
+    /// Walks the chain of single-child wrappers Day's layout leaves between the content view and
+    /// its leaf (the sidebar is `column((menu,))`, a detail is often `scroll(column(…))`), and
+    /// answers yes when the chain ends in a `UIScrollView` — which is what a list, a tree, a
+    /// text view and a `scroll` piece all are underneath. A page with two children at any level
+    /// is not one scroll view: a heading over a list has nowhere to absorb a bar, so that page
+    /// keeps the safe-area pin.
+    fn scroll_leaf(content: &UIView) -> bool {
+        let mut view = content.retain();
+        // Day's wrappers are shallow; a bound keeps a pathological tree from being walked twice
+        // a frame during a resize.
+        for _ in 0..6 {
+            let subs = unsafe { view.subviews() };
+            if subs.count() != 1 {
+                return false;
+            }
+            let Some(child) = subs.firstObject() else {
+                return false;
+            };
+            match child.downcast::<UIScrollView>() {
+                Ok(_) => return true,
+                Err(v) => view = v,
+            }
+        }
+        false
     }
 
     struct NavControllerIvars {

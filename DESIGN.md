@@ -1190,7 +1190,14 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > soft keyboard is raised/dismissed through the focus system ([docs/focus.md](docs/focus.md)). The
 > `env::safe_area()` / `env::keyboard_insets()` *signals* and `.ignore_safe_area(edges)` are
 > **not implemented** — no app has needed to read the values directly yet. The policy below
-> remains the design of record for when one does.
+> remains the design of record for when one does. **The scroll-root rule shipped on UIKit
+> (2026-09-10):** a nav, tab or cover page whose content resolves to one scroll view — the
+> sidebar list, a `scroll`-rooted detail, a tree — fills the page's bounds and takes the bars as
+> UIKit content insets (`DayNavPageView::layoutSubviews`, `scroll_leaf`), so the list runs under
+> the translucent bar the way Settings does; any other page stays pinned inside the safe area.
+> UIKit's own `contentInsetAdjustmentBehavior` is left at its default there rather than
+> neutralized as the bullet below proposes, because for a scroll-rooted page it computes exactly
+> the inset the policy asks for.
 
 Android 15 (target-sdk 35, which `Day.toml` defaults to) makes edge-to-edge mandatory, and iOS
 adjusts scroll insets behind frameworks' backs — so inset policy is v1, not polish:

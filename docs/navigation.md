@@ -324,6 +324,13 @@ sidebar its look: an inset rounded selection pill with a tinted label, and rows 
 A `UITableView` draws its selection edge to edge whatever background configuration its cells carry,
 so the rounded shape is the list appearance's to give.
 
+**The list runs under the bars.** A page whose content is one scroll view — this list, a
+`scroll`-rooted detail, a tree — fills the page's full bounds, and UIKit's own inset adjustment
+starts the content below the navigation bar and lets it pass under the translucent bar and the
+bottom search field as it scrolls, as Settings and Mail do. A page holding anything else (a heading
+over a list, a form, a canvas) is laid out inside the safe area instead, since it has no scroll
+insets to absorb a bar with.
+
 **Section headings ride the same list configuration.** `setHeaderMode(.supplementary)` turns them
 on, and a heading is a supplementary view carrying the adaptive
 `UIListContentConfiguration::headerConfiguration`, so its type, color and insets come from the same

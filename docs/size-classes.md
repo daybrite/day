@@ -326,8 +326,9 @@ Where the geometry itself is under test, `resize:` moves it:
 The runner performs the resize and the engine half waits until the app has reported the new class,
 so the next step cannot race the platform's resize animation. It is asserted as a **width class**:
 what reaches day-core is the safe-area-inset content size, so a window resized to 900pt tall
-reports about 830 once the status bar, the navigation bar and the app bar come out, and width is
-what every re-presentation decision reads anyway. Aim for mid-bucket sizes; a width within a few
+reports about 830 once the status bar, the navigation bar and the app bar come out (a page that is
+one scroll view reports its full bounds on iOS and absorbs the bars as content insets instead), and
+width is what every re-presentation decision reads anyway. Aim for mid-bucket sizes; a width within a few
 points of a breakpoint can fall the other side of it once insets are taken out.
 
 Only android-mdc has a host-side lever today (`adb shell wm size`, which is also what delivers the
