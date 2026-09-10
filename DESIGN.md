@@ -1192,12 +1192,16 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > **not implemented** — no app has needed to read the values directly yet. The policy below
 > remains the design of record for when one does. **The scroll-root rule shipped on UIKit
 > (2026-09-10):** a nav, tab or cover page whose content resolves to one scroll view — the
-> sidebar list, a `scroll`-rooted detail, a tree — fills the page's bounds and takes the bars as
+> sidebar list, a `scroll`-rooted detail, a tree — or to a navigation host (which passes the
+> bars on to its own pages) fills the page's bounds and takes the bars as
 > UIKit content insets (`DayNavPageView::layoutSubviews`, `scroll_leaf`), so the list runs under
 > the translucent bar the way Settings does; any other page stays pinned inside the safe area.
 > UIKit's own `contentInsetAdjustmentBehavior` is left at its default there rather than
 > neutralized as the bullet below proposes, because for a scroll-rooted page it computes exactly
-> the inset the policy asks for.
+> the inset the policy asks for. The same rule holds at the WINDOW root (`DayHolderView`): a
+> root that is one nav, split or tab host, or one scroll view, takes the window's full bounds
+> and the host hands the status bar and home indicator to its pages as safe area — the bars
+> extend behind them as UIKit's own do — while any other root keeps the padding.
 >
 > **AppKit (2026-09-10).** A Day window's content view is full-size (`FullSizeContentView`,
 > for the unified toolbar), so the root ran under the title bar and only a root-level
@@ -1408,6 +1412,11 @@ pub trait Toolkit: Sized + 'static {
     // here, so a walkthrough exercises the path a click takes. `false` = no sidebar in this
     // window. Defaulted, so a backend without one needs no code.
     fn toggle_sidebar(&mut self, host: &Self::Handle) -> bool { false }
+    // Press the platform's own back affordance on the innermost host with a page to pop —
+    // the native path a real tap runs (the bar's shouldPop, the pop, the backend's report to
+    // Day), which `nav_back()`, Day's rail, never reaches. dayscript's
+    // `nav_back: { native: true }` drives it (2026-09, docs/navigation.md). Defaulted.
+    fn native_back(&mut self) -> bool { false }
 
     // presentation (docs/dialogs.md, docs/files.md): alerts/confirm/prompt/sheets/pickers
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
@@ -1737,6 +1746,13 @@ report, so this policy was specified up front:
 > hosts **system XAML** (`Windows.UI.Xaml` controls in a `DesktopWindowXamlSource` island
 > inside a Win32 window), not WinUI 3 / Windows App SDK — no runtime bootstrap, no
 > framework-package dependency, and the `windows-xaml` target name stayed.
+
+> [!NOTE]
+> **Home screen (2026-09).** The web-dom dist is an installable web app: `day build` writes
+> `manifest.webmanifest`, `icons/`, the head metas, and a content-versioned service worker
+> (`sw.js`, network-first offline shell) beside `index.html` ([docs/web.md](docs/web.md) "Home
+> screen and offline"); `[web]` in Day.toml ([§17.3](#173-daytoml)) holds the colors and display
+> mode, the store listing the name.
 
 Shared mechanics came from pane's working code; every FFI choice below now runs in this repo:
 
@@ -3567,6 +3583,15 @@ sections are small and closed-schema (unknown keys = lint error, catching typos)
 `[app]` property may be specialized per platform / toolkit / target; tooling reads the
 manifest through `day metadata --json` (a versioned envelope), never by parsing the file.
 
+> [!NOTE]
+> **`[store]` (2026-09).** `apple-app-id` and `google-play-id` record where the app is listed
+> ([docs/store.md](docs/store.md) "Listed apps"); `day metadata --json` adds the resolved
+> listing URLs, and the project site shows the stores' localized badges from them.
+>
+> **`[web]` (2026-09).** `short-name`, `theme-color`, `theme-color-dark`, `background-color`,
+> `display` — the web build's home-screen presentation ([docs/web.md](docs/web.md) "Home screen
+> and offline"); every key optional.
+
 ### §17.4 The build callback (flutter's pattern, exactly — including the details flutter learned the slow way)
 
 - **ios/**: the Runner target's Run-Script phase is one line, **`sh "$PROJECT_DIR/day-cli.sh"
@@ -5239,7 +5264,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll ([docs/scroll.md](docs/scroll.md)); unanimated |
 | `navigate` | `route` | reset-to semantics; `""` = root ([docs/navigation.md](docs/navigation.md)) |
 | `deep_link` | `url` | deliver a deep-link URL in-process: the URL maps to its route through the same `day_spec::route_of_url` every platform intake uses, then navigates — a warm OS delivery minus the OS (which is the launch runner's tier; [docs/deep-links.md](docs/deep-links.md)) |
-| `nav_back` | — | pop one level, the native back path |
+| `nav_back` | `native?` | pop one level through Day's rail; `native: true` presses the platform's own back (`Toolkit::native_back`) so the backend's user-back path runs — mobile only, tolerated where the width class never pushed ([docs/navigation.md](docs/navigation.md)) |
 | `assert_route` | `route` | current path |
 | `assert_visible` | `id` | realized with a nonzero frame |
 | `assert_missing` | `id` | the id is NOT in the tree — the assertion for a subtree a `when` has not mounted (a property row that does not apply). `assert_visible` cannot express it: a missing id is an error there |

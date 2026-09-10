@@ -361,6 +361,12 @@ public class DayNavHost extends LinearLayout {
         return titles.size();
     }
 
+    /** Whether a system back would do something here — pop a page, or ask an armed guard —
+     *  rather than fall through to the activity (DayBridge.nativeBack). */
+    boolean canBack() {
+        return guarded || depth() > 0;
+    }
+
     /** Arm/disarm the back guard (NavPatch::GuardTop). While armed, the system/gesture back and
      *  the toolbar up-arrow route to Rust as NavBack{already_popped=0} so the app's guard
      *  decides; a Proceed then calls navPop (docs/navigation.md). The predictive-back preview is

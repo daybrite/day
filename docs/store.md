@@ -70,6 +70,28 @@ the contact already entered in App Store Connect stands and the notes stay home.
 set in the Play Console and `supply` cannot write it; recording one here would be a value that
 never reached the store.
 
+The listing's name and short description are also what the web build's home-screen manifest
+carries ([docs/web.md](web.md) "Home screen and offline"), so an app is called the same thing
+on a store page and on a phone's home screen.
+
+## Listed apps
+
+Once a listing is live, say so in `Day.toml`:
+
+```toml
+[store]
+apple-app-id = "6802801331"               # https://apps.apple.com/app/id6802801331
+google-play-id = "dev.daybrite.showcase"  # https://play.google.com/store/apps/details?id=…
+```
+
+Each key is independent, and each is the store's own identifier for the listing rather than
+a URL, so the URL shape stays the framework's concern: `day metadata --json` reports both the
+ids and the `apple-url` / `google-url` they resolve to. The project site
+([daysite](https://github.com/daybrite/daysite)) reads the same table into its app index as the
+`appleappstore` and `googleplaystore` channels and shows the store's localized badge on the
+landing page, linking to the listing; an app with neither key shows its downloads instead.
+The template ships the stores' localized badge artwork, so a French page shows the French badge.
+
 ## What `day lint` checks
 
 | code | what it catches |

@@ -363,8 +363,16 @@ pub enum Step {
     Navigate {
         route: String,
     },
-    /// Pop one navigation level (the native back path, day-initiated).
-    NavBack,
+    /// Pop one navigation level. Bare, it is Day's own rail (`day_core::nav_back`), which pops
+    /// the model and lets the backend follow. `native: true` presses the platform's back
+    /// affordance instead (`Toolkit::native_back`) — the bar's `shouldPop`, the dispatcher's
+    /// callbacks, the native pop, then the backend's report of it to Day as a user back — which
+    /// is the code a real tap runs and the bare step never reaches (docs/navigation.md).
+    NavBack {
+        // Skipped when false so a recorded bare back still writes as `- nav_back:`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        native: bool,
+    },
     /// Assert the current route path ("" = root).
     AssertRoute {
         route: String,
@@ -1746,9 +1754,20 @@ fn exec(step: Step) -> Reply {
                     Err(Reply::fail(format!("no route {route:?}"), true))
                 }
             }
-            Step::NavBack => {
-                if day_core::nav_back() {
-                    day_reactive::flush_sync();
+            Step::NavBack { native } => {
+                // `native`: the platform's own back affordance, so the backend's user-back
+                // path — the bar's `shouldPop`, the pop, the report to Day — is what runs. The
+                // pop animates and Day hears of it on completion, so nothing is flushed here;
+                // the next `assert_route` waits for it like any assertion.
+                let popped = if native {
+                    with_tree(|t| t.native_back())
+                } else {
+                    day_core::nav_back()
+                };
+                if popped {
+                    if !native {
+                        day_reactive::flush_sync();
+                    }
                     Ok(Reply::ok())
                 } else if day_core::size_class().is_some_and(|c| c.prefers_split()) {
                     // Nothing to pop, and nothing SHOULD be: a window past the compact width keeps

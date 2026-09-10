@@ -77,7 +77,7 @@ icons there, and hvigor — whose resource roots are fixed — gets gitignored s
 
 | Family | Files under `build/day/host/` |
 |---|---|
-| `png/` | `day-icon-{16,32,64,128,256,512,1024}.png` — favicons, catalogs, general use |
+| `png/` | `day-icon-{16,32,64,128,192,256,512,1024}.png` — favicons, the web app manifest's icons, catalogs, general use |
 | `macos/` | margin-composed squircle set (824 pt art on 1024, radius 184) `-{16,32,128,256,512,1024}.png`, `day-icon.icns`, and `Assets.xcassets/` (the catalog the macOS Xcode project compiles) |
 | `ios/` | `Assets.xcassets/` with the opaque 1024 px universal image (App Store validation rejects alpha), plus `AppIcon.icon/` (Icon Composer) |
 | `android/` | `res/mipmap-xxxhdpi/ic_launcher{,_foreground,_background}.png`, `res/mipmap-anydpi-v26/ic_launcher.xml`, the themed-icon drawable; beside them `ic_launcher-legacy-192.png` and `play-store-512.png` for store listings |

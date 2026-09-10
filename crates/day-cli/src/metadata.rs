@@ -100,6 +100,16 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
             "build": m.app.build,
             "targets": m.app.targets,
             "window": m.window,
+            // Where the app is listed (docs/store.md "Listed apps"): ids plus the listing URLs
+            // they resolve to, so a consumer need not know each store's URL shape.
+            "store": {
+                "apple-app-id": m.store.apple_app_id,
+                "google-play-id": m.store.google_play_id,
+                "apple-url": m.store.apple_url(),
+                "google-url": m.store.google_url(),
+            },
+            // The home-screen presentation of the web build (docs/web.md).
+            "web": m.web,
             "resolved": resolved,
             "permissions": declared_permissions(m),
         },

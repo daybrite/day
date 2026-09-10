@@ -1479,6 +1479,17 @@ public final class DayBridge {
      *  wait on this so captures never show a cover mid-slide. */
     public static boolean uiIdle() { return DayCover.slidesInFlight == 0; }
 
+    /** Press the system back (Toolkit::native_back): the dispatcher runs the nav host's guard
+     *  callback or the fragment manager's pop, the same path a back gesture takes. Only when
+     *  a nav host has something to pop or a guard armed — with neither, the dispatcher would
+     *  finish the activity, which no walkthrough means. */
+    public static boolean nativeBack() {
+        DayNavHost h = DayNavHost.active;
+        if (h == null || !h.canBack()) return false;
+        ((androidx.fragment.app.FragmentActivity) ctx).getOnBackPressedDispatcher().onBackPressed();
+        return true;
+    }
+
     /** Whether the system renders in dark appearance (Toolkit::dark_mode). */
     public static boolean isDarkMode() {
         int night = ((android.content.Context) ctx).getResources().getConfiguration().uiMode

@@ -722,6 +722,12 @@ pub trait TreeOps {
     fn toggle_sidebar(&mut self, _host: RNode) -> bool {
         false
     }
+    /// Press the platform's own back affordance (`Toolkit::native_back`): the native path a
+    /// real tap takes, which `nav_back()` — Day's rail — never runs. `false` when nothing is
+    /// popped by it.
+    fn native_back(&mut self) -> bool {
+        false
+    }
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     /// The same capture with the window's own chrome (see `Toolkit::snapshot_window_chrome`).
     fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String>;
@@ -1539,6 +1545,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             return false;
         };
         self.toolkit.toggle_sidebar(h)
+    }
+
+    fn native_back(&mut self) -> bool {
+        self.toolkit.native_back()
     }
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {

@@ -169,6 +169,19 @@ The following traps fail silently:
   empties the detail column): with no destination controller the transition sets up but never
   completes, the stack keeps its old contents, and the orphaned transition coordinator reports
   busy forever. Pass `animated: false` when the target is empty.
+- **iOS, a fourth time.** The collapse is not on Day's schedule. iOS 18 asks
+  `topColumnForCollapsingToProposedTopColumn:` and merges BEFORE Day's launch sync has put the
+  first destination in the detail column; iOS 26 asks after. Left to UIKit, an iPhone on iOS 18
+  opened on the sidebar with the model saying the page was open and nothing to pop. So the
+  delegate answers from the mirror for every host shape, and `split_presentation_changed`
+  finishes the merge UIKit started: a page still sitting in the secondary column after a
+  double-column collapse goes on top of the primary's stack, which is the shape the mirror has.
+- **iOS, a fifth time.** A host view Day places carries no autoresizing mask. UIKit gives every
+  controller's view `W+H`, and a masked child of a superview that grows from zero gets its own
+  size plus the delta: a nav host Day had sized to 420×810 under a tab page came out 840×1620
+  the moment the page took its bounds after Day's pass, with the list's trailing accessories and
+  the bar title off the right edge. `nav.view()` and the split's view are mounted with an empty
+  mask, and the split's container (`DayNavContainer`) sizes it in `layoutSubviews`.
 - **Every toolkit with an adaptive container.** Never nest one inside a pane. A
   `UISplitViewController` assumes it owns the window; embedded in a detail column its column
   layout collapses into garbage. The `Stack`-is-literal lowering rule exists for this case, so

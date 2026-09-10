@@ -52,6 +52,7 @@ implement them, and this table proves it.
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `snapshot_window_chrome` | · | ✓ | ✓ | ✓ | · | · | ✓ | · | · | · |
 | `toggle_sidebar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
+| `native_back` | · | · | ✓ | · | · | · | ✓ | · | · | · |
 | `ui_idle` | · | · | ✓ | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |

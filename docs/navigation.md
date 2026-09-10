@@ -327,9 +327,13 @@ so the rounded shape is the list appearance's to give.
 **The list runs under the bars.** A page whose content is one scroll view — this list, a
 `scroll`-rooted detail, a tree — fills the page's full bounds, and UIKit's own inset adjustment
 starts the content below the navigation bar and lets it pass under the translucent bar and the
-bottom search field as it scrolls, as Settings and Mail do. A page holding anything else (a heading
-over a list, a form, a canvas) is laid out inside the safe area instead, since it has no scroll
-insets to absorb a bar with.
+bottom search field as it scrolls, as Settings and Mail do. A page whose content is a navigation
+host fills its bounds too, because the host passes the bars on to its own pages — which is what
+lets a tab's list reach under the tab bar. The window root follows the same rule: a window whose
+root is a nav, split or tab host is not padded by the status bar and home indicator, so the bars
+reach the screen's edges and the list runs behind them, the way every UIKit app's does. A page holding anything else (a heading over a list, a
+form, a canvas) is laid out inside the safe area instead, since it has no scroll insets to absorb
+a bar with.
 
 **Section headings ride the same list configuration.** `setHeaderMode(.supplementary)` turns them
 on, and a heading is a supplementary view carrying the adaptive
@@ -384,18 +388,37 @@ Two consequences worth knowing before touching it:
 > tapping did not: the history menu pops the controller itself, so the settle path reported it with
 > the right node.
 
-> [!IMPORTANT]
-> **The first back after launch snapped straight back to the page (fixed 2026-09-10).** Every
-> Day-initiated stack change is one `setViewControllers:animated:`, and `pending_sync` marks it
-> "in flight" so a pop-shaped `didShow` under it is read as the change cancelled rather than as a
-> user back. The flag was cleared only by a later `didShow` at the mirror's count — which never
-> comes for the LAUNCH sync, issued before the controller has a window. It stayed set until the
-> user's first back, whose pop the settle then "re-applied": the root list showed for a frame and
-> the page came back. The flag is now tied to the transition itself — set only when UIKit started
-> one, cleared by that transition's completion (and re-synced on a cancelled one) — so a sync
-> with no transition has nothing pending. `nav_back:` cannot see this either; it took a native
-> pop (`popViewControllerAnimated:` from lldb, or the button) with `DAY_DIAG_NAV=1`, whose trace
-> reads `SETTLE resync (pending sync)` followed by `exec SYNC native=1 -> target=2`.
+### How iOS tells a user's back from its own
+
+Two rules, and no inference between them (2026-09-10; before this, `didShow` counts were
+compared against the mirror through a settle loop, and both back bugs of that month lived in the
+comparison — one of them the first back after launch snapping straight back to the page).
+
+- **Day's changes are one `setViewControllers:animated:` from the mirrored stack, confirmed by
+  their own transition.** `nav_sync_stack` registers a completion on the transition coordinator
+  the set started; a cancelled transition (a window capture mid-flight does that on iOS 26+)
+  re-applies the mirror from there. A set with no coordinator — a controller with no window yet,
+  which is every app's launch — happened synchronously and has nothing to confirm.
+- **The user's back is observed where it starts.** `DayNavController` overrides
+  `popViewControllerAnimated:`, `popToViewController:animated:` and
+  `popToRootViewControllerAnimated:`: UIKit routes the back button there once `shouldPopItem:`
+  agrees, the swipe there under an interactive transition, and the history menu to the
+  `popTo…` pair. Day never calls those for its own changes, and its two pops on a collapsed
+  triple column announce themselves (`with_day_pop`), so a call that reaches super is the
+  user's. `observe_user_pop` then waits for that pop's own transition — a swipe let go early is
+  cancelled, and Day hears nothing — and `confirm_user_pop` prunes the mirror to the native
+  count and emits one `NavBack { already_popped: true }` per level, each answered by a
+  `NavPatch::Popped` the `native_pops` counter absorbs.
+
+The guard has the same two doors: `shouldPopItem:` vetoes the button, and the controller is the
+swipe recognizer's delegate, whose `gestureRecognizerShouldBegin:` vetoes the swipe; both emit
+`NavBack { already_popped: false }` and let Day decide. The gesture is never disabled, so a guard
+that proceeds pops through Day's rail and the next swipe works with nothing to re-enable.
+
+`nav_back:` in a walkthrough drives Day's rail and reaches none of this; `nav_back: { native: true }`
+presses the bar's button (`Toolkit::native_back` → `DayNavController::press_back`), which asks
+`shouldPopItem:` through its selector and pops through the override, so a script covers the code
+a tap runs. Trace it with `--env DAY_DIAG_NAV=1`: `user pop native=N levels=1`.
 
 ## Back interception (`on_back`)
 

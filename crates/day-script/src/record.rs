@@ -488,7 +488,12 @@ fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
                 if route.is_empty() { "/" } else { route }
             );
         }
-        Step::NavBack => line.push_str("nav_back"),
+        Step::NavBack { native } => {
+            line.push_str("nav_back");
+            if *native {
+                line.push_str(": { native: true }");
+            }
+        }
         // The recorder never emits the other step kinds; nothing to echo.
         _ => return,
     }
@@ -987,7 +992,7 @@ mod tests {
                 id: "size".into(),
                 index: 2,
             },
-            Step::NavBack,
+            Step::NavBack { native: false },
         ];
         let yaml = steps_to_yaml(&steps);
         let back = steps_from_yaml(&yaml).expect("re-parse");

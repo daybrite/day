@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Day</title>
+  <!-- The home-screen head (docs/web.md "Home screen and offline"), filled in by the assemble
+       step: title, description, the web app manifest, theme colors, and the icon links. -->
+  <!--day:head-->
   <link rel="stylesheet" href="day.css">
 </head>
 <body>
@@ -18,6 +20,17 @@
   <script type="module">
     import { start } from './shim.js';
     start('app.wasm');
+  </script>
+  <!-- The offline shell (docs/web.md "Home screen and offline"): sw.js, generated beside this
+       page with every file of the dist, serves the app when the network is away. Registered
+       after the app starts so it never competes with the first load; browsers only allow a
+       worker on https: and loopback, which is where `day launch` serves from. -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>

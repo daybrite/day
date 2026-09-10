@@ -881,7 +881,9 @@ fn generate(
 
     if has(Family::Png) {
         let art = art_of(Family::Png);
-        for px in [16u32, 32, 64, 128, 256, 512, 1024] {
+        // 192 is the web app manifest's required small icon (docs/web.md "Home screen and
+        // offline"); the rest are the classic powers of two.
+        for px in [16u32, 32, 64, 128, 192, 256, 512, 1024] {
             out.push((
                 host(Family::Png, &format!("day-icon-{px}.png")),
                 art.composite(px)?,

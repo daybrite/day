@@ -192,9 +192,24 @@ pub fn build_web(
         .map(|m| format!("\"{m}\""))
         .collect::<Vec<_>>()
         .join(",");
+    // The home-screen set (docs/web.md "Home screen and offline"): the icons the manifest
+    // names, the manifest itself, and the head tags that point at both.
+    let home = home_screen(project);
+    let icons = stage_home_icons(project, &dist)?;
+    std::fs::write(
+        dist.join("manifest.webmanifest"),
+        manifest_json(&home, &icons),
+    )
+    .map_err(|e| format!("manifest: {e}"))?;
     std::fs::write(
         dist.join("index.html"),
         HOST_INDEX
+            .replacen(
+                "lang=\"en\"",
+                &format!("lang=\"{}\"", attr_escape(&home.lang)),
+                1,
+            )
+            .replace("<!--day:head-->", &head_tags(&home, &icons))
             .replace("[/*day:vectors*/]", &format!("[{vectors_json}]"))
             .replace("[/*day:bridges*/]", &format!("[{bridges_json}]")),
     )
@@ -246,11 +261,429 @@ pub fn build_web(
         std::fs::write(dir.join("fonts.json"), manifest).map_err(|e| format!("fonts.json: {e}"))?;
     }
 
+    // LAST, once every file is in place: the service worker's precache list is the dist's
+    // file list, and its cache version is a digest of their bytes, so a rebuild with any
+    // change installs a fresh cache and drops the old one.
+    let files = dist_files(&dist)?;
+    std::fs::write(dist.join("sw.js"), service_worker(&files))
+        .map_err(|e| format!("sw.js: {e}"))?;
+
     Ok(BuildOutcome {
         target: target.name,
         artifact: dist,
         seconds: start.elapsed().as_secs_f64(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// Home screen and offline (docs/web.md): the web app manifest, the icon set, the head tags,
+// and the service worker — what makes "Add to Home Screen" install a real app: its own name
+// and icon, no browser chrome, and a launch that works with the network away.
+// ---------------------------------------------------------------------------
+
+/// The texts and colors the manifest and the head carry. Assembled from the store listing
+/// (the same name and short description the stores show), `[app]`, and `[web]`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HomeScreen {
+    pub name: String,
+    pub short_name: String,
+    pub description: Option<String>,
+    pub lang: String,
+    pub theme_color: String,
+    pub theme_color_dark: String,
+    pub background_color: String,
+    pub display: crate::meta::WebDisplay,
+}
+
+/// The icon sizes the dist ships under `icons/icon-<px>.png`, from the png family `day icon`
+/// renders: 64 for the tab favicon, 192 and 512 for the manifest (the sizes Chrome requires
+/// for an install), 192 doubling as the apple-touch-icon (iOS scales it).
+const HOME_ICON_SIZES: [u32; 3] = [64, 192, 512];
+
+/// The default light and dark chrome colors, where `[web]` names none.
+const DEFAULT_THEME_LIGHT: &str = "#ffffff";
+const DEFAULT_THEME_DARK: &str = "#000000";
+
+/// Read the home-screen texts and colors for `project`.
+pub fn home_screen(project: &Project) -> HomeScreen {
+    let app = &project.manifest.app;
+    let web = &project.manifest.web;
+    let lang = crate::store::default_locale(&crate::store::app_locales(project))
+        .unwrap_or_else(|| "en".to_string());
+    let listing = match crate::store::read(project) {
+        Ok(l) => l,
+        Err(e) => {
+            status(
+                "Warning",
+                &format!("store listing not read ({e}); the web manifest takes [app] title"),
+            );
+            Default::default()
+        }
+    };
+    let field = |f: crate::store::Field| -> Option<String> {
+        listing
+            .locales
+            .get(&lang)
+            .and_then(|m| m.get(&f))
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+    };
+    let name = field(crate::store::Field::Name)
+        .or_else(|| app.title.clone())
+        .unwrap_or_else(|| app.name.clone());
+    let short_name = web
+        .short_name
+        .clone()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| short_name_of(&name));
+    let description =
+        field(crate::store::Field::Short).or_else(|| field(crate::store::Field::Subtitle));
+    let color = |v: &Option<String>, default: &str| -> String {
+        match v.as_deref().map(str::trim) {
+            Some(c) if is_hex_color(c) => c.to_ascii_lowercase(),
+            Some(c) => {
+                status(
+                    "Warning",
+                    &format!("[web] color {c:?} is not #rrggbb; using {default}"),
+                );
+                default.to_string()
+            }
+            None => default.to_string(),
+        }
+    };
+    let theme_color = color(&web.theme_color, DEFAULT_THEME_LIGHT);
+    let theme_color_dark = color(&web.theme_color_dark, DEFAULT_THEME_DARK);
+    let background_color = color(&web.background_color, &theme_color);
+    HomeScreen {
+        name,
+        short_name,
+        description,
+        lang,
+        theme_color,
+        theme_color_dark,
+        background_color,
+        display: web.display,
+    }
+}
+
+/// A `#rrggbb` color.
+fn is_hex_color(s: &str) -> bool {
+    s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// The name under a home-screen icon: the whole name when it fits twelve characters (the
+/// width launchers show before clipping), else its leading words that do, else its first
+/// twelve characters.
+pub fn short_name_of(name: &str) -> String {
+    const MAX: usize = 12;
+    let name = name.trim();
+    if name.chars().count() <= MAX {
+        return name.to_string();
+    }
+    let mut out = String::new();
+    for word in name.split_whitespace() {
+        let next = if out.is_empty() {
+            word.to_string()
+        } else {
+            format!("{out} {word}")
+        };
+        if next.chars().count() > MAX {
+            break;
+        }
+        out = next;
+    }
+    if out.is_empty() {
+        out = name.chars().take(MAX).collect();
+    }
+    out
+}
+
+/// Copy the manifest's icon sizes from the rendered png family into `dist/icons/`, rendering
+/// the family first when a size is missing (an older lock predates 192). Returns the sizes
+/// staged; a project without an icon master stages none and the manifest lists none.
+fn stage_home_icons(project: &Project, dist: &Path) -> Result<Vec<u32>, String> {
+    let png = |px: u32| {
+        project
+            .root
+            .join(crate::icon::HOST_DIR)
+            .join("png")
+            .join(format!("day-icon-{px}.png"))
+    };
+    if HOME_ICON_SIZES.iter().any(|&px| !png(px).is_file()) {
+        let opts = crate::icon::IconOptions {
+            master: None,
+            check: false,
+            platforms: vec!["web-dom".to_string()],
+        };
+        // No master is the one legitimate miss (ensure() said so once already); anything
+        // else is a real error.
+        match crate::icon::run(project, &opts) {
+            Ok(_) => {}
+            Err(crate::icon::IconError::Other(e)) if e.contains("master") => {}
+            Err(crate::icon::IconError::Other(e)) => return Err(format!("icons: {e}")),
+            Err(crate::icon::IconError::Drift(lines)) => {
+                return Err(format!("icons: {}", lines.join("; ")));
+            }
+        }
+    }
+    let mut staged = Vec::new();
+    let dir = dist.join("icons");
+    for px in HOME_ICON_SIZES {
+        let src = png(px);
+        if !src.is_file() {
+            continue;
+        }
+        std::fs::create_dir_all(&dir).map_err(|e| format!("icons dir: {e}"))?;
+        std::fs::copy(&src, dir.join(format!("icon-{px}.png")))
+            .map_err(|e| format!("{}: {e}", src.display()))?;
+        staged.push(px);
+    }
+    Ok(staged)
+}
+
+/// The web app manifest (W3C Web Application Manifest) for the dist. Every URL is relative
+/// to the manifest's own location, so the same file serves from a Pages root, a project
+/// subpath, or a site's `webapp/` directory; `id` is left to its default (the resolved
+/// `start_url`), which is what a hosting site's own manifest points back at.
+pub fn manifest_json(home: &HomeScreen, icons: &[u32]) -> String {
+    let mut icon_list: Vec<serde_json::Value> = icons
+        .iter()
+        .map(|px| {
+            serde_json::json!({
+                "src": format!("icons/icon-{px}.png"),
+                "sizes": format!("{px}x{px}"),
+                "type": "image/png",
+                "purpose": "any",
+            })
+        })
+        .collect();
+    // The master's background layer fills the whole square (docs/icons.md), so the same
+    // render is a valid maskable icon: launchers may crop it to any shape.
+    if icons.contains(&512) {
+        icon_list.push(serde_json::json!({
+            "src": "icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable",
+        }));
+    }
+    let mut m = serde_json::Map::new();
+    m.insert("name".into(), home.name.clone().into());
+    m.insert("short_name".into(), home.short_name.clone().into());
+    if let Some(d) = &home.description {
+        m.insert("description".into(), d.clone().into());
+    }
+    m.insert("lang".into(), home.lang.clone().into());
+    m.insert("dir".into(), "auto".into());
+    m.insert("start_url".into(), "./".into());
+    m.insert("scope".into(), "./".into());
+    m.insert("display".into(), home.display.as_str().into());
+    m.insert(
+        "background_color".into(),
+        home.background_color.clone().into(),
+    );
+    m.insert("theme_color".into(), home.theme_color.clone().into());
+    m.insert("icons".into(), serde_json::Value::Array(icon_list));
+    let mut out = serde_json::to_string_pretty(&serde_json::Value::Object(m))
+        .unwrap_or_else(|_| "{}".to_string());
+    out.push('\n');
+    out
+}
+
+/// The `<head>` lines that make the page installable and name it: the title, the manifest
+/// link, the theme colors (one per appearance), the icons, and the iOS home-screen metas that
+/// predate the manifest and are still what Safari reads for the status bar and the title.
+pub fn head_tags(home: &HomeScreen, icons: &[u32]) -> String {
+    let mut h = String::new();
+    let line = |h: &mut String, l: &str| {
+        h.push_str(l);
+        h.push('\n');
+        h.push_str("  ");
+    };
+    line(
+        &mut h,
+        &format!("<title>{}</title>", text_escape(&home.name)),
+    );
+    if let Some(d) = &home.description {
+        line(
+            &mut h,
+            &format!("<meta name=\"description\" content=\"{}\">", attr_escape(d)),
+        );
+    }
+    line(
+        &mut h,
+        &format!(
+            "<meta name=\"application-name\" content=\"{}\">",
+            attr_escape(&home.short_name)
+        ),
+    );
+    line(
+        &mut h,
+        "<link rel=\"manifest\" href=\"manifest.webmanifest\">",
+    );
+    line(
+        &mut h,
+        &format!(
+            "<meta name=\"theme-color\" media=\"(prefers-color-scheme: light)\" content=\"{}\">",
+            home.theme_color
+        ),
+    );
+    line(
+        &mut h,
+        &format!(
+            "<meta name=\"theme-color\" media=\"(prefers-color-scheme: dark)\" content=\"{}\">",
+            home.theme_color_dark
+        ),
+    );
+    if icons.contains(&64) {
+        line(
+            &mut h,
+            "<link rel=\"icon\" type=\"image/png\" sizes=\"64x64\" href=\"icons/icon-64.png\">",
+        );
+    }
+    if icons.contains(&192) {
+        line(
+            &mut h,
+            "<link rel=\"apple-touch-icon\" href=\"icons/icon-192.png\">",
+        );
+    }
+    line(
+        &mut h,
+        "<meta name=\"mobile-web-app-capable\" content=\"yes\">",
+    );
+    line(
+        &mut h,
+        "<meta name=\"apple-mobile-web-app-capable\" content=\"yes\">",
+    );
+    line(
+        &mut h,
+        "<meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\">",
+    );
+    line(
+        &mut h,
+        &format!(
+            "<meta name=\"apple-mobile-web-app-title\" content=\"{}\">",
+            attr_escape(&home.short_name)
+        ),
+    );
+    h.trim_end().to_string()
+}
+
+fn text_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn attr_escape(s: &str) -> String {
+    text_escape(s).replace('"', "&quot;")
+}
+
+/// Every file under `dist` as `(relative path with '/' separators, bytes)`, sorted by path —
+/// the service worker's precache list and the input to its cache version. `sw.js` itself is
+/// left out: a worker never caches its own script.
+fn dist_files(dist: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result<(), String> {
+        for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.is_dir() {
+                walk(root, &path, out)?;
+                continue;
+            }
+            let rel = path
+                .strip_prefix(root)
+                .map_err(|e| e.to_string())?
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
+            if rel == "sw.js" {
+                continue;
+            }
+            let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            out.push((rel, bytes));
+        }
+        Ok(())
+    }
+    let mut out = Vec::new();
+    walk(dist, dist, &mut out)?;
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(out)
+}
+
+/// The service worker for a dist: a cache named by a digest of every file, filled with all of
+/// them at install, and served network-first — the network's answer when there is one (and
+/// the cache refreshed from it), the cache's when there is not, `index.html` for any
+/// navigation neither can answer. Same-origin GETs inside the worker's scope only; the
+/// dayscript socket and every other origin pass through untouched. A rebuild changes the
+/// digest, so the next visit installs a fresh cache and the activation drops the old one.
+pub fn service_worker(files: &[(String, Vec<u8>)]) -> String {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    for (rel, bytes) in files {
+        hasher.update(rel.as_bytes());
+        hasher.update([0u8]);
+        hasher.update(bytes);
+        hasher.update([0u8]);
+    }
+    let digest = hasher.finalize();
+    let version: String = digest.iter().take(8).map(|b| format!("{b:02x}")).collect();
+    let list = files
+        .iter()
+        .map(|(rel, _)| serde_json::Value::String(rel.clone()))
+        .collect::<Vec<_>>();
+    let precache =
+        serde_json::to_string(&serde_json::Value::Array(list)).unwrap_or_else(|_| "[]".into());
+    format!(
+        r#"// Generated by `day build -p web-dom` (docs/web.md "Home screen and offline"): the offline
+// shell. Cache version {version}, from the bytes of every file listed below.
+const CACHE = 'day-{version}';
+const PRECACHE = {precache};
+
+self.addEventListener('install', (event) => {{
+  event.waitUntil((async () => {{
+    const cache = await caches.open(CACHE);
+    // One request per file, each tolerated: a host that serves a subset still installs.
+    await Promise.allSettled(PRECACHE.map((path) => cache.add(new Request(path, {{ cache: 'reload' }}))));
+    await self.skipWaiting();
+  }})());
+}});
+
+self.addEventListener('activate', (event) => {{
+  event.waitUntil((async () => {{
+    for (const key of await caches.keys()) {{
+      if (key.startsWith('day-') && key !== CACHE) await caches.delete(key);
+    }}
+    await self.clients.claim();
+  }})());
+}});
+
+self.addEventListener('fetch', (event) => {{
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  const scope = new URL(self.registration.scope);
+  if (url.origin !== scope.origin || !url.pathname.startsWith(scope.pathname)) return;
+  event.respondWith((async () => {{
+    const cache = await caches.open(CACHE);
+    try {{
+      const fresh = await fetch(request);
+      if (fresh.ok && fresh.type === 'basic') cache.put(request, fresh.clone());
+      return fresh;
+    }} catch (err) {{
+      const hit = await cache.match(request, {{ ignoreSearch: true }});
+      if (hit) return hit;
+      if (request.mode === 'navigate') {{
+        const index = await cache.match(new URL('index.html', scope).href);
+        if (index) return index;
+      }}
+      throw err;
+    }}
+  }})());
+}});
+"#
+    )
 }
 
 /// Percent-encode a query key/value: keep unreserved characters (RFC 3986), escape the rest —
@@ -471,6 +904,7 @@ fn mime_of(p: &Path) -> &'static str {
         // Required exactly: `WebAssembly.instantiateStreaming` refuses other types.
         "wasm" => "application/wasm",
         "json" => "application/json",
+        "webmanifest" => "application/manifest+json",
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "svg" => "image/svg+xml",
@@ -802,4 +1236,100 @@ fn control_get(port: u16, path: &str) -> Result<Vec<u8>, String> {
         .position(|w| w == b"\r\n\r\n")
         .ok_or("driver: malformed response")?;
     Ok(all[split + 4..].to_vec())
+}
+
+#[cfg(test)]
+mod home_screen_tests {
+    use super::*;
+
+    fn home() -> HomeScreen {
+        HomeScreen {
+            name: "Day \"Showcase\" <demo>".into(),
+            short_name: "Day Showcase".into(),
+            description: Some("A & B".into()),
+            lang: "fr".into(),
+            theme_color: "#123246".into(),
+            theme_color_dark: "#000000".into(),
+            background_color: "#123246".into(),
+            display: crate::meta::WebDisplay::Standalone,
+        }
+    }
+
+    #[test]
+    fn short_name_keeps_whole_words_within_twelve_characters() {
+        assert_eq!(short_name_of("Day Showcase"), "Day Showcase");
+        assert_eq!(short_name_of("Day Showcase Deluxe Edition"), "Day Showcase");
+        assert_eq!(short_name_of("Supercalifragilistic App"), "Supercalifra");
+        assert_eq!(short_name_of("  Notes  "), "Notes");
+    }
+
+    #[test]
+    fn manifest_is_relative_and_lists_the_staged_icons_only() {
+        let json = manifest_json(&home(), &[64, 192, 512]);
+        let v: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
+        assert_eq!(v["start_url"], "./");
+        assert_eq!(v["scope"], "./");
+        assert_eq!(v["display"], "standalone");
+        assert_eq!(v["lang"], "fr");
+        assert_eq!(v["name"], "Day \"Showcase\" <demo>");
+        assert!(
+            v.get("id").is_none(),
+            "id defaults to the resolved start_url"
+        );
+        let icons = v["icons"].as_array().expect("icons");
+        assert_eq!(icons.len(), 4, "64, 192, 512 any + 512 maskable");
+        assert_eq!(icons[3]["purpose"], "maskable");
+        let none = manifest_json(&home(), &[]);
+        let v: serde_json::Value = serde_json::from_str(&none).expect("valid JSON");
+        assert_eq!(v["icons"].as_array().map(Vec::len), Some(0));
+    }
+
+    #[test]
+    fn head_escapes_text_and_names_both_appearances() {
+        let head = head_tags(&home(), &[64, 192]);
+        assert!(head.contains("<title>Day \"Showcase\" &lt;demo&gt;</title>"));
+        assert!(head.contains("content=\"A &amp; B\""));
+        assert!(head.contains("(prefers-color-scheme: light)\" content=\"#123246\""));
+        assert!(head.contains("(prefers-color-scheme: dark)\" content=\"#000000\""));
+        assert!(head.contains("rel=\"apple-touch-icon\" href=\"icons/icon-192.png\""));
+        assert!(head.contains("rel=\"manifest\" href=\"manifest.webmanifest\""));
+        let bare = head_tags(&home(), &[]);
+        assert!(!bare.contains("rel=\"icon\""));
+    }
+
+    #[test]
+    fn service_worker_precaches_every_file_and_versions_by_content() {
+        let a = vec![
+            ("index.html".to_string(), b"<html>".to_vec()),
+            ("app.wasm".to_string(), vec![0, 1]),
+        ];
+        let sw = service_worker(&a);
+        assert!(sw.contains("const PRECACHE = [\"index.html\",\"app.wasm\"];"));
+        let mut b = a.clone();
+        b[1].1.push(2);
+        assert_ne!(
+            service_worker(&a).lines().nth(2),
+            service_worker(&b).lines().nth(2),
+            "a changed byte changes the cache name"
+        );
+        assert_eq!(
+            service_worker(&a),
+            sw,
+            "the same files give the same worker"
+        );
+    }
+
+    #[test]
+    fn dist_files_skips_the_worker_and_sorts() {
+        let dir = std::env::temp_dir().join(format!("day-dist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("assets/images")).expect("dir");
+        std::fs::write(dir.join("sw.js"), "x").expect("sw");
+        std::fs::write(dir.join("index.html"), "i").expect("index");
+        std::fs::write(dir.join("assets/images/a.png"), "p").expect("png");
+        let files = dist_files(&dir).expect("walk");
+        let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["assets/images/a.png", "index.html"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

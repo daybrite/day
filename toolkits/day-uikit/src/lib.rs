@@ -77,8 +77,9 @@ mod imp {
         UIViewController, UIWindow,
     };
     use objc2_ui_kit::{
-        UIBarButtonItem, UIBarButtonItemStyle, UIBarPositioningDelegate, UINavigationBar,
-        UINavigationBarDelegate, UINavigationController, UINavigationItem,
+        UIBarButtonItem, UIBarButtonItemStyle, UIBarPositioningDelegate,
+        UIGestureRecognizerDelegate, UINavigationBar, UINavigationBarDelegate,
+        UINavigationController, UINavigationItem,
     };
     use objc2_ui_kit::{
         UICollectionViewDataSource, UICollectionViewDelegate, UIScrollViewDelegate,
@@ -474,13 +475,19 @@ mod imp {
         // that is smaller than it first reported settles.
         let bounds = window.bounds();
         let insets = unsafe { window.safeAreaInsets() };
-        let inner = CGRect::new(
-            CGPoint::new(insets.left, insets.top),
-            CGSize::new(
-                (bounds.size.width - insets.left - insets.right).max(0.0),
-                (bounds.size.height - insets.top - insets.bottom).max(0.0),
-            ),
-        );
+        // A hosted root takes the whole window (the holder's layout pass has the rule); the
+        // tree usually mounts after this point, and the insert duty re-lays the holder then.
+        let inner = if scroll_leaf(&holder) {
+            bounds
+        } else {
+            CGRect::new(
+                CGPoint::new(insets.left, insets.top),
+                CGSize::new(
+                    (bounds.size.width - insets.left - insets.right).max(0.0),
+                    (bounds.size.height - insets.top - insets.bottom).max(0.0),
+                ),
+            )
+        };
         unsafe { root_view.setFrame(inner) };
         if *DIAG_NAV {
             let min = unsafe { scene.sizeRestrictions() }
@@ -2368,24 +2375,14 @@ mod imp {
         /// rather than re-pruning the mirror for a pop that already happened
         /// (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
         native_pops: std::cell::Cell<usize>,
-        /// A Day-initiated stack change (`nav_sync_stack`) whose transition is still in
-        /// flight: set only when UIKit started one (a transition coordinator exists), and
-        /// cleared by that transition's completion — or, as a fallback, by a `didShow` at the
-        /// mirror's count. While it is set, a native count short of the mirror is that change
-        /// mid-flight — or cancelled under it (a window capture taken mid-transition does that
-        /// on iOS 26+) — never a user back.
-        pending_sync: std::cell::Cell<bool>,
+        /// Set around Day's OWN calls to a pop method (`Act::TriplePop`, the collapsed
+        /// triple's pops), so `DayNavController`'s pop overrides — the observation point for
+        /// the user's back button, swipe and history menu — know those are not the user's.
+        day_pop: std::cell::Cell<bool>,
         /// Whether the pieces layer has the content-list page interposed in the collapsed
         /// stack (`NavPatch::ListInStack`, docs/navigation.md) — with the collapse flag, what
         /// the mirror's floor and the collapse rebase count.
         list_in_stack: std::cell::Cell<bool>,
-        /// The native VC count at the LAST `didShow` — the pop detector's baseline. Comparing
-        /// against the `vcs` mirror instead is wrong: a previous transition's pop-`didShow` can
-        /// arrive arbitrarily late, after the next push has already appended to the mirror but
-        /// before its `remove()` cleaned the popped entry — the fresh push's own `didShow` then
-        /// reads `native < vcs.len()` and a phantom NavBack tears down the just-pushed page.
-        /// Only an actual DECREASE in the observed native count is a pop.
-        last_native: std::cell::Cell<usize>,
         _delegate: Retained<DayNavDelegate>,
         /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
@@ -2533,15 +2530,17 @@ mod imp {
         }
     }
 
-    /// Whether a page's content is one scroll view and nothing else — the shape that fills the
-    /// page's bounds instead of the safe area (`DayNavPageView::layoutSubviews`).
+    /// Whether a page's content is one thing that absorbs the bars itself — the shape that
+    /// fills the page's bounds instead of the safe area (`DayNavPageView::layoutSubviews`).
     ///
     /// Walks the chain of single-child wrappers Day's layout leaves between the content view and
     /// its leaf (the sidebar is `column((menu,))`, a detail is often `scroll(column(…))`), and
-    /// answers yes when the chain ends in a `UIScrollView` — which is what a list, a tree, a
-    /// text view and a `scroll` piece all are underneath. A page with two children at any level
-    /// is not one scroll view: a heading over a list has nowhere to absorb a bar, so that page
-    /// keeps the safe-area pin.
+    /// answers yes when the chain reaches either a `UIScrollView` — which is what a list, a
+    /// tree, a text view and a `scroll` piece all are underneath — or a navigation host's view
+    /// (a `UINavigationController`'s, or a split host's container), which passes the bars on to
+    /// its own pages: a tab whose content is a nav host must reach under the tab bar, or the
+    /// list inside it never can. A page with two children at any level is neither: a heading
+    /// over a list has nowhere to absorb a bar, so that page keeps the safe-area pin.
     fn scroll_leaf(content: &UIView) -> bool {
         let mut view = content.retain();
         // Day's wrappers are shallow; a bound keeps a pathological tree from being walked twice
@@ -2554,6 +2553,19 @@ mod imp {
             let Some(child) = subs.firstObject() else {
                 return false;
             };
+            // A view controller's view answers to its controller: a nav or split host here
+            // means the bars are that host's pages' business.
+            let hosted = unsafe { child.nextResponder() }.is_some_and(|r| {
+                r.downcast_ref::<objc2_ui_kit::UINavigationController>()
+                    .is_some()
+                    || r.downcast_ref::<objc2_ui_kit::UISplitViewController>()
+                        .is_some()
+                    || r.downcast_ref::<objc2_ui_kit::UITabBarController>()
+                        .is_some()
+            });
+            if hosted {
+                return true;
+            }
             match child.downcast::<UIScrollView>() {
                 Ok(_) => return true,
                 Err(v) => view = v,
@@ -2632,6 +2644,104 @@ mod imp {
                 })
             }
         }
+
+        // The swipe's own gate, the counterpart of `shouldPopItem:` for the back button. The
+        // recognizer takes one delegate, so this one also answers UIKit's two stock questions —
+        // more than the root on the stack, and no transition already running — which the
+        // default delegate answered before it was replaced. While guarded, the swipe asks Day's
+        // guard exactly as the button does and starts nothing itself; the gesture stays
+        // enabled, so a guard that says Proceed pops through Day's rail and the next swipe
+        // works again without anyone re-enabling anything.
+        unsafe impl UIGestureRecognizerDelegate for DayNavController {
+            #[unsafe(method(gestureRecognizerShouldBegin:))]
+            fn gesture_should_begin(&self, _g: &objc2_ui_kit::UIGestureRecognizer) -> bool {
+                day_spec::ffi_guard::contain(false, || {
+                    let count = unsafe { self.viewControllers() }.count();
+                    if count < 2 || unsafe { self.transitionCoordinator() }.is_some() {
+                        return false;
+                    }
+                    if self.ivars().guarded.get() {
+                        let node = NAV_STATE.with(|m| {
+                            m.borrow()
+                                .get(&self.ivars().host.get())
+                                .map(|s| s.host_node)
+                        });
+                        if let Some(node) = node {
+                            emit(
+                                node,
+                                Event::NavBack {
+                                    already_popped: false,
+                                },
+                            );
+                            return false;
+                        }
+                        // Fail OPEN, as the button does.
+                    }
+                    true
+                })
+            }
+        }
+
+        // THE observation point for the user's back (docs/navigation.md): UIKit routes the
+        // back button here once `shouldPopItem:` agrees, the swipe here under an interactive
+        // transition, and the history menu to `popToViewController:`. Day's own stack changes
+        // are `setViewControllers:` and never arrive here; its two pops on a collapsed triple
+        // column announce themselves through `with_day_pop`. So a call that reaches super
+        // with the flag clear IS the user's, and `observe_user_pop` reports it once its
+        // transition has actually happened.
+        impl DayNavController {
+            #[unsafe(method_id(popViewControllerAnimated:))]
+            fn pop_view_controller(&self, animated: bool) -> Option<Retained<UIViewController>> {
+                let popped: Option<Retained<UIViewController>> =
+                    unsafe { msg_send![super(self), popViewControllerAnimated: animated] };
+                if popped.is_some() {
+                    self.note_pop();
+                }
+                popped
+            }
+
+            #[unsafe(method_id(popToViewController:animated:))]
+            fn pop_to_view_controller(
+                &self,
+                vc: &UIViewController,
+                animated: bool,
+            ) -> Option<Retained<objc2_foundation::NSArray<UIViewController>>> {
+                let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> = unsafe {
+                    msg_send![super(self), popToViewController: vc, animated: animated]
+                };
+                if popped.as_ref().is_some_and(|p| p.count() > 0) {
+                    self.note_pop();
+                }
+                popped
+            }
+
+            #[unsafe(method_id(popToRootViewControllerAnimated:))]
+            fn pop_to_root_view_controller(
+                &self,
+                animated: bool,
+            ) -> Option<Retained<objc2_foundation::NSArray<UIViewController>>> {
+                let popped: Option<Retained<objc2_foundation::NSArray<UIViewController>>> =
+                    unsafe { msg_send![super(self), popToRootViewControllerAnimated: animated] };
+                if popped.as_ref().is_some_and(|p| p.count() > 0) {
+                    self.note_pop();
+                }
+                popped
+            }
+
+            /// The swipe recognizer exists once the view does; give it this controller as its
+            /// gate (`gestureRecognizerShouldBegin:` above).
+            #[unsafe(method(viewDidLoad))]
+            fn view_did_load(&self) {
+                let _: () = unsafe { msg_send![super(self), viewDidLoad] };
+                if let Some(g) = unsafe { self.interactivePopGestureRecognizer() } {
+                    let delegate =
+                        ProtocolObject::<dyn objc2_ui_kit::UIGestureRecognizerDelegate>::from_ref(
+                            self,
+                        );
+                    unsafe { g.setDelegate(Some(delegate)) };
+                }
+            }
+        }
     );
 
     impl DayNavController {
@@ -2641,6 +2751,39 @@ mod imp {
                 guarded: std::cell::Cell::new(false),
             });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// A pop just went through one of the overrides above: the user's, unless Day
+        /// announced its own (`with_day_pop`).
+        fn note_pop(&self) {
+            let host = self.ivars().host.get();
+            let day = NAV_STATE.with(|m| m.borrow().get(&host).map(|s| s.day_pop.get()));
+            // `Some(true)` is Day's own pop; `None` a controller no host owns any more.
+            if day == Some(false) {
+                observe_user_pop(host, self);
+            }
+        }
+
+        /// The back button's own path, without the button: ask `shouldPopItem:` — where the
+        /// guard's veto and its `NavBack` live — and pop when it agrees. `Toolkit::native_back`
+        /// runs this, so dayscript's `nav_back: { native: true }` covers the code a tap runs.
+        /// `true` when the affordance did something: popped, or handed a guarded back to Day.
+        fn press_back(&self) -> bool {
+            let bar = unsafe { self.navigationBar() };
+            let Some(item) = (unsafe { bar.topItem() }) else {
+                return false;
+            };
+            if unsafe { self.viewControllers() }.count() < 2 {
+                return false;
+            }
+            // Asked the way the bar asks it — through the selector — so the guard's veto and
+            // its `NavBack` run as they do for a tap.
+            let agreed: bool =
+                unsafe { msg_send![self, navigationBar: &*bar, shouldPopItem: &*item] };
+            if !agreed {
+                return true;
+            }
+            unsafe { self.popViewControllerAnimated(true) }.is_some()
         }
     }
 
@@ -2725,10 +2868,15 @@ mod imp {
                 });
             }
 
-            /// Which column tops the collapsed stack (docs/navigation.md). Triple-column
-            /// hosts only — a double-column host returns the proposal untouched, keeping
-            /// UIKit's stock behavior. The detail tops only while one is actually pushed;
-            /// otherwise the content list is what the user was looking at.
+            /// Which column tops the collapsed stack (docs/navigation.md, docs/size-classes.md):
+            /// Day's MIRROR answers, for a double-column host as much as a triple. UIKit's own
+            /// proposal is not the same on every release — at launch, with the detail column
+            /// holding the first destination, iOS 26 proposes the secondary (the page shows)
+            /// and iOS 18 the primary (the sidebar shows over a page the model says is open,
+            /// with nothing to pop) — so leaving it to the proposal made the first screen
+            /// depend on the OS. The detail tops while one is actually pushed; on a triple
+            /// host the content list tops while it belongs to the destination; otherwise the
+            /// sidebar.
             #[unsafe(method(splitViewController:topColumnForCollapsingToProposedTopColumn:))]
             fn top_column_for_collapsing(
                 &self,
@@ -2744,22 +2892,29 @@ mod imp {
                         let Some(parts) = state.split.as_ref() else {
                             return proposed;
                         };
-                        if parts.supplementary_nav.is_none() {
-                            return proposed;
-                        }
-                        // Day's MIRROR answers, not the native count — the secondary holds a
-                        // placeholder while no real detail page exists, and the placeholder
+                        // The mirror, not the native count — a triple host's secondary holds
+                        // a placeholder while no real detail page exists, and the placeholder
                         // must never top the collapsed stack. The content list tops it only
                         // while it belongs to the destination (`NavPatch::ListInStack`);
                         // a destination without one leaves the sidebar root on top, which
                         // is what a phone opening on such a section must show.
-                        if !state.vcs.is_empty() {
+                        let column = if !state.vcs.is_empty() {
                             objc2_ui_kit::UISplitViewControllerColumn::Secondary
-                        } else if state.list_in_stack.get() {
+                        } else if parts.supplementary_nav.is_some() && state.list_in_stack.get() {
                             objc2_ui_kit::UISplitViewControllerColumn::Supplementary
                         } else {
                             objc2_ui_kit::UISplitViewControllerColumn::Primary
+                        };
+                        if *DIAG_NAV {
+                            log::debug!(
+                                "DAYDIAG collapse top column proposed={} chosen={} mirror={} list_in_stack={}",
+                                proposed.0,
+                                column.0,
+                                state.vcs.len(),
+                                state.list_in_stack.get()
+                            );
                         }
+                        column
                     })
                 })
             }
@@ -2780,7 +2935,7 @@ mod imp {
     /// The mirror matters because collapsing MERGES the columns — UIKit inserts the primary
     /// column's view controller at the bottom of the secondary's navigation stack, and expanding
     /// takes it back out. Day's `vcs` mirror tracks only the pages it pushed, so both the mirror
-    /// and the pop detector's `last_native` baseline have to be rebased in step; otherwise the
+    /// and its floor have to be rebased in step; otherwise the
     /// next `didShow` reads the count change as a user back and tears down a live page.
     fn split_presentation_changed(host: usize, expanded: bool) {
         let plan = NAV_STATE.with(|m| {
@@ -2788,6 +2943,19 @@ mod imp {
             let state = m.get_mut(&host)?;
             let parts = state.split.as_ref()?;
             state.collapsed.set(!expanded);
+            if *DIAG_NAV {
+                log::debug!(
+                    "DAYDIAG split {} primary={} secondary={} supplementary={:?} mirror={}",
+                    if expanded { "EXPANDED" } else { "COLLAPSED" },
+                    unsafe { parts.primary_nav.viewControllers() }.count(),
+                    unsafe { state.nav.viewControllers() }.count(),
+                    parts
+                        .supplementary_nav
+                        .as_ref()
+                        .map(|n| unsafe { n.viewControllers() }.count()),
+                    state.vcs.len(),
+                );
+            }
             // Reconcile the mirror with the merge UIKit just performed. `vcs` is Day's picture of
             // the LIVE stack, and the pop detector compares its length against the native count —
             // so the sidebar page has to join it exactly when UIKit merges it in and leave when
@@ -2813,16 +2981,61 @@ mod imp {
             // below): the collapsed stack was set WHOLESALE by `nav_sync_stack`, so UIKit's
             // own separation can only guess which controller belonged where — and guesses
             // the detail into the primary.
-            // Rebase against what UIKit actually left in the stack, rather than predicting it —
-            // the merge runs inside this callback, so the count here is already the new one.
             // Nothing rebuilds columns here: the collapsed stack is only ever driven through
             // UIKit's own APIs (`Act::Triple*`), so its bookkeeping stays intact and its own
             // expand puts every column back where it belongs.
-            let native = unsafe { state.active_nav().viewControllers() }.count();
-            state.last_native.set(native);
-            Some(state.host_node)
+            //
+            // A DOUBLE-column collapse can leave the detail STRANDED: UIKit decides the merge
+            // before Day's launch sync has put the first destination in the secondary column
+            // (iOS 18 asks for the top column that early; iOS 26 asks after), so the merge
+            // carries nothing and the page the model says is open sits in a hidden column
+            // with the sidebar on top and nothing to pop. Finish the merge UIKit started:
+            // whatever the secondary still holds goes on top of the primary's stack, which is
+            // the shape the mirror already has. Applied outside this borrow (a stack change
+            // re-enters the delegates).
+            // Stranded means the primary holds nothing but the sidebar root while the
+            // secondary holds pages. Nothing subtler is safe to read: after an iOS 26 collapse
+            // the primary carries the sidebar plus the NESTED secondary controller (its pages
+            // inside it, and the secondary still reporting them), so a membership test by
+            // identity would move a page UIKit had already merged and put it up twice.
+            let strand = (!expanded && parts.supplementary_nav.is_none()).then(|| {
+                let merged: Vec<Retained<UIViewController>> =
+                    unsafe { parts.primary_nav.viewControllers() }
+                        .iter()
+                        .collect();
+                let stranded: Vec<Retained<UIViewController>> = if merged.len() <= 1 {
+                    unsafe { state.nav.viewControllers() }.iter().collect()
+                } else {
+                    Vec::new()
+                };
+                let kept: Vec<Retained<UIViewController>> = Vec::new();
+                (
+                    parts.primary_nav.clone(),
+                    state.nav.clone(),
+                    merged,
+                    stranded,
+                    kept,
+                )
+            });
+            Some((state.host_node, strand))
         });
-        let Some(node) = plan else { return };
+        let Some((node, strand)) = plan else { return };
+        if let Some((primary, secondary, mut merged, stranded, kept)) = strand
+            && !stranded.is_empty()
+        {
+            if *DIAG_NAV {
+                log::debug!(
+                    "DAYDIAG split COLLAPSED merging {} stranded page(s) onto primary={}",
+                    stranded.len(),
+                    merged.len()
+                );
+            }
+            let rest = objc2_foundation::NSArray::from_retained_slice(&kept);
+            unsafe { secondary.setViewControllers(&rest) };
+            merged.extend(stranded);
+            let arr = objc2_foundation::NSArray::from_retained_slice(&merged);
+            unsafe { primary.setViewControllers_animated(&arr, false) };
+        }
         emit(
             node,
             Event::NavPresentationChanged(if expanded {
@@ -3026,6 +3239,41 @@ mod imp {
         }
     }
 
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayNavContainer"]
+        struct DayNavContainer;
+
+        /// The split host's container: Day's handle for the node, sized by Day's layout, and
+        /// the one thing that sizes the split's view — to its own bounds, every pass.
+        ///
+        /// Explicit, not an autoresizing mask. A flexible child of a superview that grows FROM
+        /// ZERO gets its own size plus the delta, so a split view that had already measured
+        /// 420×810 came out 840×1620 the moment its container took that size — the list's
+        /// trailing accessories and the bar title off the right edge of the phone. Which
+        /// order the container and the split get their first size in depends on the page
+        /// above (a tab page that bleeds under its bar reports before the tab settles), so
+        /// the mask was never safe; a layout pass is.
+        impl DayNavContainer {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                let bounds = self.bounds();
+                for v in unsafe { self.subviews() }.iter() {
+                    unsafe { v.setFrame(bounds) };
+                }
+            }
+        }
+    );
+
+    impl DayNavContainer {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
     /// Mount a split's view in the host's container under the window root's containment.
     fn mount_split(split_vc: &objc2_ui_kit::UISplitViewController, container: &UIView) {
         let root_vc = WINDOW
@@ -3036,12 +3284,11 @@ mod imp {
                 root_vc.addChildViewController(split_vc);
             }
             if let Some(v) = split_vc.view() {
+                // No mask, for the reason the stack host gives: the container lays it out.
+                v.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty());
                 v.setFrame(container.bounds());
-                v.setAutoresizingMask(
-                    objc2_ui_kit::UIViewAutoresizing::FlexibleWidth
-                        | objc2_ui_kit::UIViewAutoresizing::FlexibleHeight,
-                );
                 container.addSubview(&v);
+                container.setNeedsLayout();
             }
             if let Some(root_vc) = &root_vc {
                 split_vc.didMoveToParentViewController(Some(root_vc));
@@ -3149,9 +3396,6 @@ mod imp {
                 let arr = objc2_foundation::NSArray::from_retained_slice(&vcs);
                 secondary.setViewControllers(&arr);
             }
-            if let Some(g) = secondary.interactivePopGestureRecognizer() {
-                g.setEnabled(!secondary.ivars().guarded.get());
-            }
             built
                 .split_vc
                 .setDelegate(Some(ProtocolObject::from_ref(&*split_delegate)));
@@ -3162,8 +3406,6 @@ mod imp {
                 return;
             };
             state.nav = secondary.clone();
-            state.last_native.set(state.vcs.len());
-            state.pending_sync.set(false);
             let Some(parts) = state.split.as_mut() else {
                 return;
             };
@@ -3247,41 +3489,25 @@ mod imp {
         // coordinator holds `ui_idle` false forever, failing every later screenshot.
         let animated = !vcs.is_empty();
         unsafe { nav.setViewControllers_animated(&arr, animated) };
-        // `pending_sync` means "this change is still in flight", so it is tied to the
-        // transition UIKit actually started, and cleared by that transition's own completion.
-        // It used to be set unconditionally and cleared only by a later `didShow` at the
-        // mirror's count — a didShow that never comes for a controller with no window yet,
-        // which is every app's LAUNCH sync. The flag then survived until the user's first
-        // back, where the settle read that pop as this sync cancelled under it and re-applied
-        // the mirror: the root list showed for a frame and the page came straight back.
-        // With no coordinator the stack was set synchronously and nothing is pending.
+        // The change is confirmed by ITS OWN transition, never inferred from a later
+        // `didShow` count (docs/navigation.md). With no coordinator the stack was set
+        // synchronously — a controller with no window yet, every app's launch sync — and there
+        // is nothing to wait for. A cancelled transition (a window capture mid-flight does that
+        // on iOS 26+) leaves the stack short of the mirror with nothing else coming, so the
+        // completion re-applies the mirror; off the callback's stack, because UIKit is still
+        // tearing the transition down there.
         use objc2_ui_kit::{
             UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
         };
-        let coordinator = unsafe { nav.transitionCoordinator() };
-        let pending = coordinator.is_some();
-        NAV_STATE.with(|m| {
-            if let Some(s) = m.borrow().get(&host) {
-                s.pending_sync.set(pending);
-            }
-        });
-        if let Some(coordinator) = coordinator {
+        if let Some(coordinator) = unsafe { nav.transitionCoordinator() } {
             let completion = block2::RcBlock::new(
                 move |ctx: NonNull<
                     ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
                 >| {
-                    // A cancelled transition (a window capture mid-flight does that on
-                    // iOS 26+) leaves the stack short of the mirror with nothing else coming,
-                    // so re-apply the mirror rather than wait for a pop-shaped didShow to be
-                    // misread. Off this callback's stack: UIKit is still tearing the
-                    // transition down.
-                    let cancelled = unsafe { ctx.as_ref().isCancelled() };
-                    NAV_STATE.with(|m| {
-                        if let Some(s) = m.borrow().get(&host) {
-                            s.pending_sync.set(false);
+                    if unsafe { ctx.as_ref().isCancelled() } {
+                        if *DIAG_NAV {
+                            log::debug!("DAYDIAG exec SYNC cancelled -> resync");
                         }
-                    });
-                    if cancelled {
                         dispatch2::DispatchQueue::main().exec_async(move || {
                             day_spec::ffi_guard::contain((), || nav_sync_stack(host));
                         });
@@ -3289,6 +3515,98 @@ mod imp {
                 },
             );
             unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+        }
+    }
+
+    /// Run one of Day's OWN pop calls on `nav` (the collapsed triple column's
+    /// `popToViewController:` / `popToRootViewControllerAnimated:`) with the controller's pop
+    /// overrides told it is not the user's — so a Day pop is never reported back to Day.
+    fn with_day_pop(nav: &DayNavController, f: impl FnOnce()) {
+        let host = nav.ivars().host.get();
+        let set = |on: bool| {
+            NAV_STATE.with(|m| {
+                if let Some(s) = m.borrow().get(&host) {
+                    s.day_pop.set(on);
+                }
+            })
+        };
+        set(true);
+        f();
+        set(false);
+    }
+
+    /// A pop the USER started on `nav` has been issued — the back button (UIKit calls
+    /// `popViewControllerAnimated:` once `shouldPopItem:` agrees), the swipe (the same call,
+    /// under an interactive transition), or the history menu (`popToViewController:`). Report
+    /// it to Day once it has actually happened: unanimated it already has; animated, its own
+    /// transition says when, and a swipe let go early is a cancelled pop that Day never hears
+    /// of, because the page never left. Nothing is inferred from a `didShow` count any more
+    /// (docs/navigation.md).
+    fn observe_user_pop(host: usize, nav: &objc2_ui_kit::UINavigationController) {
+        use objc2_ui_kit::{
+            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
+        };
+        let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
+            confirm_user_pop(host);
+            return;
+        };
+        let completion = block2::RcBlock::new(
+            move |ctx: NonNull<
+                ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
+            >| {
+                if unsafe { ctx.as_ref().isCancelled() } {
+                    if *DIAG_NAV {
+                        log::debug!("DAYDIAG user pop cancelled");
+                    }
+                    return;
+                }
+                // Off the callback's stack: the report re-enters day-core, which pops the
+                // model and patches this host, and UIKit is still inside the transition here.
+                dispatch2::DispatchQueue::main().exec_async(move || {
+                    day_spec::ffi_guard::contain((), || confirm_user_pop(host));
+                });
+            },
+        );
+        unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+    }
+
+    /// The user's pop has happened: the active stack is now shorter than the mirror by what
+    /// they popped. Prune the mirror to it and tell Day, one `NavBack` per level, each of
+    /// which Day answers with a `NavPatch::Popped` the `native_pops` counter absorbs (the
+    /// stack already moved).
+    fn confirm_user_pop(host: usize) {
+        let report = NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let state = m.get_mut(&host)?;
+            // A split host mid-collapse or mid-expand moves controllers between its columns;
+            // a count read during that is a merge, not a pop (docs/size-classes.md).
+            if let Some(parts) = state.split.as_ref()
+                && (state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
+                    || unsafe { parts.split_vc.transitionCoordinator() }.is_some())
+            {
+                return None;
+            }
+            let native = unsafe { state.active_nav().viewControllers() }.count();
+            if native == 0 || native >= state.vcs.len() {
+                return None;
+            }
+            let levels = state.vcs.len() - native;
+            state.vcs.truncate(native);
+            state.native_pops.set(state.native_pops.get() + levels);
+            if *DIAG_NAV {
+                log::debug!("DAYDIAG user pop native={native} levels={levels}");
+            }
+            Some((state.host_node, levels))
+        });
+        if let Some((node, levels)) = report {
+            for _ in 0..levels {
+                emit(
+                    node,
+                    Event::NavBack {
+                        already_popped: true,
+                    },
+                );
+            }
         }
     }
 
@@ -3312,184 +3630,44 @@ mod imp {
                 vc: Option<&UIViewController>,
                 _animated: bool,
             ) {
-                // A user pop must satisfy BOTH baselines (each alone has a false positive):
-                // the observed native count DECREASED since the last didShow (else a late
-                // pop-didShow arriving after the next push's mirror append reads native <
-                // mirror and phantom-pops the fresh page), AND the mirror still holds more
-                // than native. Day-initiated changes go through `nav_sync_stack`, whose
-                // settled count EQUALS the mirror's — so what passes both tests is the
-                // user's back button / swipe, which pops the native stack under a mirror
-                // that still holds the page.
-                // The whole detector runs contained (§8.5): both closures below re-enter
-                // day-core (the sink dispatch and the mirror bookkeeping).
+                // Nothing is inferred here (docs/navigation.md). A user's back is observed
+                // where it starts — `DayNavController`'s pop overrides, for the button, the
+                // swipe and the history menu alike — and confirmed by its own transition;
+                // Day's changes are one `setViewControllers:` confirmed by theirs
+                // (`nav_sync_stack`). This callback is left with the window toolbar, which
+                // rides every page and arrives on none of them, and a trace line.
                 day_spec::ffi_guard::contain((), || {
-                    // The window's toolbar rides every page (docs/toolbars.md): a pushed page
-                    // arrives without items, and the first page shows through here too.
                     if let Some(vc) = vc {
                         apply_window_toolbar_to(nav, vc);
                     }
-                    let host = self.ivars().host.get();
-                    let suspicious = NAV_STATE.with(|m| {
-                        let mut m = m.borrow_mut();
-                        let Some(state) = m.get_mut(&host) else {
-                            return false;
-                        };
-                        // Only the ACTIVE column's stack is the user's stack. A triple-column
-                        // host's secondary and supplementary controllers keep firing didShow
-                        // while collapsed, as UIKit nests and un-nests them into the merge,
-                        // with counts of their own — read against the mirror, one of those
-                        // settled as a "user back" and popped the section under the user
-                        // (the Showcase's Text and Stack pages on an iPhone).
-                        let active = state.active_nav();
-                        let same = std::ptr::addr_eq(
-                            (&*active as *const DayNavController).cast::<std::ffi::c_void>(),
-                            (nav as *const objc2_ui_kit::UINavigationController)
-                                .cast::<std::ffi::c_void>(),
+                    if *DIAG_NAV {
+                        let host = self.ivars().host.get();
+                        let (mirror, active) = NAV_STATE.with(|m| {
+                            m.borrow()
+                                .get(&host)
+                                .map(|s| {
+                                    let a = s.active_nav();
+                                    (
+                                        s.vcs.len(),
+                                        std::ptr::addr_eq(
+                                            (&*a as *const DayNavController)
+                                                .cast::<std::ffi::c_void>(),
+                                            (nav as *const objc2_ui_kit::UINavigationController)
+                                                .cast::<std::ffi::c_void>(),
+                                        ),
+                                    )
+                                })
+                                .unwrap_or((0, false))
+                        });
+                        log::debug!(
+                            "DAYDIAG didShow host={host:x} native={} mirror={mirror} active={active}",
+                            unsafe { nav.viewControllers() }.count(),
                         );
-                        if !same {
-                            return false;
-                        }
-                        let native = unsafe { nav.viewControllers() }.count();
-                        // A split host MERGES its columns as it collapses and separates them as
-                        // it expands, which moves a controller in or out of this stack — a count
-                        // change that is not a pop at all (docs/size-classes.md). The delegate
-                        // callback that rebases the mirror can arrive after this `didShow`, so
-                        // detect the in-flight transition here and rebase rather than reading it
-                        // as a user back: absorbed as a phantom pop, it would swallow the NEXT
-                        // real one and leave a stale page under the detail.
-                        if let Some(parts) = state.split.as_ref()
-                            && (state.collapsed.get() != unsafe { parts.split_vc.isCollapsed() }
-                                // Any live transition on the split host — a rotation's
-                                // collapse/expand, and the deferred column rebuild that
-                                // follows it — shuffles counts without a user back. A real
-                                // swipe cannot coincide with one, so rebasing here is safe.
-                                || unsafe { parts.split_vc.transitionCoordinator() }.is_some())
-                        {
-                            if *DIAG_NAV {
-                                log::debug!(
-                                    "DAYDIAG didShow REBASE native={native} (collapse flip in flight)"
-                                );
-                            }
-                            state.last_native.set(native);
-                            return false;
-                        }
-                        // Fallback only: the sync's own transition completion is what clears
-                        // this (`nav_sync_stack`), and a coordinator that never completes —
-                        // the never-animate-to-empty case — still lands here.
-                        if native == state.vcs.len() {
-                            state.pending_sync.set(false);
-                        }
-                        let prev = state.last_native.replace(native);
-                        // An EMPTY stack is never the user's doing — the root cannot be
-                        // popped — so it is one of Day's own wholesale swaps caught mid-flight
-                        // (empty, then the new page). The page can take a beat to arrive: a
-                        // WKWebView's first mount held it past the settle below, the empty
-                        // state read as a back, and the route reset to the sidebar (the
-                        // Showcase's Web view page on iPad, first selection only).
-                        let popped = native > 0 && native < prev && native < state.vcs.len();
-                        if *DIAG_NAV {
-                            log::debug!(
-                                "DAYDIAG didShow host={host:x} nav={:x} native={native} prev={prev} mirror={} suspicious={popped}",
-                                ptr_of(&view_of(unsafe { nav.view() }.expect("nav view"))),
-                                state.vcs.len(),
-                            );
-                        }
-                        popped
-                    });
-                    if !suspicious {
-                        return;
                     }
-                    // A pop-shaped didShow with no day-initiated pop in flight is PROBABLY the
-                    // user's back button/swipe — but interleaved sibling transitions (day pops
-                    // one detail and pushes the next while the pop is still animating) deliver a
-                    // LATE duplicate pop-didShow after the push, and treating that as a user
-                    // back tears down the just-pushed page. Only a pop that PERSISTS once the
-                    // controller has settled is a user pop: `settle_user_back` re-checks on the
-                    // following main-queue turns until the transition is over and the count
-                    // holds still, then decides.
-                    let seen = unsafe { nav.viewControllers() }.count();
-                    settle_user_back(host, seen, 0);
                 });
             }
         }
     );
-
-    /// What a settled user-back check concluded.
-    enum SettleAction {
-        Nothing,
-        UserBack(NodeId),
-        Resync,
-    }
-
-    /// The user-back settle `did_show` defers to: decide only once the controller has stopped
-    /// transitioning and its count has held still for a turn. iOS 26 and later QUEUE a stack
-    /// change issued mid-transition — Day's wholesale sync included — and each queued step
-    /// ends in a didShow of its own with an intermediate count, so a one-turn settle read a
-    /// step as a user back and popped a page the queue was still pushing (the Showcase's
-    /// Stack page on CI's iPhone 17 Pro under iOS 27, in every variant). Bounded, so a
-    /// controller whose coordinator never clears still gets a decision.
-    fn settle_user_back(host: usize, seen: usize, attempt: u32) {
-        dispatch2::DispatchQueue::main().exec_async(move || {
-            // Its own FFI entry (a posted block), so its own containment.
-            day_spec::ffi_guard::contain((), || {
-                let outcome = NAV_STATE.with(|m| {
-                    let mut m = m.borrow_mut();
-                    let state = m.get_mut(&host)?;
-                    let native = unsafe { state.active_nav().viewControllers() }.count();
-                    let transitioning =
-                        unsafe { state.active_nav().transitionCoordinator() }.is_some();
-                    state.last_native.set(native);
-                    if (transitioning || native != seen) && attempt < 120 {
-                        if *DIAG_NAV {
-                            log::debug!(
-                                "DAYDIAG didShow SETTLE wait native={native} seen={seen} \
-                                 transitioning={transitioning} attempt={attempt}"
-                            );
-                        }
-                        return Some(Err(native));
-                    }
-                    if *DIAG_NAV {
-                        log::debug!(
-                            "DAYDIAG didShow SETTLE native={native} mirror={} -> user_back={}",
-                            state.vcs.len(),
-                            native < state.vcs.len(),
-                        );
-                    }
-                    if native > 0 && native < state.vcs.len() {
-                        if state.pending_sync.get() {
-                            // Short of a change Day made and UIKit never confirmed: the queued
-                            // transition was cancelled under it (a window capture mid-flight
-                            // does that on iOS 26+). Apply the mirror again rather than
-                            // mistaking the leftover for a user back.
-                            if *DIAG_NAV {
-                                log::debug!("DAYDIAG didShow SETTLE resync (pending sync)");
-                            }
-                            return Some(Ok(SettleAction::Resync));
-                        }
-                        // Still popped after settling: a real user back. Sync the mirror
-                        // (Day's remove() will find it gone) and record that Day's answering
-                        // NavPatch::Popped must be ABSORBED.
-                        state.vcs.truncate(native);
-                        state.native_pops.set(state.native_pops.get() + 1);
-                        Some(Ok(SettleAction::UserBack(state.host_node)))
-                    } else {
-                        Some(Ok(SettleAction::Nothing))
-                    }
-                });
-                match outcome {
-                    Some(Err(native)) => settle_user_back(host, native, attempt + 1),
-                    Some(Ok(SettleAction::Resync)) => nav_sync_stack(host),
-                    Some(Ok(SettleAction::UserBack(node))) => emit(
-                        node,
-                        Event::NavBack {
-                            already_popped: true,
-                        },
-                    ),
-                    _ => {}
-                }
-            });
-        });
-    }
 
     impl DayNavDelegate {
         fn new(mtm: MainThreadMarker, host: usize) -> Retained<Self> {
@@ -3679,13 +3857,25 @@ mod imp {
                     };
                     let bounds = self.bounds();
                     let insets = self.safeAreaInsets();
-                    let mut inner = CGRect::new(
-                        CGPoint::new(insets.left, insets.top),
-                        CGSize::new(
-                            (bounds.size.width - insets.left - insets.right).max(0.0),
-                            (bounds.size.height - insets.top - insets.bottom).max(0.0),
-                        ),
-                    );
+                    // The same rule a page applies (§7.7, `scroll_leaf`): a root that is one
+                    // navigation, split or tab host — or one scroll view — takes the WINDOW's
+                    // bounds, bars and all, and the host hands the status bar and the home
+                    // indicator to its pages as safe area. Padded, the host's bars stopped at
+                    // the padding and the strip above the nav bar and below the tab bar was
+                    // this holder's own ground. Anything else keeps the padding: a form has
+                    // nothing to absorb a status bar with.
+                    let full = scroll_leaf(self);
+                    let mut inner = if full {
+                        bounds
+                    } else {
+                        CGRect::new(
+                            CGPoint::new(insets.left, insets.top),
+                            CGSize::new(
+                                (bounds.size.width - insets.left - insets.right).max(0.0),
+                                (bounds.size.height - insets.top - insets.bottom).max(0.0),
+                            ),
+                        )
+                    };
                     // A window with no navigation host of its own carries the window toolbar
                     // here, across the top (docs/toolbars.md), where a page's bar would be.
                     // Framed on every pass rather than autoresized: its height is the bar's
@@ -6927,6 +7117,15 @@ mod imp {
                             }
                         }
                         let host = view_of(unsafe { nav.view() }.expect("nav view"));
+                        // Day owns this frame. UIKit gives every controller's view a W+H
+                        // autoresizing mask, and a masked child of a superview that grows FROM
+                        // ZERO gets its own size plus the delta — a host Day had already sized
+                        // to 420×810 came out 840×1620 under a tab page that took its bounds
+                        // after Day's pass, with the list's trailing edge and the bar title off
+                        // the phone. No mask: a frame set once is the frame.
+                        unsafe {
+                            host.setAutoresizingMask(objc2_ui_kit::UIViewAutoresizing::empty())
+                        };
                         (host, None)
                     } else {
                         // The adaptive host (docs/size-classes.md): a two-column
@@ -6953,7 +7152,8 @@ mod imp {
                         let secondary_placeholder = built.secondary_placeholder;
                         // Day's handle is a container the split's view fills, so a rebuild
                         // leaves the handle — and the tree — untouched.
-                        let container = unsafe { UIView::new(mtm) };
+                        let container: Retained<UIView> =
+                            Retained::into_super(unsafe { DayNavContainer::new(mtm) });
                         mount_split(&split_vc, &container);
                         let host = container.clone();
                         primary_nav.ivars().host.set(ptr_of(&host));
@@ -7048,8 +7248,7 @@ mod imp {
                                 vcs: Vec::new(),
                                 native_pops: std::cell::Cell::new(0),
                                 list_in_stack: std::cell::Cell::new(false),
-                                last_native: std::cell::Cell::new(0),
-                                pending_sync: std::cell::Cell::new(false),
+                                day_pop: std::cell::Cell::new(false),
                                 _delegate: delegate,
                                 search,
                             },
@@ -7889,15 +8088,11 @@ mod imp {
                                     .last()
                                     .map(|vc| Act::Title(vc.clone(), t.clone()))
                                     .unwrap_or(Act::None),
-                                // Arm the back guard: shouldPop vetoes the back button, and the
-                                // swipe gesture is disabled (docs/navigation.md).
+                                // Arm the back guard: `shouldPopItem:` vetoes the button and
+                                // `gestureRecognizerShouldBegin:` the swipe, both asking Day
+                                // instead (docs/navigation.md). The gesture stays enabled.
                                 NavPatch::GuardTop(on) => {
                                     state.active_nav().ivars().guarded.set(*on);
-                                    if let Some(g) = unsafe {
-                                        state.active_nav().interactivePopGestureRecognizer()
-                                    } {
-                                        g.setEnabled(!*on);
-                                    }
                                     Act::None
                                 }
                                 // Unreachable: this backend answers `Cap::NavRepresent =
@@ -8024,16 +8219,16 @@ mod imp {
                                     // Only Day's route changes pop this way; the user's own
                                     // back button and swipe animate as ever.
                                     match target {
-                                        Some(t) if on_stack => {
+                                        Some(t) if on_stack => with_day_pop(&active, || {
                                             let _ = active.popToViewController_animated(&t, false);
-                                        }
+                                        }),
                                         // The mirror's top is not on the stack yet: the push
                                         // that lands it is still on its way, and lands it
                                         // above whatever this pop would have removed.
                                         Some(_) => {}
-                                        None => {
+                                        None => with_day_pop(&active, || {
                                             let _ = active.popToRootViewControllerAnimated(false);
-                                        }
+                                        }),
                                     }
                                 });
                             }
@@ -8048,7 +8243,9 @@ mod imp {
                                             objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
                                         );
                                     } else {
-                                        let _ = primary.popToRootViewControllerAnimated(true);
+                                        with_day_pop(&primary, || {
+                                            let _ = primary.popToRootViewControllerAnimated(true);
+                                        });
                                     }
                                 });
                             }
@@ -8448,6 +8645,14 @@ mod imp {
         }
 
         fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+            // What the root holds decides whether the window pads by the safe area
+            // (`DayHolderView::layoutSubviews`), so a child joining the root re-asks it. Only
+            // scheduled here: the child is attached below, and the pass runs after.
+            if let Some(holder) = unsafe { parent.superview() }
+                && holder.downcast_ref::<DayHolderView>().is_some()
+            {
+                holder.setNeedsLayout();
+            }
             // A NAV_MENU joining the tree: if it lands anywhere inside a `.tabSidebar` host, its
             // rows ARE that host's tabs. This is the first moment the menu has a superview chain
             // to find its host through.
@@ -9703,6 +9908,66 @@ mod imp {
                 objc2_ui_kit::UITraitCollection::currentTraitCollection().userInterfaceStyle()
                     == Style::Dark
             }
+        }
+
+        /// The back button, pressed: on the innermost navigation host that has a page to pop
+        /// — the one whose controller sits deepest in the view hierarchy, since a `nav_stack`
+        /// built inside a page nests its controller inside the outer host's — through
+        /// `DayNavController::press_back`, so a scripted back runs `shouldPopItem:`, the pop
+        /// override and the transition report, exactly as a tap does.
+        fn native_back(&mut self) -> bool {
+            let candidates: Vec<(usize, Retained<DayNavController>)> = NAV_STATE.with(|m| {
+                m.borrow()
+                    .iter()
+                    .filter_map(|(h, s)| {
+                        let nav = s.active_nav();
+                        let shown = nav
+                            .viewIfLoaded()
+                            .is_some_and(|v| unsafe { v.window() }.is_some());
+                        (shown && unsafe { nav.viewControllers() }.count() > 1).then_some((*h, nav))
+                    })
+                    .collect()
+            });
+            let depth = |nav: &DayNavController| {
+                let mut n = 0usize;
+                let mut v = nav.viewIfLoaded();
+                while let Some(cur) = v {
+                    n += 1;
+                    v = unsafe { cur.superview() };
+                }
+                n
+            };
+            if *DIAG_NAV {
+                let all: Vec<String> = NAV_STATE.with(|m| {
+                    m.borrow()
+                        .iter()
+                        .map(|(h, s)| {
+                            let nav = s.active_nav();
+                            format!(
+                                "host={h:x} collapsed={} count={} shown={} transitioning={}",
+                                s.collapsed.get(),
+                                unsafe { nav.viewControllers() }.count(),
+                                nav.viewIfLoaded()
+                                    .is_some_and(|v| unsafe { v.window() }.is_some()),
+                                unsafe { nav.transitionCoordinator() }.is_some(),
+                            )
+                        })
+                        .collect()
+                });
+                log::debug!(
+                    "DAYDIAG native_back candidates={} of {:?}",
+                    candidates.len(),
+                    all
+                );
+            }
+            let Some((_, nav)) = candidates.into_iter().max_by_key(|(_, nav)| depth(nav)) else {
+                return false;
+            };
+            let pressed = nav.press_back();
+            if *DIAG_NAV {
+                log::debug!("DAYDIAG native_back pressed={pressed}");
+            }
+            pressed
         }
 
         fn ui_idle(&mut self) -> bool {

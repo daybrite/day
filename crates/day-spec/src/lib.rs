@@ -5299,6 +5299,18 @@ pub trait Toolkit: Sized + 'static {
     fn toggle_sidebar(&mut self, _host: &Self::Handle) -> bool {
         false
     }
+    /// Press the platform's own back affordance — the navigation bar's back button on iOS,
+    /// the system back on Android — on the innermost navigation host that has something to
+    /// pop. What `nav_back()` does NOT do: that is Day's rail, which pops the model and lets the
+    /// backend follow, while this runs the native path first (the bar's `shouldPop`, the
+    /// dispatcher's callbacks, the pop itself) and lets the backend report it to Day as a user
+    /// back, guard and all. dayscript's `nav_back: { native: true }` drives it, so a walkthrough
+    /// can cover the code that a real tap runs and Day's rail never reaches. `false` when this
+    /// toolkit has no native back or nothing is popped by it. Defaulted, so a desktop needs no
+    /// code. docs/navigation.md.
+    fn native_back(&mut self) -> bool {
+        false
+    }
     /// Whether the UI has settled — no native transition (modal present/dismiss, nav push)
     /// still animating. The dayscript `screenshot` step polls this before capturing so shots
     /// never catch a half-faded dialog or half-pushed page. Backends without async

@@ -71,6 +71,33 @@
       },
       "additionalProperties": false
     },
+    "store": {
+      "type": "object",
+      "description": "Where the app is listed (docs/store.md, Listed apps). A store id here means the listing is live: the project site shows that store's badge and links to it.",
+      "properties": {
+        "apple-app-id": {
+          "type": "string",
+          "description": "The App Store's numeric app id: the id… in https://apps.apple.com/app/id6802801331."
+        },
+        "google-play-id": {
+          "type": "string",
+          "description": "The Google Play listing's application id (the id= in the Play URL), usually the app's own [app] id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "web": {
+      "type": "object",
+      "description": "How the web-dom build presents itself on a home screen (docs/web.md, Home screen and offline): the web app manifest's colors, display mode, and short name. Every key is optional.",
+      "properties": {
+        "short-name": { "type": "string", "description": "The name under the home-screen icon (about twelve characters). Default: the store name, or its leading words that fit." },
+        "theme-color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Browser chrome color for an installed launch, light appearance. Default #ffffff." },
+        "theme-color-dark": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The same for a dark appearance. Default #000000." },
+        "background-color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Splash background while the app loads. Default: the light theme color." },
+        "display": { "type": "string", "enum": ["standalone", "minimal-ui", "browser", "fullscreen"], "default": "standalone", "description": "How much browser chrome an installed launch shows." }
+      },
+      "additionalProperties": false
+    },
     "signing": {
       "type": "object",
       "description": "Release-signing configuration per platform (docs/signing.md). `day sign --check` validates it.",

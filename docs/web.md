@@ -227,6 +227,50 @@ Known gaps, in rough order of interest:
 - **Window control** — the page can set `document.title`; size, minimum size, and multi-window
   do not apply.
 
+## Home screen and offline
+
+The dist is an installable web app: added to a home screen from Safari on iOS, Chrome on
+Android, or any browser that follows the W3C Web Application Manifest, it gets its own icon and
+name, opens without browser chrome, and launches with the network away. `day build` writes the
+pieces beside `index.html`:
+
+- **`manifest.webmanifest`** — the name and short name, the description, the language, the
+  display mode, the theme and background colors, and the icons. Every URL in it is relative
+  (`./`, `icons/…`), so the one file serves from a Pages root, a project subpath, or a project
+  site's `webapp/` directory, and its `id` is the resolved start URL wherever it lands.
+- **`icons/icon-{64,192,512}.png`** — from the png family `day icon` renders; 192 and 512 are
+  the sizes an install needs, and the 512 doubles as the maskable icon since the master's
+  background layer fills the square. A project without an icon master ships no icons and the
+  manifest lists none.
+- **The head of `index.html`** — the title, the manifest link, one `theme-color` per
+  appearance, the favicon and apple-touch-icon links, and the iOS home-screen metas Safari
+  still reads for the status bar and the title.
+- **`sw.js`** — the offline shell. Its cache is named by a digest of every file in the dist,
+  filled with all of them at install, and served network-first: the network's answer when there
+  is one (refreshing the cache), the cache's when there is not, and `index.html` for any
+  navigation neither can answer. A rebuild changes the digest, so the next visit installs a
+  fresh cache and drops the old one; `day launch` sends `Cache-Control: no-store`, so a dev
+  page never sees a stale worker. Same-origin GETs inside the worker's scope only.
+
+The texts come from where they already live: the name and short description from
+`store/<default locale>/` ([docs/store.md](store.md)), falling back to `[app] title`, and the
+language from the default locale. `[web]` in Day.toml holds the few things nothing else knows,
+all optional:
+
+```toml
+[web]
+short-name = "Showcase"        # under the icon; default: the name, or its leading words within 12 characters
+theme-color = "#ffffff"        # browser chrome, light appearance (default)
+theme-color-dark = "#000000"   # dark appearance (default)
+background-color = "#123246"   # the splash while the app loads; default: the light theme color
+display = "standalone"         # standalone | minimal-ui | browser | fullscreen
+```
+
+The worker registers only on `https:` and loopback, which browsers require anyway; a plain
+`http:` host serves the app as before, without the offline shell. Scripted runs
+([dayscript on the web](#dayscript-on-the-web)) are unaffected: the worker passes every
+request through while the network is up, and the bridge is a WebSocket, which it never sees.
+
 ## Serving and static hosting
 
 The dist directory is self-contained static files that any host can serve as they are. The only

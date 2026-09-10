@@ -49,6 +49,99 @@ pub struct Manifest {
     /// the artifact nothing, whereas embedding both formats adds roughly 400 KB.
     #[serde(default)]
     pub sbom: SbomConfig,
+    /// `[store]` — where the app is LISTED (docs/store.md "Listed apps"). A store id here says
+    /// the listing is live: the project site shows that store's badge and links to it, and
+    /// tooling can build the listing URL. Absent while the app is unpublished.
+    #[serde(default)]
+    pub store: StoreListing,
+    /// `[web]` — how the web-dom build presents itself once added to a home screen
+    /// (docs/web.md "Home screen and offline"): the web app manifest's colors, display mode,
+    /// and short name. Every key has a default, so the table is optional.
+    #[serde(default)]
+    pub web: Web,
+}
+
+/// The home-screen presentation of the web-dom build (`[web]` in Day.toml). The name, the
+/// description, and the icons come from the store listing and the icon master; these are the
+/// few things neither knows.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Web {
+    /// The name under the home-screen icon, where a long store name is clipped. Defaults to
+    /// the store name when it fits twelve characters, else its leading words that do.
+    pub short_name: Option<String>,
+    /// The browser chrome's color when the app is opened from the home screen (`theme_color`
+    /// in the manifest; a `#rrggbb` hex), light appearance. Default `#ffffff`.
+    pub theme_color: Option<String>,
+    /// The same for a dark appearance (`<meta name="theme-color">` with a dark media query;
+    /// the manifest carries the light value). Default `#000000`.
+    pub theme_color_dark: Option<String>,
+    /// The splash background while the app loads (`background_color`). Defaults to the light
+    /// theme color.
+    pub background_color: Option<String>,
+    /// How much browser chrome an installed launch shows. Default `standalone`.
+    #[serde(default)]
+    pub display: WebDisplay,
+}
+
+/// The web app manifest's `display` values (W3C Web Application Manifest), kebab-case as the
+/// manifest spells them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum WebDisplay {
+    /// An app window with no browser UI: the home-screen default.
+    #[default]
+    Standalone,
+    /// Standalone plus a minimal navigation bar.
+    MinimalUi,
+    /// A plain browser tab.
+    Browser,
+    /// No system UI at all.
+    Fullscreen,
+}
+
+impl WebDisplay {
+    /// The manifest spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WebDisplay::Standalone => "standalone",
+            WebDisplay::MinimalUi => "minimal-ui",
+            WebDisplay::Browser => "browser",
+            WebDisplay::Fullscreen => "fullscreen",
+        }
+    }
+}
+
+/// The store listings an app has published (`[store]` in Day.toml). Both keys are optional
+/// and independent: an app can be on one store, both, or neither.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct StoreListing {
+    /// The App Store's numeric app id — the `id…` in `https://apps.apple.com/app/id6802801331`.
+    /// A string, since the number is an identifier, not a quantity.
+    pub apple_app_id: Option<String>,
+    /// The Google Play listing's application id (`id=` in the Play URL). Usually the app's own
+    /// `[app] id`; spelled out so a listing published under another id still resolves.
+    pub google_play_id: Option<String>,
+}
+
+impl StoreListing {
+    /// The App Store listing, when the app is on it.
+    pub fn apple_url(&self) -> Option<String> {
+        self.apple_app_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(|id| format!("https://apps.apple.com/app/id{id}"))
+    }
+    /// The Google Play listing, when the app is on it.
+    pub fn google_url(&self) -> Option<String> {
+        self.google_play_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(|id| format!("https://play.google.com/store/apps/details?id={id}"))
+    }
 }
 
 /// Where a generated SBOM goes.

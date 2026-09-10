@@ -3666,6 +3666,23 @@ mod imp {
             })
         }
 
+        /// The system back, pressed (dayscript's `nav_back: { native: true }`): through the
+        /// activity's `OnBackPressedDispatcher`, so the guard callback and the fragment
+        /// manager's own pop run exactly as a gesture does (DayBridge.nativeBack). `false`
+        /// when nothing would pop — the dispatcher would finish the activity instead.
+        fn native_back(&mut self) -> bool {
+            with_env(|env| {
+                env.dcall_static(
+                    "dev/daybrite/day/bridge/DayBridge",
+                    "nativeBack",
+                    "()Z",
+                    &[],
+                )
+                .and_then(|v| v.z())
+                .unwrap_or(false)
+            })
+        }
+
         /// Whether native transitions have settled (dayscript screenshots wait on this):
         /// currently the cover slide — a capture mid-present/mid-dismiss shows a half-slid
         /// surface (DayBridge.uiIdle / DayCover.slidesInFlight).
