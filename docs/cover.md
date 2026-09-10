@@ -16,6 +16,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > xaml, and web-dom; probe-visible patches on mock. The emulated tier defaults to an opaque
 > theme-background surface so a cover always occludes the window. Exercised end-to-end by Day-Games (a grid home page
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.
+>
+> **gtk (2026-09).** The emulated cover took the root `GtkFixed`'s allocation for its size,
+> and that Fixed sits in an External-policy scroll wrapper that allocates it its children's
+> bounding box, so a small home page (Day-Games' 2×2 tile grid) presented a cover the size of
+> the grid. The cover now takes the wrapper's allocation, the window content area.
 
 A `cover` presents a Day subtree over the whole window (edge-to-edge, above every other
 surface): the SwiftUI `fullScreenCover(item:)` shape. Like `nav` and `nav_stack`

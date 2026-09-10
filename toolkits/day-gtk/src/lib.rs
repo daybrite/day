@@ -3623,7 +3623,19 @@ impl Toolkit for Gtk {
                             }
                             if let Some(root) = self.window_fixed.as_ref() {
                                 root.put(&cover, 0.0, 0.0);
-                                let size = Size::new(root.width() as f64, root.height() as f64);
+                                // The window's CONTENT area, not the root Fixed's allocation:
+                                // a GtkFixed inside the External-policy scroll wrapper
+                                // (`build_day_window`) is allocated its children's bounding
+                                // box, so a small home page would size the cover to itself.
+                                // The wrapper is what the toolbar view stretches to the window.
+                                let size = match root.parent() {
+                                    Some(wrapper)
+                                        if wrapper.width() > 0 && wrapper.height() > 0 =>
+                                    {
+                                        Size::new(wrapper.width() as f64, wrapper.height() as f64)
+                                    }
+                                    _ => Size::new(root.width() as f64, root.height() as f64),
+                                };
                                 cover.set_size_request(size.width as i32, size.height as i32);
                                 cover.set_visible(true);
                                 COVERS.with(|c| {

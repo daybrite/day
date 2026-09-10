@@ -9595,10 +9595,29 @@ mod imp {
                 Some("light") => return false,
                 _ => {}
             }
-            let style = unsafe {
+            use objc2_ui_kit::UIUserInterfaceStyle as Style;
+            // The WINDOW's own style, not the AMBIENT `currentTraitCollection`. An override
+            // applied through `set_appearance` is on the window immediately, while the ambient
+            // trait collection only picks it up at the next layout pass — and
+            // `note_appearance_changed` reads this the instant the override is set. Reading the
+            // ambient one there answers with the OLD appearance, so `dark_mode()`'s signal never
+            // flips: every native view around it recolors and every canvas keeps its stale
+            // palette, which is dark text on a dark ground.
+            let override_style = WINDOW.with(|w| {
+                w.borrow()
+                    .as_ref()
+                    .map(|window| unsafe { window.overrideUserInterfaceStyle() })
+                    .unwrap_or(Style::Unspecified)
+            });
+            if override_style != Style::Unspecified {
+                return override_style == Style::Dark;
+            }
+            // No override in force, so the ambient collection IS the system appearance, and the
+            // system's own changes arrive through `traitCollectionDidChange` after propagation.
+            unsafe {
                 objc2_ui_kit::UITraitCollection::currentTraitCollection().userInterfaceStyle()
-            };
-            style == objc2_ui_kit::UIUserInterfaceStyle::Dark
+                    == Style::Dark
+            }
         }
 
         fn ui_idle(&mut self) -> bool {

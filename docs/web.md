@@ -86,6 +86,10 @@ Synchronous text measurement (the one duty a browser makes hard) uses a hidden m
 element (so wrapping matches real labels), cached per element and invalidated on text or font
 patches.
 
+A label with [styled runs](text-runs.md) is measured from clones of its spans rather than its
+flat text: a bold span is wider than the same words in the base font, and measuring the flat
+text under-counted a wrapped paragraph by a line, which clipped its last word (2026-09).
+
 **Typography is rem-based, scaled per form factor.** The style ramp (`font_rem` in day-dom) is the
 Apple text-style ratios with `Body` = 1, and a step becomes a length through one multiplier:
 day-dom emits `calc(<step>rem * var(--day-text-scale))`, so day.css's `--day-text-scale` is the only
