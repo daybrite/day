@@ -1198,6 +1198,17 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > UIKit's own `contentInsetAdjustmentBehavior` is left at its default there rather than
 > neutralized as the bullet below proposes, because for a scroll-rooted page it computes exactly
 > the inset the policy asks for.
+>
+> **AppKit (2026-09-10).** A Day window's content view is full-size (`FullSizeContentView`,
+> for the unified toolbar), so the root ran under the title bar and only a root-level
+> `NSScrollView` — which AppKit insets on its own — looked right; a canvas at the top of a
+> window, and every presented cover, drew its first rows under the window title (Day-Games'
+> Breakout HUD). The backend now pins the content view's coordinate space below
+> `contentLayoutRect` (`pin_below_title_bar`: the bounds origin moves up by the bar's height,
+> re-applied on every resize and whenever a toolbar comes or goes) and reports that layout
+> size as `WindowResized`; a cover keeps its background edge to edge by starting above the
+> pinned origin while its own bounds origin lays the content out below the bar, the same
+> shape as UIKit's safe area. The `env::safe_area()` signal is still not exposed.
 
 Android 15 (target-sdk 35, which `Day.toml` defaults to) makes edge-to-edge mandatory, and iOS
 adjusts scroll insets behind frameworks' backs — so inset policy is v1, not polish:

@@ -384,6 +384,19 @@ Two consequences worth knowing before touching it:
 > tapping did not: the history menu pops the controller itself, so the settle path reported it with
 > the right node.
 
+> [!IMPORTANT]
+> **The first back after launch snapped straight back to the page (fixed 2026-09-10).** Every
+> Day-initiated stack change is one `setViewControllers:animated:`, and `pending_sync` marks it
+> "in flight" so a pop-shaped `didShow` under it is read as the change cancelled rather than as a
+> user back. The flag was cleared only by a later `didShow` at the mirror's count — which never
+> comes for the LAUNCH sync, issued before the controller has a window. It stayed set until the
+> user's first back, whose pop the settle then "re-applied": the root list showed for a frame and
+> the page came back. The flag is now tied to the transition itself — set only when UIKit started
+> one, cleared by that transition's completion (and re-synced on a cancelled one) — so a sync
+> with no transition has nothing pending. `nav_back:` cannot see this either; it took a native
+> pop (`popViewControllerAnimated:` from lldb, or the button) with `DAY_DIAG_NAV=1`, whose trace
+> reads `SETTLE resync (pending sync)` followed by `exec SYNC native=1 -> target=2`.
+
 ## Back interception (`on_back`)
 
 `NavStack::on_back` intercepts the user's back affordance (a native gesture/button, or `nav_back()`)

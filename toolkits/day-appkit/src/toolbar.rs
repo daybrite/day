@@ -733,10 +733,11 @@ fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
 /// Installing or removing a toolbar resizes the content view without a window resize, so day
 /// has to be told the new size or the tree keeps laying out at the old height.
 fn report_content_size(window: &NSWindow) {
-    let Some(content) = window.contentView() else {
+    // A toolbar coming or going changes the title bar's height, so re-pin the content below it
+    // and report the layout area that is left (§7.7).
+    let Some(size) = crate::pin_below_title_bar(window) else {
         return;
     };
-    let b = content.bounds();
     // Secondary windows carry their root node on the window delegate; the primary reports at
     // WINDOW_NODE, the same as `windowDidResize:`.
     let node: NodeId = window
@@ -744,8 +745,5 @@ fn report_content_size(window: &NSWindow) {
         .and_then(|d| d.downcast::<crate::DayWinDelegate>().ok())
         .and_then(|d| d.ivars().node)
         .unwrap_or(day_spec::WINDOW_NODE);
-    emit(
-        node,
-        Event::WindowResized(day_spec::Size::new(b.size.width, b.size.height)),
-    );
+    emit(node, Event::WindowResized(size));
 }

@@ -1608,6 +1608,10 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
 
 struct NavPageIvars {
     node: NodeId,
+    /// A presented cover's strip under the window's title bar: the page paints it (its frame
+    /// starts above the layout area) but lays its content out below it, and reports the
+    /// remaining height (see `pin_below_title_bar`).
+    top_inset: Cell<f64>,
 }
 
 define_class!(
@@ -1629,9 +1633,10 @@ define_class!(
             // Pane-driven resize (splitter drag, window resize): report the usable size
             // so NavLayout re-lays this page's content (enqueue-only, §8.3).
             ffi_guard::contain((), || {
+                let inset = self.ivars().top_inset.get();
                 emit(
                     self.ivars().node,
-                    Event::FrameChanged(Size::new(size.width, size.height)),
+                    Event::FrameChanged(Size::new(size.width, (size.height - inset).max(0.0))),
                 );
             })
         }
@@ -1640,7 +1645,10 @@ define_class!(
 
 impl DayNavPage {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(NavPageIvars { node });
+        let this = Self::alloc(mtm).set_ivars(NavPageIvars {
+            node,
+            top_inset: Cell::new(0.0),
+        });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -3928,14 +3936,10 @@ define_class!(
             ffi_guard::contain((), || {
                 if let Some(obj) = unsafe { notification.object() }
                     && let Ok(win) = obj.downcast::<NSWindow>()
-                    && let Some(content) = win.contentView()
+                    && let Some(size) = pin_below_title_bar(&win)
                 {
-                    let b = content.bounds();
                     let target = self.ivars().node.unwrap_or(WINDOW_NODE);
-                    emit(
-                        target,
-                        Event::WindowResized(Size::new(b.size.width, b.size.height)),
-                    );
+                    emit(target, Event::WindowResized(size));
                 }
             })
         }
@@ -5971,20 +5975,33 @@ impl Toolkit for AppKit {
                             // The PRIMARY window's content, specifically — firstObject()
                             // is arbitrary once secondary windows exist (docs/windows.md).
                             if let Some(content) = primary_content() {
+                                // Edge to edge like the root's own background, laid out below
+                                // the title bar like the root's content: the page starts at the
+                                // top of the window (above the pinned content origin) and
+                                // keeps the same strip above its own layout origin.
+                                let top = title_bar_inset(&content);
+                                let full = content.frame().size;
+                                page.ivars().top_inset.set(top);
                                 unsafe {
                                     page.removeFromSuperview();
                                     content.addSubview(&page);
-                                    page.setFrame(content.bounds());
+                                    page.setFrame(NSRect::new(
+                                        NSPoint::new(0.0, -top),
+                                        NSSize::new(full.width, full.height),
+                                    ));
+                                    page.setBoundsOrigin(NSPoint::new(0.0, -top));
                                     page.setAutoresizingMask(
                                         objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
                                             | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
                                     );
                                     page.setHidden(false);
                                 }
-                                let b = content.bounds();
                                 emit(
                                     node,
-                                    Event::FrameChanged(Size::new(b.size.width, b.size.height)),
+                                    Event::FrameChanged(Size::new(
+                                        full.width,
+                                        (full.height - top).max(0.0),
+                                    )),
                                 );
                             }
                         }
@@ -7654,11 +7671,10 @@ impl Platform for AppKit {
         self.content = Some(content.clone());
         PRIMARY_CONTENT.with(|c| *c.borrow_mut() = Some(content.clone()));
 
-        ready(
-            self,
-            content,
-            Size::new(options.size.width, options.size.height),
-        );
+        // The root lays out below the title bar, not under it (§7.7).
+        let layout = pin_below_title_bar(&window)
+            .unwrap_or(Size::new(options.size.width, options.size.height));
+        ready(self, content, layout);
 
         // `ready` ran the app's root() — registrations are in. Without a new-window
         // builder only one Normal window can ever exist: turn automatic tabbing off so no
@@ -8217,6 +8233,27 @@ define_class!(
 );
 
 /// The primary window's content view (set once in `run`).
+/// Pin the window's content coordinate space under its title bar and toolbar (§7.7). The
+/// content view is full-size (`FullSizeContentView`, for the unified toolbar), so it runs
+/// beneath the bar; moving its bounds origin up by that strip makes Day's root, laid out from
+/// (0, 0), start below the bar — the way UIKit pins the root inside `safeAreaInsets` — while
+/// the view's own background still paints edge to edge. Returns the size Day lays out at, the
+/// window's `contentLayoutRect`. Called wherever that rect can change: window creation, every
+/// resize, and a toolbar coming or going.
+pub(crate) fn pin_below_title_bar(window: &NSWindow) -> Option<Size> {
+    let content = window.contentView()?;
+    let full = content.frame().size;
+    let layout = unsafe { window.contentLayoutRect() }.size;
+    let top = (full.height - layout.height).max(0.0);
+    unsafe { content.setBoundsOrigin(NSPoint::new(0.0, -top)) };
+    Some(Size::new(full.width, (full.height - top).max(0.0)))
+}
+
+/// The strip a pinned content view keeps above its layout origin (see `pin_below_title_bar`).
+fn title_bar_inset(content: &NSView) -> f64 {
+    (-content.bounds().origin.y).max(0.0)
+}
+
 fn primary_content() -> Option<Retained<NSView>> {
     PRIMARY_CONTENT.with(|c| c.borrow().clone())
 }

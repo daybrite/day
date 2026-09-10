@@ -2368,10 +2368,12 @@ mod imp {
         /// rather than re-pruning the mirror for a pop that already happened
         /// (docs/navigation.md). Mirrors Android's DayNavHost.nativePops.
         native_pops: std::cell::Cell<usize>,
-        /// A Day-initiated stack change (`nav_sync_stack`) that UIKit has not yet confirmed
-        /// with a `didShow` at the mirror's count. While it is set, a native count short of the
-        /// mirror is that change still in flight — or cancelled under it (a window capture
-        /// taken mid-transition does that on iOS 26+) — never a user back.
+        /// A Day-initiated stack change (`nav_sync_stack`) whose transition is still in
+        /// flight: set only when UIKit started one (a transition coordinator exists), and
+        /// cleared by that transition's completion — or, as a fallback, by a `didShow` at the
+        /// mirror's count. While it is set, a native count short of the mirror is that change
+        /// mid-flight — or cancelled under it (a window capture taken mid-transition does that
+        /// on iOS 26+) — never a user back.
         pending_sync: std::cell::Cell<bool>,
         /// Whether the pieces layer has the content-list page interposed in the collapsed
         /// stack (`NavPatch::ListInStack`, docs/navigation.md) — with the collapse flag, what
@@ -3245,11 +3247,49 @@ mod imp {
         // coordinator holds `ui_idle` false forever, failing every later screenshot.
         let animated = !vcs.is_empty();
         unsafe { nav.setViewControllers_animated(&arr, animated) };
+        // `pending_sync` means "this change is still in flight", so it is tied to the
+        // transition UIKit actually started, and cleared by that transition's own completion.
+        // It used to be set unconditionally and cleared only by a later `didShow` at the
+        // mirror's count — a didShow that never comes for a controller with no window yet,
+        // which is every app's LAUNCH sync. The flag then survived until the user's first
+        // back, where the settle read that pop as this sync cancelled under it and re-applied
+        // the mirror: the root list showed for a frame and the page came straight back.
+        // With no coordinator the stack was set synchronously and nothing is pending.
+        use objc2_ui_kit::{
+            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
+        };
+        let coordinator = unsafe { nav.transitionCoordinator() };
+        let pending = coordinator.is_some();
         NAV_STATE.with(|m| {
             if let Some(s) = m.borrow().get(&host) {
-                s.pending_sync.set(true);
+                s.pending_sync.set(pending);
             }
         });
+        if let Some(coordinator) = coordinator {
+            let completion = block2::RcBlock::new(
+                move |ctx: NonNull<
+                    ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
+                >| {
+                    // A cancelled transition (a window capture mid-flight does that on
+                    // iOS 26+) leaves the stack short of the mirror with nothing else coming,
+                    // so re-apply the mirror rather than wait for a pop-shaped didShow to be
+                    // misread. Off this callback's stack: UIKit is still tearing the
+                    // transition down.
+                    let cancelled = unsafe { ctx.as_ref().isCancelled() };
+                    NAV_STATE.with(|m| {
+                        if let Some(s) = m.borrow().get(&host) {
+                            s.pending_sync.set(false);
+                        }
+                    });
+                    if cancelled {
+                        dispatch2::DispatchQueue::main().exec_async(move || {
+                            day_spec::ffi_guard::contain((), || nav_sync_stack(host));
+                        });
+                    }
+                },
+            );
+            unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+        }
     }
 
     define_class!(
@@ -3333,6 +3373,9 @@ mod imp {
                             state.last_native.set(native);
                             return false;
                         }
+                        // Fallback only: the sync's own transition completion is what clears
+                        // this (`nav_sync_stack`), and a coordinator that never completes —
+                        // the never-animate-to-empty case — still lands here.
                         if native == state.vcs.len() {
                             state.pending_sync.set(false);
                         }

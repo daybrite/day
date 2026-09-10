@@ -17,6 +17,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > theme-background surface so a cover always occludes the window. Exercised end-to-end by Day-Games (a grid home page
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.
 >
+> **macos-appkit (2026-09).** The cover filled the full-size content view, so its content ran
+> under the window's title bar. It now starts above the pinned content origin (so its surface
+> color still paints edge to edge under the bar) and lays its content out below the bar, the
+> size it reports through `FrameChanged` (DESIGN.md §7.7).
+>
 > **gtk (2026-09).** The emulated cover took the root `GtkFixed`'s allocation for its size,
 > and that Fixed sits in an External-policy scroll wrapper that allocates it its children's
 > bounding box, so a small home page (Day-Games' 2×2 tile grid) presented a cover the size of
