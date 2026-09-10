@@ -1341,6 +1341,21 @@ mod imp {
                 let tr = Point::new(p[2] / d, p[3] / d);
                 match num as i32 {
                     0 => Event::Tap(at),
+                    // Hover (docs/canvas.md "Interaction"): a mouse or a stylus over the view.
+                    // A finger produces none of these — Android's hover events come from
+                    // MotionEvent's HOVER_* actions, which touches do not generate.
+                    10 => Event::Hover {
+                        phase: day_spec::DragPhase::Began,
+                        location: at,
+                    },
+                    11 => Event::Hover {
+                        phase: day_spec::DragPhase::Changed,
+                        location: at,
+                    },
+                    12 => Event::Hover {
+                        phase: day_spec::DragPhase::Ended,
+                        location: at,
+                    },
                     1 => Event::Drag {
                         phase: day_spec::DragPhase::Began,
                         location: at,
@@ -3275,6 +3290,17 @@ mod imp {
                 kind,
                 day_spec::GestureKind::Pinch | day_spec::GestureKind::Pan
             ) {
+                return;
+            }
+            // Hover is a separate listener (`setOnHoverListener`), not a touch one: MotionEvent's
+            // HOVER_* actions arrive only from a mouse or a stylus, so wiring it into the touch
+            // path would mean testing for a pointer kind on every finger event.
+            if matches!(kind, day_spec::GestureKind::Hover) {
+                call_void(
+                    "enableHover",
+                    "(Landroid/view/View;J)V",
+                    &[JValue::Object(h.0.as_obj()), JValue::Long(node.0 as i64)],
+                );
                 return;
             }
             let is_drag = matches!(kind, day_spec::GestureKind::Drag);

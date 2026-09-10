@@ -2634,6 +2634,7 @@ impl Toolkit for Xaml {
             day_spec::GestureKind::Tap => 0,
             day_spec::GestureKind::LongPress => 1,
             day_spec::GestureKind::Drag => 2,
+            day_spec::GestureKind::Hover => 3,
             // Not delivered on this backend yet (docs/canvas.md "Zoom and pan").
             day_spec::GestureKind::Pinch | day_spec::GestureKind::Pan => return,
         };
@@ -3131,6 +3132,14 @@ extern "C" fn on_gesture(
         let ev = match phase {
             0 => Event::Tap(at),
             4 => Event::LongPress(at),
+            10..=12 => Event::Hover {
+                phase: match phase {
+                    10 => DragPhase::Began,
+                    12 => DragPhase::Ended,
+                    _ => DragPhase::Changed,
+                },
+                location: at,
+            },
             1 => Event::Drag {
                 phase: DragPhase::Began,
                 location: at,

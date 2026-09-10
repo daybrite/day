@@ -615,6 +615,10 @@ extern "C" fn on_gesture(id: u64, phase: c_int, x: f64, y: f64, tx: f64, ty: f64
                 delta: Point::new(tx, ty),
                 location: at,
             },
+            10..=12 => Event::Hover {
+                phase: seq_phase(phase - 10),
+                location: at,
+            },
             _ => Event::Drag {
                 phase: DragPhase::Changed,
                 location: at,
@@ -2804,6 +2808,7 @@ impl Toolkit for Qt {
             K::Drag => 1,
             K::Pinch => 2,
             K::Pan => 3,
+            K::Hover => 4,
         };
         unsafe { ffi::day_qt_enable_gesture(h.0, node.0, code, on_gesture) };
     }

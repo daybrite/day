@@ -2261,6 +2261,11 @@ mod imp {
                     unsafe { ffi::day_ark_register_event(h.0, 0, node.0) };
                 }
                 GestureKind::Drag => unsafe { ffi::day_ark_enable_pan(h.0, node.0) },
+                // Hover is deliberately unwired here (docs/canvas.md "Interaction"): the C node
+                // API's `NODE_ON_HOVER` reports only entered/exited with no coordinates, and the
+                // contract is a POINT. `NODE_ON_MOUSE` carries one, but this is the one target
+                // nothing here can run, and a HarmonyOS phone has no pointer to hover with — so
+                // it degrades to no gesture, like long-press, rather than to a guessed position.
                 _ => {}
             }
         }

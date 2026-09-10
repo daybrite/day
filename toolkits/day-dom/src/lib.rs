@@ -526,6 +526,11 @@ mod ev {
     /// `contextmenu` (right-click / long-press), default prevented; the pieces layer
     /// presents the composed menu at the viewport point (docs/menus.md).
     pub const CONTEXT: u32 = 16;
+    /// a,b = local point. Pointer entry, motion and exit over the element
+    /// (docs/canvas.md "Interaction"); the exit carries the last point seen inside.
+    pub const HOVER_ENTER: u32 = 17;
+    pub const HOVER_MOVED: u32 = 18;
+    pub const HOVER_LEFT: u32 = 19;
 }
 
 // ---------------------------------------------------------------------------
@@ -2197,6 +2202,7 @@ impl Toolkit for Dom {
         let mask = match kind {
             GestureKind::Tap => 128,
             GestureKind::Drag => 256,
+            GestureKind::Hover => 512,
             // Long-press, pinch, and pan are not delivered on this backend yet
             // (docs/canvas.md "Zoom and pan").
             GestureKind::LongPress | GestureKind::Pinch | GestureKind::Pan => 0,
@@ -3505,6 +3511,14 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
             },
             location: Point::new(a, b),
             translation: Point::new(c, d),
+        },
+        ev::HOVER_ENTER | ev::HOVER_MOVED | ev::HOVER_LEFT => Event::Hover {
+            phase: match kind {
+                ev::HOVER_ENTER => day_spec::DragPhase::Began,
+                ev::HOVER_LEFT => day_spec::DragPhase::Ended,
+                _ => day_spec::DragPhase::Changed,
+            },
+            location: Point::new(a, b),
         },
         ev::SCROLL => Event::ScrollChanged(Point::new(a, b)),
         ev::CONTEXT => Event::ContextMenu {

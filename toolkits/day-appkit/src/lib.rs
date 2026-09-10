@@ -108,6 +108,10 @@ day_core::tls_group! {
     /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
     /// SCROLL events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
     static PAN_NODES: SideTable<NodeId> = SideTable::new();
+    /// View ptr → node for `GestureKind::Hover` (docs/canvas.md "Interaction"). Hover is not a
+    /// recognizer on macOS either: it is an `NSTrackingArea` plus the three mouse methods, so
+    /// like [`PAN_NODES`] this holds the canvases that asked and `DayCanvas` reports for them.
+    static HOVER_NODES: SideTable<NodeId> = SideTable::new();
     /// Canvas view ptr → its node, so the view's own `keyDown:` knows who to report to. Every
     /// canvas is registered at realize (unlike [`PAN_NODES`], which only holds the ones that
     /// asked for a pan) because focus, not a gesture, is what decides who hears a key.
@@ -949,6 +953,23 @@ define_class!(
             }
         }
 
+        /// Hover entry/motion/exit (docs/canvas.md "Interaction"). The tracking area is installed
+        /// by `enable_gesture`; `updateTrackingAreas` below keeps it the size of the view.
+        #[unsafe(method(mouseEntered:))]
+        fn mouse_entered(&self, event: &objc2_app_kit::NSEvent) {
+            self.report_hover(event, day_spec::DragPhase::Began);
+        }
+
+        #[unsafe(method(mouseMoved:))]
+        fn mouse_moved(&self, event: &objc2_app_kit::NSEvent) {
+            self.report_hover(event, day_spec::DragPhase::Changed);
+        }
+
+        #[unsafe(method(mouseExited:))]
+        fn mouse_exited(&self, event: &objc2_app_kit::NSEvent) {
+            self.report_hover(event, day_spec::DragPhase::Ended);
+        }
+
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &objc2_app_kit::NSEvent) {
             let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
@@ -992,6 +1013,62 @@ impl DayCanvas {
         let this = Self::alloc(mtm).set_ivars(CanvasIvars);
         unsafe { msg_send![super(this), init] }
     }
+
+    /// One hover phase, reported to whichever node asked for it (docs/canvas.md "Interaction").
+    ///
+    /// `mouseEntered:`/`mouseExited:` are scoped by the tracking area, but **`mouseMoved:` is
+    /// not**: it walks the responder chain, so a focused canvas hears about motion anywhere in
+    /// its window — including outside itself. Hence the bounds test, without which a canvas
+    /// reports a hover for a pointer that is nowhere near it (measured: a pointer parked outside
+    /// the window entirely still produced hover positions).
+    fn report_hover(&self, event: &objc2_app_kit::NSEvent, phase: day_spec::DragPhase) {
+        let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
+        let Some(node) = HOVER_NODES.with(|t| t.get(ptr)) else {
+            return;
+        };
+        ffi_guard::contain((), || {
+            let win = unsafe { event.locationInWindow() };
+            let loc = self.convertPoint_fromView(win, None);
+            let b = self.bounds();
+            let inside = loc.x >= b.origin.x
+                && loc.x <= b.origin.x + b.size.width
+                && loc.y >= b.origin.y
+                && loc.y <= b.origin.y + b.size.height;
+            // An exit is reported wherever it happens — that is the point of it — but a move
+            // outside the view is not this view's hover.
+            if !inside && phase != day_spec::DragPhase::Ended {
+                return;
+            }
+            emit(
+                node,
+                Event::Hover {
+                    phase,
+                    location: Point::new(loc.x, loc.y),
+                },
+            );
+        });
+    }
+}
+
+/// The tracking area a hovering canvas needs. `InVisibleRect` makes it follow the view's bounds,
+/// so there is no rect to keep in step with layout; `ActiveInKeyWindow` matches the cursor areas
+/// already installed here — a background window does not report hovers.
+fn install_tracking_area(h: &NSView) {
+    let opts = NSTrackingAreaOptions::MouseEnteredAndExited
+        | NSTrackingAreaOptions::MouseMoved
+        | NSTrackingAreaOptions::ActiveInKeyWindow
+        | NSTrackingAreaOptions::InVisibleRect;
+    let any: &objc2::runtime::AnyObject = h;
+    let area = unsafe {
+        NSTrackingArea::initWithRect_options_owner_userInfo(
+            NSTrackingArea::alloc(),
+            NSRect::ZERO,
+            opts,
+            Some(any),
+            None,
+        )
+    };
+    unsafe { h.addTrackingArea(&area) };
 }
 
 // ---------------------------------------------------------------------------
@@ -6892,6 +6969,20 @@ impl Toolkit for AppKit {
         // (Only DayCanvas carries that override — a Pan enabled elsewhere emits nothing.)
         if kind == day_spec::GestureKind::Pan {
             PAN_NODES.with(|t| t.insert(key, node));
+            return;
+        }
+        // Nor is hover: it is a tracking area plus `mouseEntered:`/`mouseMoved:`/`mouseExited:`,
+        // which only `DayCanvas` overrides — a hover enabled on another view emits nothing, the
+        // same limitation Pan has.
+        if kind == day_spec::GestureKind::Hover {
+            // Idempotent, and it has to be checked HERE rather than falling through to the
+            // recognizer guard below: day-core re-enables a gesture on rebuild, and a second
+            // tracking area on the same view means a second copy of every hover event.
+            let first = HOVER_NODES.with(|t| t.get(key)).is_none();
+            HOVER_NODES.with(|t| t.insert(key, node));
+            if first {
+                install_tracking_area(h);
+            }
             return;
         }
         // Idempotent: attach each kind at most once per view.

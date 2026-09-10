@@ -1939,6 +1939,9 @@ mod imp {
                                 },
                             );
                         }
+                        day_spec::GestureKind::Hover => {
+                            emit(node, Event::Hover { phase, location: at });
+                        }
                         day_spec::GestureKind::Pan => {
                             // Event::Pan's delta is INCREMENTAL: read the recognizer's
                             // cumulative translation, then zero it so the next fire reports
@@ -8926,6 +8929,18 @@ mod imp {
                         pan.setMinimumNumberOfTouches(2);
                         pan.setMaximumNumberOfTouches(2);
                         Retained::into_super(pan)
+                    }
+                    day_spec::GestureKind::Hover => {
+                        // UIKit DOES have a hover recognizer, and it fires only with a pointer:
+                        // an iPad with a trackpad, a mouse, or an Apple Pencil hovering. A
+                        // finger-only device attaches it and never hears from it, which is the
+                        // contract (docs/canvas.md "Interaction").
+                        let hover = objc2_ui_kit::UIHoverGestureRecognizer::initWithTarget_action(
+                            objc2_ui_kit::UIHoverGestureRecognizer::alloc(mtm),
+                            Some(&target),
+                            Some(sel!(fire:)),
+                        );
+                        Retained::into_super(hover)
                     }
                     _ => {
                         let tap = UITapGestureRecognizer::initWithTarget_action(

@@ -1958,12 +1958,39 @@ static constexpr double kTapSlop = 4.0;
 class DayGestureFilter : public QObject {
 public:
     uint64_t node; int kind; DayGestureCb cb;
-    bool pressed = false; bool engaged = false; QPointF start;
+    bool pressed = false; bool engaged = false; QPointF start; QPointF last;
     double pinch_scale = 1.0;
     DayGestureFilter(uint64_t n, int k, DayGestureCb c) : node(n), kind(k), cb(c) {}
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override {
         bool is_drag = kind == 1;
+        // Hover: entry, each move, then exit — phases 10/11/12 (day_spec::Event::Hover).
+        if (kind == 4) {
+            switch (ev->type()) {
+                case QEvent::Enter: {
+                    QEnterEvent *ee = static_cast<QEnterEvent *>(ev);
+                    cb(node, 10, ee->position().x(), ee->position().y(), 0.0, 0.0);
+                    break;
+                }
+                case QEvent::MouseMove: {
+                    QPointF p = static_cast<QMouseEvent *>(ev)->position();
+                    cb(node, 11, p.x(), p.y(), 0.0, 0.0);
+                    break;
+                }
+                case QEvent::Leave:
+                    // No position on a Leave event, so the last point seen inside stands — which
+                    // is what the contract promises a handler on exit.
+                    cb(node, 12, last.x(), last.y(), 0.0, 0.0);
+                    break;
+                default:
+                    break;
+            }
+            if (ev->type() == QEvent::MouseMove)
+                last = static_cast<QMouseEvent *>(ev)->position();
+            else if (ev->type() == QEvent::Enter)
+                last = static_cast<QEnterEvent *>(ev)->position();
+            return false;
+        }
         switch (ev->type()) {
             case QEvent::MouseButtonPress: {
                 if (kind > 1) break;
@@ -2067,6 +2094,9 @@ protected:
 
 void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
     QWidget *widget = static_cast<QWidget *>(w);
+    // Hover (kind 4) needs tracking on: without it Qt delivers MouseMove only while a button is
+    // down, which is precisely the case hover is NOT.
+    if (kind == 4) widget->setMouseTracking(true);
     DayGestureFilter *f = new DayGestureFilter(node, kind, cb);
     f->setParent(widget); // freed with the widget
     widget->installEventFilter(f);

@@ -723,6 +723,17 @@ pub enum Event {
         delta: Point,
         location: Point,
     },
+    /// The pointer moved over the node, or left it (docs/canvas.md "Interaction"). `location` is
+    /// in the node's local coordinates. Phases follow the drag vocabulary: `Began` on entry,
+    /// `Changed` for each move, `Ended` on exit — where `location` is the last point seen inside,
+    /// so a handler always knows where the pointer went out.
+    ///
+    /// Only nodes that enabled [`GestureKind::Hover`] receive it, and only on a device with a
+    /// pointer at all.
+    Hover {
+        phase: DragPhase,
+        location: Point,
+    },
     ScrollChanged(Point),
     /// A canvas node was re-framed by layout; re-record (§11). Nav pane/page containers
     /// also report their allocated size with this (docs/navigation.md).
@@ -971,6 +982,12 @@ pub enum GestureKind {
     Tap,
     LongPress,
     Drag,
+    /// The pointer moving OVER the node without pressing (docs/canvas.md "Interaction"), and
+    /// leaving it. Delivered only where a pointer exists: every desktop, an iPad with a trackpad
+    /// or pencil, an Android device with a mouse or stylus. A touch-only device reports none —
+    /// which is the honest answer, not a gap, so anything reachable by hover must also be
+    /// reachable by a tap.
+    Hover,
     /// Pinch/magnify (docs/shapes.md): trackpad magnification, two-finger touch pinch.
     Pinch,
     /// Viewport pan (docs/shapes.md): trackpad two-finger scroll, two-finger touch pan —

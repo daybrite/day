@@ -195,7 +195,38 @@ into a value. `on_tap` (no location) stays for the common case.
 
 Wire both when a press should count as a pick: a press that never moves is a tap on some backends
 and a zero-length drag on others, and since both handlers write the same value, a backend that
-reports both costs nothing. Put them on the canvas **before** any wrapping decorator, because
+reports both costs nothing. (Day-Sketch, whose tap TOGGLES a selection, cannot be idempotent that
+way and carries a 30 ms cross-recognizer guard instead — `src/canvas.rs`'s `handle_click`.)
+
+### Hover
+
+```rust
+canvas(draw).on_hover(move |at| pointer.set(at))     // Some(point) inside, None on leaving
+```
+
+`Some(point)` in the canvas's own coordinates while the pointer is over it, `None` when it leaves.
+**Pointer-only, and that is the honest answer rather than a gap**: a touch-only phone has nothing
+hovering. So anything reachable by hover must also be reachable by a tap — which is exactly how a
+chart's selection is wired, to `on_tap_at`, `on_drag` and `on_hover` together.
+
+| Backend | Hover | Underneath |
+| --- | --- | --- |
+| appkit | ✓ | an `NSTrackingArea` + `mouseEntered:`/`mouseMoved:`/`mouseExited:`. Like Pan, only `DayCanvas` overrides those, so a hover enabled on another view reports nothing |
+| gtk | ✓ | `GtkEventControllerMotion` — enter, motion, leave |
+| qt | ✓ | `setMouseTracking(true)` plus `Enter`/`MouseMove`/`Leave` on the event filter |
+| xaml | ✓ | `PointerEntered`/`Moved`/`Exited`, gated to a Mouse or Pen device |
+| dom | ✓ | `pointerenter`/`move`/`leave`, gated on `pointerType !== 'touch'` |
+| uikit | ✓ (pointer) | `UIHoverGestureRecognizer` — an iPad with a trackpad, a mouse, or a hovering Pencil. A finger-only device reports nothing |
+| android | ✓ (pointer) | `setOnHoverListener` — a mouse or a stylus. A finger generates no `HOVER_*` action at all |
+| arkui | — | the C node API's `NODE_ON_HOVER` carries no coordinates, and the contract is a point |
+
+The three backends that gate on device type all do it for the same reason: the platform reports a
+touch contact through the *same* enter/move/exit events, and passing those through would make every
+tap look like a hover.
+
+On exit, `location` is the last point seen INSIDE the node — none of these platforms reports a
+useful coordinate with the leave event itself, and "where the pointer went out" is what a handler
+wants. Put them on the canvas **before** any wrapping decorator, because
 `.frame` and `.corner_radius` build layout nodes of their own, and a point in a wrapper's space
 is not a point in the canvas's.
 

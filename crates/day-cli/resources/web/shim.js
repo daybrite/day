@@ -1705,6 +1705,29 @@ function listen(id, mask) {
     host.addEventListener('pointerup', finish);
     host.addEventListener('pointercancel', finish);
   }
+  if (mask & 512) {
+    // Hover: pointer entry, motion and exit. `pointerType` gates it to a real pointer — a touch
+    // produces a pointerdown/up pair with an enter and a leave around it, and reporting those as
+    // hovers would make every tap look like a hover on a phone (docs/canvas.md "Interaction").
+    let last = [0, 0];
+    const local = (e) => { const r = host.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    host.addEventListener('pointerenter', (e) => {
+      if (e.pointerType === 'touch') return;
+      last = local(e);
+      wasm.day_dom_event(id, 17, last[0], last[1], 0, 0);
+    });
+    host.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'touch') return;
+      last = local(e);
+      wasm.day_dom_event(id, 18, last[0], last[1], 0, 0);
+    });
+    host.addEventListener('pointerleave', (e) => {
+      if (e.pointerType === 'touch') return;
+      // The leave's own coordinates are outside the element; the contract is the last point seen
+      // INSIDE, so that is what goes out.
+      wasm.day_dom_event(id, 19, last[0], last[1], 0, 0);
+    });
+  }
 }
 
 const resizeObserver = new ResizeObserver((entries) => {

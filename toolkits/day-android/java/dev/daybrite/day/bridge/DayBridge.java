@@ -989,6 +989,36 @@ public final class DayBridge {
      *  coexist; a bare setOnTouchListener does not, so we accumulate here rather than overwrite. */
     static final java.util.WeakHashMap<View, boolean[]> gestureFlags = new java.util.WeakHashMap<>();
 
+    /**
+     * Hover: a mouse or a stylus moving over the view (docs/canvas.md "Interaction"). Phases
+     * 10/11/12 match day_spec::Event::Hover's Began/Changed/Ended. A finger generates no HOVER_*
+     * actions at all, so a touch-only device wires this and never reports — the contract.
+     */
+    public static void enableHover(View v, final long id) {
+        v.setOnHoverListener(new View.OnHoverListener() {
+            float lx, ly;
+            public boolean onHover(View view, MotionEvent ev) {
+                float x = ev.getX(), y = ev.getY();
+                switch (ev.getActionMasked()) {
+                    case MotionEvent.ACTION_HOVER_ENTER:
+                        lx = x; ly = y;
+                        nativeOnEvent(id, K_GESTURE, 10, x + "," + y + ",0,0");
+                        return true;
+                    case MotionEvent.ACTION_HOVER_MOVE:
+                        lx = x; ly = y;
+                        nativeOnEvent(id, K_GESTURE, 11, x + "," + y + ",0,0");
+                        return true;
+                    case MotionEvent.ACTION_HOVER_EXIT:
+                        // The exit's own coordinates can already be outside; the contract is the
+                        // last point seen inside.
+                        nativeOnEvent(id, K_GESTURE, 12, lx + "," + ly + ",0,0");
+                        return true;
+                }
+                return false;
+            }
+        });
+    }
+
     public static void enableGesture(View v, final long id, final boolean isDrag) {
         boolean[] flags = gestureFlags.get(v);
         if (flags == null) { flags = new boolean[2]; gestureFlags.put(v, flags); }

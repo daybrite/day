@@ -668,6 +668,28 @@ fn op_on_pinch(f: impl Fn(Pinch) + 'static) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_on_hover(f: impl Fn(Option<day_spec::Point>) + 'static) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| t.enable_gesture(n, GestureKind::Hover));
+            cx.on(n, move |ev| {
+                if let Event::Hover { phase, location } = ev {
+                    // `None` on exit rather than a phase the caller has to match on: what a
+                    // hover handler wants to know is where the pointer IS, and "nowhere" is a
+                    // state, not an event kind. It is also what makes a handler that writes a
+                    // `Signal<Option<Point>>` a one-liner.
+                    f(match phase {
+                        day_spec::DragPhase::Ended => None,
+                        _ => Some(*location),
+                    });
+                }
+            });
+            n
+        })
+    }
+}
+
 fn op_on_pan(f: impl Fn(Pan) + 'static) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -980,6 +1002,16 @@ impl<P: Piece> Decorated<P> {
     pub fn on_pan(self, f: impl Fn(Pan) + 'static) -> Self {
         self.push(op_on_pan(f))
     }
+    /// The pointer moving over this piece: `Some(point)` in its own coordinates while inside,
+    /// `None` when it leaves (docs/canvas.md "Interaction").
+    ///
+    /// Pointer-only, which is the honest answer rather than a gap: every desktop delivers it, an
+    /// iPad does with a trackpad or pencil, an Android device with a mouse or stylus, and a
+    /// touch-only phone delivers nothing at all. **Anything reachable by hover must also be
+    /// reachable by a tap** — wire `on_tap_at` alongside it, exactly as a chart's selection does.
+    pub fn on_hover(self, f: impl Fn(Option<day_spec::Point>) + 'static) -> Self {
+        self.push(op_on_hover(f))
+    }
     pub fn background<M>(self, color: impl IntoReactive<Color, M>) -> Self {
         self.push(op_background(color.into_reactive()))
     }
@@ -1280,6 +1312,13 @@ pub trait Decorate: Piece + Sized {
     /// as it arrives.
     fn on_pan(self, f: impl Fn(Pan) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_pan(f)
+    }
+
+    /// The pointer moving over this piece: `Some(point)` in its own coordinates while inside,
+    /// `None` when it leaves (docs/canvas.md "Interaction"). Pointer-only — wire `on_tap_at`
+    /// alongside it so a touch-only device can reach the same thing.
+    fn on_hover(self, f: impl Fn(Option<day_spec::Point>) + 'static) -> Decorated<Self> {
+        Decorated::new(self).on_hover(f)
     }
 
     /// Fill the piece's bounds with a solid color painted behind it — a message-bubble / card /

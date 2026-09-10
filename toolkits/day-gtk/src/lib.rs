@@ -4757,6 +4757,51 @@ impl Toolkit for Gtk {
                 });
                 h.add_controller(scroll);
             }
+            GestureKind::Hover => {
+                // GtkEventControllerMotion is exactly this gesture: enter, motion, leave. It
+                // reports only when a pointer is present, which is the contract.
+                let motion = gtk4::EventControllerMotion::new();
+                let last = std::rc::Rc::new(std::cell::Cell::new(Point::ZERO));
+                let l = last.clone();
+                motion.connect_enter(move |_, x, y| {
+                    ffi_guard::contain((), || {
+                        l.set(Point::new(x, y));
+                        emit(
+                            node,
+                            Event::Hover {
+                                phase: DragPhase::Began,
+                                location: Point::new(x, y),
+                            },
+                        );
+                    });
+                });
+                let l = last.clone();
+                motion.connect_motion(move |_, x, y| {
+                    ffi_guard::contain((), || {
+                        l.set(Point::new(x, y));
+                        emit(
+                            node,
+                            Event::Hover {
+                                phase: DragPhase::Changed,
+                                location: Point::new(x, y),
+                            },
+                        );
+                    });
+                });
+                motion.connect_leave(move |_| {
+                    ffi_guard::contain((), || {
+                        // A leave carries no position, so the last point seen inside stands.
+                        emit(
+                            node,
+                            Event::Hover {
+                                phase: DragPhase::Ended,
+                                location: last.get(),
+                            },
+                        );
+                    });
+                });
+                h.add_controller(motion);
+            }
             _ => {
                 let click = gtk4::GestureClick::new();
                 click.connect_released(move |_, _n, x, y| {

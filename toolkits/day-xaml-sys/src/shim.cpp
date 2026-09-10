@@ -1981,6 +1981,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             break;
         }
         }
+        } // the stamp repetition; its body keeps the switch's own indentation on purpose
         if (!stampAt.empty()) { cur = curSaved; stampAt.clear(); }
         // A style record applies to ONE stroke; anything else clears it. A font record
         // likewise applies to one text.
@@ -3843,6 +3844,37 @@ void day_xaml_enable_gesture(void* h, unsigned long long id, int kind,
                 auto t = a.Cumulative().Translation;
                 cb(id, 3, p.X, p.Y, t.X, t.Y);
             });
+    } else if (kind == 3) {
+        // Hover → the pointer events, gated to a real pointer: WinUI reports a touch contact
+        // through the same PointerEntered/Moved/Exited, and reporting those as hovers would make
+        // every tap look like one (docs/canvas.md "Interaction"). Phases 10/11/12.
+        auto lastX = std::make_shared<double>(0.0);
+        auto lastY = std::make_shared<double>(0.0);
+        auto is_pointer = [](WUXIn::PointerRoutedEventArgs const& a) {
+            auto t = a.Pointer().PointerDeviceType();
+            return t == winrt::Windows::Devices::Input::PointerDeviceType::Mouse ||
+                   t == winrt::Windows::Devices::Input::PointerDeviceType::Pen;
+        };
+        el.PointerEntered([id, cb, el, lastX, lastY, is_pointer](
+                              WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) {
+            if (!is_pointer(a)) return;
+            auto p = a.GetCurrentPoint(el).Position();
+            *lastX = p.X; *lastY = p.Y;
+            cb(id, 10, p.X, p.Y, 0, 0);
+        });
+        el.PointerMoved([id, cb, el, lastX, lastY, is_pointer](
+                            WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) {
+            if (!is_pointer(a)) return;
+            auto p = a.GetCurrentPoint(el).Position();
+            *lastX = p.X; *lastY = p.Y;
+            cb(id, 11, p.X, p.Y, 0, 0);
+        });
+        el.PointerExited([id, cb, lastX, lastY, is_pointer](
+                             WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) {
+            if (!is_pointer(a)) return;
+            // The exit's own point can already be outside; the contract is the last one inside.
+            cb(id, 12, *lastX, *lastY, 0, 0);
+        });
     } else if (kind == 1) { // LongPress → Holding (touch/pen; fire once on Started)
         el.IsHoldingEnabled(true);
         el.Holding([id, cb, el](WF::IInspectable const&, WUXIn::HoldingRoutedEventArgs const& a) {
