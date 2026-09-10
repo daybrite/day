@@ -163,9 +163,14 @@ The following traps fail silently:
 - **iOS, again.** Day-initiated stack changes are one `setViewControllers:animated:` each,
   computed at execution from the pages UIKit reports plus or minus the one page that joined or
   left (`push_page`, `pop_page`). Nothing is kept on Day's side to fall out of step: a page that
-  the user already popped is simply not in what UIKit reports, and removing it is a no-op. UIKit
-  keeps `viewControllers` current from the moment a set is issued, so two changes queued behind
-  each other each see the other's result.
+  the user already popped is simply not in what UIKit reports, and removing it is a no-op. One
+  thing IS kept, only while a set animates: its target, because UIKit defers a
+  `setViewControllers:animated:` issued mid-transition and keeps reporting the old stack until
+  it lands (and warns about the call). So changes issued in one turn coalesce into one set, and
+  a change that arrives while a set is in flight waits for that set's completion — never a
+  second set during an animation. A scripted `nav_back: { native: true }` waits for `ui_idle`
+  for the same reason: pressed during a push still animating, the bar had nothing to pop, and a
+  wide window then passed the step as "nothing was pushed" (the iPad CI leg, 2026-09-10).
 - **iOS, a third time.** Never *animate* to an empty stack (deselecting in the expanded split
   empties the detail column): with no destination controller the transition sets up but never
   completes, the stack keeps its old contents, and the orphaned transition coordinator reports
@@ -341,7 +346,9 @@ The runner performs the resize and the engine half waits until the app has repor
 so the next step cannot race the platform's resize animation. It is asserted as a **width class**:
 what reaches day-core is the safe-area-inset content size, so a window resized to 900pt tall
 reports about 830 once the status bar, the navigation bar and the app bar come out (a page that is
-one scroll view reports its full bounds on iOS and absorbs the bars as content insets instead), and
+one scroll view reports its full height on iOS and absorbs the bars as content insets instead;
+the sides always come out, and on iPadOS 26 the floating sidebar is a 330pt left inset of the
+secondary column, so a detail beside it reports about 700 wide on an iPad Pro), and
 width is what every re-presentation decision reads anyway. Aim for mid-bucket sizes; a width within a few
 points of a breakpoint can fall the other side of it once insets are taken out.
 

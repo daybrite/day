@@ -426,6 +426,18 @@ swipe recognizer's delegate, whose `gestureRecognizerShouldBegin:` vetoes the sw
 `NavBack { already_popped: false }` and let Day decide. The gesture is never disabled, so a guard
 that proceeds pops through Day's rail and the next swipe works with nothing to re-enable.
 
+> [!NOTE]
+> **Considered and declined (2026-09-10): letting the toolkit own the stack.** The alternative to
+> the two rules above is to hand structure to UIKit entirely — Day asks `showDetailViewController`
+> / `show(column)` / `push` and learns the route from a single `NavChanged` report — and to
+> delete the `NavPatch` vocabulary with it. It was set aside on purpose. Day's model being the
+> truth, synchronously, is what lets one dayscript walkthrough pass on nine targets and every gate
+> keyed on the selection stay coherent in one flush; the friction it costs is confined to this
+> one backend; and the pieces that broke between iOS 18 and 26 were the places Day *observed*
+> UIKit, which that design would do more of. Revisit only if a later iOS release breaks the split
+> merge again after the remaining reconciliation has been trimmed, or a second native toolkit
+> needs the same fight.
+
 `nav_back:` in a walkthrough drives Day's rail and reaches none of this; `nav_back: { native: true }`
 presses the bar's button (`Toolkit::native_back` → `DayNavController::press_back`), which asks
 `shouldPopItem:` through its selector and pops through the override, so a script covers the code

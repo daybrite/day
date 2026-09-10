@@ -79,6 +79,8 @@ system back on Android — so the toolkit's own user-back path runs: the bar's v
 page, the native pop, and the report back to Day. That is the code a real tap runs and the bare
 step never reaches, which is why a walkthrough that guards a page should back out of it both
 ways. Desktops have no native back for a nested stack, so gate the step `only_on: [uikit, mdc]`.
+The native form waits for the toolkit's transitions to settle before pressing, as `screenshot`
+does, so it never races the push it is meant to undo.
 
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, so
 scripts need no hand-tuned sleeps. Acting steps synthesize Day events on the

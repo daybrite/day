@@ -424,4 +424,7 @@ local check.
 ## Pseudolocale
 
 Setting the locale to `en-XA` accents and expands every string (`Cáncél ・ロング`) to stress-test
-layout for longer translations and non-Latin glyphs, without needing a real translation.
+layout for longer translations and non-Latin glyphs, without needing a real translation. The
+suffix works on any locale: `fr-XA` is the French catalog under the same transform, so a
+translation can be stressed as well as the source. The showcase's View ▸ Toggle Pseudo-Locale
+(⌘⇧X) adds and removes the suffix on whatever locale is in force.

@@ -107,7 +107,8 @@ can assert by Fluent key rather than literal text, so one script passes in every
 
 `en-XA` is the built-in pseudolocale: it accents the vowels and appends an expansion suffix to
 each formatted message, interpolations included (`Hélló, Ádá! ・ロング`), which makes
-unlocalized hardcoded strings jump out visually and stresses layouts with longer text.
+unlocalized hardcoded strings jump out visually and stresses layouts with longer text. The
+`-XA` suffix works on any locale, so `fr-XA` stresses the French translation the same way.
 `day lint` complements it statically, flagging unused and unknown keys and translations missing
 from a locale.
 

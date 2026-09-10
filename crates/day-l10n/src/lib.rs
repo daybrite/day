@@ -171,7 +171,7 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
             let lang = l.split('-').next().unwrap_or(l);
             let keys = [l, base_locale(l), lang];
             let catalogs = if st.app.is_empty() { &st.core } else { &st.app };
-            keys.iter().any(|k| catalogs.contains_key(*k)) || l == "en-XA"
+            keys.iter().any(|k| catalogs.contains_key(*k)) || is_pseudo(l)
         };
         let candidates = std::env::var("DAY_LOCALE")
             .ok()
@@ -320,8 +320,9 @@ fn message_from(
 }
 
 /// Resolve `key`: app bundle for the locale, then app-default, then the built-in core catalog for the
-/// locale, then core English. `en-XA` resolves against the default and accents the result.
-/// Signal args are tracked reads.
+/// locale, then core English. A pseudo-locale (`en-XA`, `fr-XA`: any locale with the `-XA` suffix)
+/// resolves against the locale under the suffix and accents the result. Signal args are tracked
+/// reads.
 pub fn format_in(locale_name: &str, key: &str, args: &[(String, FArg)]) -> String {
     ensure_state();
     STATE.with(|s| {
@@ -331,12 +332,9 @@ pub fn format_in(locale_name: &str, key: &str, args: &[(String, FArg)]) -> Strin
         for (k, v) in args {
             fargs.set(k.clone(), v.resolve());
         }
-        let pseudo = locale_name == "en-XA";
-        let lookup = if pseudo {
-            st.default.as_str()
-        } else {
-            locale_name
-        };
+        let base = locale_name.strip_suffix(PSEUDO_SUFFIX);
+        let pseudo = base.is_some();
+        let lookup = base.unwrap_or(locale_name);
         let out = message_from(&st.app, lookup, key, &fargs)
             .or_else(|| message_from(&st.app, &st.default, key, &fargs))
             .or_else(|| message_from(&st.core, lookup, key, &fargs))
@@ -360,7 +358,16 @@ pub fn t(key: &str) -> String {
     format_in(&locale().get(), key, &[])
 }
 
-/// Accent + expansion transform for layout-stress testing (`en-XA`).
+/// The suffix that turns any locale into its pseudo-locale (`fr` → `fr-XA`): the strings of the
+/// locale underneath, accented and expanded (docs/localization.md).
+const PSEUDO_SUFFIX: &str = "-XA";
+
+/// Whether `l` is a pseudo-locale.
+fn is_pseudo(l: &str) -> bool {
+    l.ends_with(PSEUDO_SUFFIX)
+}
+
+/// Accent + expansion transform for layout-stress testing (the `-XA` pseudo-locales).
 fn pseudolocalize(s: &str) -> String {
     let mut out: String = s
         .chars()

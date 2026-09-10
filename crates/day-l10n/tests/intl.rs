@@ -228,3 +228,19 @@ fn pseudolocale_unaffected() {
         "en-XA still resolves: {out}"
     );
 }
+
+#[test]
+fn pseudolocale_of_any_locale() {
+    install_fixture();
+    // `fr-XA` is French underneath: the French rendering, accented and expanded — not the
+    // English one.
+    let fr = dt("fr", "when_long", "2026-09-10");
+    let xa = dt("fr-XA", "when_long", "2026-09-10");
+    let en = dt("en-XA", "when_long", "2026-09-10");
+    assert!(fr.contains("septembre"), "french fixture renders: {fr}");
+    assert!(
+        xa.contains("séptémbré"),
+        "fr-XA accents the French month: {xa}"
+    );
+    assert!(!en.contains("séptémbré"), "en-XA stays English: {en}");
+}

@@ -128,7 +128,7 @@ pub fn survey(project_root: &Path) -> LocaleSurvey {
 }
 
 /// The locale subdirectories of `dir`, or `None` when the directory itself is absent. The
-/// pseudolocale is a development aid and never joins the sync contract — the same exclusion
+/// pseudolocales (`-XA`) are a development aid and never join the sync contract — the same exclusion
 /// store.rs applies to listings.
 fn dir_locales(dir: &Path) -> Option<Vec<String>> {
     let entries = std::fs::read_dir(dir).ok()?;
@@ -136,7 +136,7 @@ fn dir_locales(dir: &Path) -> Option<Vec<String>> {
         .flatten()
         .filter(|e| e.path().is_dir())
         .filter_map(|e| e.file_name().to_str().map(str::to_string))
-        .filter(|t| t != "en-XA")
+        .filter(|t| !t.ends_with("-XA"))
         .collect();
     v.sort();
     Some(v)

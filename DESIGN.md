@@ -1196,7 +1196,10 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > bars on to its own pages) fills the page's bounds and takes the bars as
 > UIKit content insets (`DayNavPageView::layoutSubviews`, `scroll_leaf`), so the list runs under
 > the translucent bar the way Settings does; any other page stays pinned inside the safe area.
-> UIKit's own `contentInsetAdjustmentBehavior` is left at its default there rather than
+> Only the top and bottom insets are absorbed this way: the sides still pad the frame in both
+> modes (`content_frame`), because a side inset is never a bar — iPadOS 26 floats the split
+> view's sidebar over the secondary column and reports it as that column's left safe area, so
+> a detail laid out across it would run on under the list. UIKit's own `contentInsetAdjustmentBehavior` is left at its default there rather than
 > neutralized as the bullet below proposes, because for a scroll-rooted page it computes exactly
 > the inset the policy asks for. The same rule holds at the WINDOW root (`DayHolderView`): a
 > root that is one nav, split or tab host, or one scroll view, takes the window's full bounds

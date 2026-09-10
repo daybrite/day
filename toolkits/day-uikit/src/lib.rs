@@ -477,17 +477,7 @@ mod imp {
         let insets = unsafe { window.safeAreaInsets() };
         // A hosted root takes the whole window (the holder's layout pass has the rule); the
         // tree usually mounts after this point, and the insert duty re-lays the holder then.
-        let inner = if scroll_leaf(&holder) {
-            bounds
-        } else {
-            CGRect::new(
-                CGPoint::new(insets.left, insets.top),
-                CGSize::new(
-                    (bounds.size.width - insets.left - insets.right).max(0.0),
-                    (bounds.size.height - insets.top - insets.bottom).max(0.0),
-                ),
-            )
-        };
+        let inner = content_frame(bounds, insets, scroll_leaf(&holder));
         unsafe { root_view.setFrame(inner) };
         if *DIAG_NAV {
             let min = unsafe { scene.sizeRestrictions() }
@@ -679,21 +669,39 @@ mod imp {
         None
     }
 
+    /// The controller behind a nav host's handle — the split, the stack, or the `.tabSidebar`
+    /// tab bar — for the containment fix-up `insert` performs when the host lands in a page.
+    ///
+    /// The tab bar counts. Left out, a tabs host nested in a page stayed a child of the WINDOW's
+    /// root controller while its view sat under the page's navigation bar, and UIKit derives
+    /// a controller's safe area from its PARENT controller: the tab pages were told the status
+    /// bar was the only chrome above them, and a scroll-rooted tab page — which bleeds, and
+    /// trusts that inset — laid its first row under the navigation bar and the top tab bar
+    /// (the Showcase Tabs page on an iPad, 2026-09-10).
     fn host_controller(h: &Handle) -> Option<Retained<UIViewController>> {
         let key = ptr_of(h);
         // `as_ref` stops at the declared superclass, so these go up the chain by deref coercion.
-        NAV_STATE.with(|m| {
-            m.borrow().get(&key).map(|s| match s.split.as_ref() {
-                Some(parts) => {
-                    let vc: &UIViewController = &parts.split_vc;
-                    Retained::from(vc)
-                }
-                None => {
-                    let vc: &UIViewController = &s.nav;
-                    Retained::from(vc)
-                }
+        NAV_STATE
+            .with(|m| {
+                m.borrow().get(&key).map(|s| match s.split.as_ref() {
+                    Some(parts) => {
+                        let vc: &UIViewController = &parts.split_vc;
+                        Retained::from(vc)
+                    }
+                    None => {
+                        let vc: &UIViewController = &s.nav;
+                        Retained::from(vc)
+                    }
+                })
             })
-        })
+            .or_else(|| {
+                NAV_TABS.with(|m| {
+                    m.borrow().get(&key).map(|t| {
+                        let vc: &UIViewController = &t.tabbar;
+                        Retained::from(vc)
+                    })
+                })
+            })
     }
 
     // -----------------------------------------------------------------------
@@ -2458,17 +2466,7 @@ mod imp {
                     let subs = unsafe { self.subviews() };
                     let content = subs.firstObject();
                     let full_bleed = content.as_ref().is_some_and(|c| scroll_leaf(c));
-                    let frame = if full_bleed {
-                        bounds
-                    } else {
-                        CGRect::new(
-                            CGPoint::new(insets.left, insets.top),
-                            CGSize::new(
-                                (bounds.size.width - insets.left - insets.right).max(0.0),
-                                (bounds.size.height - insets.top - insets.bottom).max(0.0),
-                            ),
-                        )
-                    };
+                    let frame = content_frame(bounds, insets, full_bleed);
                     if let Some(content) = content {
                         unsafe { content.setFrame(frame) };
                         if *DIAG_NAV {
@@ -2530,6 +2528,31 @@ mod imp {
     /// its own pages: a tab whose content is a nav host must reach under the tab bar, or the
     /// list inside it never can. A page with two children at any level is neither: a heading
     /// over a list has nowhere to absorb a bar, so that page keeps the safe-area pin.
+    /// The frame a page or the window root gives its content inside `bounds`, given the safe
+    /// area `insets` there. Pinned, all four insets pad it. Bleeding (`scroll_leaf`), only the
+    /// SIDES still do: a bar is vertical chrome, and a scroll view absorbs it as a content
+    /// inset on the way past — a side inset never is. iPadOS 26 floats the split view's
+    /// sidebar over the secondary column and reports it as that column's left safe area
+    /// (330pt on an iPad Pro), and a landscape iPhone reports its sensor housing the same way;
+    /// a scroll view laid out across either puts its content under the sidebar, and the user
+    /// sees a detail that runs on beneath the list. So the sides pad the frame in both modes,
+    /// and the content moves aside when the sidebar is shown, which is what `FrameChanged`
+    /// then reports (docs/size-classes.md).
+    fn content_frame(bounds: CGRect, insets: UIEdgeInsets, bleed: bool) -> CGRect {
+        let (top, bottom) = if bleed {
+            (0.0, 0.0)
+        } else {
+            (insets.top, insets.bottom)
+        };
+        CGRect::new(
+            CGPoint::new(insets.left, top),
+            CGSize::new(
+                (bounds.size.width - insets.left - insets.right).max(0.0),
+                (bounds.size.height - top - bottom).max(0.0),
+            ),
+        )
+    }
+
     fn scroll_leaf(content: &UIView) -> bool {
         let mut view = content.retain();
         // Day's wrappers are shallow; a bound keeps a pathological tree from being walked twice
@@ -3489,9 +3512,6 @@ mod imp {
             settled(host, generation);
             return;
         };
-        if !retry {
-            return;
-        }
         use objc2_ui_kit::{
             UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
         };
@@ -3503,7 +3523,7 @@ mod imp {
                 move |ctx: NonNull<
                     ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinatorContext>,
                 >| {
-                    if !unsafe { ctx.as_ref().isCancelled() } {
+                    if !unsafe { ctx.as_ref().isCancelled() } || !retry {
                         settled(host, generation);
                         return;
                     }
@@ -3511,6 +3531,7 @@ mod imp {
                         log::debug!("DAYDIAG exec SET cancelled -> once more");
                     }
                     let Some(again) = again.borrow_mut().take() else {
+                        settled(host, generation);
                         return;
                     };
                     dispatch2::DispatchQueue::main().exec_async(move || {
@@ -3597,6 +3618,13 @@ mod imp {
             let Some(entry) = q.get_mut(&host) else {
                 return Vec::new();
             };
+            // A set is still animating: leave everything queued (still scheduled) and let its
+            // completion run this again. UIKit defers a `setViewControllers:animated:` issued
+            // mid-transition and keeps reporting the old stack until it lands — the window in
+            // which a scripted back found nothing to pop — and warns about the call besides.
+            if entry.in_flight.is_some() {
+                return Vec::new();
+            }
             entry.scheduled = false;
             std::mem::take(&mut entry.ops)
         });
@@ -3695,13 +3723,23 @@ mod imp {
     /// The change `generation` on `host` has settled: the stack UIKit reports is the truth
     /// again, unless a newer change has been issued since.
     fn settled(host: usize, generation: u64) {
-        NAV_OPS.with(|q| {
-            if let Some(entry) = q.borrow_mut().get_mut(&host)
-                && entry.generation == generation
-            {
-                entry.in_flight = None;
+        let more = NAV_OPS.with(|q| {
+            let mut q = q.borrow_mut();
+            let Some(entry) = q.get_mut(&host) else {
+                return false;
+            };
+            if entry.generation != generation {
+                return false;
             }
+            entry.in_flight = None;
+            !entry.ops.is_empty()
         });
+        if more {
+            // Off the completion's stack: UIKit is still inside the transition there.
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                day_spec::ffi_guard::contain((), || modal_after_idle(move || apply_ops(host)));
+            });
+        }
     }
 
     /// The Day page on top of `host`'s active stack, as the app will see it: the top of the
@@ -4096,17 +4134,7 @@ mod imp {
                     // this holder's own ground. Anything else keeps the padding: a form has
                     // nothing to absorb a status bar with.
                     let full = scroll_leaf(self);
-                    let mut inner = if full {
-                        bounds
-                    } else {
-                        CGRect::new(
-                            CGPoint::new(insets.left, insets.top),
-                            CGSize::new(
-                                (bounds.size.width - insets.left - insets.right).max(0.0),
-                                (bounds.size.height - insets.top - insets.bottom).max(0.0),
-                            ),
-                        )
-                    };
+                    let mut inner = content_frame(bounds, insets, full);
                     // A window with no navigation host of its own carries the window toolbar
                     // here, across the top (docs/toolbars.md), where a page's bar would be.
                     // Framed on every pass rather than autoresized: its height is the bar's

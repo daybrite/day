@@ -1759,6 +1759,13 @@ fn exec(step: Step) -> Reply {
                 // path — the bar's `shouldPop`, the pop, the report to Day — is what runs. The
                 // pop animates and Day hears of it on completion, so nothing is flushed here;
                 // the next `assert_route` waits for it like any assertion.
+                // A native press must not race the transition before it: pressed during a
+                // push still animating, the bar has nothing to pop yet, and a wide window
+                // would then pass this step as "nothing was pushed" (below). Retryable, like
+                // `screenshot`'s own settle.
+                if native && !with_tree(|t| t.ui_idle()) {
+                    return Err(Reply::fail("ui transitions still settling", true));
+                }
                 let popped = if native {
                     with_tree(|t| t.native_back())
                 } else {

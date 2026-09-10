@@ -70,8 +70,8 @@ if day::window_image_support() == Support::Native { /* offer the command */ }
 ```
 
 It answers `Support::Native` on eight backends and `Support::Unsupported` on **web-dom**, where a
-DOM cannot rasterize itself. Gate the UI on it (the Showcase's Screenshot toolbar
-button and View-menu item both do) rather than offering a command that can only fail.
+DOM cannot rasterize itself. Gate the UI on it (the Showcase's Screenshot menu item
+does) rather than offering a command that can only fail.
 
 `capture()` still returns `Err` for the ordinary runtime reasons even where support is `Native`:
 no window on screen yet, a zero-size window, a compositor that declined.

@@ -322,8 +322,8 @@ pub fn app_locales(project: &Project) -> Vec<String> {
         .flatten()
         .filter(|e| e.path().is_dir())
         .filter_map(|e| e.file_name().to_str().map(str::to_string))
-        // The pseudolocale is a development aid, never a store listing.
-        .filter(|t| t != "en-XA")
+        // A pseudolocale (`-XA`) is a development aid, never a store listing.
+        .filter(|t| !t.ends_with("-XA"))
         .collect();
     out.sort();
     out
