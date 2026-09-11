@@ -34,7 +34,7 @@ export default class DayWindowAbility extends UIAbility {
     const storage: LocalStorage = new LocalStorage();
     storage.setOrCreate('dayNode', this.node);
     storage.setOrCreate('dayTitle', this.title);
-    windowStage.loadContent('pages/DayWindow', storage);
+    windowStage.loadContent('day/DayWindow', storage);
   }
 
   onForeground(): void {

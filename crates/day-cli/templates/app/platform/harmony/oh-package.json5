@@ -1,7 +1,9 @@
 {
   "modelVersion": "5.0.0",
-  "name": "day-arkui-demo",
+  // A constant, like the Gradle rootProject.name: DevEco shows it and nothing else reads it,
+  // so the app's identity stays in Day.toml (AppScope/app.json5 carries the bundle name).
+  "name": "dayapp",
   "version": "1.0.0",
-  "description": "Day framework running on HarmonyOS Next via the ArkUI backend",
+  "description": "The hvigor host project of a Day app (docs/harmonyos.md)",
   "dependencies": {}
 }

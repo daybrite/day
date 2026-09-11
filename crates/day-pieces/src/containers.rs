@@ -131,8 +131,10 @@ pub enum RowFit {
     /// child's width, and each line holds as many as the window fits. The tidier arm of
     /// [`Wrap`](RowFit::Wrap) — same wrapping, but the lines stack into a grid, which is what
     /// a set of peer choices (a keypad, a palette, evenly-weighted chips) wants. The column
-    /// count follows the available width; an authored, fixed column count with per-cell spans
-    /// is [`grid`]'s job instead (docs/grid.md).
+    /// count follows the available width. When any child grows (`.grow_w()`), the widest child
+    /// becomes the narrowest a column gets and the columns stretch to share the whole width,
+    /// the adaptive grid a gallery of tiles wants. An authored, fixed column count with
+    /// per-cell spans is [`grid`]'s job instead (docs/grid.md).
     WrapColumns { run_spacing: f64 },
     /// Re-arrange into a leading-aligned column while the window's [`WidthClass`] is at or
     /// below the given one — the shape a label-plus-control-plus-result line wants, where

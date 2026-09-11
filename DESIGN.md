@@ -3162,8 +3162,11 @@ gitignores the HarmonyOS links. Every `day build`/`launch`/`pack` calls `crate::
 first (a no-op while the lock vouches for the master and the generator), and so does the Xcode
 target's "Build Rust (day)" phase, so a GUI build never compiles a stale catalog.
 
-`day open -p <target>` prepares, then opens the target's host project in its IDE (Xcode,
-Android Studio, DevEco Studio).
+For `harmony-arkui`, `day prepare` (and every build) also stages the framework's ArkTS host —
+the abilities, pages and native typings that live in the day-arkui crate — into the hvigor
+project, gitignored, the way Gradle reads the Java shim from day-android (2026-09; before that
+every app carried its own copy and drifted). `day open -p <target>` prepares, then opens the
+target's host project in its IDE (Xcode, Android Studio, DevEco Studio).
 
 `day icon --generate [--seed <int|string>] [--overwrite] [--out <file.svg>]` writes a seeded
 pseudo-random layered master (`day-vector`'s `icongen`) and prepares the outputs from it;
@@ -3477,7 +3480,9 @@ fieldnotes/
                              #   DayApp.xcconfig, as on ios
     android/                 #   Gradle project; committed build files read the generated
                              #   build/day/android/*.json|properties generically (§17.5)
-    harmony/                 #   hvigor project (docs/harmonyos.md; pre-rename scaffolds'
+    harmony/                 #   hvigor skeleton only (docs/harmonyos.md): the ArkTS host —
+                             #   abilities, pages, native typings — is the day-arkui crate's,
+                             #   staged in gitignored by `day build`/`prepare`; pre-rename scaffolds'
                              #   platform/ohos/ is still read, with a rename hint)
 ```
 

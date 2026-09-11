@@ -62,13 +62,12 @@ const description = `${app.label} on every platform it builds for: ${app.counts.
   <section class="section gal-hero">
     <div class="container">
       <p class="eyebrow"><a href={url('gallery')}>Screenshot gallery</a></p>
-      <h1 class="gal-title">{app.label}, <span class="accent-text">native on every platform</span>.</h1>
+      <h1 class="gal-title">{app.label} <span class="accent-text">screenshots</span></h1>
       <p class="lead">{app.blurb}</p>
       <p class="lead">
-        Every screenshot below was taken by the <a href={url('docs/dayscript')}>dayscript</a>{' '}
-        walkthrough that {app.label}'s own CI runs, and is served from{' '}
-        {app.site ? <a href={app.site} target="_blank" rel="noopener">its own site</a> : 'its own site'}.
-        Each row is one screen; scroll it sideways to compare platforms.
+        These screenshots come from automated app tests run with
+        <a href={url('docs/dayscript')}>dayscript</a>.
+        Each row shows the same screen on different platforms; scroll sideways to compare them.
       </p>
       <p class="gen">
         {generated ? <span>Published {generated} · </span> : null}

@@ -41,6 +41,8 @@ const ARTIFACT_DIRS: &[&str] = &[
     "platform/harmony/entry/src/main/resources/rawfile/day",
     "platform/harmony/entry/src/main/ets/daypieces",
     "platform/harmony/entry/src/main/ets/daybridge",
+    "platform/harmony/entry/src/main/ets/day",
+    "platform/harmony/entry/src/main/cpp/types/libentry",
     // xcodebuild intermediates land under the SYMROOT `day build` sets (inside build/), so
     // these exist only after an in-place `xcodebuild` without one — covered defensively.
     "platform/ios/build",

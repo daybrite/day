@@ -792,6 +792,18 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
+/// Stage the framework's ArkTS host and the pieces' ArkTS into the hvigor project without
+/// building — what `day prepare -p harmony-arkui` and `day open -p harmony-arkui` run so DevEco
+/// Studio opens a project with its abilities and pages in place on a fresh clone (they are
+/// gitignored; docs/harmonyos.md). A project with no HarmonyOS host is left alone.
+pub fn stage_host(project: &Project) -> Result<(), String> {
+    let harmony = harmony_dir(project);
+    if !harmony.join("build-profile.json5").exists() {
+        return Ok(());
+    }
+    crate::pieces::write_ohos_pieces(project, &harmony)
+}
+
 pub fn build_ohos(
     project: &Project,
     target: &'static Target,
@@ -802,15 +814,16 @@ pub fn build_ohos(
     if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
             "harmony-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/harmony/` \
-             project (the hvigor project + sign-hap.mjs), like daybrite/Day-Showcase's platform/harmony. See \
+             hvigor project, the one `day new` scaffolds (`day app add-toolkit harmony-arkui`). See \
              docs/harmonyos.md.",
             harmony.display()
         ));
     }
 
-    // 0) Stage every standalone piece's ArkTS into the project + regenerate the aggregator the host
-    //    page registers (docs/extending.md). Before the cargo leg, because hvigor compiles whatever
-    //    is on disk and a piece's Rust renderer is useless without its ArkTS half.
+    // 0) Stage the framework's ArkTS host (docs/harmonyos.md) and every standalone piece's ArkTS
+    //    into the project, and regenerate the aggregator the host page registers
+    //    (docs/extending.md). Before the cargo leg, because hvigor compiles whatever is on disk
+    //    and a piece's Rust renderer is useless without its ArkTS half.
     crate::pieces::write_ohos_pieces(project, &harmony)?;
 
     // 1) Cross-compile the app to a cdylib for EACH connected target's arch (an emulator is x86_64,
@@ -990,10 +1003,10 @@ pub fn build_ohos(
     // build ceiling.
     crate::mobile::run_logged_within(&mut hv, "hvigorw assembleHap", crate::ops::BUILD_TIMEOUT)?;
 
-    // 3) Patch + sign the assembled (unsigned) .hap via platform/harmony/sign-hap.mjs: it rewrites module.json's
+    // 3) Patch + sign the assembled (unsigned) .hap via sign-hap.mjs: it rewrites module.json's
     //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification — see the script)
     //    then signs with the OpenHarmony public release material.
-    let hap = sign_hap(&harmony, &ndk)?;
+    let hap = sign_hap(project, &harmony, &ndk)?;
     status("Built", &format!("{} → {}", target.name, hap.display()));
     Ok(BuildOutcome {
         target: target.name,
@@ -1031,21 +1044,34 @@ fn find_hap(dir: &Path, pred: impl Fn(&str) -> bool) -> Option<PathBuf> {
     None
 }
 
-/// Patch + sign the hvigor-built unsigned hap via the project's `sign-hap.mjs <unsigned> <signed>`
-/// (Node — hvigor already requires it). The script rewrites module.json's compileSdkType to
+/// The dev-tier patch + sign script (`node sign-hap.mjs <unsigned> <signed>`, cwd = the hvigor
+/// project, which it reads AppScope/app.json5 from). The CLI's own — it is tooling, not app
+/// code, so it ships embedded here and is written under `build/day/harmony/` when a build needs
+/// it; a project that still carries a `platform/harmony/sign-hap.mjs` of its own (the
+/// pre-2026-09 scaffold) keeps using that one.
+const SIGN_HAP_MJS: &str = include_str!("../resources/harmony/sign-hap.mjs");
+
+/// Patch + sign the hvigor-built unsigned hap via `sign-hap.mjs <unsigned> <signed>` (Node —
+/// hvigor already requires it). The script rewrites module.json's compileSdkType to
 /// "OpenHarmony" so the emulator skips code-sign verification (the public release cert's code
 /// signature is otherwise rejected with 9568393), then signs with the SDK's release material.
-fn sign_hap(harmony: &Path, ndk: &str) -> Result<PathBuf, String> {
+fn sign_hap(project: &Project, harmony: &Path, ndk: &str) -> Result<PathBuf, String> {
     let build = harmony.join("entry/build");
     // hvigor emits `entry-<product>-unsigned.hap`; fall back to any hap.
     let unsigned = find_hap(&build, |n| n.contains("unsigned"))
         .or_else(|| find_hap(&build, |_| true))
         .ok_or_else(|| format!("no .hap produced under {}", build.display()))?;
-    let sign = harmony.join("sign-hap.mjs");
-    if !sign.exists() {
-        // No patcher/signer — hand back the unsigned hap and let the install surface the rejection.
-        return Ok(unsigned);
-    }
+    let own = harmony.join("sign-hap.mjs");
+    let sign = if own.exists() {
+        own
+    } else {
+        let staged = project.root.join("build/day/harmony/sign-hap.mjs");
+        if let Some(dir) = staged.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        crate::pieces::write_if_changed(&staged, SIGN_HAP_MJS)?;
+        staged
+    };
     let signed = unsigned.with_file_name("day-signed.hap");
     status("Signing", &signed.display().to_string());
     let mut cmd = Command::new("node");

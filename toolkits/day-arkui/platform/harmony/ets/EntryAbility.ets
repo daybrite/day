@@ -3,6 +3,9 @@ import { window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import nativeEntry from 'libentry.so';
 
+// The app's main ability — the framework's, staged into `entry/src/main/ets/day/` by `day build`
+// from the day-arkui crate (docs/harmonyos.md). An app never edits this copy.
+
 // One entry of the rawfile `day/fonts.json` manifest `day build` stages from the project's
 // `fonts/` directory (§18.4).
 interface DayFontEntry {
@@ -17,6 +20,9 @@ export default class EntryAbility extends UIAbility {
     // `start()` — runs. This is the HarmonyOS analogue of Android's intent-extra env delivery
     // (day/src/lib.rs): `day launch` passes them as `aa start --ps` string parameters.
     EntryAbility.applyLaunchEnv(want);
+    // The app's private files directory, for day-part-fs (docs/fs.md) — here rather than in
+    // applyLaunchEnv, which is static and has no ability context.
+    nativeEntry.setEnv('DAY_DATA_DIR', this.context.filesDir);
     // Report the ACTIVE color mode so day-arkui themes its neutral paints (DAY_THEME, when
     // present, wins on the Rust side): the C-API nodes don't re-theme hardcoded colors.
     nativeEntry.setEnv(
@@ -51,7 +57,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    windowStage.loadContent('pages/Index', () => {
+    windowStage.loadContent('day/Index', () => {
       // Bundled custom fonts (§18.4): registered as soon as the content is loaded — before
       // the Day tree mounts (it starts on the page's first onAreaChange, after layout) — so the
       // NODE_FONT_FAMILY attribute day-arkui sets can resolve the family names. Font

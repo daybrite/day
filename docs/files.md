@@ -87,7 +87,8 @@ target.
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
 the `day-arkui` backend calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
 JS thread); the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
-callback, wired in the ArkTS host's `Index.ets` (`Day-Showcase/platform/harmony/entry/src/main/ets/pages/`).
+callback, wired in the framework's ArkTS host page (`toolkits/day-arkui/platform/harmony/ets/Index.ets`,
+staged into every app's hvigor project by `day build` — [docs/harmonyos.md](harmonyos.md)).
 
 A browser has no filesystem, so on web-dom the bytes ride a per-page store instead of paths:
 an opened file's content lands under a virtual `/day-web/<name>` path that `FileUrl::read`

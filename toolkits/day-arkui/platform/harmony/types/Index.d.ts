@@ -1,5 +1,7 @@
 // ArkTS type declaration for the Rust native module (libentry.so), registered by the C++ shim's
-// NAPI init. `start` mounts the Day tree; the file-picker pair bridges Day's native open/save
+// NAPI init (day-arkui-sys shim.cpp). Staged into the app's hvigor project by `day build`, next to
+// a generated oh-package.json5, so the declarations always match the shim the app links
+// (docs/harmonyos.md). `start` mounts the Day tree; the file-picker pair bridges Day's native open/save
 // requests to the ArkTS @kit.CoreFileKit DocumentViewPicker (docs/files.md).
 export const start: (content: Object, widthVp: number, heightVp: number, density: number) => void;
 /** A deep link (docs/deep-links.md): a cold want.uri or a warm onNewWant one. Safe before

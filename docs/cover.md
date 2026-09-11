@@ -24,7 +24,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 >
 > **gtk (2026-09).** The emulated cover took the root `GtkFixed`'s allocation for its size,
 > and that Fixed sits in an External-policy scroll wrapper that allocates it its children's
-> bounding box, so a small home page (Day-Games' 2×2 tile grid) presented a cover the size of
+> bounding box, so a small home page (Day-Games' tile grid) presented a cover the size of
 > the grid. The cover now takes the wrapper's allocation, the window content area.
 
 A `cover` presents a Day subtree over the whole window (edge-to-edge, above every other

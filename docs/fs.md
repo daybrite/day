@@ -66,8 +66,8 @@ The contract points:
 | web-dom | the origin's OPFS via the day-dom shim (`day_dom_fs_start` + the request-id completion exports). OPFS is the only store: a context without it (a pre-OPFS browser, or a private-browsing/ephemeral session, which WebKit gives no storage backing) answers `Unsupported` (no `getDirectory` at all) or `Io` (present but broken), never a silent alternate store |
 | anything else | `FsError::Unsupported` |
 
-`DAY_DATA_DIR` wins everywhere when set; the mobile hosts export it (DayActivity on Android,
-EntryAbility on OHOS), and tests set it to a scratch directory.
+`DAY_DATA_DIR` wins everywhere when set; the mobile hosts export it (DayActivity in day-android,
+EntryAbility in day-arkui's staged ArkTS host), and tests set it to a scratch directory.
 
 ## Error taxonomy
 

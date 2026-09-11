@@ -20,3 +20,10 @@ linkme = { workspace = true }
 # The ArkUI/NAPI shim links on-device runtime libs, so it's only pulled in for HarmonyOS builds.
 [target.'cfg(target_env = "ohos")'.dependencies]
 day-arkui-sys = { workspace = true }
+
+# platform/harmony/ beside this manifest is the framework's ArkTS host for every Day app on
+# HarmonyOS — both abilities, both pages (ets/), and the native module's type declarations
+# (types/Index.d.ts, which must match day-arkui-sys's shim.cpp exports). `day build` resolves
+# this crate through cargo metadata and stages the directory into the app's hvigor project, the
+# way Gradle reads the Java shim from day-android (docs/harmonyos.md). Nothing here is metadata:
+# the CLI finds the dir by the crate's name.

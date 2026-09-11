@@ -1063,6 +1063,11 @@ struct OhosMeta {
 /// The resolved HarmonyOS contributions across all pieces in the app's dependency closure.
 #[derive(Default)]
 struct OhosPieces {
+    /// The framework's own ArkTS host (`platform/harmony/` in the day-arkui crate: both
+    /// abilities, both pages, the native module's typings — docs/harmonyos.md), resolved from
+    /// wherever cargo has the crate, like the Java shim on Android. `None` when the day-arkui
+    /// checkout predates the host moving out of the app scaffold.
+    host_dir: Option<String>,
     /// `(namespace, absolute dir)` ArkTS dirs to stage — the namespace (the piece's crate name)
     /// subfolders them so two pieces' files can't collide, as on iOS.
     ets_dirs: Vec<(String, String)>,
@@ -1079,6 +1084,17 @@ fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, Stri
     for pkg in &meta.packages {
         if !in_closure.contains(&pkg.id) {
             continue;
+        }
+        // The framework's own ArkTS host rides with the day-arkui crate (§17.1), the way the
+        // Java shim rides with day-android — resolved from wherever cargo checked it out.
+        if pkg.name == "day-arkui" {
+            let host = Path::new(&pkg.manifest_path)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("platform/harmony");
+            if host.join("ets/Index.ets").is_file() {
+                pieces.host_dir = Some(host.to_string_lossy().into_owned());
+            }
         }
         let Some(ohos) = piece_meta::<OhosMeta>(pkg, "ohos") else {
             continue;
@@ -1149,8 +1165,91 @@ pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String
     // daybridge ArkTS arms (docs/bridge.md) live in their own tree beside the pieces, with their
     // own aggregator, so the two generators never contend over one directory.
     crate::bridge::write_arkts(harmony, &crate::bridge::stage(project, "ohos"))?;
+
+    write_ohos_host(harmony, pieces.host_dir.as_deref())
+}
+
+/// Stage the framework's ArkTS host into the hvigor project (docs/harmonyos.md): the abilities
+/// and pages into `entry/src/main/ets/day/`, the native module's typings (with the
+/// `oh-package.json5` that makes them a local ohpm package) into `entry/src/main/cpp/types/libentry/`,
+/// plus the page list and start-window colors those files reference. All gitignored; a
+/// scaffold since 2026-09 checks in only the hvigor skeleton (module.json5 points here).
+///
+/// A project that still carries its own host page — `entry/src/main/ets/pages/Index.ets`, the
+/// pre-2026-09 layout — keeps it: nothing is staged over it, and a one-time note says how to
+/// move on. Its module.json5 still names its own abilities, so a staged copy would compile as
+/// dead weight at best and shadow a page the app edited at worst.
+fn write_ohos_host(harmony: &Path, host_dir: Option<&str>) -> Result<(), String> {
+    let module = harmony.join("entry/src/main");
+    if module.join("ets/pages/Index.ets").is_file() {
+        static HINTED: std::sync::Once = std::sync::Once::new();
+        HINTED.call_once(|| {
+            crate::ops::status(
+                "Note",
+                "platform/harmony carries its own ArkTS host page (entry/src/main/ets/pages/Index.ets); \
+                 day now stages the framework's from the day-arkui crate — delete the app's copies \
+                 (ets/pages, ets/entryability, cpp/types, main_pages.json, sign-hap.mjs) and point \
+                 module.json5's srcEntry at ./ets/day/ to adopt it (docs/harmonyos.md)",
+            );
+        });
+        return Ok(());
+    }
+    let Some(host) = host_dir else {
+        return Err(
+            "the day-arkui crate this app depends on ships no platform/harmony/ host (its ArkTS \
+             abilities and pages) — the app's hvigor project declares no host of its own either, so \
+             there is nothing for hvigor to build. Depend on a day checkout from 2026-09 or later, \
+             or restore the app's own host page under entry/src/main/ets/pages/ (docs/harmonyos.md)"
+                .into(),
+        );
+    };
+    let host = Path::new(host);
+
+    let ets = module.join("ets/day");
+    let mut expected: Vec<std::path::PathBuf> = Vec::new();
+    sync_ets_dir(&host.join("ets"), &ets, &mut expected)?;
+    prune_except(&ets, &expected.into_iter().collect());
+
+    let types = module.join("cpp/types/libentry");
+    std::fs::create_dir_all(&types).map_err(|e| format!("{}: {e}", types.display()))?;
+    copy_if_changed(&host.join("types/Index.d.ts"), &types.join("Index.d.ts"))?;
+    write_if_changed(&types.join("oh-package.json5"), LIBENTRY_OH_PACKAGE)?;
+
+    let profile = module.join("resources/base/profile");
+    std::fs::create_dir_all(&profile).map_err(|e| format!("{}: {e}", profile.display()))?;
+    write_if_changed(&profile.join("main_pages.json"), MAIN_PAGES_JSON)?;
+    for (dir, json) in [("base", START_COLOR_LIGHT), ("dark", START_COLOR_DARK)] {
+        let element = module.join("resources").join(dir).join("element");
+        std::fs::create_dir_all(&element).map_err(|e| format!("{}: {e}", element.display()))?;
+        write_if_changed(&element.join("color.json"), json)?;
+    }
     Ok(())
 }
+
+/// The local ohpm package that carries the native module's type declarations: `entry`'s
+/// oh-package.json5 depends on `libentry.so` by this path.
+const LIBENTRY_OH_PACKAGE: &str = r#"{
+  "name": "libentry.so",
+  "types": "./Index.d.ts",
+  "version": "1.0.0",
+  "description": "Day HarmonyOS ArkUI backend native module (Rust cdylib) — staged by `day build`"
+}
+"#;
+
+/// The module's page list: the framework's two pages, at the staged path module.json5 names.
+const MAIN_PAGES_JSON: &str = r#"{
+  "src": [
+    "day/Index",
+    "day/DayWindow"
+  ]
+}
+"#;
+
+/// `$color:start_window_background`, the launch frame's ground per color mode.
+const START_COLOR_LIGHT: &str =
+    "{ \"color\": [ { \"name\": \"start_window_background\", \"value\": \"#FFFFFF\" } ] }\n";
+const START_COLOR_DARK: &str =
+    "{ \"color\": [ { \"name\": \"start_window_background\", \"value\": \"#1A1A1C\" } ] }\n";
 
 /// The generated `DayPieceModule` contract — the seam between a piece's ArkTS and the aggregator.
 /// Written verbatim every build so the two generated files always agree.

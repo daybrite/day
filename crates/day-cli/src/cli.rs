@@ -494,8 +494,9 @@ enum Cmd {
     },
     /// Render the derived host files (icon catalogs, launcher mipmaps, HarmonyOS media) under
     /// build/day/host from resource/icons/icon.svg — what the Xcode, Gradle, and hvigor projects
-    /// reference, and never checked in (docs/icons.md). Every build runs this itself; run it by
-    /// hand before opening a native project on a fresh clone
+    /// reference, and never checked in (docs/icons.md) — and stage the HarmonyOS host's ArkTS
+    /// from the day-arkui crate. Every build runs this itself; run it by hand before opening a
+    /// native project on a fresh clone
     Prepare {
         /// Limit to these targets' families (repeatable; default: every target in Day.toml)
         #[arg(short = 'p', long = "platform")]
@@ -1499,6 +1500,21 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             };
             match crate::icon::run(project, &opts) {
                 Ok(n) => {
+                    // The HarmonyOS host's ArkTS is staged from the day-arkui crate, not
+                    // checked in (docs/harmonyos.md) — put it in place too, so the project
+                    // DevEco Studio opens on a fresh clone has its abilities and pages. A
+                    // `--check` writes nothing.
+                    let harmony = platforms.is_empty()
+                        && project
+                            .manifest
+                            .app
+                            .targets
+                            .iter()
+                            .any(|t| t == "harmony-arkui")
+                        || platforms.iter().any(|p| p == "harmony-arkui");
+                    if harmony && !check {
+                        crate::ohos::stage_host(project).map_err(CliError::build)?;
+                    }
                     if cli.format == OutputFormat::Json {
                         println!(
                             "{}",
@@ -1532,6 +1548,9 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             let target =
                 crate::external::find_target(project, &platform).map_err(CliError::usage)?;
             crate::icon::ensure(project, &[target.name]).map_err(CliError::build)?;
+            if target.name == "harmony-arkui" {
+                crate::ohos::stage_host(project).map_err(CliError::build)?;
+            }
             crate::ops::open_native(project, target).map(|()| 0)
         }),
         Cmd::Build {

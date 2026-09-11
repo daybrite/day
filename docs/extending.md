@@ -319,8 +319,9 @@ export const dayPiece: DayPieceModule = {
 `day build -p harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
 (gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
 `DayPieces.ets`, whose `registerDayPieces(uiContext)` hands the native shim one factory, command sink,
-and disposer for all pieces. The scaffold's host page calls it once, before `start()`, so adding an
-ArkTS piece is pure `Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
+and disposer for all pieces. The framework's host page (staged beside them from the day-arkui crate,
+[docs/harmonyos.md](harmonyos.md)) calls it once, before `start()`, so adding an ArkTS piece is pure
+`Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
 
 On the Rust side the renderer is the thinnest of all the backends, because there is no native widget
 to build. `day_arkui::piece::make` returns the ArkTS component's FrameNode as an ordinary handle:

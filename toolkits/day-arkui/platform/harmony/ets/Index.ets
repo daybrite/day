@@ -1,4 +1,7 @@
-// The ArkTS host page for a Day app. It hosts HarmonyOS's own Navigation/NavPathStack: the base
+// The ArkTS host page for a Day app — the framework's, not the app's. `day build` stages this
+// directory into the app's hvigor project at `entry/src/main/ets/day/` (gitignored) from the
+// day-arkui crate the app depends on, the way Gradle reads the Java shim from day-android
+// (docs/harmonyos.md). It hosts HarmonyOS's own Navigation/NavPathStack: the base
 // content is a NodeContent slot the native Rust cdylib (libentry.so) mounts the Day tree into,
 // and every page Day pushes becomes a real NavDestination (native transition, title bar, system
 // back gesture) whose content is a per-page NodeContent (docs/navigation.md). Day owns layout,
@@ -16,7 +19,7 @@ import { abilityAccessCtrl, common, Permissions, PermissionRequestResult, Want }
 import { BusinessError } from '@kit.BasicServicesKit';
 import nativeEntry from 'libentry.so';
 import { registerDayPieces } from '../daypieces/DayPieces';
-import DayWindowAbility from '../entryability/DayWindowAbility';
+import DayWindowAbility from './DayWindowAbility';
 
 @Entry
 @Component
