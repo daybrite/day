@@ -24,6 +24,16 @@ export const registerFilePicker: (
 // Report a picker result back to Day: the chosen local path, or "" if the user cancelled.
 export const onFileResult: (req: number, path: string) => void;
 
+// Register the ArkTS permission prompter (docs/permissions.md). The callback is invoked (on the JS
+// thread) with a 0x1F-separated list of OS permission names; it must answer via
+// `onPermissionResult` with a bit mask of the grants, in the same order.
+export const registerPermissions: (
+  callback: (req: number, names: string) => void
+) => void;
+
+// Report a permission prompt's outcome back to Day: bit i set when the i-th name was granted.
+export const onPermissionResult: (req: number, mask: number) => void;
+
 // Hand the native side the app's ResourceManager so Day can read staged rawfile data resources
 // (§18.3) via OH_ResourceManager_*. Call once, before or after `start()`; until then the rawfile
 // resource opener returns nothing (day_ark_res_available == 0).

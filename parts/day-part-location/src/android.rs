@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Android: `LocationManager.requestLocationUpdates` through this crate's OWN Java shim
-//! (`android/java/…/DayLocation.java`), staged into the app's Gradle build by `day build`.
+//! (`platform/android/java/…/DayLocation.java`), staged into the app's Gradle build by `day build`.
 //!
 //! Deliberately NOT `FusedLocationProviderClient`: that lives in Google Play services, which AOSP
 //! images and many emulators lack, and it would add a Gradle coordinate to every app linking this

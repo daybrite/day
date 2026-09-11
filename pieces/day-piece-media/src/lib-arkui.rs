@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // HarmonyOS: the ArkTS `Video` component for pictures, an `AVPlayer` (@kit.MediaKit) for sound
 // only. Like the webview, there is no native node kind to construct — the ArkUI C node API has no
-// video node — so this crate ships its OWN ArkTS (ohos/ets/Index.ets) that `day build` stages
+// video node — so this crate ships its OWN ArkTS (platform/harmony/ets/Index.ets) that `day build` stages
 // into the app's hvigor project via `[package.metadata.day.ohos]`. day-arkui's generic piece
 // bridge builds it and returns its FrameNode as an ordinary handle (docs/extending.md); commands
 // cross as this piece's own (cmd, arg) strings, and playback state comes back through the shim's

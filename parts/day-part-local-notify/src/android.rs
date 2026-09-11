@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Android: `NotificationManager` for display and `AlarmManager` for scheduling, through this
-//! crate's OWN Java shim (`android/java/…/DayLocalNotify.java`), staged into the app's Gradle build
+//! crate's OWN Java shim (`platform/android/java/…/DayLocalNotify.java`), staged into the app's Gradle build
 //! by `day build`.
 //!
 //! Deliberately NO Google dependency: no Play services, no Firebase, so an app linking this part

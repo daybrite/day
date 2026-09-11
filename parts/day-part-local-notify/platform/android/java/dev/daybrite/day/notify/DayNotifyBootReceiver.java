@@ -6,7 +6,7 @@
 // WHY THIS EXISTS. A restart clears every AlarmManager alarm, so without this a notification
 // scheduled for tomorrow morning silently never fires if the phone is rebooted tonight — the
 // failure this crate persists its payloads to avoid. Declared through the crate's
-// android/components.xml, and the RECEIVE_BOOT_COMPLETED permission it needs is contributed by the
+// platform/android/components.xml, and the RECEIVE_BOOT_COMPLETED permission it needs is contributed by the
 // crate's [package.metadata.day.android].permissions (it is structural: no prompt, no reason).
 package dev.daybrite.day.notify;
 

@@ -37,7 +37,7 @@ use crate::ops::status;
 
 /// Where every derived host file lives, relative to the project root — never in git. The Xcode
 /// projects reference `ios/Assets.xcassets` and `macos/Assets.xcassets` here by relative path,
-/// the Gradle module adds `android/res` as a resource source set, `day pack` reads the Linux
+/// the Gradle module adds `platform/android/res` as a resource source set, `day pack` reads the Linux
 /// and Windows icons here, and the HarmonyOS media directories are symlinks into `harmony/media`.
 pub const HOST_DIR: &str = "build/day/host";
 /// Lock path, relative to the project root.

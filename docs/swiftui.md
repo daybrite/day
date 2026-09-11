@@ -107,7 +107,7 @@ swiftui("hello")                  // resolves @objc(DayView_hello) — dots beco
 ```
 
 `DaySwiftUIProvider` and the `DayView_<name>` lookup live in the shim `day-piece-swiftui` stages
-into the generated `DayPieces` module (`apple/swift/DaySwiftUI.swift`). Resolution is one
+into the generated `DayPieces` module (`platform/apple/swift/DaySwiftUI.swift`). Resolution is one
 `NSClassFromString` call at mount, so nothing registers at startup. The same string contract lets
 a future Jetpack Compose leg resolve with `Class.forName`, which is why the naming carries no
 Apple-specific structure. `day_piece_swiftui::support()` reports `Native` only on macos-appkit and

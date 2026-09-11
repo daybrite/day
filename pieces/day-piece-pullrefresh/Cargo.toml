@@ -61,7 +61,7 @@ day-mock = { workspace = true }
 # with THIS crate; the AndroidX artifact is added to the app's Gradle build by `day build` — no
 # scaffold edits.
 [package.metadata.day.android]
-java = ["android/java"]
+java = ["platform/android/java"]
 gradle-dependencies = ["androidx.swiperefreshlayout:swiperefreshlayout:1.1.0"]
 gradle-repositories = []
 permissions = []

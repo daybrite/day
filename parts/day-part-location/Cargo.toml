@@ -40,7 +40,7 @@ day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
-java = ["android/java"]
+java = ["platform/android/java"]
 # Location is a runtime permission the APP declares (docs/permissions.md) — this crate never forces
 # one into an app's manifest.
 permissions = []

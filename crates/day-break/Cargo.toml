@@ -61,4 +61,4 @@ day-android = { workspace = true }
 # Stages this crate's Java (the `Thread.setDefaultUncaughtExceptionHandler` shim) into the app's
 # Gradle build. Registers NO renderer — same headless-part mechanism day-part-battery uses.
 [package.metadata.day.android]
-java = ["android/java"]
+java = ["platform/android/java"]

@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // Android: an `EditText` subclass over its live `SpannableStringBuilder`, with the piece's OWN Java
-// (`dev.daybrite.day.piece.texteditor.DayTextEditor`) bundled under `android/java` and pulled into
+// (`dev.daybrite.day.piece.texteditor.DayTextEditor`) bundled under `platform/android/java` and pulled into
 // the app's Gradle build by `[package.metadata.day.android]` — no edits to day-android.
 //
 // Runs cross as flat parallel int arrays, the shape day-android's own `setLabelRuns` uses: one JNI
@@ -21,7 +21,7 @@ use day_android::{AHandle, Android, DayEnv, with_env};
 use day_spec::sidetable::SideTable;
 use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size};
 
-/// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
+/// This piece's OWN Java class (in the crate's platform/android/java, on the app classpath at build).
 const EDITOR_CLASS: &str = "dev/daybrite/day/piece/texteditor/DayTextEditor";
 
 /// One list level's indent, in dp — matching the Apple arms' points.

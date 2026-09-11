@@ -234,7 +234,7 @@ relayout. Qt draws no double underline (it degrades to single). Monospace comes 
 `monospace` family from a char format; the label path hit the same limit.
 
 **mdc.** An `EditText` subclass over its live `Editable`, with the piece's own Java
-(`android/java/…/DayTextEditor.java`) staged by `[package.metadata.day.android]`. Attributes are
+(`platform/android/java/…/DayTextEditor.java`) staged by `[package.metadata.day.android]`. Attributes are
 applied to the buffer the user is typing in, removing only the span classes this file sets, so the
 IME's composing spans and the framework's selection spans survive (removing those cancels a
 half-typed Japanese or Korean word). Runs cross as flat parallel int arrays, the shape
@@ -244,7 +244,7 @@ one underline span (dotted and wavy draw a plain rule), no per-paragraph justifi
 paragraph-spacing span.
 
 **arkui.** The ArkUI **C** node API has no rich editor (`native_node.h` stops at
-`ARKUI_NODE_TEXT_AREA`), so this arm ships its own ArkTS (`ohos/ets/Index.ets`), staged into the
+`ARKUI_NODE_TEXT_AREA`), so this arm ships its own ArkTS (`platform/harmony/ets/Index.ets`), staged into the
 app's hvigor project by `[package.metadata.day.ohos]`. `RichEditorController` is the best-shaped
 controller of the eight: `updateSpanStyle` restyles without touching characters, `setTypingStyle`
 is native, and `setSelection` speaks the same offsets. The whole channel is strings (one props

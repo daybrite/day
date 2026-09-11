@@ -169,7 +169,7 @@ if [ -n "$COMBO" ]; then
 
 # The scaffold-check fixture: one real SwiftPM package, resolved and linked by `day pack`.
 [package.metadata.day.ios]
-swift = ["ios/swift"]
+swift = ["platform/ios/swift"]
 swift-packages = [
     { url = "https://github.com/apple/swift-collections", from = "1.1.0", products = ["Collections"] },
 ]
@@ -187,8 +187,8 @@ if first != last:
     s = s[:first] + s[end + 1:]
 p.write_text(s)
 PY
-        mkdir -p pieces/ci-swiftpm/ios/swift
-        cat > pieces/ci-swiftpm/ios/swift/CiSwiftpm.swift <<'SWIFT'
+        mkdir -p pieces/ci-swiftpm/platform/ios/swift
+        cat > pieces/ci-swiftpm/platform/ios/swift/CiSwiftpm.swift <<'SWIFT'
 import Collections
 
 /// Reached by nothing; its existence is the test. `import Collections` fails to compile unless

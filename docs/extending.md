@@ -144,13 +144,13 @@ The piece carries its own Java/Kotlin under a crate dir and declares it in `Carg
 
 ```toml
 [package.metadata.day.android]
-java = ["android/java"]                                        # → Gradle java srcDirs
-res = ["android/res"]                                          # → Gradle res srcDirs (optional)
+java = ["platform/android/java"]                                        # → Gradle java srcDirs
+res = ["platform/android/res"]                                          # → Gradle res srcDirs (optional)
 gradle-dependencies = ["com.google.android.material:material:1.11.0"]   # → app dependencies { }
 gradle-repositories = ["https://jitpack.io"]                  # → extra Maven repos (optional)
 permissions = ["android.permission.INTERNET"]                 # → <uses-permission> in the manifest
-proguard = ["android/proguard-rules.pro"]                     # → R8 keep rules (see below)
-manifest-components = ["android/components.xml"]              # → <receiver>/<service> (see below)
+proguard = ["platform/android/proguard-rules.pro"]                     # → R8 keep rules (see below)
+manifest-components = ["platform/android/components.xml"]              # → <receiver>/<service> (see below)
 ```
 
 `day build` (for `android-mdc`) runs `cargo metadata`, walks the app's dependency closure, collects
@@ -172,7 +172,7 @@ and `<application>` wrapper), and every class must be fully qualified, since the
 into an app whose package the part cannot know:
 
 ```xml
-<!-- android/components.xml -->
+<!-- platform/android/components.xml -->
 <receiver android:name="dev.daybrite.day.notify.DayNotifyAlarmReceiver"
           android:exported="false" />
 ```
@@ -218,13 +218,13 @@ Two layers keep the right names.
   (e.g. `-keep class * extends androidx.room.RoomDatabase { *; }` for a WorkManager user).
 
 ```proguard
-# android/proguard-rules.pro — keep the classes native code reaches by name.
+# platform/android/proguard-rules.pro — keep the classes native code reaches by name.
 -keep class com.example.mypiece.MyPieceView { *; }
 ```
 
 The app's `platform/android/app/build.gradle.kts` reads `dayProguardFile` + `proguardFiles` from
 `day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-searchfield` (framework
-side) and App Fair's `android/proguard-rules.pro` (app side) are the references.
+side) and App Fair's `platform/android/proguard-rules.pro` (app side) are the references.
 
 The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).
@@ -250,7 +250,7 @@ carries, and the packages it needs.
 
 ```toml
 [package.metadata.day.ios]
-swift = ["ios/swift"]                                         # dirs of Swift shim sources
+swift = ["platform/ios/swift"]                                         # dirs of Swift shim sources
 swift-packages = [                                           # SwiftPM package dependencies
   { url = "https://github.com/airbnb/lottie-ios", from = "4.5.0", products = ["Lottie"] },
 ]
@@ -300,7 +300,7 @@ native code at all. A piece wrapping one carries its own ArkTS the way an Androi
 
 ```toml
 [package.metadata.day.ohos]
-ets = ["ohos/ets"]        # dirs of ArkTS sources; each needs an Index.ets exporting `dayPiece`
+ets = ["platform/harmony/ets"]        # dirs of ArkTS sources; each needs an Index.ets exporting `dayPiece`
 ```
 
 Each declared dir must contain an `Index.ets` exporting a `DayPieceModule`:
@@ -341,7 +341,7 @@ resolves against the whole window and the component covers the page.
 
 The Swift shim exposes a flat C ABI (`@_cdecl`) that the piece's Rust calls (mirroring the Android Java
 shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust wraps via
-`Retained::from_raw`. See `ios/swift/DayLottie.swift` and `src/lib-uikit.rs` in
+`Retained::from_raw`. See `platform/ios/swift/DayLottie.swift` and `src/lib-uikit.rs` in
 [day-piece-lottie](https://github.com/daybrite/day-piece-lottie).
 
 ### The Android bridging contract
@@ -493,14 +493,14 @@ toolkit backend in a separate file:
 pieces/day-piece-searchfield/
 ├── Cargo.toml               # features + [package.metadata.day.android]
 ├── build.rs                 # compiles lib-qt-shim.cpp / lib-xaml-shim.cpp per feature
-├── android/java/…/DaySearch.java   # this piece's own Android backend
+├── platform/android/java/…/DaySearch.java   # this piece's own Android backend
 └── src/
     ├── lib.rs               # front-end (the `Piece`) + `day_pieces::glue_modules!(…)`
     ├── lib-appkit.rs        # one file per toolkit renderer …
     ├── lib-gtk.rs
     ├── lib-qt.rs            (+ lib-qt-shim.cpp)
     ├── lib-uikit.rs
-    ├── lib-android.rs      (+ android/java DaySearch.java)
+    ├── lib-android.rs      (+ platform/android/java DaySearch.java)
     ├── lib-xaml.rs        (+ lib-xaml-shim.cpp)
     ├── lib-qt-shim.cpp
     └── lib-xaml-shim.cpp

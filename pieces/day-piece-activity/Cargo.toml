@@ -22,7 +22,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"] # + build.rs compiles src/lib-qt-shim.cpp (QProgressBar busy mode; Qt6Widgets, already linked by day-qt-sys)
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit"]
-mdc = ["dep:day-android"] # + [package.metadata.day.android] stages android/java/…/DayActivity.java
+mdc = ["dep:day-android"] # + [package.metadata.day.android] stages platform/android/java/…/DayActivity.java
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (a ProgressRing boxed via day-xaml-sys's
 # day_xaml_box seam, like the media/picker/webview xaml pieces). mock has no renderer — its feature
 # exists so apps can enable `day-piece-activity/mock` uniformly; the activity kind then falls back to
@@ -77,7 +77,7 @@ day-mock = { workspace = true }
 # so no Gradle dependency or permission is required.
 [package.metadata.day.android]
 # Java source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
-java = ["android/java"]
+java = ["platform/android/java"]
 gradle-dependencies = []
 gradle-repositories = []
 permissions = []

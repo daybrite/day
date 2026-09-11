@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // Android: an ImageView decoding the pushed bytes via BitmapFactory. The Java factory
 // (`dev.daybrite.day.piece.remoteimage.DayRemoteImage`) is bundled with THIS crate under
-// `android/java` and pulled into the app's Gradle build automatically via
+// `platform/android/java` and pulled into the app's Gradle build automatically via
 // `[package.metadata.day.android]` — so the piece carries its own backend Java without touching
 // day-android. The circle / rounded clip is a ViewOutlineProvider + clipToOutline (resize-correct),
 // and the placeholder is the view's background color. Bytes cross the JNI as a `byte[]`; a SetBytes
@@ -18,7 +18,7 @@ use day_android::jni::objects::{JObject, JValue};
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
-/// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
+/// This piece's OWN Java class (in the crate's platform/android/java, on the app classpath at build).
 const IMAGE_CLASS: &str = "dev/daybrite/day/piece/remoteimage/DayRemoteImage";
 const SET_BYTES_SIG: &str = "(Landroid/view/View;[B)V";
 

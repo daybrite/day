@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Android: SensorManager, read via this crate's OWN Java shim (android/java/…/DaySensors.java) —
+// Android: SensorManager, read via this crate's OWN Java shim (platform/android/java/…/DaySensors.java) —
 // staged into the app's Gradle build by `day build` through [package.metadata.day.android], exactly
 // like the UI pieces, but registering NO renderer. Android sensors are push-only
 // (SensorEventListener), so the shim lazily registers a listener per sensor on the first `read` and

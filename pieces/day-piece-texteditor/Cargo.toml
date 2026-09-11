@@ -68,11 +68,11 @@ day-mock = { workspace = true }
 # The editor's Android half: an EditText subclass over a SpannableStringBuilder, with the
 # onSelectionChanged hook the framework only exposes to a subclass.
 [package.metadata.day.android]
-java = ["android/java"]
+java = ["platform/android/java"]
 gradle-dependencies = []
 gradle-repositories = []
 permissions = []
 
 # The HarmonyOS half: the ArkTS `RichEditor`, which the ArkUI C node API has no equivalent for.
 [package.metadata.day.ohos]
-ets = ["ohos/ets"]
+ets = ["platform/harmony/ets"]

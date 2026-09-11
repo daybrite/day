@@ -74,7 +74,7 @@ day-mock = { workspace = true }
 # bytes itself and pushes them in; this piece only decodes+draws them).
 [package.metadata.day.android]
 # Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
-java = ["android/java"]
+java = ["platform/android/java"]
 # Gradle dependency coordinates added to the app module (none — ImageView is a framework widget).
 gradle-dependencies = []
 # Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().

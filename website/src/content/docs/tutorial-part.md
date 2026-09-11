@@ -48,7 +48,7 @@ that fold native assets into the app build) but registers nothing into any `REND
 Start with the scaffolder. `day new part` generates almost all of the layout below: `Cargo.toml`, a
 `src/lib.rs` with the `#[cfg]`/`#[path]` dispatch already wired (including the mandatory
 `None`-returning fallback), a stub `src/<os>.rs` per platform, an `examples/` runner, and, when you
-target Android, the `android/java/.../Day<Name>.java` shim plus the `[package.metadata.day.android]`
+target Android, the `platform/android/java/.../Day<Name>.java` shim plus the `[package.metadata.day.android]`
 block:
 
 ```bash
@@ -67,7 +67,7 @@ A part is an ordinary library crate with this layout:
 ```
 parts/day-part-battery/
 ├── Cargo.toml
-├── android/java/dev/daybrite/day/battery/DayBattery.java   # Android backend (Java)
+├── platform/android/java/dev/daybrite/day/battery/DayBattery.java   # Android backend (Java)
 ├── examples/battery.rs                                     # a plain `main`, no Day at all
 └── src/
     ├── lib.rs        # the flat API + a #[cfg]/#[path] index of per-OS impls
@@ -452,13 +452,13 @@ merges it into the app from that file alone.
 
 ```toml
 [package.metadata.day.android]
-java = ["android/java"]                                   # → Gradle java srcDirs
+java = ["platform/android/java"]                                   # → Gradle java srcDirs
 permissions = ["android.permission.ACCESS_NETWORK_STATE"] # → <uses-permission> overlay (if needed)
-manifest-components = ["android/components.xml"]          # → <receiver>/<service> overlay (if needed)
+manifest-components = ["platform/android/components.xml"]          # → <receiver>/<service> overlay (if needed)
 ```
 
 `day-part-battery` needs no permission (the sticky battery broadcast is unrestricted), so it declares
-only `java = ["android/java"]`. `day-part-network`, whose `ConnectivityManager` call *does* require
+only `java = ["platform/android/java"]`. `day-part-network`, whose `ConnectivityManager` call *does* require
 `ACCESS_NETWORK_STATE`, adds the `permissions` line above.
 
 `manifest-components` is required when a part's Java half is a `BroadcastReceiver` or a `Service`:

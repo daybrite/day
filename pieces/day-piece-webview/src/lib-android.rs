@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // Android: android.webkit.WebView. The Java factory (`dev.daybrite.day.piece.webview.DayWebView`)
-// is bundled with THIS crate under `android/java` and pulled into the app's Gradle build via
+// is bundled with THIS crate under `platform/android/java` and pulled into the app's Gradle build via
 // `[package.metadata.day.android]` — which ALSO contributes the INTERNET permission (the extension
 // this piece motivates). The Java reports each finished URL back through DayBridge.nativeOnEvent's
 // open Custom-event kind (12) — §8.2's piece-defined event channel; the front-end handler maps the
@@ -16,7 +16,7 @@ use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
-/// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
+/// This piece's OWN Java class (in the crate's platform/android/java, on the app classpath at build).
 const WEBVIEW_CLASS: &str = "dev/daybrite/day/piece/webview/DayWebView";
 
 fn make(_backend: &mut Android, p: &WebProps, id: NodeId) -> AHandle {

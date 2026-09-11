@@ -77,7 +77,7 @@ day_bridge::bridge! {
         export function speak_native(text) { speechSynthesis.speak(new SpeechSynthesisUtterance(text)); }
     "#);
 
-    // 4. or an implementation in its own file, staged like android/java is today
+    // 4. or an implementation in its own file, staged like platform/android/java is today
     #[day_bridge::impl(swift, platforms = [ios, macos], src = "platform/Speech.swift")]
 
     // 5. the arm that keeps `cargo test` and day-mock compiling
@@ -492,7 +492,7 @@ can be cut without stranding the phases before them.
 | 5 | **JavaScript** — per-crate ES module under `build/day/web/bridge/`, imported by the day-dom shim, merged into the wasm import table | headless WebKit walkthrough green; two bridge crates linked together produce no duplicate or missing import |
 | 6 | **ArkTS** — generated module with its `Index.ets`, wired through hvigor | the arm runs on the ohos leg in CI; that leg is the verification, with no local emulator run in the acceptance criteria (harmony-arkui is Tier 3, and its emulator is the least reliable part of the local loop) |
 | 7 | **`day-part-speech`** — the reference crate, six arms, plus a Day-Showcase Platform-services demo and dayscript step (cross-repo) | `speak`/`stop` work on every target that claims support, the walkthrough drives the demo on each target's CI leg, and `available()` matches the generated matrix |
-| 8 | **Migrate the synchronous parts** — battery (in 4), then haptics, deviceinfo, clipboard, prefs, network, http | every `android/java` directory in those seven crates is gone, walkthroughs green |
+| 8 | **Migrate the synchronous parts** — battery (in 4), then haptics, deviceinfo, clipboard, prefs, network, http | every `platform/android/java` directory in those seven crates is gone, walkthroughs green |
 | 9 | **Gates** — `docs/bridge-matrix.md` + drift check, the `day lint` rules from [What fails the build](#what-fails-the-build), determinism in the repro leg, `day doctor` probes per arm | CI fails on a hand-edited matrix, a missing `other` arm, and a symbol collision |
 
 **Review checkpoints** fall after phase 3 (skeleton plus the two backends that share the least machinery), after phase 4 (Kotlin and the battery migration, the payoff and the riskiest single phase), and after phase 9.

@@ -167,7 +167,7 @@ The showcase's Web View page shows both modes as tabs: **Remote** (the browsing 
 | | AppKit | UIKit | Qt | Android | GTK | XAML |
 |---|---|---|---|---|---|---|
 | control | `WKWebView` | `WKWebView` | `QWebEngineView` | `android.webkit.WebView` | WebKitGTK `WebView` | UWP-XAML `WebView` |
-| native code | objc2-web-kit | hand-rolled `extern_class!` + `msg_send!` | `src/lib-qt-shim.cpp` (+ links `Qt6WebEngineWidgets`) | `android/java/…/DayWebView.java` | `webkit6` crate | `src/lib-xaml-shim.cpp` |
+| native code | objc2-web-kit | hand-rolled `extern_class!` + `msg_send!` | `src/lib-qt-shim.cpp` (+ links `Qt6WebEngineWidgets`) | `platform/android/java/…/DayWebView.java` | `webkit6` crate | `src/lib-xaml-shim.cpp` |
 | URL-back event | `Custom("webview:url", …)` | `Custom("webview:url", …)` | `Custom("webview:url", …)` | `TextChanged` (kind 1) | `Custom("webview:url", …)` | `Custom("webview:url", …)` |
 
 Rendering, two-way URL binding, and controls are verified on AppKit, Qt, UIKit (iOS sim), and Android.
@@ -181,7 +181,7 @@ gallery.
   target dependency and `macos-gtk` falls back to a placeholder leaf. The CI Linux/Windows GTK jobs
   install `libwebkitgtk-6.0-dev` / `mingw-w64-x86_64-webkitgtk6`.
 - **ArkUI (HarmonyOS)**: the ArkTS `Web` component. The ArkUI **C** node API has no Web node kind, so
-  this is the first piece whose native half is ArkTS: the crate ships `ohos/ets/Index.ets`, `day build`
+  this is the first piece whose native half is ArkTS: the crate ships `platform/harmony/ets/Index.ets`, `day build`
   stages it into the app's hvigor project (`[package.metadata.day.ohos]`), and day-arkui's generic piece
   bridge builds it in a `BuilderNode` and mounts its FrameNode in the Day tree. Commands go out through
   `webview.WebviewController`; `onPageEnd` reports each committed URL back. **The x86_64 emulator cannot

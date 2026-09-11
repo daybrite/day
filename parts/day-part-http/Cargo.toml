@@ -64,7 +64,7 @@ ureq = "3"
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
-java = ["android/java"]
+java = ["platform/android/java"]
 # Normal install-time permission; no runtime prompt.
 permissions = ["android.permission.INTERNET"]
 # The HTTP engine (docs/http.md): OkHttp on the platform trust/proxy/policy rails. Resolved

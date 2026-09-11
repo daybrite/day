@@ -71,7 +71,7 @@ public final class DayDateTime {
                 : null;
     }
 
-    // The piece-shipped time-picker dialog theme (android/res/values/themes.xml): Material's own
+    // The piece-shipped time-picker dialog theme (platform/android/res/values/themes.xml): Material's own
     // overlay leaves ?attr/borderlessButtonStyle pointing at an Expressive button style that a
     // plain framework Button (Day's non-AppCompat inflation) cannot resolve — InflateException.
     // Resolved by NAME because the app's R package differs per app; 0 (missing) keeps the default.

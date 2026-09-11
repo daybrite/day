@@ -473,16 +473,16 @@ day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
-java = ["android/java"]
-res = ["android/res"]            # the monochrome default small icon (see pitfalls)
+java = ["platform/android/java"]
+res = ["platform/android/res"]            # the monochrome default small icon (see pitfalls)
 # POST_NOTIFICATIONS is the runtime permission the APP declares via day-part-permissions; the
 # scheduling permissions are structural (no user-facing prompt, no reason string), so the crate
 # contributes them and `day build` merges them into the overlay.
 permissions = ["android.permission.RECEIVE_BOOT_COMPLETED"]
-proguard = ["android/proguard-rules.pro"]   # receivers are resolved by name from the manifest
+proguard = ["platform/android/proguard-rules.pro"]   # receivers are resolved by name from the manifest
 
 # --- PROPOSED, see "Two framework gaps" below: manifest components a part must contribute ---
-# manifest-components = ["android/components.xml"]
+# manifest-components = ["platform/android/components.xml"]
 
 [package.metadata.day.ios]
 frameworks = ["UserNotifications"]
@@ -618,7 +618,7 @@ Taps use a `PendingIntent` into `DayActivity` carrying a `day.route` extra; day-
 `onCreate`/`onNewIntent` and feeds the buffered launch-route slot. Actions go to
 `DayNotifyActionReceiver`, which emits `Event::Custom { tag: "notify:action", … }` through the
 JNI bridge when the process is alive, and when it is not, performs the record's declared side
-effect and cancels the notification. `android/res` ships a monochrome
+effect and cancels the notification. `platform/android/res` ships a monochrome
 `ic_day_notify.xml` as the default small icon so the white-square failure cannot happen by
 omission; an app overrides it with a `res::images` handle.
 

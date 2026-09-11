@@ -67,8 +67,8 @@ day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
-java = ["android/java"]
-res = ["android/res"]
+java = ["platform/android/java"]
+res = ["platform/android/res"]
 # Structural, not user-facing: re-arming scheduled notifications after a reboot needs no consent
 # prompt and no reason string, so the crate contributes it rather than the app. POST_NOTIFICATIONS
 # is the runtime permission the APP declares via day-part-permissions.
@@ -84,10 +84,10 @@ permissions = [
     "android.permission.RECEIVE_BOOT_COMPLETED",
     "android.permission.SCHEDULE_EXACT_ALARM",
 ]
-proguard = ["android/proguard-rules.pro"]
+proguard = ["platform/android/proguard-rules.pro"]
 # The alarm + boot receivers. Android instantiates these by name from the manifest, so without this
 # the APK installs, runs, and silently never delivers a scheduled notification.
-manifest-components = ["android/components.xml"]
+manifest-components = ["platform/android/components.xml"]
 
 [package.metadata.day.ios]
 frameworks = ["UserNotifications"]

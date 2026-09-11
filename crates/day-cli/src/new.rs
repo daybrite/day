@@ -1473,8 +1473,8 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
             "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
              # and folds the piece's own Java into the app's Gradle build, without touching day-android.\n\
              [package.metadata.day.android]\n\
-             java = [\"android/java\"]\n\
-             # res = [\"android/res\"]\n\
+             java = [\"platform/android/java\"]\n\
+             # res = [\"platform/android/res\"]\n\
              # gradle-dependencies = [\"group:artifact:version\"]\n\
              # permissions = [\"android.permission.INTERNET\"]\n",
         );
@@ -1485,7 +1485,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
              # or Swift shim dirs. A plain UITextField needs none — left empty as a template.\n\
              [package.metadata.day.ios]\n\
              frameworks = []\n\
-             # swift = [\"ios/swift\"]\n\
+             # swift = [\"platform/ios/swift\"]\n\
              # platform = \"16.0\"   # raise the deployment floor when your Swift needs newer APIs\n",
         );
     }
@@ -1494,7 +1494,7 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
             "\n# Standalone-piece macOS contribution: Swift sources/packages `day build` compiles into\n\
              # a statically linked SwiftPM package (docs/swiftui.md). A plain AppKit piece needs none.\n\
              # [package.metadata.day.macos]\n\
-             # swift = [\"apple/swift\"]\n\
+             # swift = [\"platform/apple/swift\"]\n\
              # platform = \"13.0\"\n",
         );
     }
@@ -1587,7 +1587,7 @@ linkme = "0.3"
     if has("mdc") {
         files.push(("src/lib-android.rs".into(), r.expand(ANDROID_IMPL)));
         files.push((
-            format!("android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
+            format!("platform/android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
             r.expand(ANDROID_JAVA),
         ));
     }
@@ -1659,7 +1659,7 @@ fn part_files(r: &Repl, deps: &Deps, platforms: &[String]) -> Vec<(String, Strin
             "\n# `day build` stages this Java into the app's Gradle build (and merges any permissions),\n\
              # without touching day-android. This headless part registers NO renderer.\n\
              [package.metadata.day.android]\n\
-             java = [\"android/java\"]\n\
+             java = [\"platform/android/java\"]\n\
              # permissions = [\"android.permission.INTERNET\"]\n",
         );
     }
@@ -1724,7 +1724,7 @@ edition = "2024"
     if has("android") {
         files.push(("src/android.rs".into(), r.expand(PART_ANDROID)));
         files.push((
-            format!("android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
+            format!("platform/android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
             r.expand(PART_ANDROID_JAVA),
         ));
     }
@@ -2310,7 +2310,7 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
     make: make, update: update, measure: measure);
 "#;
 
-const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java factory (Day__PASCAL__) is bundled under android/java and
+const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java factory (Day__PASCAL__) is bundled under platform/android/java and
 // pulled into the app's Gradle build via [package.metadata.day.android] — no edits to day-android. A
 // TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …) (kind 1 = TextChanged).
 
@@ -2647,7 +2647,7 @@ cargo build --features appkit    # or gtk / qt / uikit / mdc / xaml
 
 - `appkit` / `uikit` build on macOS with the iOS-sim target respectively.
 - `qt` / `xaml` compile a small C++ shim (`build.rs`).
-- `mdc` carries its own Java factory under `android/java` (staged into the app's Gradle build).
+- `mdc` carries its own Java factory under `platform/android/java` (staged into the app's Gradle build).
 
 ## Next steps
 
@@ -2709,7 +2709,7 @@ mod tests {
 }
 "#;
 
-const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shim (android/java/…/Day__PASCAL__.java) — staged into the
+const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shim (platform/android/java/…/Day__PASCAL__.java) — staged into the
 // app's Gradle build by `day build` via [package.metadata.day.android], without touching day-android
 // (it registers NO renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it
 // through day-android's re-exported `jni`.
@@ -2778,7 +2778,7 @@ cargo run --example __SNAKE__   # prints a sample reading
 ```
 
 Each `src/<os>.rs` is a stub returning a sample `Sample { value: 42 }`. Android reads through a bundled
-Java shim (`android/java/…/Day__PASCAL__.java`) that `day build` stages into the app's Gradle build.
+Java shim (`platform/android/java/…/Day__PASCAL__.java`) that `day build` stages into the app's Gradle build.
 
 ## Next steps
 

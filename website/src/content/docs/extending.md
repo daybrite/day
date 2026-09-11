@@ -94,7 +94,7 @@ artifact. A piece crate declares these in its Cargo metadata:
 
 ```toml
 [package.metadata.day.ios]
-swift = ["ios/swift"]       # Swift shim sources shipped in the crate
+swift = ["platform/ios/swift"]       # Swift shim sources shipped in the crate
 swift-packages = [ … ]      # SwiftPM dependencies; a local entry
                             # ({ path = "swiftui", products = ["MyViews"] }) is scanned for
                             # SwiftUI views and exported as typed Rust bindings
@@ -105,13 +105,13 @@ frameworks = ["WebKit"]
 swift-packages = [ … ]
 
 [package.metadata.day.android]
-java = ["android/java"]     # Java sources shipped in the crate
+java = ["platform/android/java"]     # Java sources shipped in the crate
 gradle-dependencies = ["com.airbnb.android:lottie:6.4.0"]
 permissions = ["android.permission.INTERNET"]
 # also: res, gradle-repositories, proguard, manifest-components
 
 [package.metadata.day.ohos]
-ets = ["ohos/ets"]          # ArkTS components (HarmonyOS)
+ets = ["platform/harmony/ets"]          # ArkTS components (HarmonyOS)
 
 [package.metadata.day.permissions]
 uses = ["camera"]           # portable permission names, mapped per platform

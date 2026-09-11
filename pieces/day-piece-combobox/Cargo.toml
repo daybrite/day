@@ -66,7 +66,7 @@ day-mock = { workspace = true }
 # AutoCompleteTextView needs no Gradle dependency or manifest permission.
 [package.metadata.day.android]
 # Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
-java = ["android/java"]
+java = ["platform/android/java"]
 # Gradle dependency coordinates added to the app module (none — a framework widget).
 gradle-dependencies = []
 # Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().

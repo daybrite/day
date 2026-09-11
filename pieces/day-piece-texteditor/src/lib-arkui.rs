@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // HarmonyOS: the ArkTS `RichEditor`. Unlike the other seven arms there is no native widget to
 // construct here — the ArkUI C node API has no rich editor at all — so this crate ships its OWN
-// ArkTS (ohos/ets/Index.ets), staged into the app's hvigor project by `day build` through
+// ArkTS (platform/harmony/ets/Index.ets), staged into the app's hvigor project by `day build` through
 // `[package.metadata.day.ohos]`, exactly as day-piece-webview established.
 //
 // The whole channel is strings: one props string at realize, (cmd, arg) pairs after, and reports

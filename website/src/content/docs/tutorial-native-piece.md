@@ -395,12 +395,12 @@ if std::env::var("CARGO_FEATURE_QT").is_ok() {
 ### Android: a Java factory staged through Gradle, called over JNI
 
 The Android widget is created by a Java factory the piece ships under
-`android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`. It uses only `day-android`'s public
+`platform/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`. It uses only `day-android`'s public
 Java surface: `DayBridge.ctx` (the `Context`) and `DayBridge.nativeOnEvent(id, kind, num, str)` (the
 event trampoline; `kind 1` = TextChanged):
 
 ```java
-// android/java/…/DaySearch.java (abridged)
+// platform/android/java/…/DaySearch.java (abridged)
 public static View makeSearch(final long id, String placeholder, String initial) {
     EditText e = new EditText(DayBridge.ctx);
     e.setSingleLine(true);
@@ -424,7 +424,7 @@ the piece declares its Java dir in `Cargo.toml`, and `day build` folds it in wit
 ```toml
 # pieces/day-piece-searchfield/Cargo.toml
 [package.metadata.day.android]
-java = ["android/java"]        # → Gradle java.srcDirs
+java = ["platform/android/java"]        # → Gradle java.srcDirs
 gradle-dependencies = []       # EditText is a framework widget; nothing to pull
 gradle-repositories = []
 # permissions = ["android.permission.INTERNET"]   # add if your control needs one (e.g. a web view)

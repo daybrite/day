@@ -46,7 +46,7 @@ day-mock = { workspace = true }
 # the DayView_<name> class lookup, and the hosting-view @_cdecl entry points the Rust renderers
 # call. `day build` stages it into the generated DayPieces package on each Apple leg.
 [package.metadata.day.ios]
-swift = ["apple/swift"]
+swift = ["platform/apple/swift"]
 
 [package.metadata.day.macos]
-swift = ["apple/swift"]
+swift = ["platform/apple/swift"]

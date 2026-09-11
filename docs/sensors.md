@@ -65,7 +65,7 @@ no `NSMotionUsageDescription` (that key gates the Motion & Fitness APIs). The Si
 sensors, so the crate reports unavailable and answers `None`.
 
 Android sensors need no manifest permission at the shim's `SENSOR_DELAY_UI` rate. The shim
-(`android/java/dev/daybrite/day/sensors/DaySensors.java`) registers one listener per sensor on first
+(`platform/android/java/dev/daybrite/day/sensors/DaySensors.java`) registers one listener per sensor on first
 read and caches `{x, y, z}` for Rust to poll via a `double[]` JNI round-trip.
 
 HarmonyOS is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`

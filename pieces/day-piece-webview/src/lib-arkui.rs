@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // HarmonyOS: the ArkTS `Web` component. Unlike every other backend here, there is no native widget
 // to construct — the ArkUI C node API has no Web node kind — so this crate ships its OWN ArkTS
-// (ohos/ets/Index.ets) that `day build` stages into the app's hvigor project via
+// (platform/harmony/ets/Index.ets) that `day build` stages into the app's hvigor project via
 // `[package.metadata.day.ohos]`, the HarmonyOS counterpart of the android `java` contribution.
 // day-arkui's generic piece bridge builds it and returns its FrameNode as an ordinary handle
 // (docs/extending.md); commands cross as this piece's own (cmd, arg) strings, and each committed

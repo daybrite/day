@@ -4,7 +4,7 @@
 //! Compiles this piece's OWN native shims when their feature is on — an external Day Piece
 //! carrying native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim).
 //! Qt uses `cc` + pkg-config; XAML uses `cc` (MSVC) + the Windows SDK cppwinrt projection. The
-//! HarmonyOS arm needs no shim at all: its component is ArkTS (ohos/ets), staged by `day build`.
+//! HarmonyOS arm needs no shim at all: its component is ArkTS (platform/harmony/ets), staged by `day build`.
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");

@@ -124,7 +124,7 @@ Where it comes from:
 |---|---|---|---|---|---|---|---|---|
 | control | `AVPlayerView` + `AVPlayer` | `AVPlayerViewController` + `AVPlayer` | `QMediaPlayer` + `QAudioOutput` + `QVideoWidget` | `android.widget.VideoView` | `gtk4::Video` (GtkMediaFile) | `MediaPlayerElement` + `MediaPlayer` | ArkTS `Video` | `<video>` |
 | sound only | hidden `NSView` + `AVPlayer` | hidden `UIView` + `AVPlayer` | `QMediaPlayer` + `QAudioOutput`, no widget | empty `View` + `MediaPlayer` | hidden `GtkBox` + `GtkMediaFile` | collapsed element | `AVPlayer` (@kit.MediaKit) | hidden `<audio>` |
-| native code | objc2-av-kit / objc2-av-foundation | hand-rolled `extern_class!` + `msg_send!` (+ objc2-av-foundation) | `src/lib-qt-shim.cpp` (+ links `Qt6MultimediaWidgets`) | `android/java/…/DayMedia.java` | gtk4 crate (core widget) | `src/lib-xaml-shim.cpp` (cppwinrt) | `ohos/ets/Index.ets` | `src/lib-dom.rs` + the shim's media listener |
+| native code | objc2-av-kit / objc2-av-foundation | hand-rolled `extern_class!` + `msg_send!` (+ objc2-av-foundation) | `src/lib-qt-shim.cpp` (+ links `Qt6MultimediaWidgets`) | `platform/android/java/…/DayMedia.java` | gtk4 crate (core widget) | `src/lib-xaml-shim.cpp` (cppwinrt) | `platform/harmony/ets/Index.ets` | `src/lib-dom.rs` + the shim's media listener |
 | chrome (`.controls`) | `controlsStyle` Inline/None | `showsPlaybackControls` | none (v1: drive with triggers) | `MediaController` | GtkVideo overlay (always on) | `AreTransportControlsEnabled` | `.controls()` | `controls` attribute |
 | state readback | KVO on `timeControlStatus` + `currentItem.status`, end/failed notifications | same | `playbackStateChanged` / `mediaStatusChanged` / `errorOccurred` | `OnPrepared/Info/Completion/Error` listeners | `MediaStream` notify signals | `PlaybackSession.PlaybackStateChanged`, `MediaEnded`, `MediaFailed` | `Video` callbacks / `AVPlayer` `stateChange` | `playing`/`pause`/`waiting`/`ended`/`error` events |
 | looping | end-notification observer → seek 0 | same | `QMediaPlayer::setLoops(Infinite)` | `MediaPlayer.setLooping` | `MediaStream::set_loop` | `IsLoopingEnabled` | `.loop()` / `player.loop` | `loop` attribute |
@@ -185,7 +185,7 @@ Where it comes from:
   own cppwinrt shim, boxed via day-xaml-sys's `day_xaml_box` seam. Written blind (no Windows host
   here) and verified in CI; a creation failure degrades to a URL `TextBlock` and reports an error
   on the state channel so the app keeps running.
-- **HarmonyOS**: no native node kind exists, so the piece ships ArkTS (`ohos/ets/Index.ets`,
+- **HarmonyOS**: no native node kind exists, so the piece ships ArkTS (`platform/harmony/ets/Index.ets`,
   staged through `[package.metadata.day.ohos]`): an ArkUI `Video` component for pictures, driven
   through its `VideoController`, and a `media.createAVPlayer()` for sound only — which needs no
   XComponent surface, the reason this arm was once deferred. A `load` on the picture player

@@ -73,7 +73,7 @@ Use `picker` or `text_field` on those platforms. The change plumbing per backend
   `ComboBox` has no per-keystroke text event, so free-form text commits on Enter or focus loss
   (`TextSubmitted` / `LostFocus`) while picks report immediately (`SelectionChanged`).
 - **Android**: carries its own Java factory
-  (`android/java/dev/daybrite/day/piece/combobox/DayCombo.java`), folded into the app's Gradle
+  (`platform/android/java/dev/daybrite/day/piece/combobox/DayCombo.java`), folded into the app's Gradle
   build via `[package.metadata.day.android]` with no edits to day-android. Android's combo box
   is `AutoCompleteTextView`: suggestions prefix-filter while typing, and a tap or focus pops the
   dropdown open so the list is reachable without typing. One `TextWatcher` reports both paths as

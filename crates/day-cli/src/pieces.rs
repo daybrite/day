@@ -9,13 +9,13 @@
 //!
 //! Android contract (`[package.metadata.day.android]`):
 //! ```toml
-//! java = ["android/java"]                 # dirs (rel. to the crate) → Gradle java srcDirs
-//! res = ["android/res"]                   # dirs (rel. to the crate) → Gradle res srcDirs
+//! java = ["platform/android/java"]                 # dirs (rel. to the crate) → Gradle java srcDirs
+//! res = ["platform/android/res"]                   # dirs (rel. to the crate) → Gradle res srcDirs
 //! gradle-dependencies = ["g:a:v", …]      # → the app module's dependencies { }
 //! gradle-repositories = ["https://…", …]  # → extra Maven repos
 //! permissions = ["android.permission.INTERNET", …]  # → <uses-permission>s merged into the manifest
-//! proguard = ["android/proguard-rules.pro"]  # → R8 keep rules for classes native code reaches by name
-//! manifest-components = ["android/components.xml"]  # → <receiver>/<service>/… merged into <application>
+//! proguard = ["platform/android/proguard-rules.pro"]  # → R8 keep rules for classes native code reaches by name
+//! manifest-components = ["platform/android/components.xml"]  # → <receiver>/<service>/… merged into <application>
 //! ```
 //! The resolved contributions are written to `build/day/android/day-pieces.json`, which the app's
 //! `build.gradle.kts` reads generically (loops over the lists — no per-piece Gradle edits, ever).
@@ -24,7 +24,7 @@
 //!
 //! iOS contract (`[package.metadata.day.ios]`):
 //! ```toml
-//! swift = ["ios/swift"]                 # dirs (rel. to the crate) of Swift shim sources
+//! swift = ["platform/ios/swift"]                 # dirs (rel. to the crate) of Swift shim sources
 //! swift-packages = [                    # SwiftPM package dependencies to link
 //!   { url = "https://…", from = "1.0.0", products = ["Foo"] },
 //! ]
@@ -37,7 +37,7 @@
 //!
 //! HarmonyOS contract (`[package.metadata.day.ohos]`):
 //! ```toml
-//! ets = ["ohos/ets"]                    # dirs (rel. to the crate) of ArkTS sources
+//! ets = ["platform/harmony/ets"]                    # dirs (rel. to the crate) of ArkTS sources
 //! ```
 //! For components that exist ONLY in ArkTS — the ArkUI C node API cannot construct a `Web` at all.
 //! Hvigor compiles ArkTS only from inside the module, so these stage into the project itself
@@ -161,7 +161,7 @@ struct AndroidMeta {
     manifest_components: StringOrVec,
 }
 
-/// Accept `java = "android/java"` or `java = ["a", "b"]`.
+/// Accept `java = "platform/android/java"` or `java = ["a", "b"]`.
 #[derive(Default)]
 struct StringOrVec(Vec<String>);
 impl<'de> Deserialize<'de> for StringOrVec {
@@ -1611,13 +1611,13 @@ mod tests {
     #[test]
     fn android_meta_parses_the_new_key() {
         let meta: AndroidMeta = toml::from_str(
-            "java = \"android/java\"\nmanifest-components = [\"android/components.xml\"]\n",
+            "java = \"platform/android/java\"\nmanifest-components = [\"platform/android/components.xml\"]\n",
         )
         .expect("parses");
-        assert_eq!(meta.java.0, vec!["android/java".to_string()]);
+        assert_eq!(meta.java.0, vec!["platform/android/java".to_string()]);
         assert_eq!(
             meta.manifest_components.0,
-            vec!["android/components.xml".to_string()]
+            vec!["platform/android/components.xml".to_string()]
         );
     }
 
@@ -1625,7 +1625,8 @@ mod tests {
     fn android_meta_without_the_key_still_parses() {
         // Every existing part's manifest must keep parsing — the field is additive.
         let meta: AndroidMeta =
-            toml::from_str("java = [\"android/java\"]\npermissions = []\n").expect("parses");
+            toml::from_str("java = [\"platform/android/java\"]\npermissions = []\n")
+                .expect("parses");
         assert!(meta.manifest_components.0.is_empty());
     }
 
@@ -1643,7 +1644,7 @@ mod tests {
     fn apple_meta_parses_with_and_without_the_new_keys() {
         // Every existing piece's manifest must keep parsing — the fields are additive.
         let old: AppleMeta = toml::from_str(
-            "swift = [\"ios/swift\"]\n\
+            "swift = [\"platform/ios/swift\"]\n\
              swift-packages = [{ url = \"https://github.com/airbnb/lottie-ios\", from = \"4.5.0\", products = [\"Lottie\"] }]\n",
         )
         .expect("parses");

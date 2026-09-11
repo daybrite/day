@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: an NSHostingView created by this crate's Swift shim (apple/swift/DaySwiftUI.swift → the
+// AppKit: an NSHostingView created by this crate's Swift shim (platform/apple/swift/DaySwiftUI.swift → the
 // generated DayPieces SwiftPM package, statically linked into the cargo binary by `day build`).
 // Rust calls the shim's flat C ABI and wraps the returned +1-retained NSView. The provider class
 // the shim resolves comes from the app's own Swift sources — zero project-file edits.

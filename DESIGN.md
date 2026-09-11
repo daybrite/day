@@ -2649,13 +2649,18 @@ The shipped layout — everything rides `Cargo.toml`, no side manifest:
 day-piece-lottie/
   Cargo.toml            # the Rust API crate (one feature per toolkit) + [package.metadata.day.*]
   src/lib.rs            # pub fn lottie(source) -> impl Piece  + per-backend renderer! modules
-  android/java/…        # Java shim sources, staged into the app's Gradle build
-  ios/…                 # Swift shim sources, compiled into the generated DayPieces package
+  platform/android/java/…    # Java shim sources, staged into the app's Gradle build
+  platform/ios/swift/…       # Swift shim sources, compiled into the generated DayPieces package
+  platform/harmony/ets/…     # ArkTS sources, staged into the hvigor project (when the piece has an arm)
 ```
+
+The `platform/` directory mirrors an app's, and holds source fragments only: a piece's
+`platform/ios` is not an Xcode project, and nothing in it builds where it sits — `day build`
+reads the paths from the metadata below and folds them into the app's host projects.
 
 ```toml
 [package.metadata.day.android]
-java = ["android/java"]                    # dirs → Gradle java srcDirs
+java = ["platform/android/java"]           # dirs → Gradle java srcDirs
 res = []                                   # dirs → Gradle res srcDirs (piece-shipped styles/drawables)
 gradle-dependencies = ["com.airbnb.android:lottie:6.x"]
 gradle-repositories = []                   # extra Maven repos if needed
@@ -2663,18 +2668,18 @@ permissions = []                           # <uses-permission> entries merged in
 proguard = []                              # R8 keep rules for classes native code reaches by name
 
 [package.metadata.day.ios]
-swift = ["ios/swift"]                      # Swift shim source dirs
+swift = ["platform/ios/swift"]             # Swift shim source dirs
 swift-packages = [{ url = "https://github.com/airbnb/lottie-ios", from = "4.0.0", products = ["Lottie"] }]
 frameworks = ["CoreLocation"]              # system frameworks the app must link (xcodebuild ignores Rust #[link])
 platform = "16.0"                          # optional: minimum OS this contribution needs (max across crates wins)
 
 [package.metadata.day.macos]               # the macos-appkit leg (docs/swiftui.md): same shape as .ios,
-swift = ["apple/swift"]                    # compiled by `swift build` and statically linked into the cargo binary
+swift = ["platform/apple/swift"]           # compiled by `swift build` and statically linked into the cargo binary
 swift-packages = [{ path = "swiftui", products = ["MyViews"] }]  # local packages allowed on both Apple legs;
                                            # public SwiftUI views in them are scanned and exported (docs/swiftui.md)
 
 [package.metadata.day.ohos]
-ets = ["ohos/ets"]                         # ArkTS source dirs, staged into the hvigor project
+ets = ["platform/harmony/ets"]             # ArkTS source dirs, staged into the hvigor project
 
 [package.metadata.day.permissions]
 uses = ["camera"]                          # PORTABLE permissions this crate needs (docs/permissions.md)

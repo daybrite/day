@@ -29,7 +29,7 @@ uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]     # + build.rs compiles src/lib-xaml-shim.cpp
 # The ArkUI C node API has no Web node, so this backend is the crate's ArkTS half
-# (ohos/ets/Index.ets) staged by `day build` — no extra Rust dependency beyond the toolkit.
+# (platform/harmony/ets/Index.ets) staged by `day build` — no extra Rust dependency beyond the toolkit.
 arkui = ["dep:day-arkui"]        # + [package.metadata.day.ohos]
 # Web: an <iframe>. Registered at RUNTIME rather than link-time — wasm has no `linkme` distributed
 # slice (see lib-dom.rs), so the piece registers itself from its constructor. The same-origin policy
@@ -87,7 +87,7 @@ day-mock = { workspace = true }
 # Java AND declares the Android permissions it needs, without touching day-android or the scaffold.
 [package.metadata.day.android]
 # Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
-java = ["android/java"]
+java = ["platform/android/java"]
 # Gradle dependency coordinates added to the app module. android.webkit.WebView is a framework
 # widget, so no extra dependency is required.
 gradle-dependencies = []
@@ -103,7 +103,7 @@ permissions = ["android.permission.INTERNET"]
 # needs an `Index.ets` exporting a `DayPieceModule`. This is the seam this piece motivates — the
 # HarmonyOS counterpart of the android `java` contribution above.
 [package.metadata.day.ohos]
-ets = ["ohos/ets"]
+ets = ["platform/harmony/ets"]
 
 # --- iOS backend contribution (docs/extending.md) ---
 # The iOS WKWebView is hand-rolled in Rust (objc2), so there's no Swift shim — but WKWebView's ObjC

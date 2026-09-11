@@ -60,7 +60,7 @@ code. The change plumbing per backend:
   `day_xaml_box` / `day_xaml_unbox` functions that `day-xaml-sys` exports, the same mechanism the
   picker/media XAML shims use, so a piece never touches day-xaml's private handle wrapper.
 - **Android**: carries its own Java factory
-  (`android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`), folded into the app's Gradle build
+  (`platform/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`), folded into the app's Gradle build
   automatically via `[package.metadata.day.android]`, with no edits to day-android (see
   [docs/extending.md](extending.md)). A `TextWatcher` calls `DayBridge.nativeOnEvent(id, 1, …)`
   (kind 1 = `TextChanged`); the programmatic setter guards on equality (a plain `EditText`, so no Gradle

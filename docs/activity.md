@@ -50,7 +50,7 @@ There is no determinate mode here, because that is day's built-in `progress(frac
 | | AppKit | UIKit | GTK | Qt | Android | XAML |
 |---|---|---|---|---|---|---|
 | control | `NSProgressIndicator` (Spinning) | `UIActivityIndicatorView` | `gtk4::Spinner` | busy `QProgressBar` (range 0..0) | `android.widget.ProgressBar` | `ProgressRing` |
-| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `android/java/…/DayActivity.java` | `src/lib-xaml-shim.cpp` |
+| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `platform/android/java/…/DayActivity.java` | `src/lib-xaml-shim.cpp` |
 | run/stop | `startAnimation:` / `stopAnimation:` | `startAnimating` / `stopAnimating` | `start()` / `stop()` | range 0..0 (busy) ↔ 0..1 (frozen) | `View.VISIBLE` ↔ `INVISIBLE` | `IsActive` |
 | `.large` | `controlSize` Large/Regular | style Large/Medium | `set_size_request` 48/24 | bigger minimum size | `setScaleX/Y(1.5)` | Width/Height 48 |
 | stopped state | stays visible (`displayedWhenStopped`) | stays visible (`hidesWhenStopped = false`) | stays visible (drawn static) | frozen empty bar | INVISIBLE (box kept) | `IsActive(false)` |
@@ -80,7 +80,7 @@ There is no determinate mode here, because that is day's built-in `progress(frac
   indeterminate `ProgressBar` always animates while `VISIBLE`; the closest to a stopped-but-present
   spinner is `INVISIBLE` (which keeps the layout box so surrounding layout does not jump). `.large`
   scales the drawable via `setScaleX/Y`. The Java factory
-  (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with the crate under `android/java` and
+  (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with the crate under `platform/android/java` and
   folded into the app's Gradle build via `[package.metadata.day.android]`, using only day-android's
   public `DayBridge.ctx`.
 - **XAML**: this crate's own C++/WinRT shim wraps a `Windows.UI.Xaml.Controls.ProgressRing` (UWP

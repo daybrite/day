@@ -44,7 +44,7 @@ day-android = { workspace = true }
 # --- Android backend contribution (docs/extending.md) ---
 # `day build` stages this Java into the app's Gradle build without touching any core day crate.
 [package.metadata.day.android]
-java = ["android/java"]
+java = ["platform/android/java"]
 # INTENTIONALLY EMPTY, and it must stay that way: a permissions crate must never force a permission
 # into an app's manifest. The app declares exactly the ones it uses, through `[permissions]` in
 # Day.toml (docs/permissions.md).
