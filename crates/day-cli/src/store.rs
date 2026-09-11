@@ -95,7 +95,11 @@ impl Field {
             // Play's changelog is FAR shorter than the App Store's release notes, and it is the
             // limit that binds for an app shipping to both.
             Field::ReleaseNotes => Some(("changelog", 500)),
-            Field::MarketingUrl => Some(("video.txt", 255)),
+            // Play's `video.txt` is a YouTube promo video, not a website: supply sends it as
+            // the listing's video and Google refuses any other URL ("Invalid YouTube URL",
+            // the Day Showcase's first dry run, 2026-09-11). Play takes no marketing URL
+            // through the API — the website lives in the Play Console's store settings.
+            Field::MarketingUrl => None,
             Field::Subtitle | Field::Keywords | Field::Promo => None,
             Field::SupportUrl | Field::PrivacyUrl => None,
         }

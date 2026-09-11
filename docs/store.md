@@ -53,7 +53,7 @@ manifests and plists. One source is generated outward.
 | `keywords.txt` | `keywords.txt` | 100 | — | |
 | `release-notes.txt` | `release_notes.txt` | 4000 | `changelogs/<versionCode>.txt` | **500** |
 | `promo.txt` | `promotional_text.txt` | 170 | — | |
-| `marketing-url.txt` | `marketing_url.txt` | 255 | `video.txt` | 255 |
+| `marketing-url.txt` | `marketing_url.txt` | 255 | — (Play's `video.txt` is a YouTube promo video; the website is a Play Console setting) | |
 | `support-url.txt` | `support_url.txt` | 255 | — | |
 | `privacy-url.txt` | `privacy_url.txt` | 255 | — | |
 
