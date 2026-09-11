@@ -137,6 +137,25 @@ pub(crate) fn canon(url: &str) -> String {
     url.to_ascii_lowercase()
 }
 
+/// Is `manifest` inside `root`, comparing paths that may differ only in Windows' VERBATIM prefix?
+///
+/// `Path::canonicalize` returns `\\?\C:\…` on Windows — which is what a checkout root is —
+/// while cargo reports plain `C:\…` manifest paths. `Path::starts_with` matches prefix
+/// COMPONENTS, and `Prefix::VerbatimDisk` never equals `Prefix::Disk`, so the raw comparison is
+/// always false between the two forms. That only bites on a RE-RUN, once the crates already
+/// resolve from the checkout as path deps: `source` is no longer `git+…`, so the path is the only
+/// thing left to recognise them by, and every transitive crate silently drops out of the table.
+fn within(manifest: &Path, root: &Path) -> bool {
+    fn plain(p: &Path) -> PathBuf {
+        let text = p.as_os_str().to_string_lossy();
+        match text.strip_prefix(r"\\?\") {
+            Some(rest) => PathBuf::from(rest),
+            None => p.to_path_buf(),
+        }
+    }
+    manifest.starts_with(root) || plain(manifest).starts_with(plain(root))
+}
+
 /// The package's git source, canonicalized, when the resolved package is one this project may
 /// patch — or `None` for anything else: the project's own packages, registry crates, path deps.
 ///
@@ -151,7 +170,7 @@ fn package_source(
     // The project's OWN packages are never crates to patch, whatever they are called. CI checks
     // an app out INSIDE the day workspace (`day/showcase-src`), which puts the app's manifest
     // under the checkout root and made the checkout arm below claim it.
-    if manifest_path.is_some_and(|m| Path::new(m).starts_with(project_root)) {
+    if manifest_path.is_some_and(|m| within(Path::new(m), project_root)) {
         return None;
     }
     if let Some(s) = source
@@ -162,7 +181,7 @@ fn package_source(
     let manifest = manifest_path.map(Path::new)?;
     checkouts
         .iter()
-        .find(|(_, root)| manifest.starts_with(root))
+        .find(|(_, root)| within(manifest, root))
         .map(|(url, _)| url.clone())
 }
 
