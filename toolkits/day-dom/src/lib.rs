@@ -3662,9 +3662,9 @@ pub extern "C" fn day_dom_edit(op: u32) {
     });
 }
 
-/// An arrow pressed while THIS canvas has focus (docs/menus.md). Returns whether the app
-/// claimed it — a canvas nobody hung a key handler on keeps none of them, so the browser's own
-/// scrolling still works underneath it.
+/// A non-text key pressed while THIS canvas has focus (docs/menus.md): `code` 0–5 is an arrow
+/// or a delete key, 10–19 a digit. Returns whether the app claimed it — a canvas nobody hung a
+/// key handler on keeps none of them, so the browser's own scrolling still works underneath it.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 {
     day_spec::ffi_guard::contain(0, || {
@@ -3674,7 +3674,9 @@ pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 
             2 => "ArrowUp",
             3 => "ArrowDown",
             4 => "Delete",
-            _ => "Backspace",
+            5 => "Backspace",
+            10..=19 => day_spec::KeyEvent::DIGITS[(code - 10) as usize],
+            _ => return 0,
         };
         let Some(node) = node_of(el) else {
             return 0;

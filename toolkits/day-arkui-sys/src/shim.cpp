@@ -202,16 +202,27 @@ extern "C" bool day_list_cell_click(ArkUI_NodeHandle n); // defined in the exter
 static void day_canvas_forget(void* n);
 static void day_list_forget(void* n);
 
-// The day name for an arrow keycode, or null for every other key (docs/menus.md). ArkUI names
-// them for a D-pad, which is the same four keys a keyboard's arrows send.
-static const char* day_ark_arrow_name(int32_t code) {
+// The day name for a keycode the route carries, or null for every other key (docs/menus.md).
+// ArkUI names the arrows for a D-pad, which is the same four keys a keyboard's arrows send.
+// ArkUI draws no menu bar, so no accelerator owns the delete keys and they ride the route too.
+// A digit is the PHYSICAL key, main row or keypad (the keypad reads as digits whatever Num Lock
+// says: the query for it needs API 19), and never under Ctrl or Alt, which belong to shortcuts.
+static const char* day_ark_key_name(int32_t code, uint64_t held) {
+    static const char* const digits[] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
     switch (code) {
-        case ARKUI_KEYCODE_DPAD_LEFT:  return "ArrowLeft";
-        case ARKUI_KEYCODE_DPAD_RIGHT: return "ArrowRight";
-        case ARKUI_KEYCODE_DPAD_UP:    return "ArrowUp";
-        case ARKUI_KEYCODE_DPAD_DOWN:  return "ArrowDown";
-        default: return nullptr;
+        case ARKUI_KEYCODE_DPAD_LEFT:   return "ArrowLeft";
+        case ARKUI_KEYCODE_DPAD_RIGHT:  return "ArrowRight";
+        case ARKUI_KEYCODE_DPAD_UP:     return "ArrowUp";
+        case ARKUI_KEYCODE_DPAD_DOWN:   return "ArrowDown";
+        case ARKUI_KEYCODE_DEL:         return "Backspace";
+        case ARKUI_KEYCODE_FORWARD_DEL: return "Delete";
+        default: break;
     }
+    if (held & (ARKUI_MODIFIER_KEY_CTRL | ARKUI_MODIFIER_KEY_ALT)) return nullptr;
+    if (code >= ARKUI_KEYCODE_0 && code <= ARKUI_KEYCODE_9) return digits[code - ARKUI_KEYCODE_0];
+    if (code >= ARKUI_KEYCODE_NUMPAD_0 && code <= ARKUI_KEYCODE_NUMPAD_9)
+        return digits[code - ARKUI_KEYCODE_NUMPAD_0];
+    return nullptr;
 }
 
 static void event_receiver(ArkUI_NodeEvent* ev) {
@@ -286,18 +297,18 @@ static void event_receiver(ArkUI_NodeEvent* ev) {
         case NODE_TEXT_INPUT_ON_SUBMIT:
             day_arkui_on_event(id, DAY_K_SUBMITTED, 0.0, "");
             break;
-        // The arrows, for a focused node whose app asked for them (docs/menus.md). Consumed
-        // only when claimed: an unclaimed arrow keeps propagating, so ArkUI's own focus walking
-        // still moves between components.
+        // The non-text keys, for a focused node whose app asked for them (docs/menus.md).
+        // Consumed only when claimed: an unclaimed arrow keeps propagating, so ArkUI's own
+        // focus walking still moves between components.
         case NODE_ON_KEY_EVENT: {
             auto* input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
             if (!input) break;
             if (OH_ArkUI_KeyEvent_GetType(input) != ARKUI_KEY_EVENT_DOWN) break;
-            const char* name = day_ark_arrow_name(OH_ArkUI_KeyEvent_GetKeyCode(input));
-            if (!name) break;
-            if (!day_arkui_node_handles_keys(id)) break;
             uint64_t held = 0;
             OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &held);
+            const char* name = day_ark_key_name(OH_ArkUI_KeyEvent_GetKeyCode(input), held);
+            if (!name) break;
+            if (!day_arkui_node_handles_keys(id)) break;
             double mods = 0;
             if (held & ARKUI_MODIFIER_KEY_SHIFT) mods += 1;  // day KeyEvent::SHIFT
             if (held & ARKUI_MODIFIER_KEY_CTRL) mods += 2;   // PRIMARY

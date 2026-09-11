@@ -568,7 +568,7 @@ pub mod bridge {
         /// [`crate::Event::ToolbarChanged`]. A plain toolbar button sends `MenuAction`.
         ToolbarChanged = 30,
         /// A non-text key reached the FOCUSED node (docs/menus.md); `text` = the day key name
-        /// (`"ArrowLeft"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
+        /// (`"ArrowLeft"`, `"5"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
         /// [`crate::Event::Key`].
         Key = 29,
     }
@@ -1529,14 +1529,20 @@ pub enum ToolbarPatch {
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyEvent {
     /// The key's name, in the web `KeyboardEvent.key` vocabulary every platform can map onto:
-    /// the four arrows ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown") everywhere, plus
+    /// the four arrows ("ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown") and the ten digits
+    /// ("0" through "9", from the main row or the numeric keypad) everywhere, plus
     /// "Delete" and "Backspace" on backends with no menu bar ([`Cap::AppMenu`] unsupported),
     /// where no accelerator can own those keys — a focused piece claims every key the route
     /// carries, so offering them on a menu-bar platform would let a canvas swallow the Delete
     /// its own Edit menu was about to act on (docs/menus.md). The two delete keys keep the
     /// names the platform gives the PHYSICAL keys — a Mac's ⌫ is "Backspace" and its ⌦ is
-    /// "Delete" — so a handler that means "remove this" takes both. Backends emit `Event::Key`
-    /// only while no text widget has focus; a field's own editing keys never surface here.
+    /// "Delete" — so a handler that means "remove this" takes both. A digit arrives only while
+    /// neither [`KeyEvent::PRIMARY`] nor [`KeyEvent::ALT`] (nor a Mac's Control) is held: ⌘1
+    /// and Ctrl+1 are accelerators, and a canvas claiming them would starve the menu. Most
+    /// backends name the digit the keypress TYPES, so a layout whose number row needs Shift for
+    /// digits reports "1" with [`KeyEvent::SHIFT`] set; XAML and ArkUI read the physical key.
+    /// Backends emit `Event::Key` only while no text widget has focus; a field's own editing
+    /// keys never surface here.
     pub key: String,
     /// A [`KeyEvent::SHIFT`]/[`KeyEvent::PRIMARY`]/[`KeyEvent::ALT`] mask.
     pub modifiers: u8,
@@ -1549,6 +1555,23 @@ impl KeyEvent {
     pub const PRIMARY: u8 = 2;
     pub const ALT: u8 = 4;
 
+    /// The ten digit key names, indexed by value.
+    pub const DIGITS: [&'static str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+
+    /// The key name for a typed character when it is one of the ten digits — what a backend
+    /// reports for a keypress that types `0`–`9`.
+    pub fn digit_name(c: char) -> Option<&'static str> {
+        c.to_digit(10).map(|d| Self::DIGITS[d as usize])
+    }
+
+    /// The value of a digit key, or `None` for every other key.
+    pub fn digit(&self) -> Option<u8> {
+        match self.key.as_bytes() {
+            [d @ b'0'..=b'9'] => Some(d - b'0'),
+            _ => None,
+        }
+    }
+
     pub fn shift(&self) -> bool {
         self.modifiers & Self::SHIFT != 0
     }
@@ -1557,6 +1580,31 @@ impl KeyEvent {
     }
     pub fn alt(&self) -> bool {
         self.modifiers & Self::ALT != 0
+    }
+}
+
+#[cfg(test)]
+mod key_event_tests {
+    use super::KeyEvent;
+
+    #[test]
+    fn digit_names_read_back_as_values() {
+        for (value, c) in ('0'..='9').enumerate() {
+            let name = KeyEvent::digit_name(c).expect("an ASCII digit names itself");
+            let key = KeyEvent {
+                key: name.to_string(),
+                modifiers: 0,
+            };
+            assert_eq!(key.digit(), Some(value as u8));
+        }
+        // Only the ASCII digits: a letter, an Arabic-Indic three, and a named key are not.
+        assert_eq!(KeyEvent::digit_name('a'), None);
+        assert_eq!(KeyEvent::digit_name('٣'), None);
+        let arrow = KeyEvent {
+            key: "ArrowUp".to_string(),
+            modifiers: 0,
+        };
+        assert_eq!(arrow.digit(), None);
     }
 }
 

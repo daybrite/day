@@ -546,16 +546,18 @@ extern "C" fn on_slider(id: u64, v: c_int, committed: c_int) {
 }
 /// Focus callback from the C++ event filter (docs/focus.md).
 /// kind: 0 = lost, 1 = gained, 2 = submitted (line-edit return key).
-/// Arrow-key callback from the C++ key filter (docs/menus.md). Answers whether the app claimed
-/// it: a canvas nobody hung `.on_key` on keeps none of them, so an enclosing scroll area still
-/// scrolls with the keyboard.
+/// Key callback from the C++ key filter (docs/menus.md): `code` 0–3 is an arrow, 10–19 a
+/// digit. Answers whether the app claimed it: a canvas nobody hung `.on_key` on keeps none of
+/// them, so an enclosing scroll area still scrolls with the keyboard.
 extern "C" fn on_key(id: u64, code: c_int, modifiers: c_int) -> c_int {
     ffi_guard::contain(0, || {
         let key = match code {
             0 => "ArrowLeft",
             1 => "ArrowRight",
             2 => "ArrowUp",
-            _ => "ArrowDown",
+            3 => "ArrowDown",
+            10..=19 => day_spec::KeyEvent::DIGITS[(code - 10) as usize],
+            _ => return 0,
         };
         let node = NodeId(id);
         if !day_spec::keys::handled(node) {

@@ -522,6 +522,11 @@ public class DayNavHost extends LinearLayout {
         private String spec = "";
         /** Live toolbar items by their day id, for targeted updates. */
         final HashMap<String, MenuItem> items = new HashMap<>();
+        /** Each segmented item's per-segment glyphs, in order, so a change of selection can
+         *  lend the new segment's art to the control's own item. */
+        final HashMap<String, List<android.graphics.drawable.Drawable>> segmentGlyphMap = new HashMap<>();
+        /** The color the bar's glyphs were last tinted to; 0 before the first tint. */
+        int lastTint = 0;
         /** A segmented item's segments, in order, for `updateWindowToolbar` op 2. */
         final HashMap<String, List<MenuItem>> segmentItems = new HashMap<>();
         /** A segmented item's declared label, empty when it brought none — see `nameSegmentHead`. */
@@ -551,6 +556,7 @@ public class DayNavHost extends LinearLayout {
             items.clear();
             segmentItems.clear();
             segmentLabels.clear();
+            segmentGlyphMap.clear();
             glyphs.clear();
             Context ctx = toolbar.getContext();
             int order = 0;
@@ -614,7 +620,21 @@ public class DayNavHost extends LinearLayout {
                     SubMenu sm = menu.addSubMenu(Menu.NONE, Menu.NONE, order++, label);
                     final MenuItem head = sm.getItem();
                     head.setEnabled(enabled);
+                    // Each segment is `title` 0x1C `icon`. The control itself carries no glyph;
+                    // the segment in force lends it one, so the bar shows the setting as an icon
+                    // button that opens the choices — the Material shape of a chooser.
+                    final ArrayList<android.graphics.drawable.Drawable> segmentGlyphs = new ArrayList<>();
+                    for (int i = 1; i < seg.length; i++) {
+                        int cut = seg[i].indexOf('\u001c');
+                        String segIcon = cut >= 0 ? seg[i].substring(cut + 1) : "";
+                        seg[i] = cut >= 0 ? seg[i].substring(0, cut) : seg[i];
+                        segmentGlyphs.add(DayBridge.drawableByName(ctx, segIcon));
+                    }
+                    if (glyph == null && selected >= 0 && selected < segmentGlyphs.size()) {
+                        glyph = segmentGlyphs.get(selected);
+                    }
                     showAsAction(head, glyph, placement);
+                    segmentGlyphMap.put(id, segmentGlyphs);
                     final ArrayList<MenuItem> segments = new ArrayList<>();
                     // A segmented control carries no label of its own — it is a row of choices, and
                     // the platforms that draw one draw the choices (day-pieces `toolbar_segmented`).
@@ -631,6 +651,7 @@ public class DayNavHost extends LinearLayout {
                             @Override public boolean onMenuItemClick(MenuItem mi) {
                                 checkSegment(segments, idx);
                                 nameSegmentHead(head, segments, label);
+                                lendSegmentGlyph(head, segmentGlyphs, idx);
                                 DayBridge.nativeOnEvent(action, DayBridge.K_TOOLBAR_CHANGED,
                                         idx, "sel");
                                 return true;
@@ -667,8 +688,13 @@ public class DayNavHost extends LinearLayout {
                 if (segments != null) {
                     checkSegment(segments, (int) num);
                     // An unlabeled control is named by the segment in force, so a change the APP
-                    // made has to rename it too — not only one the user tapped.
+                    // made has to rename it too — not only one the user tapped. Its glyph moves
+                    // the same way.
                     nameSegmentHead(it, segments, segmentLabels.get(id));
+                    List<android.graphics.drawable.Drawable> segGlyphs = segmentGlyphMap.get(id);
+                    if (segGlyphs != null) {
+                        lendSegmentGlyph(it, segGlyphs, (int) num);
+                    }
                 }
             }
         }
@@ -676,6 +702,7 @@ public class DayNavHost extends LinearLayout {
         /** Re-tint every glyph on this bar to `color`, the way {@link DayNavHost#syncBarActions}
          *  does for the app bar it shares with the page's own actions. */
         void tint(int color) {
+            lastTint = color;
             for (java.util.Map.Entry<MenuItem, android.graphics.drawable.Drawable> e
                     : glyphs.entrySet()) {
                 android.graphics.drawable.Drawable d = e.getValue().mutate();
@@ -743,6 +770,24 @@ public class DayNavHost extends LinearLayout {
 
         private static void checkSegment(List<MenuItem> segments, int idx) {
             for (int i = 0; i < segments.size(); i++) segments.get(i).setChecked(i == idx);
+        }
+
+        /** Put the segment in force's glyph on the control's own item, tinted like the rest of
+         *  the bar, so the icon button says which choice is on. A segment without art leaves the
+         *  head as it was. */
+        private void lendSegmentGlyph(MenuItem head, List<android.graphics.drawable.Drawable> segGlyphs, int idx) {
+            if (idx < 0 || idx >= segGlyphs.size()) return;
+            android.graphics.drawable.Drawable g = segGlyphs.get(idx);
+            if (g == null) return;
+            android.graphics.drawable.Drawable prior = glyphs.get(head);
+            glyphs.put(head, g);
+            if (prior != null && lastTint != 0) {
+                android.graphics.drawable.Drawable d = g.mutate();
+                d.setTint(lastTint);
+                head.setIcon(d);
+            } else {
+                head.setIcon(g);
+            }
         }
 
         /** Title the row a segmented control folds into, when the control brought no label of its
@@ -1098,10 +1143,10 @@ public class DayNavHost extends LinearLayout {
 
     /** A fragment that retains and re-serves its Rust-owned page view (the
      *  react-native-screens pattern) — the FragmentManager owns WHEN it shows, Day owns WHAT
-     *  it shows. Public with a no-arg constructor per the Fragment contract; DayActivity
-     *  handles config changes itself (manifest configChanges), so framework re-instantiation
-     *  does not happen in practice — if it ever does, the empty view is torn down and rebuilt
-     *  by Rust. */
+     *  it shows. Public with a no-arg constructor per the Fragment contract: the framework
+     *  re-instantiates these on an activity recreation (the theme switch, docs/appearance.md)
+     *  with no content, and `DayBridge.beginMount` removes those restored shells before the
+     *  new tree registers its own. */
     public static class PageFragment extends Fragment {
         View content;
 

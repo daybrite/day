@@ -1007,6 +1007,16 @@ macro_rules! day_start_android {
         ) -> $crate::android::jni::sys::jboolean {
             $crate::android::list_delete(host_id, index) as $crate::android::jni::sys::jboolean
         }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeHandlesKeys(
+            _env: $crate::android::jni::EnvUnowned,
+            _class: $crate::android::jni::objects::JClass,
+            id: $crate::android::jni::sys::jlong,
+        ) -> $crate::android::jni::sys::jboolean {
+            $crate::android::handles_keys(id) as $crate::android::jni::sys::jboolean
+        }
     };
 }
 
@@ -1015,8 +1025,9 @@ macro_rules! day_start_android {
 pub mod android {
     pub use day_android::jni;
     pub use day_android::{
-        dispatch_event, list_bind, list_can_delete, list_can_drop, list_delete, list_is_selected,
-        list_len, list_move, list_recycle, read_jstring, run_frame, run_posted, window_started,
+        dispatch_event, handles_keys, list_bind, list_can_delete, list_can_drop, list_delete,
+        list_is_selected, list_len, list_move, list_recycle, read_jstring, run_frame, run_posted,
+        window_started,
     };
 
     #[allow(clippy::too_many_arguments)]

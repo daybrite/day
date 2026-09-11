@@ -7,11 +7,17 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
+import android.os.Build;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 
 /** Replays day's display list (§11). Ops arrive dp-encoded; drawing scales by density. */
 public class DayCanvasView extends View {
+    /** The day node this canvas renders: focus and keys are reported against it. */
+    final long id;
     double[] nums = new double[0];
     String[] texts = new String[0];
     final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -26,7 +32,76 @@ public class DayCanvasView extends View {
     private boolean fItalic = false;
     private String fFamily = "";
 
-    public DayCanvasView(Context c) { super(c); }
+    public DayCanvasView(Context c, long id) {
+        super(c);
+        this.id = id;
+        // Focus, and with it the keyboard (docs/focus.md, docs/menus.md): a canvas is the one
+        // built-in piece with no native control under it, so nothing else would ever make it
+        // the focused view. Focusable IN TOUCH MODE, or `requestFocus` refuses it on a phone.
+        setFocusable(true);
+        setFocusableInTouchMode(true);
+        if (Build.VERSION.SDK_INT >= 26) {
+            // Neither the grey wash Android lays over a focused view once a key is pressed,
+            // nor the scroll that brings a newly focused view fully into sight: the app draws
+            // its own selection, and a press on a tall canvas must not jump the page.
+            setDefaultFocusHighlightEnabled(false);
+            setRevealOnFocusHint(false);
+        }
+    }
+
+    // A press focuses the canvas, the way tapping a text field does, but only when the app
+    // hung `.on_key` on it: in touch mode a focus move is not free (it can dismiss a raised
+    // soft keyboard), so a canvas that wants no keys leaves focus where it was. This runs
+    // before the touch listener that carries the gestures, which still sees the press.
+    @Override public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getActionMasked() == MotionEvent.ACTION_DOWN && !isFocused()
+                && DayBridge.nativeHandlesKeys(id)) {
+            requestFocus();
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
+    // Report focus both ways, so `.focused(signal)` binds two-way and dayscript's
+    // `assert_focused` can see it.
+    @Override protected void onFocusChanged(boolean gained, int direction, Rect previous) {
+        super.onFocusChanged(gained, direction, previous);
+        DayBridge.nativeOnEvent(id, DayBridge.K_FOCUS_CHANGED, gained ? 1 : 0, null);
+    }
+
+    // A hardware key while this canvas has focus. A key the route does not carry, and every
+    // key when the app registered no handler for the node, goes to `super`, so an unclaimed
+    // arrow still moves focus between views.
+    @Override public boolean onKeyDown(int keyCode, KeyEvent ev) {
+        String name = keyName(keyCode, ev);
+        if (name != null && DayBridge.nativeHandlesKeys(id)) {
+            int mods = 0;
+            if (ev.isShiftPressed()) mods |= 1; // day KeyEvent::SHIFT
+            if (ev.isCtrlPressed()) mods |= 2;  // PRIMARY
+            if (ev.isAltPressed()) mods |= 4;   // ALT
+            DayBridge.nativeOnEvent(id, DayBridge.K_KEY, mods, name);
+            return true;
+        }
+        return super.onKeyDown(keyCode, ev);
+    }
+
+    /** The day name for a key the route carries (docs/menus.md), or null. Android draws no
+     *  menu bar, so no accelerator owns the delete keys and they ride the route too. A digit
+     *  is named by what it types, main row or keypad, and never under Ctrl, Alt or Meta,
+     *  which belong to shortcuts. */
+    static String keyName(int keyCode, KeyEvent ev) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT: return "ArrowLeft";
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return "ArrowRight";
+            case KeyEvent.KEYCODE_DPAD_UP: return "ArrowUp";
+            case KeyEvent.KEYCODE_DPAD_DOWN: return "ArrowDown";
+            case KeyEvent.KEYCODE_DEL: return "Backspace";
+            case KeyEvent.KEYCODE_FORWARD_DEL: return "Delete";
+            default: break;
+        }
+        if (ev.isCtrlPressed() || ev.isAltPressed() || ev.isMetaPressed()) return null;
+        int c = ev.getUnicodeChar();
+        return c >= '0' && c <= '9' ? String.valueOf((char) c) : null;
+    }
 
     public void setOps(double[] n, String joined) {
         nums = n;

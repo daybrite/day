@@ -714,8 +714,8 @@ caller's `.any()`, never the constructor's.
 > menus are declarative — `.context_menu(items)`, [docs/menus.md](docs/menus.md)). Three modifiers the design-era
 > §5.2 text listed as `Decorate` members never shipped there: `disabled` is spelled `enabled` and
 > is per-piece (`Button`, `Toggle`) because it needs a native control to gray out, and `visible`
-> and `on_key` do not exist at all — hide a subtree with `when`, and while `Event::Key` rides the
-> event sink, no piece-level API consumes it yet. `Decorate` did instead grow the
+> and `on_key` did not exist at all — hide a subtree with `when`. `on_key` shipped later, as the
+> focus-scoped key route in the modifier list below. `Decorate` did instead grow the
 > transform family (`.opacity()`, `.rotation()`, `.scale()`, `.translation()`, `.transform()`) and
 > `.animation()`. Per-subsystem detail lives in the docs/ files named in the subsystem index.
 
@@ -1379,8 +1379,8 @@ pub trait Toolkit: Sized + 'static {
     // web shim's tracked mask, Qt's queryKeyboardModifiers; a backend with no live query keeps
     // the all-false default, which is right for touch and wrong for a desktop toolkit — see
     // the `modifiers` row of docs/duty-matrix.md for who answers), and `Event::Key`
-    // (the dormant variant, now live) carries the arrows — plus Delete/Backspace where no menu
-    // bar owns them — to the FOCUSED node's
+    // (the dormant variant, now live) carries the arrows and the digits — plus Delete/Backspace
+    // where no menu bar owns them — to the FOCUSED node's
     // `Decorate::on_key`. Keys follow focus, so there is no window-level route and nothing runs
     // ahead of the platform's dispatch: appkit's canvas answers `acceptsFirstResponder` and
     // reports from its own `keyDown:`, web-dom's carries a tabindex and its own keydown, and a
@@ -3617,7 +3617,12 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   `.xcodeproj` and is the one place each project resolves the CLI (2026-08): `DAY_BIN`
   (exported by `day build`) wins, then `command -v day`, then the standard install locations
   (`~/.cargo/bin`, Homebrew, `/usr/local/bin`), with a named error rather than sh's bare
-  `day: command not found`. It exists because a build started from the Xcode GUI runs on
+  `day: command not found`. `day build` runs the cargo half itself before invoking xcodebuild
+  (2026-09), so cargo's output streams to the terminal as it compiles (live under `--verbose`,
+  captured and shown on failure otherwise); the phase's own cargo run then finds everything
+  fresh. xcodebuild holds a script phase's output until the phase ends — measured, with and
+  without `-verbose` — so output routed through the phase could only ever arrive as one burst.
+  It exists because a build started from the Xcode GUI runs on
   Xcode's own minimal PATH with no shell profile; per-project rather than shared because the
   template's target filter keys a file's platform off its `platform/<os>/` prefix, and each
   Xcode project stays self-contained. It is invoked through `sh` since the scaffold writes

@@ -455,7 +455,7 @@ const env = {
   // rows are recycled as the list scrolls, and focus parked on one would evaporate under it.
   // The web half of "keys follow focus" (docs/menus.md). A <canvas> is not focusable on its
   // own, so nothing the app draws in one could ever hold the keyboard; this gives it the tab
-  // stop and the arrow route, and takes focus on a press the way a real control does.
+  // stop and the key route, and takes focus on a press the way a real control does.
   day_dom_canvas_keynav(id) {
     const el = E(id);
     el.tabIndex = 0;
@@ -465,11 +465,14 @@ const env = {
     el.addEventListener('keydown', (e) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const keys = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3, Delete: 4, Backspace: 5 };
-      if (!(e.key in keys)) return;
+      // A digit is 10 + its value; the browser names the main row and the keypad alike, by
+      // what the key types.
+      const code = e.key in keys ? keys[e.key] : /^[0-9]$/.test(e.key) ? 10 + Number(e.key) : -1;
+      if (code < 0) return;
       // Claimed only if the app actually took it: an unclaimed key stays the browser's, so a
       // page with a canvas on it still scrolls with the keyboard (and Backspace still means
       // whatever the browser wants it to mean).
-      if (wasm.day_dom_canvas_key(id, keys[e.key], e.shiftKey ? 1 : 0)) e.preventDefault();
+      if (wasm.day_dom_canvas_key(id, code, e.shiftKey ? 1 : 0)) e.preventDefault();
     });
   },
   day_dom_list_keynav(id, multi) {

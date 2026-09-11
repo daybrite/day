@@ -578,18 +578,33 @@ mod imp {
         (v as *const UIView).cast::<()>() as usize
     }
 
-    /// The day name for an arrow key's HID usage, or `None` for every other key — the four
-    /// [`day_spec::KeyEvent`] names the key route carries (docs/menus.md).
-    fn arrow_key_name(code: objc2_ui_kit::UIKeyboardHIDUsage) -> Option<&'static str> {
+    /// The day name for a hardware-keyboard key, or `None` for every key the route does not
+    /// carry — the [`day_spec::KeyEvent`] names (docs/menus.md).
+    fn key_name(key: &objc2_ui_kit::UIKey) -> Option<&'static str> {
+        use objc2_ui_kit::UIKeyModifierFlags as M;
         use objc2_ui_kit::UIKeyboardHIDUsage as U;
-        match code {
+        match unsafe { key.keyCode() } {
             U::KeyboardLeftArrow => Some("ArrowLeft"),
             U::KeyboardRightArrow => Some("ArrowRight"),
             U::KeyboardUpArrow => Some("ArrowUp"),
             U::KeyboardDownArrow => Some("ArrowDown"),
             U::KeyboardDeleteForward => Some("Delete"),
             U::KeyboardDeleteOrBackspace => Some("Backspace"),
-            _ => None,
+            // A digit, main row or keypad, named by what it types. Never under ⌘, ⌥ or ⌃:
+            // those combinations are key commands, and a canvas claiming one would starve them.
+            _ if unsafe { key.modifierFlags() }
+                .intersects(M::Command | M::Alternate | M::Control) =>
+            {
+                None
+            }
+            _ => {
+                let typed = key.characters().to_string();
+                let mut chars = typed.chars();
+                match (chars.next(), chars.next()) {
+                    (Some(c), None) => day_spec::KeyEvent::digit_name(c),
+                    _ => None,
+                }
+            }
         }
     }
 
@@ -5956,7 +5971,7 @@ mod imp {
                         let Some(key) = (unsafe { press.key(self.mtm()) }) else {
                             continue;
                         };
-                        let Some(name) = arrow_key_name(unsafe { key.keyCode() }) else {
+                        let Some(name) = key_name(&key) else {
                             continue;
                         };
                         emit(

@@ -241,11 +241,19 @@ a titled submenu of the same children, and a segmented item to its segments unde
 the segment in force. Tapping the row runs what the button would have run, the toggle's own
 flip included. Two kinds never reach a phone's bar: search, which rides the navigation
 list there ([docs/search.md](search.md)), and the sidebar toggle, which the split view owns.
-Android stages no glyph for a `Symbol`, so an item with only a symbol has no glyph to show in
-the bar and lives in the overflow, where its label reads as a menu row — a Material app bar
-carries icon buttons and sends the rest to its overflow, and two text actions were enough to
-squeeze the Showcase's own title to "Day Showc…". An `Icon::Image` draws as the image on both
-phones, and Android re-tints it to the app bar's own color.
+Android draws a `Symbol` from day-android's own glyph set — one Material Symbols vector per
+variant, shipped in the toolkit's `res/` and named `day_symbol_<variant>` — so a symbol-only
+item has an icon to show in the bar, the way an SF Symbol gives it one on Apple. An item with
+no icon at all still lives in the overflow, where its label reads as a menu row: a Material
+app bar carries icon buttons and sends the rest to its overflow, and two text actions were
+enough to squeeze the Showcase's own title to "Day Showc…". A segmented control shows in the
+bar as one icon button, the segment in force's glyph, which opens the choices as a radio
+submenu; the glyph follows the selection. An `Icon::Image` draws as the image on both phones,
+and Android re-tints it to the app bar's own color. The bar has room for a few icons beside
+the page's title, and the page's own commands take them first: Android orders the detail and
+list columns' items ahead of the sidebar column's, so a page's Show Source and Star stay in the
+bar and the window's New Window and appearance chooser fold into the overflow when the bar is
+that narrow.
 
 
 ## Per-backend native realization

@@ -157,7 +157,12 @@ public final class DayBridge {
     public static final int K_LINK_ACTIVATED = 27;
     /** A toolbar item produced a value (docs/toolbars.md): "on" + num, or "sel" + index. */
     public static final int K_TOOLBAR_CHANGED = 30;
+    /** A key reached a focused canvas (docs/menus.md): the day key name, with the modifier mask. */
+    public static final int K_KEY = 29;
     public static final int K_SAFE_AREA = 19;
+    /** Whether node `id` has an `.on_key` handler (docs/menus.md): a canvas asks before it
+     *  claims a key or takes focus on a press. */
+    public static native boolean nativeHandlesKeys(long id);
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
     public static native void nativeDoFrame(long token, long frameTimeNanos);
@@ -1348,6 +1353,49 @@ public final class DayBridge {
     /** The window toolbar spec as the app last set it (docs/toolbars.md), or null. One per
      *  process: nav is app-root only (v1), so one bar rides every host. */
     static String windowToolbarSpec = null;
+
+    /** A tree is about to be mounted on a NEW activity (DayActivity, before nativeStart): drop
+     *  every process-wide reference to the hosts of the one that went away. day-android clears
+     *  its own per-mount tables in `init` for the same reason; these are their Java twins.
+     *
+     *  Without this a recreation — the theme switch (docs/appearance.md) — left `toolbarHost`
+     *  and `DayNavHost.active` on the destroyed activity's host. The weak reference stays live
+     *  until a collection happens to run, so the new tree's first host never claimed the bar
+     *  (makeNavHost saw the slot taken), and every setWindowToolbar after it painted onto a view
+     *  no window showed: the app bar came up with no items and none ever returned. */
+    static void beginMount() {
+        toolbarHost = null;
+        windowToolbarSpec = null;
+        DayNavHost.active = null;
+        // The FragmentManager also restored the previous activity's PageFragments and their
+        // back-stack entries from the saved instance state — content-less zombies, since a
+        // page's view is Rust-owned and never saved. Left in place, a zombie entry carries the
+        // same `day-nav-<node>-<depth>` name the new host gives its own push, so the first pop
+        // (inclusive, by name) took both entries at once, and the root came back laid out in
+        // full — every row with its frame — yet drawing nothing: a blank navigation list after
+        // a theme switch on a pushed page. Clear them before the new tree's hosts register
+        // their own; at this point nothing of the new tree has been added yet.
+        if (!(ctx instanceof androidx.fragment.app.FragmentActivity)) return;
+        androidx.fragment.app.FragmentManager fm =
+                ((androidx.fragment.app.FragmentActivity) ctx).getSupportFragmentManager();
+        try {
+            if (fm.getBackStackEntryCount() > 0) {
+                fm.popBackStackImmediate(null,
+                        androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE);
+            }
+            androidx.fragment.app.FragmentTransaction tx = null;
+            for (androidx.fragment.app.Fragment f : fm.getFragments()) {
+                if (f instanceof DayNavHost.PageFragment
+                        && ((DayNavHost.PageFragment) f).content == null) {
+                    if (tx == null) tx = fm.beginTransaction().setReorderingAllowed(true);
+                    tx.remove(f);
+                }
+            }
+            if (tx != null) tx.commitNowAllowingStateLoss();
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "restored fragment state not cleared; continuing", t);
+        }
+    }
     /** The host drawing the window's bar. A window can hold several — a list-backed destination
      *  composes a nested one for its own layers — and only the first to appear carries the
      *  window's items; the rest would stack a second app bar under the first
@@ -1861,7 +1909,11 @@ public final class DayBridge {
                 android.widget.ImageView iv = new android.widget.ImageView(ctx);
                 iv.setImageDrawable(badge);
                 int sz = (int) (18 * d);
-                iv.setLayoutParams(new ViewGroup.LayoutParams(sz, sz));
+                // NavigationView adds the action view to a FrameLayout that spans the row's
+                // height; plain ViewGroup params convert to a FrameLayout's default gravity,
+                // top|start, which parked the star at the top of the row. Center it.
+                iv.setLayoutParams(new android.widget.FrameLayout.LayoutParams(sz, sz,
+                        android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END));
                 if (tint != 0) {
                     iv.setImageTintList(android.content.res.ColorStateList.valueOf((int) tint));
                 }
@@ -2179,7 +2231,7 @@ public final class DayBridge {
 
     public static void setEnabled(View v, boolean b) { v.setEnabled(b); }
 
-    public static View makeCanvas() { return new DayCanvasView(ctx); }
+    public static View makeCanvas(long id) { return new DayCanvasView(ctx, id); }
     public static void setCanvasOps(View v, double[] nums, String textsJoined) {
         ((DayCanvasView) v).setOps(nums, textsJoined);
     }

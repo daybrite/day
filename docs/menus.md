@@ -224,8 +224,13 @@ precedence while it dispatches.
 
 `.on_key(f)` handles the non-text keys, under the web `KeyboardEvent.key` names and with the
 held modifiers on the event (`ev.shift()` scales a nudge from 1px to 10). The four arrows
-arrive everywhere. `Delete` and `Backspace` arrive only where [`Cap::AppMenu`](duty-matrix.md)
-is unsupported, where there is no menu bar and so no accelerator that could own them.
+arrive everywhere, and so do the ten digits, `"0"` through `"9"` from the main row or the
+numeric keypad (`ev.digit()` reads the value). A digit arrives only while neither primary nor
+alt is held (nor a Mac's Control), since ⌘1 and Ctrl+1 are accelerators. Most backends name
+the digit a keypress types, so a layout that needs Shift for digits reports `"1"` with
+`ev.shift()` set; XAML and ArkUI read the physical key instead. `Delete` and `Backspace` arrive
+only where [`Cap::AppMenu`](duty-matrix.md) is unsupported, where there is no menu bar and so
+no accelerator that could own them.
 
 That split keeps one key to one owner. **A focused piece
 that claims a key stops any accelerator from ever seeing it**: the platform offers the key to
@@ -255,7 +260,7 @@ sidebar in every app that had one. Hanging the handler on the canvas removes the
 AppKit's responder chain and the DOM's focus already answer it.
 
 The cost is that a piece must be able to hold focus for its keys to arrive
-([docs/focus.md](focus.md)). A `canvas` can on every toolkit but android-mdc (each backend
+([docs/focus.md](focus.md)). A `canvas` can on every toolkit (each backend
 makes its drawing surface a tab stop and reports focus both ways), which makes it the piece a
 drawing app hangs its keys on. A piece that cannot take focus on a given backend never
 hears a key there, and a canvas nobody gave a handler to keeps none of them: an unclaimed

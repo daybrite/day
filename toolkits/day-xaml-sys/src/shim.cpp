@@ -1492,16 +1492,26 @@ void day_xaml_scroll_to(void* sv, int y, int h, int animated) {
     else if (y + h > off + vh) target = y + h - vh;
     if (target != off) s.ChangeView(nullptr, target, nullptr, animated == 0);
 }
-// The day name for an arrow key, or null for every other key (docs/menus.md).
-static const char* day_xaml_arrow_name(winrt::Windows::System::VirtualKey k) {
+// The day name for a key the route carries, or null for every other key (docs/menus.md).
+// `mods` is the day KeyEvent mask already read for this press. A digit is the PHYSICAL key,
+// main row or keypad (a virtual key does not say what the layout types), and never under Ctrl
+// or Alt: those belong to accelerators, and a canvas claiming one would starve the menu.
+static const char* day_xaml_key_name(winrt::Windows::System::VirtualKey k, int mods) {
     using VK = winrt::Windows::System::VirtualKey;
+    static const char* const digits[] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"};
     switch (k) {
         case VK::Left:  return "ArrowLeft";
         case VK::Right: return "ArrowRight";
         case VK::Up:    return "ArrowUp";
         case VK::Down:  return "ArrowDown";
-        default: return nullptr;
+        default: break;
     }
+    if (mods & (2 | 4)) return nullptr;
+    if (k >= VK::Number0 && k <= VK::Number9)
+        return digits[static_cast<int>(k) - static_cast<int>(VK::Number0)];
+    if (k >= VK::NumberPad0 && k <= VK::NumberPad9)
+        return digits[static_cast<int>(k) - static_cast<int>(VK::NumberPad0)];
+    return nullptr;
 }
 
 // A canvas that can hold the keyboard (docs/menus.md, docs/focus.md). A XAML Canvas is a Panel,
@@ -1538,9 +1548,6 @@ void* day_xaml_canvas_new(unsigned long long id,
         if (auto ctl = s.try_as<WUXC::Control>()) ctl.Focus(WUX::FocusState::Pointer);
     });
     host.KeyDown([id, handles, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
-        const char* name = day_xaml_arrow_name(a.Key());
-        if (!name) return;
-        if (!handles(id)) return;
         // Win32 key state, not CoreWindow: this is a XAML ISLAND in a desktop window, where
         // `CoreWindow::GetForCurrentThread()` is null. The OEM-accelerator path above reads the
         // modifiers the same way. The mask is day's `KeyEvent` one (shift 1, primary 2, alt 4).
@@ -1548,6 +1555,9 @@ void* day_xaml_canvas_new(unsigned long long id,
         if (GetKeyState(VK_SHIFT) & 0x8000) mods |= 1;
         if (GetKeyState(VK_CONTROL) & 0x8000) mods |= 2;
         if (GetKeyState(VK_MENU) & 0x8000) mods |= 4;
+        const char* name = day_xaml_key_name(a.Key(), mods);
+        if (!name) return;
+        if (!handles(id)) return;
         cb(id, name, mods);
         a.Handled(true);
     });

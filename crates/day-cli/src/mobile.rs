@@ -147,6 +147,100 @@ fn diagnose_xcodebuild(out: &std::process::Output) -> String {
 // xcode-backend: invoked BY the Xcode script phase with Xcode's env (§17.4)
 // ---------------------------------------------------------------------------
 
+/// The cargo half of an Apple build: one `cargo rustc --crate-type staticlib` per triple into
+/// `build/day/cargo/<target_dir_name>/<profile>/`, returning the per-arch archives in `triples`
+/// order. `run` executes each cargo command (the two callers want different stream handling).
+///
+/// Runs twice per `day build`. The porcelain runs it BEFORE xcodebuild, with the output on its
+/// own terminal — xcodebuild holds a script phase's stdout and stderr until the phase ends
+/// (measured with and without `-verbose`: a 44-second compile surfaces as one burst), so a
+/// compile that only ever happened inside the phase read as a hung build from an editor. The
+/// `xcode-backend build` phase then runs it again and finds every crate fresh, which is also the
+/// only run an Xcode ⌘R build makes. One function, so the two cannot disagree on flags.
+pub(crate) fn cargo_apple_staticlibs(
+    project: &Project,
+    profile: Profile,
+    triples: &[&str],
+    toolkit_feature: &str,
+    target_dir_name: &str,
+    run: &dyn Fn(&mut Command, &str) -> Result<(), String>,
+) -> Result<Vec<PathBuf>, String> {
+    let (cargo, bin) = rustup_cargo()?;
+    let name = project.manifest.app.name.clone();
+    let target_dir = crate::ops::build_root(project)
+        .join("cargo")
+        .join(target_dir_name)
+        .join(profile.as_str());
+    // One `cargo rustc` per requested arch (macOS universal Release builds ask for two).
+    let mut arch_libs: Vec<PathBuf> = Vec::new();
+    for triple in triples {
+        let mut cmd = Command::new(&cargo);
+        // `--day-src` reaches this process through DAY_SRC_DIR, set as an xcodebuild build
+        // setting by the porcelain — the same route DAY_BIN takes to get here.
+        crate::patch::apply_day_src(&mut cmd);
+        // Sanitize Xcode's script-phase env: SDKROOT points at the build SDK (poisoning
+        // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
+        // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an
+        // SDK (ld: library 'System' not found). Reset both; rustc finds per-target SDKs via
+        // xcrun.
+        for var in [
+            "SDKROOT",
+            "LIBRARY_PATH",
+            "CPATH",
+            "IPHONEOS_DEPLOYMENT_TARGET",
+            "MACOSX_DEPLOYMENT_TARGET",
+        ] {
+            cmd.env_remove(var);
+        }
+        let home = std::env::var("HOME").unwrap_or_default();
+        cmd.current_dir(&project.root)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{home}/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                    bin.display()
+                ),
+            )
+            .env("CARGO_TARGET_DIR", &target_dir);
+        crate::ops::apply_app_identity(&mut cmd, project);
+        // The DayPieces package staged before this build carries every bridged crate's Swift arm,
+        // so the cfg that switches those arms on rides the same cargo run (docs/bridge.md).
+        crate::bridge::apply_staged(&mut cmd, project, target_dir_name);
+        cmd
+            // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see
+            // the `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this
+            // expects. `--features` = the toolkit + every standalone piece's `<pkg>/<toolkit>`
+            // renderer feature (Tier A.2), so the app needn't re-list per-piece features in its
+            // own Cargo.toml.
+            .args([
+                "rustc",
+                "-p",
+                &name,
+                "--lib",
+                "--crate-type",
+                "staticlib",
+                "--no-default-features",
+                "--features",
+                &crate::ops::feature_selection(project, toolkit_feature),
+            ])
+            .args(["--target", triple]);
+        if profile == Profile::Release {
+            cmd.arg("--release");
+        }
+        run(&mut cmd, "cargo")?;
+        // Cargo names the archive after the LIB TARGET, which `lib_name` reads: `libdayapp.a`
+        // for a scaffolded app (its `[lib] name` is pinned to that constant), `lib<package>.a`
+        // for one from before the pin.
+        arch_libs.push(
+            target_dir
+                .join(triple)
+                .join(profile.as_str())
+                .join(format!("lib{}.a", project.lib_name())),
+        );
+    }
+    Ok(arch_libs)
+}
+
 pub fn xcode_backend_build() -> Result<(), CliError> {
     let get = |k: &str| std::env::var(k).ok();
     let configuration = get("CONFIGURATION").unwrap_or_else(|| "Debug".into());
@@ -232,83 +326,21 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
                 )));
             }
         };
-    let (cargo, bin) =
-        rustup_cargo().map_err(|e| CliError::env(format!("day xcode-backend: {e}")))?;
-    let name = project.manifest.app.name.clone();
-    let target_dir = crate::ops::build_root(&project)
-        .join("cargo")
-        .join(target_dir_name)
-        .join(profile.as_str());
-    // One `cargo rustc` per requested arch (macOS universal Release builds ask for two).
-    let mut arch_libs: Vec<PathBuf> = Vec::new();
     // Cargo names the artifact after the crate with `-` → `_` (`hello-day` ⇒ libhello_day.a);
     // the pbxproj links `-l<ident>` with the same spelling.
-    let ident = name.replace('-', "_");
-    for triple in &triples {
-        let mut cmd = Command::new(&cargo);
-        // `--day-src` reaches this process through DAY_SRC_DIR, set as an xcodebuild build
-        // setting by the porcelain — the same route DAY_BIN takes to get here.
-        crate::patch::apply_day_src(&mut cmd);
-        // Sanitize Xcode's script-phase env: SDKROOT points at the build SDK (poisoning
-        // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
-        // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an
-        // SDK (ld: library 'System' not found). Reset both; rustc finds per-target SDKs via
-        // xcrun.
-        for var in [
-            "SDKROOT",
-            "LIBRARY_PATH",
-            "CPATH",
-            "IPHONEOS_DEPLOYMENT_TARGET",
-            "MACOSX_DEPLOYMENT_TARGET",
-        ] {
-            cmd.env_remove(var);
-        }
-        let home = std::env::var("HOME").unwrap_or_default();
-        cmd.current_dir(&project.root)
-            .env(
-                "PATH",
-                format!(
-                    "{}:{home}/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                    bin.display()
-                ),
-            )
-            .env("CARGO_TARGET_DIR", &target_dir);
-        crate::ops::apply_app_identity(&mut cmd, &project);
-        // The DayPieces package staged before this build carries every bridged crate's Swift arm,
-        // so the cfg that switches those arms on rides the same cargo run (docs/bridge.md).
-        crate::bridge::apply_staged(&mut cmd, &project, target_dir_name);
-        cmd
-            // `rustc --crate-type staticlib` so the app lib's manifest can stay rlib-only (see
-            // the `[lib]` note in the app Cargo.toml); produces the same `lib<name>.a` this
-            // expects. `--features` = the toolkit + every standalone piece's `<pkg>/<toolkit>`
-            // renderer feature (Tier A.2), so the app needn't re-list per-piece features in its
-            // own Cargo.toml.
-            .args([
-                "rustc",
-                "-p",
-                &name,
-                "--lib",
-                "--crate-type",
-                "staticlib",
-                "--no-default-features",
-                "--features",
-                &crate::ops::feature_selection(&project, toolkit_feature),
-            ])
-            .args(["--target", triple]);
-        if profile == Profile::Release {
-            cmd.arg("--release");
-        }
-        run_logged(&mut cmd, "cargo (xcode)").map_err(CliError::build)?;
-        // Cargo names the archive after the LIB TARGET, which `lib_name` reads: `libdayapp.a`
-        // for a scaffolded app (its `[lib] name` is pinned to that constant), `lib<package>.a`
-        // for one from before the pin.
-        arch_libs.push(
-            target_dir
-                .join(triple)
-                .join(profile.as_str())
-                .join(format!("lib{}.a", project.lib_name())),
-        );
-    }
+    let ident = project.manifest.app.name.replace('-', "_");
+    // Inherited streams: xcodebuild captures the phase's output and its log carries them. When
+    // `day build` is the caller, the porcelain has already run this same step with the output
+    // on the terminal, and this pass finds everything fresh.
+    let arch_libs = cargo_apple_staticlibs(
+        &project,
+        profile,
+        &triples,
+        toolkit_feature,
+        target_dir_name,
+        &run_logged,
+    )
+    .map_err(CliError::build)?;
     let out_dir = built_products.join("day"); // must match pbxproj LIBRARY_SEARCH_PATHS `$(BUILT_PRODUCTS_DIR)/day`
     if std::fs::create_dir_all(&out_dir).is_err() {
         return Err(CliError::build(format!(
@@ -573,6 +605,31 @@ fn bundle_id_of(app: &Path) -> Option<String> {
 /// the pbxproj references (empty is fine — the reference must resolve), run xcodebuild with
 /// an absolute SYMROOT, and hand back the built `.app` bundle as the artifact (launch execs
 /// its inner binary; the bundle carries identity, icon, and resources).
+/// [`cargo_apple_staticlibs`] as `day build` runs it ahead of xcodebuild: output live under
+/// `--verbose` (forwarded by `run_capture`), captured and shown on failure otherwise.
+fn cargo_ahead_of_xcodebuild(
+    project: &Project,
+    profile: Profile,
+    triples: &[&str],
+    toolkit_feature: &str,
+    target_dir_name: &str,
+) -> Result<(), String> {
+    status(
+        "Compiling",
+        &format!("{target_dir_name} (cargo, {})", triples.join(" + ")),
+    );
+    let run = |cmd: &mut Command, what: &str| run_quiet(cmd, what, crate::ops::BUILD_TIMEOUT);
+    cargo_apple_staticlibs(
+        project,
+        profile,
+        triples,
+        toolkit_feature,
+        target_dir_name,
+        &run,
+    )
+    .map(|_| ())
+}
+
 pub fn build_macos_xcode(
     project: &Project,
     target: &'static Target,
@@ -591,6 +648,17 @@ pub fn build_macos_xcode(
     crate::xcconfig::ensure_split(project, "macos")?;
     crate::xcconfig::write_generated(project, "macos")?;
     crate::pieces::write_macos_pieces(project)?;
+    // The arch decision below feeds cargo first, then xcodebuild; the phase's own cargo run
+    // finds it fresh (cargo_apple_staticlibs).
+    let universal = std::env::var("DAY_MACOS_UNIVERSAL").is_ok_and(|v| v == "1");
+    let triples: Vec<&str> = if universal {
+        vec!["aarch64-apple-darwin", "x86_64-apple-darwin"]
+    } else if std::env::consts::ARCH == "aarch64" {
+        vec!["aarch64-apple-darwin"]
+    } else {
+        vec!["x86_64-apple-darwin"]
+    };
+    cargo_ahead_of_xcodebuild(project, profile, &triples, "appkit", "macos-appkit")?;
     status(
         "Building",
         &format!("{} (xcodebuild {configuration}, macosx)", target.name),
@@ -601,7 +669,7 @@ pub fn build_macos_xcode(
     cmd.current_dir(project.root.join("platform/macos"))
         .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
         .args(["-configuration", configuration, "-sdk", "macosx"]);
-    if std::env::var("DAY_MACOS_UNIVERSAL").is_ok_and(|v| v == "1") {
+    if universal {
         // Universal (arm64 + x86_64): opt-in, because the cargo half needs BOTH Rust
         // stdlibs installed (`rustup target add x86_64-apple-darwin` on Apple silicon) —
         // a requirement most dev machines and single-target CI legs don't meet.
@@ -1167,6 +1235,14 @@ pub fn build_ios_for(
     } else {
         None
     };
+    // Cargo first, on the terminal; the phase's own run then finds it fresh (see
+    // cargo_apple_staticlibs). The triple mirrors the phase's PLATFORM_NAME mapping.
+    let triple = if physical {
+        "aarch64-apple-ios"
+    } else {
+        "aarch64-apple-ios-sim"
+    };
+    cargo_ahead_of_xcodebuild(project, profile, &[triple], "uikit", "ios-uikit")?;
     status(
         "Building",
         &format!("{} (xcodebuild {configuration}, {sdk})", target.name),

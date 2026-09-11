@@ -676,7 +676,7 @@ define_class!(
                 let Some(node) = FOCUSABLE_NODES.with(|t| t.get(ptr)) else {
                     return false;
                 };
-                let Some(key) = arrow_key_name(unsafe { event.keyCode() }) else {
+                let Some(key) = key_name(event) else {
                     return false;
                 };
                 if !day_spec::keys::handled(node) {
@@ -921,7 +921,7 @@ define_class!(
                 let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
                     return false;
                 };
-                let Some(key) = arrow_key_name(unsafe { event.keyCode() }) else {
+                let Some(key) = key_name(event) else {
                     return false;
                 };
                 // A canvas nobody asked keys from does not get to keep them: an enclosing
@@ -4010,10 +4010,10 @@ define_class!(
     }
 );
 
-/// The day name for a virtual key code, or `None` for every other key — the
-/// [`day_spec::KeyEvent`] names the key route carries (docs/menus.md).
-fn arrow_key_name(code: u16) -> Option<&'static str> {
-    match code {
+/// The day name for a key press, or `None` for every key the route does not carry — the
+/// [`day_spec::KeyEvent`] names (docs/menus.md).
+fn key_name(event: &objc2_app_kit::NSEvent) -> Option<&'static str> {
+    match unsafe { event.keyCode() } {
         123 => Some("ArrowLeft"),
         124 => Some("ArrowRight"),
         125 => Some("ArrowDown"),
@@ -4022,7 +4022,23 @@ fn arrow_key_name(code: u16) -> Option<&'static str> {
         // menu item owns them (docs/menus.md) — and a focused piece that CLAIMS a key stops
         // that accelerator from ever seeing it, which is how a canvas ends up swallowing the
         // Delete its own Edit menu was going to act on.
-        _ => None,
+        //
+        // A digit, main row or keypad, named by what it types. Never under ⌘, ⌥ or ⌃: those
+        // combinations are accelerators, and claiming one would starve the menu the same way.
+        _ => {
+            let held = NSEventModifierFlags::Command
+                | NSEventModifierFlags::Option
+                | NSEventModifierFlags::Control;
+            if event.modifierFlags().intersects(held) {
+                return None;
+            }
+            let typed = event.characters()?.to_string();
+            let mut chars = typed.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c), None) => day_spec::KeyEvent::digit_name(c),
+                _ => None,
+            }
+        }
     }
 }
 

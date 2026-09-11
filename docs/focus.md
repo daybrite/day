@@ -59,7 +59,7 @@ column((
   end-editing / return hooks focus needs are the ones `Event::Submitted` needs.
 
 `.focusable()` opts a composed container into focus: the canvas contract (press-to-focus,
-`FocusChanged` both ways, the arrows through `.on_key` while focused) behind the
+`FocusChanged` both ways, the keys through `.on_key` while focused) behind the
 `Toolkit::set_focusable` duty. Implemented on macos-appkit (2026-08, the content-list keyboard
 work in [docs/navigation.md](navigation.md)); on every other backend the duty is a no-op
 today, so the piece renders normally and never joins the key loop, the same silence
@@ -122,7 +122,7 @@ join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't obser
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
 focusable, and the bindings stay quiet there.
 
-**A `canvas` is focusable on every toolkit but android-mdc**, and observes both ways. It is the
+**A `canvas` is focusable on every toolkit**, and observes both ways. It is the
 one built-in piece with no native control underneath, so nothing would otherwise make it the
 focused element, and without that, keys could never reach what an app draws.
 `Decorate::on_key` is built on this ([docs/menus.md](menus.md)): keys follow focus, so a canvas
@@ -137,9 +137,10 @@ that has it hears the arrows and a text field that takes it gets them back.
 | web-dom | a `tabindex` | a `pointerdown` listener |
 | XAML | `Control::IsTabStop` on a `ContentControl` host wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members (they moved up to `UIElement` only in WinUI 3), and a Panel is not a Control | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
 | ArkUI | the `NODE_FOCUSABLE` attribute | ArkUI's own focus handling |
+| Android | `setFocusableInTouchMode`, without which `requestFocus` refuses it during touch input | `dispatchTouchEvent`, before the gesture listener, and only for a canvas the app hung `.on_key` on: in touch mode a focus move can dismiss a raised soft keyboard |
 
 Each reports `FocusChanged` both ways (`becomeFirstResponder`/`resignFirstResponder`,
-`focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR`), so `.focused(signal)`
+`focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR`, `onFocusChanged`), so `.focused(signal)`
 binds two-way and `assert_focused` can see it.
 
 **A view that is not in a window cannot hold the keyboard**, and Day does not work around

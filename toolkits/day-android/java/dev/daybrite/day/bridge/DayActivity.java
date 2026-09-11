@@ -186,6 +186,9 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                     envBlob = envBlob + "DAY_SAFE_AREA_TOP="
                             + ((statusInsetPx + bar) / dm.density) + "\n";
                 }
+                // A recreation mounts a whole new tree: forget the previous activity's hosts
+                // first, or its dead nav host keeps the window toolbar (DayBridge.beginMount).
+                DayBridge.beginMount();
                 DayBridge.nativeStart(root, dm.density, root.getWidth(), root.getHeight(),
                         autodrive, locale, envBlob);
                 // Native is ready now (docs/lifecycle.md). onStart/onResume already ran before this

@@ -2423,10 +2423,11 @@ void day_qt_enable_focus(void *w, uint64_t node, DayFocusCb cb) {
         QObject::connect(e, &QLineEdit::returnPressed, [node, cb]() { cb(node, 2); });
 }
 
-// --- the arrow keys, for a widget that can hold focus (docs/menus.md) ---
-// `code`: 0 left, 1 right, 2 up, 3 down; `modifiers` is a day KeyEvent mask (1 shift, 2
-// primary, 4 alt). The callback answers whether the app CLAIMED the key — an unclaimed one
-// falls through, so a scroll area around the widget still scrolls with the keyboard.
+// --- the non-text keys, for a widget that can hold focus (docs/menus.md) ---
+// `code`: 0 left, 1 right, 2 up, 3 down, 10–19 the digits 0–9; `modifiers` is a day KeyEvent
+// mask (1 shift, 2 primary, 4 alt). The callback answers whether the app CLAIMED the key — an
+// unclaimed one falls through, so a scroll area around the widget still scrolls with the
+// keyboard.
 typedef int (*DayKeyCb)(uint64_t node, int code, int modifiers);
 
 class DayKeyFilter : public QObject {
@@ -2437,15 +2438,26 @@ protected:
     bool eventFilter(QObject *, QEvent *ev) override {
         if (ev->type() != QEvent::KeyPress) return false;
         QKeyEvent *ke = static_cast<QKeyEvent *>(ev);
-        int code;
+        int code = -1;
         switch (ke->key()) {
             case Qt::Key_Left:      code = 0; break;
             case Qt::Key_Right:     code = 1; break;
             case Qt::Key_Up:        code = 2; break;
             case Qt::Key_Down:      code = 3; break;
             // Not the delete keys: Qt draws a menu bar, whose shortcuts own them.
-            default: return false;
+            default: break;
         }
+        if (code < 0) {
+            // A digit, main row or keypad, named by what it types. Never under Ctrl, Alt, or
+            // Meta (on a Mac, Qt's names for ⌘, ⌥ and ⌃): those belong to shortcuts, and
+            // claiming one would starve the menu the same way.
+            const Qt::KeyboardModifiers m = ke->modifiers();
+            const bool held = (m & Qt::ControlModifier) || (m & Qt::AltModifier) || (m & Qt::MetaModifier);
+            const QString t = ke->text();
+            const char16_t c = t.size() == 1 ? t.at(0).unicode() : 0;
+            if (!held && c >= u'0' && c <= u'9') code = 10 + (c - u'0');
+        }
+        if (code < 0) return false;
         int mods = 0;
         if (ke->modifiers() & Qt::ShiftModifier) mods |= 1;
         if (ke->modifiers() & Qt::ControlModifier) mods |= 2;

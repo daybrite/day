@@ -71,6 +71,7 @@ mod bridge_kinds_parity {
             ("K_COVER_HIDDEN", BridgeKind::CoverHidden),
             ("K_LINK_ACTIVATED", BridgeKind::LinkActivated),
             ("K_TOOLBAR_CHANGED", BridgeKind::ToolbarChanged),
+            ("K_KEY", BridgeKind::Key),
         ];
         assert_eq!(
             found.len(),
@@ -1250,6 +1251,7 @@ mod imp {
     const K_COVER_HIDDEN: i32 = bridge::BridgeKind::CoverHidden as i32;
     const K_LINK_ACTIVATED: i32 = bridge::BridgeKind::LinkActivated as i32;
     const K_TOOLBAR_CHANGED: i32 = bridge::BridgeKind::ToolbarChanged as i32;
+    const K_KEY: i32 = bridge::BridgeKind::Key as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table. A JNI up-call
@@ -1259,6 +1261,13 @@ mod imp {
         day_spec::ffi_guard::contain((), || {
             dispatch_event_inner(env, id, kind, num, jstr);
         });
+    }
+
+    /// Whether node `id` has a `Decorate::on_key` handler (docs/menus.md). A canvas asks before
+    /// it claims a key or takes focus on a press, so one nobody wanted keys from leaves them to
+    /// the platform's own focus navigation. A JNI up-call entry, contained.
+    pub fn handles_keys(id: i64) -> bool {
+        day_spec::ffi_guard::contain(false, || day_spec::keys::handled(NodeId(id as u64)))
     }
 
     fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
@@ -1386,6 +1395,12 @@ mod imp {
             // A styled run's link was tapped (docs/text-runs.md): the ClickableSpan reports its
             // target, and day-core routes it to the label's `.on_link()`.
             K_LINK_ACTIVATED => Event::LinkActivated(env.dstr(jstr).ok().unwrap_or_default()),
+            // A key from a focused canvas (docs/menus.md): the day key name, with the modifier
+            // mask in `num`. The canvas already asked whether this node claims keys.
+            K_KEY => Event::Key(day_spec::KeyEvent {
+                key: env.dstr(jstr).ok().unwrap_or_default(),
+                modifiers: num as u8,
+            }),
             // A toolbar item's value (docs/toolbars.md): "sel" carries a segment index, anything
             // else a toggle's new state. Plain buttons arrive as MENU_ACTION, like the menus.
             K_TOOLBAR_CHANGED => {
@@ -1578,15 +1593,34 @@ mod imp {
     /// The window toolbar as one record per item — `\u{1e}` between records, `\u{1f}` between
     /// fields: id, kind, label, icon, enabled, action, extra. A menu item's extra is the app-menu
     /// spec `serialize_menu` writes (its own `\t`/`\n` never collide with these separators); a
-    /// segmented item's is the selected index and the segment titles, `\u{1d}`-separated. Search
-    /// and the sidebar toggle never reach a phone's bar and are left out.
+    /// segmented item's is the selected index and the segment titles, `\u{1d}`-separated, each
+    /// title followed by its glyph after a `\u{1c}`. Search and the sidebar toggle never reach
+    /// a phone's bar and are left out: search rides the navigation list, and this backend has
+    /// no pane the toggle could move (`toggle_sidebar` answers false).
+    ///
+    /// The showing page's own commands are written FIRST, ahead of the window's chrome. A
+    /// Material app bar shows icon actions in order and folds the rest into its overflow, and
+    /// the page's commands are what a person came to the page for; the window's New Window and
+    /// appearance chooser are one tap further away, in the overflow, when the bar is that
+    /// narrow. The item's `column` tells the two apart: a destination's commands come from the
+    /// detail (or list) column, the host's own from the sidebar column, and both ride the same
+    /// merged window model here.
     fn serialize_toolbar(items: &[day_spec::ToolbarItem]) -> String {
         use day_spec::ToolbarItemKind as K;
         fn clean(s: &str) -> String {
             s.replace(['\u{1d}', '\u{1e}', '\u{1f}'], " ")
         }
+        let (page, window): (Vec<_>, Vec<_>) = items
+            .iter()
+            .filter(|i| i.id != day_spec::SIDEBAR_TOGGLE_ID)
+            .partition(|i| {
+                matches!(
+                    i.column,
+                    day_spec::ToolbarColumn::Detail | day_spec::ToolbarColumn::List
+                )
+            });
         let mut out = String::new();
-        for item in items {
+        for item in page.into_iter().chain(window) {
             let (kind, extra) = match &item.kind {
                 K::Button => ("button", String::new()),
                 K::Toggle { on } => ("toggle", u8::from(*on).to_string()),
@@ -1596,10 +1630,15 @@ mod imp {
                     ("menu", spec)
                 }
                 K::Segmented { segments, selected } => {
+                    // Each segment carries its title and its glyph (0x1C between them): the bar
+                    // shows the control as ONE icon button — the segment in force's glyph —
+                    // that opens the choices, so it needs every segment's art.
                     let mut e = selected.to_string();
                     for seg in segments {
                         e.push('\u{1d}');
                         e.push_str(&clean(&seg.title));
+                        e.push('\u{1c}');
+                        e.push_str(&clean(&icon_name(seg.icon.as_ref())));
                     }
                     ("segmented", e)
                 }
@@ -1607,13 +1646,7 @@ mod imp {
                 K::Separator => ("sep", String::new()),
                 K::Search { .. } => continue,
             };
-            // A bundled image resolves by name on the Java side (docs/vectors.md); a symbol is
-            // named after itself, and lands as text where no drawable carries that name.
-            let icon = match &item.icon {
-                Some(day_spec::Icon::Image(name)) => name.clone(),
-                Some(day_spec::Icon::Symbol(sym)) => format!("{sym:?}").to_lowercase(),
-                None => String::new(),
-            };
+            let icon = icon_name(item.icon.as_ref());
             if !out.is_empty() {
                 out.push('\u{1e}');
             }
@@ -1641,6 +1674,33 @@ mod imp {
                 ]
                 .join("\u{1f}"),
             );
+        }
+        out
+    }
+
+    /// The drawable name an item's icon resolves to on the Java side. A bundled image is named
+    /// after itself (docs/vectors.md); a `Symbol` names the toolkit's own glyph for it —
+    /// `day_symbol_<snake_case>`, one Material Symbols vector per variant shipped in this crate's
+    /// `res/` — so a symbol-only item has an icon to show in the bar, the way an SF Symbol gives
+    /// it one on Apple. A variant with no glyph resolves to nothing and lands as text.
+    fn icon_name(icon: Option<&day_spec::Icon>) -> String {
+        match icon {
+            Some(day_spec::Icon::Image(name)) => name.clone(),
+            Some(day_spec::Icon::Symbol(sym)) => symbol_drawable(*sym),
+            None => String::new(),
+        }
+    }
+
+    /// `Symbol::ZoomIn` → `day_symbol_zoom_in`: the variant's name in snake case.
+    fn symbol_drawable(sym: day_spec::Symbol) -> String {
+        let mut out = String::from("day_symbol");
+        for c in format!("{sym:?}").chars() {
+            if c.is_ascii_uppercase() {
+                out.push('_');
+                out.push(c.to_ascii_lowercase());
+            } else {
+                out.push(c);
+            }
         }
         out
     }
@@ -2447,7 +2507,12 @@ mod imp {
                     })
                 }
                 Some(Builtin::Canvas) => with_env(|env| {
-                    AHandle(make_view(env, "makeCanvas", "()Landroid/view/View;", &[]))
+                    AHandle(make_view(
+                        env,
+                        "makeCanvas",
+                        "(J)Landroid/view/View;",
+                        &[JValue::Long(idj)],
+                    ))
                 }),
                 Some(Builtin::Image) => {
                     let Some(p) = day_spec::props_of::<ImageProps>(kind, "android", props) else {
@@ -3093,6 +3158,18 @@ mod imp {
                 ),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
                 kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
+                // A canvas has no content of its own to measure — `DayCanvasView` is a bare
+                // `View`, which measures 0×0 — so it takes what the layout offers, the way the
+                // other toolkits' default arms already answer (`p.width.unwrap_or(natural)`).
+                // Without this a canvas in a form row got the row's height from `.height(…)`
+                // and no width at all: the Showcase's sensor strip charts drew nothing here
+                // while they filled their rows on iOS.
+                kinds::CANVAS => Size::new(
+                    p.width
+                        .unwrap_or_else(|| measure_call(h, "measureWidth") / d),
+                    p.height
+                        .unwrap_or_else(|| measure_call(h, "measureHeight") / d),
+                ),
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         return measure(self, h, p);

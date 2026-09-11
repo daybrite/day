@@ -107,8 +107,19 @@ pub fn generate_resources() -> Result<(), String> {
     std::fs::write(out.join("day_resources.rs"), code)
         .map_err(|e| format!("day-build: writing day_resources.rs: {e}"))?;
     // Regenerate when a resource is added/removed/renamed (a proc-macro could not do this reliably).
-    for bucket in ["images", "vectors", "assets", "fonts", "locales"] {
-        println!("cargo:rerun-if-changed=resource/{bucket}");
+    // Only buckets that exist: cargo treats a `rerun-if-changed` path that is MISSING as always
+    // stale, so naming an absent `resource/assets` made every app's build script (and so the app
+    // crate) rebuild on every cargo run — including the no-op pass an Xcode phase makes after
+    // `day build` has already compiled. `resource/` itself is registered so a bucket created
+    // later still triggers a rerun (creating a subdirectory changes the parent's mtime).
+    let resource = root.join("resource");
+    if resource.is_dir() {
+        println!("cargo:rerun-if-changed=resource");
+        for bucket in ["images", "vectors", "assets", "fonts", "locales"] {
+            if resource.join(bucket).is_dir() {
+                println!("cargo:rerun-if-changed=resource/{bucket}");
+            }
+        }
     }
     // Typed constructors for the SwiftUI views exported by declared local SwiftPM packages
     // (docs/swiftui.md) — always written, surfaced by an app that wants them via

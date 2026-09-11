@@ -827,9 +827,10 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
-/// The day name for an arrow keyval, or `None` for every other key (docs/menus.md).
-fn arrow_key_name(key: gtk4::gdk::Key) -> Option<&'static str> {
-    use gtk4::gdk::Key;
+/// The day name for a keyval, or `None` for every key the route does not carry
+/// (docs/menus.md).
+fn key_name(key: gtk4::gdk::Key, state: gtk4::gdk::ModifierType) -> Option<&'static str> {
+    use gtk4::gdk::{Key, ModifierType as M};
     match key {
         Key::Left | Key::KP_Left => Some("ArrowLeft"),
         Key::Right | Key::KP_Right => Some("ArrowRight"),
@@ -837,7 +838,12 @@ fn arrow_key_name(key: gtk4::gdk::Key) -> Option<&'static str> {
         Key::Down | Key::KP_Down => Some("ArrowDown"),
         // Not the delete keys: this backend has a menu bar, whose accelerators own them
         // (docs/menus.md).
-        _ => None,
+        //
+        // A digit, main row or keypad, named by what it types (the keyval already carries
+        // Shift). Never under Control, Alt, or a Mac's ⌘ (Meta/Super): those belong to
+        // accelerators, and claiming one would starve the menu the same way.
+        _ if state.intersects(M::CONTROL_MASK | M::ALT_MASK | M::META_MASK | M::SUPER_MASK) => None,
+        _ => key.to_unicode().and_then(day_spec::KeyEvent::digit_name),
     }
 }
 
@@ -3082,7 +3088,7 @@ impl Toolkit for Gtk {
                 let keys = gtk4::EventControllerKey::new();
                 keys.connect_key_pressed(move |_, key, _, state| {
                     ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
-                        let Some(name) = arrow_key_name(key) else {
+                        let Some(name) = key_name(key, state) else {
                             return gtk4::glib::Propagation::Proceed;
                         };
                         // An arrow nobody asked for keeps traveling, so a scrolled window
