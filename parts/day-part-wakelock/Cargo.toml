@@ -1,0 +1,46 @@
+[package]
+name = "day-part-wakelock"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): keep the screen on while something is showing. Any
+# Rust code can depend on it and hold `day_part_wakelock::keep_screen_on()`. Platform selection is by
+# `#[cfg(target_os)]` (screen sleep is an OS concern, not a widget-toolkit one), so there are no
+# backend features:
+#   iOS       — UIApplication.isIdleTimerDisabled
+#   macOS     — an IOKit power assertion (PreventUserIdleDisplaySleep)
+#   Windows   — SetThreadExecutionState
+#   Android   — FLAG_KEEP_SCREEN_ON on the activity's window, Java arm in src/lib.rs (docs/bridge.md)
+#   HarmonyOS — Window.setWindowKeepScreenOn, ArkTS arm in src/lib.rs
+#   web       — the Screen Wake Lock API, JavaScript arm in src/lib.rs
+#   Linux     — none yet (is_supported() is false)
+# See docs/wakelock.md.
+
+[dependencies]
+# The Java, JavaScript and ArkTS arms (docs/bridge.md); every target compiles the declaration.
+day-bridge = { workspace = true }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2 = "0.6"
+objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIResponder"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_System_Power"] }
+
+# Android's Java arm is called through JNI, so the generated code needs day-android's cached JVM and
+# activity, like day-part-haptics.
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# The Xcode host project drives the final link and reads no Rust link metadata, so the generated
+# DayPieces package declares the framework the power assertion lives in.
+[package.metadata.day.macos]
+frameworks = ["IOKit"]
+
+[build-dependencies]
+day-build = { workspace = true }

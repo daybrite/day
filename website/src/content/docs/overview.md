@@ -12,12 +12,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 **Day** is a Rust framework for building applications out of each platform's own native widgets.
 
-You write your UI once, in Rust, as a declarative tree of **Pieces** (what SwiftUI calls a View and
-Flutter calls a Widget). Each Piece is realized by a platform widget (an `NSTextField`, a `UILabel`,
-a Material button, a `GtkEntry`, a `QSlider`, a XAML `TextBox`) through a per-platform **toolkit
-[backend](/docs/glossary#backend)**. Day owns layout, reactivity, localization, accessibility
-policy, and scripting; the platform owns pixels, text input, scrolling physics, and assistive
-technology.
+You describe your UI in Rust as a tree of **Pieces**, similar to Views in SwiftUI or Widgets in
+Flutter. Pieces can represent native controls, layouts, or compositions of other pieces. A
+**toolkit [backend](/docs/glossary#backend)** creates the native controls for the selected platform. Day handles layout, reactive updates, localization,
+accessibility configuration, and scripting. Native toolkits provide widget rendering, text
+input, scrolling behavior, and integration with assistive technology.
 
 ```rust
 use day::prelude::*;
@@ -34,35 +33,37 @@ fn counter() -> impl Piece {
 ```
 
 That function produces a native label above a native button on macOS, iOS, Android, Linux,
-Windows, and OpenHarmony. Each binary links only its own platform's toolkit, and every platform
-shares the same UI code.
+Windows, and OpenHarmony. Each target build includes its selected toolkit backend and shares the example’s Rust UI code.
 
-The framework is more than the UI layer. It ships with the `day` command line for creating,
-linting, building, launching, and packing ([CLI & projects](/docs/cli)); a
-[VS Code extension](https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode); a
-reusable [GitHub Actions workflow](/docs/cli#continuous-integration) that builds and tests every
-target; [localization](/docs/localization) through Fluent; [accessibility](/docs/accessibility)
-through each platform's own tree; and [dayscript](/docs/dayscript), the automation engine embedded
-in every app. The rest of this page covers the UI model, and the sidebar covers each of those in
-turn.
+Day also includes development tools:
+
+- The [`day` CLI](/docs/cli) for creating, checking, building, running, and packaging projects.
+- A [VS Code extension](https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode)
+  for working with Day apps in the editor.
+- A reusable [GitHub Actions workflow](/docs/cli#continuous-integration) for automated builds
+  and tests.
+- [Dayscript](/docs/dayscript) for app automation and testing.
+
+See the [localization](/docs/localization) and [accessibility](/docs/accessibility) guides for
+those features, or continue below for the UI model.
 
 ## What Day does itself
 
 Day keeps the platform's widgets and concentrates its own code on the parts native toolkits
 don't share:
 
-- a layout engine that works identically everywhere while deferring to native measurement
+- a shared layout engine that uses native widget measurements
   ([Layout](/docs/layout));
 - fine-grained reactivity that builds the widget tree once and binds state directly to
   native attributes ([Reactivity](/docs/reactivity));
 - localization ([Fluent](/docs/glossary#fluent)), accessibility, and scripting in the core
   ([how they compose](/docs/benefits#localized-accessible-scriptable-extensible));
-- a CLI that builds, runs, tests, and [packages](/docs/packaging) for every target from one
-  machine.
+- a CLI for building, running, testing, and [packaging apps](/docs/packaging), using the host
+  tools and SDKs required by each target.
 
-The cost is that your app looks like a Mac app on a Mac and a Material app on Android, so heavy
-visual branding is a poor fit. [Why Day](/docs/benefits) covers the tradeoffs and when to pick
-something else.
+Native controls give your app a different appearance on each platform. If your design requires
+a highly customized interface that looks identical across platforms, review the tradeoffs in
+[Why Day](/docs/benefits).
 
 ## The targets
 
@@ -90,18 +91,18 @@ column says how much testing and maintenance each one gets: Tier 1 is fully supp
 thoroughly tested, Tier 4 exists for compatibility testing. [Support tiers](/docs/platforms#support-tiers)
 defines all four, and [Platform support](/docs/platforms) has the per-target detail.
 
-## What it's like day to day
+## Development workflow
 
-Everything is one Cargo project plus a small [`Day.toml`](/docs/glossary#day-toml) manifest. `day launch -p <target>`
+A Day app uses a Cargo project for its Rust code and a [`Day.toml`](/docs/glossary#day-toml)
+manifest for app and platform configuration. `day launch -p <target>`
 builds and runs; several `-p` flags launch targets in parallel. Tests run against a headless
 mock toolkit in ordinary `cargo test`, and [dayscript](/docs/dayscript) drives the real app.
-The same YAML script taps buttons and asserts labels on every platform, which is also how the
-[gallery](/gallery) screenshots on this site are captured in CI.
+Walkthroughs can tap buttons, check labels, and capture screenshots across your app’s targets.
+The [gallery](/gallery) shows screenshots captured by app walkthroughs in CI.
 
-Rust compiles ahead of time, so there is no hot reload. The inner loop is an incremental
-compile and relaunch, usually seconds on desktop, with script replay to put you back on the
-screen you were working on. If sub-second hot reload is central to how you work, another
-framework will suit you better.
+Day uses incremental compilation and relaunching rather than hot reload. Replay a dayscript
+walkthrough to return to the screen you’re developing. Rebuild times depend on your app,
+target, and development machine.
 
 ## What to expect
 
@@ -110,25 +111,27 @@ framework will suit you better.
   native 2D API.
 - **Native on each platform rather than identical across them.** The goal is consistent
   behavior and information architecture with each platform's own look and feel.
-- **Platform differences stay visible.** Where platforms diverge, the API shows the divergence
-  (per-platform styling, [capability](/docs/glossary#capability) flags); where a platform lacks a control, the backend
-  composes one from primitives. Where you need a platform's own UI framework, you can use it:
-  on macOS and iOS, [`day-piece-swiftui`](/docs/internal/swiftui) hosts your own SwiftUI views
-  inside the Day tree, with typed Rust constructors generated from your Swift package.
-- **Day is young.** The core model is stable and runs a Matrix chat client
-  ([Day-Matrix](https://github.com/daybrite/Day-Matrix), a standalone Day app) on five targets,
-  but APIs still move and some designed features aren't built yet. The docs mark those.
+- **Handle platform differences explicitly.** Use platform-specific styling and
+  [capability flags](/docs/glossary#capability) to adapt your interface. Backends can compose
+  missing controls from simpler components. On macOS and iOS,
+  [`day-piece-swiftui`](/docs/internal/swiftui) lets you embed SwiftUI views using typed Rust
+  constructors generated from your Swift package.
+- **Check feature and target maturity.** Apps such as
+  [Day-Matrix](https://github.com/daybrite/Day-Matrix) use Day, but APIs and platform coverage
+  are still developing. Review [platform support](/docs/platforms) and the relevant API
+  documentation for your app’s requirements.
 
 ## Finding your way around
 
-The documentation is sequenced so each section assumes only the ones before it:
+Use the sections below to find introductory material, framework concepts, task guides, and
+deployment instructions:
 
 1. **Start here** — this page, the [tradeoffs](/docs/benefits), and
    [getting started](/docs/getting-started).
-2. **Coming from** — translation guides for [Flutter](/docs/day-for-flutter),
+2. **Coming from** — guides that relate familiar concepts from [Flutter](/docs/day-for-flutter),
    [React Native](/docs/day-for-react-native), [SwiftUI](/docs/day-for-swiftui),
    [Compose](/docs/day-for-compose), [Electron](/docs/day-for-electron), and
-   [other Rust frameworks](/docs/day-for-rust-frameworks) — start with yours, then come back.
+   [other Rust frameworks](/docs/day-for-rust-frameworks) to Day.
 3. **Concepts** — [Pieces](/docs/pieces), [Reactivity](/docs/reactivity),
    [Layout](/docs/layout), [Styling](/docs/styling): the model in full.
 4. **Guides** — task-oriented pages on [navigation](/docs/navigation),

@@ -24,8 +24,8 @@ error!("the database is unreadable: {e}");
 debug!("hit test at {x},{y} -> {hit:?}");
 ```
 
-`day::launch` installs a logger before your first line can run, so your output and the framework's
-appear together, in one format, on every platform.
+`day::launch` installs the logger before building your UI. App and framework messages then
+use the same logging infrastructure.
 
 ## Don't use `println!`
 

@@ -313,7 +313,7 @@ Each argument takes a constant, a `Signal`, or a closure; a reactive argument re
 view's initializer live, and SwiftUI reconciles that like any parent-driven update, so the
 view's `@State` survives. A renamed view or a changed parameter is a Rust compile error at the
 call site, the same contract the generated `res::str` accessors give strings. Views the scan
-can't express (delegates, `@ViewBuilder` content) go through the provider escape hatch:
+can't express (delegates, `@ViewBuilder` content) use the provider API:
 `swiftui("name")` resolves an `@objc(DayView_name)` provider class you write. The
 [SwiftUI embedding reference](/docs/internal/swiftui) covers the scanned subset, `.state_key`
 rules, and the per-platform build details.
@@ -502,6 +502,6 @@ build. [Packaging](/docs/packaging) has the details.
 ## Where to go next
 
 - [Getting started](/docs/getting-started) — install, scaffold, first launch.
-- [API tour](/docs/api-tour) — the whole authoring surface in one pass.
+- [API tour](/docs/api-tour) — examples of common UI components and patterns.
 - [Layout](/docs/layout) — the negotiation protocol.
 - [Why Day](/docs/benefits) compares the approaches and says when SwiftUI alone is enough.

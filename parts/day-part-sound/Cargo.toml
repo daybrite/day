@@ -1,0 +1,70 @@
+[package]
+name = "day-part-sound"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS day-ecosystem crate (no UI Piece): short sound clips bundled with the app, played through
+# each platform's own low-latency engine. Any Rust code can depend on it and call
+# `day_part_sound::play(&res::assets::sounds::tap_wav)`. Platform selection is by `#[cfg(target_os)]`
+# (an audio engine is an OS concern, not a widget-toolkit one), so there are no backend features:
+#   iOS, macOS — AVAudioEngine + AVAudioPlayerNode pool (src/apple.rs; iOS in the `.ambient` session)
+#   Windows     — XAudio2 (src/windows.rs)
+#   Linux       — libcanberra, loaded at run time (src/linux.rs)
+#   Android     — SoundPool, Java arm in src/lib.rs (docs/bridge.md)
+#   HarmonyOS   — SoundPool, ArkTS arm in src/lib.rs
+#   web         — Web Audio, JavaScript arm in src/lib.rs
+# See docs/sound.md.
+
+[dependencies]
+# `AssetName` and `resource()`: clips are ordinary data assets (docs/resources.md).
+day-spec = { workspace = true }
+# The Java, JavaScript and ArkTS arms (docs/bridge.md); every target compiles the declaration.
+day-bridge = { workspace = true }
+log = { workspace = true }
+
+# Apple: AVFAudio's engine, player nodes, formats and PCM buffers, reached from Rust through objc2.
+[target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
+objc2 = "0.6"
+objc2-avf-audio = { version = "0.3", features = [
+    "AVAudioBuffer",
+    "AVAudioEngine",
+    "AVAudioFormat",
+    "AVAudioMixerNode",
+    "AVAudioMixing",
+    "AVAudioNode",
+    "AVAudioPlayerNode",
+    "AVAudioTypes",
+    "AVAudioSession",
+    "AVAudioSessionTypes",
+    "block2",
+] }
+
+# Windows: XAudio2 2.9, which ships with Windows 10 (xaudio2_9.dll, linked raw-dylib by the crate).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_XAudio2",
+    "Win32_System_Com",
+] }
+
+# Android's Java arm is called through JNI, so the generated code needs day-android's cached JVM and
+# Context, like day-part-haptics.
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# The Xcode host projects drive the final link and read no Rust link metadata, so the generated
+# DayPieces package declares the framework AVAudioEngine lives in.
+[package.metadata.day.ios]
+frameworks = ["AVFAudio"]
+
+[package.metadata.day.macos]
+frameworks = ["AVFAudio"]
+
+[build-dependencies]
+day-build = { workspace = true }

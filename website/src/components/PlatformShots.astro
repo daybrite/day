@@ -46,7 +46,7 @@ for (const id of shots) {
 {tiles.length > 0 && (
   <div class="shots" data-pagefind-ignore>
     {tiles.map((t) => (
-      <a class="shot" href={url(`gallery/Day-Showcase#${t.shot}`)} title={`${t.label} — see every platform in the gallery`}>
+      <a class="shot" href={url(`gallery/Day-Showcase#${t.shot}`)} title={`${t.label} — compare platforms in the gallery`}>
         <img src={t.src} alt={`${t.label}, captured on ${platform}`} width={t.width} height={t.height} loading="lazy" decoding="async" />
         <span>{t.label}</span>
       </a>

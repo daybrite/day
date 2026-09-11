@@ -10,11 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Some Pieces cannot be composed from `label`, `button`, and `nav_stack`. A map, an embedded web view, or
-a native search field with its magnifier and clear button is a platform control with input
-handling, assistive-technology behavior, and pixels that only the toolkit can produce. To ship
-one as a Day Piece you write a small cross-platform front-end in Rust, then a native backend for
-each toolkit you want to support.
+To wrap a platform control such as a map, web view, or native search field, write a shared Rust
+API and a backend for each toolkit you support. Each backend creates and updates the native
+control, including its input handling and accessibility integration.
 
 A native piece is the most work of Day's extension kinds. You are going to write the same widget
 five or six times: once in Objective-C (through `objc2`), once in gtk-rs, once as a Qt C++ shim,

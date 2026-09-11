@@ -95,6 +95,8 @@ export const groups = [
       ['network', '`day-part-network`'],
       ['sensors', '`day-part-sensors`'],
       ['haptics', '`day-part-haptics`'],
+      ['sound', '`day-part-sound`'],
+      ['wakelock', '`day-part-wakelock`'],
       ['deviceinfo', '`day-part-deviceinfo`'],
       ['http', '`day-part-http`'],
       ['permissions', '`day-part-permissions`'],

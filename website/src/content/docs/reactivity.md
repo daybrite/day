@@ -46,9 +46,9 @@ let name = Signal::new(String::from("Ada"));
 label(move || format!("Hello, {}", name.get()))
 ```
 
-Untracked reads are the escape hatch for "I want the current value but no subscription" (common
-in event handlers, which are not reactive contexts anyway, and in effects that would otherwise
-over-subscribe).
+Use an untracked read to get the current value without subscribing to changes. This is useful
+in effects that should not depend on every value they read. Event handlers are not reactive
+contexts, so ordinary reads there do not create subscriptions.
 
 ## Memos
 

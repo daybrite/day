@@ -139,8 +139,9 @@ it uploads to the production track as a completed release, which is Play's submi
 rollout starts when Google's review passes; on iOS it
 uploads, waits for App Store Connect to process the build, and submits the version for review
 with export compliance answered as exempt; the release itself still waits for the Release button
-in App Store Connect. `DAY_IPA` names the artifact outright, which is how the release workflow
-hands the lane the `.ipa` it downloaded.
+in App Store Connect. `DAY_IPA` and `DAY_AAB` name the artifact outright, which is how the
+release workflow hands each lane the file it downloaded; without them the lanes glob
+`build/day/dist/`.
 
 ```sh
 day pack -p ios-uikit --profile release

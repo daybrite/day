@@ -873,12 +873,22 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
                 .map_err(|e| format!("line {}: `{}`'s `{arg}`: {e}", decl.line, decl.name))?;
         }
         if !decl.ret.is_empty() {
-            let inner = decl
+            // Every generator spells a returned value as `Result<T, Error>`; a bare `-> bool`
+            // would pass the type check below and then emit adapters that only fail to compile
+            // in a staged mobile or web build.
+            let Some(inner) = decl
                 .ret
                 .strip_prefix("Result<")
                 .and_then(|r| r.strip_suffix('>'))
-                .map(|r| split_top(r, ',').first().cloned().unwrap_or_default())
-                .unwrap_or_else(|| decl.ret.clone());
+            else {
+                return Err(format!(
+                    "line {}: `{}` returns `{}`; a bridged function returns nothing or \
+                     `Result<T, day_bridge::Error>`, since any arm can fail (docs/bridge.md \
+                     \"Types\")",
+                    decl.line, decl.name, decl.ret
+                ));
+            };
+            let inner = split_top(inner, ',').first().cloned().unwrap_or_default();
             let inner = inner.trim();
             if !inner.is_empty() && inner != "()" {
                 check_type(inner, false)
@@ -1525,9 +1535,8 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
                     let _ = writeln!(out, "        let {n}_j = env.new_string({n}).ok()?;");
                     jvalues.push(format!("(&{n}_j).into()"));
                 }
-                "bool" => jvalues.push(format!(
-                    "day_android::jni::objects::JValue::Bool({n} as u8)"
-                )),
+                // jni 0.22's `jboolean` is Rust's `bool`.
+                "bool" => jvalues.push(format!("day_android::jni::objects::JValue::Bool({n})")),
                 "i32" => jvalues.push(format!("day_android::jni::objects::JValue::Int({n})")),
                 "i64" => jvalues.push(format!("day_android::jni::objects::JValue::Long({n})")),
                 "f32" => jvalues.push(format!("day_android::jni::objects::JValue::Float({n})")),
@@ -2133,6 +2142,45 @@ day_bridge::bridge! {
         );
         let err = validate(&b).unwrap_err();
         assert!(err.contains("does not cross a bridge"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_bare_return() {
+        let b = parse(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::declare]
+                extern "day" { fn ready() -> bool; }
+                #[day_bridge::impl(rust, platforms = [other])]
+                fn ready() -> bool { false }
+            }
+            "###,
+        );
+        let err = validate(&b).unwrap_err();
+        assert!(err.contains("`ready` returns `bool`"), "{err}");
+    }
+
+    #[test]
+    fn passes_a_bool_to_a_jvm_arm() {
+        let b = parse(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::declare]
+                extern "day" { fn hold(on: bool); }
+                #[day_bridge::impl(java, platforms = [android])]
+                java!(
+                    prelude = r#"import java.util.List;"#,
+                    body = r#"public static void hold(boolean on) {}"#,
+                );
+                #[day_bridge::impl(rust, platforms = [other])]
+                fn hold(_on: bool) {}
+            }
+            "###,
+        );
+        validate(&b).expect("valid");
+        let rust = render_jvm_rust(&b, "day-part-test");
+        assert!(rust.contains("JValue::Bool(on)"), "{rust}");
+        assert!(rust.contains("\"(Z)V\""), "{rust}");
     }
 
     #[test]

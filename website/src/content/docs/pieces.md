@@ -11,12 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 A **Piece** is Day's unit of UI composition: the thing SwiftUI calls a View and Flutter calls a
-Widget. You compose your interface as a tree of Pieces, and Day realizes each one as a native
-widget: a `label` becomes an `NSTextField` on macOS, a `TextView` on Android, a `GtkLabel`
-on Linux.
+Widget. Compose your interface as a tree of Pieces representing controls, layouts, and
+combinations of other pieces. Native controls use the selected toolkit: a `label` becomes
+an `NSTextField` on macOS, a `TextView` on Android, or a `GtkLabel` on GTK.
 
-If you'd rather see the whole API in one sitting first, the [API tour](/docs/api-tour) is
-the faster read; come back here for the model behind it.
+For code examples of common components, see the [API tour](/docs/api-tour). This page
+explains how pieces are composed and built.
 
 ## A Piece is a description, built once
 

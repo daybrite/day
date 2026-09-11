@@ -10,12 +10,12 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-When a Day app dies (a Rust panic, a segfault, an abort), day-break writes a report, and on
+When a Day app crashes (a Rust panic, a segmentation fault, or an abort), day-break writes a report, and on
 the next launch your app shows the user what was recorded and asks whether to send it. It
 registers a chained panic hook and native signal handlers, and uploads through a transport you
 choose: a REST endpoint, a prefilled GitHub issue, or an email the user sends. There is no
 auto-upload mode; the only network path is `send`, called by your code from a user action,
-after the user has read the report. Arming it is one call before the UI mounts:
+after the user has read the report. Initialize it before building the UI:
 
 ```rust
 day_break::Config::new()

@@ -1,6 +1,6 @@
 ---
 title: AI-assisted development
-description: "Build a Day app with Claude Code from the terminal: scaffold, add a weather page by prompt, script it with dayscript, and put the whole loop in GitHub CI."
+description: "Build a Day app with Claude Code from the terminal: scaffold, add a weather page by prompt, script it with dayscript, and run the workflow in GitHub CI."
 order: 24
 section: Guides
 ---
@@ -10,10 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day gives an AI agent the same tools you use. Every launch embeds the [dayscript](/docs/dayscript)
-engine, and the `day` CLI exposes it as MCP tools an agent can call to build, relaunch, tap, type,
-assert, and screenshot. The agent drives the running app and checks the result on screen, on every
-platform you target.
+The `day` CLI exposes build and [dayscript](/docs/dayscript) automation tools through the
+Model Context Protocol (MCP). An AI agent can use them to build and relaunch an app, interact
+with controls, check assertions, and capture screenshots. Review the resulting code and test
+the behavior on your target platforms.
 
 This guide walks that loop end to end with [Claude Code](https://claude.com/claude-code) in a
 plain terminal: scaffold an app, have the agent add a weather page, script the page with
@@ -133,7 +133,7 @@ the `assert_*` steps by hand afterward.
 
 ## 5. Put it in CI
 
-A minimal GitHub workflow that builds the app headlessly on Linux, the cheapest runner, and runs
+A minimal GitHub workflow that builds the app headlessly on Linux and runs
 the script on every push:
 
 ```yaml

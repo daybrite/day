@@ -43,6 +43,8 @@ members = [
     "parts/day-part-clipboard",
     "parts/day-part-network",
     "parts/day-part-haptics",
+    "parts/day-part-sound",
+    "parts/day-part-wakelock",
     "parts/day-part-prefs",
     "parts/day-part-deviceinfo",
     "parts/day-part-fs",
@@ -134,7 +136,9 @@ day-part-clipboard = { path = "parts/day-part-clipboard", version = "0.4.3" }
 day-part-network = { path = "parts/day-part-network", version = "0.4.3" }
 day-piece-media = { path = "pieces/day-piece-media", version = "0.4.3" }
 day-part-haptics = { path = "parts/day-part-haptics", version = "0.4.3" }
-day-part-prefs = { path = "parts/day-part-prefs", version = "0.4.3" }
+day-part-sound = { path = "parts/day-part-sound", version = "0.4.3" }
+day-part-wakelock = { path = "parts/day-part-wakelock", version = "0.4.3" }
+day-part-prefs ={ path = "parts/day-part-prefs", version = "0.4.3" }
 day-part-deviceinfo = { path = "parts/day-part-deviceinfo", version = "0.4.3" }
 day-part-http = { path = "parts/day-part-http", version = "0.4.3" }
 day-part-permissions = { path = "parts/day-part-permissions", version = "0.4.3" }

@@ -166,16 +166,24 @@ function assembleApp(app, index, stale) {
   themes.sort((a, b) => (a === 'light' ? -1 : b === 'light' ? 1 : a.localeCompare(b)));
   if (locales.includes('en')) locales.splice(0, 0, ...locales.splice(locales.indexOf('en'), 1));
 
+  // An app's own site hosts its web-dom build at /webapp/ (the `webapp` default in its
+  // website/site.toml), so every app whose index carries a web-dom column has a live build at
+  // that address without naming it here. `web` in the config is for a build hosted elsewhere.
+  const site = app.site ?? index.site ?? null;
+  const web =
+    app.web ??
+    (site && (index.platforms ?? []).includes('web-dom') ? `${site.replace(/\/$/, '')}/webapp/` : null);
+
   return {
     id: app.id,
     label: app.label,
     blurb: app.blurb,
     repo: app.repo,
-    site: app.site ?? index.site ?? null,
-    web: app.web ?? null,
+    site,
+    web,
     // Flattened to one shot→fragment map for the page: the shots whose id is their own route,
     // then the explicit map (which may override one, or `null` it out as unreachable).
-    webRoutes: app.web
+    webRoutes: web
       ? { ...Object.fromEntries((app.webShots ?? []).map((s) => [s, s])), ...(app.webRoutes ?? {}) }
       : null,
     // When the app's site went unreachable this build, the page says so rather than presenting a

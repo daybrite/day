@@ -15,21 +15,19 @@ import { primaryPlatforms } from '../lib/platforms.mjs';
 // via data-pf; the blurbs say what the toolkit is and where people actually meet it.
 const blurbs: Record<string, string> = {
   'macos-appkit':
-    'The Mac’s native toolkit: the same NSButton, NSTableView, and menu bar that Finder and Mail are made of. Packs as a signed, notarized .dmg.',
+    'Apple’s desktop UI toolkit, with native buttons, tables, menus, and windows for macOS.',
   'ios-uikit':
-    'Apple’s UI framework for iPhone and iPad: real navigation pushes, tab bars, and system text handling. Ships as a normal .ipa.',
+    'Apple’s UI framework for iPhone and iPad, with navigation stacks, tab bars, and system text handling.',
   'android-mdc':
-    'Google’s native widgets over android.view, on phones, tablets, and foldables, themed by the OS and packaged as .apk or .aab.',
+    'Android views and Material controls for interfaces on phones, tablets, and foldables.',
   'linux-gtk':
-    'GNOME’s toolkit, styled by libadwaita. It is the desktop Ubuntu, Fedora, and Debian install by default. Ships as a flatpak.',
+    'GTK with libadwaita provides controls and styling for apps that follow GNOME desktop conventions.',
   'linux-qt':
-    'The toolkit beneath KDE Plasma: the desktop of Kubuntu, openSUSE, and the Steam Deck. Portable enough that it is also a Day target on macOS and Windows.',
+    'The toolkit used by KDE applications. Day also offers Qt targets on macOS and Windows.',
   'windows-xaml':
-    'Windows 11’s native controls, hosted in a Win32 window with no framework runtime to install. Packs as .msix plus an installer.',
+    'Windows XAML controls hosted in a Win32 window, including menus, text fields, and navigation components.',
   'harmony-arkui':
-    'HarmonyOS Next’s native UI framework, driven through its C node API on Huawei phones and tablets. Packs as a .hap.',
-  'web-dom':
-    'The browser’s own widgets: the same Rust compiled to WebAssembly, driving real <button> and <dialog> elements. Hosts as static files; open the live build.',
+    'HarmonyOS’s native UI framework, accessed through its C node API on Huawei devices.',
 };
 
 // The grid's eight, named and ordered by the platform table (src/lib/platforms.mjs); this page
@@ -55,13 +53,13 @@ const features = [
     icon: 'm438-452-58-57q-11-11-27.5-11T324-508q-11 11-11 28t11 28l86 86q12 12 28 12t28-12l170-170q12-12 11.5-28T636-592q-12-12-28.5-12.5T579-593L438-452ZM326-90l-58-98-110-24q-15-3-24-15.5t-7-27.5l11-113-75-86q-10-11-10-26t10-26l75-86-11-113q-2-15 7-27.5t24-15.5l110-24 58-98q8-13 22-17.5t28 1.5l104 44 104-44q14-6 28-1.5t22 17.5l58 98 110 24q15 3 24 15.5t7 27.5l-11 113 75 86q10 11 10 26t-10 26l-75 86 11 113q2 15-7 27.5T802-212l-110 24-58 98q-8 13-22 17.5T584-74l-104-44-104 44q-14 6-28 1.5T326-90Zm52-72 102-44 104 44 56-96 110-26-10-112 74-84-74-86 10-112-110-24-58-96-102 44-104-44-56 96-110 24 10 112-74 86 74 84-10 114 110 24 58 96Zm102-318Z',
     color: 'var(--pf-android-mdc)',
     title: 'Apps your users recognize',
-    body: 'Every control is the platform’s own: an NSButton on macOS, a Material button on Android. Text, scrolling, shortcuts, and dark mode behave the way each platform’s users already expect.',
+    body: 'Use platform controls such as NSButton on macOS and MaterialButton on Android, with the toolkit’s text handling, scrolling, and appearance.',
   },
   {
     icon: 'm422-232 207-248H469l29-227-185 267h139l-30 208Zm-62-128H236q-24 0-35.5-21.5T203-423l299-430q10-14 26-19.5t33 .5q17 6 25 21t6 32l-32 259h155q26 0 36.5 23t-6.5 43L416-100q-11 13-27 17t-31-3q-15-7-23.5-21.5T328-139l32-221Zm111-110Z',
     color: 'var(--sun)',
-    title: 'Compact native binaries',
-    body: 'Day apps are compact native binaries that link the toolkit the operating system already has, so they start in milliseconds and install in megabytes.',
+    title: 'Compile for your target platform',
+    body: 'Day compiles your Rust code for the selected target and links its toolkit backend. Startup time and package size depend on your app, resources, and platform dependencies.',
   },
   {
     icon: 'M155-75q-35-35-35-85t35-85q35-35 85-35 14 0 26 3t23 8l57-71q-28-31-39-70t-5-78l-81-27q-17 25-43 40t-58 15q-50 0-85-35T0-580q0-50 35-85t85-35q50 0 85 35t35 85v8l81 28q20-36 53.5-61t75.5-32v-87q-39-11-64.5-42.5T360-840q0-50 35-85t85-35q50 0 85 35t35 85q0 42-26 73.5T510-724v87q42 7 75.5 32t53.5 61l81-28v-8q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-32 0-58.5-15T739-515l-81 27q6 39-5 77.5T614-340l57 70q11-5 23-7.5t26-2.5q50 0 85 35t35 85q0 50-35 85t-85 35q-50 0-85-35t-35-85q0-20 6.5-38.5T624-232l-57-71q-41 23-87.5 23T392-303l-56 71q11 15 17.5 33.5T360-160q0 50-35 85t-85 35q-50 0-85-35Zm-35-465q17 0 28.5-11.5T160-580q0-17-11.5-28.5T120-620q-17 0-28.5 11.5T80-580q0 17 11.5 28.5T120-540Zm148.5 408.5Q280-143 280-160t-11.5-28.5Q257-200 240-200t-28.5 11.5Q200-177 200-160t11.5 28.5Q223-120 240-120t28.5-11.5Zm240-680Q520-823 520-840t-11.5-28.5Q497-880 480-880t-28.5 11.5Q440-857 440-840t11.5 28.5Q463-800 480-800t28.5-11.5ZM480-360q42 0 71-29t29-71q0-42-29-71t-71-29q-42 0-71 29t-29 71q0 42 29 71t71 29Zm268.5 228.5Q760-143 760-160t-11.5-28.5Q737-200 720-200t-28.5 11.5Q680-177 680-160t11.5 28.5Q703-120 720-120t28.5-11.5Zm120-420Q880-563 880-580t-11.5-28.5Q857-620 840-620t-28.5 11.5Q800-597 800-580t11.5 28.5Q823-540 840-540t28.5-11.5ZM480-840ZM120-580Zm360 120Zm360-120ZM240-160Zm480 0Z',
@@ -78,8 +76,8 @@ const features = [
   {
     icon: 'M160-120q-33 0-56.5-23.5T80-200v-560q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v560q0 33-23.5 56.5T800-120H160Zm0-80h640v-560H160v560Zm200-80q17 0 28.5-11.5T400-320q0-17-11.5-28.5T360-360H240q-17 0-28.5 11.5T200-320q0 17 11.5 28.5T240-280h120Zm222-193-29-29q-12-12-28-11.5T497-501q-11 12-11.5 28t11.5 28l57 57q12 12 28 12t28-12l142-142q12-12 12-28t-12-28q-12-12-28.5-12T695-586L582-473Zm-222 33q17 0 28.5-11.5T400-480q0-17-11.5-28.5T360-520H240q-17 0-28.5 11.5T200-480q0 17 11.5 28.5T240-440h120Zm0-160q17 0 28.5-11.5T400-640q0-17-11.5-28.5T360-680H240q-17 0-28.5 11.5T200-640q0 17 11.5 28.5T240-600h120ZM160-200v-560 560Z',
     color: 'var(--pf-linux-qt)',
-    title: 'Tested on every platform, every change',
-    body: 'Each commit builds a full demo app on all twelve targets, drives it end to end, and captures screenshots. The gallery on this site is those exact artifacts.',
+    title: 'Platform testing and support',
+    body: 'Day uses CI builds, automated walkthroughs, and screenshots to check platform behavior. Testing coverage varies by target; consult the platform support tiers when choosing targets for your app.',
   },
   {
     icon: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Zm187-200-76-76q-12-12-11.5-28t12.5-28q12-11 28-11.5t28 11.5l104 104q12 12 12 28t-12 28L328-308q-11 11-27.5 11.5T272-308q-11-11-11-28t11-28l75-76Zm173 160q-17 0-28.5-11.5T480-320q0-17 11.5-28.5T520-360h160q17 0 28.5 11.5T720-320q0 17-11.5 28.5T680-280H520Z',
@@ -109,8 +107,6 @@ const features = [
 ];
 
 
-// One paragraph per approach for teams evaluating a cross-platform stack. Strengths only; the
-// docs' "Why Day" page carries the costs.
 ---
 <BaseLayout>
   <!-- HERO -->
@@ -159,9 +155,9 @@ const features = [
             <p class="pf-blurb">
               {t.id === 'web-dom' ? (
                 <>
-                  The browser’s own widgets: the same Rust compiled to WebAssembly, driving
-                  real <code>&lt;button&gt;</code> and <code>&lt;dialog&gt;</code> elements.
-                  Hosts as static files. <a href={site.showcaseWeb}>Launch the showcase on the web</a>.
+                  Rust compiled to WebAssembly updates HTML elements such as
+                  <code>&lt;button&gt;</code> and <code>&lt;dialog&gt;</code>.
+                  Deploy the web build as static files. <a href={site.showcaseWeb}>Launch the showcase on the web</a>.
                 </>
               ) : (
                 t.blurb
@@ -221,17 +217,16 @@ const features = [
   <!-- The whole toolchain -->
   <section class="section toolchain">
     <div class="container">
-      <p class="eyebrow">The whole toolchain</p>
-      <h2 class="sec-title">One framework, <span class="accent-text">from the first build to the store listing</span>.</h2>
+      <p class="eyebrow">Development tools</p>
+      <h2 class="sec-title">Tools to <span class="accent-text">develop and distribute your app</span></h2>
       <p class="lead">
-        The UI layer is one part of Day. The tooling that takes an app from <code>day new</code> to
-        a signed installer ships with the framework and is tested on the same twelve targets.
+        Day includes project setup, editor integration, testing, and packaging tools.
+        Configure the SDKs and signing credentials required by your distribution targets.
       </p>
       <ul class="how-list">
         <li>
-          The <code>day</code> CLI creates a project, lints its strings and ids, builds and
-          launches on any target, drives it with a script, and packs the installer that platform's
-          users expect. <a href={url('docs/cli')}>CLI &amp; projects →</a>
+          Use the <code>day</code> CLI to create projects, check strings and identifiers,
+          build and launch apps, run scripts, and package releases. <a href={url('docs/cli')}>CLI &amp; projects →</a>
         </li>
         <li>
           The VS Code extension picks targets, builds and launches from the editor, opens the host
@@ -240,26 +235,26 @@ const features = [
           <a href="https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode">Install from the Marketplace →</a>
         </li>
         <li>
-          One reusable GitHub workflow builds every target, drives the walkthrough on
-          the iOS Simulator and the Android emulator, packages installers, uploads to the stores on
-          a tag, and publishes the app's own site.
+          Configure Day’s reusable GitHub workflow to build your selected targets, run app
+          walkthroughs, and package releases. Store uploads and website publishing require
+          the corresponding project settings and credentials.
           <a href={url('docs/cli') + '#continuous-integration'}>Continuous integration →</a>
         </li>
         <li>
           Strings live in Fluent catalogs and reach code as typed constants, so
-          a missing translation is a build error. <code>day localize add</code> stands up a new
-          language in one command, and the app switches locale while it runs.
+          a missing translation is a build error. Use <code>day localize add</code> to add a language
+          to your project. The app switches locale while it runs.
           <a href={url('docs/localization')}>Localization →</a>
         </li>
         <li>
-          Every app embeds dayscript. The same YAML that tests it in CI drives it
-          for an agent over MCP and shoots its store screenshots per locale and theme.
+          Use dayscript’s YAML scripts to test your app in CI, automate it through an AI agent
+          using MCP, and capture store screenshots in different languages and themes.
           <a href={url('docs/dayscript')}>Testing with dayscript →</a>
         </li>
         <li>
-          Controls sit in each platform's own accessibility tree, labels and
-          roles come from the same declarations as the UI, and the walkthrough audits the result on
-          every push. <a href={url('docs/accessibility')}>Accessibility →</a>
+          Day exposes controls through each platform’s accessibility tree. Declare labels and
+          roles alongside your UI, and use automated walkthroughs to check accessibility during
+          development. <a href={url('docs/accessibility')}>Accessibility →</a>
         </li>
       </ul>
     </div>
@@ -271,24 +266,23 @@ const features = [
       <p class="eyebrow">Agents & automation</p>
       <h2 class="sec-title">Built <span class="accent-text">for agents and CI</span>.</h2>
       <p class="lead">
-        Every Day app embeds <b>dayscript</b>, the same automation engine that drives Day's own
-        release pipeline. A YAML script, an agent over MCP, or your CI taps buttons, types text,
-        asserts what's on screen by stable element ids, and captures screenshots, identically on
-        every platform.
+        Use <b>dayscript</b> to tap buttons, enter text, check on-screen content using stable
+        element IDs, and capture screenshots. Run these actions from YAML scripts, CI jobs,
+        or an AI agent connected through MCP.
       </p>
       <ul class="how-list">
         <li>
-          <b>Agents that see their work:</b> Claude Code and other MCP clients get the day tools
-          (build, relaunch, drive, screenshot), so an LLM edits your app, drives the running build,
-          and returns a screenshot of the result.
+          <b>Test changes with an AI agent:</b> MCP clients such as Claude Code can use Day’s
+          tools to build and relaunch your app, interact with its UI, and capture screenshots
+          for review.
         </li>
         <li>
-          <b>One script, twelve targets:</b> run the walkthrough per theme and locale and the
-          same YAML produces your localized screenshots.
+          <b>Capture different languages and themes:</b> Reuse a walkthrough to capture
+          screenshots for each language and theme your app supports.
         </li>
         <li>
-          <b>Regressions caught on every push:</b> the walkthrough runs in CI, and a failed
-          assertion or a blank capture fails the build before it reaches a user.
+          <b>Check for regressions in CI:</b> Run walkthroughs in your CI workflow so failed
+          assertions flag problems before release.
         </li>
       </ul>
       <div class="hero-cta">
@@ -305,18 +299,16 @@ const features = [
         <p class="eyebrow">How it works</p>
         <h2 class="sec-title">When data changes, the right control updates.</h2>
         <p class="lead">
-          Day builds your interface from platform components once, then keeps each one
-          connected to your application's state. A change runs only the closures that read it
-          and ends in one native setter call.
+          Day connects native controls to your application’s state through reactive bindings.
+          When state changes, the bindings that depend on it update the affected controls.
         </p>
         <ul class="how-list">
           <li><b>Plain Rust:</b> functions and builder calls in the same language as the rest of your app.</li>
           <li><b>Native navigation:</b> sidebars, tabs, and back-gestures are the platform's own containers.</li>
-          <li><b>Testable end to end:</b> one automation script drives the app identically on every platform.</li>
         </ul>
         <div class="hero-cta">
           <a class="btn btn-ghost" href={url('docs/api-tour')}>Full API tour →</a>
-          <a class="btn btn-ghost" href={url('docs/rendering')}>Under the hood →</a>
+          <a class="btn btn-ghost" href={url('docs/rendering')}>How rendering works →</a>
         </div>
       </div>
       <div class="how-code">
@@ -329,7 +321,7 @@ const features = [
   <section class="section cta">
     <div class="container cta-inner">
       <Logo size={40} />
-      <h2>Your first Day app is ten minutes away.</h2>
+      <h2>Build your first Day app</h2>
       <div class="hero-cta">
         <a class="btn btn-primary" href={url('docs/getting-started')}>Get started</a>
         <a class="btn btn-ghost" href={url('gallery')}>Browse the gallery</a>

@@ -10,9 +10,8 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day localizes with [Mozilla Fluent](https://projectfluent.org/), a message format built for the
-grammar problems that `printf`-style formats handle badly: plurals, gender, and languages that
-reorder everything. The locale is a [reactive](/docs/glossary#reactive)
+Day uses [Mozilla Fluent](https://projectfluent.org/) for translated messages, including
+plural forms, grammatical gender, and language-specific word order. The locale is a [reactive](/docs/glossary#reactive)
 [signal](/docs/glossary#signal); every built-in string reads it, and the test tooling can switch it.
 
 ## Files and setup
@@ -94,7 +93,7 @@ is the exception: it's fixed at startup, so an LTR↔RTL switch fully applies on
 
 ## Testing what you translated
 
-Two tools make per-locale verification cheap:
+Two tools help verify each locale:
 
 ```bash
 day launch -p macos-appkit --locale fr --script dayscript/walkthrough.yaml

@@ -156,6 +156,10 @@ The v1 surface. A declaration using anything outside this table fails the crate'
 
 The table leaves out these rules:
 
+- **A value comes back as `Result`.** A declaration returns nothing or
+  `Result<T, day_bridge::Error>`, never a bare `T`: any arm can fail, so `fn ready() -> bool` is
+  a build error and `fn ready() -> Result<bool, day_bridge::Error>` is the spelling. The arms
+  themselves return plain `T` (a JVM `boolean`, an ArkTS `boolean`) and throw for the error.
 - **`&str` is UTF-8 by default, and UTF-16 only where an arm asks.** C and C++ arms receive
   `const char*` unless the arm opts in with `encoding = "utf16"`, which makes the generated
   adapter convert and pass `const char16_t*`. Windows is not special-cased: a UTF-8 C library on

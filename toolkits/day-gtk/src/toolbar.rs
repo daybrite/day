@@ -204,7 +204,7 @@ pub(crate) fn register_header(window: &impl IsA<gtk4::Window>, header: &adw::Hea
 }
 
 /// The header bar of the window `h` lives in.
-fn header_of(h: &Handle) -> Option<(gtk4::Window, adw::HeaderBar)> {
+pub(crate) fn header_of(h: &Handle) -> Option<(gtk4::Window, adw::HeaderBar)> {
     let root = h.root()?;
     let window = root.downcast::<gtk4::Window>().ok()?;
     let header = HEADERS.with(|t| t.get(window.as_ptr() as usize))?;

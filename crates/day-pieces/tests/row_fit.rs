@@ -67,3 +67,21 @@ fn a_growing_child_stretches_wrap_columns_to_the_width() {
     assert_eq!(f[1], Rect::new(55.0, 0.0, 45.0, 16.0), "{f:?}");
     assert_eq!(f[2], Rect::new(0.0, 22.0, 45.0, 16.0), "second line");
 }
+
+#[test]
+fn a_child_wider_than_the_row_wraps_inside_it() {
+    // "a much longer label" is 19 characters, 152pt, in a 100pt row: its cell takes the row's
+    // width and the text wraps, rather than the cell running past the row's edge.
+    let probe = boot(|| {
+        column((row((label("a much longer label"), label("c")))
+            .spacing(10.0)
+            .fit(RowFit::WrapColumns { run_spacing: 6.0 })
+            .width(100.0),))
+        .align(HAlign::Leading)
+        .any()
+    });
+    let f = label_frames(&probe);
+    assert_eq!(f[0].size.width, 100.0, "{f:?}");
+    assert!(f[0].size.height > 16.0, "wrapped onto more lines: {f:?}");
+    assert_eq!(f[1].origin.y, f[0].size.height + 6.0, "{f:?}");
+}

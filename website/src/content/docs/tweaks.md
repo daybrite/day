@@ -10,13 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Sometimes the widget Day gives you is exactly right except for one platform-specific detail: you
-want the standard button, but with AppKit's toolbar bezel; the standard slider, but with XAML's tick
-marks. Writing a whole custom [piece](/docs/glossary#piece) for two method calls is
-disproportionate, so Day has **tweaks**: a supported way to reach the native widget behind a
-built-in piece and configure it, while Day keeps owning layout, lifecycle, and everything else. A
-piece with a tweak applied is a **Tweaked Piece**; it keeps the same widget and handle, with a
-little more configured.
+A **tweak** configures the native widget behind a built-in [piece](/docs/glossary#piece).
+For example, you can apply AppKit’s toolbar bezel to a button or enable tick marks on a XAML
+slider. Day continues to manage the widget’s layout and lifecycle. A **Tweaked Piece** uses
+the same widget and handle with additional configuration.
 
 The showcase's Tweaks page (in the [gallery](/gallery)) demonstrates everything on this page.
 
@@ -86,7 +83,7 @@ safe `None`, never a dangling widget. Reads are [reactive](/docs/glossary#reacti
 
 To reuse a tweak across apps, package it: a `day-tweak-*` crate wraps the per-toolkit calls in one
 modifier and no-ops on [toolkits](/docs/glossary#toolkit) it doesn't cover, so the *app* using it
-stays free of `#[cfg]`. Three in-tree examples span the range from trivial to fully cross-platform:
+stays free of `#[cfg]`. Three examples in the repository show different platform configurations:
 
 ```rust
 use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};

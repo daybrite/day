@@ -392,20 +392,23 @@ const env = {
   day_dom_listen: (id, mask) => listen(id, mask),
 
   day_dom_measure_text(t, tl, f, fl, maxW, out) {
-    let text2, font;
+    let text2, font, numeric = 'normal';
     if (t === 0) { // measure element `tl`'s own text and computed font
-      const el = E(tl); font = getComputedStyle(el).font;
+      const el = E(tl);
+      const cs = getComputedStyle(el);
+      font = elementFont(cs);
+      numeric = cs.fontVariantNumeric;
       if (el.firstElementChild) {
         // Styled runs (docs/text-runs.md): a bold span is wider than the same words in the
         // base font, so the flat text would under-measure and the last word of a wrapped
         // paragraph would land on a clipped third line. Measure the spans themselves.
-        const [w, h] = measureNodes(el, font, maxW);
+        const [w, h] = measureNodes(el, font, maxW, numeric);
         f64(out, 2).set([w, h]);
         return;
       }
       text2 = el.textContent || '';
     } else { text2 = str(t, tl); font = str(f, fl); }
-    const [w, h] = measure(text2, font, maxW);
+    const [w, h] = measure(text2, font, maxW, numeric);
     f64(out, 2).set([w, h]);
   },
   // First text baseline from the element's top, in px, for a box `boxH` tall
@@ -417,7 +420,7 @@ const env = {
     const el = E(id);
     if (!el) return -1;
     const cs = getComputedStyle(el);
-    const m = baselineMetrics(cs.font);
+    const m = baselineMetrics(elementFont(cs));
     if (!m) return -1;
     // Content box: what the border and padding leave for the line.
     const top = parseFloat(cs.borderTopWidth) || 0;
@@ -1776,18 +1779,29 @@ function baselineMetrics(font) {
   return out;
 }
 
-function prepareMeasurer(font, maxW) {
+// An element's font as a `font` shorthand, for the measurer and the metrics cache. The computed
+// `font` serializes to "" whenever a longhand it cannot express is set, and every tabular label
+// sets one (`font-variant-numeric: tabular-nums`). An empty font leaves the measurer in whatever
+// font it held last, so a large bold score measured as a small caption and drew clipped. Rebuilt
+// from the longhands the shorthand covers instead; the numeric variant travels on its own.
+function elementFont(cs) {
+  return cs.font || `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize}/${cs.lineHeight} ${cs.fontFamily}`;
+}
+
+function prepareMeasurer(font, maxW, numeric) {
   if (!measurer) {
     measurer = div('');
     measurer.style.cssText = 'position:absolute;left:-99999px;top:0;visibility:hidden;white-space:pre-wrap;overflow-wrap:break-word;';
     document.body.append(measurer);
   }
   measurer.style.font = font;
+  // After the shorthand, which resets it: tabular digits are wider than proportional ones.
+  measurer.style.fontVariantNumeric = numeric || 'normal';
   measurer.style.maxWidth = (maxW < 1e5 ? maxW : 100000) + 'px';
 }
 
-function measure(text, font, maxW) {
-  prepareMeasurer(font, maxW);
+function measure(text, font, maxW, numeric) {
+  prepareMeasurer(font, maxW, numeric);
   measurer.textContent = text || ' ';
   const r = measurer.getBoundingClientRect();
   return [r.width, r.height];
@@ -1796,8 +1810,8 @@ function measure(text, font, maxW) {
 // Measure an element's children (a label's styled spans) wrapped at `maxW`, in the same
 // measurer: clones keep each span's own weight, slant and family, so the answer is the
 // paragraph the browser will lay out.
-function measureNodes(el, font, maxW) {
-  prepareMeasurer(font, maxW);
+function measureNodes(el, font, maxW, numeric) {
+  prepareMeasurer(font, maxW, numeric);
   measurer.replaceChildren(...Array.from(el.childNodes, (n) => n.cloneNode(true)));
   const r = measurer.getBoundingClientRect();
   measurer.textContent = '';

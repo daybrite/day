@@ -175,7 +175,7 @@ otherwise surface as a confusing runtime-only failure on one platform:
 - **File names don't matter; family names do.** `resource/fonts/SpecialElite-Regular.ttf` whose embedded
   family is "Special Elite" generates `res::fonts::special_elite`, used as
   `Font::custom(res::fonts::special_elite, 20.0)`. (`Font::Custom("Special Elite", 20.0)` is the
-  unchecked escape hatch for a family name only known at runtime.)
+  unchecked alternative for a family name only known at runtime.)
 
 Outside those rules, an unknown family never breaks the app. The label
 renders in the system font and the log names the family that didn't resolve. `.weight(...)` and

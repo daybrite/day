@@ -262,6 +262,76 @@ fn checkout_crates(root: &Path) -> Result<BTreeMap<String, PathBuf>, String> {
     Ok(out)
 }
 
+/// Every crate a checkout publishes: package name → version as its manifest declares it (a member
+/// on `version.workspace = true` takes the workspace's).
+fn checkout_versions(root: &Path) -> BTreeMap<String, String> {
+    let read = |dir: &Path| -> Option<toml::Value> {
+        toml::from_str(&std::fs::read_to_string(dir.join("Cargo.toml")).ok()?).ok()
+    };
+    let mut out = BTreeMap::new();
+    let Some(ws) = read(root) else {
+        return out;
+    };
+    let inherited = ws
+        .get("workspace")
+        .and_then(|w| w.get("package"))
+        .and_then(|p| p.get("version"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let named = |doc: &toml::Value| -> Option<(String, String)> {
+        let pkg = doc.get("package")?;
+        let name = pkg.get("name")?.as_str()?.to_string();
+        let version = match pkg.get("version")? {
+            toml::Value::String(v) => v.clone(),
+            _ => inherited.clone()?,
+        };
+        Some((name, version))
+    };
+    if let Some((name, version)) = named(&ws) {
+        out.insert(name, version);
+    }
+    let members = ws
+        .get("workspace")
+        .and_then(|w| w.get("members"))
+        .and_then(|m| m.as_array());
+    for m in members.into_iter().flatten().filter_map(|m| m.as_str()) {
+        if let Some(doc) = read(&root.join(m))
+            && let Some((name, version)) = named(&doc)
+        {
+            out.insert(name, version);
+        }
+    }
+    out
+}
+
+/// Why a patch that was written is absent from the graph, when the reason is cargo's version rule.
+///
+/// A `[patch]` entry is one more candidate, not an override: cargo keeps the newest version it can
+/// see, so a checkout carrying a lower version than the URL's tip loses to git — every crate at
+/// once, the moment a release bump lands upstream. `None` when the versions agree, which leaves
+/// the plain missing-entry explanation standing.
+fn outranked(sources: &[Source], missing: &[(String, String, String)]) -> Option<String> {
+    sources.iter().find_map(|source| {
+        let Target::Checkout(dir) = &source.target else {
+            return None;
+        };
+        let local = checkout_versions(dir);
+        let url = canon(&source.url);
+        let (name, _, theirs) = missing
+            .iter()
+            .find(|(n, u, v)| *u == url && local.get(n).is_some_and(|ours| ours != v))?;
+        let ours = &local[name];
+        Some(format!(
+            "cargo keeps the newest version it can see, and {} offers {name} v{theirs} where the \
+             checkout at {} has v{ours}; bring the checkout up to date (git pull), or lock the app \
+             to the checkout's commit first (`cargo update -p {name} --precise <commit>`) and run \
+             `day patch` again",
+            source.url,
+            dir.display()
+        ))
+    })
+}
+
 /// The git URL a checkout on disk stands for.
 ///
 /// A checkout carrying the `day` crate is the framework, whatever its manifest says — a fork
@@ -514,8 +584,9 @@ fn patched_urls(root: &Path) -> Vec<String> {
 /// git sources nothing patches.
 #[derive(Default)]
 pub struct CheckReport {
-    /// `(name, url)`: from a patched URL, still resolving from git — a missing table entry.
-    pub missing: Vec<(String, String)>,
+    /// `(name, url, version)`: from a patched URL, still resolving from git — a missing table
+    /// entry, or a patch cargo passed over for a newer version at the URL (see [`outranked`]).
+    pub missing: Vec<(String, String, String)>,
     /// `(name, url)`: from a git URL the table does not cover — published as far as this build is
     /// concerned, which may or may not be what the developer wants.
     pub unpatched: Vec<(String, String)>,
@@ -567,14 +638,20 @@ pub fn check(root: &Path) -> Result<CheckReport, String> {
                 continue;
             };
             let url = canon(source);
-            let entry = (name.to_string(), url.clone());
-            let list = if patched.contains(&url) {
-                &mut report.missing
+            if patched.contains(&url) {
+                let version = pkg
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default();
+                let entry = (name.to_string(), url, version.to_string());
+                if !report.missing.contains(&entry) {
+                    report.missing.push(entry);
+                }
             } else {
-                &mut report.unpatched
-            };
-            if !list.contains(&entry) {
-                list.push(entry);
+                let entry = (name.to_string(), url);
+                if !report.unpatched.contains(&entry) {
+                    report.unpatched.push(entry);
+                }
             }
         }
     }
@@ -652,18 +729,23 @@ pub fn run(
             }
             Ok(())
         }
-        Ok(report) => Err(CliError::failure(format!(
-            "{} crate(s) still resolve from a patched source: {} — add them to the [patch] table \
-             (`day patch --local <checkout>` / `--git <fork>` rewrites it) or this build mixes a \
-             local framework with a published one",
-            report.missing.len(),
-            report
+        Ok(report) => {
+            let names = report
                 .missing
                 .iter()
-                .map(|(n, _)| n.as_str())
+                .map(|(n, _, _)| n.as_str())
                 .collect::<Vec<_>>()
-                .join(", ")
-        ))),
+                .join(", ");
+            let why = outranked(&sources, &report.missing).unwrap_or_else(|| {
+                "add them to the [patch] table (`day patch --local <checkout>` / `--git <fork>` \
+                 rewrites it) or this build mixes a local framework with a published one"
+                    .to_string()
+            });
+            Err(CliError::failure(format!(
+                "{} crate(s) still resolve from a patched source: {names} — {why}",
+                report.missing.len()
+            )))
+        }
         Err(e) => {
             // Not fatal without --check: writing the table succeeded, and resolution may need the
             // network the caller does not have.
@@ -1257,6 +1339,38 @@ day = { git = "https://github.com/daybrite/day.git" }
             want
         );
         assert_eq!(canon("https://GitHub.com/daybrite/day"), want);
+    }
+
+    /// The version rule: a checkout behind the URL's tip loses to git, every crate at once, the
+    /// moment a release bump lands upstream — and the guard then names the two versions instead
+    /// of suggesting a table entry that is already there.
+    #[test]
+    fn an_outranked_checkout_is_explained_by_version() {
+        let tmp = std::env::temp_dir().join(format!("day-patch-outranked-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let checkout = day_checkout(&tmp.join("day"), &["day", "day-core"]);
+        assert_eq!(
+            checkout_versions(&checkout)
+                .get("day-core")
+                .map(String::as_str),
+            Some("0.1.0")
+        );
+
+        let sources = [checkout_source(DAY_GIT, &checkout)];
+        let at = |v: &str| {
+            [
+                ("day".to_string(), canon(DAY_GIT), v.to_string()),
+                ("day-core".to_string(), canon(DAY_GIT), v.to_string()),
+            ]
+        };
+        let why = outranked(&sources, &at("0.2.0")).expect("a newer main outranks the checkout");
+        assert!(
+            why.contains("day v0.2.0") && why.contains("has v0.1.0"),
+            "{why}"
+        );
+        // Equal versions: the patch would have shadowed git, so the reason lies elsewhere.
+        assert!(outranked(&sources, &at("0.1.0")).is_none());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// The wrong-branch case: a day-src that no longer carries a crate the app depends on must

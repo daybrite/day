@@ -10,10 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-**dayscript** is Day's automation language: a YAML file of steps that drives and asserts a
-*running* app. One script taps buttons, types text, navigates, asserts what's on screen, and
-captures screenshots, identically on macOS, iOS, Android, Linux, Windows, and OpenHarmony,
-because it addresses your UI by the stable ids you gave your Pieces.
+**dayscript** is Day’s YAML automation language for interacting with a running app. Scripts
+can tap buttons, enter text, navigate, check on-screen content, and capture screenshots.
+Stable piece identifiers let you reuse workflows across platforms; test each target for
+platform-specific behavior.
 
 It resembles Maestro, but the engine is compiled into your app and executes steps as real Day
 events, which makes the same script portable across all [targets](/docs/glossary#target) and makes waits deterministic
@@ -171,9 +171,8 @@ dayscript ▸ tap list-shuffle  "Shuffle"
 dayscript ▸ select unit-picker = 1  "Units"
 ```
 
-It is cheap to leave on for an app's whole life, and the lines are the script a recording would have
-written. That is useful for watching what a walkthrough will capture before you record it, and for
-making a bug report say what was pressed. The Showcase turns it on at launch; `DAY_LOG_ACTIONS=0`
+The log shows the actions a recording would capture. Use it to preview a walkthrough or
+include the interaction sequence in a bug report. The Showcase turns it on at launch; `DAY_LOG_ACTIONS=0`
 silences it. Logging and recording are independent: start a recording underneath a log and each
 action still prints once, with the prefix naming the mode (`day record ▸`).
 

@@ -16,8 +16,8 @@ installer or guide exists, this page links to it, because those instructions cha
 
 ## Check with day doctor
 
-`day doctor` probes this host and prints what is present, what is missing, and the command that
-fixes each miss. Everything below is a written-out version of the same checks.
+`day doctor` checks your development host for installed toolchains and reports missing
+requirements with setup guidance. The sections below describe the tools needed by each target.
 
 ```bash
 day doctor                       # every toolkit buildable on this host

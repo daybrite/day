@@ -12,8 +12,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Most Day widgets you build are **composite pieces**: new widgets assembled from primitives Day
 already ships. A composite piece is pure Rust in an ordinary library crate. You add it to an app
-as a plain dependency and it runs on every Day target, because every leaf it composes is already a
-native control on each one.
+as a dependency. Its platform support depends on the pieces it uses; composition itself
+requires no additional native backend.
 
 In this tutorial you will build one end to end: a **star rating** control, a row of tappable stars
 bound to a `Signal<usize>`. By the end you will have a `day-piece-rating` crate you can `.max(5)`,

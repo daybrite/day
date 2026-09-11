@@ -180,7 +180,7 @@ nav(section)
 ```
 
 A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs key on the bare
-enum since a tab is always selected. Under the hood each variant maps to its declared string, so
+enum since a tab is always selected. Each variant maps to its declared string, so
 deep links, [dayscript](/docs/glossary#dayscript), and `current_route()` are unchanged.
 
 Typed routes pay off most for **routes that carry data**. Implement the `Route` trait by hand

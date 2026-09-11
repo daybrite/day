@@ -10,11 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The pages linked here are the framework's internal reference documentation, published as-is from
-the repository's `docs/` directory. They're terser than the guides (per-API detail, per-platform
-support tables, edge cases), and they're the same files Day's own developers keep current, so
-they tend to lead the guides when something changes. For the words themselves, the
-[Glossary](/docs/glossary) defines each term the guides use and names the page that introduces it.
+These reference pages are published from the repository’s `docs/` directory. They cover API
+details, platform support, implementation decisions, and edge cases. Start with the task guides
+for usage examples, or use the [Glossary](/docs/glossary) to look up framework terminology.
 
 <!-- BEGIN GENERATED: internal-docs-index (integrations/gallery.mjs, from src/lib/internal-groups.mjs) -->
 ## Core & UI
@@ -101,6 +99,8 @@ Headless capability crates, the non-UI counterpart of Pieces. They provide devic
 | [network](/docs/internal/network) | `day-part-network` |
 | [sensors](/docs/internal/sensors) | `day-part-sensors` |
 | [haptics](/docs/internal/haptics) | `day-part-haptics` |
+| [sound](/docs/internal/sound) | `day-part-sound` |
+| [wakelock](/docs/internal/wakelock) | `day-part-wakelock` |
 | [deviceinfo](/docs/internal/deviceinfo) | `day-part-deviceinfo` |
 | [http](/docs/internal/http) | `day-part-http` |
 | [permissions](/docs/internal/permissions) | `day-part-permissions` |

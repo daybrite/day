@@ -48,6 +48,8 @@
         { "pkg": "day-part-clipboard", "blurb": "Read and write the system plain-text clipboard." },
         { "pkg": "day-part-network", "blurb": "Network connectivity and connection type." },
         { "pkg": "day-part-haptics", "blurb": "Trigger native haptic feedback." },
+        { "pkg": "day-part-sound", "blurb": "Play short sound clips through the native audio engine." },
+        { "pkg": "day-part-wakelock", "blurb": "Keep the screen on while something is showing." },
         { "pkg": "day-part-prefs", "blurb": "A persistent native key/value preference store." },
         { "pkg": "day-part-deviceinfo", "blurb": "Device identity — model, OS version, and locale." }
       ]

@@ -3629,19 +3629,26 @@ impl Toolkit for Gtk {
                             }
                             if let Some(root) = self.window_fixed.as_ref() {
                                 root.put(&cover, 0.0, 0.0);
-                                // The window's CONTENT area, not the root Fixed's allocation:
-                                // a GtkFixed inside the External-policy scroll wrapper
-                                // (`build_day_window`) is allocated its children's bounding
-                                // box, so a small home page would size the cover to itself.
-                                // The wrapper is what the toolbar view stretches to the window.
-                                let size = match root.parent() {
-                                    Some(wrapper)
-                                        if wrapper.width() > 0 && wrapper.height() > 0 =>
-                                    {
-                                        Size::new(wrapper.width() as f64, wrapper.height() as f64)
-                                    }
-                                    _ => Size::new(root.width() as f64, root.height() as f64),
-                                };
+                                // The window's CONTENT area — the same arithmetic the resize
+                                // path uses (`report_content_size`: the window's live default
+                                // size minus its header bar), so a cover presents at exactly
+                                // the size a resize would give it. Not an allocation read off
+                                // the widget tree: the root Fixed is allocated its children's
+                                // bounding box, and the scroll viewport around it followed the
+                                // page's natural size, which is how the Day-Games cover once
+                                // opened as a strip a third of the window wide (2026-09-11).
+                                let size = crate::toolbar::header_of(&root.clone().upcast())
+                                    .map(|(window, header)| {
+                                        let hb = header.height();
+                                        let hb = if hb > 0 { hb as f64 } else { HEADER_H };
+                                        Size::new(
+                                            window.default_width() as f64,
+                                            (window.default_height() as f64 - hb).max(0.0),
+                                        )
+                                    })
+                                    .unwrap_or_else(|| {
+                                        Size::new(root.width() as f64, root.height() as f64)
+                                    });
                                 cover.set_size_request(size.width as i32, size.height as i32);
                                 cover.set_visible(true);
                                 COVERS.with(|c| {

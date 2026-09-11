@@ -12,8 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A **part** is Day's name for a headless platform capability: a set of functions with no UI
 whose implementation differs per operating system. Battery level, the clipboard, preference
-storage, and sensors are the things every cross-platform app eventually needs and every platform
-spells differently.
+storage, and sensors are examples of capabilities exposed through different platform APIs.
 
 Parts are ordinary crates. You add one to `Cargo.toml`, call plain functions, and the right
 platform code runs because each function's body dispatches on `#[cfg(target_os)]`: IOKit on
@@ -36,6 +35,8 @@ plugin registry or runtime lookup; the [target](/docs/glossary#target) selects t
 | `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/internal/permissions) |
 | `day-part-location` | the device's position, once or as a live stream | [location](/docs/internal/location) |
 | `day-part-haptics` | haptic feedback | [haptics](/docs/internal/haptics) |
+| `day-part-sound` | sound effects | [sound](/docs/internal/sound) |
+| `day-part-wakelock` | keeping the screen on | [wakelock](/docs/internal/wakelock) |
 | `day-part-speech` | text to speech through each platform's own voice; in its own repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
 
 ## Using parts
@@ -78,7 +79,7 @@ for the per-platform support matrix; not every capability exists everywhere.
 ## Writing your own
 
 When you need a platform API Day doesn't cover (Bluetooth, a payment SDK, notification badges),
-you write a part. The pattern scales from trivial to involved:
+you write a part. The implementation depends on the platform API:
 
 - Pure-Rust platforms are a `#[cfg]` branch and a system crate (`objc2` on Apple, `windows` on
   Windows, sysfs/D-Bus on Linux).

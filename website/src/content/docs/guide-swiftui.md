@@ -62,8 +62,8 @@ public struct TemperatureDial: View {
 
 It's an ordinary SwiftPM package: it can depend on other SwiftPM packages, and `swift test` works in
 it. Internal types stay internal; only public `View` structs are exported. Views whose init uses
-other types (a model struct, a closure) are skipped with a build warning; the escape hatch below
-covers them.
+other types (a model struct, a closure) are skipped with a build warning. Use the provider API
+described below for these views.
 
 ## 2. Declare it
 
@@ -146,7 +146,7 @@ content.
 ## When the scan isn't enough
 
 For views the generated path can't express (an init taking a model type, a delegate,
-dynamic content), use the provider escape hatch. Subclass the provider in Swift, name
+dynamic content), use the provider API. Subclass the provider in Swift, name
 it `@objc(DayView_<name>)`, and call it by name from Rust:
 
 ```swift

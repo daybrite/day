@@ -257,8 +257,19 @@ pub(crate) fn place_node<B: Toolkit>(
         let Some(n) = tree.node(node) else { return };
         (n.layout.clone(), n.children.clone(), n.handle.is_some())
     };
+    // A cover's frame is the backend's (docs/cover.md): presented, it is re-homed over the
+    // window and follows the window's own resizing; parked, it is hidden. Where it SITS in
+    // the tree it measures zero (`CoverLayout`), so applying the parent's placement — a
+    // zero-size rect at the parent's center — would collapse a presented cover to a line
+    // the moment anything re-lays the parent out. A window resize did exactly that on
+    // macOS (Day-Games, 2026-09-11): the game vanished into a one-pixel strip over the home
+    // page. Its CONTENT is still placed below, at the size the backend reported.
+    let native_frame = tree
+        .node(node)
+        .map(|n| n.kind == day_spec::kinds::COVER)
+        .unwrap_or(false);
     let child_offset = if has_handle {
-        if !is_root {
+        if !is_root && !native_frame {
             let changed = tree
                 .node(node)
                 .map(|n| {
@@ -858,6 +869,10 @@ impl FlowLayout {
             }
             _ => cell_w,
         };
+        // Never wider than the line: a child whose natural width exceeds it (a card whose text
+        // runs long on a phone) takes the line's width and wraps its text, rather than running
+        // past the edge.
+        let col_w = max_w.map_or(col_w, |m| col_w.min(m));
         // Re-measure at the column width: a child handed more width than it asked for can
         // settle shorter (a label unwrapping), and the line's height follows what it settles
         // on rather than what it wanted.

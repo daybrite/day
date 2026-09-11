@@ -85,7 +85,7 @@ the architecture-level view and the rationale.
 | extension packages — pieces, parts, `[package.metadata.day.*]` | [docs/extending.md](docs/extending.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
-| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, deviceinfo, http, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, searchfield, combobox, color picker, …) and external ones (lottie) | [docs/webview.md](docs/webview.md), [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
@@ -230,7 +230,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | term | meaning |
 |---|---|
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
-| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, device info, HTTP, OS permissions, location, app-local files, local notifications, wall clock & time zones — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
+| **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, sound effects, keeping the screen on, device info, HTTP, OS permissions, location, app-local files, local notifications, wall clock & time zones — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), [docs/tweaks.md](docs/tweaks.md)). |
 | **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
@@ -831,7 +831,7 @@ Beyond the built-ins, optional widgets ship as ordinary crates under `pieces/` (
 increment/decrement arrows, [docs/stepper.md](docs/stepper.md) —
 `swiftui` — hosted SwiftUI views, [docs/swiftui.md](docs/swiftui.md)) and headless services under
 `parts/` (battery, network, sensors,
-clipboard, prefs, haptics, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
+clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
@@ -2085,6 +2085,9 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   with the system-gesture shield modifiers `defers_system_gestures(edges)` (the
 >   `defer_system_gestures` duty + `Edges`) and `interactive_dismiss_disabled()`.
 >   [docs/cover.md](docs/cover.md) is normative.
+>   *Frame rule (2026-09-11):* the COVER node's own frame is the backend's; the core never
+>   applies the parent's placement to it (it measures zero where it sits), so a relayout of
+>   the parent — a window resize — cannot collapse a presented cover ([docs/cover.md](docs/cover.md)).
 >
 > The paragraphs below are the design-era rationale, kept because the trade-offs still explain
 > the shape.
@@ -2607,7 +2610,9 @@ Two package kinds share the mechanism:
   ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie)); see the note
   under [§15.2](#152-package-layout-and-aggregation) for what an external repository adds.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
-  battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, deviceinfo,
+  battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, sound
+  (bundled clips through each platform's low-latency engine, [docs/sound.md](docs/sound.md)), wakelock
+  (keeping the screen on, [docs/wakelock.md](docs/wakelock.md)), deviceinfo,
   http (requests through the platform HTTP stack, [docs/http.md](docs/http.md)), permissions (the OS consent system
   plus the build-time declarations each platform requires, [docs/permissions.md](docs/permissions.md)), location
   ([docs/location.md](docs/location.md)), fs (app-local file storage, [docs/fs.md](docs/fs.md)), and local-notify (local
@@ -3900,7 +3905,7 @@ day/                                # THIS repository
                                     #   -remote-image, -colorpicker, -texteditor); day-piece-lottie
                                     #   lives in its own repository (§15.2)
   parts/                            # headless platform services (day-part-battery, -network,
-                                    #   -sensors, -clipboard, -prefs, -haptics, -deviceinfo,
+                                    #   -sensors, -clipboard, -prefs, -haptics, -sound, -wakelock, -deviceinfo,
                                     #   -http, -permissions, -location)
   tweaks/                           # packaged tweaks (day-tweak-button-bezel, -tooltip,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
@@ -3999,7 +4004,9 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    ([docs/web.md](docs/web.md)).
 4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml; plus a
    dedicated `ios-uikit` Simulator job and an Android emulator job): each checks out
-   daybrite/Day-Showcase, points its day dependencies at this commit (`day patch --check`,
+   daybrite/Day-Showcase, locks its day source to this commit (a release bump landing on
+   `main` mid-run would otherwise outrank the checkout — cargo keeps the newest version it can
+   see), points its day dependencies at the checkout (`day patch --check`,
    [§16.5](#165-subcommands)), and runs `day doctor`, the **showcase walkthrough ×
    light/dark/fr** with content-validated screenshot uploads, service round-trip scripts (e.g.
    clipboard), and `day pack` — the generic app pipeline, nothing framework-shaped. Every leg packs at the dev tier: releasing and signing the showcase is its own
@@ -5061,7 +5068,7 @@ targets, size classes; Grid); **Navigation & chrome** (Stack — push/pop bound 
 Tabs, Menus & dialogs, Toolbars); **Data** (List — native recycling — Tree, Model, Query);
 **Graphics & media** (Canvas & shapes, Animation, Resources — bundled images/data, content modes —
 Media, Lottie, Map, Web view); **Platform** (Device & sensors, Network & HTTP, Notifications &
-badge, Speech & haptics, Files & storage — the `parts/`); and **App & tooling** (Localization,
+badge, Speech, sound & haptics, Files & storage — the `parts/`); and **App & tooling** (Localization,
 Scripting, Tweaks, Benchmark, Crash reporting). A page whose central feature a target cannot run
 is not in that target's sidebar (Lottie is iOS and Android only, Map is Apple only, Toolbars
 needs `Cap::Toolbar`, Crash reporting has no web arm); a section a target cannot run stays with a

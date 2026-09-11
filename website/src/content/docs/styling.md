@@ -33,8 +33,8 @@ label("legalese").italic()
 
 The semantic roles (`LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`,
 `Body`, `Callout`, `Footnote`, `Caption`, `Caption2`) resolve to the platform's typography
-scale, so text matches the platform's native controls. `Font::System(18.0)` is the escape hatch when
-you need an exact size, and `Font::custom(res::fonts::family, 18.0)` renders a font you bundle
+scale, so text matches the platform's native controls. Use `Font::System(18.0)` when
+you need an exact size. Use `Font::custom(res::fonts::family, 18.0)` for a font bundled
 in the project's `resource/fonts/` directory ([resources guide](/docs/resources)).
 
 ## Color, backgrounds, shape
@@ -127,5 +127,5 @@ for apps that want to look like they belong on each platform. That choice is the
 ---
 
 Next: the [Guides](/docs/navigation) cover the everyday tasks (navigation, localization,
-accessibility, testing), or jump to the [API tour](/docs/api-tour) for the whole surface at a
-glance.
+accessibility, testing), or see the [API tour](/docs/api-tour) for examples of common UI components
+and patterns.

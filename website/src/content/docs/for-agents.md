@@ -18,7 +18,7 @@ finish. A machine-readable index of the whole site lives at [`/llms.txt`](/llms.
 
 - **Day**: the framework (proper noun; always capitalized in prose).
 - `day`: the CLI binary. You type `day build`, `day launch`, etc. Always lowercase.
-- `day`: the Rust crate. `use day::prelude::*;` brings in the whole API. Always lowercase.
+- `day`: the Rust crate. `use day::prelude::*;` imports common UI APIs. Always lowercase.
 - `Day.toml`: the project manifest. **Piece**: a UI node (SwiftUI View / Flutter Widget). **Signal**:
   a reactive state cell. **target**: an `(OS, toolkit)` pair, e.g. `macos-appkit`, `ios-uikit`.
 

@@ -10,11 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-This page shows the whole authoring surface in one pass, for people who learn from code.
-The snippets are lifted from the showcase app that produces the
-[gallery](/gallery), and `use day::prelude::*;` brings all of it in. The pages after this one
-([Pieces](/docs/pieces), [Reactivity](/docs/reactivity), [Layout](/docs/layout)) explain the
-model behind what you'll see here.
+Explore common Day UI components and patterns through code examples from the showcase app
+featured in the [gallery](/gallery). Start with `use day::prelude::*;` for the common UI APIs.
+[Pieces](/docs/pieces), [Reactivity](/docs/reactivity), and [Layout](/docs/layout) explain the
+concepts behind the examples.
 
 ## A first app
 

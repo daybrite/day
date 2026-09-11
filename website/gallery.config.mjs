@@ -46,7 +46,9 @@ export const platforms = /** @type {Platform[]} */ (
  * @property {string}  repo      GitHub repository — where a shot's `source` path resolves.
  * @property {string}  metadata  The published `gallery.json`.
  * @property {string} [site]     The app's own website. Defaults to the index's `site` field.
- * @property {string} [web]      Its hosted web-dom build, when it has one.
+ * @property {string} [web]      Its hosted web-dom build, when that lives somewhere other than
+ *                               `<site>/webapp/` — the address every app whose index carries a
+ *                               web-dom column gets by default.
  * @property {string[]} [webShots]  Shots whose id IS the fragment that opens them in `web`.
  * @property {Record<string,string|null>} [webRoutes]  Shot id → the fragment that opens that
  *                               screen, for the shots whose id is not one, and `null` where the
@@ -68,7 +70,6 @@ export const apps = [
     repo: 'https://github.com/daybrite/Day-Showcase',
     site: 'https://showcase.daybrite.dev',
     metadata: 'https://showcase.daybrite.dev/gallery/gallery.json',
-    web: 'https://showcase.daybrite.dev/webapp/',
     hero: 'home',
     // The showcase's web build takes its route from the URL fragment (`day_dom_set_hash` writes
     // it, a `hashchange` listener reads it back), so a gallery row can open the very screen it
@@ -171,7 +172,6 @@ export const apps = [
       'Block Blast, Breakout, Sirtet, Sudoku and 2048 in one app, each game drawn on a canvas by the game itself and playable offline.',
     repo: 'https://github.com/daybrite/Day-Games',
     metadata: 'https://daybrite.github.io/Day-Games/gallery/gallery.json',
-    web: 'https://daybrite.github.io/Day-Games/webapp/',
     hero: 'home',
     // The route keys in the app's src/lib.rs. `sudoku` is the one shot named after its route;
     // the rest capture a moment inside a game, and the difficulty picker is a sheet no

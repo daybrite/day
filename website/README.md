@@ -113,8 +113,11 @@ the themes and the languages all come from the app — an app that captures a ne
 here on the next build, with no change in this repository.
 
 **To add an app:** add an entry to `apps` in `gallery.config.mjs` with its label, blurb, repository
-and index URL. The optional `order` / `labels` / `hide` keys are there for an app whose dayscript
-carries thin metadata; a shot with no `title:` falls back to a label derived from its id. (The
+and index URL. Its hub card and page link the app's homepage (the index's `site`) and its live web
+build at `<site>/webapp/` whenever the index carries a web-dom column; `web` names another address
+for a build hosted elsewhere. The optional `order` / `labels` / `hide` keys are there for an app
+whose dayscript carries thin metadata; a shot with no `title:` falls back to a label derived from
+its id. (The
 better fix for a missing heading is a `title:` on that `screenshot:` step in the app's own
 dayscript, which improves the app's own gallery too.)
 

@@ -51,6 +51,18 @@ runs:
         ref: ${{ steps.pick.outputs.ref }}
         path: ${{ inputs.path }}
 
+    # The app's dependency names no revision, so cargo would resolve day's CURRENT main — and a
+    # [patch] entry is one more candidate, not an override: cargo keeps the newest version it can
+    # see. A release bump landing on main while this run is in flight therefore outranks the
+    # version this commit carries, every framework crate falls back to git, and the check below
+    # fails for every job still to come. Locking the git source to this commit first settles it:
+    # a locked dependency whose version matches its patch resolves to the patch without asking
+    # upstream. One package is enough — cargo moves the whole git source together.
+    - name: Lock the app's day source to this commit
+      shell: bash
+      working-directory: ${{ inputs.path }}
+      run: cargo update -p day --precise "$GITHUB_SHA"
+
     # The app resolves `day` from git, which is what a user's app does and what its own CI tests.
     # Here it must resolve from THIS checkout instead, or the walkthrough would exercise a
     # published framework and report green on a commit it never compiled. `day patch` writes the

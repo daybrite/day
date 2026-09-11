@@ -11,12 +11,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 Day keeps its core widget vocabulary small and expects to be extended. Every extension is an
-ordinary Cargo crate. You depend on it, it registers itself, and the build tooling aggregates
-whatever native baggage it brings.
+ordinary Cargo crate. Add it as a dependency; Day’s build tooling incorporates its declared
+native sources and libraries, and native renderers register with the relevant backends.
 
-There are three tiers, ordered by cost; pick the lowest one that covers your need. When you
-only need to *configure* an existing widget, use a [tweak](/docs/tweaks), which is cheaper than
-every tier below and is not an extension at all.
+The three approaches below require different amounts of platform-specific code. Start with
+composition when existing pieces provide the behavior you need. To configure an existing
+native widget, use a [tweak](/docs/tweaks).
 
 ## Tier 0: pieces composed from existing pieces
 
@@ -151,9 +151,9 @@ renderer, or registry (plus the same Cargo-metadata mechanism when Android needs
 does it render anything?
  ├─ no  → part
  └─ yes → is it an existing widget that just needs configuring?
-           ├─ yes → tweak                      (/docs/tweaks — cheapest of all)
+           ├─ yes → tweak                      (/docs/tweaks — configure a widget)
            └─ no  → can you build it from existing pieces (incl. canvas)?
-                     ├─ yes → composite piece  (works everywhere, free)
+                     ├─ yes → composite piece  (uses existing backends)
                      └─ no  → native piece     (per-toolkit renderers, placeholder elsewhere)
                                └─ implementation must live in Swift/Kotlin itself?
                                    ├─ Swift  → SwiftUI embedding (/docs/internal/swiftui)

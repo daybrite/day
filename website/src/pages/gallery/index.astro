@@ -45,8 +45,8 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
       <h1 class="hub-title">Explore apps <span class="accent-text">built with Day</span></h1>
       <p class="lead">
         Compare how Day apps look across platforms, using each platform’s native widgets.
-        These screenshots come from automated app tests run with
-        <a href={url('docs/dayscript')}>dayscript</a>.
+        These screenshots come from automated app tests run
+        with <a href={url('docs/dayscript')}>dayscript</a>.
       </p>
       {apps.length > 0 && (
         <p class="gen">
@@ -102,9 +102,10 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
                 {app.themes.length > 1 && <span> · light and dark</span>}
               </p>
               <p class="card-links">
-                <a class="card-cta" href={url(`gallery/${app.id}`)}>See every screen</a>
+                <a class="card-cta" href={url(`gallery/${app.id}`)}>Screenshot gallery</a>
+                {app.web && <a href={app.web} target="_blank" rel="noopener">Run web app</a>}
+                {app.site && <a href={app.site} target="_blank" rel="noopener">App homepage</a>}
                 <a href={app.repo} target="_blank" rel="noopener">Source</a>
-                {app.web && <a href={app.web} target="_blank" rel="noopener">Run it</a>}
               </p>
             </div>
           </article>

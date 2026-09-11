@@ -558,7 +558,11 @@ def day_json_key
   key
 end
 
+# DAY_AAB names the artifact outright (the release workflow points it at the packed
+# artifact it downloaded), the way DAY_IPA does for iOS. Otherwise the glob under
+# build/day/dist — where `day pack` puts its output.
 def day_aab
+  return ENV["DAY_AAB"] unless ENV["DAY_AAB"].to_s.empty?
   Dir[File.expand_path("../../../dist/*.aab", __dir__)].first ||
     UI.user_error!("no .aab in build/day/dist — run `day pack -p android-mdc` first")
 end

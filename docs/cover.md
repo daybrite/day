@@ -27,6 +27,15 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > bounding box, so a small home page (Day-Games' tile grid) presented a cover the size of
 > the grid. The cover now takes the wrapper's allocation, the window content area.
 
+> **Window resize (2026-09-11).** A presented cover's frame is the backend's alone: the core
+> never applies the parent's placement to the COVER node (where it sits in the tree it measures
+> zero, so that placement is a zero-size rect at the parent's center). Until this landed, any
+> relayout of the parent — a window resize on the emulated tiers — collapsed the presented cover
+> to a line and showed the page beneath it; Day-Games lost its game on every macOS resize.
+> GTK sizes a presenting cover from the window's content area (its live default size minus
+> the header bar), the same arithmetic its resize path uses, rather than from an allocation
+> read off the widget tree, which followed the page's natural size.
+
 A `cover` presents a Day subtree over the whole window (edge-to-edge, above every other
 surface): the SwiftUI `fullScreenCover(item:)` shape. Like `nav` and `nav_stack`
 ([docs/navigation.md](navigation.md)), it is a projection of an app-owned signal, not an imperative controller:

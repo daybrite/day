@@ -308,7 +308,8 @@ column. When any child grows (`.grow_w()`), the widest child's width becomes the
 gets instead, and the columns stretch to share the whole width. That is the adaptive grid a
 gallery of tiles wants, SwiftUI's `GridItem(.adaptive(minimum:))`: tiles that can grow fill each
 line edge to edge, and a line with fewer tiles than columns leaves the rest of its columns
-empty.
+empty. No column is wider than the line, though: on a window narrower than the widest child, the
+cells take the window's width and their text wraps.
 
 ```rust
 row((tiles,)).spacing(16.0).fit(RowFit::WrapColumns { run_spacing: 16.0 })
