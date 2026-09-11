@@ -3,25 +3,29 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import { getCollection } from 'astro:content';
 import DocsLayout from '../../layouts/DocsLayout.astro';
+import { navigation } from '../../lib/docs-navigation.mjs';
 import { url } from '../../lib/site';
 
 const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
 ---
-<DocsLayout title="Documentation" description="Day documentation: overview, benefits, API tour, and CLI.">
+<DocsLayout title="Documentation" description="Learn Day, build an app, find reference material, or contribute to the framework.">
   <h1>Documentation</h1>
-  <p class="lead">Start with the overview or getting-started guide, then explore concepts, task guides, and API references.</p>
-  <div class="doc-cards">
-    <a class="doc-card ref-card" href={url('docs/api')}>
-      <h3>API reference ↗</h3>
-      <p>Generated rustdoc for every public Day crate.</p>
-    </a>
-    {docs.map((d) => (
-      <a class="doc-card" href={url(`docs/${d.id}`)}>
-        <h3>{d.data.title}</h3>
-        <p>{d.data.description}</p>
-      </a>
-    ))}
-  </div>
+  <p class="lead">Day is a Rust framework for apps that use each platform’s native UI toolkit. Start with a small app, then add the features and platforms you need.</p>
+  <p><a href={url('docs/getting-started')}>Create your first app →</a> · <a href={url('docs/overview')}>What is Day?</a></p>
+  {navigation(docs).map((group) => (
+    <section aria-labelledby={group.name.toLowerCase()}>
+      <h2 id={group.name.toLowerCase()}>{group.name}</h2>
+      <p>{group.description}</p>
+      {group.name === 'Learn' && <p>Already know another UI framework? The “Day for…” guides explain the differences. You can read them when you need them.</p>}
+      <div class="doc-cards">
+        {group.pages.map((d) => (
+          <a class="doc-card" href={url(`docs/${d.id}`)}><h3>{d.data.title}</h3><p>{d.data.description}</p></a>
+        ))}
+        {group.name === 'Reference' && <a class="doc-card" href={url('docs/api')}><h3>API reference</h3><p>Generated Rust documentation for Day’s public crates.</p></a>}
+        {group.name === 'Contribute' && <a class="doc-card" href={url('docs/internal')}><h3>Implementation notes</h3><p>Backend internals and design notes for framework development.</p></a>}
+      </div>
+    </section>
+  ))}
 </DocsLayout>
 
 <style>

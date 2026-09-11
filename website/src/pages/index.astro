@@ -14,6 +14,7 @@ import { primaryPlatforms } from '../lib/platforms.mjs';
 // Each card wears its platform accent (global.css `--pf-<target>`, iOS-palette light/dark)
 // via data-pf; the blurbs say what the toolkit is and where people actually meet it.
 const blurbs: Record<string, string> = {
+  'web-dom': 'Rust compiled to WebAssembly, using HTML controls. Deploy as a static website.',
   'macos-appkit':
     'Apple’s desktop UI toolkit, with native buttons, tables, menus, and windows for macOS.',
   'ios-uikit':
@@ -152,17 +153,7 @@ const features = [
                 <code class="pf-id">{t.id}</code>
               </div>
             </div>
-            <p class="pf-blurb">
-              {t.id === 'web-dom' ? (
-                <>
-                  Rust compiled to WebAssembly updates HTML elements such as
-                  <code>&lt;button&gt;</code> and <code>&lt;dialog&gt;</code>.
-                  Deploy the web build as static files. <a href={site.showcaseWeb}>Launch the showcase on the web</a>.
-                </>
-              ) : (
-                t.blurb
-              )}
-            </p>
+            <p class="pf-blurb">{t.blurb}</p>
             <a class="pf-more" href={url(`docs/platforms/${t.id}`)}>
               Building for {t.os} <span aria-hidden="true">→</span>
             </a>
@@ -383,10 +374,12 @@ const features = [
   /* RUNS ON */
   /* Eight platform cards, one per target, each wearing its accent (data-pf → --pf).
      Explicit column counts per band: 4-up wide, 2-up narrow, 1-up mobile. */
-  .pf-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 8px; }
+  .pf-grid { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: 16px; margin-top: 8px; }
   @media (max-width: 980px) { .pf-grid { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 560px) { .pf-grid { grid-template-columns: 1fr; } }
   .pf-card {
+    display: flex;
+    flex-direction: column;
     border: 1px solid var(--border-soft);
     border-top: 3px solid var(--pf);
     border-radius: var(--radius);
@@ -427,7 +420,9 @@ const features = [
      platform accent so the link reads as part of the card, not a generic docs link. */
   .pf-more {
     display: inline-block;
-    margin-top: 12px;
+    margin-top: auto;
+    padding-top: 12px;
+    align-self: flex-start;
     font-size: 0.86rem;
     font-weight: 600;
     color: var(--pf);

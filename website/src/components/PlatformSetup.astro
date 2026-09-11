@@ -1,0 +1,65 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import { primaryPlatforms, tierOf } from '../lib/platforms.mjs';
+import { url } from '../lib/site';
+const setup: Record<string, { hosts: string[]; needs: string; section: string }> = {
+  'macos-appkit': { hosts: ['macOS'], needs: 'Full Xcode for the generated app project.', section: 'macos' },
+  'ios-uikit': { hosts: ['macOS'], needs: 'Full Xcode, an iOS Rust target, and a booted iOS Simulator. Physical devices also need signing configured in Xcode.', section: 'ios' },
+  'android-mdc': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'Android SDK and NDK, JDK 17 or newer, cargo-ndk, and a Rust target matching your device or emulator. Start the emulator or connect a device before launching.', section: 'android' },
+  'linux-gtk': { hosts: ['Linux'], needs: 'GTK 4.10 or newer, libadwaita 1.5 or newer, and pkg-config, including development packages.', section: 'linux' },
+  'linux-qt': { hosts: ['Linux'], needs: 'Qt 6 development packages and pkg-config.', section: 'linux' },
+  'windows-xaml': { hosts: ['Windows'], needs: 'Visual Studio C++ Build Tools, the Windows SDK, and the MSVC Rust toolchain.', section: 'windows' },
+  'harmony-arkui': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'OpenHarmony SDK, Rust targets, hvigor, ohpm, and hdc. Running the app also needs a device or a configured emulator.', section: 'harmonyos' },
+  'web-dom': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'The wasm32-unknown-unknown Rust target and a browser.', section: 'web' },
+};
+---
+<div class="setup">
+  <div class="choices" hidden>
+    <label>Your development computer <select id="setup-host"><option>macOS</option><option>Linux</option><option>Windows</option></select></label>
+    <label>App target <select id="setup-target">{primaryPlatforms.map((p) => <option value={p.id}>{p.os} · {p.toolkit}</option>)}</select></label>
+  </div>
+  <noscript><p>Choose the section for your target below. Each lists the development hosts it supports.</p></noscript>
+  {primaryPlatforms.map((p) => (
+    <section data-setup-target={p.id} data-hosts={setup[p.id].hosts.join(',')}>
+      <h3>{p.os} · {p.toolkit}</h3>
+      <p>Build on {setup[p.id].hosts.join(', ')}. <a class="tier-badge" data-tier={p.tier} href={url('docs/platforms#support-tiers')} title={tierOf(p.tier)?.blurb}>Tier {p.tier} · {tierOf(p.tier)?.name}</a></p>
+      <p>{setup[p.id].needs} <a href={url(`docs/system-requirements#${setup[p.id].section}`)}>Installation instructions</a>.</p>
+      <p>Check the <a href={url(`docs/platforms/${p.id}`)}>platform’s capabilities and limitations</a> before choosing it for a release.</p>
+      <pre><code>{`day new app hello --toolkit ${p.id} --appid com.example.hello\ncd hello\nday launch -p ${p.id}`}</code></pre>
+    </section>
+  ))}
+</div>
+<script>
+  const host = document.querySelector<HTMLSelectElement>('#setup-host')!;
+  const target = document.querySelector<HTMLSelectElement>('#setup-target')!;
+  const panels = [...document.querySelectorAll<HTMLElement>('[data-setup-target]')];
+  const defaults: Record<string, string> = { macOS: 'macos-appkit', Linux: 'linux-gtk', Windows: 'windows-xaml' };
+  function update(changeHost = false) {
+    for (const option of target.options) {
+      const panel = panels.find((p) => p.dataset.setupTarget === option.value)!;
+      option.disabled = !panel.dataset.hosts!.split(',').includes(host.value);
+    }
+    if (changeHost || target.selectedOptions[0].disabled) target.value = defaults[host.value];
+    panels.forEach((p) => { p.hidden = p.dataset.setupTarget !== target.value; });
+    const address = new URL(location.href);
+    address.searchParams.set('host', host.value);
+    address.searchParams.set('target', target.value);
+    history.replaceState(null, '', address);
+  }
+  const params = new URLSearchParams(location.search);
+  const requested = panels.find((p) => p.dataset.setupTarget === params.get('target'));
+  host.value = Object.hasOwn(defaults, params.get('host') ?? '') ? params.get('host')! : requested?.dataset.hosts?.split(',')[0] ?? 'macOS';
+  target.value = requested?.dataset.setupTarget ?? defaults[host.value];
+  update();
+  document.querySelector<HTMLElement>('.choices')!.hidden = false;
+  host.addEventListener('change', () => update(true));
+  target.addEventListener('change', () => update());
+</script>
+<style>
+  .setup { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .choices:not([hidden]) { display: flex; flex-wrap: wrap; gap: 16px; }
+  label { display: grid; gap: 6px; font-weight: 600; flex: 1; }
+  select { font: inherit; padding: 8px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; max-width: 100%; }
+  pre { overflow-x: auto; }
+</style>

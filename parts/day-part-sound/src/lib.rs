@@ -857,8 +857,22 @@ mod tests {
             .count()
     }
 
+    /// The two tests below drive the one process-wide [`State`], and `cargo test` runs them on
+    /// separate threads at once. [`unload_all`] clears the repeat bookkeeping, so landing between
+    /// the two plays of the repeat check it lets the second play count, and the check reads a
+    /// skipped repeat as played — how CI's Linux leg failed on 2026-09-11. Both hold this lock,
+    /// so neither sees the other's edits to that state.
+    static SHARED: Mutex<()> = Mutex::new(());
+
+    /// Hold [`SHARED`] for the rest of the test. Poisoning is ignored, as it is for [`STATE`]: a
+    /// failing test should report itself rather than turn every later one into a poison error.
+    fn exclusive() -> MutexGuard<'static, ()> {
+        SHARED.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     #[test]
     fn plays_pass_the_switch_the_volume_and_the_repeat_check() {
+        let _shared = exclusive();
         let clip = AssetName::from_static("sounds/test-repeat.wav");
         let other = AssetName::from_static("sounds/test-silent.wav");
         // Start this platform's engine first: its first start can outlast the repeat window.
@@ -890,6 +904,7 @@ mod tests {
     // Every entry point must be safe to call on any host, with or without an engine.
     #[test]
     fn nothing_panics() {
+        let _shared = exclusive();
         let _ = is_supported();
         preload(&[AssetName::from_static("sounds/missing.wav")]);
         play(&AssetName::from_static("sounds/missing.wav"));

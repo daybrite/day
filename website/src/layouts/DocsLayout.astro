@@ -4,6 +4,7 @@
 import BaseLayout from './BaseLayout.astro';
 import { getCollection } from 'astro:content';
 import { url, internalTitle } from '../lib/site';
+import { navigation, groupOf } from '../lib/docs-navigation.mjs';
 import { orderedIds } from '../lib/internal-groups.mjs';
 
 interface Props { title: string; description?: string; slug?: string; active?: string }
@@ -28,32 +29,25 @@ if (active === 'internal' && slug) {
   if (i >= 0 && i < orderedIds.length - 1)
     next = { href: url(`docs/internal/${orderedIds[i + 1]}`), title: titleOf(orderedIds[i + 1]) };
 } else {
-  const idx = docs.findIndex((d) => d.id === slug);
-  if (idx > 0) prev = { href: url(`docs/${docs[idx - 1].id}`), title: docs[idx - 1].data.title };
-  if (idx >= 0 && idx < docs.length - 1)
-    next = { href: url(`docs/${docs[idx + 1].id}`), title: docs[idx + 1].data.title };
+  const current = docs.find((d) => d.id === slug);
+  const sequence = current ? docs.filter((d) => groupOf(d) === groupOf(current)) : [];
+  const idx = sequence.findIndex((d) => d.id === slug);
+  if (idx > 0) prev = { href: url(`docs/${sequence[idx - 1].id}`), title: sequence[idx - 1].data.title };
+  if (idx >= 0 && idx < sequence.length - 1)
+    next = { href: url(`docs/${sequence[idx + 1].id}`), title: sequence[idx + 1].data.title };
 }
 
-// Group the (already order-sorted) pages into sidebar sections. A section's position is set
-// by its first page, so ordering lives entirely in frontmatter.
-const sections: { name: string; pages: typeof docs }[] = [];
-for (const d of docs) {
-  const last = sections[sections.length - 1];
-  if (last && last.name === d.data.section) last.pages.push(d);
-  else {
-    const existing = sections.find((s) => s.name === d.data.section);
-    if (existing) existing.pages.push(d);
-    else sections.push({ name: d.data.section, pages: [d] });
-  }
-}
+const sections = navigation(docs);
+
 ---
 <BaseLayout title={title} description={description} active={active}>
   <div class="docs container">
     <aside class="sidebar" data-pagefind-ignore>
       <nav aria-label="Documentation">
+        <a class="side-link" href={url('docs')}>Documentation home</a>
         {sections.map((s) => (
-          <>
-            <p class="side-h">{s.name}</p>
+          <details open={s.pages.some((d) => d.id === slug) || (s.name === 'Reference' && isApi) || (s.name === 'Contribute' && active === 'internal')}>
+            <summary class="side-h">{s.name}</summary>
             {s.pages.map((d) => (
               <a
                 href={url(`docs/${d.id}`)}
@@ -63,14 +57,11 @@ for (const d of docs) {
                 {d.data.navTitle ?? d.data.title}
               </a>
             ))}
-          </>
+            {s.name === 'Reference' && <a href={url('docs/api')} class:list={['side-link', { on: isApi }]}>API reference</a>}
+            {s.name === 'Contribute' && <a href={url('docs/internal')} class:list={['side-link', { on: active === 'internal' }]}>Implementation notes</a>}
+          </details>
         ))}
-        <p class="side-h">Reference</p>
-        <a href={url('docs/api')} class:list={['side-link', { on: isApi }]}>API reference</a>
-        <a
-          href={url('docs/internal')}
-          class:list={['side-link', { on: active === 'internal' }]}
-        >Internal reference</a>
+
       </nav>
     </aside>
 
@@ -114,6 +105,8 @@ for (const d of docs) {
     scrollbar-width: thin;
     padding-right: 6px;
   }
+  .sidebar details { margin-top: 16px; }
+  summary.side-h { cursor: pointer; padding: 8px 0; }
   .side-h {
     text-transform: uppercase;
     letter-spacing: 0.14em;
@@ -173,7 +166,7 @@ for (const d of docs) {
       max-height: none;
       overflow-y: visible;
     }
-    .sidebar nav { display: flex; flex-wrap: wrap; gap: 6px; }
+    .sidebar nav { display: block; }
     .side-h { width: 100%; }
     .side-link { border-left: 0; }
   }

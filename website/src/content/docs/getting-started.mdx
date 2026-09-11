@@ -1,133 +1,52 @@
 ---
 title: Getting started
-description: Install the day CLI and the VS Code extension, scaffold an app, run it, and let an AI agent drive your first changes.
+description: Choose a platform, install its tools, and create and run your first Day app.
 order: 3
 section: Start here
 ---
 
-{/*
-Copyright © The Daybrite Project
-SPDX-License-Identifier: CC-BY-SA-4.0
-*/}
-
 import InstallCommand from '../../components/InstallCommand.astro';
+import PlatformSetup from '../../components/PlatformSetup.astro';
 
-Install the CLI, create a project, run it, and make your first change. This guide uses
-[VS Code](https://code.visualstudio.com) and includes terminal commands where applicable.
-Setup and initial build times depend on your host, target SDKs, and network connection.
+Day lets you write an app’s UI and behavior in Rust and use the native UI toolkit on each
+platform. This guide takes you from an empty folder to a running app. You can use any editor.
 
-## 1. Install the day CLI
+## 1. Install the CLI
 
-The [`day` CLI](/docs/glossary#day-cli) is on crates.io:
+Install [Rust through rustup](https://rustup.rs) and [Git](https://git-scm.com/downloads), then install Day’s command-line tool:
 
 <InstallCommand />
 
-The framework crates themselves aren't on crates.io yet. The scaffold pins them as git
-dependencies to the matching release, so you never manage that by hand. Check the install worked:
+Check the installation and available toolchains:
 
 ```bash
 day --version
+day doctor
 ```
 
-You need a recent stable Rust via rustup (`rustup update stable` keeps you current). Everything
-else is per-target, and `day doctor` checks each toolchain and prints exactly what's missing
-and how to get it.
+`day doctor` reports missing tools. You only need to install the tools for your chosen target.
+See [system requirements](/docs/system-requirements) for supported versions and installation details.
 
-```bash
-day doctor                       # everything buildable on this machine
-day doctor --toolkit android     # focus one toolkit; misses become errors with fix-it text
-```
+## 2. Choose a platform and run your app
 
-| Target | Needs |
-|---|---|
-| `macos-appkit` | Xcode command-line tools (you likely have them) |
-| `linux-gtk` | GTK 4 dev packages (`apt install libgtk-4-dev libadwaita-1-dev pkg-config`) |
-| `linux-qt` | Qt 6 dev packages (`apt install qt6-base-dev pkg-config`) |
-| `windows-xaml` | Visual Studio C++ Build Tools, MSVC Rust toolchain |
-| `windows-qt` / `windows-gtk` | MSYS2's Qt 6 / GTK 4 packages plus a GNU Rust toolchain — [setup on the Windows page](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host) |
-| `ios-uikit` | Xcode + an iOS Simulator |
-| `android-mdc` | Android SDK + NDK, JDK 17 or newer, `cargo-ndk`, an emulator or device |
-| `harmony-arkui` | OpenHarmony SDK + command-line tools |
-| `web-dom` | `rustup target add wasm32-unknown-unknown`, and no other packages |
+Select your development computer and the platform you want to run on. Install the listed
+requirements, then run the commands in a terminal. The first build downloads and compiles
+dependencies, so allow more time than for later builds.
 
-[System requirements](/docs/system-requirements) expands this table per host, with install commands,
-the optional packages (web views, packaging tools), and how to set up the Android, iOS, and
-HarmonyOS emulators.
+<PlatformSetup />
 
-### Run a sample app first
+The selector covers the main targets. GTK and Qt also run on macOS and Windows for development;
+see [all platform combinations](/docs/platforms) for those options.
 
-If you'd rather see a sample app before scaffolding your own, `--git` takes a repository URL and
-clones it, finds the project inside, builds for your host's default
-[toolkit](/docs/glossary#toolkit), and runs it:
+The generated project contains a `Day.toml` app manifest, Cargo dependencies pinned to a Day
+release, and platform files for your chosen toolkit. Open `src/lib.rs` to find `root()`, the
+function that defines your app’s interface. [Project structure](/docs/project-structure)
+explains the other files.
 
-```bash
-day launch --git https://github.com/daybrite/Day-Rise.git
-```
+If the app does not launch, run `day doctor` again and check the target’s setup instructions
+above. Mobile targets need a running emulator, simulator, or connected device as described there.
 
-It prints where it put the checkout, so you can `cd` there and edit the code. Every sample app
-works this way: [Day Rise](https://github.com/daybrite/Day-Rise) (the scaffold, four [pages](/docs/glossary#page)),
-[Day Skies](https://github.com/daybrite/Day-Skies) (live weather),
-[Day Showcase](https://github.com/daybrite/Day-Showcase) (every subsystem, four [locales](/docs/glossary#locale)).
-[CLI & projects](/docs/cli#running-a-repository-directly) covers the flag in full.
-
-## 2. Install the Day extension for VS Code
-
-The extension isn't on the Marketplace yet. Install the packaged `.vsix` straight from GitHub:
-
-```bash
-# grab the latest .vsix from the releases page…
-curl -fLO https://github.com/daybrite/day-vscode/releases/latest/download/day-vscode.vsix
-code --install-extension day-vscode.vsix
-```
-
-(Equivalent UI route: Extensions view → `…` menu → **Install from VSIX…**. Building from source
-works too: `git clone https://github.com/daybrite/day-vscode && cd day-vscode && npm install &&
-npx vsce package`, then install the produced `.vsix`.)
-
-The extension recommends two companions in any Day workspace: **rust-analyzer** (the Rust
-language service) and **Even Better TOML** (which the Day extension wires up to validate [`Day.toml`](/docs/glossary#day-toml) against its published schema automatically).
-
-## 3. Create a project
-
-In VS Code: **⇧⌘P → "Day: New Project…"**. Name the app, pick the platform-toolkits it should
-[target](/docs/glossary#target) (start with your desktop; you can add more later), choose a parent folder, and the
-extension scaffolds with `day new` and opens the project.
-
-Terminal equivalent:
-
-```bash
-day new app hello --toolkit macos-appkit --appid com.example.hello && cd hello && code .
-```
-
-The scaffold is a normal Cargo project (`cargo build` and `cargo clippy` work without the
-`day` CLI) plus a `Day.toml` manifest, a `build.rs` that generates the typed `res::` [resource](/docs/glossary#resource)
-constants, per-target platform folders, a [Fluent](/docs/glossary#fluent) `resource/locales/` tree, a [dayscript](/docs/glossary#dayscript)
-[walkthrough](/docs/glossary#walkthrough), store-listing and website stubs (`store/`, `website/` — skip the latter with
-`--no-website`), and an `AGENTS.md` that teaches AI agents this project's conventions.
-The two files that matter first:
-
-```text
-hello/
-  Day.toml          # app identity: id, title, targets, window (name/version from Cargo.toml)
-  src/lib.rs        # pub fn root() -> impl Piece — your UI starts here
-```
-
-## 4. Run it
-
-Look at the **status bar**, where the Day extension lives:
-
-- **⬡ targets** shows what Run acts on (amber "pick targets" until you choose; click it to
-  multi-select). Hovering it shows every target with live run/build/stop links.
-- **▶** runs the selection; it becomes **⏹** while apps run.
-- **⚙ debug/release** switches the build profile.
-
-Pick your desktop target and press ▶. The first build takes a while (it's compiling a native
-toolkit [backend](/docs/glossary#backend)); after that it's an incremental compile plus relaunch, a few seconds on a warm
-build. Compile errors land in the Problems panel with clickable locations.
-
-Terminal equivalent: `day launch -p macos-appkit`.
-
-## 5. Make a change by hand
+## 3. Make your first change
 
 Open `src/lib.rs`. The scaffold's `root()` returns the whole UI; replace it with:
 
@@ -142,57 +61,34 @@ pub fn root() -> impl Piece {
 }
 ```
 
-Press ▶ again (terminal: `day launch -p macos-appkit`). The compile is incremental — a few
-seconds — and the relaunched window shows your label above a native button that prints to the
-terminal when tapped. [Pieces](/docs/pieces) explains what `column`, `label`, and `button` return.
+Run the `day launch` command for your selected target again to see the change.
+[Pieces](/docs/pieces) explains how `column`, `label`, and `button` compose the interface.
 
-## 6. Drive it from VS Code's agent mode
+## 4. Add another target
 
-Every launch embeds a **dayscript engine** (a loopback automation channel), and the Day
-extension exposes it to VS Code's agent mode through ten MCP tools (`day.mcp.enabled`, on by
-default): an agent can build, launch, relaunch, tap and type in the running app, and take
-screenshots it can read, on every platform you target.
-[AI-assisted development](/docs/ai) walks the same loop from a plain terminal.
-
-Open the Chat view (**⌃⌘I**), switch to **Agent** mode, and try prompts like:
-
-> Add a new "configuration" page to the app with a toggle for "Notifications" and a slider for
-> "Volume", then re-launch it and show me the result.
-
-> Change the accent action on the home page to a prominent button, relaunch, and screenshot it.
-
-> Run the walkthrough and tell me which steps fail.
-
-A well-behaved agent will follow the loop the scaffolded `AGENTS.md` teaches it:
-
-1. **`day_metadata`** — learn the targets and locales that exist.
-2. **Edit** — create `src/pages/configuration.rs`, register the [route](/docs/glossary#route), add `nav-configuration`
-   keys to *every* locale, give controls stable `.id()`s.
-3. **`day_relaunch`** — compile errors come back inside the tool result; it fixes and retries.
-4. **`day_drive`** — `navigate` to the new page, `assert_text` the ids, `screenshot`. The
-   screenshot comes back as an image in the chat, so both of you can see the new page running
-   natively. Ask it to verify on each of your targets.
-
-Agent mode asks before running tools, and everything the agent can do, you
-can do from a terminal: `day drive -p macos-appkit --steps-json '[{"navigate":{"route":"configuration"}},{"screenshot":"check"}]'`
-drives the same engine by hand. The full protocol is documented in the
-[dayscript](/docs/dayscript) and [for agents](/docs/for-agents) pages.
-
-## 7. Second target
-
-Add a target with `day app add-toolkit <target>` (or pick several at scaffold time), tick it in
-the cockpit's target picker, and Run launches them side by side. Each target compiles a separate
-binary with only that platform's toolkit backend. For iOS boot a Simulator first
-(`open -a Simulator`); for Android have an emulator or device attached.
+Install the second target’s tools, then add it to the project:
 
 ```bash
-day launch -p macos-appkit -p ios-uikit     # terminal equivalent
+day app add-toolkit web-dom
+day launch -p web-dom
 ```
+
+This example adds the experimental web target. Use a different target name if you prefer.
+Your UI code is shared, but platform capabilities differ; test the features your app uses on
+each target you plan to ship.
+
+<span id="2-install-the-day-extension-for-vs-code"></span>
+
+## Optional: editor and AI tools
+
+The [Day VS Code extension](https://github.com/daybrite/day-vscode)
+adds project creation, build and run controls, and diagnostics to the editor.
+You can also use [AI-assisted development](/docs/ai) to edit and test your app. Neither is
+required to follow this guide.
 
 ## Where to go next
 
-- [Pieces](/docs/pieces), [Reactivity](/docs/reactivity), and [Layout](/docs/layout) — the three
-  core concepts for composing interfaces and updating them as state changes.
-- The [API tour](/docs/api-tour) — examples of common UI components and patterns.
-- [CLI & projects](/docs/cli) — every command, and what `Day.toml` can say.
-- [Platform support](/docs/platforms) — support tiers and limitations for each target.
+- [Reactivity](/docs/reactivity) explains how state changes update the UI.
+- [Layout](/docs/layout) covers arranging and sizing controls.
+- [Gallery](/gallery) connects sample app screenshots to source code and related guides.
+- [CLI & projects](/docs/cli) documents build, run, and project commands.

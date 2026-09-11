@@ -1,6 +1,7 @@
 ---
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
+import { guideFor } from '../../lib/gallery-guides.mjs';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import manifest from '../../data/gallery-manifest.json';
 import { url } from '../../lib/site';
@@ -79,6 +80,13 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
         {app.site && <a href={app.site} target="_blank" rel="noopener">App homepage</a>}
         <a href={app.repo} target="_blank" rel="noopener">Source</a>
       </p>
+      <details class="run-locally">
+        <summary>Run this sample on your computer</summary>
+        <p><a href={url('docs/getting-started')}>Install Day and your target’s tools</a>, then run:</p>
+        <pre><code>{`day launch --git ${app.repo}`}</code></pre>
+        <p>Use <code>-p &lt;target&gt;</code> to choose a configured target, such as <code>-p macos-appkit</code> on macOS. See the app’s repository for its supported targets.</p>
+      </details>
+      <p class="gen">Source links open the current main branch. It may differ from the version shown in these screenshots.</p>
     </div>
   </section>
 
@@ -129,6 +137,8 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
               title={`View the code this screen is rendered from: ${shot.source}`}
             >{shot.source.split('/').pop()}</a>
           )}
+          {!shot.source && <a class="row-src" href={app.repo} target="_blank" rel="noopener">App source</a>}
+          <a class="row-guide" href={url(`docs/${guideFor(app.id, shot.id)[0]}`)}>{guideFor(app.id, shot.id)[1]} →</a>
           {shot.caption && <p class="row-cap">{shot.caption}</p>}
         </div>
         <div class="strip-wrap">
@@ -540,6 +550,10 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
   /* Anchor landings (hero-carousel links, #<shot> URLs) must clear the sticky site header
      (61px) + the pinned theme/language toolbar below it. */
   .row { margin-top: 30px; scroll-margin-top: 132px; }
+  .run-locally { margin-block: 20px; }
+  .run-locally summary { cursor: pointer; font-weight: 600; }
+  .run-locally pre { overflow-x: auto; padding: 16px; background: var(--surface); border-radius: var(--radius); }
+  .row-guide { font-size: 0.9rem; }
   .row-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
   .row-title {
     font-size: 0.95rem; font-weight: 700; margin: 0 0 12px;
