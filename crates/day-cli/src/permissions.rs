@@ -176,6 +176,7 @@ pub struct OhosEntry {
 /// `[package.metadata.day.permissions]`. A contribution the app has not given a reason for is a
 /// hard ERROR on the platforms that need one: the alternative is an app that builds fine and then
 /// terminates the first time it touches the API on a device.
+#[cfg(test)]
 pub fn resolve(
     manifest: &Manifest,
     platform: &str,
@@ -314,13 +315,16 @@ pub fn resolve_with(
     }
 
     let raw = &manifest.permissions.raw;
+    // The Apple tables are consumed by the Apple platforms only: an Android or HarmonyOS plan
+    // has nowhere to put an Info.plist key, so it neither writes one nor demands its text.
     let raw_apple_table = match platform {
-        "macos" => &raw.macos,
-        _ => &raw.ios,
+        "macos" => Some(&raw.macos),
+        "ios" => Some(&raw.ios),
+        _ => None,
     };
     let mut raw_apple = BTreeMap::new();
     let mut raw_apple_reasons = BTreeMap::new();
-    for (key, value) in raw_apple_table {
+    for (key, value) in raw_apple_table.into_iter().flatten() {
         if !value.enabled() {
             continue;
         }
@@ -603,6 +607,19 @@ mod tests {
         .expect("resolve");
         assert_eq!(plan.resolved.len(), 1);
         assert_eq!(plan.resolved[0].sources, ["Day.toml", "day-piece-media"]);
+    }
+
+    /// An Apple-only raw key is nobody else's business: an Android plan neither writes it nor
+    /// asks for its text, so a catalog without the message is fine there and only iOS refuses.
+    #[test]
+    fn apple_raw_keys_are_not_checked_on_android() {
+        let m = manifest("[permissions.raw]\nios = { NSBluetoothAlwaysUsageDescription = true }\n");
+        let android = resolve(&m, "android", &[]).expect("android ignores the Apple table");
+        assert!(android.raw_apple.is_empty());
+        assert!(
+            resolve(&m, "ios", &[]).is_err(),
+            "ios needs the catalog text"
+        );
     }
 
     /// Notifications needs no reason anywhere, so it must not trip the reason check — and it writes

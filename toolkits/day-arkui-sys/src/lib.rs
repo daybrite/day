@@ -209,6 +209,16 @@ unsafe extern "C" {
         filters: *const c_char,
     );
 
+    /// Ask the ArkTS-registered permission prompter for `names` (0x1F-separated OS permission
+    /// names, docs/permissions.md). Returns 1 when the request went out — `cb` is then called on
+    /// the JS thread with the request id and a bit mask of the grants, in order — and 0 when no
+    /// prompter is registered, in which case `cb` is never called.
+    pub fn day_ark_request_permissions(
+        req: u64,
+        names: *const c_char,
+        cb: extern "C" fn(u64, u64),
+    ) -> c_int;
+
     /// Whether a native `NativeResourceManager` was captured from the ArkTS host (via the shim's
     /// `registerResourceManager` NAPI export). Returns 1 if the rawfile resource opener can serve
     /// reads, 0 otherwise. See [`day_ark_res_open`] (§18.3).

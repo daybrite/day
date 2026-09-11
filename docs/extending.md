@@ -531,6 +531,13 @@ with a fixture piece that pulls swift-collections.
 first **part** to live in its own repository: a headless part whose every platform implementation
 is a [bridge](bridge.md) arm — Swift, Java, ArkTS, JavaScript, C++, and C — inline in one
 `src/lib.rs` beside the Rust declaration they share. Its `docs/speech.md` walks through the arms.
+[day-piece-camera](https://github.com/daybrite/day-piece-camera) is a fourth: a native camera
+on the three mobile toolkits — a Swift shim that reports back through a C function pointer, a
+Java class over CameraX that is its own `LifecycleOwner`, and a HarmonyOS arm where the ArkTS
+half only hosts an `XComponent` surface and a C shim over the NDK camera kit (compiled by the
+crate's own `build.rs`) owns the session. It is also the first piece to declare
+`[package.metadata.day.permissions] uses = ["camera"]`, and the app supplies the reason.
+
 As an external repository it follows the same rules as day-piece-lottie above: bare canonical day
 dependencies, a `compat` line, and a `demo/` app whose dayscript is the on-device test.
 

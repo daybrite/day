@@ -146,7 +146,7 @@ keeps `IntoText`/`LocalizedText` out of parts ([docs/extending.md](extending.md)
 | iOS | `CLLocationManager`, `AVCaptureDevice`, `PHPhotoLibrary`, `UNUserNotificationCenter` (async-only), `CMMotionActivityManager` | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
 | macOS | the same TCC APIs where they exist; no CoreMotion | same | shared `apple.rs` |
 | Android | `Context.checkSelfPermission` + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-android` + the crate's own Java shim |
-| HarmonyOS | `OH_AT_CheckSelfPermission` | needs an ArkTS bridge, not yet built, so `can_prompt` is `false` | raw FFI |
+| HarmonyOS | `OH_AT_CheckSelfPermission` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-arkui-sys` (reached by `dlsym`, so the part links no toolkit) | raw FFI |
 | Web | `navigator.permissions.query` + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-dom shim |
 | Linux / Windows | constants | resolves immediately | — |
 

@@ -113,6 +113,14 @@ extern "C" uint32_t day_arkui_list_delete(uint64_t host_id, uint32_t index);
 // not the native NodeAPI. Called on the JS thread (day's loop runs there), so no threadsafe fn.
 static napi_ref g_file_picker = nullptr;
 
+// Permission prompts (docs/permissions.md): `requestPermissionsFromUser` needs the UIAbility
+// context, reachable only from ArkTS, so ArkTS registers `registerPermissions(cb)` where `cb` is
+// `(req: number, names: string) => void` (names 0x1F-separated) and answers through
+// `onPermissionResult(req, mask)` — bit i set when the i-th name was granted. The Rust caller
+// hands over a C callback per request; it is held here until the answer arrives.
+static napi_ref g_permissions = nullptr;
+static std::map<uint64_t, void (*)(uint64_t, uint64_t)> g_permission_waiters;
+
 // Opening a URL needs the UIAbility context's startAbility (a viewData Want), which lives in the
 // ArkTS layer — the native NodeAPI has no equivalent. ArkTS registers `registerOpenUrl(cb)` where
 // `cb` is `(url: string) => void`; day_ark_open_url invokes it. Null (unregistered) is a safe no-op.
@@ -2368,6 +2376,68 @@ static napi_value RegisterFilePicker(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// ArkTS registers its permission prompter: `registerPermissions(cb)`, see g_permissions.
+static napi_value RegisterPermissions(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    if (g_permissions) {
+        napi_delete_reference(env, g_permissions);
+        g_permissions = nullptr;
+    }
+    if (argc > 0 && argv[0]) napi_create_reference(env, argv[0], 1, &g_permissions);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// The prompter's answer: `onPermissionResult(req, mask)`.
+static napi_value OnPermissionResult(napi_env env, napi_callback_info info) {
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    double reqd = 0, maskd = 0;
+    napi_get_value_double(env, argv[0], &reqd);
+    napi_get_value_double(env, argv[1], &maskd);
+    auto it = g_permission_waiters.find((uint64_t)reqd);
+    if (it != g_permission_waiters.end()) {
+        void (*cb)(uint64_t, uint64_t) = it->second;
+        g_permission_waiters.erase(it);
+        if (cb) cb((uint64_t)reqd, (uint64_t)maskd);
+    }
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// Rust-facing: ask the ArkTS prompter for `names` (0x1F-separated). Returns 1 when the request
+// went out and `cb` will be called with the grant mask on the JS thread; 0 when no prompter is
+// registered, in which case `cb` is never called. Runs on the JS thread, so a plain
+// napi_call_function is safe.
+extern "C" int day_ark_request_permissions(uint64_t req, const char* names,
+                                           void (*cb)(uint64_t, uint64_t)) {
+    if (!g_env || !g_permissions) return 0;
+    napi_handle_scope scope;
+    napi_open_handle_scope(g_env, &scope);
+    napi_value fn = nullptr;
+    napi_get_reference_value(g_env, g_permissions, &fn);
+    int sent = 0;
+    if (fn) {
+        g_permission_waiters[req] = cb;
+        napi_value undef;
+        napi_get_undefined(g_env, &undef);
+        napi_value args[2];
+        napi_create_double(g_env, (double)req, &args[0]);
+        napi_create_string_utf8(g_env, names ? names : "", NAPI_AUTO_LENGTH, &args[1]);
+        napi_value ret;
+        napi_call_function(g_env, undef, fn, 2, args, &ret);
+        sent = 1;
+    }
+    napi_close_handle_scope(g_env, scope);
+    return sent;
+}
+
 // ---- secondary windows (docs/windows.md) -----------------------------------
 // ArkTS registers the multiton-ability launchers: `registerWindows(open, close)` where
 // `open` = `(node: number, title: string) => void` (startAbility on DayWindowAbility with
@@ -2802,6 +2872,12 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_create_function(env, "registerFilePicker", NAPI_AUTO_LENGTH, RegisterFilePicker, nullptr,
                          &fn);
     napi_set_named_property(env, exports, "registerFilePicker", fn);
+    napi_create_function(env, "registerPermissions", NAPI_AUTO_LENGTH, RegisterPermissions,
+                         nullptr, &fn);
+    napi_set_named_property(env, exports, "registerPermissions", fn);
+    napi_create_function(env, "onPermissionResult", NAPI_AUTO_LENGTH, OnPermissionResult, nullptr,
+                         &fn);
+    napi_set_named_property(env, exports, "onPermissionResult", fn);
     napi_create_function(env, "registerOpenUrl", NAPI_AUTO_LENGTH, RegisterOpenUrl, nullptr, &fn);
     napi_set_named_property(env, exports, "registerOpenUrl", fn);
     napi_create_function(env, "registerWindows", NAPI_AUTO_LENGTH, RegisterWindows, nullptr, &fn);

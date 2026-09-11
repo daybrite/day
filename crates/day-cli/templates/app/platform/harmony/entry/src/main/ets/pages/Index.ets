@@ -12,7 +12,7 @@ import { NodeContent } from '@kit.ArkUI';
 import { display } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
-import { common, Want } from '@kit.AbilityKit';
+import { abilityAccessCtrl, common, Permissions, PermissionRequestResult, Want } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import nativeEntry from 'libentry.so';
 import { registerDayPieces } from '../daypieces/DayPieces';
@@ -142,6 +142,26 @@ struct Index {
       },
       ctx.cacheDir
     );
+
+    // Bridge Day's permission prompts to abilityAccessCtrl (docs/permissions.md): `names` is
+    // 0x1F-separated, and the answer is a bit mask of the grants, in the same order.
+    nativeEntry.registerPermissions((req: number, names: string): void => {
+      const list: Array<Permissions> = names.split('\u001F') as Array<Permissions>;
+      abilityAccessCtrl.createAtManager().requestPermissionsFromUser(ctx, list)
+        .then((result: PermissionRequestResult) => {
+          let mask: number = 0;
+          for (let i = 0; i < result.authResults.length; i++) {
+            if (result.authResults[i] === 0) {
+              mask |= (1 << i);
+            }
+          }
+          nativeEntry.onPermissionResult(req, mask);
+        })
+        .catch((err: BusinessError) => {
+          console.error(`day: requestPermissionsFromUser failed: ${err.code} ${err.message}`);
+          nativeEntry.onPermissionResult(req, 0);
+        });
+    });
 
     // Bridge Day's `link` piece to the system browser via an implicit viewData Want.
     nativeEntry.registerOpenUrl((url: string): void => {

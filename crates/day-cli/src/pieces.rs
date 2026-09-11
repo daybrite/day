@@ -508,7 +508,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     // through one path. `pieces.permissions` must carry every name: the scaffold's build.gradle.kts
     // gates the overlay on that list being non-empty.
     let contributed = contributed_permissions(project, &["mdc"]);
-    let declared = crate::permissions::resolve(&project.manifest, "android", &contributed)
+    let declared = crate::permissions::resolve_project(project, "android", &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
     let mut entries = crate::permissions::android_entries(&declared);
     for name in &pieces.permissions {

@@ -1202,6 +1202,21 @@ mod imp {
         });
     }
 
+    /// The permission seam for `day-part-permissions` (docs/permissions.md): the part reaches this
+    /// by `dlsym` rather than a link-time dependency on this toolkit, and it forwards to the
+    /// shim's ArkTS-registered prompter. Same contract as [`ffi::day_ark_request_permissions`].
+    #[unsafe(no_mangle)]
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `names` is a valid C string from the part
+    pub extern "C" fn day_arkui_request_permissions(
+        req: u64,
+        names: *const c_char,
+        cb: extern "C" fn(u64, u64),
+    ) -> c_int {
+        day_spec::ffi_guard::contain(0, || unsafe {
+            ffi::day_ark_request_permissions(req, names, cb)
+        })
+    }
+
     /// The ArkTS host reports the app cache dir here (docs/files.md); it's the app-writable staging
     /// area for `save_file(..)`, since HarmonyOS's OS temp dir isn't writable by the app.
     #[unsafe(no_mangle)]
@@ -2052,7 +2067,7 @@ mod imp {
                             .unwrap_or(0),
                     );
                     let first = suite.items.is_empty();
-                    suite.items.push((child.clone(), id));
+                    suite.items.push((*child, id));
                     // The first destination claims the screen: page 0 is the hidden sidebar.
                     unsafe { ffi::day_ark_set_visibility(child.0, first as c_int) };
                 }
