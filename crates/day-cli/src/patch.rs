@@ -144,7 +144,7 @@ pub(crate) fn canon(url: &str) -> String {
 /// COMPONENTS, and `Prefix::VerbatimDisk` never equals `Prefix::Disk`, so the raw comparison is
 /// always false between the two forms. That only bites on a RE-RUN, once the crates already
 /// resolve from the checkout as path deps: `source` is no longer `git+…`, so the path is the only
-/// thing left to recognise them by, and every transitive crate silently drops out of the table.
+/// thing left to recognize them by, and every transitive crate silently drops out of the table.
 fn within(manifest: &Path, root: &Path) -> bool {
     fn plain(p: &Path) -> PathBuf {
         let text = p.as_os_str().to_string_lossy();
