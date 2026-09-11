@@ -56,7 +56,7 @@ function webRoute(shotId: string): string | null {
   return routes[shotId];
 }
 
-const description = `${app.label} on every platform it builds for: ${app.counts.captures} screenshots taken by the dayscript walkthrough its own CI runs, ${app.counts.shots} screens across ${app.counts.columns} native toolkits.`;
+const description = `Explore ${app.label} screenshots and compare how the app looks across its supported platforms.`;
 ---
 <BaseLayout title={`${app.label} gallery`} description={description} active="gallery">
   <section class="section gal-hero">
@@ -72,7 +72,7 @@ const description = `${app.label} on every platform it builds for: ${app.counts.
       <p class="gen">
         {generated ? <span>Published {generated} · </span> : null}
         {app.counts.shots} screens · {app.counts.captures} captures · {app.counts.columns} toolkits
-        {app.stale && <span class="stale"> · the app's site was unreachable, so this is the last index we read</span>}
+        {app.stale && <span class="stale"> · Showing previously saved screenshots because the app’s website could not be reached.</span>}
       </p>
       <p class="gen gal-links">
         <a href={app.repo} target="_blank" rel="noopener">Source</a>

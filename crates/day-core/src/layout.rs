@@ -763,7 +763,8 @@ pub struct FlowLayout {
     pub align: CrossAlign,
     /// Uniform columns ([`RowFit::WrapColumns`]): every cell takes the widest child's width and
     /// each line holds as many as the available width fits, so the wrapped lines align into
-    /// columns. `false` packs each line at natural widths, which comes out ragged.
+    /// columns; when any child grows (`grow_w`), the columns stretch to share the whole width.
+    /// `false` packs each line at natural widths, which comes out ragged.
     pub uniform: bool,
 }
 
@@ -847,14 +848,24 @@ impl FlowLayout {
             // Unbounded (inside a horizontal scroll): one line, like a plain row.
             _ => kids.len().max(1),
         };
+        // A growing child (`.grow_w()`) stretches the columns to share the whole line, the
+        // adaptive grid: `cell_w` is then the narrowest a column gets, and a line with fewer
+        // cells than columns leaves the rest empty. Without one, the leftover width trails the
+        // last column.
+        let col_w = match max_w {
+            Some(m) if kids.iter().any(|&k| cx.flex_of(k).grow_w) => {
+                ((m - self.spacing * (cols - 1) as f64) / cols as f64).max(cell_w)
+            }
+            _ => cell_w,
+        };
         // Re-measure at the column width: a child handed more width than it asked for can
         // settle shorter (a label unwrapping), and the line's height follows what it settles
         // on rather than what it wanted.
         let sizes: Vec<Size> = kids
             .iter()
             .map(|&k| {
-                let s = cx.measure_child(k, Proposal::new(Some(cell_w), None));
-                Size::new(cell_w, s.height)
+                let s = cx.measure_child(k, Proposal::new(Some(col_w), None));
+                Size::new(col_w, s.height)
             })
             .collect();
         let mut lines = Vec::new();

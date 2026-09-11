@@ -748,7 +748,8 @@ row(children).spacing(8.0).align(VAlign::Center)
     .fit(RowFit::Wrap { run_spacing })   // what happens when the row outgrows its width
     .fit(RowFit::WrapColumns { run_spacing })     //   (docs/size-classes.md "Row fit
     .fit(RowFit::ColumnAt(WidthClass::Compact))   //   policies"); Wrap is ragged, WrapColumns
-    .fit(RowFit::Scroll)                 //   uniform; default Clip logs overflow in debug
+    .fit(RowFit::Scroll)                 //   uniform (a grow_w cell stretches it to the
+                                         //   width); default Clip logs overflow in debug
 zstack(children)                   // overlay
 grid((grid_row((…)), …)).spacing(8.0)   // SwiftUI-style eager grid (docs/grid.md): columns
                                    //   infer from cells; .grid_span(n)/.grid_align(a) per cell

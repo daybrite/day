@@ -36,7 +36,7 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
 ---
 <BaseLayout
   title="Gallery"
-  description={`Every Day sample app on every platform it builds for: ${totals.captures} screenshots across ${apps.length} apps, each taken by the dayscript walkthrough that app's own CI runs.`}
+  description="Explore the variety of sample apps created with Day and compare their screenshots across each of the supported platforms."
   active="gallery"
 >
   <section class="section hub-hero">
@@ -57,8 +57,7 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
       )}
       {apps.length === 0 && (
         <p class="gen preview">
-          No app index could be read on this build, so the gallery is empty. On the live site each
-          card fills in from the app's own published screenshots.
+          Screenshots are currently unavailable.
         </p>
       )}
     </div>

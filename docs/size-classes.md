@@ -302,9 +302,21 @@ Wrap          [Item 1][ Item 2 ][Item 3][ Item 4 ]     WrapColumns   [ Item 1 ][
               [ Item 5 ][Item 6][ Item 7 ]                           [ Item 4 ][ Item 5 ][ Item 6 ]
 ```
 
-The column count follows the available width, so it re-flows as the window changes. An
-authored, fixed column count with per-cell spans is a different job; that is [`grid`](grid.md),
-whose children are rows rather than items.
+The column count follows the available width, so it re-flows as the window changes. Left at
+that, the columns keep the widest child's width and whatever width is left over trails the last
+column. When any child grows (`.grow_w()`), the widest child's width becomes the narrowest a column
+gets instead, and the columns stretch to share the whole width. That is the adaptive grid a
+gallery of tiles wants, SwiftUI's `GridItem(.adaptive(minimum:))`: tiles that can grow fill each
+line edge to edge, and a line with fewer tiles than columns leaves the rest of its columns
+empty.
+
+```rust
+row((tiles,)).spacing(16.0).fit(RowFit::WrapColumns { run_spacing: 16.0 })
+// each tile: …min_width(120.0).grow_w(), with anything inside that should scale sized from it
+```
+
+An authored, fixed column count with per-cell spans is a different job; that is
+[`grid`](grid.md), whose children are rows rather than items.
 
 `ColumnAt(class)` re-arranges the row into a leading-aligned column while the window's width
 class is at or below `class`, the shape a label-plus-control-plus-result line wants, where
