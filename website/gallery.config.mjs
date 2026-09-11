@@ -164,6 +164,33 @@ export const apps = [
     repo: 'https://github.com/daybrite/Day-Sketch',
     metadata: 'https://daybrite.github.io/Day-Sketch/gallery/gallery.json',
   },
+  {
+    id: 'Day-Games',
+    label: 'Day Games',
+    blurb:
+      'Block Blast, Breakout, Sirtet, Sudoku and 2048 in one app, each game drawn on a canvas by the game itself and playable offline.',
+    repo: 'https://github.com/daybrite/Day-Games',
+    metadata: 'https://daybrite.github.io/Day-Games/gallery/gallery.json',
+    web: 'https://daybrite.github.io/Day-Games/webapp/',
+    hero: 'home',
+    // The route keys in the app's src/lib.rs. `sudoku` is the one shot named after its route;
+    // the rest capture a moment inside a game, and the difficulty picker is a sheet no
+    // fragment opens.
+    webShots: ['sudoku'],
+    webRoutes: {
+      home: '',
+      'breakout-a': 'breakout',
+      'sirtet-b': 'sirtet',
+      g2048: 'twentyfortyeight',
+      'g2048-easy': 'twentyfortyeight',
+      'g2048-difficulty': null,
+    },
+    // The walkthrough pairs each game's titled shot with an untitled twin taken a moment
+    // later (the same board, the piece one row down); the twins add nothing to a gallery
+    // row, and `smoke` is the launch check.
+    hide: ['smoke', 'breakout-b', 'sirtet-a'],
+    labels: { 'g2048-easy': '2048 · easy, with undo' },
+  },
 ];
 
 export default { platforms, apps };

@@ -1567,10 +1567,11 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         // Stamp prefix and its coordinate records: collected, never drawn on their own.
         if (kind == 20) { stampAt.clear(); stampN = (int)a; continue; }
         if (kind == 21) {
-            // Four points per record; the LAST record of a run is padded with zeros, so the
-            // header's count is what says where the real ones stop.
-            const float xs[4] = { a, c, e, (float)n[i + 8] };
-            const float ys[4] = { b, dd, f, g };
+            // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth point's
+            // y rides the slot other records use for their color. The LAST record of a run is
+            // padded with zeros, so the header's count is what says where the real ones stop.
+            const float xs[4] = { a, c, e, g };
+            const float ys[4] = { b, dd, f, (float)n[i + 8] };
             for (int q = 0; q < 4 && (int)stampAt.size() < stampN; ++q)
                 stampAt.push_back({ xs[q], ys[q] });
             continue;

@@ -41,21 +41,6 @@ const targets = primaryPlatforms.map((p) => ({
   blurb: blurbs[p.id],
 }));
 
-const heroCode = `use day::prelude::*;
-
-fn counter() -> impl Piece {
-    let count = Signal::new(0i64);
-    column((
-        label(move || format!("{} clicks", count.get())),
-        row((
-            button("–").action(move || count.update(|c| *c -= 1)),
-            button("+").action(move || count.update(|c| *c += 1)),
-        )).spacing(8.0),
-    ))
-    .spacing(12.0)
-    .padding(16.0)
-}`;
-
 const navCode = `let section = Signal::new(String::new());
 nav(section)
     .style(NavStyle::Sidebar)   // native split view / tabs / pushing list
@@ -126,28 +111,6 @@ const features = [
 
 // One paragraph per approach for teams evaluating a cross-platform stack. Strengths only; the
 // docs' "Why Day" page carries the costs.
-const compare = [
-  {
-    name: 'Web-view shells',
-    examples: 'Electron, Tauri',
-    body: 'Build the interface with web technologies and reuse familiar tools and UI libraries from the npm ecosystem.',
-  },
-  {
-    name: 'Custom renderers',
-    examples: 'Flutter, Iced',
-    body: 'The framework renders the interface, giving you control over its appearance and helping you maintain a consistent design across platforms.',
-  },
-  {
-    name: 'Per-platform native',
-    examples: 'Swift + Kotlin + C++ teams',
-    body: 'Build each platform’s interface directly with its native toolkit, maintaining separate UI implementations.',
-  },
-  {
-    name: 'Single-platform today',
-    examples: 'For example, a macOS or Linux app',
-    body: 'Use Day for a single platform, with native packaging and automated app testing. You can add other targets later, adapting and testing your app for each platform.',
-  },
-];
 ---
 <BaseLayout>
   <!-- HERO -->
@@ -198,7 +161,7 @@ const compare = [
                 <>
                   The browser’s own widgets: the same Rust compiled to WebAssembly, driving
                   real <code>&lt;button&gt;</code> and <code>&lt;dialog&gt;</code> elements.
-                  Hosts as static files. <a href={site.showcaseWeb}>Open the live build</a>.
+                  Hosts as static files. <a href={site.showcaseWeb}>Launch the showcase on the web</a>.
                 </>
               ) : (
                 t.blurb
@@ -228,28 +191,6 @@ const compare = [
         <li><b>Native interaction:</b> Controls use the platform toolkit’s text input, selection, scrolling, and accessibility features.</li>
         <li><b>Platform-specific packages:</b> Use <code>day pack</code> to create distribution packages for your target platforms, with signing and notarization configured where required.</li>
       </ul>
-    </div>
-  </section>
-
-  <!-- THE CODE -->
-  <section class="section codeshow">
-    <div class="container codeshow-grid">
-      <div class="codeshow-copy">
-        <p class="eyebrow">One codebase, every platform</p>
-        <h2 class="sec-title">One Rust function. A native app <span class="accent-text">everywhere</span>.</h2>
-        <p class="lead">
-          This is a complete, working counter. The same function becomes an AppKit control on
-          macOS, UIKit on iOS, Material on Android, and GTK, Qt, XAML, and ArkUI widgets everywhere
-          else. The screenshots in the carousel above come from code like this.
-        </p>
-        <div class="hero-cta">
-          <a class="btn btn-ghost" href={url('docs/api-tour')}>See the full API tour →</a>
-        </div>
-      </div>
-      <div class="codeshow-code">
-        <CodeSample code={heroCode} title="counter.rs" />
-        <p class="codeshow-note">One function, a native counter on all twelve targets.</p>
-      </div>
     </div>
   </section>
 
@@ -357,28 +298,6 @@ const compare = [
     </div>
   </section>
 
-  <!-- COMPARE -->
-  <section class="section compare">
-    <div class="container">
-      <p class="eyebrow">Evaluating your options</p>
-      <h2 class="sec-title">Four ways to ship one app everywhere.</h2>
-      <div class="cmp-grid">
-        {compare.map((c) => (
-          <div class="card cmp">
-            <h3>{c.name}</h3>
-            <p class="cmp-ex">{c.examples}</p>
-            <p>{c.body}</p>
-          </div>
-        ))}
-      </div>
-      <p class="lead cmp-close">
-        Day keeps the platform's own components <em>and</em> the single codebase. It is young, it
-        relaunches rather than hot-reloads, and it leaves pixel-level branding to the platform.
-      </p>
-      <a class="btn btn-ghost" href={url('docs/benefits')}>Read the comparison →</a>
-    </div>
-  </section>
-
   <!-- HOW IT WORKS -->
   <section class="section how">
     <div class="container how-grid">
@@ -468,9 +387,6 @@ const compare = [
   .hero-install { margin-top: 34px; }
 
   /* THE CODE (example moved down from the hero) */
-  .codeshow-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
-  .codeshow-grid > * { min-width: 0; }
-  .codeshow-note { color: var(--faint); font-size: 0.84rem; margin: 14px 2px 0; text-align: center; }
 
   /* RUNS ON */
   /* Eight platform cards, one per target, each wearing its accent (data-pf → --pf).
@@ -540,11 +456,6 @@ const compare = [
   .feat p { margin: 0; color: var(--muted); font-size: 0.95rem; }
 
   /* COMPARE */
-  .cmp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(268px, 100%), 1fr)); gap: 18px; margin-top: 34px; }
-  .cmp h3 { margin: 0 0 2px; font-size: 1.08rem; }
-  .cmp-ex { margin: 0 0 10px; color: var(--faint); font-size: 0.84rem; }
-  .cmp p:last-child { margin: 0; color: var(--muted); font-size: 0.95rem; }
-  .cmp-close { margin: 30px 0 18px; max-width: 68ch; }
 
   /* HOW */
   .how-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
@@ -567,7 +478,7 @@ const compare = [
   .cta-inner h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0; max-width: 20ch; }
 
   @media (max-width: 880px) {
-    .hero-grid, .how-grid, .codeshow-grid { grid-template-columns: minmax(0, 1fr); }
+    .hero-grid, .how-grid { grid-template-columns: minmax(0, 1fr); }
     .hero { padding-top: 40px; }
     .how-code { order: 2; }
     /* On the hero, keep the copy (info column) first — above the carousel — on narrow screens

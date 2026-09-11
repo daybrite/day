@@ -356,6 +356,14 @@ pub fn ensure(project: &Project, platforms: &[&str]) -> Result<(), String> {
         for (link, target) in harmony_links(project, &families) {
             link_dir(&project.root, &link, &target)?;
         }
+        // And the manifests' icon references, for the same reason (see the function).
+        if families.contains(&Family::Ohos) {
+            for (rel, bytes) in harmony_manifest_rewrites(project) {
+                std::fs::write(project.root.join(&rel), bytes)
+                    .map_err(|e| format!("{rel}: {e}"))?;
+                status("Rewriting", &format!("{rel}: icon → $media:layered_image"));
+            }
+        }
         return Ok(());
     }
     let opts = IconOptions {
@@ -1103,29 +1111,47 @@ fn generate(
         ));
         // The manifests are SOURCE files under platform/; this is the one edit prepare makes to
         // one, and only when it still names the flat icon. Idempotent.
-        let hroot = crate::ohos::harmony_dir(project);
-        let hrel = hroot
-            .strip_prefix(&project.root)
-            .unwrap_or(&hroot)
-            .to_string_lossy()
-            .into_owned();
-        for manifest in [
-            format!("{hrel}/AppScope/app.json5"),
-            format!("{hrel}/entry/src/main/module.json5"),
-        ] {
-            let path = project.root.join(&manifest);
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                let updated = text.replace(
-                    "\"icon\": \"$media:startIcon\"",
-                    "\"icon\": \"$media:layered_image\"",
-                );
-                if updated != text {
-                    out.push((manifest, updated.into_bytes()));
-                }
-            }
-        }
+        out.extend(harmony_manifest_rewrites(project));
     }
     Ok(out)
+}
+
+/// The HarmonyOS manifests that still name the flat `$media:startIcon` as an ability's `icon`,
+/// each with its text rewritten to the layered icon: `(path relative to the project, bytes)`.
+/// Empty once both manifests are current. Re-asserted on EVERY build, not only when the host
+/// set is rendered: a manifest entry added by hand after the first render (a second ability,
+/// say) would otherwise pass every local build, whose lock is current, and fail CI's pristine
+/// check, whose fresh checkout renders and rewrites it (Day-Games, 2026-09-11).
+fn harmony_manifest_rewrites(project: &Project) -> Vec<(String, Vec<u8>)> {
+    let hroot = crate::ohos::harmony_dir(project);
+    let hrel = hroot
+        .strip_prefix(&project.root)
+        .unwrap_or(&hroot)
+        .to_string_lossy()
+        .into_owned();
+    let mut out = Vec::new();
+    for manifest in [
+        format!("{hrel}/AppScope/app.json5"),
+        format!("{hrel}/entry/src/main/module.json5"),
+    ] {
+        let path = project.root.join(&manifest);
+        if let Ok(text) = std::fs::read_to_string(&path)
+            && let Some(updated) = rewrite_icon_refs(&text)
+        {
+            out.push((manifest, updated.into_bytes()));
+        }
+    }
+    out
+}
+
+/// `text` with every ability `icon` that names the flat icon pointed at the layered one, or
+/// `None` when nothing needed changing. `startWindowIcon` keeps the flat icon on purpose.
+fn rewrite_icon_refs(text: &str) -> Option<String> {
+    let updated = text.replace(
+        "\"icon\": \"$media:startIcon\"",
+        "\"icon\": \"$media:layered_image\"",
+    );
+    (updated != text).then_some(updated)
 }
 
 /// A master or override file as renderable art.
@@ -1685,6 +1711,24 @@ fn sha256_hex(bytes: &[u8]) -> String {
     let mut h = sha2::Sha256::new();
     h.update(bytes);
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+#[cfg(test)]
+mod icon_ref_tests {
+    use super::rewrite_icon_refs;
+
+    #[test]
+    fn every_ability_icon_moves_to_the_layered_image_and_start_window_icons_stay() {
+        let text = "\"icon\": \"$media:startIcon\",\n\"startWindowIcon\": \"$media:startIcon\",\n\"icon\": \"$media:startIcon\",\n";
+        let out = rewrite_icon_refs(text).expect("rewritten");
+        assert_eq!(out.matches("\"icon\": \"$media:layered_image\"").count(), 2);
+        assert!(out.contains("\"startWindowIcon\": \"$media:startIcon\""));
+        assert_eq!(
+            rewrite_icon_refs(&out),
+            None,
+            "current manifests are left alone"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -37,14 +37,16 @@ const packaging = [
   {
     id: 'android-mdc',
     kind: '.apk / .aab',
+    store: 'google' as const,
     install:
-      'Install the .apk directly on a device: allow “Install unknown apps” for your browser or file manager when prompted, or use `adb install`. The .aab is the Play-Store form (for bundletool, not direct install).',
+      'Google Play installs and updates it like any other app. The .apk below is the same build for a device without Play: allow “Install unknown apps” for your browser or file manager when prompted, or use `adb install`. The .aab is the Play form (for bundletool, not direct install).',
   },
   {
     id: 'ios-uikit',
     kind: '.ipa',
+    store: 'apple' as const,
     install:
-      'An unsigned device .ipa. It can only be sideloaded: AltStore Classic or SideStore re-sign it with your own Apple ID on install, or sign it yourself and install via Xcode’s Devices window. It is not App Store distributed.',
+      'The App Store build is the one to install. The unsigned device .ipa below is the same build for sideloading: AltStore Classic or SideStore re-sign it with your own Apple ID on install, or sign it yourself and install via Xcode’s Devices window.',
   },
   {
     id: 'harmony-arkui',
@@ -81,9 +83,18 @@ const packaging = [
 // contributes the artifact kind and the install note, which are download-page concerns.
 const targets = packaging.map((t) => ({
   ...t,
+  store: 'store' in t ? t.store : undefined,
   os: platformsById[t.id].os,
   name: platformsById[t.id].toolkit,
 }));
+
+// The store badges (public/badges/, the stores' own artwork). Apple's SVG is its plate edge to
+// edge; Google's plate is a 135×40 rect inside a 155×60 box, so the style below scales it by 1.5
+// and pulls the transparent margin out, and the two plates come out the same height.
+const stores = {
+  apple: { href: site.showcaseAppStore, src: url('badges/apple-app-store.svg'), alt: 'Download on the App Store' },
+  google: { href: site.showcasePlayStore, src: url('badges/google-play-store.svg'), alt: 'Get it on Google Play' },
+};
 
 function human(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -95,16 +106,26 @@ function richInstall(text: string): (string | { code: string })[] {
   return text.split('`').map((part, i) => (i % 2 ? { code: part } : part));
 }
 ---
-<BaseLayout title="Showcase downloads" description="Open the Day Showcase web build in place, or install it natively: packaged builds for Android, iOS, HarmonyOS, macOS, Windows, and Linux, with approximate sizes and one-line install commands." active="showcase">
+<BaseLayout title="Showcase downloads" description="Launch the Day Showcase on the web, get it from the App Store or Google Play, or install a packaged build for Android, iOS, HarmonyOS, macOS, Windows, and Linux, with approximate sizes and one-line install commands." active="showcase">
   <section class="section dl-hero">
     <div class="container">
       <p class="eyebrow">Showcase downloads</p>
       <h1 class="dl-title">The same app the <a href={galleryHref}>gallery</a> shows, <span class="accent-text">installed on your machine</span>.</h1>
       <p class="lead">
         Every package below comes from one Rust codebase, packaged with <code>day pack</code> for
-        each platform's native format and driven end to end by CI. The macOS build is signed and
-        notarized; the rest are development builds, so those cards note how to get past the
-        platform's unsigned-app guard.
+        each platform's native format and driven end to end by CI. The App Store and Google Play
+        builds install like any other app, and so does the signed and notarized macOS build; the
+        rest are development builds, so those cards note how to get past the platform's
+        unsigned-app guard.
+      </p>
+      <p class="dl-actions">
+        <a class="btn btn-primary" href={site.showcaseWeb}>Launch on the web →</a>
+        <a class="store-badge store-badge-apple" href={stores.apple.href} aria-label={stores.apple.alt}>
+          <img src={stores.apple.src} alt={stores.apple.alt} />
+        </a>
+        <a class="store-badge store-badge-google" href={stores.google.href} aria-label={stores.google.alt}>
+          <img src={stores.google.src} alt={stores.google.alt} />
+        </a>
       </p>
       {release ? (
         <p class="dl-note">
@@ -205,7 +226,7 @@ function richInstall(text: string): (string | { code: string })[] {
             The WebAssembly build runs in the browser; this site hosts it as static files.
           </p>
           <p class="dl-files">
-            <a class="btn btn-primary dl-btn" href={site.showcaseWeb}>Open the live build →</a>
+            <a class="btn btn-primary dl-btn" href={site.showcaseWeb}>Launch on the web →</a>
           </p>
         </article>
         {targets.map((t) => {
@@ -225,6 +246,13 @@ function richInstall(text: string): (string | { code: string })[] {
                   typeof part === 'string' ? part : <code>{part.code}</code>,
                 )}
               </p>
+              {t.store && (
+                <p class="dl-store">
+                  <a class={`store-badge store-badge-${t.store}`} href={stores[t.store].href} aria-label={stores[t.store].alt}>
+                    <img src={stores[t.store].src} alt={stores[t.store].alt} />
+                  </a>
+                </p>
+              )}
               {files.length > 0 ? (
                 <ul class="dl-files">
                   {files.map((f) => (
@@ -257,6 +285,18 @@ function richInstall(text: string): (string | { code: string })[] {
   .dl-title { font-size: clamp(1.9rem, 4vw, 2.8rem); margin: 0 0 16px; }
   .dl-title a { color: inherit; text-decoration: underline; text-decoration-color: var(--brand); }
   .dl-note { color: var(--faint); font-size: 0.92rem; }
+  .dl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 18px 0 8px; }
+
+  /* A store badge at a fixed PLATE height (the same treatment as the daysite template's
+     StoreBadge): Apple's artwork fills its box, Google's carries a quarter of the plate height
+     as transparent margin on every side, pulled out with negative margins — never clipped. */
+  .store-badge { --h: 42px; display: inline-block; height: var(--h); transition: transform 0.15s ease; }
+  .store-badge:hover { transform: scale(1.03); }
+  .store-badge:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 8px; }
+  .store-badge img { display: block; max-width: none; width: auto; height: var(--h); }
+  .store-badge-google img { height: calc(var(--h) * 1.5); width: calc(var(--h) * 1.5 * 155 / 60); margin: calc(var(--h) * -0.25); }
+  .dl-store { margin: 0 0 12px; }
+  .dl-store .store-badge { --h: 38px; }
 
   .dl-quick { padding-top: 12px; padding-bottom: 12px; }
   .dl-quick-title { font-size: 1.35rem; margin: 0 0 10px; }

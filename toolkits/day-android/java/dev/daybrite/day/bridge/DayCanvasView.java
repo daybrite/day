@@ -175,10 +175,12 @@ public class DayCanvasView extends View {
             // Stamp prefix and its coordinate records: collected, never drawn on their own.
             if (k == 20) { stampAt.clear(); stampN = (int) a; continue; }
             if (k == 21) {
-                // Four points per record; the LAST record of a run is padded with zeros, so the
-                // header's count is what says where the real ones stop.
-                float[] xs = { a, c, e, (float) nums[i+8] };
-                float[] ys = { b, d, f, g };
+                // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth
+                // point's y rides the slot other records use for their color. The LAST record of a
+                // run is padded with zeros, so the header's count is what says where the real ones
+                // stop.
+                float[] xs = { a, c, e, g };
+                float[] ys = { b, d, f, (float) nums[i+8] };
                 for (int q = 0; q < 4 && stampAt.size() < stampN; q++) {
                     stampAt.add(new float[] { xs[q], ys[q] });
                 }

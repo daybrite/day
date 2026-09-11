@@ -99,4 +99,8 @@ export const site = {
    *  use a URL fragment as the app's route (`#canvas`), which the DOM shim reads on load. The
    *  trailing slash matters — the fragment is appended directly. */
   showcaseWeb: 'https://showcase.daybrite.dev/webapp/',
+  /** The showcase's store listings (Day-Showcase's Day.toml `[store]`): the installs that need
+   *  no unsigned-app workaround, so the showcase page leads with them. */
+  showcaseAppStore: 'https://apps.apple.com/app/id6802801331',
+  showcasePlayStore: 'https://play.google.com/store/apps/details?id=dev.daybrite.showcase',
 };
