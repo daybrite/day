@@ -47,7 +47,7 @@ pub const MIN_REPEAT_MS: u64 = 40;
 
 /// The sample rate the engines that take raw samples run at: the canonical clip's own.
 #[cfg_attr(
-    not(any(target_os = "ios", target_os = "macos", target_os = "windows", test)),
+    not(any(target_os = "ios", target_os = "macos", target_os = "windows")),
     allow(dead_code)
 )]
 const RATE: u32 = 44_100;
@@ -218,7 +218,7 @@ fn warn_once(path: &str, why: &str) {
 
 /// A clip's samples, mono at [`RATE`]: what the engines that take raw samples play.
 #[cfg_attr(
-    not(any(target_os = "ios", target_os = "macos", target_os = "windows", test)),
+    not(any(target_os = "ios", target_os = "macos", target_os = "windows")),
     allow(dead_code)
 )]
 fn load(path: &str) -> Option<Vec<f32>> {
