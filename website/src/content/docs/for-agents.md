@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-This page is written for coding agents rather than humans, so it is terse and imperative. Prefer
-the patterns here verbatim, obey the invariants, and cross-check against the failure modes before you
-finish. A machine-readable index of the whole site lives at [`/llms.txt`](/llms.txt).
+This reference lists conventions and constraints for coding agents working on Day apps.
+The examples are intended for direct reuse. A machine-readable site index is available at
+[`/llms.txt`](/llms.txt).
 
 ## Naming (disambiguate before writing)
 

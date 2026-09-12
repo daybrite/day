@@ -1,6 +1,6 @@
 ---
-title: Send local notifications
-description: "Post or schedule local notifications, request permission, and handle notification taps."
+title: Local notifications
+description: "Immediate and scheduled notifications, permissions, and tap handling."
 order: 28
 section: Guides
 ---
@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day-part-local-notify` posts and schedules the platform's notifications from Rust: a finished
-timer, a completed download, or a reminder that fires after the app has exited. Everything runs on
-the device through the OS notification service; the call site is:
+Local notifications let an app deliver reminders and status updates through the operating
+system. `day-part-local-notify` supports immediate and scheduled delivery, including reminders
+due after the app has closed. Posting a notification requires permission and a configured channel:
 
 ```rust
 Notification::new("Timer done")
@@ -22,8 +22,7 @@ Notification::new("Timer done")
     .post()?;
 ```
 
-**Works on:** iOS, macOS, and Android. The arm is picked by `target_os`, so every backend on those
-OSes gets it. Linux, Windows, HarmonyOS, and the web compile the same code and report
+**Works on:** iOS, macOS, and Android. Support is selected by `target_os` and applies to every backend on those operating systems. Linux, Windows, HarmonyOS, and the web compile the same code and report
 `NotifyError::Unsupported`; gate the UI with `capabilities()` (step 6). The full design and the
 per-platform details are in [the notify reference](/docs/internal/notify).
 
@@ -63,7 +62,7 @@ if status(Permission::Notifications) != Status::Granted {
 
 The callback may run on another thread, so deliver into UI state through a `Setter`. The full
 flow (priming UI, `can_prompt`, the switch to Open Settings after a final denial) is
-[Ask for permissions](/docs/guide-permissions).
+[Permissions](/docs/guide-permissions).
 
 ## 3. Post one now
 
@@ -177,4 +176,4 @@ notifications section can hide itself.
 [notify](/docs/internal/notify) — the full API, the per-platform capability matrix, scheduling
 internals, and the design for the platforms not yet wired.
 [permissions](/docs/internal/permissions) covers the consent half, and
-[Ask for permissions](/docs/guide-permissions) is the task-shaped version of it.
+[Permissions](/docs/guide-permissions) covers the app configuration and runtime requests.

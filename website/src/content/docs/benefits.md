@@ -10,8 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Compare Day’s approach with other cross-platform frameworks, including its benefits,
-limitations, and suitability for your app.
+Day shares UI code across platforms while using their native controls. That choice affects
+appearance, accessibility, portability, and the work required to add a feature. The comparisons
+below explain the tradeoffs and where another approach may suit an app better.
 
 ## The options
 

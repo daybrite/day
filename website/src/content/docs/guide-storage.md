@@ -1,6 +1,6 @@
 ---
-title: Store data on device
-description: "Persist settings with day::prefs and files with day-part-fs — both land in each platform's conventional storage location, from NSUserDefaults to OPFS."
+title: Local storage
+description: "Persistent settings and app-private files on native and web targets."
 order: 29
 section: Guides
 ---
@@ -10,22 +10,19 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day provides separate APIs for small settings (theme, volume, or the last-open tab) and files
-(documents, exports, or caches). `day::prefs` is a string
-key/value store backed by each platform's preferences facility; `day-part-fs` is private per-app
-file storage. One call each:
+Day provides two forms of persistent storage: `day::prefs` for small settings and `day-part-fs`
+for files. Settings are stored as strings; files hold documents, exports, or caches. Both use
+platform storage locations assigned to the app.
 
 ```rust
 day::prefs::set("theme", "dark");                       // NSUserDefaults, SharedPreferences, …
 day_part_fs::write("notes/today.txt", b"rain later")?;  // a real file under the app-data root
 ```
 
-Both persist per app and survive restarts, in the place each platform expects: prefs go to
-`NSUserDefaults` on macOS and iOS, `SharedPreferences` on Android, a file under the config
-directory on Linux and Windows, and `localStorage` on the web; files go under an app-private
-data root natively and into the browser's Origin Private File System (OPFS) on the web. The
-dividing line is size and shape: prefs is a small string store for settings, not a database,
-and anything file-shaped belongs in `day-part-fs`.
+Preferences store small string values. They use `NSUserDefaults` on Apple targets,
+`SharedPreferences` on Android, a configuration file on Linux and Windows, and `localStorage`
+on the web. Files use an app-private data directory on native targets and the browser’s Origin
+Private File System (OPFS) on the web.
 
 **Works on:** both parts cover macOS, iOS, Android, Linux, Windows, HarmonyOS, and `web-dom`.
 On any other target prefs is a no-op store (`get` returns `None`, `set` returns `false`) and

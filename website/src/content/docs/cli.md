@@ -10,8 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The `day` CLI creates, builds, launches, packs, lints, and scripts projects. It works the same
-driven by hand, from CI, or from an IDE.
+The `day` command manages a project from creation through testing and packaging. The same
+commands work in a terminal, an editor, or CI. This reference covers the commands and the
+project settings they use.
 
 ## The commands
 

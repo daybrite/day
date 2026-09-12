@@ -10,14 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-**dayscript** is Day’s YAML automation language for interacting with a running app. Scripts
-can tap buttons, enter text, navigate, check on-screen content, and capture screenshots.
-Stable piece identifiers let you reuse workflows across platforms; test each target for
-platform-specific behavior.
-
-It resembles Maestro, but the engine is compiled into your app and executes steps as real Day
-events, which makes the same script portable across all [targets](/docs/glossary#target) and makes waits deterministic
-instead of sleep-based.
+**dayscript** is Day’s YAML format for testing a running app. A script can navigate, enter text,
+tap controls, check results, and capture screenshots. The engine runs inside the app and finds
+controls by stable identifiers, so a walkthrough can be reused across targets. Wait steps check
+conditions rather than depending on fixed delays.
 
 ## A script
 

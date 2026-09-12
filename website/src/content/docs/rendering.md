@@ -10,10 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-[Architecture](/docs/architecture) covered the structure; this page follows a widget through the
-running system. It traces a widget from `build` to pixels, a click from the native event to your
-closure, and a [signal](/docs/glossary#signal) write back out to the screen. You don't need this
-page to use Day; it explains why the framework behaves as it does.
+Day’s renderer connects the piece tree to native widgets. This page follows widget creation,
+event handling, and signal updates through that process. It complements the
+[architecture guide](/docs/architecture) and is intended for developers working on the framework.
 
 ## The realized tree
 

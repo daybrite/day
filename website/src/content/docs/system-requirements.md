@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Every Day app builds from one Rust toolchain plus the SDK of whichever platform you target. This
-page lists what each development host needs, and what each target adds on top. Where an official
-installer or guide exists, this page links to it, because those instructions change.
+Building a Day app requires Rust and the SDK or development libraries for each target.
+The requirements below are grouped by development host and target platform. `day doctor` can
+check the installed tools and report what is missing.
 
 ## Check with day doctor
 

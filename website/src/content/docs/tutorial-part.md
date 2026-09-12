@@ -10,17 +10,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Reading the battery, checking connectivity, and firing a haptic tap each go through a different
-native API per platform, often in a different language. A **part** covers this case: a small
-headless crate that presents one flat cross-platform Rust API and picks the right native
-implementation per target.
-
-This tutorial builds `day-part-battery`, which lives in the Day workspace at
-[`parts/day-part-battery/`](https://github.com/daybrite/day/tree/main/parts/day-part-battery). By
-the end you will have a `day_part_battery::status()` function that reads the battery through IOKit
-on macOS, `UIDevice` on iOS, a Java `BatteryManager` shim on Android, sysfs on Linux,
-`GetSystemPowerStatus` on Windows, and a native `.so` on HarmonyOS. Each uses whatever language fits
-that platform, and all of them sit behind one signature.
+A part exposes an operating-system capability through a shared Rust API, without a UI.
+This tutorial uses the battery monitor in
+[`day-part-battery`](https://github.com/daybrite/day/tree/main/parts/day-part-battery) to show how
+native implementations are selected at compile time and included in the app build.
+The public entry point is `day_part_battery::status()`.
 
 ## 1. What a part is (and when to build one)
 

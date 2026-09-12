@@ -10,15 +10,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The `day` CLI exposes build and [dayscript](/docs/dayscript) automation tools through the
-Model Context Protocol (MCP). An AI agent can use them to build and relaunch an app, interact
-with controls, check assertions, and capture screenshots. Review the resulting code and test
-the behavior on your target platforms.
-
-This guide demonstrates this workflow with [Claude Code](https://claude.com/claude-code) in a
-plain terminal: scaffold an app, have the agent add a weather page, script the page with
-dayscript, and put the script in GitHub CI. The [getting started](/docs/getting-started) page
-introduces the editor options; the workflow below uses the terminal.
+Day exposes build and app-testing commands through the Model Context Protocol (MCP), allowing
+an AI coding agent to edit, run, and inspect an app. This guide uses
+[Claude Code](https://claude.com/claude-code) to add a weather page, test it with
+[dayscript](/docs/dayscript), and run the tests in CI. The workflow uses a terminal;
+[Getting started](/docs/getting-started) covers editor options.
 
 ## 0. Install the two CLIs
 

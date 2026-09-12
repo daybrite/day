@@ -10,14 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A **part** is Day's name for a headless platform capability: a set of functions with no UI
-whose implementation differs per operating system. Battery level, the clipboard, preference
-storage, and sensors are examples of capabilities exposed through different platform APIs.
-
-Parts are ordinary crates. You add one to `Cargo.toml`, call plain functions, and the right
-platform code runs because each function's body dispatches on `#[cfg(target_os)]`: IOKit on
-macOS, `BatteryManager` over JNI on Android, sysfs on Linux, Win32 on Windows. There is no
-plugin registry or runtime lookup; the [target](/docs/glossary#target) selects the implementation at compile time.
+A **part** exposes a platform capability without a UI, such as battery status, storage, or
+sensors. It provides a shared Rust API with an implementation selected at compile time for
+the target operating system. Parts are Cargo dependencies and require no runtime plugin registry.
 
 ## The catalog
 

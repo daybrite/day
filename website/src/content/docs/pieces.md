@@ -10,13 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A **Piece** is Day's unit of UI composition: the thing SwiftUI calls a View and Flutter calls a
-Widget. Compose your interface as a tree of Pieces representing controls, layouts, and
-combinations of other pieces. Native controls use the selected toolkit: a `label` becomes
-an `NSTextField` on macOS, a `TextView` on Android, or a `GtkLabel` on GTK.
-
-For code examples of common components, see the [API tour](/docs/api-tour). This page
-explains how pieces are composed and built.
+A **Piece** describes a control, layout, or group of controls in a Day interface. Pieces compose
+into a tree, and the selected backend creates the native widgets. For example, a `label` becomes
+an `NSTextField` on macOS or a `TextView` on Android. The [API tour](/docs/api-tour) has examples;
+this page explains composition and construction.
 
 ## A Piece is a description, built once
 

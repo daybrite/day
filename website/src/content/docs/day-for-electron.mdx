@@ -13,15 +13,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-Electron and Day both build one codebase for every desktop, by different means. Electron ships a
-browser and a Node runtime with each app and renders your UI as a web page; Day compiles Rust ahead
-of time and builds your UI from the platform's widgets: `NSButton` and `NSMenu` on macOS, GTK 4
-or Qt 6 on Linux, system XAML on Windows.
-
-An Electron app is a Node main process and one Chromium renderer per window, talking over IPC, with
-a preload script policing the boundary; a Day app is one process, and "call the OS" is a function
-call. Electron targets the three desktops, and Day's twelve targets add iOS, Android, HarmonyOS, and
-the web (the same crate compiles to WebAssembly driving DOM elements) from the same repository.
+Electron renders a web interface using Chromium and Node.js. Day compiles Rust code into an app
+that uses native toolkit controls. Moving between them changes UI composition, process
+communication, dependencies, and packaging; this guide compares those areas with code examples.
 
 ## Electron terms in Day
 

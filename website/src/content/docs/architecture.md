@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-This page lists the crates, explains where their boundaries sit, and shows how a build runs on each
-platform. The companion page, [How rendering works](/docs/rendering), follows a widget through the
-running system.
+Day separates the shared UI model from platform-specific widget implementations. This page
+explains the crate boundaries and build process. [Rendering](/docs/rendering) follows the
+corresponding runtime path, from creating a widget to handling its events.
 
 ## The crate graph
 

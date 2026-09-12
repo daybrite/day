@@ -10,10 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A Day app is a normal Cargo package plus a small [`Day.toml`](/docs/glossary#day-toml) manifest and a few conventional
-directories. The [`day` CLI](/docs/glossary#day-cli) reads that layout to build every [target](/docs/glossary#target): the same Rust code becomes a
-plain desktop binary, a static library inside an Xcode app, a JNI `.so` inside a Gradle APK, or a
-NAPI `.so` inside a HarmonyOS `.hap`.
+A Day project combines a Cargo package, a `Day.toml` app manifest, and platform host projects.
+Rust code defines the app’s shared behavior; the host projects provide the files needed by
+Xcode, Gradle, and other platform build tools. The CLI builds them from the layout below.
 
 ## The conventional project
 

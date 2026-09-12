@@ -10,11 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A desktop Day app gets a menu bar with keyboard shortcuts, commands on the window chrome, and a
-Settings window under ⌘,. Day builds all three from small Rust builders and hands them to the
-platform's menu and toolbar classes (`NSMenu` and `NSToolbar` on macOS, `GtkPopoverMenuBar` and
-the header bar on GTK, `QMenuBar` and `QToolBar` on Qt, XAML's `MenuBar` and `CommandBar` on
-Windows), so one spec serves every desktop:
+Menus, keyboard shortcuts, and toolbars expose an app’s commands through familiar platform
+controls. Day uses a shared Rust API to define them, along with secondary windows and a Settings
+window. A menu item can call the same action as a button in the interface:
 
 ```rust
 menu_item("Save").key("s").action(save)     // ⌘S on macOS, Ctrl+S everywhere else

@@ -1,6 +1,6 @@
 ---
-title: Report crashes
-description: "Capture panics and native faults with day-break, show the user the exact report on the next launch, and upload it only when they choose to send."
+title: Crash reporting
+description: "Local crash reports and user-approved delivery by HTTP, GitHub, or email."
 order: 34
 section: Guides
 ---
@@ -10,12 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-When a Day app crashes (a Rust panic, a segmentation fault, or an abort), day-break writes a report, and on
-the next launch your app shows the user what was recorded and asks whether to send it. It
-registers a chained panic hook and native signal handlers, and uploads through a transport you
-choose: a REST endpoint, a prefilled GitHub issue, or an email the user sends. There is no
-auto-upload mode; the only network path is `send`, called by your code from a user action,
-after the user has read the report. Initialize it before building the UI:
+`day-break` saves crash reports on the device. On the next launch, the app can show the report
+and offer to send it by HTTP, GitHub issue, or email. Reports are sent only through an explicit
+user action. The reporter is initialized before the UI; this example configures email delivery:
 
 ```rust
 day_break::Config::new()

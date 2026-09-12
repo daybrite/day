@@ -10,13 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day keeps its core widget vocabulary small and expects to be extended. Every extension is an
-ordinary Cargo crate. Add it as a dependency; Day’s build tooling incorporates its declared
-native sources and libraries, and native renderers register with the relevant backends.
-
-The three approaches below require different amounts of platform-specific code. Start with
-composition when existing pieces provide the behavior you need. To configure an existing
-native widget, use a [tweak](/docs/tweaks).
+Day extensions are Cargo crates that compose existing pieces, configure native widgets, or add
+new platform implementations. The amount of native code depends on the approach. Composition
+reuses existing backends; a [tweak](/docs/tweaks) configures a widget; a native piece adds a control.
+Day’s build tools include the extension’s declared sources and dependencies.
 
 ## Tier 0: pieces composed from existing pieces
 

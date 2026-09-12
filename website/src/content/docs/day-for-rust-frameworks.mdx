@@ -13,14 +13,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-Rust UI frameworks take one of three approaches: their own renderer (Iced, Slint, egui, Xilem), a
-web stack in a browser or web view (Tauri, Leptos, Dioxus), or the platform's widgets. Day takes
-the third: a button becomes an `NSButton`, a `MaterialButton`, or a `<button>`. This page shows
-the same job written in each, so a team that already knows one of them can see where Day differs.
-
-The [other guides in this section](/docs/day-for-flutter) go deeper, and
-[Why Day](/docs/benefits) covers the tradeoff in general terms, including the cases where one of
-these is the better tool.
+Rust UI frameworks differ in how they render controls and manage state. Day uses platform widgets
+and signal bindings. The comparisons below relate its APIs to other Rust frameworks, with code
+examples and notes on where each approach fits. [Why Day](/docs/benefits) covers the general tradeoffs.
 
 ## Where each one draws
 

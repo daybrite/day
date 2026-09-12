@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day uses [Mozilla Fluent](https://projectfluent.org/) for translated messages, including
-plural forms, grammatical gender, and language-specific word order. The locale is a [reactive](/docs/glossary#reactive)
-[signal](/docs/glossary#signal); every built-in string reads it, and the test tooling can switch it.
+Day stores translations in [Fluent](https://projectfluent.org/) files, which support plural forms,
+grammatical gender, and language-specific word order. The selected locale is reactive: changing
+it updates built-in strings and lets tests check the interface in another language.
 
 ## Files and setup
 

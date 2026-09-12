@@ -13,21 +13,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-Compose and Day both build on state that tracks its readers: `mutableStateOf` records
-which composables read it and recomposes them; a Day `Signal` records which closures read it
-and re-runs them. This guide maps
-the vocabulary and the toolchain (composables to Pieces, Gradle to Cargo) and covers the two
-structural differences.
-
-The first is update granularity. Compose re-executes recomposition scopes and skips what it can;
-Day does not use recomposition. The tree is built once, and a state change re-runs only the
-closures that read it, each ending in one native setter call. Stability
-annotations and `remember` bookkeeping have no equivalent because Day does not re-execute the component function on state changes.
-
-The second difference is widget rendering. Compose draws its own Material widgets on a canvas (and Compose
-Multiplatform carries that renderer to other platforms). Day creates each platform's native widgets:
-Material Components views on Android, AppKit on macOS, system XAML on Windows, DOM elements on the
-web. [Why Day](/docs/benefits) lists what each approach costs and when Compose is the better fit.
+Day and Compose both track which code reads state, but update the UI differently. Compose
+recomposes functions; Day builds the piece tree once and re-runs bindings to update native
+widgets. Day uses Material Components on Android and the corresponding toolkit on other platforms.
+This guide compares the APIs, state model, packages, and build tools.
 
 ## Compose terms in Day
 

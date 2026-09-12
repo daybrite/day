@@ -13,17 +13,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-React Native and Day both render the platform's widgets: an RN `<Button>` is a `UIButton`, and
-so is a Day `button()` on iOS. This guide maps the rest (components to Pieces, hooks to signals, npm
-to Cargo) and shows where the architectures differ.
-
-React Native runs your JavaScript in a VM and talks to native views through JSI and a shadow tree;
-Day is ahead-of-time compiled Rust calling toolkit APIs directly, and layout is computed in the same
-process rather than in a separate shadow tree. React re-renders components and reconciles; Day
-builds the tree once and re-runs only the closures that read a changed signal. There are no
-dependency arrays because dependencies are tracked automatically. RN targets iOS and Android with
-community forks for desktop; Day's eight primary targets (macOS, Windows, Linux GTK and Qt, iOS,
-Android, HarmonyOS, web) come from one repository.
+React Native and Day both use native platform widgets. Day expresses the UI in Rust and updates
+widgets through signal bindings rather than React reconciliation. This guide maps components to
+pieces, hooks to signals, and npm packages to Cargo dependencies, with examples of each workflow.
 
 ## React Native terms in Day
 

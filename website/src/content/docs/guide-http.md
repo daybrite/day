@@ -1,6 +1,6 @@
 ---
-title: Call an HTTP API
-description: "Fetch over each platform's networking stack with day-part-http, store the result in signals, and cancel in-flight requests by dropping their future."
+title: HTTP requests
+description: "Asynchronous HTTP requests, response handling, and cancellation."
 order: 30
 section: Guides
 ---
@@ -10,11 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day apps fetch through each platform's networking stack: `NSURLSession` on macOS and iOS, OkHttp
-on Android, WinHTTP on Windows, the browser's `fetch()` on the web, and a bundled ureq + rustls
-client on Linux and HarmonyOS. The request inherits what the OS already knows (system proxies and
-PAC scripts, VPN routing, Low Data Mode, certificate stores), and TLS on the native targets comes
-from the OS. The call site is:
+`day-part-http` provides HTTP requests for fetching API responses and downloading files.
+Its asynchronous methods let a request complete without blocking the UI. In this example,
+`body` is a signal that receives the response text or an error message:
 
 ```rust
 day::task(async move {
@@ -25,11 +23,15 @@ day::task(async move {
 });
 ```
 
-**Works on:** macOS, iOS, Android, Windows, and web via the platform stack; Linux and
-HarmonyOS via the Rust fallback (correct HTTPS, but proxy awareness limited to the
-`http_proxy` environment variables); on an unknown target every call returns `Unsupported`.
-On web the blocking entry points return `Unsupported`; the async forms work in full.
-`day_part_http::tier()` reports the compiled target's tier.
+**Platforms:** macOS, iOS, Android, Windows, Linux, HarmonyOS, and web. Unknown targets return
+`Unsupported`. On the web, use the asynchronous methods; blocking calls return `Unsupported`.
+`day_part_http::tier()` reports the compiled target’s support tier.
+
+Apple targets use `NSURLSession`, Android uses OkHttp, Windows uses WinHTTP, and the web uses
+`fetch()`. These implementations use platform networking settings, such as proxy configuration,
+VPN routing, certificate stores, and Low Data Mode where supported.
+Linux and HarmonyOS use a bundled ureq + rustls client, with proxy support limited to the
+`http_proxy` environment variables.
 
 ## 1. Fetch into UI state
 
@@ -167,7 +169,7 @@ let req = Request::post("https://api.example.com/notes", note_json_bytes)
 For large downloads, `fetch_to_file(&req, &dest)` streams the body straight to disk, never
 holding it in memory; `fetch_streamed` adds per-chunk control (progress, hashing, mid-body
 cancel). To cache a response across launches, write `resp.body` with `day-part-fs`; see
-[Store data on device](/docs/guide-storage).
+[Local storage](/docs/guide-storage).
 
 ## Pitfalls
 

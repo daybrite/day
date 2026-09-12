@@ -10,8 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A Day project keeps its resources under one conventional `resource/` directory, with five
-subdirectories, each staged differently at build time:
+Images, fonts, icons, and data files are bundled with a Day app from its `resource/` directory.
+The build prepares each file for the selected platform and generates typed names for use in Rust.
+The subdirectories distinguish how each resource is used:
 
 ```text
 myapp/

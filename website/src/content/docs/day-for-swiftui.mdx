@@ -13,15 +13,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-Day borrows more from SwiftUI than from any other framework: declarative composition, modifier
-chains, semantic fonts, and the same parent-proposes-child-chooses layout protocol. This guide maps
-the vocabulary, then covers what changes: the update model (no `body` re-evaluation), the language
-(Rust), and the reach (the same codebase also builds for Android, Windows, Linux, HarmonyOS, and the
-web with each platform's widgets).
-
-Every Day renderer is open source. When a control misbehaves on some platform, you can read and
-patch the code that placed it. And a move to Day doesn't have to be a rewrite: on Apple targets, Day
-[embeds your existing SwiftUI views](#bringing-swiftui-views-with-you) alongside Day-native pages.
+Day uses declarative composition, modifier chains, and a layout protocol similar to SwiftUI’s.
+Its main differences are Rust, signal-based updates, and support for non-Apple platforms.
+This guide compares the APIs and build tools. Existing SwiftUI views can also be
+[embedded on Apple targets](#bringing-swiftui-views-with-you).
 
 ## SwiftUI terms in Day
 

@@ -10,11 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day computes layout itself. Native [toolkits](/docs/glossary#toolkit) each have their own layout system (Auto Layout, GTK's
-size groups, Android's measure/layout passes), and they don't agree with each other, so Day
-bypasses them, computes every widget's frame itself, and positions widgets absolutely inside their
-native container. Day still asks the platform to measure: the toolkit is always the authority on
-how big a piece of text or a control wants to be.
+Day measures and positions the UI through a shared layout engine. Native toolkits still measure
+text and controls; Day uses those measurements to calculate frames and place widgets in their
+containers. This gives the app a consistent layout API while respecting native control sizes.
 
 ## Parent proposes, child chooses
 

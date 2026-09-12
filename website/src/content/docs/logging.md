@@ -10,10 +10,8 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Logging
-
-Day logs through [`log`](https://docs.rs/log), the Rust ecosystem's logging facade. The macros come
-from the prelude, and there is nothing to initialize:
+Day logs through [`log`](https://docs.rs/log), the Rust ecosystem's logging facade. Day’s default logger sends messages to the platform’s log destination.
+The macros are available through the prelude:
 
 ```rust
 use day::prelude::*;

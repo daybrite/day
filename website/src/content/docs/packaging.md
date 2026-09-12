@@ -10,38 +10,109 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day pack -p <target>` builds the app in release mode, signs it, and produces a standalone
-installable artifact in `build/day/dist/`, with a SHA-256 checksum and a signing tier in the result
-output. There is one command per platform, with the platform's signing tools underneath. Day
-orchestrates `codesign`/`notarytool`, `xcodebuild -exportArchive`, Gradle signing,
-`flatpak-builder`, `linuxdeploy`, `makeappx`/`signtool`/`makensis`, and `hap-sign-tool`.
+`day pack` turns a Day project into an installable package. It builds in release mode, invokes
+the platform’s signing and packaging tools, and writes the output, checksum, and signing status
+to `build/day/dist/`.
 
-If a build succeeds but signing fails, start with the [signing checks](/docs/troubleshooting#signing-or-provisioning-fails).
+The command runs from the project directory and requires the target’s
+[packaging tools](/docs/system-requirements#optional-packaging-tools). For an Android APK:
+
+```bash
+day pack -p android-mdc --formats apk
+```
+
+Configure release credentials before distributing the result. Without them, Day can produce a
+development-signed or unsigned artifact; check the reported [signing tier](#signing-tiers).
+If signing fails, start with the [signing checks](/docs/troubleshooting#signing-or-provisioning-fails).
 
 ## Artifacts per target
 
-| target | artifact | notes |
+| Target | Output | Distribution |
 |---|---|---|
-| `macos-appkit` | `.dmg` | assembled `.app` (Info.plist, icons, assets) → inside-out `codesign --timestamp -o runtime` → UDZO dmg (with an `/Applications` drop link) → dmg signature → `notarytool submit --wait` → `stapler staple` |
-| `ios-uikit` | `.ipa` | `xcodebuild archive` (device, arm64) → `-exportArchive` with a generated `ExportOptions.plist` (`app-store-connect`); without signing config: an unsigned device build, packaged as `<stem>-ios-uikit-unsigned.ipa` for sideloading or your own signing |
-| `android-mdc` | `.apk` + `.aab` | Gradle `assembleRelease` + `bundleRelease` with a release `signingConfig`; verified with `apksigner` and checked for 16 KB page alignment |
-| `linux-gtk` / `linux-qt` | `.flatpak` | single-file bundle; the runtime supplies the toolkit (GTK 4 ⇒ `org.gnome.Platform`, Qt 6 ⇒ `org.kde.Platform`) and resolves from Flathub at install time; `flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak` is the entire install step (the target combo is part of the name, so the gtk and qt bundles coexist). A Qt app that links QtWebEngine also carries the Qt WebEngine BaseApp, since no runtime ships it; that is ~87 MB of Chromium, so `day pack` adds it only when the binary actually links it |
-| `linux-gtk` / `linux-qt` | `.appimage` | one executable that carries its own GTK/Qt; a user marks it executable and runs it as an ordinary user, with everything it needs inside. `day pack` stages the AppDir and hands the bundling to [`linuxdeploy`](https://github.com/linuxdeploy/linuxdeploy) plus its `gtk`/`qt` plugin, which picks up the pieces an `ldd` closure misses (GdkPixbuf loaders, GIO modules, GSettings schemas, Qt platform plugins). Without the plugin the image still builds and still runs, on a machine that already has the toolkit; `day pack` warns about that at pack time |
-| `windows-xaml` | `.msix` + `-setup.exe` | `makeappx` + `signtool` for the MSIX; an NSIS per-user installer (no elevation, ARP entry, silent `/S`) for classic direct download |
-| `harmony-arkui` | `.hap` | hvigor release build, signed with your release material via `hap-sign-tool` (or the public dev certificate without it) |
-| `web-dom` | — | there is no pack step: `day build -p web-dom` writes a self-contained `dist/` (host page, shim, stylesheet, `.wasm`, images, fonts) that you deploy to any static host as-is |
+| `macos-appkit` | `.dmg` | Disk image containing the app |
+| `ios-uikit` | `.ipa` | Device app archive |
+| `android-mdc` | `.apk`, `.aab` | Direct installation or Google Play |
+| `linux-gtk`, `linux-qt` | `.flatpak`, `.appimage` | Flatpak bundle or executable with bundled libraries |
+| `windows-xaml` | `.msix`, `-setup.exe` | MSIX package or per-user installer |
+| `harmony-arkui` | `.hap` | HarmonyOS application package |
+| `web-dom` | Static `dist/` directory | Static hosting; use `day build` |
 
-`macos-gtk`, `macos-qt`, `windows-gtk`, and `windows-qt` have no `day pack` step. Bundling GTK or
-Qt into a redistributable macOS or Windows app is deferred work, which is part of why those four
-sit at [Tier 4](/docs/platforms#support-tiers).
+The development combinations `macos-gtk`, `macos-qt`, `windows-gtk`, and `windows-qt` do not have a
+`day pack` step. See [platform support](/docs/platforms) for their limitations.
 
-`--formats` narrows the set (`day pack -p android-mdc --formats apk`); `--no-sign` and
-`--no-notarize` skip stages; `--no-wait` submits notarization asynchronously (poll with
-`day sign --notarize-status <id>`). Artifact names follow one pattern,
-`<stem>[-<version>]-<target>[-<extra>].<ext>` (`day-showcase-0.1.0-macos-appkit.dmg`):
-`--artifact-name <stem>` overrides the stem (always slugged; `[app] artifact` in Day.toml sets it
-per project), and `--no-version-in-name` drops the version so a
-`releases/latest/download/<name>` URL stays stable.
+### macOS and iOS
+
+For macOS, Day assembles the `.app`, signs its nested components with `codesign`, and creates a
+compressed UDZO disk image with an `/Applications` link. With release credentials configured,
+it signs the disk image, submits it through `notarytool`, and staples the notarization ticket.
+
+For iOS, Day runs `xcodebuild archive` for an arm64 device and exports the archive with a generated
+`ExportOptions.plist` using `app-store-connect`. Without signing configuration, it produces
+`<stem>-ios-uikit-unsigned.ipa` for subsequent signing or sideloading.
+
+### Android
+
+Day runs Gradle’s `assembleRelease` and `bundleRelease` with the configured signing settings.
+It verifies the APK with `apksigner` and checks 16 KB page alignment. Use the APK for direct
+installation and the AAB for Google Play submission.
+
+### Linux: Flatpak or AppImage
+
+A Flatpak bundle uses a shared runtime: `org.gnome.Platform` for GTK or `org.kde.Platform` for Qt.
+The runtime is resolved from Flathub during installation. Install a bundle with:
+
+```bash
+flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak
+```
+
+The filename includes the toolkit so GTK and Qt bundles can coexist. Apps that link QtWebEngine
+also include the Qt WebEngine BaseApp, because the shared runtime does not provide that engine.
+
+An AppImage bundles the toolkit libraries with the executable. Mark it executable before running it:
+
+```bash
+chmod +x ./my-app-1.0-linux-gtk-x86_64.appimage
+./my-app-1.0-linux-gtk-x86_64.appimage
+```
+
+Day prepares an AppDir and invokes [linuxdeploy](https://github.com/linuxdeploy/linuxdeploy) with
+its GTK or Qt plugin. These plugins collect resources that a library dependency scan can miss,
+including image loaders, GIO modules, GSettings schemas, and Qt platform plugins.
+
+Without the matching plugin, packaging can still succeed, but the AppImage requires the toolkit
+to be installed on the user’s machine. Day reports this during packaging.
+
+### Windows and HarmonyOS
+
+Windows packaging uses `makeappx` and `signtool` for MSIX, and NSIS for the per-user `-setup.exe`
+installer. The NSIS installer does not require elevation, registers with Add/Remove Programs,
+and accepts `/S` for silent installation.
+
+HarmonyOS packaging uses hvigor for a release build and `hap-sign-tool` for signing. Day uses
+configured release credentials when available, or the public development certificate otherwise.
+
+### Web
+
+There is no web packaging step. Run `day build -p web-dom` and deploy the generated `dist/`
+directory to a static host. It contains the HTML host page, JavaScript shim, stylesheet,
+WebAssembly module, images, and fonts.
+
+## Packaging options
+
+Use `--formats` to select a subset of output formats, as in the Android example above.
+`--no-sign` skips signing, and `--no-notarize` skips macOS notarization. To submit notarization
+without waiting for completion, pass `--no-wait` and check it later with
+`day sign --notarize-status <id>`.
+
+Artifact filenames follow this pattern:
+
+```text
+<stem>[-<version>]-<target>[-<extra>].<ext>
+```
+
+For example: `day-showcase-0.1.0-macos-appkit.dmg`. Set the stem with `[app] artifact` in
+`Day.toml`, or override it with `--artifact-name <stem>`; Day converts the value to a filename slug.
+Use `--no-version-in-name` for a stable filename suitable for a `releases/latest/download/<name>` URL.
 
 ## Signing configuration
 

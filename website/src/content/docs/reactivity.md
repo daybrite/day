@@ -10,14 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day's reactive system updates a [Piece tree built once](/docs/pieces) in place. It's a fine-grained
-signal graph in the SolidJS and floem tradition: state lives in **signals**, derived values in
-**memos**, and side effects (including every native-widget update) in **effects** that re-run when
-something they read changes.
-
-A state change propagates differently than in SwiftUI, React, or Flutter. A signal write re-runs
-exactly the closures that read that signal, and each of those typically ends in one native setter
-call.
+Day updates existing widgets when state changes. State is held in **signals**, derived values in
+**memos**, and side effects in **effects**. A change re-runs the closures that read the affected
+value, including bindings that update native controls; it does not rebuild the component function.
 
 ## Signals
 

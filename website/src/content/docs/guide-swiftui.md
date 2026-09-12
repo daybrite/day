@@ -10,11 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day renders native widgets from Rust, but sometimes the view you want already exists in SwiftUI,
-or is easiest to build there: a custom chart, a control from an in-house Swift package, a screen
-you're migrating incrementally. On `macos-appkit` and `ios-uikit`, Day hosts your own SwiftUI
-views inside the Day tree. You write ordinary SwiftUI in an ordinary SwiftPM package; Day
-generates a typed Rust constructor per view, so the call site is:
+Day can embed SwiftUI views on macOS and iOS. This is useful for reusing an existing screen
+or adding a control from a Swift package. Views live in a SwiftPM package, and Day generates
+typed Rust constructors for calling them from the rest of the UI:
 
 ```rust
 crate::swiftui::TemperatureDial(room_name, 21.5)

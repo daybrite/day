@@ -1,6 +1,6 @@
 ---
 title: Accessibility
-description: "What native widgets give you for free, the annotations Day adds, and how CI verifies the native accessibility tree."
+description: "Accessible labels and roles, platform limitations, and checks for the native accessibility tree."
 order: 22
 section: Guides
 ---
@@ -10,12 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A Day button is an `NSButton`, a Material button, or a `GtkButton`, so VoiceOver, TalkBack,
-Narrator, and Orca already know how to focus it, name its role, and activate it.
-
-That baseline still needs your input in three places: labels for things whose purpose isn't their
-text, roles for things you drew yourself, and stable identifiers for automation. Day gives all
-three one API.
+Native controls expose roles and actions to assistive technology, but an app must still label
+ambiguous controls and describe meaningful custom graphics. Day’s accessibility API supplies
+these annotations and excludes decorative content from the accessibility tree. This guide covers
+the annotations, testing, and [current platform limits](#current-limits).
 
 ## Annotating pieces
 

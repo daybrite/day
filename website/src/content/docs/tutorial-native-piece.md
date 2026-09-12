@@ -10,19 +10,12 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-To wrap a platform control such as a map, web view, or native search field, write a shared Rust
-API and a backend for each toolkit you support. Each backend creates and updates the native
-control, including its input handling and accessibility integration.
+A native piece wraps a platform control behind a shared Rust API. Each supported toolkit needs
+an implementation that creates, updates, and measures the control.
 
-A native piece is the most work of Day's extension kinds. You are going to write the same widget
-five or six times: once in Objective-C (through `objc2`), once in gtk-rs, once as a Qt C++ shim,
-once as an Android Java factory, and once as a XAML C++/WinRT shim. The payoff is a control that
-works like a built-in `text_field` on every platform, is installable by any app with a single line
-in `Cargo.toml`, and requires no changes to any core Day crate.
-
-We will build one throughout: a **native search field** bound two-way to a `Signal<String>`. It
-already exists in the tree as [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield),
-so you can read the finished crate alongside this tutorial. Every snippet below is lifted from it.
+This tutorial builds a search field bound to a `Signal<String>`. The complete implementation is
+in [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield).
+The resulting crate can be added to an app without changing Day’s core.
 
 ## 1. When you need a native piece
 

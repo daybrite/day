@@ -10,14 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Most Day widgets you build are **composite pieces**: new widgets assembled from primitives Day
-already ships. A composite piece is pure Rust in an ordinary library crate. You add it to an app
-as a dependency. Its platform support depends on the pieces it uses; composition itself
-requires no additional native backend.
-
-In this tutorial you will build a complete example: a **star rating** control, a row of tappable stars
-bound to a `Signal<usize>`. By the end you will have a `day-piece-rating` crate you can `.max(5)`,
-`.star_size(32.0)`, and drop next to a label, just like a built-in.
+A composite piece combines existing Day pieces into a reusable control. It is a Rust library
+crate and needs no additional native backend. This tutorial builds a star-rating control bound to
+a `Signal<usize>`, with configurable star count and size.
 
 ## 1. What a composite piece is (and why it needs no backend code)
 

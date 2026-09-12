@@ -10,13 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-In Day the platform draws the widgets: a Day button on macOS is an `NSButton` with AppKit's
-chrome; on Android it's a Material button. So styling works differently than in a renderer,
-where you control every pixel.
-
-You style content and spacing; the platform styles its controls. You can set fonts, text color, padding,
-backgrounds, corner radii, and canvas drawing operations. The platform determines button chrome,
-focus rings, slider tracks, scrollbar appearance, and selection highlights.
+Day supports fonts, colors, spacing, backgrounds, and canvas drawing. Native controls retain
+the platform’s appearance, including focus rings, slider tracks, and selection highlights.
+The sections below describe which properties an app can set and how each toolkit interprets them.
 
 ## Text
 

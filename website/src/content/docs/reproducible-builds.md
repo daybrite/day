@@ -10,15 +10,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-A build is reproducible when the same source, built twice, produces the same bytes. Day builds the
-compiled code of every app reproducibly: rebuild a commit in a different directory, on a different
-day, and the machine code that comes out is identical. The containers those binaries ship in
-(`.dmg`, `.apk`, `.ipa`, `.hap`, `.msix`, `.flatpak`, `.appimage`) are reproducible on some platforms and not on
-others; the per-platform sections below cover which, and why.
-
-Day's CI checks this on every push to `main`. Each platform-toolkit job has a follow-up `validate`
-job that first installs and launches the shipped artifact on a clean runner, then rebuilds the same
-commit from a second checkout at a different path and compares the two.
+A reproducible build produces the same bytes from the same source and build inputs. Day checks
+compiled code and distributable packages separately, because signing and archive metadata can
+change even when the code does not. This guide explains the guarantees, platform exceptions,
+and tools for comparing a release with a rebuild.
 
 ## Why it matters
 
