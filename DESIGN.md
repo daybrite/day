@@ -2616,6 +2616,13 @@ step 6): it fetches one per sample app and renders `/gallery/<App>/` from it, li
 where the app hosts them. A `title:` therefore names a row on two sites, and a capture published
 by an app appears on daybrite.dev without a change in this repository.
 
+A release carries the same index twice (`daybrite/actions` dayapp.yml, 2026-09): inside
+`screenshots.zip`, which holds the merged capture tree, and as a `gallery.json` asset of its own,
+so a tool can read what a release contains without downloading the images. That pair is what lets
+a project site build its RELEASE channel from the release alone ([§19](#19-repository-layout-examples-and-docs-site));
+a release made before the bundle existed still works, because its per-target
+`screenshots-<target>.zip` assets unzip to the same tree and the CLI merges their indexes.
+
 ---
 
 ## §15 Extensibility: pieces, parts, and tweaks
@@ -4005,11 +4012,21 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > tag — including two generated launcher scripts, `launch.sh` (macOS `.dmg`, Linux `.appimage`)
 > and `launch.ps1` (the Windows per-user installer), which are release ASSETS rather than hosted
 > files so the URL chooses the version and every Day app gets a one-line try-it path without
-> hosting anything — and — with `deploy-web: true` and web-dom among its targets — also deploys that build to the
+> hosting anything, and a `screenshots.zip` + `gallery.json` bundle ([§14.7](#147-screenshot-metadata-and-the-gallery-index)) — and — with `deploy-web: true` and web-dom among its targets — also deploys that build to the
 > app repo's own GitHub Pages (reusing the dist it already built; relative-path so a project-Pages
 > subpath works; a `web-deploy-tag-pattern` input gates publish-on-tag vs publish-on-main;
 > [docs/web.md](docs/web.md)), plus a scaffold-validation workflow. The Gradle/AGP legs use the runner's DEFAULT
 > preinstalled JDK (Day accepts 17+; the old "pin 21" was an AGP-8-era quirk).
+>
+> A repo with a `website/site.toml` gets the full **daysite** project site instead of the bare
+> web deploy, and that site publishes the app twice, as two BUILD CHANNELS (2026-09): the newest
+> release at `/<locale>/`, assembled only from assets that release carries — its packages, its
+> screenshot bundle, its web-dom dist — and the newest build of the default branch at
+> `/<locale>/main/`, assembled from the CI run's own artifacts, marked with a development-build
+> notice, and serving its packages from the site because an Actions artifact needs a login and
+> expires. A version picker above the platform picker switches between them; a repo with no
+> release publishes the branch build at the root and draws no picker. The site therefore
+> redeploys on release tags as well as on pushes to the default branch.
 
 `ci.yml`, in order:
 

@@ -41,7 +41,11 @@ platform/android/.idea/
 # synthesized data files. Only website/site.toml and website/theme.css are source.
 website/.daysite/
 website/appindex.json
+website/channels.json
 website/gallery-manifest.json
+# The same pair again under each extra build channel's own directory (website/main/).
+website/*/appindex.json
+website/*/gallery-manifest.json
 
 # HarmonyOS reads its icon media from a fixed place under each module, so `day prepare` links
 # these two directories to the generated set under build/day/host/harmony/media.
