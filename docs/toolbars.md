@@ -282,9 +282,9 @@ Notes that are not obvious from the table:
   arrangement would be in permanent conflict with the next install. Installing or removing a
   toolbar resizes the content view without a window resize, so the backend reports the new
   content size itself.
-- **GTK**: could express COLUMNS — `AdwOverlaySplitView` with a per-pane `AdwHeaderBar` is the
-  GNOME idiom, and Nautilus and Text Editor both do it. Day does not yet; the column is dropped
-  and one header bar carries everything. That is a gap, not a toolkit limit.
+- **GTK**: could express COLUMNS — a per-pane `AdwHeaderBar` over each pane of the navigation
+  split is the GNOME idiom, and Nautilus and Text Editor both do it. Day does not yet; the
+  column is dropped and one header bar carries everything. That is a gap, not a toolkit limit.
 - **GTK**: GNOME has no separate toolbar. The header bar is the toolbar, and GTK4 removed
   `GtkToolbar` outright, so items pack into the `AdwHeaderBar` the window already has, around the
   title. Buttons get the `flat` class, per the GNOME HIG. `pack_end` grows right-to-left, so the
@@ -405,9 +405,9 @@ also checked by capturing the real window.
 - macOS toolbar customization, which needs the model and an autosaved arrangement to be
   reconciled rather than in conflict.
 - Qt dock-area dragging, which needs `DayWindow` to become a `QMainWindow`.
-- GTK columns, through `AdwOverlaySplitView` with a per-pane `AdwHeaderBar` (see the backend
-  notes) — the only platform where the column is dropped for want of work rather than for want of
-  an API.
+- GTK columns, through a per-pane `AdwHeaderBar` over the navigation split's panes (see the
+  backend notes) — the only platform where the column is dropped for want of work rather than for
+  want of an API.
 - Contributions order by registration, not by tree position: a `when` arm switching on late
   appends within its placement bucket rather than inserting where it sits.
 - `web-dom` measures the panes once per re-lower, so a track's width is stale until the next one.

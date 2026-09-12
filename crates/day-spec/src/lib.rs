@@ -1633,6 +1633,13 @@ pub struct ListSource {
     pub bind_row: std::rc::Rc<dyn Fn(usize, RawHandle)>,
     /// The native cell left the viewport — Day may drop per-cell bookkeeping (optional).
     pub recycle: std::rc::Rc<dyn Fn(RawHandle)>,
+    /// Re-lay the row bound to this cell at `width` — called from the cell's own native layout
+    /// pass, the seam [`TreeSource::layout_cell`] already gives trees. day-core lays a row at the
+    /// LIST's width first, which is right wherever the cell IS the row; a backend whose native
+    /// row wraps the cell in chrome (GtkListView's themed `row` node pads it) corrects it here,
+    /// so the row fits the cell the platform gave it instead of holding the whole list wider
+    /// than its frame. Skips quietly when called inside a day-core borrow (a snapshot pass).
+    pub layout_cell: std::rc::Rc<dyn Fn(RawHandle, f64)>,
     /// Drag-to-reorder seam, present when `ListProps::reorderable` (docs/list.md). `None` on
     /// non-reorderable lists — backends must not enable their drag machinery without it.
     pub reorder: Option<ListReorder>,
@@ -2114,8 +2121,8 @@ pub enum Cap {
     /// really turns on a persistent bar existing.
     Toolbar,
     /// The toolkit realizes `kinds::INSPECTOR` as its own trailing-pane container
-    /// (docs/inspector.md): an `NSSplitView` inspector pane, an `AdwOverlaySplitView` with the
-    /// sidebar at the end, a `QDockWidget`, a XAML `SplitView` right pane. `Unsupported` ⇒ the
+    /// (docs/inspector.md): an `NSSplitView` inspector pane, a `GtkPaned` with the panel as
+    /// its end child, a `QDockWidget`, a XAML `SplitView` right pane. `Unsupported` ⇒ the
     /// `inspector` piece composes the pane from plain containers instead — same panel, same
     /// signal, no native divider — so an unimplemented backend degrades to a drawn pane, not
     /// to a hole. Apps normally have no reason to probe this; the piece does.
@@ -4366,7 +4373,7 @@ pub mod props {
     /// of the boundary where it can still be decided.
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
     pub enum NavPresentation {
-        /// Sidebar beside detail, both visible (`NSSplitViewController`, `AdwOverlaySplitView`,
+        /// Sidebar beside detail, both visible (`NSSplitViewController`, nested `GtkPaned`s,
         /// a `NavigationView`). The sidebar pane gets its own container.
         Split,
         /// One page at a time, back-navigable. The sidebar pane becomes the stack's root.

@@ -141,9 +141,9 @@ sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config     # linux-gtk
 sudo apt install qt6-base-dev pkg-config                      # linux-qt
 ```
 
-The GTK minimums are hard requirements. Day builds navigation on `AdwNavigationView` and
-`AdwOverlaySplitView`, and its file and alert dialogs on `GtkFileDialog` and `GtkAlertDialog`; none
-of those exist in earlier releases. Debian 12 ships GTK 4.8 and cannot build `linux-gtk`; run `-p
+The GTK minimums are hard requirements. Day builds stack navigation on `AdwNavigationView`, and
+its file and alert dialogs on `GtkFileDialog` and `GtkAlertDialog`; none of those exist in earlier
+releases. Debian 12 ships GTK 4.8 and cannot build `linux-gtk`; run `-p
 linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day doctor` reports the
 installed versions against these minimums, so run it first; a version miss otherwise surfaces as a
 build failure inside `gdk4-sys`.

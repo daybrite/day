@@ -89,7 +89,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 
 | Presentation | Native container |
 |---|---|
-| `Split` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK `AdwOverlaySplitView` (libadwaita; `DAY_GTK_SPLIT=paned` selects a draggable `GtkPaned` instead); Qt `QSplitter`; iOS `UISplitViewController`; Android `SlidingPaneLayout`. |
+| `Split` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK two nested `GtkPaned`s (sidebar | list | detail, every divider draggable); Qt `QSplitter`; iOS `UISplitViewController`; Android `SlidingPaneLayout`. |
 | `Stack` | one page at a time, back-navigable: `UINavigationController`, `AdwNavigationView`, the Android back stack, or a desktop back-header above the pages. |
 | `Tabs` | the rows drawn as a tab bar: `UITabBarController` / Material `NavigationBarView` / `NavigationView.PaneDisplayMode = Top` / an `NSSegmentedControl` docked below the pages on macOS / a composed bar on Qt and web-dom. |
 | `Rail` | the rows as a narrow strip: Material `NavigationRailView`, `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
@@ -729,11 +729,13 @@ nav(section).style(NavStyle::Sidebar)
     .destination(…)                            // the DETAIL only — the list is not in here
 ```
 
-- **Where the pane lands** is `Cap::NavContentList`'s answer. `Native` (macos-appkit, Qt): a
-  real pane at every presentation, with a draggable divider on each side; a narrow window
-  collapses the sidebar and keeps the list, as a narrow Mail.app does. On Qt the pane is the
-  middle of the same three-pane `QSplitter` the sidebar lives in, hidden on a host that declared
-  no list, so pane indices and the back header never move. `Emulated` (ios-uikit): a real
+- **Where the pane lands** is `Cap::NavContentList`'s answer. `Native` (macos-appkit, Qt,
+  GTK): a real pane at every presentation, with a draggable divider on each side; a narrow
+  window collapses the sidebar and keeps the list, as a narrow Mail.app does. On Qt the pane is
+  the middle of the same three-pane `QSplitter` the sidebar lives in, hidden on a host that
+  declared no list, so pane indices and the back header never move; on GTK it is the start
+  child of the inner of the host's two nested `GtkPaned`s, hidden the same way (since 2026-09;
+  the backend notes below have the shape). `Emulated` (ios-uikit): a real
   column while expanded that merges into the navigation stack when the host collapses. A
   `UISplitViewController` fixes its column count at creation, never shows the primary without
   the supplementary, and drops a controller re-mounted in another of its columns, so a
@@ -781,16 +783,37 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
 - **GTK** adopts libadwaita throughout (`adw::Application` loads the Adwaita stylesheet). The
   window is an `AdwApplicationWindow` whose content is an `AdwToolbarView` (an `AdwHeaderBar`
   supplies the title, window controls, and drag; Day's content sits below it). Navigation:
-  `Sidebar` → `AdwOverlaySplitView` with `AdwNavigationPage` sidebar/content; `nav_stack` →
-  `AdwNavigationView` (push/pop + back gesture; its `popped` signal writes native back into the
-  path). Page content is a `GtkFixed` wrapped in an `AdwNavigationPage`; Day sizes it from the
-  host width (sidebar is a fixed width, detail fills the rest). The split's **content** pane puts
-  a `GtkScrolledWindow` (policy `External` on both axes) between the two, purely to stop Day's
-  laid-out width from becoming a GTK minimum, the same device the window root uses, and the same
-  need `GtkPaned` covers with `set_shrink_*_child`. Without it, framing the detail to the whole
-  host on collapse left the split no room to park the sidebar off screen at its own width, so
-  libadwaita collapsed the sidebar to zero and the reveal animation had nothing to slide back in. Tabs use an `AdwViewStack` with a
-  `.linked` toggle switcher; dialogs use `AdwAlertDialog` ([docs/dialogs.md](dialogs.md)).
+  `Sidebar` → two nested `GtkPaned`s — sidebar | (list | detail) — with a user-draggable
+  divider on each side, the AppKit `NSSplitView` shape; `nav_stack` → `AdwNavigationView`
+  (push/pop + back gesture; its `popped` signal writes native back into the path). A split
+  pane's page (a `GtkFixed`) sits in a filling `DayCell` — day-gtk's custom container, which
+  asks GTK for no size and hands its child the whole allocation — so a page's Day-laid frame
+  never becomes a pane's GTK minimum; each cell carries its pane's honest minimum as its size
+  request instead (`NAV_SIDEBAR_MIN_W`, `NAV_LIST_MIN_W`, and 200pt for the detail), no pane
+  may shrink below it, and the divider stops there (the maximums are clamped on the position
+  notify). Each pane cell reports its page's size from its own `size_allocate`, before it
+  allocates the page, and day-core dispatches the report at once when its tree is free — so the
+  page is re-laid inside the same GTK layout pass and follows a divider drag live, as AppKit's
+  `setFrameSize:` report does. (Reporting from an idle after the position notify, as the first
+  paned version did, trailed the divider by a frame or more.)
+  The sidebar folds the way an AppKit split item does: when the window has no room for it
+  beside the other panes' minimums it collapses, and it comes back at its last width once
+  there is room again (24pt of slack keeps a resize on the threshold from flapping); the
+  toolbar's sidebar toggle hides it independently, and a toggled-off sidebar stays off. The
+  inner paned exists on every host, list or not — with no list page, or one collapsed by
+  `content_list_for`, GTK gives the detail the whole inner allocation and draws no handle — so
+  the widget shape never changes under live pages. A stack page's `GtkFixed` is wrapped in an
+  `AdwNavigationPage`. Tabs use an `AdwViewStack` with a `.linked` toggle switcher; dialogs use
+  `AdwAlertDialog` ([docs/dialogs.md](dialogs.md)).
+  **Decision (2026-09): `AdwOverlaySplitView` is gone from this backend, with no flag to bring
+  it back.** libadwaita pins sidebar widths by design (the GNOME HIG has no draggable
+  sidebars), so the Adw split could never give Day's desktop apps the adjustable columns
+  AppKit and Qt have, and its pane sizing — a min == max sidebar, a content pane whose minimum
+  was its own Day frame — fought every relayout (the issue #19 reveal jump, the External-policy
+  scroll windows it took to break minimum propagation). What the Adw split supplied that the
+  paned does not — a slide on the sidebar toggle, and the adaptive `collapsed` breakpoint — is
+  either not wanted (dayscript screenshots the instant a toggle returns) or done by the fold
+  above. `DAY_GTK_SPLIT`, which used to select the paned, is no longer read.
 > [!NOTE]
 > **The macOS sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
 > its pane to a sidebar `NSSplitViewItem`, so AppKit supplies the material (on macOS 26 a

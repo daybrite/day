@@ -5,6 +5,11 @@
 //!
 //! `Handle = gtk4::Widget` (GObject-refcounted, `!Send`). Containers are `GtkFixed`; Day's
 //! layout positions children via `fixed.move_()` + `set_size_request` (hop's proven pattern).
+//! The one exception is a recycling list's cell, a [`DayCell`]: a custom container that takes
+//! part in GTK's size negotiation instead — asks for no width, places its children itself from
+//! the frames Day recorded — because inside a `GtkListView` a `set_size_request` floor would
+//! drag the list wider than its frame (day#35). Measurement of a native leaf is likewise done
+//! with its request cleared, or the last placement becomes a floor on the next measure.
 //! Native signals connect once at realize, capturing the NodeId and emitting into the Day sink.
 
 use std::cell::RefCell;
@@ -66,6 +71,8 @@ day_core::tls_group! {
     static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     /// NAV_PAGE widget → its title (for the AdwNavigationPage).
     static NAV_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+    /// NAV_PAGE widget → the pane it belongs to (which `NavSplit` cell takes it).
+    static NAV_PAGE_PANES: RefCell<HashMap<usize, day_spec::props::Pane>> = RefCell::new(HashMap::new());
 
     /// NAV_MENU widget → its list box + suppression flag.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
@@ -84,6 +91,10 @@ day_core::tls_group! {
     /// Per-listbox context popovers for the nav rows (docs/menus.md), keyed by listbox ptr —
     /// unparented before every row rebuild so popovers never outlive their rows.
     static NAV_ROW_POPOVERS: RefCell<HashMap<usize, Vec<gtk4::PopoverMenu>>> =
+        RefCell::new(HashMap::new());
+    /// NAV_MENU ListBox → its rows' section titles by index (`NavMenuProps::sections`), read
+    /// by the box's header func (`nav_menu_headers`).
+    static NAV_MENU_SECTIONS: RefCell<HashMap<usize, Vec<Option<String>>>> =
         RefCell::new(HashMap::new());
 
     /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
@@ -1129,30 +1140,134 @@ fn register_app_prefs_action(app: &gtk4::Application, items: &[day_spec::MenuIte
 }
 
 // ---------------------------------------------------------------------------
-// Navigation (docs/navigation.md): libadwaita. nav host(Sidebar) → AdwNavigationSplitView;
-// stack → AdwNavigationView (push/pop). Each page's GtkFixed is wrapped in an
-// AdwNavigationPage; Day sizes content from the host width via FrameChanged (nav_report).
+// Navigation (docs/navigation.md): nav host(Sidebar) → two nested GtkPaneds (`NavSplit`);
+// stack → AdwNavigationView (push/pop). A split pane's page sits in a filling `DayCell`; a
+// stack page's GtkFixed is wrapped in an AdwNavigationPage. Day sizes content from the pane
+// widths via FrameChanged (nav_report).
 // ---------------------------------------------------------------------------
 
-/// The sidebar's fixed width in the split view (Day sizes detail content = host − this).
+/// The sidebar's opening width; the divider moves it between `NAV_SIDEBAR_MIN_W` and
+/// `NAV_SIDEBAR_MAX_W`.
 const NAV_SIDEBAR_W: f64 = day_spec::NAV_SIDEBAR_WIDTH;
 
-/// nav host(Sidebar) → AdwNavigationSplitView; stack → AdwNavigationView (push/pop).
+/// The detail pane's minimum: the room a window must keep for the destination beside its
+/// panes. Below it the panes' honest minimums no longer fit, and the sidebar collapses to make
+/// room (`NavSplit::fit`).
+const NAV_DETAIL_MIN_W: f64 = 200.0;
+
+/// The room a collapsed sidebar waits for before coming back, past its own width: a resize
+/// that stops exactly at the threshold flips neither way, and one that crosses it does not
+/// oscillate.
+const NAV_REVEAL_SLACK: i32 = 24;
+
+/// A sidebar host's three panes — sidebar | list | detail — as two nested `GtkPaned`s, each
+/// with a user-draggable divider: the AppKit `NSSplitView` shape (docs/navigation.md).
+///
+/// Decision (2026-09): this replaced `AdwOverlaySplitView`, and no flag keeps it around.
+/// libadwaita pins sidebar widths by design (the GNOME HIG has no draggable sidebars), so the
+/// Adw split could never give Day's desktop apps the adjustable columns AppKit and Qt have,
+/// and its pane sizing — a min == max sidebar, a content pane whose minimum is its own Day
+/// frame — fought every relayout (issue #19's collapse animation, the External-policy scroll
+/// windows it took to break minimum propagation). A paned is the toolkit's own resizable
+/// split; with a filling `DayCell` as each pane's child, the only minimum a pane has is the
+/// honest one this backend sets. What the Adw split supplied that the paned does not — a
+/// slide animation on the sidebar toggle, and the adaptive `collapsed` breakpoint — is either
+/// not wanted (dayscript screenshots the instant a toggle returns) or done here instead
+/// (`fit`, the AppKit-style collapse when the window has no room).
+///
+/// The inner paned exists on every host, list or not: with no list page, or a collapsed one,
+/// GTK gives the detail the whole inner allocation and draws no handle, so the shape never
+/// changes under live pages (Qt keeps its three splitter panes for the same reason).
+struct NavSplit {
+    /// sidebar | `inner`.
+    outer: gtk4::Paned,
+    /// list | detail.
+    inner: gtk4::Paned,
+    /// The pane cells: filling, so a page's Day-laid frame never becomes a pane minimum; each
+    /// carries its pane's minimum width as its size request instead.
+    sidebar: DayCell,
+    list: DayCell,
+    detail: DayCell,
+    /// The sidebar's width while showing — what a reveal restores. Follows the divider, but
+    /// never a position GTK clamped for want of room.
+    sidebar_w: std::cell::Cell<i32>,
+    /// The list pane's width, likewise.
+    list_w: std::cell::Cell<i32>,
+    /// The toolbar's sidebar toggle hid the sidebar; only the toggle brings it back.
+    sidebar_hidden: std::cell::Cell<bool>,
+    /// `fit` hid the sidebar for want of room; it comes back when there is room again.
+    sidebar_fitted: std::cell::Cell<bool>,
+    /// The host declared a content-list pane (`NavProps::list_width`) and it is showing
+    /// (`NavProps::list_visible`, then `NavPatch::ListVisible`).
+    list_shown: std::cell::Cell<bool>,
+}
+
+impl NavSplit {
+    /// The width of one paned handle: Adwaita's `paned > separator` is a 1px line.
+    const HANDLE: i32 = 1;
+
+    /// Whether the sidebar should be on screen now.
+    fn sidebar_showing(&self) -> bool {
+        !self.sidebar_hidden.get() && !self.sidebar_fitted.get()
+    }
+
+    /// Show or hide the sidebar per the two flags, restoring its width on a reveal. GTK gives
+    /// the inner paned the whole outer allocation while the start child is hidden, and draws
+    /// no handle — the collapsed shape, with nothing to drag.
+    fn apply_sidebar(&self) {
+        let show = self.sidebar_showing();
+        if self.sidebar.is_visible() != show {
+            self.sidebar.set_visible(show);
+        }
+        if show {
+            self.outer.set_position(self.sidebar_w.get());
+        }
+    }
+
+    /// Show or collapse the content-list pane (`NavPatch::ListVisible`).
+    fn apply_list(&self) {
+        let show = self.list_shown.get();
+        if self.list.is_visible() != show {
+            self.list.set_visible(show);
+        }
+        if show {
+            self.inner.set_position(self.list_w.get());
+        }
+    }
+
+    /// The width the panes beside the sidebar need: the inner paned's honest minimum (the
+    /// list's minimum while it shows, plus the detail's).
+    fn rest_min(&self) -> i32 {
+        self.inner.measure(gtk4::Orientation::Horizontal, -1).0
+    }
+
+    /// Fit the panes to `width`, the host's allocation — the AppKit rule: when the window has
+    /// no room for the sidebar beside the other panes' minimums, the sidebar collapses; when
+    /// room returns, it comes back at the width it had. A sidebar the toggle hid stays hidden
+    /// either way. Runs inside the host's allocation, so the flip itself is deferred: showing
+    /// or hiding a pane mid-allocation would queue a resize from within one.
+    fn fit(self: &Rc<Self>, width: i32) {
+        if self.sidebar_hidden.get() || width <= 0 {
+            return;
+        }
+        let rest = self.rest_min() + Self::HANDLE;
+        let flip = if self.sidebar_fitted.get() {
+            width >= rest + self.sidebar_w.get() + NAV_REVEAL_SLACK
+        } else {
+            width < rest + self.sidebar.measure(gtk4::Orientation::Horizontal, -1).0
+        };
+        if flip {
+            self.sidebar_fitted.set(!self.sidebar_fitted.get());
+            let sp = self.clone();
+            gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || sp.apply_sidebar()));
+        }
+    }
+}
+
+/// nav host(Sidebar) → `NavSplit`; stack → AdwNavigationView (push/pop).
 enum NavPresent {
-    /// The GNOME idiom: a pinned sidebar with libadwaita's own split treatment, whose
-    /// `show-sidebar` property is what a `SidebarToggle` flips.
-    ///
-    /// AdwOverlaySplitView rather than AdwNavigationSplitView, and the difference matters:
-    /// NavigationSplitView's `collapsed` is an ADAPTIVE-BREAKPOINT concept (narrow window ⇒
-    /// become a stack), not a user toggle. Driving it from the toolbar button collapsed the
-    /// whole host to a sliver, because a pinned sidebar is then the widget's natural width.
-    /// OverlaySplitView is the same Adw split family with a real `show-sidebar`, and it is what
-    /// GNOME apps carrying a sidebar button use (Text Editor, Console, Loupe).
-    Split(adw::OverlaySplitView),
-    /// `DAY_GTK_SPLIT=paned`: a GtkPaned with a USER-DRAGGABLE divider. Off the GNOME HIG —
-    /// libadwaita pins sidebar widths by design — but kept for apps that want the AppKit-style
-    /// adjustable split, and for comparing the two.
-    Paned(gtk4::Paned),
+    /// Sidebar, content list, and detail in nested GtkPaneds with draggable dividers.
+    Split(Rc<NavSplit>),
     /// `NavPresentation::Tabs`: the Adwaita view-switching idiom — resident pages in an
     /// AdwViewStack under a `.linked` row of grouped toggle buttons, which is how GNOME draws a
     /// segmented one-of-N switch.
@@ -1174,12 +1289,6 @@ enum NavPresent {
     Stack(adw::NavigationView),
 }
 
-/// Whether this process draws its `nav(Sidebar)` with a GtkPaned instead of libadwaita's
-/// AdwNavigationSplitView (docs/navigation.md).
-fn paned_split() -> bool {
-    std::env::var("DAY_GTK_SPLIT").is_ok_and(|v| v == "paned")
-}
-
 /// Show/hide the sidebar of this process's `nav(Sidebar)` host — what a
 /// [`day_spec::ToolbarItemKind::SidebarToggle`] item drives (docs/toolbars.md). `false` when
 /// there is no split host to toggle, which is how the item knows to render disabled.
@@ -1187,28 +1296,24 @@ fn paned_split() -> bool {
 /// Per HOST: the item's action names the host it was built for, so a second window's button
 /// toggles that window's own sidebar.
 pub(crate) fn toggle_sidebar(host: &Handle) -> bool {
-    NAV_STATE.with(|m| {
+    let key = widget_key(host);
+    let split = NAV_STATE.with(|m| {
         let m = m.borrow();
-        let Some(st) = m.get(&widget_key(host)) else {
-            return false;
-        };
-        match &st.present {
-            // Adw's own property: collapsed shows the content alone, exactly what the
-            // GNOME sidebar button does.
-            NavPresent::Split(sv) => {
-                sv.set_show_sidebar(!sv.shows_sidebar());
-                true
-            }
-            NavPresent::Paned(paned) => match paned.start_child() {
-                Some(child) => {
-                    child.set_visible(!child.is_visible());
-                    true
-                }
-                None => false,
-            },
-            NavPresent::Stack(_) | NavPresent::Suite { .. } => false,
+        match m.get(&key).map(|st| &st.present) {
+            Some(NavPresent::Split(sp)) => Some(sp.clone()),
+            _ => None,
         }
-    })
+    });
+    let Some(sp) = split else {
+        return false;
+    };
+    // The toggle overrides a fit: a user asking for the sidebar on a narrow window gets it,
+    // and the next allocation folds it again only if there is still no room.
+    sp.sidebar_hidden.set(!sp.sidebar_hidden.get());
+    sp.sidebar_fitted.set(false);
+    sp.apply_sidebar();
+    gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || nav_report(key)));
+    true
 }
 
 struct NavState {
@@ -1216,7 +1321,8 @@ struct NavState {
     /// Sidebar+detail split (nav host Sidebar) vs. a pure push/pop stack (`nav_stack`).
     split: bool,
     /// (page GtkFixed key, node id, its AdwNavigationPage) in order (index 0 = sidebar/root).
-    pages: Vec<(usize, NodeId, adw::NavigationPage)>,
+    /// A split pane's page has no AdwNavigationPage: its cell holds it directly.
+    pages: Vec<(usize, NodeId, Option<adw::NavigationPage>)>,
     /// A programmatic pop is in flight: the `popped` handler must not re-emit NavBack.
     suppress: Rc<std::cell::Cell<bool>>,
 }
@@ -1401,21 +1507,48 @@ fn fill_nav_menu(
                     .push(pop);
             });
         }
-        // Section headers ride ON the row via GtkListBox's header slot, so they never become
-        // rows of their own — indices stay 1:1 with day's items and selection needs no map.
-        if let Some(Some(title)) = sections.get(i)
-            && let Some(row) = listbox.row_at_index(i as i32)
-        {
-            let header = gtk4::Label::new(Some(title));
-            header.add_css_class("heading");
-            header.add_css_class("dim-label");
-            header.set_xalign(0.0);
-            header.set_margin_top(if i == 0 { 2 } else { 10 });
-            header.set_margin_bottom(2);
-            header.set_margin_start(4);
-            row.set_header(Some(&header));
-        }
     }
+    // Section headers ride ON the row via GtkListBox's header slot, so they never become rows
+    // of their own — indices stay 1:1 with day's items and selection needs no map. The slot is
+    // only honored from the box's own header func (`nav_menu_headers`): a header set from
+    // outside it is measured but never parented, so it drew as a blank gap. The titles go in
+    // the map the func reads, and the rows already appended are asked again.
+    NAV_MENU_SECTIONS.with(|m| {
+        m.borrow_mut()
+            .insert(listbox.as_ptr() as usize, sections.to_vec())
+    });
+    listbox.invalidate_headers();
+}
+
+/// The nav menu's `header-func`: the section title recorded for this row's index, as a dim
+/// heading above it, or nothing. Installed once per ListBox at realize.
+fn nav_menu_headers(row: &gtk4::ListBoxRow, listbox_key: usize) {
+    let index = row.index();
+    let title = NAV_MENU_SECTIONS.with(|m| {
+        m.borrow()
+            .get(&listbox_key)
+            .and_then(|s| usize::try_from(index).ok().and_then(|i| s.get(i).cloned()))
+            .flatten()
+    });
+    let Some(title) = title else {
+        row.set_header(None::<&gtk4::Widget>);
+        return;
+    };
+    // Reuse the label GTK already parented for this row when only its text moved.
+    if let Some(label) = row.header().and_downcast::<gtk4::Label>() {
+        if label.text() != title.as_str() {
+            label.set_text(&title);
+        }
+        return;
+    }
+    let header = gtk4::Label::new(Some(&title));
+    header.add_css_class("heading");
+    header.add_css_class("dim-label");
+    header.set_xalign(0.0);
+    header.set_margin_top(if index == 0 { 2 } else { 10 });
+    header.set_margin_bottom(2);
+    header.set_margin_start(4);
+    row.set_header(Some(&header));
 }
 
 /// The bundled glyph `source`, recolored to `t` with its alpha kept as the mask — the recolor
@@ -1667,8 +1800,9 @@ fn apply_surface(w: &Handle, bg: Option<day_spec::Color>, corner_radius: f64, cl
     }
 }
 
-/// Emit each page's content size so NavLayout re-lays it (enqueue-only, §8.3). Split: the
-/// sidebar is a fixed width and the detail fills the rest; stack: every page fills the host.
+/// Emit each page's content size so NavLayout re-lays it (enqueue-only, §8.3). Split: each
+/// pane's page gets its pane's width — the dividers are user-draggable, so this runs on every
+/// drag and every allocation; stack: every page fills the host.
 fn nav_report(host_key: usize) {
     let reports: Vec<(NodeId, Size)> = NAV_STATE.with(|m| {
         let m = m.borrow();
@@ -1676,48 +1810,62 @@ fn nav_report(host_key: usize) {
             return Vec::new();
         };
         let (hw, hh) = match &state.present {
-            NavPresent::Split(sv) => (sv.width() as f64, sv.height() as f64),
-            NavPresent::Paned(paned) => (paned.width() as f64, paned.height() as f64),
+            NavPresent::Split(sp) => (sp.outer.width() as f64, sp.outer.height() as f64),
             NavPresent::Stack(nv) => (nv.width() as f64, nv.height() as f64),
             NavPresent::Suite { stack, .. } => (stack.width() as f64, stack.height() as f64),
         };
         if hw <= 0.0 || hh <= 0.0 {
             return Vec::new();
         }
-        // Split: the divider is user-draggable, so report the paned's CURRENT position (falling
-        // back to the default width before the first allocation) — Day re-lays each pane's
-        // content to the reported size on every drag.
-        let sidebar_w = match &state.present {
-            // Pinned by min == max, so the width is known — except while collapsed, when the
-            // content has the whole host and the sidebar page is not on screen at all.
-            NavPresent::Split(sv) => {
-                if !sv.shows_sidebar() {
-                    0.0
-                } else {
-                    NAV_SIDEBAR_W
-                }
+        // A pane's ALLOCATED width once it has one, its remembered width until then — and
+        // while hidden, so a reveal never re-lays the pane's content up from zero (the
+        // inspector's rule). Echoing an allocation is safe here: the pane is a filling
+        // `DayCell`, so what Day lays into it never feeds back as a GTK minimum.
+        let pane_w = |cell: &DayCell, remembered: i32| {
+            if cell.is_visible() && cell.width() > 0 {
+                cell.width() as f64
+            } else {
+                f64::from(remembered)
             }
-            NavPresent::Paned(paned) => {
-                let pos = paned.position() as f64;
-                if pos > 0.0 { pos } else { NAV_SIDEBAR_W }
-            }
-            NavPresent::Stack(_) => 0.0,
-            // The rows are the switcher, not a pane: the content is the full width.
-            NavPresent::Suite { .. } => 0.0,
+        };
+        let split = match &state.present {
+            NavPresent::Split(sp) if state.split => Some(sp),
+            _ => None,
         };
         state
             .pages
             .iter()
-            .enumerate()
-            .map(|(i, (_, id, _))| {
-                let size = if state.split {
-                    if i == 0 {
-                        Size::new(sidebar_w, hh)
-                    } else {
-                        Size::new((hw - sidebar_w).max(0.0), hh)
+            .map(|(key, id, _)| {
+                let size = match split {
+                    Some(sp) => {
+                        let pane = NAV_PAGE_PANES
+                            .with(|m| m.borrow().get(key).copied())
+                            .unwrap_or_default();
+                        match pane {
+                            day_spec::props::Pane::Sidebar => {
+                                Size::new(pane_w(&sp.sidebar, sp.sidebar_w.get()), hh)
+                            }
+                            day_spec::props::Pane::List => {
+                                Size::new(pane_w(&sp.list, sp.list_w.get()), hh)
+                            }
+                            day_spec::props::Pane::Detail => {
+                                // Before the first allocation: what the other panes leave.
+                                let taken = if sp.sidebar_showing() {
+                                    sp.sidebar_w.get() + NavSplit::HANDLE
+                                } else {
+                                    0
+                                } + if sp.list_shown.get() {
+                                    sp.list_w.get() + NavSplit::HANDLE
+                                } else {
+                                    0
+                                };
+                                let fallback = (hw - f64::from(taken)).max(0.0);
+                                Size::new(pane_w(&sp.detail, fallback as i32), hh)
+                            }
+                        }
                     }
-                } else {
-                    Size::new(hw, hh)
+                    // A stack, a suite, or a `nav_stack`: every page fills the host.
+                    None => Size::new(hw, hh),
                 };
                 (*id, size)
             })
@@ -1728,42 +1876,103 @@ fn nav_report(host_key: usize) {
     }
 }
 
+/// A split pane's LIVE report: its page's size, emitted from the pane cell's own allocation —
+/// before the cell allocates the page — so Day lays the page to the width the divider is at
+/// in this very pass (`DayCell::on_allocate` explains). `nav_report` is the whole-host
+/// counterpart for the moments a pane is not being allocated (a page joining, a toggle).
+fn nav_pane_report(host_key: usize, pane: day_spec::props::Pane, width: i32, height: i32) {
+    if width <= 0 || height <= 0 {
+        return;
+    }
+    // Collected first: the dispatch may insert or remove a page, which borrows `NAV_STATE`.
+    let ids: Vec<NodeId> = NAV_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&host_key) else {
+            return Vec::new();
+        };
+        state
+            .pages
+            .iter()
+            .filter(|(key, ..)| {
+                NAV_PAGE_PANES
+                    .with(|p| p.borrow().get(key).copied())
+                    .unwrap_or_default()
+                    == pane
+            })
+            .map(|(_, id, _)| *id)
+            .collect()
+    });
+    let size = Size::new(f64::from(width), f64::from(height));
+    for id in ids {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Inspector (docs/inspector.md): AdwOverlaySplitView with the sidebar at the END — the same
-// Adw split family the nav sidebar uses, mirrored to the trailing edge. The panel width is
-// pinned (min == max), per the GNOME no-draggable-sidebars idiom.
+// Inspector (docs/inspector.md): a GtkPaned with the panel at the trailing (or leading) edge
+// — the nav split's device, mirrored. The divider is draggable, as Qt's is; the panel keeps
+// the width it was dragged to across a hide and a reveal.
 // ---------------------------------------------------------------------------
 
+/// The narrowest an inspector panel can be dragged.
+const INSPECTOR_MIN_W: f64 = 160.0;
+
 struct InspectorState {
-    split: adw::OverlaySplitView,
+    paned: gtk4::Paned,
+    /// The two pane cells: filling, so a pane's Day-laid content never becomes its minimum
+    /// (a 280-wide form inside a pane briefly measured narrower would otherwise inflate the
+    /// pane's minimum until the panel has no room to show).
+    content: DayCell,
+    panel: DayCell,
+    /// The panel's width: the piece's preference, then wherever the divider was dragged.
     width: f64,
-    /// Programmatic `show-sidebar` writes in flight — the notify handler must not echo them
-    /// back as `Event::InspectorChanged`.
-    suppress: Rc<std::cell::Cell<bool>>,
+    /// Panel at the trailing edge (the paned's END child) or the leading one (its START).
+    trailing: bool,
+    /// The panel is showing (`InspectorProps::visible`, then `InspectorPatch::Visible`).
+    shown: bool,
     /// Each attached pane: `(pane NodeId, is-panel, the pane's own GtkFixed)`, for frame
     /// reports.
     panes: Vec<(NodeId, bool, Handle)>,
 }
 
+impl InspectorState {
+    /// Put the divider where the panel takes `width`: a trailing panel's position is measured
+    /// from the far side of the host, so it needs the host's width — `None` before the first
+    /// allocation, when GTK's own natural-size split places it from the cell's request.
+    fn place(&self, host_w: i32) {
+        let width = self.width.round() as i32;
+        if self.trailing {
+            if host_w > 0 {
+                self.paned
+                    .set_position((host_w - width - NavSplit::HANDLE).max(0));
+            }
+        } else {
+            self.paned.set_position(width);
+        }
+    }
+}
+
 /// Emit each inspector pane's content size so `InspectorLayout` re-lays it (the nav_report
-/// counterpart). The panel reports its PINNED width even while hidden, so revealing it never
-/// re-lays the panel's content from zero.
+/// counterpart). The panel reports its width even while hidden, so revealing it never re-lays
+/// the panel's content from zero.
 fn inspector_report(host_key: usize) {
     let reports: Vec<(NodeId, Size)> = INSPECTOR_STATE
         .with(|t| t.get(host_key))
         .map(|state| {
             let state = state.borrow();
-            let (hw, hh) = (state.split.width() as f64, state.split.height() as f64);
+            let (hw, hh) = (state.paned.width() as f64, state.paned.height() as f64);
             if hw <= 0.0 || hh <= 0.0 {
                 return Vec::new();
             }
-            // TARGET widths, never live allocations — the nav_report rule. The pinned width
-            // is exact (min == max, in Px), and echoing an allocation feeds Day's own frame
-            // request back as the pane's "size": laid-out content becomes a GTK minimum, the
-            // minimum inflates the next allocation, and the sidebar ends up with no room to
-            // show at all (the issue-#19 class).
-            let shown = if state.split.shows_sidebar() {
+            // The panel's allocation once it has one (the divider may have moved it), its
+            // remembered width until then and while hidden; the content gets the rest.
+            let panel_w = if state.shown && state.panel.width() > 0 {
+                state.panel.width() as f64
+            } else {
                 state.width
+            };
+            let shown = if state.shown {
+                panel_w + f64::from(NavSplit::HANDLE)
             } else {
                 0.0
             };
@@ -1772,7 +1981,7 @@ fn inspector_report(host_key: usize) {
                 .iter()
                 .map(|(id, panel, _)| {
                     let size = if *panel {
-                        Size::new(state.width, hh)
+                        Size::new(panel_w, hh)
                     } else {
                         Size::new((hw - shown).max(0.0), hh)
                     };
@@ -1796,6 +2005,273 @@ struct ListEntry {
     model: gtk4::StringList,
     /// The row-pull source, injected by `attach_list` and read by the factory's `bind` handler.
     source: Rc<RefCell<Option<ListSource>>>,
+}
+
+/// `DayCell` — the widget a recycling list's cell is made of: a container that takes part in GTK's
+/// own size negotiation instead of dictating to it, the way a custom container in a C GTK app does.
+///
+/// Day owns layout, so everywhere else a Day subtree sits in a `GtkFixed` and states its size with
+/// `set_size_request` (see the module doc). That makes Day's computed width a FLOOR on the widget
+/// around it — wrong inside a `GtkListView`, which wraps each cell in a themed `row` node that pads
+/// it: a row laid at the list's width inflates the cell, the cell reports that width back as its
+/// minimum, and the whole list is dragged wider than the frame Day gave it, painting over whatever
+/// sits alongside (day#35).
+///
+/// GTK's answer — and the one AppKit (`DayTreeCell`), UIKit and Qt already use — runs the other
+/// way: ask for nothing, then lay out inside whatever you are given.
+///
+/// * `measure` reports a zero minimum width, so the cell can never inflate its row; its height is
+///   whatever Day last laid the row at (`RowHeight`).
+/// * `size_allocate` hands the width GTK actually granted to Day through
+///   [`ListSource::layout_cell`] (the seam trees use for indentation) BEFORE placing the children,
+///   then puts each child at the frame Day recorded for it — so a row laid at the list's full
+///   width never reaches the screen.
+///
+/// It derives from `GtkWidget` directly, not `GtkFixed`: GTK never calls the `measure` and
+/// `size_allocate` of a widget that has a layout manager — it asks the manager instead — and
+/// `GtkFixed` installs one. So this cell owns its children outright (`set_parent` / `unparent`,
+/// released in `dispose`), and `set_frame` RECORDS a child's frame here instead of calling
+/// `set_size_request`, which would put the floor straight back.
+mod day_cell {
+    use super::{RawHandle, Rect, RefCell, ffi_guard};
+    use gtk4::glib;
+    use gtk4::prelude::*;
+    use gtk4::subclass::prelude::*;
+    use std::collections::HashMap;
+
+    /// A cell's re-layout seam, `(cell handle, width)`: `ListSource::layout_cell` or
+    /// `TreeSource::layout_cell`.
+    type LayoutCell = std::rc::Rc<dyn Fn(RawHandle, f64)>;
+    /// A filling cell's allocation observer, `(width, height)`.
+    type AllocateHook = std::rc::Rc<dyn Fn(i32, i32)>;
+
+    #[derive(Default)]
+    pub struct DayCellImp {
+        /// The row's seam, planted at bind time; `None` until the first bind, and always for a
+        /// filling cell.
+        layout: RefCell<Option<LayoutCell>>,
+        /// The width Day last laid this cell's row at, so an unchanged allocation costs nothing.
+        laid: std::cell::Cell<i32>,
+        /// Each child's frame as Day last laid it, keyed by the child's pointer.
+        frames: RefCell<HashMap<usize, Rect>>,
+        /// Set while `size_allocate` runs: frames Day records then are placed by that same pass,
+        /// so they must not queue another.
+        allocating: std::cell::Cell<bool>,
+        /// Filling: the cell asks for nothing in either direction and every child gets the whole
+        /// allocation. That is what the `External`-policy ScrolledWindows did around a nav pane's
+        /// or the window's content — break minimum-size propagation — minus a scroll window that
+        /// must never scroll.
+        fill: std::cell::Cell<bool>,
+        /// A filling cell's allocation observer, `(width, height)`: GTK4 has no size-allocate
+        /// signal, and the nav and inspector panes need one. Runs BEFORE the children are
+        /// allocated, so a Day relayout it triggers — a pane reporting `FrameChanged`, which
+        /// day-core dispatches at once when its tree is free — lands in this same pass, and
+        /// the page follows a divider drag live, as an AppKit `setFrameSize:` report does.
+        on_allocate: RefCell<Option<AllocateHook>>,
+    }
+
+    #[glib::object_subclass]
+    impl ObjectSubclass for DayCellImp {
+        const NAME: &'static str = "DayCell";
+        type Type = super::DayCell;
+        type ParentType = gtk4::Widget;
+    }
+
+    impl ObjectImpl for DayCellImp {
+        fn dispose(&self) {
+            // A custom container releases its own children.
+            while let Some(child) = self.obj().first_child() {
+                child.unparent();
+            }
+        }
+    }
+
+    impl WidgetImpl for DayCellImp {
+        fn measure(&self, orientation: gtk4::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
+            if self.fill.get() || orientation == gtk4::Orientation::Horizontal {
+                // Ask for nothing: a row gives the cell whatever the list's width leaves after
+                // its own padding, a pane gives it the pane, and Day lays the content to fit
+                // that in `size_allocate`.
+                return (0, 0, -1, -1);
+            }
+            // The row is as tall as Day laid it — `RowHeight`, or a measured automatic row.
+            let height = self
+                .frames
+                .borrow()
+                .values()
+                .map(|f| (f.origin.y + f.size.height).ceil() as i32)
+                .max()
+                .unwrap_or(0)
+                .max(0);
+            (height, height, -1, -1)
+        }
+
+        fn size_allocate(&self, width: i32, height: i32, _baseline: i32) {
+            let obj = self.obj();
+            if self.fill.get() {
+                // The whole allocation to every child — at least its minimum, as GTK insists;
+                // anything past the edge is clipped, exactly as the scroll window it replaces
+                // clipped it. The observer goes first (its field explains), cloned out so it
+                // may install another.
+                let hook = self.on_allocate.borrow().clone();
+                if let Some(hook) = hook {
+                    hook(width, height);
+                }
+                let mut child = obj.first_child();
+                while let Some(c) = child {
+                    child = c.next_sibling();
+                    let (min_w, ..) = c.measure(gtk4::Orientation::Horizontal, -1);
+                    let (min_h, ..) = c.measure(gtk4::Orientation::Vertical, -1);
+                    c.allocate(width.max(min_w), height.max(min_h), -1, None);
+                }
+                return;
+            }
+            // Lay the row at the width the row actually granted, before any child is placed.
+            // `layout_cell` re-enters day-core, whose `set_frame` calls land in `set_child_frame`
+            // below; it skips quietly if a day-core borrow is already held.
+            if width > 0
+                && self.laid.get() != width
+                && let Some(layout) = self.layout.borrow().clone()
+            {
+                self.laid.set(width);
+                self.allocating.set(true);
+                let cell = obj.as_ptr() as RawHandle;
+                ffi_guard::contain((), || layout(cell, f64::from(width)));
+                self.allocating.set(false);
+            }
+            let frames = self.frames.borrow().clone();
+            let mut child = obj.first_child();
+            while let Some(c) = child {
+                child = c.next_sibling();
+                let (x, y, w, h) = frames
+                    .get(&(c.as_ptr() as usize))
+                    .map(|f| (f.origin.x, f.origin.y, f.size.width, f.size.height))
+                    .unwrap_or_default();
+                // GTK insists a child gets at least its minimum. Day's frames come from its own
+                // measure of the child, so this only matters for a child not laid out yet.
+                let (min_w, ..) = c.measure(gtk4::Orientation::Horizontal, -1);
+                let (min_h, ..) = c.measure(gtk4::Orientation::Vertical, -1);
+                let transform = gtk4::gsk::Transform::new()
+                    .translate(&gtk4::graphene::Point::new(x as f32, y as f32));
+                c.allocate(
+                    (w.round() as i32).max(min_w),
+                    (h.round() as i32).max(min_h),
+                    -1,
+                    Some(transform),
+                );
+            }
+        }
+    }
+
+    impl DayCellImp {
+        /// Plant the row's seam, then lay the row that was just bound at the width this cell
+        /// already has. `bind_row` laid it at the HOST's width a moment ago — wider than the cell
+        /// by the row's padding, or its indentation — and correcting it now keeps that width off
+        /// the screen. A cell GTK has not allocated yet has no width to offer; its first
+        /// `size_allocate` does it.
+        fn bind(&self, layout: LayoutCell) {
+            *self.layout.borrow_mut() = Some(layout.clone());
+            let width = self.obj().width();
+            if width <= 0 {
+                self.laid.set(0);
+                return;
+            }
+            self.laid.set(width);
+            let cell = self.obj().as_ptr() as RawHandle;
+            ffi_guard::contain((), || layout(cell, f64::from(width)));
+        }
+    }
+
+    impl super::DayCell {
+        /// A filling cell: the minimum-size breaker around a nav pane's or the window's content
+        /// (the `fill` field explains). Clipped, as the scroll window it replaces was.
+        pub(crate) fn filling() -> Self {
+            let cell: Self = glib::Object::new();
+            cell.imp().fill.set(true);
+            cell.set_overflow(gtk4::Overflow::Hidden);
+            cell
+        }
+
+        /// Observe a filling cell's allocations (the `on_allocate` field explains). One
+        /// observer; a second call replaces the first.
+        pub(crate) fn on_allocate(&self, hook: impl Fn(i32, i32) + 'static) {
+            *self.imp().on_allocate.borrow_mut() = Some(std::rc::Rc::new(hook));
+        }
+
+        /// Called from a factory's `bind` handler once day-core has built or rebound the row,
+        /// with `ListSource::layout_cell` or `TreeSource::layout_cell`.
+        pub(crate) fn bind_layout(&self, layout: LayoutCell) {
+            self.imp().bind(layout);
+        }
+
+        /// Adopt `child`: this cell places it at the frame `set_child_frame` records for it.
+        pub(crate) fn add_child(&self, child: &gtk4::Widget) {
+            child.set_parent(self);
+        }
+
+        pub(crate) fn remove_child(&self, child: &gtk4::Widget) {
+            self.imp()
+                .frames
+                .borrow_mut()
+                .remove(&(child.as_ptr() as usize));
+            if child.parent().as_ref() == Some(self.upcast_ref()) {
+                child.unparent();
+            }
+        }
+
+        /// Record where Day laid `child`. Placed by the next allocation — or by the one running,
+        /// when the record comes from the row layout that `size_allocate` itself asked for.
+        pub(crate) fn set_child_frame(&self, child: &gtk4::Widget, frame: Rect) {
+            let imp = self.imp();
+            imp.frames
+                .borrow_mut()
+                .insert(child.as_ptr() as usize, frame);
+            if !imp.allocating.get() {
+                // The row's height is derived from these frames, so a resize, not just a
+                // re-allocation.
+                self.queue_resize();
+            }
+        }
+    }
+}
+
+gtk4::glib::wrapper! {
+    pub struct DayCell(ObjectSubclass<day_cell::DayCellImp>)
+        @extends gtk4::Widget,
+        @implements gtk4::Accessible, gtk4::Buildable, gtk4::ConstraintTarget;
+}
+
+impl DayCell {
+    fn new() -> Self {
+        gtk4::glib::Object::new()
+    }
+}
+
+/// Day's row height is the row's height. GtkListView's themed `row` node pads each row
+/// vertically (2px under Adwaita), which was added on top of every `RowHeight` — a 56pt row drew
+/// 60 — and grew an automatic row past what Day measured for it. The horizontal padding stays
+/// (the cell fits inside it; see `DayCell`); vertically, Day's policy is the one that counts.
+/// One global provider serves every Day list and tree.
+fn day_list_rows(listview: &gtk4::ListView) {
+    thread_local! {
+        static ROW_CSS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+    ROW_CSS.with(|done| {
+        if !done.get()
+            && let Some(display) = gtk4::gdk::Display::default()
+        {
+            let provider = gtk4::CssProvider::new();
+            provider
+                .load_from_data("listview.day-list > row { padding-top: 0; padding-bottom: 0; }");
+            gtk4::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk4::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+            done.set(true);
+        }
+    });
+    listview.add_css_class("day-list");
 }
 
 /// A realized nav menu's rows: `(node, titles, icon names)`.
@@ -2608,7 +3084,10 @@ impl Toolkit for Gtk {
             | Cap::Appearance
             // gtk_widget_measure reports baselines itself (docs/baseline.md).
             | Cap::BaselineAlignment
-            // AdwOverlaySplitView with the sidebar at the end (docs/inspector.md).
+            // The middle pane of the nav host's nested GtkPaneds (`NavSplit`): a real pane at
+            // every presentation, with a draggable divider on each side (docs/navigation.md).
+            | Cap::NavContentList
+            // A GtkPaned with the panel at the trailing (or leading) edge (docs/inspector.md).
             | Cap::Inspector => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
@@ -2636,54 +3115,116 @@ impl Toolkit for Gtk {
                     .downcast_ref::<InspectorProps>()
                     .map(|p| (p.visible, p.width, p.edge))
                     .unwrap_or((false, 280.0, PaneEdge::Trailing));
-                let sv = adw::OverlaySplitView::new();
-                // The pane's side follows the piece: Trailing is the classic inspector,
-                // Leading a utility pane like a layer panel (docs/tree.md).
-                sv.set_sidebar_position(match edge {
-                    PaneEdge::Trailing => gtk4::PackType::End,
-                    PaneEdge::Leading => gtk4::PackType::Start,
-                });
-                // Pinned, per the GNOME idiom (no draggable sidebars) — same as the nav split.
-                // In PIXELS: the default unit is sp, which rescales with the text size and
-                // would leave Day laying content out for a width the pane doesn't have. The
-                // fraction is Adw's PREFERENCE (default 0.25 of the window) and the min/max
-                // only clamp it — so pinning takes all three: a fraction beyond any window
-                // lets max == min == width decide.
-                sv.set_sidebar_width_unit(adw::LengthUnit::Px);
-                sv.set_sidebar_width_fraction(1.0);
-                sv.set_min_sidebar_width(width);
-                sv.set_max_sidebar_width(width);
-                sv.set_show_sidebar(visible);
-                let handle: Handle = sv.clone().upcast();
+                // A GtkPaned, the nav split's device (`NavSplit` records why not the Adw
+                // split): the panel is a filling `DayCell` whose size request is the honest
+                // minimum, the content another whose request is nothing, and neither may
+                // shrink below it. The pane's side follows the piece: Trailing is the classic
+                // inspector, Leading a utility pane like a layer panel (docs/tree.md).
+                let trailing = matches!(edge, PaneEdge::Trailing);
+                let panel = DayCell::filling();
+                panel.set_size_request(INSPECTOR_MIN_W.min(width) as i32, -1);
+                // Hidden BEFORE it joins the paned (the nav list pane's rule).
+                panel.set_visible(visible);
+                let content = DayCell::filling();
+                let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+                if trailing {
+                    paned.set_start_child(Some(&content));
+                    paned.set_end_child(Some(&panel));
+                } else {
+                    paned.set_start_child(Some(&panel));
+                    paned.set_end_child(Some(&content));
+                }
+                // Window resizes go to the content; the panel holds its width.
+                paned.set_resize_start_child(!trailing);
+                paned.set_resize_end_child(trailing);
+                paned.set_shrink_start_child(false);
+                paned.set_shrink_end_child(false);
+                // The host: a filling cell around the paned, for the allocation observer a
+                // trailing panel's placement needs (its divider position is measured from the
+                // host's far side).
+                let host = DayCell::filling();
+                host.add_child(paned.upcast_ref());
+                let handle: Handle = host.clone().upcast();
                 let key = widget_key(&handle);
-                let suppress = Rc::new(std::cell::Cell::new(false));
+                let state = Rc::new(RefCell::new(InspectorState {
+                    paned: paned.clone(),
+                    content,
+                    panel,
+                    width,
+                    trailing,
+                    shown: visible,
+                    panes: Vec::new(),
+                }));
+                if !trailing {
+                    state.borrow().place(0);
+                }
                 {
-                    let s = suppress.clone();
-                    sv.connect_show_sidebar_notify(move |sv| {
-                        let shows = sv.shows_sidebar();
+                    // First allocation: place the divider for the panel's width — before the
+                    // paned is allocated, so it lands in this pass. Thereafter the paned's
+                    // resize flags keep the panel's width through window resizes.
+                    let st = state.clone();
+                    let placed = std::cell::Cell::new(false);
+                    host.on_allocate(move |width, _| {
+                        if !placed.replace(true) {
+                            st.borrow().place(width);
+                        }
+                    });
+                }
+                // Each pane reports its page's size as it is allocated, so a divider drag
+                // re-lays the page in the same pass (the nav panes' rule, `nav_pane_report`).
+                for is_panel in [false, true] {
+                    let st = state.clone();
+                    let cell = {
+                        let s = st.borrow();
+                        if is_panel {
+                            s.panel.clone()
+                        } else {
+                            s.content.clone()
+                        }
+                    };
+                    let last = std::cell::Cell::new((0, 0));
+                    cell.on_allocate(move |width, height| {
+                        if width <= 0
+                            || height <= 0
+                            || last.replace((width, height)) == (width, height)
+                        {
+                            return;
+                        }
+                        // Collected first: the dispatch may attach a pane, which borrows.
+                        let ids: Vec<NodeId> = st
+                            .borrow()
+                            .panes
+                            .iter()
+                            .filter(|(_, panel, _)| *panel == is_panel)
+                            .map(|(id, ..)| *id)
+                            .collect();
                         ffi_guard::contain((), || {
-                            // A user-driven hide (Escape while collapsed, a future native
-                            // affordance) reports back; a day-driven patch must not echo.
-                            if !s.get() {
-                                emit(id, Event::InspectorChanged(shows));
+                            for id in ids {
+                                emit(
+                                    id,
+                                    Event::FrameChanged(Size::new(
+                                        f64::from(width),
+                                        f64::from(height),
+                                    )),
+                                );
                             }
-                            gtk4::glib::idle_add_local_once(move || {
-                                ffi_guard::contain((), || inspector_report(key))
-                            });
                         });
                     });
                 }
-                INSPECTOR_STATE.with(|t| {
-                    t.insert(
-                        key,
-                        Rc::new(RefCell::new(InspectorState {
-                            split: sv,
-                            width,
-                            suppress,
-                            panes: Vec::new(),
-                        })),
-                    )
-                });
+                {
+                    // A divider drag: the panel keeps the dragged width across a hide and a
+                    // reveal (the re-lay is the pane cells', above).
+                    let st = state.clone();
+                    paned.connect_position_notify(move |_| {
+                        if let Ok(mut st) = st.try_borrow_mut()
+                            && st.shown
+                            && st.panel.width() > 0
+                        {
+                            st.width = f64::from(st.panel.width());
+                        }
+                    });
+                }
+                INSPECTOR_STATE.with(|t| t.insert(key, state));
                 handle
             }
             Some(Builtin::InspectorPane) => {
@@ -2732,63 +3273,144 @@ impl Toolkit for Gtk {
                     });
                     return host;
                 }
-                let (host, present): (Handle, NavPresent) = if is_split && !paned_split() {
-                    // AdwNavigationSplitView: the GNOME split. The sidebar is PINNED (libadwaita
-                    // has no draggable sidebars by design), it carries Adwaita's own sidebar
-                    // background treatment, and its `collapsed` property gives the toolbar's
-                    // sidebar toggle something native to drive. `DAY_GTK_SPLIT=paned` selects the
-                    // draggable GtkPaned instead (docs/navigation.md).
-                    let sv = adw::OverlaySplitView::new();
-                    sv.set_min_sidebar_width(NAV_SIDEBAR_W);
-                    sv.set_max_sidebar_width(NAV_SIDEBAR_W);
-                    sv.set_show_sidebar(true);
-                    let handle: Handle = sv.clone().upcast();
-                    // Re-lay both panes whenever the split resizes or collapses: the sidebar's
-                    // width goes to zero when collapsed, so the detail's reported size changes.
+                let (host, present): (Handle, NavPresent) = if is_split {
+                    // Two nested GtkPaneds with USER-DRAGGABLE dividers (the AppKit NSSplitView
+                    // counterpart; `NavSplit` records why not libadwaita's split). Each pane is
+                    // a filling `DayCell` carrying that pane's honest minimum as its size
+                    // request, and no child may shrink below it: the divider stops at the
+                    // minimum, and a window with no room for all three folds the sidebar
+                    // (`NavSplit::fit`) rather than squeezing a pane. Day re-lays each pane's
+                    // content to the width reported on every drag and allocation.
+                    let nav_props = props.downcast_ref::<NavProps>();
+                    let list_width = nav_props.and_then(|p| p.list_width);
+                    let list_visible = nav_props.is_none_or(|p| p.list_visible);
+                    let sidebar = DayCell::filling();
+                    // libadwaita's sidebar background treatment, on the pane itself.
+                    sidebar.add_css_class("sidebar-pane");
+                    sidebar.set_size_request(day_spec::NAV_SIDEBAR_MIN_W as i32, -1);
+                    let list = DayCell::filling();
+                    // A host that asked for a narrower list than the shared minimum gets it
+                    // (AppKit's rule for the same pane).
+                    let list_min = list_width.map_or(day_spec::NAV_LIST_MIN_W, |w| {
+                        day_spec::NAV_LIST_MIN_W.min(w)
+                    });
+                    list.set_size_request(list_min as i32, -1);
+                    // No list page, or one collapsed for the opening destination
+                    // (`content_list_for`): hidden BEFORE it joins the paned, so the host never
+                    // opens with an empty pane beside a page that owns none.
+                    list.set_visible(list_width.is_some() && list_visible);
+                    let detail = DayCell::filling();
+                    detail.set_size_request(NAV_DETAIL_MIN_W as i32, -1);
+                    let inner = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+                    inner.set_start_child(Some(&list));
+                    inner.set_end_child(Some(&detail));
+                    // Window resizes go to the detail; the list and the sidebar hold their
+                    // widths, as on AppKit.
+                    inner.set_resize_start_child(false);
+                    inner.set_resize_end_child(true);
+                    inner.set_shrink_start_child(false);
+                    inner.set_shrink_end_child(false);
+                    let list_w = list_width.unwrap_or(day_spec::NAV_LIST_WIDTH) as i32;
+                    inner.set_position(list_w);
+                    let outer = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+                    outer.set_start_child(Some(&sidebar));
+                    outer.set_end_child(Some(&inner));
+                    outer.set_resize_start_child(false);
+                    outer.set_resize_end_child(true);
+                    outer.set_shrink_start_child(false);
+                    outer.set_shrink_end_child(false);
+                    outer.set_position(NAV_SIDEBAR_W as i32);
+                    let split = Rc::new(NavSplit {
+                        outer: outer.clone(),
+                        inner: inner.clone(),
+                        sidebar,
+                        list,
+                        detail,
+                        sidebar_w: std::cell::Cell::new(NAV_SIDEBAR_W as i32),
+                        list_w: std::cell::Cell::new(list_w),
+                        sidebar_hidden: std::cell::Cell::new(false),
+                        sidebar_fitted: std::cell::Cell::new(false),
+                        list_shown: std::cell::Cell::new(list_width.is_some() && list_visible),
+                    });
+                    // The host: a filling cell around the outer paned, for the allocation
+                    // observer `fit` needs (GTK4 has no size-allocate signal). Its own
+                    // minimum is nothing, like every Day container's, so the WINDOW can always
+                    // narrow past the panes — which is what lets the sidebar fold instead of
+                    // the window refusing the resize.
+                    let host = DayCell::filling();
+                    host.add_child(outer.upcast_ref());
+                    let handle: Handle = host.clone().upcast();
+                    let key = widget_key(&handle);
                     {
-                        let hk = Rc::new(std::cell::Cell::new(widget_key(&handle)));
-                        let h2 = hk.clone();
-                        sv.connect_show_sidebar_notify(move |_| {
-                            let key = h2.get();
-                            gtk4::glib::idle_add_local_once(move || {
-                                ffi_guard::contain((), || nav_report(key))
-                            });
-                        });
-                        let _ = hk;
+                        let sp = split.clone();
+                        host.on_allocate(move |width, _| sp.fit(width));
                     }
-                    (handle, NavPresent::Split(sv))
-                } else if is_split {
-                    // GtkPaned: sidebar + detail with a USER-DRAGGABLE divider (the AppKit
-                    // NSSplitView counterpart). AdwNavigationSplitView pins its sidebar width by
-                    // design (GNOME HIG has no draggable sidebars), so a paned is the native way to
-                    // honor divider adjustment; the sidebar list keeps the `.navigation-sidebar`
-                    // treatment. Day re-lays each pane's content from the sizes reported on drag.
-                    let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
-                    paned.set_position(NAV_SIDEBAR_W as i32);
-                    // Window resizes go to the detail pane; the sidebar holds its width.
-                    paned.set_resize_start_child(false);
-                    paned.set_resize_end_child(true);
-                    // Day frames each pane's content to EXACTLY the last reported size, which
-                    // becomes that pane's GTK minimum — with shrink forbidden the divider would
-                    // be pinned in place. Allow shrinking; Day re-lays content to the new size
-                    // reported on every drag (position notify → nav_report).
-                    paned.set_shrink_start_child(true);
-                    paned.set_shrink_end_child(true);
-                    let host_key_for_report = Rc::new(std::cell::Cell::new(0usize));
-                    {
-                        let hk = host_key_for_report.clone();
-                        paned.connect_position_notify(move |_| {
-                            let key = hk.get();
-                            if key != 0 {
-                                gtk4::glib::idle_add_local_once(move || {
-                                    ffi_guard::contain((), || nav_report(key))
+                    // Each pane reports its page's size as it is allocated, so the page
+                    // follows the divider in the same pass (`nav_pane_report`). Gated on a
+                    // change: an allocation at the same size is GTK converging after the
+                    // relayout's own size requests, and re-laying then would be wasted work.
+                    for (cell, pane) in [
+                        (&split.sidebar, day_spec::props::Pane::Sidebar),
+                        (&split.list, day_spec::props::Pane::List),
+                        (&split.detail, day_spec::props::Pane::Detail),
+                    ] {
+                        let last = std::cell::Cell::new((0, 0));
+                        cell.on_allocate(move |width, height| {
+                            if last.replace((width, height)) != (width, height) {
+                                ffi_guard::contain((), || {
+                                    nav_pane_report(key, pane, width, height)
                                 });
                             }
                         });
                     }
-                    let handle: Handle = paned.clone().upcast();
-                    host_key_for_report.set(widget_key(&handle));
-                    (handle, NavPresent::Paned(paned))
+                    // A divider drag: remember the width (unless GTK clamped it for want of
+                    // room — that is `fit`'s to handle; a position that exactly fills the
+                    // room is indistinguishable from a clamp, so it is not recorded either)
+                    // and cap it at the pane's maximum. The cap is applied from an idle: the
+                    // notify can arrive from inside the paned's own allocation, where a
+                    // position write would queue a resize mid-pass. The re-lay itself is the
+                    // pane cells' (above): the drag allocates them.
+                    {
+                        let sp = split.clone();
+                        outer.connect_position_notify(move |paned| {
+                            let pos = paned.position();
+                            let max = day_spec::NAV_SIDEBAR_MAX_W as i32;
+                            if pos > max {
+                                let paned = paned.clone();
+                                gtk4::glib::idle_add_local_once(move || {
+                                    paned.set_position(max);
+                                });
+                            } else if pos >= day_spec::NAV_SIDEBAR_MIN_W as i32
+                                && sp.sidebar_showing()
+                                && paned.width() > pos + NavSplit::HANDLE + sp.rest_min()
+                            {
+                                sp.sidebar_w.set(pos);
+                            }
+                        });
+                    }
+                    {
+                        let sp = split.clone();
+                        inner.connect_position_notify(move |paned| {
+                            let pos = paned.position();
+                            let max =
+                                day_spec::NAV_LIST_MAX_W.max(f64::from(sp.list_w.get())) as i32;
+                            if pos > max {
+                                let paned = paned.clone();
+                                gtk4::glib::idle_add_local_once(move || {
+                                    paned.set_position(max);
+                                });
+                            } else if pos >= list_min as i32
+                                && sp.list_shown.get()
+                                && paned.width()
+                                    > pos
+                                        + NavSplit::HANDLE
+                                        + sp.detail.measure(gtk4::Orientation::Horizontal, -1).0
+                            {
+                                sp.list_w.set(pos);
+                            }
+                        });
+                    }
+                    (handle, NavPresent::Split(split))
                 } else {
                     // AdwNavigationView: a genuine push/pop stack with back gesture.
                     let nv = adw::NavigationView::new();
@@ -2823,14 +3445,15 @@ impl Toolkit for Gtk {
                 host
             }
             Some(Builtin::NavPage) => {
-                let title = props
+                let (title, pane) = props
                     .downcast_ref::<NavPageProps>()
-                    .map(|p| p.title.clone())
+                    .map(|p| (p.title.clone(), p.pane))
                     .unwrap_or_default();
                 let page: Handle = gtk4::Fixed::new().upcast();
                 let key = widget_key(&page);
                 NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(key, id));
                 NAV_PAGE_TITLES.with(|m| m.borrow_mut().insert(key, title));
+                NAV_PAGE_PANES.with(|m| m.borrow_mut().insert(key, pane));
                 page
             }
             // Emulated fullscreen cover (docs/cover.md): parked hidden; CoverPatch::Present
@@ -2853,6 +3476,10 @@ impl Toolkit for Gtk {
                 listbox.set_margin_top(4);
                 listbox.set_margin_bottom(4);
                 listbox.set_selection_mode(gtk4::SelectionMode::Single);
+                {
+                    let key = listbox.as_ptr() as usize;
+                    listbox.set_header_func(move |row, _before| nav_menu_headers(row, key));
+                }
                 fill_nav_menu(
                     &listbox,
                     &p.items,
@@ -3121,8 +3748,14 @@ impl Toolkit for Gtk {
                         // The expander draws the indent + arrow and wraps the day cell.
                         let expander = gtk4::TreeExpander::new();
                         expander.set_indent_for_icon(true);
-                        let cell = gtk4::Fixed::new();
-                        cell.set_overflow(gtk4::Overflow::Visible);
+                        // A `DayCell`, as for list rows: it asks for no width and lays Day's row
+                        // at the width the expander leaves after the indentation, through
+                        // `TreeSource::layout_cell` — so an indented row fits its cell instead of
+                        // overflowing it. The expander's box gives a child only its natural width
+                        // unless it expands, and this cell's natural width is nothing.
+                        let cell = DayCell::new();
+                        cell.set_hexpand(true);
+                        cell.set_overflow(gtk4::Overflow::Hidden);
                         expander.set_child(Some(&cell));
                         li.set_child(Some(&expander));
                     }
@@ -3206,12 +3839,12 @@ impl Toolkit for Gtk {
                             {
                                 TREE_CELL_TOKENS
                                     .with(|m| m.borrow_mut().insert(widget_key(&cell), tok));
-                                // Deliberately laid at the HOST's width (bind_row's default),
-                                // not the cell's: the cell's first allocation arrives narrow
-                                // and re-laying to it WRAPPED every label; day rows overflow
-                                // the indented cell to the right instead (Overflow::Visible),
-                                // which a leading-content row never shows.
                                 (src.bind_row)(tok, cell.as_ptr() as RawHandle);
+                                // `bind_row` laid the row at the TREE's width; the cell knows
+                                // the width the expander actually left it and re-lays to that.
+                                if let Ok(cell) = cell.downcast::<DayCell>() {
+                                    cell.bind_layout(src.layout_cell.clone());
+                                }
                             }
                         });
                     }
@@ -3252,6 +3885,7 @@ impl Toolkit for Gtk {
                 });
                 // No model until the first rebuild fills one from the injected source.
                 let listview = gtk4::ListView::new(None::<gtk4::SelectionModel>, Some(factory));
+                day_list_rows(&listview);
                 // Summon-time ROW context menus (docs/menus.md, docs/tree.md): right-click
                 // (and long-press) picks the row under the pointer and asks the tree's
                 // `row_menu` provider.
@@ -3331,9 +3965,15 @@ impl Toolkit for Gtk {
                     let host_key = host_key.clone();
                     move |_, item| {
                         if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
-                            // Each physical cell is a GtkFixed; Day fills it via bind_row.
-                            let cell = gtk4::Fixed::new();
-                            cell.set_overflow(gtk4::Overflow::Visible);
+                            // Each physical cell is a `DayCell` — a GtkFixed that asks for no width
+                            // and lays Day's row out at whatever the row grants it, so the cell can
+                            // never drag the list wider than its frame (day#35). Day fills it via
+                            // bind_row as before.
+                            let cell = DayCell::new();
+                            // Clipped, not visible: a row is laid at the list's width for the
+                            // instant between `bind_row` and the correction, and that must not
+                            // paint over the pane next door.
+                            cell.set_overflow(gtk4::Overflow::Hidden);
                             if reorderable {
                                 // Native GTK drag (docs/list.md): the drag carries the row it
                                 // left from; the icon is the row itself (a WidgetPaintable).
@@ -3380,6 +4020,11 @@ impl Toolkit for Gtk {
                             {
                                 LIST_CELL_ROWS.with(|t| t.insert(cell.as_ptr() as usize, pos));
                                 (src.bind_row)(pos, cell.as_ptr() as RawHandle);
+                                // `bind_row` laid the row at the LIST's width; the cell knows the
+                                // width its row actually granted and re-lays the content to that.
+                                if let Ok(cell) = cell.downcast::<DayCell>() {
+                                    cell.bind_layout(src.layout_cell.clone());
+                                }
                             }
                         });
                     }
@@ -3403,6 +4048,7 @@ impl Toolkit for Gtk {
                         Some(factory),
                     )
                 };
+                day_list_rows(&listview);
                 // Host-drawn row separators (docs/list.md): a border on the ListView's own
                 // `row` CSS nodes, which sit exactly at the row boundary — aligned with the
                 // native selection. One global provider serves every separated list.
@@ -3579,23 +4225,15 @@ impl Toolkit for Gtk {
                 if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>() {
                     let key = widget_key(h);
                     if let Some(state) = INSPECTOR_STATE.with(|t| t.get(key)) {
-                        let state = state.borrow();
-                        // WITHOUT the slide transition: a dayscript screenshot right after a
-                        // toggle must not catch the pane mid-animation (AppKit's no-animator
-                        // rule). Adw samples gtk-enable-animations as the transition starts,
-                        // so restoring right after the call leaves everything else animated.
-                        let settings = gtk4::Settings::default();
-                        let saved = settings.as_ref().map(|s| s.is_gtk_enable_animations());
-                        if let Some(s) = &settings {
-                            s.set_gtk_enable_animations(false);
-                        }
-                        // Suppressed: the notify handler must not echo a day-driven write
-                        // back as `Event::InspectorChanged` (the from-native echo rule).
-                        state.suppress.set(true);
-                        state.split.set_show_sidebar(*v);
-                        state.suppress.set(false);
-                        if let (Some(s), Some(prev)) = (&settings, saved) {
-                            s.set_gtk_enable_animations(prev);
+                        // Applied at once, no transition: a dayscript screenshot right after
+                        // a toggle must see the settled shape (AppKit's no-animator rule).
+                        // Nothing native hides this panel, so there is no echo to suppress:
+                        // `Event::InspectorChanged` never originates here.
+                        let mut state = state.borrow_mut();
+                        state.shown = *v;
+                        state.panel.set_visible(*v);
+                        if *v {
+                            state.place(h.width());
                         }
                     }
                     gtk4::glib::idle_add_local_once(move || {
@@ -3782,7 +4420,7 @@ impl Toolkit for Gtk {
                         // (which routes to the GUARDED nav_back()). The guard still runs; it just
                         // isn't reachable by gesture here.
                         if let NavPatch::GuardTop(on) = p
-                            && let Some((_, _, page)) = state.pages.last()
+                            && let Some((_, _, Some(page))) = state.pages.last()
                         {
                             page.set_can_pop(!on);
                         }
@@ -3797,13 +4435,24 @@ impl Toolkit for Gtk {
                             button.set_active(true);
                             state.suppress.set(false);
                         }
+                        // Show or collapse the content-list pane (docs/navigation.md). Applied
+                        // at once, no transition: a dayscript screenshot right after the
+                        // patch must see the settled shape. The sibling panes take their new
+                        // widths on the next allocation, which reports them (`on_allocate`).
+                        if let (NavPatch::ListVisible(v), NavPresent::Split(sp)) =
+                            (p, &state.present)
+                        {
+                            sp.list_shown.set(*v);
+                            sp.apply_list();
+                        }
                         // `NavPatch::Presentation` is deliberately not handled: this backend
                         // answers `Cap::NavRepresent = Unsupported`, so the pieces layer never
                         // sends it. Unlike the other desktops the two presentations are different
-                        // WIDGETS here (AdwOverlaySplitView vs AdwNavigationView), and Day holds
-                        // the host handle — so morphing means moving to AdwNavigationSplitView
-                        // and driving its `collapsed`, which is the GNOME adaptive idiom but a
-                        // real restructure (docs/size-classes.md).
+                        // WIDGETS here (the `NavSplit` paneds vs AdwNavigationView), and Day
+                        // holds the host handle — so morphing means re-homing the pages into a
+                        // stack under one host, a real restructure (docs/size-classes.md). What
+                        // a narrowing window does get is the AppKit-style fold: the sidebar
+                        // collapses when there is no room for it (`NavSplit::fit`).
                     });
                 }
             }
@@ -4094,13 +4743,16 @@ impl Toolkit for Gtk {
             g.borrow_mut().retain(|(ptr, _)| *ptr != key);
         });
         // A tab page detaches from its AdwViewStack; a nav page is owned by its AdwNavigationPage
-        // (already detached in `remove`); everything else lives in a GtkFixed parent.
+        // (already detached in `remove`); a list row's content by its DayCell; everything else
+        // lives in a GtkFixed parent.
         if let Some(stack) = h.parent().and_then(|p| p.downcast::<adw::ViewStack>().ok()) {
             stack.remove(&h);
-        } else if let Some(parent) = h.parent()
-            && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
-        {
-            fixed.remove(&h);
+        } else if let Some(parent) = h.parent() {
+            if let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>() {
+                fixed.remove(&h);
+            } else if let Some(cell) = parent.downcast_ref::<DayCell>() {
+                cell.remove_child(&h);
+            }
         }
     }
 
@@ -4152,51 +4804,30 @@ impl Toolkit for Gtk {
                 .with(|t| t.borrow().get(&widget_key(child)).cloned())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "Day".to_string());
-            // An overlay split's CONTENT pane gets its min-size propagation broken, the same way
-            // the window root does (`build_day_window`) and the same need GtkPaned covers with
-            // `set_shrink_*_child`. Day frames this page to the FULL host width whenever the
-            // sidebar hides, and a Day frame becomes a GTK minimum — which leaves the split no
-            // room to keep the sidebar parked off screen at its own width. Adw collapses the
-            // sidebar to zero instead, and a zero-width sidebar has nothing to slide back in, so
-            // the reveal jumped while the hide animated fine (issue #19). The sidebar pane keeps
-            // its plain Fixed: it is the pane that must hold a real width.
-            let split_content =
-                matches!(&state.present, NavPresent::Split(_)) && !(state.split && index == 0);
-            let page_child: Handle = if split_content {
-                let breaker = gtk4::ScrolledWindow::new();
-                breaker.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
-                breaker.set_child(Some(child));
-                breaker.upcast()
-            } else {
-                child.clone()
-            };
-            let nav_page = adw::NavigationPage::new(&page_child, &title);
-            match &state.present {
-                NavPresent::Split(sv) => {
-                    // Still the AdwNavigationPage wrapper, even though an overlay split takes
-                    // plain widgets: Day's pages are GtkFixeds with no natural size, and the
-                    // page is what gives the split something to size against. Handing over the
-                    // bare Fixed collapsed both panes to nothing. The split supplies the sidebar
-                    // treatment itself, so no `.sidebar-pane` class is needed.
-                    if state.split && index == 0 {
-                        sv.set_sidebar(Some(&nav_page));
-                    } else {
-                        sv.set_content(Some(&nav_page));
-                    }
-                }
-                NavPresent::Paned(paned) => {
-                    if state.split && index == 0 {
-                        // libadwaita's split-sidebar background treatment on the paned child.
-                        nav_page.add_css_class("sidebar-pane");
-                        paned.set_start_child(Some(&nav_page));
-                    } else {
-                        paned.set_end_child(Some(&nav_page));
-                    }
+            let nav_page = match &state.present {
+                NavPresent::Split(sp) => {
+                    // The page goes into its pane's filling cell, which hands it the whole
+                    // pane; Day lays the page's content to the width `nav_report` reports.
+                    // Which pane is the page's own declaration, never its insert index: a
+                    // replaced detail page arrives at index 1 or 2 depending on whether the
+                    // host has a list.
+                    let pane = NAV_PAGE_PANES
+                        .with(|m| m.borrow().get(&widget_key(child)).copied())
+                        .unwrap_or_default();
+                    let cell = match pane {
+                        day_spec::props::Pane::Sidebar => &sp.sidebar,
+                        day_spec::props::Pane::List => &sp.list,
+                        day_spec::props::Pane::Detail => &sp.detail,
+                    };
+                    cell.add_child(child);
+                    None
                 }
                 NavPresent::Stack(nv) => {
+                    let nav_page = adw::NavigationPage::new(child, &title);
                     state.suppress.set(true);
                     nv.push(&nav_page);
                     state.suppress.set(false);
+                    Some(nav_page)
                 }
                 NavPresent::Suite { stack, .. } => {
                     // Every destination is resident and the switcher shows one at a time. The
@@ -4204,14 +4835,16 @@ impl Toolkit for Gtk {
                     // stays in the stack so its nav menu has a path up to this host, but it is
                     // never shown — drawing the rows again as a list would be the same
                     // navigation twice.
+                    let nav_page = adw::NavigationPage::new(child, &title);
                     stack.add_named(&nav_page, Some(&format!("p{index}")));
                     if index == 0 {
                         nav_page.set_visible(false);
                     } else if stack.visible_child().is_none() {
                         stack.set_visible_child(&nav_page);
                     }
+                    Some(nav_page)
                 }
-            }
+            };
             state.pages.push((widget_key(child), id, nav_page));
             true
         });
@@ -4221,28 +4854,18 @@ impl Toolkit for Gtk {
             });
             return;
         }
-        // An inspector pane landing in its split (docs/inspector.md). The content pane takes
-        // the same External-policy min-size breaker the nav split's content does — Day frames
-        // it to the full width while the panel is hidden, and without the breaker that frame
-        // becomes a GTK minimum the reveal cannot push against.
+        // An inspector pane landing in its paned (docs/inspector.md): into its pane's filling
+        // cell, which hands it the whole pane — so Day framing the content to the full width
+        // while the panel is hidden never becomes a GTK minimum the reveal cannot push against.
         let inspected = INSPECTOR_STATE.with(|t| t.get(host_key)).map(|state| {
             let (pane_id, panel) = INSPECTOR_PANES
                 .with(|t| t.get(widget_key(child)))
                 .unwrap_or((NodeId(0), index == 1));
             let mut state = state.borrow_mut();
-            // BOTH panes take the min-size breaker. Unlike the nav sidebar — whose plain
-            // Fixed is what holds the pane's width — this pane's width is pinned by the
-            // split itself (min == max), so the child's Day-laid frame must never become a
-            // GTK minimum: a 280-wide form inside a pane briefly measured narrower would
-            // otherwise inflate the pane's minimum until the sidebar has no room to show.
-            let breaker = gtk4::ScrolledWindow::new();
-            breaker.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
-            breaker.set_child(Some(child));
-            let page = adw::NavigationPage::new(&breaker, "Day");
             if panel {
-                state.split.set_sidebar(Some(&page));
+                state.panel.add_child(child);
             } else {
-                state.split.set_content(Some(&page));
+                state.content.add_child(child);
             }
             state.panes.push((pane_id, panel, child.clone()));
         });
@@ -4252,6 +4875,9 @@ impl Toolkit for Gtk {
             });
         } else if let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>() {
             fixed.put(child, 0.0, 0.0);
+        } else if let Some(cell) = content_of(parent).downcast_ref::<DayCell>() {
+            // A list row's content: the cell places it from the frames `set_frame` records.
+            cell.add_child(child);
         }
     }
 
@@ -4264,18 +4890,22 @@ impl Toolkit for Gtk {
             let key = widget_key(child);
             if let Some(pos) = state.pages.iter().position(|(k, _, _)| *k == key) {
                 let (_, _, nav_page) = state.pages.remove(pos);
-                match &state.present {
-                    // The content page is being replaced; clear it (a new one follows).
-                    NavPresent::Split(sv) => sv.set_content(None::<&gtk4::Widget>),
-                    NavPresent::Paned(paned) => paned.set_end_child(None::<&gtk4::Widget>),
-                    // The stack pop already removed it (day-driven pop or native gesture);
-                    // dropping our ref is enough.
-                    NavPresent::Suite { stack, .. } => {
+                match (&state.present, nav_page) {
+                    // A pane's page is being replaced (a new detail follows): its cell lets
+                    // it go.
+                    (NavPresent::Split(_), _) => {
+                        if let Some(cell) =
+                            child.parent().and_then(|p| p.downcast::<DayCell>().ok())
+                        {
+                            cell.remove_child(child);
+                        }
+                    }
+                    (NavPresent::Suite { stack, .. }, Some(nav_page)) => {
                         stack.remove(&nav_page);
                     }
-                    NavPresent::Stack(_) => {
-                        let _ = nav_page;
-                    }
+                    // The stack pop already removed it (day-driven pop or native gesture);
+                    // dropping our ref is enough.
+                    (NavPresent::Stack(_), _) | (NavPresent::Suite { .. }, None) => {}
                 }
             }
             true
@@ -4291,16 +4921,19 @@ impl Toolkit for Gtk {
                     .unwrap_or((NodeId(0), false));
                 let mut state = state.borrow_mut();
                 if panel {
-                    state.split.set_sidebar(None::<&gtk4::Widget>);
+                    state.panel.remove_child(child);
                 } else {
-                    state.split.set_content(None::<&gtk4::Widget>);
+                    state.content.remove_child(child);
                 }
                 state.panes.retain(|(id, ..)| *id != pane_id);
             });
-        if inspected.is_none()
-            && let Some(fixed) = content_of(parent).downcast_ref::<gtk4::Fixed>()
-        {
-            fixed.remove(child);
+        if inspected.is_none() {
+            let host = content_of(parent);
+            if let Some(fixed) = host.downcast_ref::<gtk4::Fixed>() {
+                fixed.remove(child);
+            } else if let Some(cell) = host.downcast_ref::<DayCell>() {
+                cell.remove_child(child);
+            }
         }
     }
 
@@ -4399,8 +5032,19 @@ impl Toolkit for Gtk {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                     return measure(self, h, p);
                 }
+                // Free of request state. `set_frame` sizes GtkFixed children through
+                // `set_size_request`, and `gtk_widget_measure` never reports less than the
+                // current request — so measuring the widget as it stands RATCHETS to wherever
+                // Day last placed it (the LABEL arm measures Pango for the same reason). A shape
+                // or canvas placed at 300 once would never measure narrower again, and nothing
+                // containing it could shrink: a list row re-laid at its cell's real width kept
+                // its old width exactly that way (day#35). Measure the widget's own natural size
+                // with the request cleared, then put the request back.
+                let (req_w, req_h) = h.size_request();
+                h.set_size_request(-1, -1);
                 let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
                 let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, -1);
+                h.set_size_request(req_w, req_h);
                 Size::new(nat_w as f64, nat_h as f64)
             }
         }
@@ -4519,6 +5163,17 @@ impl Toolkit for Gtk {
         if NAV_PAGE_IDS.with(|m| m.borrow().contains_key(&key)) {
             return;
         }
+        // A list row's content: the DayCell records the frame and places the child itself when
+        // GTK allocates it. No `set_size_request` — that would make Day's width the cell's
+        // minimum and inflate the row, the very thing the cell exists to prevent (day#35).
+        if let Some(cell) = h.parent().and_then(|p| p.downcast::<DayCell>().ok()) {
+            NODE_ORIGIN.with(|m| {
+                m.borrow_mut()
+                    .insert(key, (frame.origin.x as f32, frame.origin.y as f32))
+            });
+            cell.set_child_frame(h, frame);
+            return;
+        }
         if let Some(parent) = h.parent()
             && let Some(fixed) = parent.downcast_ref::<gtk4::Fixed>()
         {
@@ -4542,17 +5197,17 @@ impl Toolkit for Gtk {
             frame.size.width.round() as i32,
             frame.size.height.round() as i32,
         );
-        // Nav / tabs host resized (window resize): re-report page sizes for relayout.
-        // GTK allocates asynchronously — defer one idle so size/position settle.
-        let is_nav = NAV_STATE.with(|m| m.borrow().contains_key(&key));
-        if is_nav {
+        // A stack or suite host resized (window resize): re-report page sizes for relayout.
+        // GTK allocates asynchronously — defer one idle so size/position settle. A split
+        // host's panes report themselves as GTK allocates them (`nav_pane_report`), and so do
+        // an inspector's; a second report here would only lay the same pages out twice.
+        let stacked_nav = NAV_STATE.with(|m| {
+            m.borrow()
+                .get(&key)
+                .is_some_and(|s| !matches!(s.present, NavPresent::Split(_)))
+        });
+        if stacked_nav {
             gtk4::glib::idle_add_local_once(move || ffi_guard::contain((), || nav_report(key)));
-        }
-        // Same for an inspector split: its pane frames are native-owned too.
-        if INSPECTOR_STATE.with(|t| t.contains(key)) {
-            gtk4::glib::idle_add_local_once(move || {
-                ffi_guard::contain((), || inspector_report(key))
-            });
         }
     }
 
@@ -5601,9 +6256,9 @@ fn snapshot_widget(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
     Ok(texture.save_to_png_bytes().to_vec())
 }
 
-/// Build one Day window: AdwApplicationWindow + ToolbarView/HeaderBar chrome + the
-/// External-policy scroll wrapper + the GtkFixed content (docs/windows.md; see the wrapper
-/// comments in `Platform::run` — factored so `open_window` builds identical chrome).
+/// Build one Day window: AdwApplicationWindow + ToolbarView/HeaderBar chrome + the filling
+/// `DayCell` wrapper + the GtkFixed content (docs/windows.md; see the wrapper comments below —
+/// factored so `open_window` builds identical chrome).
 /// Wires the resize notifies to `target` (`None` = primary).
 fn build_day_window(
     app: &adw::Application,
@@ -5615,22 +6270,12 @@ fn build_day_window(
     window.set_title(Some(title));
     window.set_default_size(size.width as i32, size.height as i32);
     let fixed = gtk4::Fixed::new();
-    // A GtkFixed reports its children's bounding box as its MINIMUM size, which would pin
-    // the window at the content size. A scroll wrapper with External policy breaks that
-    // propagation (no scrollbars are ever shown — Day sizes the content on every resize).
-    let wrapper = gtk4::ScrolledWindow::new();
-    wrapper.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::External);
-    wrapper.set_child(Some(&fixed));
-    // The wrapper exists ONLY to break min-size propagation — it must never actually
-    // scroll. If any child's native minimum exceeds the window, a wheel would otherwise
-    // pan the whole UI; pin both axes.
-    for adj in [wrapper.hadjustment(), wrapper.vadjustment()] {
-        adj.connect_value_changed(|a| {
-            if a.value() != 0.0 {
-                a.set_value(0.0);
-            }
-        });
-    }
+    // A GtkFixed reports its children's bounding box as its MINIMUM size, which would pin the
+    // window at the content size. A filling `DayCell` around it asks for nothing, so the window
+    // resizes freely and Day sizes the content on every resize — and unlike the External-policy
+    // scroll window that used to do this, nothing here can ever pan the UI under a wheel.
+    let wrapper = DayCell::filling();
+    wrapper.add_child(fixed.upcast_ref());
     // AdwApplicationWindow carries no titlebar of its own; an AdwToolbarView supplies an
     // AdwHeaderBar (window controls, drag handle, and the window title) above Day's
     // content — the standard Adwaita window structure, and the AdwDialog host that

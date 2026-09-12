@@ -435,8 +435,8 @@ fn gtk_group() -> Group {
             .need(Need::PackOptional),
         ],
         setup: "GTK 4 builds on macOS, Linux, and Windows via pkg-config. Day needs gtk4 4.10 or\n\
-                newer and libadwaita 1.5 or newer — it builds navigation on AdwNavigationView and\n\
-                AdwOverlaySplitView and dialogs on GtkFileDialog/GtkAlertDialog, none of which\n\
+                newer and libadwaita 1.5 or newer — it builds stack navigation on\n\
+                AdwNavigationView and dialogs on GtkFileDialog/GtkAlertDialog, none of which\n\
                 exist below those versions. A distribution that ships an older GTK (Debian 12 has\n\
                 gtk4 4.8) cannot build this target; use `-p linux-qt` there, or a newer runtime.\n\
                 Install the dev libraries:\n\

@@ -522,6 +522,104 @@ impl<B: Toolkit> Tree<B> {
         self.layout_dirty = true;
     }
 
+    /// Forget every cached measurement under `node`, `node` included. The opposite walk from
+    /// [`Self::mark_needs_measure_impl`]: a cell re-laid at a NEW width (`list_layout_cell_width`,
+    /// `tree_layout_cell_width`) has to measure its whole row afresh, or a `grow` child keeps the
+    /// size it was given at the old width, is placed at that width again, and its own children
+    /// stay put — a trailing control then sits past the row's new edge.
+    fn invalidate_subtree(&mut self, node: RNode) {
+        let mut stack = vec![node];
+        while let Some(cur) = stack.pop() {
+            if let Some(n) = self.nodes.get_mut(cur) {
+                n.needs_measure = true;
+                n.cache.clear();
+                stack.extend(n.children.iter().copied());
+            }
+        }
+    }
+
+    /// Lay the list cell `key`'s row out at `width` × its `RowHeight` — the one place a list row
+    /// is placed, shared by the first-approximation pass (`list_layout_cell`) and the backend's
+    /// correction (`list_layout_cell_width`).
+    fn layout_list_cell_at(&mut self, node: RNode, key: usize, width: f64) {
+        let Some(state) = self.lists.get(&node) else {
+            return;
+        };
+        let (anchor, stale) = match state.cells.get(&key) {
+            Some(b) => (b.anchor, b.laid_width != Some(width)),
+            None => return,
+        };
+        let row_height = state.driver.row_height;
+        // A NEW width: nothing measured at the old one may survive, or a `grow` child keeps it.
+        // The same width again — the dirty-cell sweep re-lays every bound cell on every pass —
+        // keeps the row's measurement cache; re-measuring every row's text each pass is what
+        // made a 500-row list's binds take whole seconds (the sweep runs once per bind).
+        if stale {
+            self.invalidate_subtree(anchor);
+            if let Some(b) = self
+                .lists
+                .get_mut(&node)
+                .and_then(|s| s.cells.get_mut(&key))
+            {
+                b.laid_width = Some(width);
+            }
+        }
+        let height = match row_height {
+            day_spec::props::RowHeight::Uniform(h) => h,
+            day_spec::props::RowHeight::Automatic => {
+                crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
+            }
+        };
+        crate::layout::place_node(
+            self,
+            anchor,
+            Rect::new(0.0, 0.0, width, height),
+            Point::ZERO,
+            true,
+        );
+        // Placed: the dirty-cell sweep need not lay this row again until something in it
+        // changes — a change marks its boundary, this anchor, dirty on the way up. Left set, the
+        // sweep re-laid every bound cell of every list on every layout pass.
+        self.nodes[anchor].needs_measure = false;
+    }
+
+    /// The tree twin of [`Self::layout_list_cell_at`]: lay tree cell `key`'s row out at `width`
+    /// × its `RowHeight`, keeping the row's measurement cache unless the width changed.
+    fn layout_tree_cell_at(&mut self, node: RNode, key: usize, width: f64) {
+        let Some(state) = self.trees.get(&node) else {
+            return;
+        };
+        let (anchor, stale) = match state.cells.get(&key) {
+            Some(b) => (b.anchor, b.laid_width != Some(width)),
+            None => return,
+        };
+        let row_height = state.driver.row_height;
+        if stale {
+            self.invalidate_subtree(anchor);
+            if let Some(b) = self
+                .trees
+                .get_mut(&node)
+                .and_then(|s| s.cells.get_mut(&key))
+            {
+                b.laid_width = Some(width);
+            }
+        }
+        let height = match row_height {
+            day_spec::props::RowHeight::Uniform(h) => h,
+            day_spec::props::RowHeight::Automatic => {
+                crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
+            }
+        };
+        crate::layout::place_node(
+            self,
+            anchor,
+            Rect::new(0.0, 0.0, width, height),
+            Point::ZERO,
+            true,
+        );
+        self.nodes[anchor].needs_measure = false;
+    }
+
     fn layout_now(&mut self) {
         // Every window lays out independently at its own size; the release queue drains
         // once, after all of them (a released handle may be referenced by no window).
@@ -823,6 +921,10 @@ pub trait TreeOps {
     );
     /// Lay the row out inside its cell bounds (row content width × the RowHeight).
     fn list_layout_cell(&mut self, node: RNode, key: usize);
+    /// Re-lay the row at the cell's ACTUAL width (the list's own width is only the first
+    /// approximation: a native row's chrome — GtkListView's themed `row` node — makes the cell
+    /// narrower, and a row laid at the list's width holds the whole list wider than its frame).
+    fn list_layout_cell_width(&mut self, node: RNode, key: usize, width: f64);
     /// The physical-cell keys of every bound cell of the list at `node` (for a bulk re-layout
     /// after the list's own width changed).
     fn list_cell_keys(&self, node: RNode) -> Vec<usize>;
@@ -1771,41 +1873,45 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     anchor,
                     scope: built.scope,
                     rebind: built.rebind,
+                    native_width: None,
+                    laid_width: None,
                 },
             );
         }
     }
 
     fn list_layout_cell(&mut self, node: RNode, key: usize) {
-        let Some(state) = self.lists.get(&node) else {
-            return;
-        };
-        let anchor = match state.cells.get(&key) {
-            Some(b) => b.anchor,
-            None => return,
-        };
-        let row_height = state.driver.row_height;
-        // The row's width is the list's content width; its height is the RowHeight policy.
-        let width = self
-            .nodes
-            .get(node)
-            .and_then(|n| n.last_native_frame)
-            .map(|f| f.size.width)
-            .unwrap_or(self.windows[0].size.width);
-        let height = match row_height {
-            day_spec::props::RowHeight::Uniform(h) => h,
-            day_spec::props::RowHeight::Automatic => {
-                crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
-            }
-        };
-        self.nodes[anchor].needs_measure = true;
-        crate::layout::place_node(
-            self,
-            anchor,
-            Rect::new(0.0, 0.0, width, height),
-            Point::ZERO,
-            true,
-        );
+        // The width the backend last granted this cell, once it has said so (GtkListView's themed
+        // `row` node pads the cell, so it is narrower than the list); until then the list's own
+        // content width, which is right wherever the cell IS the row. Every path that re-lays a
+        // row — a rebind, the dirty-cell sweep, a data change — comes through here, so a width
+        // the backend corrected once stays corrected.
+        let native = self
+            .lists
+            .get(&node)
+            .and_then(|s| s.cells.get(&key))
+            .and_then(|c| c.native_width);
+        let width = native.unwrap_or_else(|| {
+            self.nodes
+                .get(node)
+                .and_then(|n| n.last_native_frame)
+                .map(|f| f.size.width)
+                .unwrap_or(self.windows[0].size.width)
+        });
+        self.layout_list_cell_at(node, key, width);
+    }
+
+    fn list_layout_cell_width(&mut self, node: RNode, key: usize, width: f64) {
+        // The backend's word on the cell's width (`ListSource::layout_cell`), remembered so the
+        // next first-approximation pass does not undo it.
+        if let Some(cell) = self
+            .lists
+            .get_mut(&node)
+            .and_then(|s| s.cells.get_mut(&key))
+        {
+            cell.native_width = Some(width);
+        }
+        self.layout_list_cell_at(node, key, width);
     }
 
     fn list_cell_keys(&self, node: RNode) -> Vec<usize> {
@@ -1947,46 +2053,43 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     anchor,
                     scope: built.scope,
                     rebind: built.rebind,
+                    native_width: None,
+                    laid_width: None,
                 },
             );
         }
     }
 
     fn tree_layout_cell(&mut self, node: RNode, key: usize) {
-        // First approximation: the tree's own content width. The cell's native layout pass
-        // corrects it per row through `TreeSource::layout_cell` (indentation).
-        let width = self
-            .nodes
-            .get(node)
-            .and_then(|n| n.last_native_frame)
-            .map(|f| f.size.width)
-            .unwrap_or(self.windows[0].size.width);
-        self.tree_layout_cell_width(node, key, width);
+        // The width the backend last granted this cell, once it has said so (indentation makes
+        // every tree cell's width its own); until then the tree's own content width. Every path
+        // that re-lays a row comes through here, so a width the backend corrected stays corrected.
+        let native = self
+            .trees
+            .get(&node)
+            .and_then(|s| s.cells.get(&key))
+            .and_then(|c| c.native_width);
+        let width = native.unwrap_or_else(|| {
+            self.nodes
+                .get(node)
+                .and_then(|n| n.last_native_frame)
+                .map(|f| f.size.width)
+                .unwrap_or(self.windows[0].size.width)
+        });
+        self.layout_tree_cell_at(node, key, width);
     }
 
     fn tree_layout_cell_width(&mut self, node: RNode, key: usize, width: f64) {
-        let Some(state) = self.trees.get(&node) else {
-            return;
-        };
-        let anchor = match state.cells.get(&key) {
-            Some(b) => b.anchor,
-            None => return,
-        };
-        let row_height = state.driver.row_height;
-        let height = match row_height {
-            day_spec::props::RowHeight::Uniform(h) => h,
-            day_spec::props::RowHeight::Automatic => {
-                crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
-            }
-        };
-        self.nodes[anchor].needs_measure = true;
-        crate::layout::place_node(
-            self,
-            anchor,
-            Rect::new(0.0, 0.0, width, height),
-            Point::ZERO,
-            true,
-        );
+        // The backend's word on the cell's width (`TreeSource::layout_cell`), remembered so the
+        // next first-approximation pass does not undo it.
+        if let Some(cell) = self
+            .trees
+            .get_mut(&node)
+            .and_then(|s| s.cells.get_mut(&key))
+        {
+            cell.native_width = Some(width);
+        }
+        self.layout_tree_cell_at(node, key, width);
     }
 
     fn tree_recycle_cell(&mut self, node: RNode, key: usize) {

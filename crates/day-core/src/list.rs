@@ -84,6 +84,16 @@ pub(crate) struct BoundCell {
     /// would dispose their bindings).
     pub scope: Scope,
     pub rebind: Rc<dyn Fn(usize)>,
+    /// The width the backend last laid this cell at through `ListSource::layout_cell` — the
+    /// width the native row actually granted, which on GTK is the list's less the row's own
+    /// padding. Every later layout of the row (a rebind, the dirty-cell sweep, a data change)
+    /// uses it; `None` until the backend has reported one, when the list's width stands in.
+    pub native_width: Option<f64>,
+    /// The width this cell's row was last laid at, by either path. Only a width that actually
+    /// changed invalidates the row's measurement cache: the dirty-cell sweep re-lays every bound
+    /// cell on every pass, and re-measuring each row's text each time made a 500-row list's
+    /// binds take whole seconds.
+    pub laid_width: Option<f64>,
 }
 
 pub(crate) struct ListState {
@@ -263,6 +273,11 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
         // The cell stays pooled; only its dayscript ids clear, so a hidden row past a shrunk
         // source stops answering lookups (`try_with_tree`: a backend may recycle while a
         // snapshot draw holds the borrow — the ids clear on the next pass then).
+        layout_cell: Rc::new(move |cell, width| {
+            // From the native cell's own layout pass — skip inside a snapshot borrow, the next
+            // real pass corrects it (same rule as bind_row).
+            let _ = try_with_tree(|t| t.list_layout_cell_width(node, cell as usize, width));
+        }),
         recycle: Rc::new(move |cell| {
             let _ = try_with_tree(|t| t.list_recycle_cell(node, cell as usize));
         }),

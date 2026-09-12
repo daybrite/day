@@ -1959,6 +1959,44 @@ The backend's list host owns scrolling and recycling; Day owns row *content*:
    content size changes, Day calls `host.row_size_invalidated(key)`, mapping to
    `reconfigureItems`/preferred-attributes (UICollectionView), `noteHeightOfRows` (NSTableView),
    `requestLayout` (RecyclerView), `InvalidateMeasure` (ItemsRepeater).
+   > [!NOTE]
+   > **Outcome (2026-09-12): "inside the cell bounds" is now true on GTK too** (day#35). day-core
+   > lays a row at the LIST's width first, which holds wherever the cell IS the row; GtkListView
+   > instead wraps each cell in a themed `row` node that pads it (4pt under Adwaita), and a row laid
+   > at the list's width inflated the cell, which reported that width back as its minimum and
+   > dragged the whole list 4pt past its frame, over the pane alongside. Three changes closed it,
+   > each the GTK-native answer rather than a measurement of the chrome:
+   > 1. day-gtk's list cell is `DayCell`, that backend's first custom container: a `GtkWidget`
+   >    subclass (not a `GtkFixed` — GTK never calls the `measure`/`size_allocate` of a widget that
+   >    has a layout manager, and `GtkFixed` installs one) that asks for zero width, owns its
+   >    children, and on `size_allocate` lays Day's row at the width the row actually granted,
+   >    through `ListSource::layout_cell` — the seam `TreeSource` already carried for indentation —
+   >    before placing the children from the frames Day recorded. Nothing under it goes through
+   >    `set_size_request`.
+   > 2. day-core remembers that width per cell (`BoundCell::native_width`), and every later
+   >    layout of the row — a rebind, the dirty-cell sweep, a data change — uses it, so the
+   >    first-approximation pass can no longer undo the correction. A re-lay at a NEW width
+   >    invalidates the row subtree's measurement cache (a `grow` child would otherwise keep its
+   >    old size); a re-lay at the same width keeps it, because the sweep re-lays every bound
+   >    cell on every pass, and re-measuring each row's text each time cost whole seconds on a
+   >    500-row list (`BoundCell::laid_width`).
+   > 3. day-gtk measures a native leaf with its size request cleared: `gtk_widget_measure` never
+   >    reports less than the current request, so a shape or canvas placed once RATCHETED and
+   >    nothing containing it could ever measure narrower — the defect the LABEL arm was already
+   >    dodging by measuring Pango, and one a narrowing window resize hit just the same.
+   >
+   > Measured on macos-gtk in a 300pt slot: the list's right edge moved from 304 to 300, and a
+   > 20pt trailing marker in each row renders at its full 20pt, ending exactly at the cell's edge.
+   >
+   > Follow-ups, same day: GTK's tree cell is a `DayCell` too, laid at the width its expander
+   > leaves after the indentation through `TreeSource::layout_cell` (it used to be laid at the
+   > host's width and left to overflow); a *filling* `DayCell` — asks for nothing, hands its child
+   > the whole allocation — replaced the three `External`-policy scroll windows that broke
+   > minimum-size propagation around the nav split's content pane, the inspector's panes and the
+   > window root; a placed cell clears its anchor's dirty flag, so the per-pass sweep re-lays only
+   > rows that changed rather than every bound cell of every list; and Day's `RowHeight` is the
+   > row's height — the themed `row` node's vertical padding is zeroed for Day lists and trees
+   > (`day-list`), so a 36pt row draws 36, not 40.
 4. Selection, separators, swipe actions, section headers are host-native features exposed as list
    options gated on `Toolkit::capability` ([§8.1](#81-the-toolkit-trait)); Qt reports `Emulated` recycling (DP-19).
    Outcome (2026-09): DP-19's premise held (a `QListView` cannot recycle a widget-hosted row)
@@ -2020,6 +2058,15 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
   Since 2026-09 the composed compact flow's list is a merge target: a `nav_stack` built inside it
   pushes onto the tab's navigation controller (a drill-down with a native back), while the
   native resident pane stays a barrier.
+>   Outcome (2026-09-12): GTK answers `Native` as well, and its sidebar split is no longer
+>   libadwaita's. `AdwOverlaySplitView` pinned the sidebar width by the GNOME idiom and sized
+>   its content pane from Day's own frame, so the desktop's adjustable columns were never
+>   reachable and every relayout fought it; day-gtk now builds a `Sidebar` host as two nested
+>   `GtkPaned`s (sidebar | list | detail, every divider draggable, each pane a filling `DayCell`
+>   carrying its honest minimum) and folds the sidebar AppKit-style when the window has no
+>   room for it. The Adw split is gone from the backend with no flag to restore it, and the
+>   inspector's `AdwOverlaySplitView` went with it (a `GtkPaned` there too);
+>   [docs/navigation.md](docs/navigation.md)'s GTK backend notes record the decision.
 >   The keyboard half rides `Decorate::focusable` — the canvas focus contract generalized to
 >   containers through the new `Toolkit::set_focusable` duty (appkit today).
 >   [docs/navigation.md](docs/navigation.md) and [docs/focus.md](docs/focus.md) are normative.

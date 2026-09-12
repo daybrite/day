@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Inspector (`inspector`)
 
 > **Status: implemented** (2026-08). Native trailing pane on macos-appkit (a real inspector
-> `NSSplitViewItem`), gtk (`AdwOverlaySplitView`, sidebar at the end), qt (the nav `QSplitter`
+> `NSSplitViewItem`), gtk (a `GtkPaned`, panel at the end), qt (the nav `QSplitter`
 > mirrored), and xaml (`SplitView`, pane placed right); composed pane + compact sheet on
 > ios-uikit, android-mdc, harmony-arkui, web-dom, and mock (`Cap::Inspector = Unsupported`
 > there; the piece itself supplies the fallback). Exercised end-to-end by Day-Sketch's
@@ -46,7 +46,7 @@ inspector(show, editor(), || form((section((/* property rows */,)),)))
   utility pane like a layer panel ([docs/tree.md](tree.md)) rather than a properties
   inspector. Default `PaneEdge::Trailing`. On AppKit the leading pane is a plain pinned
   split item (not the system inspector item, whose treatment is trailing-specific); GTK
-  packs the `AdwOverlaySplitView` sidebar at the start; Qt puts the splitter's panel pane
+  makes the panel the `GtkPaned`'s start child; Qt puts the splitter's panel pane
   first (the panes are positional; day-qt maps roles onto positions at realize). The composed form mounts the pane
   before the content, and, unlike the trailing pane, it stays a side pane at every width
   rather than re-homing into the compact sheet, because a layer panel beside a narrow canvas
@@ -73,7 +73,7 @@ squeezes its split, the same rule the nav sidebar follows.
 | backend | `Cap::Inspector` | pane |
 |---|---|---|
 | macos-appkit | Native | `NSSplitViewItem` **inspector** item (`inspectorWithViewController:`), full-height under the titlebar. The panel paints an opaque window-background backdrop over the item's vibrancy material; the vibrant variants of the system fills only composite correctly in `allowsVibrancy` views, so grouped cards on the raw material came out near-black in dark mode (and materials capture black offscreen). Width pinned; visibility is Day's alone (the item cannot be user-collapsed). |
-| linux-gtk / macos-gtk | Native | `AdwOverlaySplitView` with `sidebar-position=end`, width pinned (GNOME has no draggable sidebars), `show-sidebar` animated. |
+| linux-gtk / macos-gtk | Native | A `GtkPaned` with the panel as its end child (start for `PaneEdge::Leading`), each pane a filling `DayCell` so Day's frames never become pane minimums; the divider is draggable down to 160pt and the panel keeps its dragged width across a hide and a reveal; visibility flips at once, no transition (the screenshot rule). Since 2026-09 — the `AdwOverlaySplitView` it replaced pinned the width by the GNOME idiom ([docs/navigation.md](navigation.md) records the decision). |
 | linux-qt / macos-qt | Native | The nav `QSplitter` mirrored: content pane stretches, panel pane trailing at its preferred width, divider draggable. It is not a `QDockWidget`; `DayWindow` is a plain `QWidget` with hand-managed chrome, and dock areas need `QMainWindow` (the same trade the toolbar records in the shim). |
 | windows-xaml | Native | `SplitView` with `PanePlacement=Right`, `DisplayMode=Inline`: the pane sits beside the content, never over it. |
 | ios-uikit, android-mdc, harmony-arkui, web-dom, mock | Unsupported | The piece composes the pane from plain containers (same panel, same signal, a divider but no drag) and presents the compact sheet described above. |

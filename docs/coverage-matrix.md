@@ -88,7 +88,7 @@ An app branches on this rather than on the target name.
 | `NavTabs` | N | N | N | N | N | N | E | E |
 | `NavTabsAdaptive` | – | N | – | – | – | N | E | E |
 | `NavRepresent` | N | E | – | N | – | E | – | N |
-| `NavContentList` | N | E | – | N | – | – | – | – |
+| `NavContentList` | N | E | N | N | – | – | – | – |
 | `NavHeader` | – | N | – | – | N | N | N | – |
 | `Appearance` | N | N | N | – | N | ? | – | N |
 | `AppMenu` | N | – | N | N | N | – | – | – |

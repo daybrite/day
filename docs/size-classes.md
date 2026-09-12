@@ -132,11 +132,13 @@ back.
 
 GTK is the odd one out among the desktops. Everywhere else both presentations are the same
 container with different chrome, so a morph re-homes pages inside a host Day already holds. On
-GTK they are different widgets (`AdwOverlaySplitView` for the split, `AdwNavigationView` for the
+GTK they are different widgets (nested `GtkPaned`s for the split, `AdwNavigationView` for the
 stack), and Day holds the host handle, so it cannot be swapped underneath. The route there is
-`AdwNavigationSplitView` and its `collapsed` property, which is the GNOME adaptive idiom
-(it is what an `AdwBreakpoint` drives in Nautilus and Text Editor). That is a restructure of a
-working backend rather than an addition to it.
+a stack presentation re-homing the split's pages under the same host, which is a restructure
+of a working backend rather than an addition to it. What a narrowing GTK window does get is
+the AppKit-style fold ([docs/navigation.md](navigation.md), backend notes): the sidebar
+collapses when the window has no room for it beside the other panes' minimums, and returns
+when there is room again — the presentation stays `Split` throughout.
 
 > [!NOTE]
 > The mobile backends run the **opposite** policy from the desktop ones; `NavRepresent = Emulated`

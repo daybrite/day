@@ -80,6 +80,13 @@ pub(crate) struct TreeBoundCell {
     /// goes away (cells live in the tree machinery, not the node tree).
     pub scope: Scope,
     pub rebind: Rc<dyn Fn(u64)>,
+    /// The width the backend last laid this cell at through `TreeSource::layout_cell` — the
+    /// indented width the native row actually granted. Every later layout of the row uses it;
+    /// `None` until the backend has reported one, when the tree's width stands in.
+    pub native_width: Option<f64>,
+    /// The width this cell's row was last laid at, by either path; only a width that actually
+    /// changed invalidates the row's measurement cache (see `BoundCell::laid_width`).
+    pub laid_width: Option<f64>,
 }
 
 pub(crate) struct TreeState {

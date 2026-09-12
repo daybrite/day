@@ -109,6 +109,7 @@ pub struct ListSource {
     pub token_at: Rc<dyn Fn(usize) -> u64>,     // stable per-row identity for the native widget
     pub bind_row: Rc<dyn Fn(usize, RawHandle)>, // build-or-rebind row `i` into this native cell
     pub recycle: Rc<dyn Fn(RawHandle)>,         // cell leaving the viewport: its ids park until the next bind
+    pub layout_cell: Rc<dyn Fn(RawHandle, f64)>, // re-lay that cell's row at the width the platform gave it
 }
 
 trait Toolkit {
@@ -152,7 +153,7 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior
 | AppKit  | `NSTableView` (view-based) | native | `makeView`/`viewFor` → `bind_row`; `numberOfRows` → `len` |
 | UIKit   | `UITableView` + reuse id | native | `cellForRowAt` → `bind_row` |
 | Android | `RecyclerView` + `Adapter` | native | `onBindViewHolder` → `bind_row` |
-| GTK 4   | `GtkListView` + `GtkListItemFactory` | native | factory `bind`/`unbind` → `bind_row`/`recycle` |
+| GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell` |
 | Qt      | `QListWidget` + one item per row, Day's cell attached with `setIndexWidget` as it scrolls in | none — cells stay pinned to their row (Cap reports `Emulated`, DP-19) | the view owns selection, keys, focus, drag; Day owns the rows |
 
 ## Building it (mock-first, like M0–M1)
