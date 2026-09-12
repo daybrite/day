@@ -1268,21 +1268,26 @@ impl NavSplit {
 enum NavPresent {
     /// Sidebar, content list, and detail in nested GtkPaneds with draggable dividers.
     Split(Rc<NavSplit>),
-    /// `NavPresentation::Tabs`: the Adwaita view-switching idiom — resident pages in an
-    /// AdwViewStack under a `.linked` row of grouped toggle buttons, which is how GNOME draws a
-    /// segmented one-of-N switch.
+    /// `NavPresentation::Tabs`: the Adwaita view-switching idiom — an `AdwViewSwitcher` over
+    /// an `AdwViewStack` of resident pages, the switcher a libadwaita app puts in its header
+    /// bar. Drawn ABOVE the pages here: this host is usually nested inside a sidebar
+    /// destination, and the window's header bar is not its to take. (Until 2026-09-12 the
+    /// switcher was a hand-built `.linked` row of toggles docked at the foot, and the pages'
+    /// own Day frames pushed it below the pane's clipped edge — no picker was ever visible.)
     ///
-    /// Docked at the FOOT, where AdwViewSwitcherBar sits, rather than above the content the way
-    /// the retiring `tabs()` piece put it: an app reaching for this presentation is asking for a
-    /// tab bar, and a tab bar is at the bottom on every platform Day targets.
+    /// Each page sits in a filling `DayCell` and reports its size from the cell's allocation,
+    /// the split panes' rule, so the pages can never grow the stack past the host.
     ///
     /// A desktop only ever gets here by PINNING `NavStyle::Tabs` — `Cap::NavTabsAdaptive` is
     /// off here, so a narrowing window hides the sidebar and pushes instead of growing a bar.
     Suite {
         stack: adw::ViewStack,
-        switcher: gtk4::Box,
-        toggles: Rc<RefCell<Vec<gtk4::ToggleButton>>>,
-        /// The nav menu's node: a toggle reports against it, exactly as a sidebar row click
+        /// The rows the switcher shows — titles and icon names, index-aligned with the
+        /// destination pages (`p1`, `p2`, …). They arrive from the NAV_MENU, which is built
+        /// AFTER the pages' host and may be rebuilt (`NavMenuPatch::Items`), so a page joining
+        /// before or after them takes its title from here.
+        rows: Rc<RefCell<SuiteRows>>,
+        /// The nav menu's node: a switch reports against it, exactly as a sidebar row click
         /// does, so a tab and a row are one event above this backend.
         menu_node: Rc<std::cell::Cell<u64>>,
     },
@@ -2274,6 +2279,10 @@ fn day_list_rows(listview: &gtk4::ListView) {
     listview.add_css_class("day-list");
 }
 
+/// A navigation suite's switcher rows: `(titles, icon names)`, index-aligned with the
+/// destination pages.
+type SuiteRows = (Vec<String>, Vec<Option<String>>);
+
 /// A realized nav menu's rows: `(node, titles, icon names)`.
 type NavRow = (NodeId, Vec<String>, Vec<Option<String>>);
 
@@ -2494,73 +2503,175 @@ fn schedule_list_resize(model: gtk4::StringList, source: Rc<RefCell<Option<ListS
     });
 }
 
-/// Build the suite's switcher: one grouped toggle button per row, in row order.
-///
-/// Grouped rather than independent, which is what makes them behave as a segmented control —
-/// GTK unsets the others when one is set, so exactly one destination is ever active.
-#[allow(clippy::too_many_arguments)]
-fn fill_suite_switcher(
-    switcher: &gtk4::Box,
-    toggles: &Rc<RefCell<Vec<gtk4::ToggleButton>>>,
-    stack: &adw::ViewStack,
-    suppress: &Rc<std::cell::Cell<bool>>,
-    menu_node: NodeId,
-    titles: &[String],
-    icons: &[Option<String>],
-) {
-    while let Some(child) = switcher.first_child() {
-        switcher.remove(&child);
+/// The directory of symbolic icons staged for the icon theme (`vector_icon_name`), created
+/// and put on the theme's search path once per process; `None` where there is no cache
+/// directory to write to.
+fn symbolic_icon_dir() -> Option<std::path::PathBuf> {
+    thread_local! {
+        static DIR: RefCell<Option<Option<std::path::PathBuf>>> = const { RefCell::new(None) };
     }
-    toggles.borrow_mut().clear();
-    let mut first: Option<gtk4::ToggleButton> = None;
+    DIR.with(|d| {
+        if let Some(known) = d.borrow().as_ref() {
+            return known.clone();
+        }
+        let made = (|| {
+            // XDG on every platform; one directory per executable, so two apps' vectors of
+            // one name never meet.
+            let root = std::env::var_os("XDG_CACHE_HOME")
+                .map(std::path::PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache"))
+                })?;
+            let key = {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                std::env::current_exe().ok()?.hash(&mut h);
+                h.finish()
+            };
+            let dir = root
+                .join("day")
+                .join("symbolic")
+                .join(format!("{key:016x}"));
+            std::fs::create_dir_all(&dir).ok()?;
+            let display = gtk4::gdk::Display::default()?;
+            gtk4::IconTheme::for_display(&display).add_search_path(&dir);
+            Some(dir)
+        })();
+        *d.borrow_mut() = Some(made.clone());
+        made
+    })
+}
+
+/// A bundled vector as an icon-theme name, for widgets that take only `icon-name`
+/// (`AdwViewSwitcher`): `<name>-symbolic`, so GTK recolors it to the widget's foreground at
+/// render time — the tab's glyph then matches its label in either theme, the way every
+/// symbolic icon in a GNOME app does. Staged as a symbolic PNG (`<name>-symbolic.symbolic.png`,
+/// the shape in the alpha channel over black), which GTK recolors with a color matrix: a
+/// symbolic SVG would go through GTK's own `GtkSvg` parser instead, which draws only a subset
+/// of SVG and turned a Material glyph's quadratic curves into the broken-image box. Rendered
+/// through the same librsvg path the sidebar rows use, at 4× the display size for HiDPI, and
+/// refreshed when the vector is newer. `None` for a name no vector answers to, so the caller
+/// falls back to the blank glyph rather than the broken-image box.
+fn vector_icon_name(name: &str) -> Option<String> {
+    if name.is_empty() {
+        return None;
+    }
+    let svg = day_spec::resource::resolve_vector_svg(name)?;
+    let dir = symbolic_icon_dir()?;
+    let png = dir.join(format!("{name}-symbolic.symbolic.png"));
+    let stale = match (std::fs::metadata(&svg), std::fs::metadata(&png)) {
+        (Ok(src), Ok(dst)) => match (src.modified(), dst.modified()) {
+            (Ok(s), Ok(d)) => s > d,
+            _ => true,
+        },
+        _ => true,
+    };
+    if stale {
+        let px = ICON_PX * 4;
+        let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file_at_size(&svg, px, px).ok()?;
+        let pixbuf = if pixbuf.has_alpha() {
+            pixbuf
+        } else {
+            pixbuf.add_alpha(false, 0, 0, 0).ok()?
+        };
+        // Black under the alpha: the color matrix reads red, green, and blue as the
+        // success, warning, and error tints, so any color in the source would bleed those.
+        recolor_pixbuf(&pixbuf, 0, 0, 0);
+        pixbuf.savev(&png, "png", &[]).ok()?;
+        icon_theme_rescan();
+    }
+    let symbolic = format!("{name}-symbolic");
+    let display = gtk4::gdk::Display::default()?;
+    gtk4::IconTheme::for_display(&display)
+        .has_icon(&symbolic)
+        .then_some(symbolic)
+}
+
+/// Make the icon theme see a file just written into a directory it has already listed: GTK
+/// scans a search-path directory once and keeps the listing, so a symbolic icon staged after
+/// the first lookup is invisible until the theme is told its paths changed. Re-setting the
+/// search path to itself is that signal; it costs a rescan, paid only when a vector is staged
+/// for the first time on this machine.
+fn icon_theme_rescan() {
+    if let Some(display) = gtk4::gdk::Display::default() {
+        let theme = gtk4::IconTheme::for_display(&display);
+        let paths = theme.search_path();
+        let paths: Vec<&std::path::Path> = paths.iter().map(std::path::PathBuf::as_path).collect();
+        theme.set_search_path(&paths);
+    }
+}
+
+/// A fully transparent symbolic icon, for a switcher row with no glyph: libadwaita's switcher
+/// button shows `image-missing` for a page with no icon name, and a blank is what "no icon"
+/// should look like.
+fn blank_icon_name() -> Option<String> {
+    let dir = symbolic_icon_dir()?;
+    let png = dir.join("day-blank-symbolic.symbolic.png");
+    if !png.exists() {
+        let pixbuf = gtk4::gdk_pixbuf::Pixbuf::new(
+            gtk4::gdk_pixbuf::Colorspace::Rgb,
+            true,
+            8,
+            ICON_PX,
+            ICON_PX,
+        )?;
+        pixbuf.fill(0);
+        pixbuf.savev(&png, "png", &[]).ok()?;
+        icon_theme_rescan();
+    }
+    let display = gtk4::gdk::Display::default()?;
+    gtk4::IconTheme::for_display(&display)
+        .has_icon("day-blank-symbolic")
+        .then(|| "day-blank-symbolic".to_string())
+}
+
+/// Apply the suite's rows to its pages: the switcher shows each page's title and icon, and
+/// destination `i` is the page named `p{i + 1}` (`p0` is the hidden rows page).
+fn suite_apply_rows(stack: &adw::ViewStack, titles: &[String], icons: &[Option<String>]) {
     for (i, title) in titles.iter().enumerate() {
-        let button = gtk4::ToggleButton::new();
-        // Icon AND label where the row has a glyph, which is what a tab bar shows; the icon
-        // names are the same bundled vectors the sidebar rows draw.
-        // Day's own bundled vectors, through the same loader the sidebar rows use — an icon
-        // NAME here is a resource, not a GTK icon-theme id, so `set_icon_name` would find
-        // nothing and draw the broken-image box.
-        let glyph = icons
-            .get(i)
-            .and_then(|o| o.as_deref())
-            .filter(|n| !n.is_empty())
-            .and_then(|name| tinted_template_icon(name, None));
-        match glyph {
-            Some(image) => {
-                let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
-                row.append(&image);
-                row.append(&gtk4::Label::new(Some(title)));
-                button.set_child(Some(&row));
-            }
-            None => button.set_label(title),
+        if let Some(child) = stack.child_by_name(&format!("p{}", i + 1)) {
+            let page = stack.page(&child);
+            page.set_title(Some(title));
+            let icon = icons
+                .get(i)
+                .and_then(|o| o.as_deref())
+                .and_then(vector_icon_name)
+                .or_else(blank_icon_name);
+            page.set_icon_name(icon.as_deref());
         }
-        match &first {
-            Some(f) => button.set_group(Some(f)),
-            None => first = Some(button.clone()),
-        }
-        {
-            let (suppress, stack) = (suppress.clone(), stack.clone());
-            button.connect_toggled(move |b| {
-                ffi_guard::contain((), || {
-                    if !b.is_active() {
-                        return;
-                    }
-                    if let Some(page) = stack.child_by_name(&format!("p{}", i + 1)) {
-                        stack.set_visible_child(&page);
-                    }
-                    if !suppress.get() {
-                        emit(menu_node, Event::SelectionChanged(i as i64));
-                    }
-                });
-            });
-        }
-        switcher.append(&button);
-        toggles.borrow_mut().push(button);
     }
-    if let Some(f) = toggles.borrow().first() {
-        suppress.set(true);
-        f.set_active(true);
-        suppress.set(false);
+}
+
+/// A nav menu's rows reached a navigation suite: walking up from `from`, the first Suite host
+/// takes them as its switcher's rows (the menu lives inside that host's rows page). Run when
+/// the menu is inserted and whenever its rows are rebuilt.
+fn suite_rows_changed(from: &Handle, node: NodeId, titles: &[String], icons: &[Option<String>]) {
+    let mut up = Some(from.clone());
+    while let Some(w) = up {
+        let taken = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(NavState {
+                present:
+                    NavPresent::Suite {
+                        stack,
+                        rows,
+                        menu_node,
+                    },
+                ..
+            }) = m.get(&widget_key(&w))
+            else {
+                return false;
+            };
+            menu_node.set(node.0);
+            *rows.borrow_mut() = (titles.to_vec(), icons.to_vec());
+            suite_apply_rows(stack, titles, icons);
+            true
+        });
+        if taken {
+            return;
+        }
+        up = w.parent();
     }
 }
 
@@ -3244,26 +3355,49 @@ impl Toolkit for Gtk {
                 let is_split = presentation.is_split();
                 let suppress = Rc::new(std::cell::Cell::new(false));
                 if presentation.rows_are_chrome() {
+                    // The GNOME view-switching idiom (`NavPresent::Suite` explains).
                     let stack = adw::ViewStack::new();
                     stack.set_vexpand(true);
-                    let switcher = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
-                    switcher.add_css_class("linked");
+                    let switcher = adw::ViewSwitcher::new();
+                    switcher.set_policy(adw::ViewSwitcherPolicy::Wide);
+                    switcher.set_stack(Some(&stack));
                     switcher.set_halign(gtk4::Align::Center);
                     switcher.set_margin_top(6);
                     switcher.set_margin_bottom(6);
                     let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
-                    container.append(&stack);
                     container.append(&switcher);
+                    container.append(&stack);
                     let host: Handle = container.upcast();
+                    let menu_node = Rc::new(std::cell::Cell::new(0u64));
+                    {
+                        // A click on the switcher moves the stack: report it against the
+                        // NAV_MENU's node, exactly as a sidebar row click is reported — a tab
+                        // and a row are one event above this backend. A Day-driven move
+                        // (`NavPatch::Select`) is suppressed, per the from-native echo rule.
+                        let (s, mn) = (suppress.clone(), menu_node.clone());
+                        stack.connect_visible_child_name_notify(move |stack| {
+                            ffi_guard::contain((), || {
+                                if s.get() || mn.get() == 0 {
+                                    return;
+                                }
+                                if let Some(i) = stack
+                                    .visible_child_name()
+                                    .and_then(|n| n.strip_prefix('p')?.parse::<usize>().ok())
+                                    && i >= 1
+                                {
+                                    emit(NodeId(mn.get()), Event::SelectionChanged((i - 1) as i64));
+                                }
+                            });
+                        });
+                    }
                     NAV_STATE.with(|m| {
                         m.borrow_mut().insert(
                             widget_key(&host),
                             NavState {
                                 present: NavPresent::Suite {
                                     stack,
-                                    switcher,
-                                    toggles: Rc::new(RefCell::new(Vec::new())),
-                                    menu_node: Rc::new(std::cell::Cell::new(0)),
+                                    rows: Rc::new(RefCell::new((Vec::new(), Vec::new()))),
+                                    menu_node,
                                 },
                                 split: false,
                                 pages: Vec::new(),
@@ -4381,6 +4515,21 @@ impl Toolkit for Gtk {
                         }
                         state.suppress.set(false);
                     });
+                    // The rows are a navigation suite's switcher where the menu sits in one
+                    // (docs/navigation.md): keep the recorded rows current and re-title the
+                    // suite's pages.
+                    let node = NAV_MENU_ROWS.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let entry = m.get_mut(&widget_key(h))?;
+                        entry.1 = items.clone();
+                        entry.2 = icons.clone();
+                        Some(entry.0)
+                    });
+                    if let Some(node) = node
+                        && let Some(parent) = h.parent()
+                    {
+                        suite_rows_changed(&parent, node, items, icons);
+                    }
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -4427,12 +4576,12 @@ impl Toolkit for Gtk {
                         // The resident-page switch (docs/navigation.md): the app moved the
                         // selection, so the suite shows that destination and sets its toggle
                         // WITHOUT reporting the move back as a click.
-                        if let (NavPatch::Select(i), NavPresent::Suite { toggles, .. }) =
+                        if let (NavPatch::Select(i), NavPresent::Suite { stack, .. }) =
                             (p, &state.present)
-                            && let Some(button) = toggles.borrow().get(*i)
+                            && let Some(child) = stack.child_by_name(&format!("p{}", i + 1))
                         {
                             state.suppress.set(true);
-                            button.set_active(true);
+                            stack.set_visible_child(&child);
                             state.suppress.set(false);
                         }
                         // Show or collapse the content-list pane (docs/navigation.md). Applied
@@ -4763,33 +4912,7 @@ impl Toolkit for Gtk {
         if let Some((node, titles, icons)) =
             NAV_MENU_ROWS.with(|m| m.borrow().get(&widget_key(child)).cloned())
         {
-            let mut up = Some(parent.clone());
-            while let Some(w) = up {
-                let filled = NAV_STATE.with(|m| {
-                    let m = m.borrow();
-                    let Some(NavState {
-                        present:
-                            NavPresent::Suite {
-                                switcher,
-                                toggles,
-                                menu_node,
-                                stack,
-                            },
-                        suppress,
-                        ..
-                    }) = m.get(&widget_key(&w))
-                    else {
-                        return false;
-                    };
-                    menu_node.set(node.0);
-                    fill_suite_switcher(switcher, toggles, stack, suppress, node, &titles, &icons);
-                    true
-                });
-                if filled {
-                    break;
-                }
-                up = w.parent();
-            }
+            suite_rows_changed(parent, node, &titles, &icons);
         }
         let host_key = widget_key(parent);
         let handled = NAV_STATE.with(|m| {
@@ -4829,20 +4952,55 @@ impl Toolkit for Gtk {
                     state.suppress.set(false);
                     Some(nav_page)
                 }
-                NavPresent::Suite { stack, .. } => {
+                NavPresent::Suite { stack, rows, .. } => {
                     // Every destination is resident and the switcher shows one at a time. The
                     // page at index 0 is the SIDEBAR page, whose rows became the switcher: it
                     // stays in the stack so its nav menu has a path up to this host, but it is
                     // never shown — drawing the rows again as a list would be the same
-                    // navigation twice.
-                    let nav_page = adw::NavigationPage::new(child, &title);
-                    stack.add_named(&nav_page, Some(&format!("p{index}")));
+                    // navigation twice. A filling cell holds each page (`NavPresent::Suite`
+                    // explains) and reports the page's size as the stack allocates it.
+                    let cell = DayCell::filling();
+                    cell.add_child(child);
+                    stack.add_named(&cell, Some(&format!("p{index}")));
+                    let page = stack.page(&cell);
                     if index == 0 {
-                        nav_page.set_visible(false);
-                    } else if stack.visible_child().is_none() {
-                        stack.set_visible_child(&nav_page);
+                        page.set_visible(false);
+                        cell.set_visible(false);
+                    } else {
+                        let r = rows.borrow();
+                        if let Some(t) = r.0.get(index - 1) {
+                            page.set_title(Some(t));
+                        }
+                        let icon =
+                            r.1.get(index - 1)
+                                .and_then(|o| o.as_deref())
+                                .and_then(vector_icon_name)
+                                .or_else(blank_icon_name);
+                        page.set_icon_name(icon.as_deref());
+                        if stack.visible_child().is_none() {
+                            state.suppress.set(true);
+                            stack.set_visible_child(&cell);
+                            state.suppress.set(false);
+                        }
                     }
-                    Some(nav_page)
+                    let last = std::cell::Cell::new((0, 0));
+                    cell.on_allocate(move |width, height| {
+                        if width > 0
+                            && height > 0
+                            && last.replace((width, height)) != (width, height)
+                        {
+                            ffi_guard::contain((), || {
+                                emit(
+                                    id,
+                                    Event::FrameChanged(Size::new(
+                                        f64::from(width),
+                                        f64::from(height),
+                                    )),
+                                )
+                            });
+                        }
+                    });
+                    None
                 }
             };
             state.pages.push((widget_key(child), id, nav_page));
@@ -4900,12 +5058,17 @@ impl Toolkit for Gtk {
                             cell.remove_child(child);
                         }
                     }
-                    (NavPresent::Suite { stack, .. }, Some(nav_page)) => {
-                        stack.remove(&nav_page);
+                    (NavPresent::Suite { stack, .. }, _) => {
+                        if let Some(cell) =
+                            child.parent().and_then(|p| p.downcast::<DayCell>().ok())
+                        {
+                            stack.remove(&cell);
+                            cell.remove_child(child);
+                        }
                     }
                     // The stack pop already removed it (day-driven pop or native gesture);
                     // dropping our ref is enough.
-                    (NavPresent::Stack(_), _) | (NavPresent::Suite { .. }, None) => {}
+                    (NavPresent::Stack(_), _) => {}
                 }
             }
             true

@@ -2126,6 +2126,20 @@ impl Toolkit for Qt {
                         nav_present(h.0, beside);
                         return;
                     }
+                    // A navigation suite's resident-page switch (docs/navigation.md): the host
+                    // is a QTabWidget with no `NAV_STATE` entry, so it is answered here, ahead
+                    // of the split/stack block below — which returns early for it. (Until
+                    // 2026-09-12 the suite branch sat inside that block and never ran, so a
+                    // programmatic selection — a route, a deep link — left the bar on the
+                    // first tab.) Tab 0 is the hidden sidebar page, so destination i is tab
+                    // i + 1; the newly shown page gets its size report at once.
+                    if let Some(NavPatch::Select(i)) = patch.downcast_ref::<NavPatch>()
+                        && NAV_SUITES.with(|m| m.borrow().contains_key(&(h.0 as usize)))
+                    {
+                        ffi::day_qt_tabs_set_current(h.0, (*i + 1) as c_int);
+                        nav_suite_sync(h.0);
+                        return;
+                    }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         // A pane shown or hidden OUTSIDE the borrow below: Qt resizes the
                         // sibling panes synchronously, the pane filter reports them, and
@@ -2183,19 +2197,13 @@ impl Toolkit for Qt {
                                 // selection, so the suite shows that destination. Tab 0 is the
                                 // hidden sidebar page, so destination i is tab i + 1.
                                 NavPatch::Select(i) => {
-                                    // The resident-page switch (docs/navigation.md). A suite
-                                    // drives its tab widget; a split — which is also what a
-                                    // ROUNDED `Rail` lands on here, Qt having no rail widget —
-                                    // shows destination `i` and hides its siblings. Same
-                                    // contract, different chrome.
-                                    if NAV_SUITES.with(|m| m.borrow().contains_key(&(h.0 as usize)))
-                                    {
-                                        // Tab 0 is the hidden sidebar page.
-                                        ffi::day_qt_tabs_set_current(h.0, (*i + 1) as c_int);
-                                    } else {
-                                        for (n, (page, _)) in detail.iter().enumerate() {
-                                            ffi::day_qt_set_visible(page.0, c_int::from(n == *i));
-                                        }
+                                    // The resident-page switch (docs/navigation.md) on a
+                                    // split — which is also what a ROUNDED `Rail` lands on
+                                    // here, Qt having no rail widget: show destination `i`
+                                    // and hide its siblings. A suite's switch was answered
+                                    // above, before this block.
+                                    for (n, (page, _)) in detail.iter().enumerate() {
+                                        ffi::day_qt_set_visible(page.0, c_int::from(n == *i));
                                     }
                                 }
                                 // Show or collapse the content-list pane (docs/navigation.md).

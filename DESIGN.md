@@ -2034,6 +2034,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   which four presentations can no longer encode in a lowered `Split`. Drawn today by
 >   macos-appkit and web-dom; the rest answer `Cap::NavTabs = Unsupported` and take the
 >   pre-adaptive sidebar ladder ([docs/navigation.md](docs/navigation.md) is normative).
+>   Outcome (2026-09-12): the desktop `Tabs` presentation had never drawn its bar — AppKit
+>   built it from the rows page's menu before that menu existed, GTK's foot switcher fell
+>   below the pane's clipped edge — so both now use the toolkit's own tab control (an
+>   `NSTabView` owning the pages; an `AdwViewSwitcher` over the `AdwViewStack`, pages in
+>   filling `DayCell`s), labelled when the `NAV_MENU` is inserted; Qt's `QTabWidget` now
+>   honors a programmatic `NavPatch::Select` too (its suite branch was unreachable).
 > - **Section headers in a derived sidebar** *(2026-09)* — `nav(…).section(title)` and
 >   `item(…).section(title)` open a group header before the next row, so a data-driven,
 >   search-filtered sidebar (the showcase's eight groups) keeps its grouping through the derive;

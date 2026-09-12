@@ -91,7 +91,7 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 |---|---|
 | `Split` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK two nested `GtkPaned`s (sidebar | list | detail, every divider draggable); Qt `QSplitter`; iOS `UISplitViewController`; Android `SlidingPaneLayout`. |
 | `Stack` | one page at a time, back-navigable: `UINavigationController`, `AdwNavigationView`, the Android back stack, or a desktop back-header above the pages. |
-| `Tabs` | the rows drawn as a tab bar: `UITabBarController` / Material `NavigationBarView` / `NavigationView.PaneDisplayMode = Top` / an `NSSegmentedControl` docked below the pages on macOS / a composed bar on Qt and web-dom. |
+| `Tabs` | the rows drawn as a tab bar: `UITabBarController` / Material `NavigationBarView` / `NavigationView.PaneDisplayMode = Top` / an `NSTabView` on macOS / an `AdwViewSwitcher` on GTK / a `QTabWidget` on Qt / a composed bar on web-dom. |
 | `Rail` | the rows as a narrow strip: Material `NavigationRailView`, `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
 
 `nav` is one primitive, a selection-bound switcher, and a presentation is chrome plus page
@@ -107,10 +107,10 @@ navigation existed.
 
 | Backend | Tabs presentation | Adaptive |
 |---------|-------------------|----------|
-| macos-appkit | `NSSegmentedControl` docked below the pages | no; a Mac narrows to a stack |
+| macos-appkit | `NSTabView` (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
 | ios-uikit | `UITabBarController` in `.tabSidebar` mode, driven by `UITab` on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
 | android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width. A `NavStyle::Sidebar` pane is a `NavigationView` too (2026-09) — see below | yes |
-| linux-gtk | `AdwViewStack` under a `.linked` grouped-toggle switcher, docked at the foot | no |
+| linux-gtk | `AdwViewSwitcher` over an `AdwViewStack` of resident pages, each in a filling `DayCell` | no |
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
 | harmony-arkui | a composed bottom bar over resident pages; ArkUI's native node set has no tab container, so it is built from Day's primitives | yes |
@@ -118,6 +118,27 @@ navigation existed.
 
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
 desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and pushes.
+
+> [!NOTE]
+> **Desktop tabs drew no bar until 2026-09-12.** AppKit built its segmented control from the
+> rows page's menu at the moment that page was inserted — before the menu existed, since
+> day-core mounts a page into its host before the page's content is built — and GTK's foot
+> switcher was pushed below the pane's clipped edge by the pages' own Day frames. Both now use
+> the toolkit's own tab control: an `NSTabView` whose items own the pages and take their
+> labels when the `NAV_MENU` is inserted (and again on `NavMenuPatch::Items`), and an
+> `AdwViewSwitcher` over the `AdwViewStack`, whose pages sit in filling `DayCell`s and report
+> their size from the cell's allocation. Bundled vectors reach the switcher's `icon-name` as
+> SYMBOLIC icons, so GTK tints them to the label's color in either theme: day-gtk stages each
+> as `<name>-symbolic.symbolic.png` (the shape over black, rendered through librsvg) in the
+> XDG cache and puts that directory on the icon theme's search path — a symbolic SVG would go
+> through GTK 4.20+'s own `GtkSvg` parser, which draws only a subset and broke a Material
+> glyph's curves. A row with no glyph gets a transparent symbolic, since libadwaita's switcher
+> button shows `image-missing` for a page without one. On AppKit the `NSTabView` is inset in
+> its pane (12pt sides and foot, 8pt top), so its tabs clear the toolbar's edge.
+> Qt's `QTabWidget` drew its bar all along, but a programmatic selection (a route, a deep
+> link) never reached it: the suite's `NavPatch::Select` branch sat inside the split/stack
+> block, which has no state entry for a suite host and returned first. It is answered ahead
+> of that block now.
 
 > [!NOTE]
 > **Renamed.** `nav(sel).style(Tabs)` was `tabs()`, and `nav(sel).style(Sidebar)` was `nav()`.
