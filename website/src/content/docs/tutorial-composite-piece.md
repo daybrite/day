@@ -15,7 +15,7 @@ already ships. A composite piece is pure Rust in an ordinary library crate. You 
 as a dependency. Its platform support depends on the pieces it uses; composition itself
 requires no additional native backend.
 
-In this tutorial you will build one end to end: a **star rating** control, a row of tappable stars
+In this tutorial you will build a complete example: a **star rating** control, a row of tappable stars
 bound to a `Signal<usize>`. By the end you will have a `day-piece-rating` crate you can `.max(5)`,
 `.star_size(32.0)`, and drop next to a label, just like a built-in.
 
@@ -273,7 +273,7 @@ fn review_form() -> impl Piece {
 ```
 
 Run `day launch -p macos-appkit`, then `-p android-mdc`, then `-p linux-gtk`. The same rating
-renders natively on each, drawn by that platform's own 2D API from the one `canvas` closure.
+renders natively on each, drawn by that platform's 2D API from the one `canvas` closure.
 
 ## 6. Going further
 

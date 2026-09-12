@@ -40,7 +40,7 @@ nav(section)                       // adaptive by default; .style() pins a shape
 
 | `NavStyle` | What it draws |
 |---|---|
-| `Automatic` **(default)** | The platform's own answer at this width — see the ladder below. |
+| `Automatic` **(default)** | The platform's answer at this width — see the ladder below. |
 | `Tabs` | A tab bar at every size, however wide the window gets. |
 | `Sidebar` | A NavigationSplitView: both panes where there is room, collapsing to a list that pushes the detail where there is not. |
 
@@ -99,7 +99,7 @@ lifetime rather than a different host. That is why a window crossing a breakpoin
 (`NavPatch::Presentation`) rather than rebuilding: the pages it already has are re-homed, so
 nothing loses a scroll offset, a focused field, or an animation in flight.
 
-**What each backend draws.** The rows become the platform's own destination chrome, and where a
+**What each backend draws.** The rows become the platform's destination chrome, and where a
 platform has no such widget the presentation rounds to the neighbor it does have (`Rail` lands on
 an ordinary sidebar on macOS and Qt). A backend that answers `Cap::NavTabs = Unsupported` sends
 `Automatic` through the sidebar ladder instead, which is what every backend did before adaptive
@@ -113,7 +113,7 @@ navigation existed.
 | linux-gtk | `AdwViewStack` under a `.linked` grouped-toggle switcher, docked at the foot | no |
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
-| harmony-arkui | a composed bottom bar over resident pages; ArkUI's native node set has no tab container, so it is built from Day's own primitives | yes |
+| harmony-arkui | a composed bottom bar over resident pages; ArkUI's native node set has no tab container, so it is built from Day's primitives | yes |
 | windows-xaml | the same `NavigationView` with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
 
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
@@ -325,7 +325,7 @@ A `UITableView` draws its selection edge to edge whatever background configurati
 so the rounded shape is the list appearance's to give.
 
 **The list runs under the bars.** A page whose content is one scroll view — this list, a
-`scroll`-rooted detail, a tree — fills the page's full bounds, and UIKit's own inset adjustment
+`scroll`-rooted detail, a tree — fills the page's full bounds, and UIKit's inset adjustment
 starts the content below the navigation bar and lets it pass under the translucent bar and the
 bottom search field as it scrolls, as Settings and Mail do. A page whose content is a navigation
 host fills its bounds too, because the host passes the bars on to its own pages — which is what
@@ -399,7 +399,7 @@ bugs of that month lived in the bookkeeping). UIKit's `viewControllers` is the s
   a page's controller to the host pushes it (`push_page`: the active controller's current pages
   plus this one, in one `setViewControllers:animated:`), and the remove duty that takes it back
   pops it (`pop_page`: the current pages minus this one). A collapsed triple column is driven
-  through UIKit's own column APIs instead (`showColumn`, `popToViewController:`), since a
+  through UIKit's column APIs instead (`showColumn`, `popToViewController:`), since a
   wholesale set destroys the bookkeeping its merge keeps. A merge on iOS 26 nests the secondary
   controller onto the primary as one entry, so `day_pages` flattens a nested controller into its
   pages wherever a stack is read. A transition UIKit cancels (a window capture mid-flight does
@@ -665,7 +665,7 @@ vice versa.
 
 ## Composition
 
-The Mail.app / Files.app pattern falls out by nesting:
+To reproduce the Mail.app or Files.app navigation pattern, nest the containers:
 
 ```rust
 nav(section).style(NavStyle::Sidebar)

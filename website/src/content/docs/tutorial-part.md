@@ -215,8 +215,8 @@ backends to toggle. (Linux and Windows need no crates at all; they use pure std 
 
 ## 3. A native implementation per platform
 
-Every `imp::status()` has the same signature, but behind it each platform speaks its own language
-and its own API. Here are four of them in detail.
+Each `imp::status()` implementation has the same signature and calls the corresponding platform
+API. The following sections cover four implementations.
 
 ### macOS: Rust calling C (IOKit, via `#[link]`)
 
@@ -293,7 +293,7 @@ pub fn status() -> Option<BatteryStatus> {
 
 ### Android: Rust calling Java (a `BatteryManager` shim over JNI)
 
-On Android, reading `BatteryManager` cleanly needs a `Context` and a sticky broadcast, which is
+On Android, reading `BatteryManager` requires a `Context` and a sticky broadcast, which is
 far easier in Java than through raw JNI. So the part carries its own small Java class and calls it
 over the bridge. This is the one platform where a part runs on the Day runtime; it borrows the JVM
 and `Context` that `day-android` already caches.

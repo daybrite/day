@@ -1,6 +1,6 @@
 ---
 title: "Stepper field"
-description: "A numeric field with increment/decrement arrows in two idioms (the platform's own widget, and one Day composes), bound two-way to any Binding<f64>."
+description: "A numeric field with increment/decrement arrows in two idioms (the platform's widget, and one Day composes), bound two-way to any Binding<f64>."
 ---
 
 <!--

@@ -34,7 +34,7 @@ let watch = day_part_sensors::watch(SensorKind::Accelerometer, |a| {
 stream once the last watcher of that sensor is gone. `is_available(kind) -> bool` reports whether
 the sensor exists at all, which is how an app tells "no such sensor" apart from "no sample yet". `SensorReading { x, y, z: f64 }` is in SI units per kind:
 m/s² (`Accelerometer`, includes gravity), rad/s (`Gyroscope`), µT (`Magnetometer`). The per-OS
-impls normalize (e.g. iOS g → m/s²). Axis signs stay the platform's own convention (face-up is
+impls normalize (e.g. iOS g → m/s²). Axis signs stay the platform's convention (face-up is
 `z ≈ +9.8` on Android, `z ≈ -9.8` on iOS). `is_available(kind) -> bool` checks for the hardware.
 
 The API is a poll. Sensors are push-model on Android and HarmonyOS, so the first `read` lazily

@@ -81,7 +81,7 @@ button("Enable reminders").action(move || {
   `open_settings` instead. `should_show_rationale` is Android's "explain first" signal for drawing
   your own priming UI before the real prompt.
 - `status` can answer `Unknown` on first call where the platform is async-only (the web, and Apple
-  notifications). `status_async`/`status_future` wait for the platform's own answer and never return
+  notifications). `status_async`/`status_future` wait for the platform's answer and never return
   it.
 
 Concurrent requests for the same permission coalesce into one prompt, and
@@ -106,7 +106,7 @@ platforms that show one (iOS and HarmonyOS), naming the crate and the lines to p
 ## 4. What each platform does with a request
 
 The [reference](/docs/internal/permissions) carries the full matrix. Apple platforms go
-through each framework's own authorization API and ask the user once; after a denial, only
+through each framework's authorization API and ask the user once; after a denial, only
 Settings can change the answer. Android shows its dialog via `requestPermissions`
 and cannot tell "never asked" from "permanently denied" without app-side state, which Day
 does not keep, so record it yourself in the `request` callback if you need the distinction.

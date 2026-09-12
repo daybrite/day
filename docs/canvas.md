@@ -152,7 +152,7 @@ d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::
 ```
 
 `TextStyle` is a size in absolute canvas points, a color, an anchor and a [`CanvasFont`](fonts.md):
-a family (a platform family or a bundled one, `None` for the platform's own face), a weight and a
+a family (a platform family or a bundled one, `None` for the platform's face), a weight and a
 slant. Fill what you set and take the rest from `..Default::default()`. One line: a newline is
 drawn as the engine draws it, not as a line break.
 
@@ -231,9 +231,8 @@ canvas(draw).on_hover(move |at| pointer.set(at))     // Some(point) inside, None
 ```
 
 `Some(point)` in the canvas's own coordinates while the pointer is over it, `None` when it leaves.
-**Pointer-only, and that is the honest answer rather than a gap**: a touch-only phone has nothing
-hovering. So anything reachable by hover must also be reachable by a tap — which is exactly how a
-chart's selection is wired, to `on_tap_at`, `on_drag` and `on_hover` together.
+**Pointer input only.** Touch-only devices do not produce hover events. Actions available on hover must also be accessible by touch.
+For chart selection, handle `on_tap_at`, `on_drag`, and `on_hover`.
 
 | Backend | Hover | Underneath |
 | --- | --- | --- |

@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import PlatformShots from '../../../components/PlatformShots.astro';
 
-`windows-xaml` hosts Windows' own XAML controls in a plain Win32 window through [XAML
+`windows-xaml` hosts Windows XAML controls in a Win32 window through [XAML
 Islands](https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/xaml-islands). The XAML it
 uses ships inside Windows 10 and 11.
 
@@ -29,7 +29,7 @@ uses ships inside Windows 10 and 11.
 ## Getting started
 
 You need the Visual Studio C++ Build Tools (for MSVC and the Windows SDK) and the MSVC Rust
-toolchain. The C++/WinRT shim is compiled by `build.rs` against the plain Windows SDK.
+toolchain. The C++/WinRT shim is compiled by `build.rs` against the Windows SDK.
 
 ```powershell
 rustup default stable-msvc
@@ -113,7 +113,7 @@ this table adds links and notes.
 | *external* `media()` | [`MediaPlayerElement`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.mediaplayerelement) |
 | *external* `webview()` | WebView2 composition visual inside a `Border` |
 
-**Text measurement** is XAML's own measure pass (`Measure` → `DesiredSize`), with a re-measure
+**Text measurement** is XAML's measure pass (`Measure` → `DesiredSize`), with a re-measure
 after forcing layout when a templated control reports zero before the island's first async pass.
 
 ## Qt and GTK on a Windows host
@@ -197,10 +197,8 @@ $env:CC  = "C:/msys64/mingw64/bin/gcc.exe"
 $env:CXX = "C:/msys64/mingw64/bin/g++.exe"
 ```
 
-The first build is long, because these targets compile a whole native backend from scratch: roughly
-9 minutes for GTK and 13 for Qt on a debug build of the showcase (Qt pays for its C++ shim on top).
-After that you're back to incremental compiles; editing one of the showcase's own source files and
-relaunching takes about 20 seconds.
+The first build compiles the native backend and, for Qt, its C++ shim. Subsequent builds reuse
+compiled dependencies. Build times depend on the host, toolkit, and changed files.
 
 ### What to expect
 

@@ -210,7 +210,7 @@ extern "C" void my_ticks(void* abi, const char* cls, double freq) {
   pokes a widget that gets discarded, and Day warns at runtime.
 - **Never destroy or reparent** the widget; Day owns its lifecycle. Don't hold raw pointers or
   handle clones past the call; hold a `NativeRef` and re-resolve.
-- **Never set a delegate or data source** on a widget Day drives. Day's own object makes
+- **Never set a delegate or data source** on a widget Day drives. Day's object makes
   the piece work (`list` and the sidebar's `NSOutlineView` both install one), so replacing it
   tears the data out from under the piece. Pieces whose native widget decides things through a
   delegate expose those decisions as their own hooks instead (see

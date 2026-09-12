@@ -92,19 +92,18 @@ part of it is not the code you are editing. The table is also hard to keep right
 After writing the table, the command verifies it: it asks cargo for the resolved graph of
 every platform and fails if any `day*` crate still comes from git.
 
-One rule of cargo's shapes that check: a `[patch]` entry is a candidate, not an override, and
-cargo keeps the newest version it can see. A checkout carrying a lower version than day's
-current `main` loses to git, every crate at once, the moment a release bump lands upstream.
-The check names both versions when that is what happened, and `git pull` in the checkout is
-the usual answer. To build against an older commit on purpose, lock the app to it first
+Cargo treats a `[patch]` entry as a resolution candidate and selects the newest compatible
+version. If the local checkout has a lower version than the Git dependency, Cargo may select
+the Git dependency instead. The check reports both versions. Update the local checkout if
+you intend to build against the latest source. To build against an older commit on purpose, lock the app to it first
 (`cargo update -p day --precise <commit>`) and patch again: a locked dependency whose version
 matches its patch resolves to the patch without asking upstream.
 
 ## Working on the framework and an app in parallel
 
 This is the workflow for adding a feature to a day crate alongside its demonstration in an
-app. [Day-Showcase](https://github.com/daybrite/Day-Showcase) is the framework's own example
-of the pattern (every new piece and part lands with a showcase screen that exercises it),
+app. [Day-Showcase](https://github.com/daybrite/Day-Showcase) is the framework's example
+of the pattern (every new piece and part includes a showcase screen that exercises it),
 but any app works the same way.
 
 1. **Patch once.** In the app, run `day patch --local <path-to-day>`. Every later build
@@ -123,7 +122,7 @@ but any app works the same way.
    place is fine: git ignores the file, so it affects no one else.
 
 `day patch --check` is the guard for step 4 and for CI. It writes nothing and exits non-zero
-if any day crate in any platform's graph still resolves from git. Day's own CI checks out
+if any day crate in any platform's graph still resolves from git. Day's CI checks out
 Day-Showcase, locks it to the commit under test, points it at that checkout, and runs
 exactly this check before building, so a green showcase build means the showcase built
 against that commit, with nothing resolved from the git cache.

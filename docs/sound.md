@@ -1,6 +1,6 @@
 ---
 title: "Sound effects"
-description: "Short sound clips via day-part-sound: bundled WAV files played through each platform's own low-latency engine."
+description: "Short sound clips via day-part-sound: bundled WAV files played through each platform's low-latency engine."
 ---
 
 <!--
@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Sound effects
 
 `day-part-sound` plays short clips bundled with the app (a tap, a chime, a card sliding onto a
-pile) through each platform's own low-latency engine. It is a headless part in `parts/`, like
+pile) through each platform's low-latency engine. It is a headless part in `parts/`, like
 `day-part-haptics`, and the two are meant to be used together: a game pairs each haptic phrase
 with a clip, and the player turns either off in its settings.
 

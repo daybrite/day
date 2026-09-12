@@ -14,7 +14,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 import Compare from '../../components/Compare.astro';
 
 Rust UI frameworks take one of three approaches: their own renderer (Iced, Slint, egui, Xilem), a
-web stack in a browser or web view (Tauri, Leptos, Dioxus), or the platform's own widgets. Day takes
+web stack in a browser or web view (Tauri, Leptos, Dioxus), or the platform's widgets. Day takes
 the third: a button becomes an `NSButton`, a `MaterialButton`, or a `<button>`. This page shows
 the same job written in each, so a team that already knows one of them can see where Day differs.
 
@@ -26,7 +26,7 @@ these is the better tool.
 
 | | Version | What draws the pixels | Targets | State model |
 |---|---|---|---|---|
-| **Day** | — | the platform's own widgets | macOS, Windows, Linux, iOS, Android, HarmonyOS, web | fine-grained signals |
+| **Day** | — | the platform's widgets | macOS, Windows, Linux, iOS, Android, HarmonyOS, web | fine-grained signals |
 | **Tauri** | 2.11 | a system webview (your HTML/CSS) | desktop + iOS/Android | whatever your JS framework does; Rust state behind IPC |
 | **Slint** | 1.17 | its own renderer (Skia, software, or OpenGL) | desktop, embedded, MCU, mobile, wasm | properties and callbacks declared in a DSL |
 | **Iced** | 0.14 | its own renderer (wgpu or tiny-skia) | desktop, wasm | the Elm architecture: message in, state out |
@@ -290,7 +290,7 @@ fn counter() -> impl Piece {
 
 The two models handle asynchronous work differently. Iced keeps `update` pure by returning a `Task`
 the runtime performs, delivering the result as another message. Day awaits inline and writes the
-signal, because the continuation already lands on the UI thread.
+signal, because the continuation runs on the UI thread.
 
 <Compare lhs="Iced 0.14">
 

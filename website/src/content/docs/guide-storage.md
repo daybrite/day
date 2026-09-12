@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day provides separate APIs for small settings (theme, volume, or the last-open tab) and files
 (documents, exports, or caches). `day::prefs` is a string
-key/value store backed by each platform's own preferences facility; `day-part-fs` is private per-app
+key/value store backed by each platform's preferences facility; `day-part-fs` is private per-app
 file storage. One call each:
 
 ```rust

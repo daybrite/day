@@ -1,6 +1,6 @@
 ---
 title: Reference index
-description: The per-widget and per-subsystem reference pages, straight from the framework's own docs.
+description: Widget and subsystem references from the framework documentation.
 order: 61
 section: Reference
 ---

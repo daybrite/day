@@ -227,7 +227,7 @@ list(source, row)
     .reorder_guard(|from, to| Reorder::Allow)   // optional: Deny / Retarget(i)
 ```
 
-`reorderable` turns on the platform's own drag mechanism; probe `Cap::ListReorder` for support.
+`reorderable` turns on the platform's drag mechanism; probe `Cap::ListReorder` for support.
 `on_reorder` is the commit: row `from` landed at row `to`; apply the identical rotation to the
 backing data (`let it = v.remove(from); v.insert(to, it);`) and persist it if the order should
 survive a relaunch. It runs at the next event drain, never inside the native drop callback.
@@ -273,7 +273,7 @@ list(source, row)
     .delete_guard(|index| index != 0)            // optional: protect individual rows
 ```
 
-`deletable` turns on the platform's own delete gesture; probe `Cap::ListDelete` for support.
+`deletable` turns on the platform's delete gesture; probe `Cap::ListDelete` for support.
 `on_delete` is the commit: row `index` is gone; apply the identical removal to the backing data
 (`v.remove(index)`) and persist it if the change should survive a relaunch. It runs at the next
 event drain, never inside the native swipe callback.
@@ -313,7 +313,7 @@ on every target, including the desktops, where there is no gesture to simulate.
 ## Swipe actions
 
 Swipe actions generalize swipe-to-delete: app-declared buttons reveal behind a row as the
-user drags it aside, on either edge, with the platform's own full-swipe shortcut for the first
+user drags it aside, on either edge, with the platform's full-swipe shortcut for the first
 one (Mail's triage gestures).
 
 ```rust
@@ -346,7 +346,7 @@ looked up by position, so the handler always closes over the row's current state
 platforms without a glyph slot show the label alone.
 
 Edges are semantic, not geometric: `Leading` follows the reading direction (left in LTR, right
-in RTL), exactly as every platform's own swipe API already spells it. A full swipe across
+in RTL), exactly as every platform's swipe API already spells it. A full swipe across
 activates the edge's first action. `destructive` takes the platform's destructive styling
 (red, on the Apple toolkits); `tint` colors the button where the platform honors one.
 

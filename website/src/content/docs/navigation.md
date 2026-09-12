@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Day's navigation model is two Pieces and a route registry. `nav` handles "one of several
 top-level sections" (a sidebar on desktop, tabs where that's the platform idiom); `nav_stack` handles
-"drill in, come back" (push/pop with the platform's own transitions and back gestures). Both are
+"drill in, come back" (push/pop with the platform's transitions and back gestures). Both are
 driven by plain [signals](/docs/glossary#signal), so navigation state is app state that you can inspect, set, and test.
 
 ## Sections: `nav`
@@ -65,7 +65,7 @@ back button both pop the stack. On Android 14+ the back gesture is fully
 tracks it and either completes the pop or springs back when you release (on Android 13/14 the OS gates
 this behind Developer options → "Predictive back animations"; Android 15 enables it by
 default). On desktop, pushed pages get an in-window back header: a chevron and title above
-the page on macOS and Qt, libadwaita's own header on GTK.
+the page on macOS and Qt, libadwaita's header on GTK.
 
 ## Data-driven items
 

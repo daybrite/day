@@ -187,8 +187,8 @@ nav_stack(path, home_view).destination(|key| detail_view(key))
 // the native back button writes the pop back into `path`.
 ```
 
-Because each surface owns its own signal, nesting costs nothing: a `Tabs` [nav host](/docs/glossary#nav host) or a `nav_stack`
-inside a `Sidebar` nav host needs no extra wiring. Keys don't have to be strings: declare a
+Each navigation surface uses a separate signal. A `Tabs` [nav host](/docs/glossary#nav host) or a `nav_stack`
+inside a `Sidebar` nav host can be nested without additional state synchronization. Keys don't have to be strings: declare a
 `day::routes! { enum Section { Home => "home", … } }` enum (or implement `Route` by hand for
 keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the nav host to
 `Signal<Option<Section>>` and the stack to `Signal<Vec<Item>>`. It's the same API, compile-checked
@@ -196,7 +196,7 @@ keys that carry data, like `Item { id: u32 }` ↔ `"item-42"`) and bind the nav 
 
 ## Deep links and dayscript
 
-A thin string-route adapter sits over those signals, so keys double as [routes](/docs/glossary#route):
+A string-route adapter maps those signals to routes, so keys also serve as [routes](/docs/glossary#route):
 
 ```rust
 navigate("settings");   // select the settings section / tab

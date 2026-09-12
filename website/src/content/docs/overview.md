@@ -10,7 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-**Day** is a Rust framework for building applications out of each platform's own native widgets.
+**Day** is a Rust framework for building applications out of each platform's native widgets.
 
 You describe your UI in Rust as a tree of **Pieces**, similar to Views in SwiftUI or Widgets in
 Flutter. Pieces can represent native controls, layouts, or compositions of other pieces. A
@@ -49,8 +49,7 @@ those features, or continue below for the UI model.
 
 ## What Day does itself
 
-Day keeps the platform's widgets and concentrates its own code on the parts native toolkits
-don't share:
+Day uses platform widgets and provides shared implementations for:
 
 - a shared layout engine that uses native widget measurements
   ([Layout](/docs/layout));
@@ -106,11 +105,11 @@ target, and development machine.
 
 ## What to expect
 
-- **The platform draws everything.** Text and widgets are drawn by the platform, never by Day.
+- **Native widget rendering.** The platform toolkit draws native controls and their text.
   Even the `canvas` Piece records drawing commands and replays them through the platform's
   native 2D API.
 - **Native on each platform rather than identical across them.** The goal is consistent
-  behavior and information architecture with each platform's own look and feel.
+  behavior and information architecture with each platform's look and feel.
 - **Handle platform differences explicitly.** Use platform-specific styling and
   [capability flags](/docs/glossary#capability) to adapt your interface. Backends can compose
   missing controls from simpler components. On macOS and iOS,

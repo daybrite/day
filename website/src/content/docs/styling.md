@@ -14,15 +14,14 @@ In Day the platform draws the widgets: a Day button on macOS is an `NSButton` wi
 chrome; on Android it's a Material button. So styling works differently than in a renderer,
 where you control every pixel.
 
-You style content and spacing; the platform styles its controls. Fonts, text color, padding,
-backgrounds, corner radii, and everything you draw in a `canvas` are yours. Button chrome, focus
-rings, slider tracks, scrollbar appearance, selection highlights: those belong to the platform, and
-Day leaves them to it.
+You style content and spacing; the platform styles its controls. You can set fonts, text color, padding,
+backgrounds, corner radii, and canvas drawing operations. The platform determines button chrome,
+focus rings, slider tracks, scrollbar appearance, and selection highlights.
 
 ## Text
 
 Fonts are chosen by role. Pick a role instead of a point size, and each platform maps it to its
-own text-style system:
+text-style system:
 
 ```rust
 label(tr("title")).font(Font::Title)
@@ -56,7 +55,7 @@ label(move || status.get().to_string())
 ```
 
 There is no `theme::` token module, because the default appearance is already native: text,
-controls, separators, and window grounds take the platform's own dynamic colors inside each
+controls, separators, and window grounds take the platform's dynamic colors inside each
 [backend](/docs/glossary#backend) (`NSColor.labelColor`, Material surface attributes, QPalette
 roles), so dark/light tracking needs no app-side tokens. The semantic roles that must cross the spec
 do so as typed values: `SurfaceRole` for grouped-card surfaces, `Font` for typography. Colors *you*

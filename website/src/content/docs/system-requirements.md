@@ -29,6 +29,8 @@ toolkits you build for. Naming a toolkit with `--toolkit` turns its misses into 
 that toolkit's setup text. For a full check, `day checkup` scaffolds a throwaway app and builds
 (and packs) it for each target; see [CLI & projects](/docs/cli).
 
+For build errors or device connection problems, see [Troubleshooting](/docs/troubleshooting).
+
 ## Every host
 
 | What | Version | Where |
@@ -62,13 +64,12 @@ run them for development even though you ship `linux-gtk` and `linux-qt`.
 
 ## macOS
 
-Day pins no minimum macOS version of its own. The binding constraint is Xcode: install the newest
+The required macOS version depends on Xcode: install the newest
 version your macOS supports, and check
 [Apple's minimum requirements](https://developer.apple.com/support/xcode/) if you are on an older
 release. Continuous integration builds on the current `macos-latest` runner (Apple silicon).
 
-Command-line tools cover `macos-appkit`, and are enough for the GTK, Qt, Android, and web targets
-too:
+The GTK, Qt, Android, and web targets need Apple’s command-line development tools on macOS:
 
 ```bash
 xcode-select --install
@@ -147,7 +148,7 @@ linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day d
 installed versions against these minimums, so run it first; a version miss otherwise surfaces as a
 build failure inside `gdk4-sys`.
 
-Fedora, Arch, and openSUSE ship the same libraries under their own names; check
+Fedora, Arch, and openSUSE ship the same libraries under different package names; check
 [GTK's installation page](https://www.gtk.org/docs/installations/linux) and
 [Qt's](https://doc.qt.io/qt-6/linux.html) for the equivalents.
 
@@ -217,8 +218,9 @@ emulator -avd <name>
 adb devices                 # confirm it is listed as `device`
 ```
 
-The `day` CLI has no Android-emulator command of its own; use Android Studio or the SDK's own
-tools. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
+Day can list existing AVDs with `day devices list -p android-mdc` and start one with
+`day devices boot -p android-mdc AVD_NAME --wait`. See
+[Android troubleshooting](/docs/troubleshooting#android-will-not-build-or-find-a-device) if it is not detected. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
 `x86_64-linux-android`. Set `ANDROID_SERIAL` when more than one device or emulator is attached, so
 `day launch` and `day drive` act on the one you mean.
 
@@ -275,7 +277,7 @@ day ohos emulator launch                 # --headless for CI
 
 The image comes from the
 [device_board_oniro releases](https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases)
-(v6.1 is what Day's own CI runs). `DAY_OHOS_EMULATOR` defaults to `~/ohos/emulator/images`, so you
+(v6.1 is what Day's CI runs). `DAY_OHOS_EMULATOR` defaults to `~/ohos/emulator/images`, so you
 can skip the variable by unpacking there.
 
 The x86_64 emulator image carries an arm64-only ArkWeb engine, so the web view piece does not

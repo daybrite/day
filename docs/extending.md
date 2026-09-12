@@ -431,7 +431,7 @@ cx.under(node, |cx| { let _ = child.build(cx); });               // mount the Da
 > registration, which is the part that will stay; the contract behind it firms up at SPI
 > stabilization.
 
-A toolkit implemented in its own repository registers its platform-toolkit pair by declaring it in
+A toolkit implemented in a separate repository registers its platform-toolkit pair by declaring it in
 the toolkit crate's `Cargo.toml`:
 
 ```toml
@@ -517,7 +517,7 @@ backend (an embedded browser) that additionally contributes an Android permissio
 from `measure` so a growing leaf fills on Android.
 
 [day-piece-lottie](https://github.com/daybrite/day-piece-lottie) is a third reference, and the first
-piece to live in its own repository: an iOS/Android-only piece that pulls an external native package
+piece to live in a separate repository: an iOS/Android-only piece that pulls an external native package
 on each platform, the lottie-ios SwiftPM package (via the `[package.metadata.day.ios]` mechanism
 above) and `com.airbnb.android:lottie` (Gradle). Its Swift and Java shims each wrap a
 `LottieAnimationView` behind a flat C ABI / static method. It is also the reference for an external
@@ -529,7 +529,7 @@ this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on th
 with a fixture piece that pulls swift-collections.
 
 [day-part-speech](https://github.com/daybrite/day-part-speech) is the reference for the other mechanism, and the
-first **part** to live in its own repository: a headless part whose every platform implementation
+first **part** to live in a separate repository: a headless part whose every platform implementation
 is a [bridge](bridge.md) arm — Swift, Java, ArkTS, JavaScript, C++, and C — inline in one
 `src/lib.rs` beside the Rust declaration they share. Its `docs/speech.md` walks through the arms.
 [day-piece-camera](https://github.com/daybrite/day-piece-camera) is a fourth: a native camera

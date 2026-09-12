@@ -70,7 +70,7 @@ They never reach the user.
 
 ## Checked items
 
-`.checked(bool)` draws the platform's own check mark beside the item — for a setting the menu
+`.checked(bool)` draws the platform's check mark beside the item — for a setting the menu
 toggles, or one of several mutually exclusive choices:
 
 ```rust
@@ -105,7 +105,7 @@ with what the app thinks, and an action that declines to change anything leaves 
 
 ## Icons
 
-An item can carry the platform's own glyph beside its title:
+An item can carry the platform's glyph beside its title:
 
 ```rust
 menu_item(tr("rectangle")).icon(Symbol::Rectangle).action(place_rect)
@@ -123,7 +123,7 @@ platform's menus carry pictures:
 |---|---|
 | **AppKit**, **UIKit** | yes — `NSMenuItem.image` / `UIAction` image, from the shared SF Symbol table |
 | **GTK** | yes — the `GMenuModel` "icon" attribute, drawn by `GtkPopoverMenu` |
-| **Qt** | yes — `QAction::setIcon`, resolved like a toolbar icon (theme name, then Day's own outline, then the QStyle standard set) |
+| **Qt** | yes — `QAction::setIcon`, resolved like a toolbar icon (theme name, then Day's outline, then the QStyle standard set) |
 | **XAML** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
 | **Android** | ignored: Material's overflow menu is text-only, and an icon belongs on an app-bar action |
 | **ArkUI**, **web-dom** | no menus of this kind to put an icon in |
@@ -189,7 +189,7 @@ equivalent on a platform render as an inert labeled item; no behavior is imposed
 
 ³ On a toolkit with no native undo responder, `MenuRole::Undo`/`Redo` items lower onto a
 standing dispatcher (`day_core::undo_action_id`) that invokes the undo history installed via
-`day::install_undo` ([docs/model.md](model.md)), the same stack the platform's own route reaches on
+`day::install_undo` ([docs/model.md](model.md)), the same stack the platform's route reaches on
 macOS/iOS, so one `menu_role` pair behaves consistently everywhere the menu renders.
 
 ⁴ The edit bridge (`Cap::EditBridge`). An app that can cut/copy/paste its own objects installs
@@ -253,7 +253,7 @@ canvas(draw)
 
 That scoping is why there is no window-level key handler to pair it with. A global route cannot
 tell a nudge the app wants from the keys a focused widget needs: it has to run ahead of the
-platform's own dispatch, which means guessing whether the first
+platform's dispatch, which means guessing whether the first
 responder would have wanted the key, and every guess is wrong for something. Day-Sketch's
 arrow-nudge used to be installed that way, and it took the arrow keys away from every list and
 sidebar in every app that had one. Hanging the handler on the canvas removes the question:
@@ -264,7 +264,7 @@ The cost is that a piece must be able to hold focus for its keys to arrive
 makes its drawing surface a tab stop and reports focus both ways), which makes it the piece a
 drawing app hangs its keys on. A piece that cannot take focus on a given backend never
 hears a key there, and a canvas nobody gave a handler to keeps none of them: an unclaimed
-arrow keeps walking, so an enclosing scroll view still scrolls and the platform's own focus
+arrow keeps walking, so an enclosing scroll view still scrolls and the platform's focus
 navigation still moves between controls.
 
 The payload format is the app's own; Day-Sketch uses a standalone SVG document, so shapes
@@ -341,7 +341,7 @@ registered with day-core, which hands back a process-unique **action id**; only 
 native menu. When the user chooses an item the backend emits `Event::MenuAction(id)`; the event pump
 routes it to `dispatch_menu_action`, which runs the closure inside a reactive batch (so signal writes
 made from a menu coalesce into one update, just like a button tap). Standard roles carry no id; they
-resolve to the toolkit's own command instead. This keeps the crossing minimal (an integer), avoids
+resolve to the toolkit's command instead. This keeps the crossing minimal (an integer), avoids
 holding native handles across the FFI boundary, and lets any backend add menu support by implementing
 just two `Toolkit` methods: `set_app_menu` and `set_context_menu`.
 

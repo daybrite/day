@@ -95,7 +95,7 @@ epoch, save previous dispositions). The handler only formats integers into a fix
 `write(2)`s them, and **chains**: it restores the previous disposition and either re-raises
 (abort/trap) or returns so the faulting instruction re-executes and the OS crash reporter still
 runs. This chaining preserves Android ART's `libsigchain` and HarmonyOS FaultLoggerd, so the
-platform's own tombstone/faultlog is still produced alongside day-break's report.
+platform's tombstone/faultlog is still produced alongside day-break's report.
 
 ## The report (schema 1)
 

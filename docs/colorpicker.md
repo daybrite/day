@@ -1,6 +1,6 @@
 ---
 title: "Color picker"
-description: "A color well in two idioms — the platform's own chooser, and one Day draws itself out of pieces and a canvas — bound two-way to a Signal<Color>."
+description: "A color well in two idioms — the platform's chooser, and one Day draws itself out of pieces and a canvas — bound two-way to a Signal<Color>."
 ---
 
 <!--
@@ -176,7 +176,7 @@ the drawn controls. They take a `tap` at a point, which is how the walkthrough p
 ## What this piece does not promise
 
 - **Identical chrome across the native idiom.** AppKit's panel is a floating inspector, iOS's a
-  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's own chrome
+  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's chrome
   (DESIGN.md [§2](../DESIGN.md)); `.composed()` is the escape hatch when an app wants one look.
 - **An embedded/inline style.** Three of the eight toolkits have nothing to embed, and a style that
   silently degrades on most backends is worse than one an app can reason about. The composed panel

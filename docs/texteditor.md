@@ -1,6 +1,6 @@
 ---
 title: "Styled text editor"
-description: "day-piece-texteditor: editing the same StyledText that labels render, in each platform's own rich-text view."
+description: "day-piece-texteditor: editing the same StyledText that labels render, in each platform's rich-text view."
 ---
 
 <!--
@@ -19,7 +19,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > out again in §6.
 
 `text_editor(doc)` edits a [`StyledText`](#2-the-document), the same document a label renders and
-`.markdown()` produces, live in each platform's own text editor: bold, italic, underline,
+`.markdown()` produces, live in each platform's text editor: bold, italic, underline,
 strikethrough, relative size, text and highlight color, plus paragraph alignment, indent, spacing
 and list markers.
 
@@ -130,7 +130,7 @@ diffs that text against the text it last knew, reflows its runs over the edit, a
 bound signal.
 Attributes only ever travel Day → native.
 
-That is why every arm turns the platform's own formatting UI **off**: iOS's
+That is why every arm turns the platform's formatting UI **off**: iOS's
 `allowsEditingTextAttributes`, the macOS font panel, Qt's and RichEditBox's built-in
 Ctrl+B/I/U. An editor whose attributes can change from two directions has to reconcile them, and
 reconciling an attributed string across eight toolkits is a much larger promise than this piece
@@ -139,7 +139,7 @@ all nine targets.
 
 The cost is that there is no attribute read-back. Pasting styled text keeps its
 characters and takes the surrounding style ("paste and match style", which is the only paste this
-model can describe), and the platform's own bold shortcut does nothing. The per-toolkit hook a
+model can describe), and the platform's bold shortcut does nothing. The per-toolkit hook a
 future read-back would use is `NSTextStorageDelegate`'s `editedAttributes` mask, GTK's
 `apply-tag`/`remove-tag`, `QTextDocument::contentsChanged`, an Android `SpanWatcher`,
 `ITextRange::Expand(tomCharFormat)`, `RichEditorController::getSpans`, and a DOM

@@ -51,17 +51,17 @@ my-app/
   `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
   [toolkit](/docs/glossary#toolkit) (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform
   scaffolds read the resolved values at build time.
-- The scaffolds are thin hosts. `platform/ios`, `platform/android`, and `platform/ohos` contain no
+- The scaffolds are host projects. `platform/ios`, `platform/android`, and `platform/ohos` contain no
   app logic. Each is a minimal native shell that loads the Rust library and hands it the root view.
   They rarely change.
-- Everything generated lands in `build/day/`: Cargo target directories (one per target and profile,
+- Generated files are written to `build/day/`: Cargo target directories (one per target and profile,
   so parallel builds never contend), staged resources, packed artifacts, and
   [dayscript](/docs/glossary#dayscript) screenshots all live under one ignorable directory.
 
 ## How a build works
 
 Every target follows the same shape. `day build -p <target>` (or `launch`, which builds first)
-stages resources, selects the toolkit feature, and runs the platform's own build system for
+stages resources, selects the toolkit feature, and runs the platform's build system for
 anything native:
 
 ```text
@@ -224,7 +224,7 @@ opening `index.html` directly.
 `resource/images/` and `resource/assets/` are looked up by name at runtime through the generated
 typed constants (`image(res::images::logo)`, `resource(res::assets::stations_json)`; a typo is a
 compile error). Before each platform build Day stages the files, unchanged, into that target's
-native resource store, so the platform's own machinery does the optimizing, and the runtime read is
+native resource store, so the platform's machinery does the optimizing, and the runtime read is
 native (and zero-copy wherever the store exposes a stable pointer):
 
 ```text

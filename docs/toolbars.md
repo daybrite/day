@@ -172,7 +172,7 @@ items exist, and their labels.
 
 ### Icons
 
-`.icon(Symbol::…)` names what the icon means, and each backend draws its platform's own glyph:
+`.icon(Symbol::…)` names what the icon means, and each backend draws its platform's glyph:
 an SF Symbol on macOS, a freedesktop icon name on GTK and Qt, a Segoe Fluent glyph on Windows.
 This is the only way one icon looks native on four desktops; a bundled PNG cannot, because it is
 one artist's take on all of them. Use `.image(name)` only for something app-specific.
@@ -299,7 +299,7 @@ Notes that are not obvious from the table:
   the previous actions and their widgets (`QToolBar::clear` only removes them). Icons: Qt has no
   glyph set of its own beyond QStyle's few dialog bitmaps, so a symbol is the desktop theme's
   icon where one exists (a freedesktop theme on Linux; on macOS Qt 6.7+ maps the freedesktop
-  names it knows to SF Symbols), then Day's own outline, then QStyle's. Those drawings never
+  names it knows to SF Symbols), then Day's outline, then QStyle's. Those drawings never
   agreed on a box, so every toolbar glyph is fitted by its ink to the same fraction of the bar's
   icon box and tinted to the palette text color; the box is 24 points on macOS (an NSToolbar
   glyph's), and the user's setting on the Linux desktops.

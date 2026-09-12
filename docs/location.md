@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > **Status: implemented** as `day-part-location` (in `parts/`, the headless counterpart of
 > `pieces/`). It's a headless day-ecosystem crate (no UI Piece): the device's position, once or as a
-> live stream, through each platform's own location service. Any Rust code can depend on it and call
+> live stream, through each platform's location service. Any Rust code can depend on it and call
 > `day_part_location::watch(...)`. Host build/clippy/tests and the iOS-simulator, Android, wasm32 and
 > HarmonyOS cross-compiles are verified; a real fix needs a device or a simulator with a location
 > injected (Xcode's Features → Location, the Android emulator's extended controls), which has not yet

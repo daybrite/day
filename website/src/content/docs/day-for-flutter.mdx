@@ -29,7 +29,7 @@ approaches.
 | `StatelessWidget` | any function; Day has no widget class hierarchy |
 | `StatefulWidget` + `State` | a function that creates `Signal`s |
 | `setState(() { … })` | `count.set(…)` / `count.update(…)` |
-| `build()` re-runs on change | nothing re-runs; one binding patches one widget |
+| `build()` re-runs on change | a binding re-runs and updates its widget |
 | `ValueNotifier` / Provider / Riverpod | `Signal` and `Memo`, built in |
 | `const` constructors, keys | not needed — the tree is built once |
 | `Navigator` / go_router | `nav`, `nav_stack`, and string routes |
@@ -90,7 +90,7 @@ fn counter() -> impl Piece {
 </Compare>
 
 The Day version keeps its state in a `Signal` inside a plain function, so there is no `State` class
-or `BuildContext`, and `const` optimization has no equivalent because nothing rebuilds. `Signal<T>`
+or `BuildContext`, and `const` optimization has no equivalent because component functions do not rebuild on state changes. `Signal<T>`
 is `Copy`, so it moves into both closures without a `.clone()`. The function runs once; after that,
 updates flow through the signal graph. [Reactivity](/docs/reactivity) explains the signal graph.
 
@@ -460,7 +460,7 @@ label("Hi").font(Font::custom(res::fonts::pacifico, 24.0))  // resource/fonts/, 
 
 ## Project structure and per-platform configuration
 
-Flutter and Day use the same layout: thin per-platform host projects next to shared code.
+Flutter and Day use the same layout: per-platform host projects next to shared code.
 
 <Compare lhs="Flutter">
 
@@ -522,7 +522,7 @@ today: each `(OS, toolkit)` pair carries a [support tier](/docs/platforms#suppor
 ## Building and shipping
 
 `flutter build` per platform maps to `day pack`, which builds release, signs with the
-platform's own tools, and writes an installable artifact plus checksum to `build/day/dist/`:
+platform's tools, and writes an installable artifact plus checksum to `build/day/dist/`:
 
 | Task | Flutter | Day |
 |---|---|---|

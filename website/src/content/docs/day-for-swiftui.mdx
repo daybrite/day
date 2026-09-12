@@ -17,7 +17,7 @@ Day borrows more from SwiftUI than from any other framework: declarative composi
 chains, semantic fonts, and the same parent-proposes-child-chooses layout protocol. This guide maps
 the vocabulary, then covers what changes: the update model (no `body` re-evaluation), the language
 (Rust), and the reach (the same codebase also builds for Android, Windows, Linux, HarmonyOS, and the
-web with each platform's own widgets).
+web with each platform's widgets).
 
 Every Day renderer is open source. When a control misbehaves on some platform, you can read and
 patch the code that placed it. And a move to Day doesn't have to be a rewrite: on Apple targets, Day
@@ -31,7 +31,7 @@ patch the code that placed it. And a move to Day doesn't have to be a rewrite: o
 | `@State private var count` | `let count = Signal::new(…)` |
 | `@Binding` | pass the `Signal` itself; it's `Copy` |
 | `@Observable` class / `ObservableObject` | a struct holding `Signal`s and `Memo`s |
-| `body` re-evaluated on change | nothing re-runs; one binding patches one widget |
+| `body` re-evaluated on change | a binding re-runs and updates its widget |
 | `VStack` / `HStack` / `ZStack` / `Spacer` | `column` / `row` / `zstack` / `spacer()` |
 | `.font(.title)` / `.padding()` | `.font(Font::Title)` / `.padding(16.0)` |
 | `List` / `ForEach(id:)` | `list` / `each` — the key function is required |
@@ -202,8 +202,8 @@ navigate("album-42");
 </Compare>
 
 `NavigationSplitView` maps to `nav(…).style(NavStyle::Sidebar)`: an `NSSplitView` source list on
-macOS, and the platform's own idiom elsewhere (a pushing list on phones, libadwaita's split view on
-GTK). On top of the signals sits a thin route layer: `navigate("library/album-42")`,
+macOS, and the platform's idiom elsewhere (a pushing list on phones, libadwaita's split view on
+GTK). On top of the signals sits a route layer: `navigate("library/album-42")`,
 `current_route()`, and `DAY_DEEPLINK` cover programmatic navigation, state restoration, and deep
 links with one set of strings, the job `onOpenURL` and scene restoration do separately. See
 [Navigation](/docs/navigation).
@@ -393,7 +393,7 @@ height = 640
 
 </Compare>
 
-There is still an Xcode project (`platform/ios/` holds a thin host that links the Rust static
+There is still an Xcode project (`platform/ios/` holds a host that links the Rust static
 library), but it's a shell you rarely touch: identity, version, icons, and permissions flow
 from `Day.toml` at build time. Opening it and pressing Run works (Xcode calls back into `day`
 for the Rust half), so Instruments and the debugger stay available.

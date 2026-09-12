@@ -17,7 +17,7 @@ button("Send").enabled(move || !busy.get()) // the platform's own disabled rende
 
 ## The rule: a button is always a native button
 
-`button()` realizes the platform's own button control on every backend, whatever modifiers it
+`button()` realizes the platform's button control on every backend, whatever modifiers it
 carries. It is never composed into a container with a tap handler.
 
 A native button carries a large amount of behavior an app would otherwise have to reimplement
@@ -27,7 +27,7 @@ one platform at a time:
   return-key default binding.
 - **Accessibility.** The button role, so a screen reader announces it as a button and offers its
   activation action. A `div` or a `UIView` with a tap gesture announces nothing.
-- **Pressed and hover rendering.** Every platform's own timing and treatment: Material's ripple,
+- **Pressed and hover rendering.** Every platform's timing and treatment: Material's ripple,
   UIKit's dimming, AppKit's bezel highlight, the `:active` state on the web.
 - **Platform subtleties.** Pointer effects on iPadOS, the Windows focus rectangle, right-to-left
   mirroring, high-contrast and reduced-motion behavior, minimum hit targets.

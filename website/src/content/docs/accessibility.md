@@ -54,7 +54,7 @@ interactive pieces is a listed follow-up):
 ## Identifiers
 
 `.id("save-button")` sets a stable identifier used by three consumers: [dayscript](/docs/dayscript)
-element targeting, external automation tools, and Day's own diagnostics. For external tools the
+element targeting, external automation tools, and Day's diagnostics. For external tools the
 platform mapping is uneven:
 
 | Platform | Identifier surface |

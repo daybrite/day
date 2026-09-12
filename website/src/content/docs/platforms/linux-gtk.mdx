@@ -110,6 +110,6 @@ this table adds links and notes.
 | *external* `webview()` | [`WebKitWebView`](https://webkitgtk.org/reference/webkitgtk/stable/class.WebView.html) (WebKitGTK 6.0) |
 | *external* `media()` | [`GtkVideo`](https://docs.gtk.org/gtk4/class.Video.html) |
 
-**Text measurement** builds a Pango layout on the label's own styled context rather than calling
+**Text measurement** builds a Pango layout on the label's styled context rather than calling
 `gtk_widget_measure`, because a `GtkFixed` child's size request would otherwise ratchet upward and
 never shrink.

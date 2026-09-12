@@ -31,13 +31,13 @@ plugin registry or runtime lookup; the [target](/docs/glossary#target) selects t
 | `day-part-network` | connectivity status | [network](/docs/internal/network) |
 | `day-part-deviceinfo` | device model, OS version | [deviceinfo](/docs/internal/deviceinfo) |
 | `day-part-sensors` | accelerometer and friends, as a live stream | [sensors](/docs/internal/sensors) |
-| `day-part-http` | HTTP through each platform's own networking stack | [http](/docs/internal/http) |
+| `day-part-http` | HTTP through each platform's networking stack | [http](/docs/internal/http) |
 | `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/internal/permissions) |
 | `day-part-location` | the device's position, once or as a live stream | [location](/docs/internal/location) |
 | `day-part-haptics` | haptic feedback | [haptics](/docs/internal/haptics) |
 | `day-part-sound` | sound effects | [sound](/docs/internal/sound) |
 | `day-part-wakelock` | keeping the screen on | [wakelock](/docs/internal/wakelock) |
-| `day-part-speech` | text to speech through each platform's own voice; in its own repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
+| `day-part-speech` | text to speech through each platform's speech API; in a separate repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
 
 ## Using parts
 
@@ -76,7 +76,9 @@ Returns are `Option`/`bool` rather than panics: a desktop without a battery repo
 clipboard read reports `None`, and your UI decides what that means. Check each part's reference page
 for the per-platform support matrix; not every capability exists everywhere.
 
-## Writing your own
+<span id="writing-your-own"></span>
+
+## Implementing a part
 
 When you need a platform API Day doesn't cover (Bluetooth, a payment SDK, notification badges),
 you write a part. The implementation depends on the platform API:
@@ -101,7 +103,7 @@ platform implementations) and is the best template for your own.
 ### Foreign code, inline
 
 A part whose platform half is a *function* rather than a directory of shims can declare it once in
-Rust and implement it per platform in the language that platform speaks, in the same file:
+Rust and provide platform implementations in the same file:
 
 ```rust
 day_bridge::bridge! {

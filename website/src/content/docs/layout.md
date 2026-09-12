@@ -58,7 +58,7 @@ content.
 ## Native measurement, especially text
 
 Leaf Pieces answer `measure` by asking the real widget. This matters most for text, which is
-**height-for-width**: propose a width, and the toolkit's own text engine (Core Text, Pango,
+**height-for-width**: propose a width, and the toolkit's text engine (Core Text, Pango,
 minikin, QFontMetrics) reports the wrapped height. Day never guesses at glyph metrics, so a
 label wraps exactly where the platform would wrap it, in every script and [locale](/docs/glossary#locale).
 

@@ -73,7 +73,7 @@ and Fluent re-selects the plural category. For a plain `String` in non-UI code,
 `tr("key").format()` returns the formatted value once.
 
 Missing messages fall back per-message to the default locale, so a half-translated catalog ships
-degraded rather than broken. Day's own strings (dialog buttons, menu roles) come from a built-in
+degraded rather than broken. Day's strings (dialog buttons, menu roles) come from a built-in
 core catalog that your app catalog can override key by key.
 
 ## Switching locale at runtime

@@ -68,7 +68,7 @@ There is no determinate mode here, because that is day's built-in `progress(frac
 - **GTK**: `gtk4::Spinner` (a core widget, so the feature compiles everywhere). Its natural size is
   tiny, so the piece gives it a `set_size_request` square (48 for `.large`, else 24). A stopped
   spinner is drawn static.
-- **Qt**: Qt ships no native spinner widget, so this crate's own C++ shim wraps a `QProgressBar`
+- **Qt**: Qt ships no native spinner widget, so this crate's C++ shim wraps a `QProgressBar`
   in busy mode (`setRange(0, 0)`), the usual Qt way to show indeterminate progress and the same
   technique day-qt uses for `spinner()`. build.rs compiles the shim against `Qt6Widgets` (already
   linked by day-qt-sys, so it emits no extra link flags). Animating toggles between busy (range
@@ -83,7 +83,7 @@ There is no determinate mode here, because that is day's built-in `progress(frac
   (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with the crate under `platform/android/java` and
   folded into the app's Gradle build via `[package.metadata.day.android]`, using only day-android's
   public `DayBridge.ctx`.
-- **XAML**: this crate's own C++/WinRT shim wraps a `Windows.UI.Xaml.Controls.ProgressRing` (UWP
+- **XAML**: this crate's C++/WinRT shim wraps a `Windows.UI.Xaml.Controls.ProgressRing` (UWP
   system XAML, no WinAppSDK), boxed via day-xaml-sys's `day_xaml_box` functions like the media /
   picker / webview XAML pieces. `IsActive` runs/stops it; `.large` sets Width/Height. Written blind
   (Windows-only, built in CI); creation degrades to a `TextBlock` on any unexpected throw.

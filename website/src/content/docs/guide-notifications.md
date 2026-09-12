@@ -1,6 +1,6 @@
 ---
 title: Send local notifications
-description: "Post a notification now or schedule one the OS fires later, route the tap back into your app, and get the consent step right so it actually appears."
+description: "Post or schedule local notifications, request permission, and handle notification taps."
 order: 28
 section: Guides
 ---
@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day-part-local-notify` posts and schedules the platform's own notifications from Rust: a finished
+`day-part-local-notify` posts and schedules the platform's notifications from Rust: a finished
 timer, a completed download, or a reminder that fires after the app has exited. Everything runs on
-the device through the OS's own notification service; the call site is:
+the device through the OS notification service; the call site is:
 
 ```rust
 Notification::new("Timer done")
@@ -37,7 +37,7 @@ The build-time half is one line in your `Day.toml`:
 notifications = true      # needs no reason string on any platform
 ```
 
-Most permissions take a user-facing reason as their value, the sentence the OS shows in its own
+Most permissions take a user-facing reason as their value, the sentence the OS shows in its
 prompt. Notifications are the one portable permission that needs none, so `true` is enough.
 `day build` generates the platform entries from this (`POST_NOTIFICATIONS` on Android 13+; Apple
 needs no `Info.plist` key for local notifications).

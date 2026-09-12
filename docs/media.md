@@ -68,7 +68,7 @@ change the toolkit reports, whoever caused it — a trigger, the native chrome, 
 | `Loading` | a source is set and the player is connecting or buffering |
 | `Playing` / `Paused` | what they say |
 | `Ended` | the source played to its end (a file; a live stream never does) |
-| `Error(String)` | the player gave up; the text is the toolkit's own message |
+| `Error(String)` | playback failed; the string contains the toolkit's error message |
 
 `PlaybackState::is_active()` is "sound is, or is about to be, coming out" — the state a play/pause
 button draws itself from. The arms report on the node's `Event::Custom` channel with the codes in
@@ -114,7 +114,7 @@ Where it comes from:
   request per interval, not a second stream. It is the one path the players that keep the
   block to themselves have (Android's `MediaPlayer`, GStreamer behind `GtkVideo`, Qt, XAML,
   ArkUI), and on Apple it says the same thing the player does. androidx.media3's `IcyInfo`
-  would make Android a first-class arm; that rides the ExoPlayer upgrade noted below.
+  would add Android support; this depends on the ExoPlayer upgrade noted below.
 - **Web**: nothing. A page cannot read a cross-origin stream's bytes, and `<audio>` exposes no
   in-band metadata; the signal stays `None`.
 
@@ -148,7 +148,7 @@ Where it comes from:
   `[package.metadata.day.ios] frameworks = ["AVKit", "AVFoundation"]` and linked by the generated
   DayPieces SwiftPM package. (The controller is not parented into the view-controller hierarchy;
   inline playback works, fullscreen presentation is out of v1 scope.)
-- **Qt**: this crate's own C++ shim, compiled by build.rs with a `pkg-config
+- **Qt**: this crate's C++ shim, compiled by build.rs with a `pkg-config
   Qt6MultimediaWidgets` probe (day-qt-sys links Widgets but not Multimedia; the shim emits those
   libs). Where the module is absent the shim degrades to a URL `QLabel` and build.rs prints a
   `cargo:warning`, so the app still builds/launches/screenshots. `QVideoWidget` ships no chrome,

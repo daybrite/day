@@ -117,7 +117,7 @@ follows layout order).
 | mock | logged op + `MockWidget.focused` | logged op |
 
 **Which controls are focusable.** Text fields are focusable everywhere. On desktop, buttons,
-toggles, and sliders are too, with the platform's own keyboard-access rules (macOS buttons
+toggles, and sliders are too, with the platform's keyboard-access rules (macOS buttons
 join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't observe them; Qt
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
 focusable, and the bindings stay quiet there.

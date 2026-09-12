@@ -20,12 +20,12 @@ the vocabulary and the toolchain (composables to Pieces, Gradle to Cargo) and co
 structural differences.
 
 The first is update granularity. Compose re-executes recomposition scopes and skips what it can;
-Day has no recomposition at all. The tree is built once, and a state change re-runs only the
+Day does not use recomposition. The tree is built once, and a state change re-runs only the
 closures that read it, each ending in one native setter call. Stability
-annotations and `remember` bookkeeping have no equivalent because there is nothing to skip.
+annotations and `remember` bookkeeping have no equivalent because Day does not re-execute the component function on state changes.
 
-The second is what's on screen. Compose draws its own Material widgets on a canvas (and Compose
-Multiplatform carries that renderer to other platforms). Day creates each platform's real widgets:
+The second difference is widget rendering. Compose draws its own Material widgets on a canvas (and Compose
+Multiplatform carries that renderer to other platforms). Day creates each platform's native widgets:
 Material Components views on Android, AppKit on macOS, system XAML on Windows, DOM elements on the
 web. [Why Day](/docs/benefits) lists what each approach costs and when Compose is the better fit.
 
@@ -258,7 +258,7 @@ window, so split-screen and freeform windows each get their own answer.
 
 The chain reads the same, but the algorithm differs. Compose measures with constraints flowing
 down; Day uses the SwiftUI-style proposal protocol (parent proposes, child chooses), with text
-measured by the platform's own engine. Day's equivalent of `Modifier.weight(1f)` is `.grow()`,
+measured by the platform's engine. Day's equivalent of `Modifier.weight(1f)` is `.grow()`,
 and containers don't stretch children by default.
 
 <Compare lhs="Compose">
@@ -394,7 +394,7 @@ camera = "Scan shelf barcodes to add albums."
 
 </Compare>
 
-A Gradle project still exists (`platform/android/` is a thin host that loads the Rust `cdylib`), but
+A Gradle project still exists (`platform/android/` is a host that loads the Rust `cdylib`), but
 it isn't where configuration lives. `Day.toml` declares identity, version, window, and permissions
 once; `day build` writes the manifest entries (and the iOS plist keys, and the HarmonyOS profile)
 from it. A dependency with native platform code declares its Java sources, Gradle dependencies, and

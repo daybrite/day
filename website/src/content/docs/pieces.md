@@ -89,8 +89,8 @@ fn status_badge(online: bool) -> AnyPiece {
 }
 ```
 
-An ordinary [page](/docs/glossary#page) or component function does **not** erase. It returns its own piece type, or
-`impl Piece` when that type is tedious to write:
+An ordinary [page](/docs/glossary#page) or component function does **not** erase. It returns a concrete piece type, or
+`impl Piece` to avoid naming that type:
 
 ```rust
 fn settings_page() -> impl Piece {
@@ -101,13 +101,12 @@ fn settings_page() -> impl Piece {
 }
 ```
 
-Nothing in Day's own vocabulary erases either: `column()` hands back a `Column`, `labeled()` a
+Day's constructors preserve concrete types: `column()` returns a `Column`, `labeled()` a
 `Labeled`, and modifiers (`.id()`, `.padding()`, `.on_tap()` …) return `Decorated<P>`, which keeps
-the decorated piece's own type. So `.any()` is always your call, made where a single `AnyPiece` is
-required. Calling it on a piece that is already erased is free, because `AnyPiece` hands
-itself back without boxing again.
+the decorated piece's type. Call `.any()` where a single `AnyPiece` type is
+required. Calling it on an `AnyPiece` returns the existing value without another allocation.
 
-Because the type is kept, a piece's own builders can be chained after a generic modifier, in
+Because the type is kept, the piece's builders can be chained after a generic modifier, in
 either order:
 
 ```rust
@@ -139,8 +138,7 @@ The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 
 Anything beyond this vocabulary (a combo box, a map, a web view, a Lottie animation, an [embedded
 SwiftUI view](/docs/internal/swiftui)) lives in a separate *piece crate* (`day-piece-*`) that you
-add as an ordinary Cargo dependency. The split keeps the core small enough to audit and port, and
-optional widgets cost you nothing unless you use them. The [extension model](/docs/extending)
+add as an ordinary Cargo dependency. Optional widgets are separate dependencies, so apps include only the piece crates they use. The [extension model](/docs/extending)
 explains how those crates plug in.
 
 Each built-in has a reference page with per-platform notes under
@@ -245,10 +243,10 @@ There are exactly three kinds of Piece, and you can write all three:
    and how you'd wrap a platform control Day doesn't cover. See the
    [native piece tutorial](/docs/tutorial-native-piece).
 
-Composite pieces cost nothing beyond the Rust you write; native pieces cost one implementation
-per [toolkit](/docs/glossary#toolkit) you care about (a piece that only implements AppKit and UIKit renders a labeled
+Composite pieces reuse existing widget implementations. Native pieces require an implementation
+for each [toolkit](/docs/glossary#toolkit) you support (a piece that only implements AppKit and UIKit renders a labeled
 [placeholder](/docs/glossary#placeholder) elsewhere, so the gap is visible and the app keeps running).
 
 ---
 
-Next: [Reactivity](/docs/reactivity), the [signals](/docs/glossary#signal) that make a built-once tree move.
+Next: [Reactivity](/docs/reactivity), the [signals](/docs/glossary#signal) that update the widget tree.

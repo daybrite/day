@@ -92,7 +92,7 @@ no window on screen yet, a zero-size window, a compositor that declined.
 Two of these were the second thing tried:
 
 **AppKit prefers the window server.** `cacheDisplayInRect` renders the view hierarchy the app
-drew and nothing else, so macOS's own composited materials (a Liquid Glass sidebar, vibrancy)
+drew and nothing else, so macOS's composited materials (a Liquid Glass sidebar, vibrancy)
 come back blank. `CGWindowListCreateImage` asks the window server for the pixels the user is
 looking at. It has the opposite limitation: it has no image for a window that is not on
 screen, so the offscreen render remains the fallback.
@@ -113,7 +113,7 @@ different goal, and it does **not** call this API directly.
 - **Desktop** — the in-process capture is the real capture, and it is what a walkthrough writes.
   The Linux CI legs keep a fallback: when the engine declines, `day` reads the xvfb root window
   with ImageMagick's `import`.
-- **Device and simulator** — the platform's own screen capture remains the primary path
+- **Device and simulator** — the platform's screen capture remains the primary path
   (`simctl io screenshot`, `adb exec-out screencap`, `hdc uitest screenCap`). It photographs the
   whole screen, status bar and system chrome included, which is what the published mobile
   galleries show; an in-process capture frames the app's view tree alone and would silently

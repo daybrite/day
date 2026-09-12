@@ -15,7 +15,7 @@ Model Context Protocol (MCP). An AI agent can use them to build and relaunch an 
 with controls, check assertions, and capture screenshots. Review the resulting code and test
 the behavior on your target platforms.
 
-This guide walks that loop end to end with [Claude Code](https://claude.com/claude-code) in a
+This guide demonstrates this workflow with [Claude Code](https://claude.com/claude-code) in a
 plain terminal: scaffold an app, have the agent add a weather page, script the page with
 dayscript, and put the script in GitHub CI. The [getting started](/docs/getting-started) page
 introduces the editor options; the workflow below uses the terminal.
@@ -51,7 +51,7 @@ claude
 `day mcp-server` (docs: [agent surface](/docs/internal/agent)) exposes ten tools:
 `day_metadata`, `day_build`, `day_launch`, `day_relaunch`, `day_drive`, `day_screenshot`, and
 friends. The two this loop depends on are `day_relaunch`, which returns compile errors *inside
-the tool result* so the agent fixes and retries on its own, and `day_drive`, whose screenshots
+the tool result* so the agent can correct the error and retry, and `day_drive`, whose screenshots
 come back as images the agent can read.
 
 ## 3. Add a weather page, by prompt
@@ -66,7 +66,7 @@ In the Claude Code session:
 
 Watch the loop the scaffolded `AGENTS.md` prescribes: `day_metadata` first, then the edits, a
 `day_relaunch` (fixing anything the compiler says), then a `day_drive` that navigates to the
-page and hands back a screenshot. The page it lands on will be a normal Day page. Abridged, it
+page and returns a screenshot. The generated page uses the standard Day API. An abbreviated version
 should look like this:
 
 ```rust

@@ -71,7 +71,7 @@ pins them to your CLI's version from crates.io and will become the default.
 
 `day new app` scaffolds a working starter: a typed-route [sidebar](/docs/glossary#sidebar) over four sample panels (a
 [reactive](/docs/glossary#reactive) counter, a controls tour, a canvas dial, and a drill-down stack), with [locales](/docs/glossary#locale), a
-[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), and the thin native
+[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), and the native
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
 directory tree whose file contents *and paths* are rendered with mustache-style placeholders
 (`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
@@ -447,7 +447,7 @@ fastlane project per target under `build/day/store/<target>/`, with `validate` a
 
 `day lint` checks the listing against the stores' rules before an upload can reject it: length
 limits per store, required fields, URL format, leftover `TODO` placeholders, and locale parity with
-the app's own translations, so a new app locale also requires a listing in that locale. See
+the app's translations, so a new app locale also requires a listing in that locale. See
 [Store listings](/docs/internal/store) for the full field table and the credential variables.
 
 In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh scaffold trips one

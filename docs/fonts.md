@@ -34,7 +34,7 @@ The list is enumerated **once per process** and cached: it is stable for the pro
 fonts register before the tree exists, and nothing tracks a system font install under a running
 app — the OS font panels cache too), enumeration is slow on every platform, and the query is
 synchronous on the UI thread. The bundled fonts the app ships under `resource/fonts/` are always
-in it, even where the platform's own database does not report them.
+in it, even where the platform's database does not report them.
 
 Ask `capability(Cap::FontList)` before offering a font menu:
 
@@ -65,7 +65,7 @@ d.text("Aa Bb", at, TextStyle {
 });
 ```
 
-`CanvasFont` is a family (`None` = the platform's own UI face), a weight (`None` = Regular) and a
+`CanvasFont` is a family (`None` = the platform's UI face), a weight (`None` = Regular) and a
 slant. The family is a name as `font_families()` lists it, or a bundled family's name; an unknown
 name draws in the default face with one warning in the log. Size stays absolute — see
 [docs/canvas.md](canvas.md) for why canvas text ignores the reader's text-size setting.

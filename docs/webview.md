@@ -130,7 +130,7 @@ web_view_inline(site)
 ```
 
 Two rules define the mode. **Relative references resolve natively**: the arm loads the site
-through the platform's own local-content channel, so the engine itself resolves `css/style.css`
+through the platform's local-content channel, so the engine itself resolves `css/style.css`
 or `../index.html`, with no interception layer rewriting anything. **Navigations that leave the site
 are cancelled in-view** and dispatched per `LinkPolicy`: `OpenSystem` (the default: the OS
 browser for `https://`, the mail client for `mailto:`, whatever the scheme maps to), `InView`

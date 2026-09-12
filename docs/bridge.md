@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > [!NOTE]
 > **Status: v1 shipped through phase 7 (2026-08).** The synchronous surface described here is in
 > the tree: every arm language and both generators, with `day-part-speech` as the reference
-> crate, since 2026-09 in its own repository ([day-part-speech](https://github.com/daybrite/day-part-speech)). What remains is [phase 8](#implementation-phases), migrating the other synchronous parts,
+> crate, since 2026-09 in a separate repository ([day-part-speech](https://github.com/daybrite/day-part-speech)). What remains is [phase 8](#implementation-phases), migrating the other synchronous parts,
 > and phase 9's gates; async, callbacks, and streams are [after v1](#after-v1). The type table,
 > the ownership rule, the threading rule, and the naming derivation are the API surface; changing
 > them now invalidates every arm written against them.
@@ -92,7 +92,7 @@ day_bridge::bridge! {
 tokens inside a macro body and idiomatic JavaScript and ArkTS do not: a backtick is not a Rust
 token at all, and `'zh-CN'` lexes as a malformed lifetime. A raw string accepts anything.
 **Use a file (`src = "…"`) once an arm passes roughly 25 lines**, where an editor, a formatter,
-and the language's own test runner start to matter more than keeping the crate in one file.
+and the language's test runner start to matter more than keeping the crate in one file.
 
 **The prelude holds imports and nothing else**, and belongs to the arm that needs it. A `package`,
 `namespace`, or `module` declaration in one is an error, not a passthrough: those are identity, the
@@ -224,7 +224,7 @@ invisible to the caller. Three consequences follow:
   Only a *thrown* error is convertible, which is why the type table lists "thrown" rather than
   "rejected promise" for those two languages.
 - An API whose result the caller needs (a permission prompt, a share sheet, speech-finished) does not
-  belong in a v1 bridge. Write it in Rust against the platform's own callback, or wait for the
+  belong in a v1 bridge. Write it in Rust against the platform's callback, or wait for the
   callback tier.
 - Blocking the caller means blocking Day's UI thread if the call comes from an action. Keep
   bridged work short; anything long enough to be felt belongs in a part with its own async API

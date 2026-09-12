@@ -238,7 +238,7 @@ That completes the front-end; the remaining code is native, one backend per tool
 
 ## 4. The backends, one per toolkit
 
-Each backend lives in its own file, compiled only for its feature+target, so the whole native
+Each backend lives in a separate file, compiled only for its feature+target, so the whole native
 surface for a toolkit sits in one place. One macro line at the bottom of `lib.rs` declares them
 all:
 

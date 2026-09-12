@@ -253,7 +253,7 @@ the ubuntu hosts never got that far. Build steps gate hard; only the emulator bo
 are per-step best-effort. The setup replicates the validated local macOS flow: the Linux
 command-line-tools (hvigor/ohpm are pure JS) run through node wrapper scripts, the darwin
 API-18 SDK from setup-ohos-sdk supplies the NDK + hdc + the versioned `OHOS_BASE_SDK_HOME`
-view hvigor builds against, and Day's own QEMU launcher boots the image. `OHOS_BASE_SDK_HOME`
+view hvigor builds against, and Day's QEMU launcher boots the image. `OHOS_BASE_SDK_HOME`
 must be a **host-platform** SDK: hvigor spawns its native tools (`syscap_tool`, `restool`,
 `es2abc`) directly, so pointing it at the Linux CLT's bundled SDK fails on macOS with
 `spawn ENOEXEC` at `SyscapTransform`.

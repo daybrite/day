@@ -59,7 +59,7 @@ Two intents (+ `Automatic`, which is `Compact` everywhere today):
 - **`Inline`** — an embedded calendar / clock / wheels.
 
 Anything finer (wheels-vs-calendar, dialog-vs-popover) is platform identity that Day keeps
-(DESIGN.md §2: each platform's own idiom takes priority over identical chrome everywhere).
+(DESIGN.md §2: each platform's idiom takes priority over identical chrome everywhere).
 
 ## Per-toolkit realization
 

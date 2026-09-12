@@ -53,7 +53,7 @@ section.
 | `windows-qt` | [Tier 4](/docs/platforms#support-tiers) | ✓ | best-effort | — (dev only) | MSYS2 toolchain ([setup](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host)); marked experimental in CI. Under CI's x86-64 MinGW `ld`, external piece renderers fail to register and draw placeholders; a clang/`lld` MSYS2 environment keeps them |
 | `windows-gtk` | [Tier 4](/docs/platforms#support-tiers) | ✓ | best-effort | — (dev only) | Same, plus no accessibility tree and no WebKitGTK 6 for Windows |
 | `harmony-arkui` | [Tier 3](/docs/platforms#support-tiers) | ✓ | best-effort (emulator) | `.hap` | Build and packaging gate hard; the QEMU emulator leg is tolerated-flaky |
-| `web-dom` | [Tier 3](/docs/platforms#support-tiers) | ✓ | ✓ (headless Chromium) | static `dist/` | Experimental; the [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI; see the [web notes](/docs/internal/web) |
+| `web-dom` | [Tier 3](/docs/platforms#support-tiers) | ✓ | ✓ (headless Chromium) | static `dist/` | Experimental; the [live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's CI; see the [web notes](/docs/internal/web) |
 
 "Runs full UI walkthrough" means the showcase app executes its complete
 [dayscript](/docs/dayscript) walkthrough (navigation, inputs, dialogs, screenshots) on that
@@ -126,7 +126,7 @@ anywhere; there is no `day pack` step because `dist/` is already the artifact. I
 [placeholders](/docs/glossary#placeholder), there are no file dialogs or context menus, the list is emulated rather than
 recycled, and accessibility is thinner than on native because pieces that realize as `<div>`s
 carry no compensating ARIA roles. The
-[live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's own CI.
+[live build](https://showcase.daybrite.dev/webapp/) is deployed by the showcase's CI.
 
 ## Cross-cutting gaps
 

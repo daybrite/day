@@ -180,7 +180,7 @@ the app coming along:
 RUST_LOG=warn,day_gtk=debug,my_app=trace day launch -p linux-gtk
 ```
 
-`RUST_LOG` replaces `DAY_LOG` once you do this. `DAY_LOG` is read by Day's own logger, and that
+`RUST_LOG` replaces `DAY_LOG` once you do this. `DAY_LOG` is read by Day's logger, and that
 logger is no longer installed.
 
 Day does not adopt `env_logger` as its default, because it writes ANSI text to stderr on every
@@ -192,7 +192,7 @@ targets need the per-platform routing.
 
 ## Writing a logger
 
-The trait is `log::Log`. Day's own web-dom implementation shows the shape:
+The trait is `log::Log`. Day's web-dom implementation shows the shape:
 
 ```rust
 pub fn console_sink(level: log::Level, line: &str) {

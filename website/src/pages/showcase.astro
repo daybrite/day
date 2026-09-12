@@ -46,7 +46,7 @@ const packaging = [
     kind: '.ipa',
     store: 'apple' as const,
     install:
-      'The App Store build is the one to install. The unsigned device .ipa below is the same build for sideloading: AltStore Classic or SideStore re-sign it with your own Apple ID on install, or sign it yourself and install via Xcode’s Devices window.',
+      'Install through the App Store for automatic updates. The unsigned device .ipa below is the same build for sideloading: AltStore Classic or SideStore re-sign it with your own Apple ID on install, or sign it yourself and install via Xcode’s Devices window.',
   },
   {
     id: 'harmony-arkui',
@@ -70,7 +70,7 @@ const packaging = [
     id: 'linux-gtk',
     kind: '.appimage',
     install:
-      'One self-contained executable carrying its own GTK: `chmod +x ./<file>.appimage` and run it as an ordinary user, with nothing else installed. The release also carries a .flatpak for a desktop-integrated install.',
+      'An executable bundled with GTK: `chmod +x ./<file>.appimage` and run it as an ordinary user, with nothing else installed. The release also carries a .flatpak for a desktop-integrated install.',
   },
   {
     id: 'linux-qt',
@@ -88,9 +88,7 @@ const targets = packaging.map((t) => ({
   name: platformsById[t.id].toolkit,
 }));
 
-// The store badges (public/badges/, the stores' own artwork). Apple's SVG is its plate edge to
-// edge; Google's plate is a 135×40 rect inside a 155×60 box, so the style below scales it by 1.5
-// and pulls the transparent margin out, and the two plates come out the same height.
+// Official store artwork; the web badge uses a matching black plate.
 const stores = {
   apple: { href: site.showcaseAppStore, src: url('badges/apple-app-store.svg'), alt: 'Download on the App Store' },
   google: { href: site.showcasePlayStore, src: url('badges/google-play-store.svg'), alt: 'Get it on Google Play' },
@@ -117,7 +115,10 @@ function richInstall(text: string): (string | { code: string })[] {
         and installation requirements.
       </p>
       <p class="dl-actions">
-        <a class="btn btn-primary" href={site.showcaseWeb}>Launch on the web →</a>
+        <a class="web-badge" href={site.showcaseWeb} aria-label="Launch on the web">
+          <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="16" cy="16" r="13" /><ellipse cx="16" cy="16" rx="6" ry="13" /><path d="M3 16h26M6 8h20M6 24h20" /></svg>
+          <span><span class="web-badge-small">Launch on the</span><span class="web-badge-name">web</span></span>
+        </a>
         <a class="store-badge store-badge-apple" href={stores.apple.href} aria-label={stores.apple.alt}>
           <img src={stores.apple.src} alt={stores.apple.alt} />
         </a>
@@ -224,7 +225,10 @@ function richInstall(text: string): (string | { code: string })[] {
             The WebAssembly build runs in the browser; this site hosts it as static files.
           </p>
           <p class="dl-files">
-            <a class="btn btn-primary dl-btn" href={site.showcaseWeb}>Launch on the web →</a>
+            <a class="web-badge" href={site.showcaseWeb} aria-label="Launch on the web">
+          <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="16" cy="16" r="13" /><ellipse cx="16" cy="16" rx="6" ry="13" /><path d="M3 16h26M6 8h20M6 24h20" /></svg>
+          <span><span class="web-badge-small">Launch on the</span><span class="web-badge-name">web</span></span>
+        </a>
           </p>
         </article>
         {targets.map((t) => {
@@ -272,7 +276,7 @@ function richInstall(text: string): (string | { code: string })[] {
         <code>shasum -a 256 &lt;file&gt;</code> (macOS/Linux) or{' '}
         <code>Get-FileHash &lt;file&gt;</code> (Windows PowerShell) must print the digest listed
         there for that name. The checksums live with the release rather than on this page, so they
-        describe the file you actually downloaded.
+        describe the downloaded file.
       </p>
     </div>
   </section>
@@ -285,16 +289,18 @@ function richInstall(text: string): (string | { code: string })[] {
   .dl-note { color: var(--faint); font-size: 0.92rem; }
   .dl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 18px 0 8px; }
 
-  /* A store badge at a fixed PLATE height (the same treatment as the daysite template's
-     StoreBadge): Apple's artwork fills its box, Google's carries a quarter of the plate height
-     as transparent margin on every side, pulled out with negative margins — never clipped. */
-  .store-badge { --h: 42px; display: inline-block; height: var(--h); transition: transform 0.15s ease; }
-  .store-badge:hover { transform: scale(1.03); }
-  .store-badge:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 8px; }
+  .store-badge { --h: 56px; display: inline-block; height: var(--h); flex-shrink: 0; }
   .store-badge img { display: block; max-width: none; width: auto; height: var(--h); }
+  /* Google's artwork includes 10 units of clear space around its 135 × 40 plate. */
   .store-badge-google img { height: calc(var(--h) * 1.5); width: calc(var(--h) * 1.5 * 155 / 60); margin: calc(var(--h) * -0.25); }
+  .web-badge { display: inline-flex; align-items: center; gap: 10px; height: 56px; width: 174px; padding: 5px 12px; box-sizing: border-box; border: 1px solid #a6a6a6; border-radius: 8px; background: #000; color: #fff; font-family: Arial, Helvetica, sans-serif; text-decoration: none; flex-shrink: 0; }
+  .web-badge svg { width: 32px; height: 32px; flex-shrink: 0; }
+  .web-badge-small { display: block; font-size: 12px; line-height: 15px; }
+  .web-badge-name { display: block; font-size: 27px; line-height: 27px; letter-spacing: -0.5px; }
+  .web-badge:hover { color: #fff; text-decoration: none; }
+  .store-badge:hover, .web-badge:hover { opacity: 0.85; }
+  .store-badge:focus-visible, .web-badge:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 8px; }
   .dl-store { margin: 0 0 12px; }
-  .dl-store .store-badge { --h: 38px; }
 
   .dl-quick { padding-top: 12px; padding-bottom: 12px; }
   .dl-quick-title { font-size: 1.35rem; margin: 0 0 10px; }

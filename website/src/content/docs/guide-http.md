@@ -1,6 +1,6 @@
 ---
 title: Call an HTTP API
-description: "Fetch over each platform's own networking stack with day-part-http, land the result in signals, and cancel in-flight requests by dropping their future."
+description: "Fetch over each platform's networking stack with day-part-http, store the result in signals, and cancel in-flight requests by dropping their future."
 order: 30
 section: Guides
 ---
@@ -10,7 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day apps fetch through each platform's own networking stack: `NSURLSession` on macOS and iOS, OkHttp
+Day apps fetch through each platform's networking stack: `NSURLSession` on macOS and iOS, OkHttp
 on Android, WinHTTP on Windows, the browser's `fetch()` on the web, and a bundled ureq + rustls
 client on Linux and HarmonyOS. The request inherits what the OS already knows (system proxies and
 PAC scripts, VPN routing, Low Data Mode, certificate stores), and TLS on the native targets comes
@@ -81,7 +81,7 @@ The contract differs from ureq-style clients on error statuses and on timeouts.
 
 `Response` is `{ status, headers, body }` plus `text()` (lossy UTF-8) and a case-insensitive
 `header(name)` lookup. There is no built-in JSON layer; parse `resp.body` with `serde_json`,
-an ordinary app dependency and what the crate's own docs use:
+added as an app dependency:
 
 ```rust
 #[derive(serde::Deserialize)]
@@ -123,7 +123,7 @@ disposed is a silent no-op, so a late completion can't crash a page the user alr
 ## 3. Load on mount with Resource
 
 For "fetch when this page appears, refetch when an input changes", `day::reactive::Resource`
-is the scope-tied form: a tracked `source` feeds an async `fetcher`, and the result lands in a
+is the scope-tied form: a tracked `source` feeds an async `fetcher`, and the result is stored in a
 `Signal<Load<T>>`. Unlike `day::task`, the fetcher returns a `Result`, and the error becomes
 `Load::Failed`:
 
@@ -172,7 +172,7 @@ cancel). To cache a response across launches, write `resp.body` with `day-part-f
 ## Pitfalls
 
 - Don't block the UI thread. `fetch`, `fetch_to_file`, and `fetch_streamed` block their
-  calling thread; run them on your own thread, or use the futures under `day::task`. On web
+  calling thread; run them on a worker thread, or use the futures under `day::task`. On web
   the blocking calls return `Unsupported`; the single browser thread cannot wait.
 - `fetch_async` completes on a background thread. Never touch signals directly in its
   callback; capture a `Setter` (`signal.setter()`), which hops to the UI thread itself. Under

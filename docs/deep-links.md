@@ -95,7 +95,7 @@ Concerns:
 
 1. **The chooser dialog.** Two apps claiming one scheme puts a disambiguation sheet in front
    of the user. Verified App Links (an `assetlinks.json` on the app's domain, same daysite
-   hosting story as iOS) bypass it for `https` links.
+   hosting requirements as iOS) bypass it for `https` links.
 2. **Intent extras are not the URL.** Only the `data` URI is treated as a link; anything else
    in the intent is ignored, per the delivery contract above.
 

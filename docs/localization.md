@@ -169,7 +169,7 @@ either spelling (`res::str::menu_group_key()` in Rust and `menu_group.key` in th
 the same key), so a shortcut is never reported as both an unknown key and an unused one at
 once. Modifier schemes
 (primary/shift/alt) are command semantics and stay in code. Role items
-(`menu_role(MenuRole::Copy)`, [docs/menus.md](menus.md)) keep the platform's own system
+(`menu_role(MenuRole::Copy)`, [docs/menus.md](menus.md)) keep the platform's system
 shortcuts and never localize them.
 
 ## Permission reasons

@@ -60,7 +60,7 @@ On a terminal the level column is colored (red `ERROR`, yellow `WARN`, green `IN
 `DEBUG`, cyan `TRACE`), the same palette `env_logger` uses. The message stays plain, so it stays
 greppable.
 
-Day checks whether the destination is a color terminal, so the escapes drop out on their own when
+Day checks whether the destination is a color terminal, and omits color escape sequences when
 you redirect to a file, when `NO_COLOR` is set, and on the targets with no terminal (logcat,
 Xcode's console, the browser). Under `day launch` the app's stderr is a pipe, so
 `day launch` does the coloring instead, tagging each line with the target it came from:
@@ -88,7 +88,9 @@ DAY_LOG=debug day launch -p macos-appkit
 day launch -p web-dom --env DAY_LOG=debug     # the web has no environment; this rides the URL
 ```
 
-## Bring your own logger
+<span id="bring-your-own-logger"></span>
+
+## Use a different logger
 
 You can replace Day's logger. `log` allows one logger per process and the first one wins, so
 install yours before `day::launch`:
@@ -106,7 +108,7 @@ filtering or `tracing`'s spans via `tracing-log`.
 
 `env_logger` is a good choice for a desktop-focused app, and it is opt-in in Day because it writes
 ANSI text to stderr on every target: stderr is logcat's **ERROR** level on Android, a discarded
-buffer on the web, and the Xcode console on iOS. Day's own logger exists to route per platform.
+buffer on the web, and the Xcode console on iOS. Day's logger selects the destination for each platform.
 `RUST_LOG` replaces `DAY_LOG` once you install it, because `DAY_LOG` belongs to the logger you just
 displaced.
 

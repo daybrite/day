@@ -71,7 +71,7 @@ native container, its corner radius, and its clipping.
 
 Semantic colors are a separate question. There is no `theme::` token module, because default
 appearance is native by construction: text, controls, separators and window grounds take the
-platform's own dynamic colors inside each backend, and a form card takes
+platform's dynamic colors inside each backend, and a form card takes
 `SurfaceRole::SectionCard`. Apps state only the colors they choose.
 
 Those grounds come in PAIRS, and a backend has to take both halves of one. iOS is the clearest

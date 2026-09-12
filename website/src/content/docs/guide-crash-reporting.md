@@ -75,7 +75,7 @@ A report is versioned JSON: app id, version, and build; the day version and back
 device model, and locale; the session id and uptime; the panic message and source location, or
 the signal's number and addresses; and a backtrace. The schema in
 [the reference](/docs/internal/break) lists every field, and there is no user data beyond
-them. The signal handlers chain to the previous disposition, so the platform's own crash
+them. The signal handlers chain to the previous disposition, so the platform's crash
 reporter (Android tombstones, HarmonyOS faultlogs) still runs alongside.
 
 ## 3. Show the report on the next launch

@@ -42,7 +42,7 @@ button("Save").appkit(|view, class, _mtm| {   // class == "NSButton"
 ```
 
 `.gtk(|widget, class| …)`, `.uikit(|view, class, mtm| …)`, and `.android(|view, class, jni_env| …)`
-follow the same shape with each platform's own types. Qt, XAML, and ArkUI sit behind C shims, so
+follow the same shape with each platform's types. Qt, XAML, and ArkUI sit behind C shims, so
 their accessors hand out the raw native pointer (plus the class) instead, with a short
 bring-your-own-C++ recipe (each tier is spelled out in the
 [tweaks reference](/docs/internal/tweaks)).
@@ -95,11 +95,11 @@ button("Save").tooltip("Save your changes (⌘S)");  // AppKit, GTK, Android; no
 slider(v).tickmarks(Tickmarks::count(11).snap(true));  // six toolkits, incl. its own C++
 ```
 
-The tick-marks crate is the one to study when you write your own: it configures a native feature on
-six toolkits through every access tier Day has (objc2, gtk4-rs, JNI, and its *own* compiled Qt C++,
-WinRT C++, and ArkUI NDK code), and it documents each platform's behavior (Material sliders always
-snap when stepped; UIKit has no native tick API, so there it's a no-op). To publish one, publish the
-crate: consumers add a dependency, and `day build` wires the per-toolkit features automatically.
+The tick-marks crate demonstrates configuring a native feature on
+six toolkits through objc2, gtk4-rs, JNI, and compiled Qt C++,
+WinRT C++, and ArkUI NDK code. It documents each platform's behavior (Material sliders always
+snap when stepped; UIKit has no native tick API, so there it's a no-op). Publish the
+crate as a Cargo package. Consumers add it as a dependency, and `day build` enables the corresponding toolkit features.
 
 The [tweaks reference](/docs/internal/tweaks) has the full per-toolkit matrix, the native-code
 recipes, and the mechanics underneath. To add a new widget, write a

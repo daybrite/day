@@ -73,9 +73,9 @@ the detail beside the list never pushed a page, so the step passes there without
 while a compact window still fails when it finds nothing to pop. One script can therefore drive a
 phone and a tablet, since the same build stacks on one and splits on the other.
 
-A bare `nav_back` is Day's own rail: it pops the model and the toolkit follows. `nav_back:
+A bare `nav_back` pops the navigation model and updates the toolkit. `nav_back:
 { native: true }` presses the platform's back instead — the navigation bar's button on iOS, the
-system back on Android — so the toolkit's own user-back path runs: the bar's veto for a guarded
+system back on Android — so the toolkit handles the back action: the bar's veto for a guarded
 page, the native pop, and the report back to Day. That is the code a real tap runs and the bare
 step never reaches, which is why a walkthrough that guards a page should back out of it both
 ways. Desktops have no native back for a nested stack, so gate the step `only_on: [uikit, mdc]`.

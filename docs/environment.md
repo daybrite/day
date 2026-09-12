@@ -16,7 +16,7 @@ own native shim (day-xaml-sys, the `day-piece-*`/`day-tweak-*` crates, and the s
 `day new` generates). Two rules apply everywhere:
 
 1. **An environment variable always wins** over probing.
-2. **Defaults derive from the platform's own environment** (`%ProgramFiles%`, `$HOME`,
+2. **Defaults derive from the platform's environment** (`%ProgramFiles%`, `$HOME`,
    `%LOCALAPPDATA%`), never from a literal install path, so a relocated install needs only one
    variable set.
 

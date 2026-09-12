@@ -1,6 +1,6 @@
 ---
 title: "HTTP"
-description: "HTTP through each platform's own network stack via day-part-http, inheriting system proxies and TLS."
+description: "HTTP through each platform's network stack via day-part-http, inheriting system proxies and TLS."
 ---
 
 <!--
@@ -11,8 +11,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # HTTP through the platform stack (headless capability crate)
 
 > **Status: implemented** as `day-part-http` (in `parts/`), a headless day-ecosystem crate with no
-> UI Piece: request/response HTTP (plus streaming downloads) through each platform's own networking
-> stack: NSURLSession on macOS/iOS, OkHttp on Android (the platform's own frozen engine,
+> UI Piece: request/response HTTP (plus streaming downloads) through each platform's networking
+> stack: NSURLSession on macOS/iOS, OkHttp on Android (the platform's frozen engine,
 > current; see the engine note below), WinHTTP on Windows, the browser's `fetch()` on the web
 > (`web-dom`, async entry points only; see the web tier below), with a
 > bundled ureq + rustls fallback on Linux and HarmonyOS. Verified end-to-end with a local-server

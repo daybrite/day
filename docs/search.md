@@ -52,7 +52,7 @@ This is the same move SwiftUI made with `.searchable()`, for the same reason.
 ## Placement is a preference
 
 `SearchPlacement::{Automatic, Toolbar, Inline}` states a preference. A backend that cannot
-honor the request falls back to its platform's own convention, as SwiftUI documents
+honor the request falls back to its platform's convention, as SwiftUI documents
 ("depending on the containing view hierarchy and platform, the requested placement may not be able
 to be fulfilled"). `Automatic` is almost always the right answer: it lets the field live in
 the toolbar on a desktop window and move into the navigation list on a phone.
@@ -153,7 +153,7 @@ surface and the bar can sit under it. When they land, the per-backend mapping is
 
 `Emulated` covers two different situations there: a real native component doing this job (the
 chips, `SegmentButtonV2`, `NSSegmentedControl`) and a bar composed from primitives (web, XAML).
-Neither claims to be the platform's own scope bar.
+Neither claims to be the platform's scope bar.
 
 ## Suggestions complete the field
 

@@ -12,8 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import PlatformShots from '../../../components/PlatformShots.astro';
 
-`macos-appkit` is Day's most exercised target and the one its own development runs on. AppKit is
-driven directly through [`objc2`](https://docs.rs/objc2); your Rust calls `NSButton` with no C or
+`macos-appkit` is Day's primary development target. It calls AppKit through [`objc2`](https://docs.rs/objc2); your Rust calls `NSButton` with no C or
 Objective-C shim in between.
 
 <PlatformShots platform="macos-appkit" shots={["home", "controls", "canvas", "menus"]} />
@@ -69,7 +68,7 @@ contributions needs no Swift toolchain either way.
 The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
 this table adds links and notes.
 
-Pieces marked *external* live in their own crates and are only present when you depend on them.
+Pieces marked *external* live in separate crates and are only present when you depend on them.
 
 | Day piece | AppKit class |
 |---|---|
@@ -112,7 +111,7 @@ vocabulary.
 
 **Text measurement** goes through AppKit itself (`cellSizeForBounds:` for labels, TextKit's layout
 manager for the text area, and `fittingSize` for everything else), so wrapping and hyphenation are
-the system's own.
+the system's text layout.
 
 ## Reaching AppKit directly
 

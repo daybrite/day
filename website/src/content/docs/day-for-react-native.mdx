@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 import Compare from '../../components/Compare.astro';
 
-React Native and Day both render the platform's own widgets: an RN `<Button>` is a `UIButton`, and
+React Native and Day both render the platform's widgets: an RN `<Button>` is a `UIButton`, and
 so is a Day `button()` on iOS. This guide maps the rest (components to Pieces, hooks to signals, npm
 to Cargo) and shows where the architectures differ.
 
@@ -345,7 +345,7 @@ The `cancelled` flag on the left is unnecessary on the right: writes to a signal
 disposed are silent no-ops, so a late completion can't touch a closed page. Cancelling the work
 itself is explicit: `day::task` returns a `TaskHandle`, and `handle.abort()` drops the future
 and cancels the in-flight request; nothing auto-cancels on page teardown. HTTP goes through
-each platform's own networking stack ([`day-part-http`](/docs/parts)), so system proxies, VPN
+each platform's networking stack ([`day-part-http`](/docs/parts)), so system proxies, VPN
 routing, and certificate stores apply.
 
 ## Package configuration
@@ -470,7 +470,7 @@ field-notes/
 
 </Compare>
 
-Both projects carry `android/` and `ios/` directories. Day's hosts are thin shells that load
+Both projects carry `android/` and `ios/` directories. Day's hosts are host projects that load
 the Rust library, and app-level configuration (id, title, version, window, permissions,
 signing) lives in `Day.toml`, with per-platform overrides:
 

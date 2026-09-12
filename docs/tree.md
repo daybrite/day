@@ -136,7 +136,7 @@ real to tweak.
 
 The emulation has to provide each of these itself:
 
-- **Expand and collapse**, animated, with the platform's own disclosure glyph and indent step.
+- **Expand and collapse**, animated, with the platform's disclosure glyph and indent step.
 - **Keyboard**: left/right to close and open a row, arrows through the visible rows, type-select.
 - **Accessibility**: `NSOutlineView` reports rows with a disclosure level to VoiceOver; WinUI's
   `TreeView` reports expand state to Narrator. A flat list of indented rows announces as a flat
@@ -428,7 +428,7 @@ tree splits its surface into three layers.
 |---|---|---|
 | **Portable API** | what every tree has and an app would otherwise build by hand: expansion, selection, moves, indent, row height, keyboard, type-ahead | all nine targets |
 | **Hooks** | the per-row *decisions* native trees express as delegate callbacks: may this row expand, may it be selected, how tall is it, is it a group row | all nine, mapped to each toolkit's callback or run by the emulation |
-| **Tweaks** | everything else — the platform's own vocabulary, on the real widget | one toolkit at a time, no-op elsewhere |
+| **Tweaks** | everything else — the platform's vocabulary, on the real widget | one toolkit at a time, no-op elsewhere |
 
 The dividing rule: **if a knob changes what the tree means, it is portable; if it changes how
 one platform draws it, it is a tweak.** Row height changes meaning (rows overlap or clip if a
@@ -712,7 +712,7 @@ day_arkui::tree_ext::node_params(node, |token| NodeParamExtras {
 host), not the ArkTS component; the component has no C-node handle to hand out. An app that
 needs more than `NodeParam` offers replaces the ArkTS component wholesale through the piece
 extension mechanism (`[package.metadata.day.ohos]`, [docs/extending.md](extending.md)), the
-platform's own extension point.
+platform's extension point.
 
 #### The emulated targets: Qt, Android, web-dom
 

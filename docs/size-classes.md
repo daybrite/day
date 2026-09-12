@@ -145,9 +145,9 @@ working backend rather than an addition to it.
 > and expands on its own as a Pro Max iPhone rotates between compact and regular width, and
 > `SlidingPaneLayout` decides at measure time whether both panes fit. Day observes and reconciles;
 > it never pushes a presentation at them, because that would be a second copy of the state racing
-> the platform's own animation.
+> the platform's animation.
 
-One lowering rule falls out of this policy: an `Emulated` toolkit's adaptive host is lowered
+This policy determines one lowering rule: an `Emulated` toolkit's adaptive host is lowered
 with `presentation: Split` (meaning "build the adaptive container") even when the window is compact at
 build time, because the container collapses itself. `Stack` in `NavProps` is thereby literal: it
 marks a host that is a stack at *every* size (a pinned request, or the nested `nav_stack()` piece
@@ -163,7 +163,7 @@ The following traps fail silently:
 - **iOS, again.** Day-initiated stack changes are one `setViewControllers:animated:` each,
   computed at execution from the pages UIKit reports plus or minus the one page that joined or
   left (`push_page`, `pop_page`). Nothing is kept on Day's side to fall out of step: a page that
-  the user already popped is simply not in what UIKit reports, and removing it is a no-op. One
+  the user already popped is absent from UIKit's reported state, and removing it is a no-op. One
   thing IS kept, only while a set animates: its target, because UIKit defers a
   `setViewControllers:animated:` issued mid-transition and keeps reporting the old stack until
   it lands (and warns about the call). So changes issued in one turn coalesce into one set, and

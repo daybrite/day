@@ -75,7 +75,7 @@ below is the only mapping written down.
 | `NsResize`, `EwResize` | `ns-resize`, `ew-resize` | vertical and horizontal resize |
 | `NeswResize`, `NwseResize` | `nesw-resize`, `nwse-resize` | diagonal resize |
 | `ColResize`, `RowResize` | `col-resize`, `row-resize` | a divider between columns or rows |
-| `Native(name)` | the name | one toolkit's own shape, see below |
+| `Native(name)` | the name | one toolkit's shape, see below |
 
 `Cursor::css_name()` answers the keyword, and `Cursor::NAMED` walks the named set in order,
 which is what the Showcase's Cursors page draws.
@@ -127,7 +127,7 @@ the way `.selectable()` does.
 
 The Showcase's **Cursors** page (Controls group): every named shape as a tile to hover, one box
 whose shape follows a picker, a nested pair that shows the nearest ancestor winning, and the
-toolkit's own extras.
+toolkit's extras.
 
 ```
 day launch -p macos-appkit --script dayscript/cursors.yaml

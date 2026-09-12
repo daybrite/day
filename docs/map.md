@@ -74,7 +74,7 @@ where those would be added later.
   `day-piece-map/<feature>` uniformly per backend) but register no renderer; the map kind falls
   back to day's placeholder leaf. There is no de-facto native slippy-map widget in these toolkits
   without a heavy external dependency (a WebView + tile provider, `osm-gps-map`, `QtLocation`, Google
-  Maps SDK, `MapControl`), each with its own API-key and licensing story, which is out of scope for a
+  Maps SDK, `MapControl`), each with different API-key and licensing requirements, which is out of scope for a
   small reference piece. This piece is the reference example of one that supports a subset of
   platforms; the placeholder leaf keeps the gap visible.
 

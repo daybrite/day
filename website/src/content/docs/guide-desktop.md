@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 A desktop Day app gets a menu bar with keyboard shortcuts, commands on the window chrome, and a
 Settings window under ⌘,. Day builds all three from small Rust builders and hands them to the
-platform's own menu and toolbar classes (`NSMenu` and `NSToolbar` on macOS, `GtkPopoverMenuBar` and
+platform's menu and toolbar classes (`NSMenu` and `NSToolbar` on macOS, `GtkPopoverMenuBar` and
 the header bar on GTK, `QMenuBar` and `QToolBar` on Qt, XAML's `MenuBar` and `CommandBar` on
 Windows), so one spec serves every desktop:
 
@@ -55,7 +55,7 @@ app_menu(vec![
 ]);
 ```
 
-- Roles are the platform's own items. `menu_role(MenuRole::Copy)` emits the native Edit ▸ Copy:
+- Roles are the platform's items. `menu_role(MenuRole::Copy)` emits the native Edit ▸ Copy:
   correct localized label, default shortcut, automatic enable/disable, and focus targeting, so it
   copies from whatever control has focus with no wiring. Custom `menu_item`s run your closure
   instead.
@@ -69,7 +69,7 @@ app_menu(vec![
   order. The tag identifies the slot, not the title; Day's catalog and yours may translate the same
   menu name differently, and a bar matched on titles would show both.
 
-The bar lands in the system menu bar on macOS (Day prepends the standard App menu with
+The bar appears in the system menu bar on macOS (Day prepends the standard App menu with
 About and Quit, so your submenus start at File), in a bar at the top of the window on GTK and
 Windows, in a `QMenuBar` on Qt (the native global bar on `macos-qt`), and in the app-bar
 overflow on Android. Android allows one level of submenu; deeper ones flatten.
@@ -132,7 +132,7 @@ Alignment comes from `.placement(…)`, which names the item's role rather than 
 list, and each backend lays that role out its own way: `Navigation` sits at the leading edge of its
 column, `Principal` is centered, `Primary` and `Secondary` go trailing, with secondaries folding
 into an overflow menu first, and `Bottom` asks for a phone's bottom bar. `.icon(Symbol::Refresh)`
-names what the icon means; each backend draws its platform's own glyph (an SF Symbol on macOS, a
+names what the icon means; each backend draws its platform's glyph (an SF Symbol on macOS, a
 freedesktop name on GTK and Qt, a Segoe Fluent glyph on Windows).
 
 Per desktop, the bar is an `NSToolbar` in the unified title-bar style on macOS, where each

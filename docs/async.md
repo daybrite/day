@@ -62,7 +62,7 @@ completed-or-aborted. Task ids are never reused, so stale handles are harmless.
 ## `Resource` and `Load` (day::reactive)
 
 `Resource` is the declarative layer: a tracked `source` whose value feeds an async `fetcher`,
-and the result lands in a `Signal<Load<T>>`.
+and the result is stored in a `Signal<Load<T>>`.
 
 ```rust
 use day::reactive::{Load, Resource};

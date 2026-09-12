@@ -69,7 +69,7 @@ For both, the payload tier is the guarantee; compare the compiled code inside th
 
 ## Per-platform caveats
 
-Reproducibility needs cooperation from the Rust dependency graph *and* from the platform's own build
+Reproducibility needs cooperation from the Rust dependency graph *and* from the platform's build
 tools. Day controls the first and configures the second where the tool allows it. This section also
 lists the places where a tool offers no control.
 
@@ -254,7 +254,7 @@ so baking them into the artifact would make the artifact itself unreproducible.
 
 On `linux-gtk` and `linux-qt` a second buildinfo is written alongside the JSON one, in Debian's
 [deb822 `.buildinfo` format](https://wiki.debian.org/ReproducibleBuilds/BuildinfoFiles). It ships
-as `<artifact>.buildinfo.deb822`, under Day's own sidecar naming rather than Debian's
+as `<artifact>.buildinfo.deb822`, under Day's sidecar naming rather than Debian's
 `<source>_<version>_<arch>.buildinfo` convention, so the file name says which download it
 describes, and a Debian maintainer still has the fields the distribution's own tooling expects.
 
@@ -326,7 +326,7 @@ A rebuild needs the commit to exist in the repository, so an artifact packed fro
 with uncommitted changes is refused.
 
 `--from-dir <dir>` rebuilds from a project directory you name instead of cloning the commit the
-SBOM records, for a source tree that is not in git; Day's own CI uses it to verify an artifact
+SBOM records, for a source tree that is not in git; Day's CI uses it to verify an artifact
 packed from a freshly scaffolded project. The directory is copied to a scratch path first, minus
 `.git` and any build products, so a build path baked into the binary still surfaces as a payload
 mismatch. The `.buildinfo` beside the artifact still gates tool versions.

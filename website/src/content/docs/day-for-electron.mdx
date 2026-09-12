@@ -15,7 +15,7 @@ import Compare from '../../components/Compare.astro';
 
 Electron and Day both build one codebase for every desktop, by different means. Electron ships a
 browser and a Node runtime with each app and renders your UI as a web page; Day compiles Rust ahead
-of time and builds your UI from the platform's own widgets: `NSButton` and `NSMenu` on macOS, GTK 4
+of time and builds your UI from the platform's widgets: `NSButton` and `NSMenu` on macOS, GTK 4
 or Qt 6 on Linux, system XAML on Windows.
 
 An Electron app is a Node main process and one Chromium renderer per window, talking over IPC, with
@@ -35,7 +35,7 @@ the web (the same crate compiles to WebAssembly driving DOM elements) from the s
 | `new Notification({...})` | [`day-part-local-notify`](/docs/guide-notifications) |
 | `electron-store`, `localStorage` | `day::prefs` ([guide](/docs/guide-storage)) |
 | Node `fs` | `day-part-fs`, or `std::fs` — it's ordinary Rust |
-| `fetch` / Node `net` | [`day-part-http`](/docs/guide-http) — each platform's own networking stack |
+| `fetch` / Node `net` | [`day-part-http`](/docs/guide-http) — each platform's networking stack |
 | `<webview>` / `WebContentsView` | [`day-piece-webview`](/docs/internal/webview) — the system webview |
 | native modules (N-API, node-gyp) | [parts](/docs/parts) and [pieces](/docs/extending), compiled with the app |
 | `nodeIntegration` / `contextIsolation` hardening | not applicable; the UI is compiled Rust driving native widgets, so there is nothing to isolate |
@@ -139,9 +139,11 @@ plain functions, typed end to end. When a capability needs platform code Day doe
 N-API module case), you write a [part](/docs/parts): the platform halves live in one crate and calls
 into it stay ordinary Rust.
 
-## Form controls are the platform's own
+<span id="form-controls-are-the-platforms-own"></span>
 
-Form controls bind two ways, and each one is the platform's own control, which supplies
+## Native form controls
+
+Form controls bind two ways, and each one is the platform's control, which supplies
 accessibility, keyboard traversal, right-to-left mirroring, and the user's text size on its
 own:
 
@@ -166,7 +168,7 @@ cells. Styling is modifier-based (`.padding`, `.background`, `.corner_radius`, s
 `Font::Title`), and [Styling](/docs/styling) lists what you can restyle and what stays native:
 you adjust spacing, color, and typography, and the control chrome stays the platform's. If the
 design brief is a custom skin on every pixel, a web renderer serves that better. For an app
-that should look and behave like the platform's own, Day keeps the controls native.
+that should look and behave like standard platform controls, Day keeps the controls native.
 
 ## Windows, menus, and the chrome
 

@@ -12,9 +12,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 `day pack -p <target>` builds the app in release mode, signs it, and produces a standalone
 installable artifact in `build/day/dist/`, with a SHA-256 checksum and a signing tier in the result
-output. There is one command per platform, with the platform's own signing tools underneath. Day
+output. There is one command per platform, with the platform's signing tools underneath. Day
 orchestrates `codesign`/`notarytool`, `xcodebuild -exportArchive`, Gradle signing,
 `flatpak-builder`, `linuxdeploy`, `makeappx`/`signtool`/`makensis`, and `hap-sign-tool`.
+
+If a build succeeds but signing fails, start with the [signing checks](/docs/troubleshooting#signing-or-provisioning-fails).
 
 ## Artifacts per target
 

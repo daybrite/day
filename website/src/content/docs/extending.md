@@ -33,7 +33,7 @@ rating(stars).max(5).editable(true)
 
 Most reusable UI in a Day app is this tier: cards, badges, form rows, charts drawn with
 `canvas`. The shipped `day-piece-rating` and `day-piece-settings` crates are composite pieces,
-and the [composite piece tutorial](/docs/tutorial-composite-piece) builds one end to end.
+and the [composite piece tutorial](/docs/tutorial-composite-piece) provides a complete example.
 
 ## Tier 1: a native leaf widget per toolkit
 
@@ -80,7 +80,7 @@ Two companion macros round this out. `day_pieces::glue_modules!(appkit, gtk, …
 feature-and-target-gated module index binding each `lib-<toolkit>.rs`, the one-liner every
 shipped piece uses in place of a hand-written `#[cfg]`/`#[path]` block. Web is the one
 exception to link-time registration: `linkme` has no wasm32 implementation, so a web-dom
-renderer uses `dom_renderer!` and registers at runtime from the piece's own constructor.
+renderer uses `dom_renderer!` and registers at runtime from the piece's constructor.
 
 A piece that implements some toolkits and not others renders a labeled placeholder on the rest,
 so the gap is visible and coverage can grow toolkit by toolkit. The
@@ -129,8 +129,8 @@ registration, adapted to Cargo.)
 
 ## Tier 2: native-language halves
 
-Pieces implemented partly in a platform's own language use **native halves**: the crate ships its
-own Swift, Java, ArkTS, or C++ sources, declares them under `[package.metadata.day.<platform>]`, and
+Pieces implemented partly in a platform's language use **native halves**: the crate includes
+Swift, Java, ArkTS, or C++ sources, declares them under `[package.metadata.day.<platform>]`, and
 its tier-1 Rust renderer adopts the views those shims create.
 
 For code that must be *written* in Swift, that need is covered today by

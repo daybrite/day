@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Text & typography
 
 `label(...)` renders native text. Its font is chosen from a **semantic (logical) style** that maps to
-each platform's own text styles, so a Day app matches the OS's typography and inherits its accessibility
+each platform's text styles, so a Day app matches the OS's typography and inherits its accessibility
 text scaling automatically.
 
 ```rust
@@ -56,7 +56,7 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 - `.weight(FontWeight::Semibold)`: `UltraLight, Thin, Light, Regular, Medium, Semibold, Bold, Heavy,
   Black` (matching `UIFont.Weight`). `.bold()` is shorthand for `.weight(FontWeight::Bold)`.
 - `.italic()`: slants the text.
-- Canvas text and a drawing app's font menu are a different surface — the platform's own font
+- Canvas text and a drawing app's font menu are a different surface — the platform's font
   list, absolute sizes, measurement — covered in [docs/fonts.md](fonts.md).
 - A weight override keeps the style's accessibility-scaled size (on iOS the weighted font is wrapped in
   `UIFontMetrics` so it also scales with Dynamic Type).
@@ -131,7 +131,7 @@ layout keep flowing. The reader gets the platform's real selection: long-press o
 grabbers, and the Copy/Look Up edit menu.
 
 Selection visuals and the copy shortcut are the platform's own. It's unmanaged: set once at mount,
-and it survives Day's own text updates.
+and it survives Day's text updates.
 
 The showcase's **Text** page is a live specimen of every style, weight, italic, color, custom size,
 the three bundled custom fonts, and links, with a **Selectable** toggle in the heading's corner

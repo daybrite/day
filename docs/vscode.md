@@ -10,8 +10,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # VS Code extension
 
-The Day VS Code extension lives in its own repository,
-**[daybrite/day-vscode](https://github.com/daybrite/day-vscode)**, with its own release cycle
+The Day VS Code extension lives in a separate repository,
+**[daybrite/day-vscode](https://github.com/daybrite/day-vscode)**, with an independent release cycle
 (it drives whatever `day` CLI is installed, so its versioning is independent of the
 framework's; extracted from this repo's `editors/vscode/` with history preserved). It builds
 and runs Day apps across one or more targets from the editor. It is a thin wrapper over the `day` CLI: the control surface is a sidebar +

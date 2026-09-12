@@ -1,6 +1,6 @@
 ---
 title: "Notifications (proposed)"
-description: "The proposed notification story: local scheduling and push, as two parts and a sending tool."
+description: "The proposed notification APIs: local scheduling and push, as two parts and a sending tool."
 ---
 
 <!--
@@ -81,7 +81,7 @@ three ways:
   `day-part-local-notify` alone and compiles none of the push transport machinery (APNs
   registration, the UnifiedPush receiver, the service worker, VAPID keys). Its build-time
   footprint is a single runtime permission.
-- **The build-time declarations divide cleanly.** Local needs `POST_NOTIFICATIONS` and maybe an
+- **Build-time declarations differ.** Local needs `POST_NOTIFICATIONS` and maybe an
   exact-alarm permission. Push needs entitlements, background modes, manifest receivers, and a
   VAPID key. `day build` folds in only what the dependency graph pulls, so the manifest stays
   minimal for the common case.
