@@ -10,7 +10,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Agentic development
 
-How coding agents (VS Code agent mode, Claude Code, any MCP client) build, run, drive, and
+How coding agents (Codex, Claude Code, VS Code agent mode, and other MCP clients) build, run, drive, and
 see Day apps. Every capability lives in the day CLI behind stable commands, so all agents and
 editors share one implementation; editor extensions only register it.
 
@@ -130,7 +130,9 @@ which recompiles it on the way back up.
 
 VS Code: the Day extension registers one server per Day project in the window, labeled
 `Day: <app title>` (`day.mcp.enabled`, default on). Agent mode then has all ten tools for each.
-Other MCP clients point at `day --project <root> mcp-server`.
+Other MCP clients point at `day --project <root> mcp-server`. The
+[AI-assisted development guide](https://daybrite.dev/docs/ai#2-connect-your-coding-agent) covers
+Codex project configuration, Claude Code registration, and shared project instructions.
 
 ## The loop agents should follow
 

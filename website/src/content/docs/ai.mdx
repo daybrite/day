@@ -1,0 +1,328 @@
+---
+title: AI-assisted development
+description: "Connect Codex or Claude Code to Day, verify changes in a running app, and save tests for CI."
+order: 24
+section: Guides
+---
+
+{/* Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0 */}
+
+import AgentSwitcher from "../../components/AgentSwitcher.astro";
+
+Codex and Claude Code can use Day’s Model Context Protocol (MCP) server to build an app,
+interact with its controls, and inspect screenshots. The agent edits files through its usual
+file tools; Day supplies the build and test operations. Choose your coding agent to see its
+installation and connection instructions.
+
+<AgentSwitcher />
+
+## 0. Install the two CLIs
+
+Install Day and check the toolkit you plan to use:
+
+```bash
+cargo install day-cli
+day doctor --toolkit appkit
+```
+
+This guide uses `macos-appkit` on macOS. For another target, follow
+[Getting started](/docs/getting-started) and substitute its target name in the commands below.
+
+<div data-agent="claude">
+
+Install [Claude Code](https://code.claude.com/docs/en/setup):
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+</div>
+
+<div data-agent="codex">
+
+Install [Codex CLI](https://developers.openai.com/codex/cli):
+
+```bash
+npm install -g @openai/codex
+```
+
+</div>
+
+Launch your chosen client once and complete its sign-in steps before connecting Day.
+
+## 1. Scaffold the app
+
+```bash
+day new app skycheck --toolkit macos-appkit --no-input
+cd skycheck
+day launch -p macos-appkit
+```
+
+The project includes localized strings, a sample UI, `dayscript/demo.yaml`, and an `AGENTS.md`
+with project conventions. Confirm that the app builds and launches before involving an agent;
+[troubleshooting](/docs/troubleshooting) covers SDK and device setup failures.
+
+<span id="2-give-claude-code-the-day-tools"></span>
+
+## 2. Connect your coding agent
+
+The connection starts a local Day server, bound to this app’s project directory.
+An absolute path prevents the server from selecting a different app when the agent changes directories.
+
+<div data-agent="codex">
+
+### Codex
+
+Create `.codex/config.toml` in the app project. Replace the example path with the absolute
+path to `skycheck`:
+
+```toml
+[mcp_servers.day]
+command = "day"
+args = ["--project", "/absolute/path/to/skycheck", "mcp-server"]
+startup_timeout_sec = 30
+tool_timeout_sec = 1200
+required = true
+```
+
+Start Codex from the project directory:
+
+```bash
+codex --sandbox workspace-write
+```
+
+Trust the project when prompted so Codex can load its project configuration. Use `/mcp` to check
+that `day` is connected. Codex reads `AGENTS.md`; ask it to call `day_metadata` and confirm the
+project name, targets, and locales before editing. Approve the Day tool calls you intend to run.
+
+The longer tool timeout allows for native builds; Codex’s default MCP timeout is 60 seconds.
+See [Codex MCP configuration](https://developers.openai.com/codex/mcp) for project trust,
+timeouts, and tool approval settings. If Codex cannot find `day`, use its absolute executable
+path in `command`.
+
+</div>
+
+<div data-agent="claude">
+
+### Claude Code
+
+From the app directory, register the server with an absolute project path:
+
+```bash
+claude mcp add --transport stdio --scope local day -- day --project "$PWD" mcp-server
+claude
+```
+
+Use `/mcp` to confirm the connection, then ask Claude to read `AGENTS.md` and call `day_metadata`.
+To include the project instructions automatically in later sessions, add this line to the
+project’s `CLAUDE.md` (preserving any existing instructions):
+
+```text
+@AGENTS.md
+```
+
+Claude documents [MCP setup](https://code.claude.com/docs/en/mcp) and
+[instruction-file imports](https://code.claude.com/docs/en/memory). Approve the server and its
+tool calls when prompted.
+
+</div>
+
+### What the tools do
+
+`day mcp-server` exposes project metadata, toolchain checks, builds, launches, test steps,
+screenshots, linting, and session controls. The [agent reference](/docs/internal/agent) lists
+the tools and arguments.
+
+The usual sequence is `day_metadata`, an edit, `day_relaunch`, then `day_drive` assertions and
+a screenshot. On a first run, pass the target explicitly; a relaunch without targets applies to
+existing sessions. Build errors are returned to the agent, and screenshots are returned as MCP
+image content for inspection.
+
+Day’s MCP server runs local processes with its process permissions. Connecting the server gives
+approved calls access to Day’s build and launch operations for that project.
+
+<div data-agent="codex">
+
+Codex’s shell sandbox and MCP tool approval are separate controls.
+
+</div>
+
+## 3. Add a weather page, by prompt
+
+Ask the agent:
+
+> Read AGENTS.md and call day_metadata first. Add a "weather" page to the sidebar: a city picker (Lisbon, Nairobi, Osaka), a large
+> temperature label, a one-line conditions label, and a Refresh button that simulates a reload
+> with day::sleep. Use demo data, no network. Give every control a stable id
+> (weather-city, weather-temp, weather-conditions, weather-refresh), localize every string in
+> all locales, then relaunch and show me a screenshot of the page.
+
+Watch the loop the scaffolded `AGENTS.md` prescribes: `day_metadata` first, then the edits, a
+`day_relaunch` (fixing anything the compiler says), then a `day_drive` that navigates to the
+page and returns a screenshot. The generated page uses the standard Day API. An abbreviated version
+should look like this:
+
+```rust
+pub(crate) fn weather_page() -> impl Piece {
+    let city = Signal::new(0usize);
+    let cities = ["Lisbon", "Nairobi", "Osaka"]; // res::str keys in the real page
+    let temps = ["18 °C", "24 °C", "11 °C"];
+    column((
+        label(crate::res::str::weather_title()).font(Font::Title).id("weather-title"),
+        picker(cities.iter().cloned(), city).id("weather-city"),
+        label(move || temps[city.get()].to_string())
+            .font(Font::LargeTitle)
+            .id("weather-temp"),
+        // …conditions label, and a Refresh button whose action is
+        // day::task(async move { day::sleep(600).await; /* set signals */ })
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+}
+```
+
+If the result isn't right, say so in the same session ("the temperature should update when the
+city changes") and the agent re-drives the app to show the fix. Check the assertion results and inspect the
+screenshot before accepting the change.
+
+## 4. Script it: dayscript
+
+Now put that verification in a script that CI can rerun. Ask the agent to write it, or drop
+this in as `dayscript/weather.yaml`:
+
+```yaml
+flow:
+  - wait_for: { id: nav }
+  - navigate: { route: weather }
+  - assert_route: { route: weather }
+  - assert_visible: { id: weather-title }
+
+  # The picker drives a signal; the labels read it; assert the round trip.
+  - select: { id: weather-city, index: 1 }
+  - assert_text: { id: weather-temp, text: "24 °C" }
+  - tap: { id: weather-refresh }
+  - assert_visible: { id: weather-conditions }
+
+  - screenshot: weather
+```
+
+```bash
+day launch -p macos-appkit --script dayscript/weather.yaml
+day launch -p macos-appkit --script dayscript/weather.yaml --variant dark --env DAY_THEME=dark
+day launch -p macos-appkit --script dayscript/weather.yaml --variant fr --locale fr
+```
+
+Each run drives the real app and writes content-checked captures under
+`build/day/screenshots/<target>/<variant>/`, the same mechanism that produces the localized
+[gallery](/gallery) on this site. For strings that vary by locale, assert by Fluent key
+(`assert_text: { id: …, key: … }`) instead of literal text and one script passes in every
+language.
+
+You can also record the script instead of writing it:
+`day launch -p macos-appkit --record dayscript/weather.yaml` captures your real taps, typing, and
+navigation into a replayable dayscript while you use the app, rewriting the file continuously so
+it survives a kill. Recording a manual walkthrough is the fastest way to get a first script; add
+the `assert_*` steps by hand afterward.
+
+## 5. Put it in CI
+
+The saved dayscript runs without either coding agent. Add the Linux target to the project before
+committing a workflow that uses it:
+
+```bash
+day app add-toolkit linux-gtk
+```
+
+This GitHub workflow builds the app on Linux and runs the script on each push:
+
+```yaml
+name: ci
+on: [push, pull_request]
+jobs:
+  walkthrough:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libadwaita-1-dev pkg-config xvfb
+      - run: cargo install day-cli
+      - name: Drive the app
+        run: |
+          xvfb-run -a -s "-screen 0 1000x720x24" \
+            day launch -p linux-gtk --script dayscript/weather.yaml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: build/day/screenshots
+```
+
+A failed assertion is a red build; the uploaded captures show reviewers what the app
+looked like. From here, add targets to the matrix as your app grows (install each target’s tools and add its project configuration), or adopt the fuller multi-platform workflow Day itself publishes in
+[`daybrite/actions`](https://github.com/daybrite/actions).
+
+<div data-agent="codex">
+
+## Unattended Codex runs
+
+`codex exec` can run a prompt without opening an interactive session. It needs write access to edit
+files, and MCP approval must be configured in advance because the run cannot stop to ask.
+For a disposable project where you have approved the Day server’s operations:
+
+```bash
+codex exec --sandbox workspace-write \
+  -c 'mcp_servers.day.default_tools_approval_mode="approve"' \
+  "Read AGENTS.md. Use Day MCP to inspect this project, build macos-appkit, launch it, run the demo assertions, inspect a screenshot, and stop the app. Report any failure."
+```
+
+This uses the project configuration above. The approval override applies to the `day` server for
+this invocation; it does not disable the shell sandbox. Use the interactive client when you want
+to approve calls individually. See [Codex non-interactive mode](https://developers.openai.com/codex/noninteractive)
+for execution and output options.
+
+</div>
+
+## Connection and build problems
+
+- **No Day tools:** check `/mcp`, the `day` executable path, and the absolute project path.
+- **Replaying an existing walkthrough:** use `day launch --script` for saved YAML files.
+  Converting YAML to raw MCP steps can lose platform filters or change YAML keys.
+- **Build failure without a useful compiler diagnostic:** run `day --verbose build -p macos-appkit`
+  in a terminal. An older scaffold may use APIs that have changed in its resolved Day dependencies;
+  check the CLI and dependency versions before diagnosing the MCP connection.
+
+<div data-agent="codex">
+
+- **Project configuration not loading:** Codex must trust a project before it loads `.codex/config.toml`.
+- **“MCP tool call requires approval, but approval policy is never”:** the unattended run cannot
+  request approval. Use an interactive session or explicitly configure approval for the Day tools
+  in a disposable test project, as above.
+- **Tool timeout during compilation:** increase `tool_timeout_sec` for Codex’s Day server. A first
+  native build can take longer than a later incremental build.
+
+## What was verified with Codex
+
+A disposable `macos-appkit` project was tested with Codex CLI 0.154.0 and Day CLI 0.4.1,
+resolving Day 0.4.3 dependencies. Codex read the project instructions, changed a localized title,
+built and launched the app through MCP, passed a text assertion, inspected the returned screenshot,
+and stopped the app. The shell used the workspace-write sandbox; Day ran as a local MCP process.
+
+The test exposed a scaffold mismatch (`selector` had been renamed to `nav`), which Codex corrected
+in the test app. The first unattended attempt also required explicit MCP tool approval. These are
+separate from the transport connection, which worked without changes to Day’s MCP server.
+This verifies the edit–build–inspect workflow on macOS; it does not validate the weather example
+or other platforms.
+
+</div>
+
+## Where to go next
+
+- [Testing with dayscript](/docs/dayscript) — the full step catalog and how the engine works.
+- [For AI agents](/docs/for-agents) — the terse rulebook agents should follow (link it from
+  your own prompts).
+- [Agent surface reference](/docs/internal/agent) — `day drive`, sessions, and the MCP tools in
+  detail.

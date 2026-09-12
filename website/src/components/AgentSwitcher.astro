@@ -1,0 +1,62 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+---
+<fieldset class="agent-switcher" hidden>
+  <legend>Coding agent</legend>
+  <div class="segments">
+    <label><input type="radio" name="coding-agent" value="claude" checked /><span>Claude Code</span></label>
+    <label><input type="radio" name="coding-agent" value="codex" /><span>Codex</span></label>
+  </div>
+</fieldset>
+<noscript><p>JavaScript is disabled, so instructions for both coding agents are shown below.</p></noscript>
+
+<script>
+  const switcher = document.querySelector<HTMLFieldSetElement>('.agent-switcher')!;
+  const radios = [...switcher.querySelectorAll<HTMLInputElement>('input')];
+  const panels = [...document.querySelectorAll<HTMLElement>('[data-agent]')];
+
+  function select(agent: string) {
+    radios.forEach((radio) => { radio.checked = radio.value === agent; });
+    panels.forEach((panel) => { panel.hidden = panel.dataset.agent !== agent; });
+    const address = new URL(location.href);
+    address.searchParams.set('agent', agent);
+    // A link to hidden instructions would otherwise undo the selection on reload.
+    if (hashPanel()?.hidden) address.hash = '';
+    history.replaceState(null, '', address);
+  }
+
+  function hashTarget() {
+    let id: string;
+    try { id = decodeURIComponent(location.hash.slice(1)); } catch { return null; }
+    return document.getElementById(id);
+  }
+
+  function hashPanel() {
+    return hashTarget()?.closest<HTMLElement>('[data-agent]');
+  }
+
+  function restore() {
+    const requested = hashPanel()?.dataset.agent ?? new URLSearchParams(location.search).get('agent');
+    select(requested === 'codex' ? 'codex' : 'claude');
+    hashTarget()?.scrollIntoView();
+  }
+
+  radios.forEach((radio) => radio.addEventListener('change', () => select(radio.value)));
+  window.addEventListener('hashchange', restore);
+  window.addEventListener('popstate', restore);
+  restore();
+  switcher.hidden = false;
+</script>
+
+<style>
+  .agent-switcher { border: 0; padding: 0; margin: 24px 0; }
+  legend { padding: 0; margin-bottom: 8px; font-weight: 600; }
+  .segments { display: inline-flex; padding: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  label { position: relative; cursor: pointer; }
+  input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  span { display: block; padding: 8px 20px; border-radius: 6px; font-weight: 600; color: var(--muted); }
+  input:checked + span { color: var(--bg); background: var(--text); }
+  input:focus-visible + span { outline: 2px solid var(--brand); outline-offset: 3px; }
+  :global([data-agent][hidden]) { display: none !important; }
+</style>
