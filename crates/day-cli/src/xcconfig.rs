@@ -4,10 +4,14 @@
 //! The `DayApp.xcconfig` split (§17.4): user-adjustable Xcode build settings live in a
 //! committed `DayApp.xcconfig` beside each `DayApp.xcodeproj`, and the Day.toml-derived
 //! identity (bundle id, version, build number) is written to a gitignored
-//! `build/day/xcconfig/<platform>.xcconfig` that the committed file `#include?`s LAST — so
-//! Day.toml stays authoritative once `day build` has run, while a fresh checkout still
-//! builds in the Xcode IDE from the committed fallback lines. Precedence still ends at the
-//! command line: the settings `day build`/`day pack` pass to xcodebuild override both files.
+//! `build/day/xcconfig/<platform>.xcconfig` that the committed file `#include?`s after its
+//! own settings — so Day.toml stays authoritative once `day build` has run, while a fresh
+//! checkout still builds in the Xcode IDE from the committed fallback lines. A second
+//! `#include?` follows it for `DayApp.local.xcconfig`, the gitignored per-checkout file
+//! carrying a developer's signing team and anything else that should not be committed.
+//! Being last, it overrides even the generated identity, which is what a device
+//! provisioning profile issued for another bundle id needs. Precedence still ends at the
+//! command line: the settings `day build`/`day pack` pass to xcodebuild override all three.
 //!
 //! [`ensure_split`] migrates a pre-split scaffold in place: it extracts the current values
 //! from the pbxproj, writes `DayApp.xcconfig` from the embedded template with those values

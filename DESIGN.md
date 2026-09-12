@@ -3132,9 +3132,15 @@ Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§1
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
 Both Xcode scaffolds keep their user-adjustable build settings (signing, deployment target,
 device family) in a committed `DayApp.xcconfig` rather than the pbxproj (2026-08): every build
-configuration's `baseConfigurationReference` points at it, and it `#include?`s — LAST, so
-Day.toml stays authoritative — a generated `build/day/xcconfig/<platform>.xcconfig` carrying
-the Day.toml-derived bundle id, version, and build number. Command-line settings still win, a
+configuration's `baseConfigurationReference` points at it, and it `#include?`s two files after
+its own settings. First a generated `build/day/xcconfig/<platform>.xcconfig` carrying the
+Day.toml-derived bundle id, version, and build number, so Day.toml stays authoritative. Then a
+gitignored `DayApp.local.xcconfig` beside it (2026-09), the per-checkout layer: a developer's
+`DEVELOPMENT_TEAM`, or a bundle id their provisioning profile covers, without editing a tracked
+file. Being last, it overrides the generated identity too. The scaffold sets no signing keys of
+its own, so a simulator or local desktop build signs ad-hoc and a device build takes the team
+from the local file ([docs/project-structure](website/src/content/docs/project-structure.md)).
+Command-line settings still win, a
 fresh checkout builds in the IDE from the committed fallback lines, and `day build` migrates a
 pre-split scaffold in place (also available standalone as `day app split-xcconfig`; an
 unrecognized pbxproj degrades to a warning, never a half-edit).
@@ -3479,11 +3485,13 @@ fieldnotes/
   platform/                  # only for toolkits with a native host project:
     ios/                     #   DayApp.xcodeproj + Runner (day root in a view controller),
                              #   Run-Script phase calling `day xcode-backend build` (§17.4);
-                             #   DayApp.xcconfig holds the user-adjustable build settings
+                             #   DayApp.xcconfig holds the user-adjustable build settings, and
+                             #   `#include?`s a gitignored DayApp.local.xcconfig for per-checkout
+                             #   settings such as a signing team
     macos/                   #   DayApp.xcodeproj + Runner (thin main.swift → day_main),
                              #   same callback phase + `day xcode-backend stage-resources`;
                              #   builds a real .app (debugger/Instruments-ready; §16.5 day build);
-                             #   DayApp.xcconfig, as on ios
+                             #   DayApp.xcconfig + DayApp.local.xcconfig, as on ios
     android/                 #   Gradle project; committed build files read the generated
                              #   build/day/android/*.json|properties generically (§17.5)
     harmony/                 #   hvigor skeleton only (docs/harmonyos.md): the ArkTS host —

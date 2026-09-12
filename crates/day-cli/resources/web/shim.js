@@ -1916,7 +1916,7 @@ function replay(canvas, ops, strs, w, h) {
   const path = () => {
     const kind = next(); const p = new Path2D();
     if (kind === 0) p.rect(next(), next(), next(), next());
-    else if (kind === 1) { const x = next(), y = next(), pw = next(), ph = next(), r = next(); p.roundRect(x, y, pw, ph, r); }
+    else if (kind === 1) { const x = next(), y = next(), pw = next(), ph = next(), r = next(); p.roundRect(x, y, pw, ph, Math.max(r, 0)); }
     else if (kind === 2) { const x = next(), y = next(), pw = next(), ph = next(); p.ellipse(x + pw / 2, y + ph / 2, pw / 2, ph / 2, 0, 0, Math.PI * 2); }
     else if (kind === 3) {
       const x = next(), y = next(), pw = next(), ph = next(), start = next(), sweep = next();

@@ -18,6 +18,12 @@ xcuserdata/
 DerivedData/
 **/*.xcodeproj/project.xcworkspace/
 
+# Per-checkout Xcode settings: each platform/<p>/DayApp.xcconfig ends with an optional
+# `#include? "DayApp.local.xcconfig"`, so a developer can set their signing team (and anything
+# else this machine needs) without committing it. Absent on a fresh clone and in CI, which is
+# why the include is optional.
+platform/*/DayApp.local.xcconfig
+
 # Gradle local state, the android counterpart of the above: platform/android/ is source, but
 # what Gradle generates inside it is not. Gradle writes its caches and per-module build/ trees
 # into the project it builds, so they cannot move under build/ with the rest of day's outputs;

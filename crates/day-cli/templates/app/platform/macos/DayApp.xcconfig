@@ -24,10 +24,9 @@ CURRENT_PROJECT_VERSION = 1
 // ===========================================================================
 // Signing
 // ===========================================================================
-// Dev builds run unsigned, and `day pack` signs (and notarizes) from Day.toml
-// [signing.macos] after the build. To sign builds driven from the Xcode IDE, remove the
-// CODE_SIGNING_ALLOWED line and set your team:
-CODE_SIGNING_ALLOWED = NO
+// Local builds sign ad-hoc; `day pack` signs and notarizes from Day.toml [signing.macos]
+// after the build. To sign in Xcode, set your team in DayApp.local.xcconfig (bottom of this
+// file).
 //DEVELOPMENT_TEAM = ABCDE12345
 //CODE_SIGN_STYLE = Automatic
 //CODE_SIGN_IDENTITY = Apple Development
@@ -54,6 +53,16 @@ MACOSX_DEPLOYMENT_TARGET = 13.0
 // Day-managed values (generated)
 // ===========================================================================
 // Written by `day build` from Day.toml; missing until the first build, which is fine.
-// Included LAST so Day.toml stays authoritative for the identity block above — anything
-// else you set above this line keeps its value.
+// Included after the settings above so Day.toml stays authoritative for the identity
+// block; anything else you set above this line keeps its value.
 #include? "../../build/day/xcconfig/macos.xcconfig"
+
+// ===========================================================================
+// Local overrides
+// ===========================================================================
+// Per-checkout settings, gitignored and included last, so they override everything above:
+//
+//     DEVELOPMENT_TEAM = ABCDE12345
+//
+// https://daybrite.dev/docs/project-structure#xcode-build-settings
+#include? "DayApp.local.xcconfig"

@@ -24,10 +24,8 @@ CURRENT_PROJECT_VERSION = 1
 // ===========================================================================
 // Signing
 // ===========================================================================
-// Dev builds run unsigned in the simulator, and `day pack` turns signing on from Day.toml
-// [signing.ios] on the command line. To sign builds driven from the Xcode IDE (running on
-// a device), remove the CODE_SIGNING_ALLOWED line and set your team:
-CODE_SIGNING_ALLOWED = NO
+// Simulator builds sign ad-hoc; `day pack` signs from Day.toml [signing.ios] on the command
+// line. A device build needs a team: set it in DayApp.local.xcconfig (bottom of this file).
 //DEVELOPMENT_TEAM = ABCDE12345
 //CODE_SIGN_STYLE = Automatic
 //CODE_SIGN_IDENTITY = Apple Development
@@ -56,6 +54,16 @@ TARGETED_DEVICE_FAMILY = 1,2
 // Day-managed values (generated)
 // ===========================================================================
 // Written by `day build` from Day.toml; missing until the first build, which is fine.
-// Included LAST so Day.toml stays authoritative for the identity block above — anything
-// else you set above this line keeps its value.
+// Included after the settings above so Day.toml stays authoritative for the identity
+// block; anything else you set above this line keeps its value.
 #include? "../../build/day/xcconfig/ios.xcconfig"
+
+// ===========================================================================
+// Local overrides
+// ===========================================================================
+// Per-checkout settings, gitignored and included last, so they override everything above:
+//
+//     DEVELOPMENT_TEAM = ABCDE12345
+//
+// https://daybrite.dev/docs/project-structure#xcode-build-settings
+#include? "DayApp.local.xcconfig"

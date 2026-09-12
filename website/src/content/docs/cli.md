@@ -323,7 +323,7 @@ and takes the log watchers with it.
 ### What a physical iOS device needs
 
 Naming `--ios-device` also changes the build: the `iphoneos` SDK instead of the simulator's, and
-code signing, which a simulator build does not do at all. Day signs the bundle after the build
+signing against a real identity, where a simulator build signs ad-hoc. Day signs the bundle after the build
 against a development provisioning profile installed for the app's bundle id. The profile supplies
 both the signing identity (matched by fingerprint, so a machine holding several development
 certificates picks the right one) and the entitlements, so the signature cannot claim something its
@@ -334,6 +334,17 @@ Install one by double-clicking the `.mobileprovision`; without a match, the laun
 so rather than falling back to a simulator. Push is the case where the two halves have to agree:
 if `Day.toml` declares `notifications`, the build fails when the profile has no `aps-environment`,
 instead of installing an app that cannot register.
+
+Pressing Run in Xcode needs one thing more, because Xcode signs during the build rather than after
+it: a development team. Set it in `platform/ios/DayApp.local.xcconfig`, which `DayApp.xcconfig`
+includes last and `.gitignore` already covers:
+
+```text
+DEVELOPMENT_TEAM = ABCDE12345
+```
+
+That file belongs to your checkout, so a fork can sign with its own team, and with a bundle id its
+profile covers, while the committed project stays as it is.
 
 Apple reports a locked device as `RequestDenied`; Day translates it:
 

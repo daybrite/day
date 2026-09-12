@@ -137,6 +137,32 @@ xcrun simctl install booted … && simctl launch          (day launch)
 The callback design means opening `platform/ios` in Xcode and pressing Run also works, because the
 build phase calls back into `day` for the Rust half.
 
+### Xcode build settings
+
+Both Xcode scaffolds keep their editable build settings in a committed
+`platform/<ios|macos>/DayApp.xcconfig` rather than inside the `.xcodeproj`, so they read and diff as
+plain text. Every build configuration uses it as its base configuration, and it ends with two
+optional includes:
+
+```text
+#include? "../../build/day/xcconfig/ios.xcconfig"   # generated from Day.toml by `day build`
+#include? "DayApp.local.xcconfig"                   # per-checkout, gitignored
+```
+
+The generated file carries the bundle id, version, and build number, so `Day.toml` stays
+authoritative once a build has run. `DayApp.local.xcconfig` is included after it and overrides both,
+which is where a signing team belongs:
+
+```text
+DEVELOPMENT_TEAM = ABCDE12345
+CODE_SIGN_STYLE = Automatic
+```
+
+The scaffold sets no signing keys of its own, so simulator and local desktop builds sign ad-hoc and
+need no Apple account. A device build takes the team from the local file, which every `.gitignore`
+covers, so a fork signs with its own team and its own bundle id without editing a tracked file.
+Settings that `day build` and `day pack` pass on the command line override all three.
+
 ### Android: `android-mdc`
 
 On Android, `day` runs Cargo first, then hands Gradle a project whose source sets already point at
