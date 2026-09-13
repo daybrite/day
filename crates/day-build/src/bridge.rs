@@ -3537,7 +3537,7 @@ day_bridge::bridge! {
 "###;
 
     #[test]
-    fn a_done_argument_is_recognised_and_stripped_from_the_marshalled_list() {
+    fn a_done_argument_is_recognized_and_stripped_from_the_marshaled_list() {
         let b = parse(ASYNC);
         validate(&b).expect("valid");
         let speak = &b.decls[0];
@@ -3837,7 +3837,7 @@ day_bridge::bridge! {
                 "fn speak_native(_text: &str) -> Result<bool, day_bridge::Error> {",
             );
         let b = parse(&src);
-        validate(&b).expect("a scalar return is marshalled");
+        validate(&b).expect("a scalar return is marshaled");
         let rust = render_rust(&b, "day-part-speech");
         assert!(
             rust.contains("let ret = day_bridge::arkts::invoke_value(\"day_bridge_day_part_speech_speak_native\", &args, 0)?;"),

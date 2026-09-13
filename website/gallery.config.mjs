@@ -5,10 +5,12 @@
 //
 // Model
 // -----
-// Every Day app's own website publishes `<host>/gallery/gallery.json` — the machine-readable
-// screenshot index `day screenshot index` writes, carrying each capture's absolute URL, shot id,
-// localized title and caption, source path, platform-toolkit, device, theme, locale and pixel
-// size (docs/screenshots.md, DESIGN.md §14.7). This site READS those indexes and links the images
+// Every Day app's own website publishes the machine-readable screenshot index `day screenshot
+// index` writes, carrying each capture's absolute URL, shot id, localized title and caption,
+// source path, platform-toolkit, device, theme, locale and pixel size (docs/screenshots.md,
+// DESIGN.md §14.7) — and publishes it twice, once per build: the newest release's at
+// `<host>/gallery/gallery.json`, and the newest build of the default branch's at
+// `<host>/main/gallery/gallery.json`. This site READS one of those indexes and links the images
 // where they are hosted. Nothing is copied here, and daybrite.dev's build depends on no other
 // repository's CI: an app republishes its gallery on its own schedule, and the next website build
 // picks it up.
@@ -37,6 +39,19 @@ export const platforms = /** @type {Platform[]} */ (
 );
 
 /**
+ * Whether the gallery shows each app's newest RELEASE rather than the newest build of its default
+ * branch.
+ *
+ * Off: the branch build is the one every push refreshes, so its screenshots match the app as it
+ * is today, and a release's can be months behind. Turn it on once apps release often enough that
+ * a release's screenshots are the ones worth showing. Either way the other build is the fallback,
+ * so an app that has not published the preferred one still appears — and a site with no release
+ * publishes its single build where both settings find it. `preferRelease` on an app overrides
+ * this for that app.
+ */
+export const preferReleaseScreenshots = false;
+
+/**
  * The apps this gallery indexes, in display order.
  *
  * @typedef {object} App
@@ -44,7 +59,10 @@ export const platforms = /** @type {Platform[]} */ (
  * @property {string}  label     Display name.
  * @property {string}  blurb     One sentence on what the app is, for its page and its hub card.
  * @property {string}  repo      GitHub repository — where a shot's `source` path resolves.
- * @property {string}  metadata  The published `gallery.json`.
+ * @property {string}  metadata  The site's root index, `<host>/gallery/gallery.json`: its release
+ *                               build's, or its only build's before it has shipped a release. The
+ *                               branch build's index beside it, under `main/`, is derived from it.
+ * @property {boolean} [preferRelease]  Override `preferReleaseScreenshots` for this app alone.
  * @property {string} [site]     The app's own website. Defaults to the index's `site` field.
  * @property {string} [web]      Its hosted web-dom build, when that lives somewhere other than
  *                               `<site>/webapp/` — the address every app whose index carries a
@@ -193,4 +211,4 @@ export const apps = [
   },
 ];
 
-export default { platforms, apps };
+export default { platforms, apps, preferReleaseScreenshots };

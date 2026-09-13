@@ -2608,7 +2608,13 @@ actual locale. `day screenshot index` (§16.5) merges those per-target files int
 locale maps in `shots[]` and resolved per-capture (each entry's own locale, falling back by
 primary language then English), and `website/site.toml`'s `host` turns paths into published
 URLs. App sites serve the result at `<host>/gallery/gallery.json` — the machine-readable
-index other sites and tools reference (crates/day-cli/src/screenshot.rs).
+index other sites and tools reference (crates/day-cli/src/screenshot.rs). A daysite that
+publishes two build channels serves one index per build: the root one is the newest release's,
+and the newest branch build's sits at `<host>/main/gallery/gallery.json`. The CLI knows nothing
+of channels and spells every entry `gallery/…`, so daysite rewrites each republished entry's
+`path` and `url` to its own channel's copies (2026-09-13 — until then the branch build's index
+linked the release channel's images, and daybrite.dev dropped every app whose release channel had
+none).
 
 A shot **with** a `title:` is gallery-curated: the daysite gallery shows the curated set when
 one exists, and untitled captures stay machine-readable in the index. Curation governs the PAGE
@@ -2620,8 +2626,10 @@ cross-references each title/caption map's locale keys against the app's translat
 (missing = that page silently falls back to English; unknown = usually a typo).
 
 The index is the interface daybrite.dev's own gallery reads ([§20](#20-continuous-integration),
-step 6): it fetches one per sample app and renders `/gallery/<App>/` from it, linking the images
-where the app hosts them. A `title:` therefore names a row on two sites, and a capture published
+step 6): it fetches one per sample app — the branch build's by default, the release's once
+`preferReleaseScreenshots` in `website/gallery.config.mjs` is on, and the other when the preferred
+one is missing or its first capture URL does not resolve — and renders `/gallery/<App>/` from it,
+linking the images where the app hosts them. A `title:` therefore names a row on two sites, and a capture published
 by an app appears on daybrite.dev without a change in this repository.
 
 A release carries the same index twice (`daybrite/actions` dayapp.yml, 2026-09): inside
@@ -4123,11 +4131,16 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    independently of everything above. It was the last two jobs of `ci.yml`, gated on nine platform
    legs so it could download their `screenshots-<combo>` artifacts; a docs typo cost an hour behind
    an Android emulator. The gallery is now assembled from the machine-readable index each Day app's
-   OWN site publishes at `<host>/gallery/gallery.json` (`day screenshot index`, [§14.7](#147-screenshot-metadata-and-the-gallery-index)),
+   OWN site publishes (`day screenshot index`, [§14.7](#147-screenshot-metadata-and-the-gallery-index)),
    which carries every capture's absolute URL, shot id, localized title and caption, source path,
-   platform-toolkit, device, theme, locale and pixel size. daybrite.dev links those hosted images:
-   one copy of the bytes, owned by the app that captured them, and `/gallery/<App>/` for each of
-   Day-Showcase, Day-Rise, Day-Skies, Day-Tradr, Day-News and Day-Sketch under a hub at `/gallery/`.
+   platform-toolkit, device, theme, locale and pixel size. A site publishes two, one per build
+   channel: the newest branch build's at `<host>/main/gallery/gallery.json`, which the gallery
+   reads first, and the newest release's at `<host>/gallery/gallery.json`, which it reads first once
+   `preferReleaseScreenshots` in `website/gallery.config.mjs` is on (2026-09-13). The other is the
+   fallback, and so is any index whose first capture URL does not resolve. daybrite.dev links those
+   hosted images: one copy of the bytes, owned by the app that captured them, and `/gallery/<App>/`
+   for each of Day-Showcase, Day-Rise, Day-Skies, Day-Tradr, Day-News, Day-Sketch and Day-Games
+   under a hub at `/gallery/`.
    Adding an app is one entry in `website/gallery.config.mjs`; its rows, columns, themes and
    languages come from its index, so a newly captured screen appears with no change here. An
    unreachable app site falls back to the cached copy of its last index and says so on the page.

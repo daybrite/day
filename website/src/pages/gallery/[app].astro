@@ -72,6 +72,7 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
       </p>
       <p class="gen">
         {generated ? <span>Published {generated} · </span> : null}
+        {app.fromMain ? <span>Latest build of main · </span> : null}
         {app.counts.shots} screens · {app.counts.captures} captures · {app.counts.columns} toolkits
         {app.stale && <span class="stale"> · Showing previously saved screenshots because the app’s website could not be reached.</span>}
       </p>

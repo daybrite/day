@@ -3,11 +3,14 @@
 
 // Assemble the screenshots gallery into a static manifest.
 //
-// Inputs  : each app's published screenshot index (`app.metadata` in gallery.config.mjs — the
-//           `gallery.json` that `day screenshot index` writes and every Day app site serves at
-//           `<host>/gallery/gallery.json`). The index carries absolute image URLs, so this site
-//           REFERENCES the app's own hosted screenshots: one copy of the bytes, owned by the app
-//           that captured them, and daybrite.dev's build waits on nobody else's CI.
+// Inputs  : each app's published screenshot index — the `gallery.json` that `day screenshot index`
+//           writes. An app's site publishes two (its build channels): the newest release's at
+//           `<host>/gallery/gallery.json` (`app.metadata` in gallery.config.mjs), and the newest
+//           build of its default branch at `<host>/main/gallery/gallery.json`. This build reads
+//           the branch build's first unless `preferReleaseScreenshots` says otherwise, and falls
+//           back to the other (see indexCandidates). The index carries absolute image URLs, so
+//           this site REFERENCES the app's own hosted screenshots: one copy of the bytes, owned by
+//           the app that captured them, and daybrite.dev's build waits on nobody else's CI.
 // Outputs : `src/data/gallery-manifest.json`  (src/pages/gallery/index.astro, gallery/[app].astro,
 //                                              components/PlatformShots.astro, hero-shots.mjs)
 //           `.cache/gallery/<app>.json`        (the last index that fetched, gitignored)
@@ -40,6 +43,49 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const WEBSITE_ROOT = resolve(HERE, '..');
 const CACHE_DIR = join(WEBSITE_ROOT, '.cache', 'gallery');
 
+/**
+ * The two indexes an app's site publishes, in the order this build tries them.
+ *
+ * A Day app's site carries two builds (daysite's build channels, README "Build channels"): the
+ * newest GitHub release at the site root, assembled only from the screenshot bundle that release
+ * carries, and the newest build of the default branch one segment deeper, from the screenshots
+ * its last CI run took. `metadata` names the root index; the branch build's sits beside it under
+ * `main/`. A site with no release publishes its one build at the root and nothing under `main/`,
+ * so trying both resolves it whichever order is preferred.
+ *
+ * The branch build leads by default, because it is the one every push refreshes; a release's
+ * screenshots can be months old. `preferReleaseScreenshots` in gallery.config.mjs turns that
+ * around for the whole gallery, and an app's own `preferRelease` overrides it for that app.
+ */
+function indexCandidates(app) {
+  const site = new URL('../', app.metadata); // <host>/ from <host>/gallery/gallery.json
+  const main = { channel: 'main', url: new URL('main/gallery/gallery.json', site).href };
+  // The root build: the release when the app has shipped one, and its only build when it has not.
+  const root = { channel: 'root', url: app.metadata };
+  const preferRelease = app.preferRelease ?? galleryConfig.preferReleaseScreenshots ?? false;
+  return preferRelease ? [root, main] : [main, root];
+}
+
+/**
+ * Whether an index's images are actually where it says. One HEAD on the first linkable capture.
+ *
+ * An index can be served and still link nothing: daysite before 2026-09-13 republished a build
+ * channel's index with the root channel's image paths, so every URL in a site's
+ * `main/gallery/gallery.json` pointed at `/gallery/…`, where that channel's images are not. A
+ * candidate that fails this is passed over for the next one rather than rendered as a page of
+ * broken images.
+ */
+async function linksResolve(index) {
+  const first = index.screenshots.find((s) => typeof s?.url === 'string');
+  if (!first) return true; // nothing linkable at all; assembleApp leaves such an app out itself
+  try {
+    const res = await fetch(first.url, { method: 'HEAD', signal: AbortSignal.timeout(15_000) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** `san-francisco` → `San Francisco`: the row heading for a shot whose dayscript declared no
  *  `title:`. The same derivation `day screenshot index` applies, so a thin index and a rich one
  *  read alike. */
@@ -70,35 +116,46 @@ function captureKey(theme, locale) {
   return `${theme || 'default'}|${locale || 'default'}`;
 }
 
-/** Fetch an app's published index, caching the last good copy so a later build survives an
- *  unreachable site (and so a local checkout works offline once it has fetched). */
+/** Fetch an app's published index — the first candidate that answers with screenshots whose
+ *  links resolve — caching the last good copy so a later build survives an unreachable site (and
+ *  so a local checkout works offline once it has fetched). */
 async function loadIndex(app, log) {
   const cacheFile = join(CACHE_DIR, `${app.id}.json`);
-  try {
-    const res = await fetch(app.metadata, { signal: AbortSignal.timeout(20_000) });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (!Array.isArray(data.screenshots)) throw new Error('no screenshots[] in the index');
-    mkdirSync(CACHE_DIR, { recursive: true });
-    writeFileSync(cacheFile, JSON.stringify(data));
-    return { data, stale: false };
-  } catch (err) {
-    const why = err?.message ?? err;
-    if (existsSync(cacheFile)) {
-      try {
-        log(`${app.id}: ${why} — using the cached index from the last good fetch`);
-        return { data: JSON.parse(readFileSync(cacheFile, 'utf8')), stale: true };
-      } catch {
-        /* fall through to the drop below */
-      }
+  const failures = [];
+  for (const source of indexCandidates(app)) {
+    try {
+      const res = await fetch(source.url, { signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!Array.isArray(data.screenshots)) throw new Error('no screenshots[] in the index');
+      if (!(await linksResolve(data))) throw new Error('its screenshot URLs do not resolve');
+      mkdirSync(CACHE_DIR, { recursive: true });
+      writeFileSync(cacheFile, JSON.stringify({ source, data }));
+      return { data, source, stale: false };
+    } catch (err) {
+      failures.push(`${source.channel} index ${err?.message ?? err}`);
     }
-    log(`${app.id}: ${why} — no cached index, so the app is left out of this build`);
-    return null;
   }
+  const why = failures.join('; ');
+  if (existsSync(cacheFile)) {
+    try {
+      const cached = JSON.parse(readFileSync(cacheFile, 'utf8'));
+      // A cache written before the source was recorded holds the bare index.
+      const data = Array.isArray(cached.screenshots) ? cached : cached.data;
+      if (Array.isArray(data?.screenshots)) {
+        log(`${app.id}: ${why} — using the cached index from the last good fetch`);
+        return { data, source: cached.source ?? null, stale: true };
+      }
+    } catch {
+      /* fall through to the drop below */
+    }
+  }
+  log(`${app.id}: ${why} — no cached index, so the app is left out of this build`);
+  return null;
 }
 
 /** Turn one published index into the app's manifest entry. */
-function assembleApp(app, index, stale) {
+function assembleApp(app, index, stale, source) {
   // Group every usable capture by (shot, column, theme+locale). `url` is what this site links;
   // an index published by a site with no configured host has none, and contributes nothing.
   const byShot = new Map();
@@ -190,6 +247,10 @@ function assembleApp(app, index, stale) {
     // possibly-months-old set as current.
     stale,
     indexGeneratedAt: index.generated ?? null,
+    // Which build the screenshots came from, so the page can say when they are the branch
+    // build's rather than a release's. `root` is the release, or an app's only build.
+    indexURL: source?.url ?? null,
+    fromMain: source?.channel === 'main',
     themes,
     locales,
     columns: columns.map((id) => {
@@ -251,7 +312,7 @@ export async function assembleGallery(opts = {}) {
       continue;
     }
     if (loaded.stale) stale.push(app.id);
-    const entry = assembleApp(app, loaded.data, loaded.stale);
+    const entry = assembleApp(app, loaded.data, loaded.stale, loaded.source);
     if (entry.counts.captures === 0) {
       log(`${app.id}: its index describes no linkable screenshot — left out`);
       dropped.push(app.id);
@@ -259,7 +320,7 @@ export async function assembleGallery(opts = {}) {
     }
     log(
       `${app.id}: ${entry.counts.shots} screen(s), ${entry.counts.captures} capture(s) ` +
-        `on ${entry.counts.columns} target(s)`,
+        `on ${entry.counts.columns} target(s), from the ${loaded.source?.channel ?? 'unknown'} index`,
     );
     apps.push(entry);
   }

@@ -107,7 +107,7 @@ jobs:
       # Pinned rather than floating on @master: the dictionary ships inside the action, so an
       # unpinned bump turns this job red on a commit that changed nothing. Keep it in step with
       # whatever `typos --version` reports locally, or the two disagree about what a word is.
-      - uses: crate-ci/typos@v1.49.0
+      - uses: crate-ci/typos@v1.50.1
 
   duty-matrix-drift:
     runs-on: ubuntu-latest

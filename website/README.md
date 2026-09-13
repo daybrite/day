@@ -104,9 +104,18 @@ platform side by side. The images are **hosted by the apps themselves** — this
 
 Each app's CI runs its dayscript walkthrough on every target it builds for, once per theme and
 language, and its website publishes both the images and `day screenshot index`'s machine-readable
-index of them at `<host>/gallery/gallery.json`. Before every build here, an Astro integration
-(`integrations/gallery.mjs`) runs `scripts/assemble-gallery.mjs`, which fetches those indexes and
-writes `src/data/gallery-manifest.json` for the pages to render.
+index of them — twice, one per build: the newest build of the app's default branch at
+`<host>/main/gallery/gallery.json`, and its newest release at `<host>/gallery/gallery.json` (a site
+with no release publishes its one build there). Before every build here, an Astro integration
+(`integrations/gallery.mjs`) runs `scripts/assemble-gallery.mjs`, which fetches one index per app
+and writes `src/data/gallery-manifest.json` for the pages to render.
+
+It reads the branch build's index first, because every push refreshes it, and the release's when
+that one is missing. `preferReleaseScreenshots` in `gallery.config.mjs` swaps the order for the
+whole gallery, and `preferRelease` on an app swaps it for that app alone. Before using an index it
+sends one `HEAD` to its first capture, and an index whose images are not where it says is passed
+over for the other rather than rendered as a page of broken images. A page built from the branch
+build says so beside its publication date.
 
 The index describes itself, so a row's heading, its caption, the source file it links, the columns,
 the themes and the languages all come from the app — an app that captures a new screen shows it

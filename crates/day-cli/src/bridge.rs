@@ -110,7 +110,7 @@ pub fn stage(project: &Project, platform: &str) -> Staged {
                 }
                 day_build::bridge::Lang::ArkTs
                     if arm.options.get("sdk").map(String::as_str) == Some("hms")
-                        && !hms_sdk_available() =>
+                        && !hms_sdk_available(project) =>
                 {
                     // The host's every ArkTS module compiles, so an arm over a Huawei SDK kit
                     // would fail the whole build against the public OpenHarmony SDK. Leave it
@@ -118,7 +118,7 @@ pub fn stage(project: &Project, platform: &str) -> Staged {
                     // `Runtime`, which the crate's `available()` reports as Unsupported.
                     eprintln!(
                         "day: {name}: ArkTS arm left out — it needs the HarmonyOS (HMS) SDK, and \
-                         this build has the public OpenHarmony SDK only"
+                         this build compiles against the public OpenHarmony SDK"
                     );
                 }
                 day_build::bridge::Lang::ArkTs => {
@@ -160,12 +160,24 @@ pub fn write_jvm(project: &Project, staged: &Staged) -> Result<Option<PathBuf>, 
     Ok(Some(root))
 }
 
-/// Whether hvigor will compile against a HarmonyOS (HMS) SDK: a `hms` tree beside the
-/// OpenHarmony one in the versioned view (`OHOS_BASE_SDK_HOME/<api>/hms`) or under DevEco's
-/// SDK root (`DEVECO_SDK_HOME/default/hms`), or `DAY_OHOS_HMS=1` to say so outright.
-fn hms_sdk_available() -> bool {
+/// Whether hvigor will compile against a HarmonyOS (HMS) SDK. `DAY_OHOS_HMS=1` says so outright.
+/// Otherwise it takes two things: a host that does not build for the OpenHarmony runtime, and a
+/// `hms` tree beside the OpenHarmony one in the versioned view (`OHOS_BASE_SDK_HOME/<api>/hms`) or
+/// under DevEco's SDK root (`DEVECO_SDK_HOME/default/hms`).
+///
+/// The tree alone is not enough. DevEco's command-line tools ship it, CI's HarmonyOS image
+/// included, but hvigor resolves `@kit.*` HMS kits only for a HarmonyOS product — and the
+/// scaffold's host declares `runtimeOS: "OpenHarmony"` — so checking the tree staged an HMS arm
+/// into a build that could not compile it.
+fn hms_sdk_available(project: &Project) -> bool {
     if std::env::var("DAY_OHOS_HMS").is_ok_and(|v| v == "1") {
         return true;
+    }
+    let profile =
+        std::fs::read_to_string(project.root.join("platform/harmony/build-profile.json5"))
+            .unwrap_or_default();
+    if builds_for_openharmony_only(&profile) {
+        return false;
     }
     if let Ok(root) = std::env::var("OHOS_BASE_SDK_HOME")
         && let Ok(rd) = std::fs::read_dir(&root)
@@ -177,6 +189,27 @@ fn hms_sdk_available() -> bool {
     }
     std::env::var("DEVECO_SDK_HOME")
         .is_ok_and(|root| Path::new(&root).join("default/hms/ets").is_dir())
+}
+
+/// Whether a host `build-profile.json5` builds only for the OpenHarmony runtime: some product
+/// declares `runtimeOS: "OpenHarmony"` and none declares `"HarmonyOS"`. A profile that names no
+/// runtime at all is left to the SDK-tree check. Read as text rather than parsed — JSON5 allows
+/// unquoted keys and comments, and the one value needed sits right after its key.
+fn builds_for_openharmony_only(profile: &str) -> bool {
+    let mut openharmony = false;
+    for (at, key) in profile.match_indices("runtimeOS") {
+        let value: String = profile[at + key.len()..]
+            .trim_start_matches(|c: char| c == '"' || c == '\'' || c == ':' || c.is_whitespace())
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect();
+        match value.as_str() {
+            "HarmonyOS" => return false,
+            "OpenHarmony" => openharmony = true,
+            _ => {}
+        }
+    }
+    openharmony
 }
 
 /// Write every staged ES module into `dist/bridge/`, returning the import lines the day-dom shim
@@ -472,6 +505,34 @@ fn depends_on_day_bridge(root: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// An HMS arm needs a host that can resolve Huawei kits. A profile building for the
+    /// OpenHarmony runtime rules one out even where an `hms` tree exists — the case that staged
+    /// Core Speech Kit into day-part-speech's OpenHarmony build on CI.
+    #[test]
+    fn a_host_building_for_openharmony_cannot_resolve_hms_kits() {
+        use super::builds_for_openharmony_only as only;
+        assert!(only(
+            r#""products": [{ "name": "default", "runtimeOS": "OpenHarmony" }]"#
+        ));
+        assert!(only(
+            "products: [{ name: 'default', runtimeOS: 'OpenHarmony' }]"
+        ));
+        assert!(!only(
+            r#""products": [{ "name": "default", "runtimeOS": "HarmonyOS" }]"#
+        ));
+        // A HarmonyOS product anywhere in the profile can compile the kits.
+        assert!(!only(
+            r#"[{ "runtimeOS": "OpenHarmony" }, { "runtimeOS": "HarmonyOS" }]"#
+        ));
+        // Naming no runtime leaves the decision to the SDK-tree check.
+        assert!(!only(r#""products": [{ "name": "default" }]"#));
+        assert!(!only(""));
+        // A comment that mentions the key declares nothing.
+        assert!(!only(
+            "// must match the product runtimeOS in the root profile"
+        ));
+    }
+
     /// A crate whose source declares a Swift arm renders one adapter, with the prefixed symbol and
     /// the line mapping — all from source, with no cargo run and no `OUT_DIR`.
     #[test]

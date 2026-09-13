@@ -277,7 +277,7 @@ day_bridge::bridge! {
 |---|---|
 | `<fn>_async(args…, on_done)` | `on_done: impl FnOnce(Result<T, Error>) + Send + 'static`; returns `Result<(), Error>` |
 | `<fn>_future(args…)` | `day_bridge::Completion<T>`, a `Future<Output = Result<T, Error>>` |
-| `<fn>(args…, done: Done<T>)` | the arm itself — a Rust arm's own signature, or the generated marshalling for a foreign one |
+| `<fn>(args…, done: Done<T>)` | the arm itself — a Rust arm's own signature, or the generated marshaling for a foreign one |
 | a `static` registry | the closures waiting on this function, keyed by token |
 
 **The token.** A foreign arm receives the handle as a `u64` trailing argument (`uint64_t`,
@@ -310,10 +310,13 @@ returns nothing. A thrown error is "failed to start", as for a synchronous arm.
 **An ArkTS arm over a Huawei kit says so.** Core Speech, Push, Map, Scan and the other HMS kits
 are not in the public OpenHarmony SDK Day builds against, and the host compiles every staged
 ArkTS module, so one such import would fail the whole build. An arm that imports one declares
-`sdk = "hms"`; `day build` stages it only when hvigor's SDK carries an `hms` tree
-(`OHOS_BASE_SDK_HOME/<api>/hms`, DevEco's `default/hms`, or `DAY_OHOS_HMS=1`), and leaves it
-out otherwise — the crate's Rust half then finds no registered function and reports
-`Unsupported`, as day-part-speech does on an OpenHarmony-only build.
+`sdk = "hms"`; `day build` stages it only when hvigor can resolve that kit, and leaves it out
+otherwise — the crate's Rust half then finds no registered function and reports `Unsupported`, as
+day-part-speech does on an OpenHarmony-only build. Resolving one takes both an `hms` tree
+(`OHOS_BASE_SDK_HOME/<api>/hms` or DevEco's `default/hms`) and a host that builds for HarmonyOS. A
+`build-profile.json5` whose products declare `runtimeOS: "OpenHarmony"`, as the scaffold's does,
+rules the arm out even where the tree exists, because hvigor then compiles against the OpenHarmony
+SDK alone. `DAY_OHOS_HMS=1` stages it regardless.
 
 **ArkTS arms run on the JS thread.** The generated Rust half reaches an arm through the ArkUI
 shim's dispatcher (`day_bridge::arkts::invoke`, found by `dlsym` at run time like the
