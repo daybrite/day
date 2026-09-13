@@ -1,0 +1,64 @@
+[package]
+name = "day-part-downloads"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A HEADLESS download manager (docs/downloads.md) over day-part-http's client: a queue with
+# limits, a journal beside the partial files, validated Range resume, SHA-256 verification,
+# retries with backoff, and the move into place once a download is whole. No runtime and no
+# thread per transfer: bytes arrive on the client's transport, backoff waits on day-async's timer.
+# A download can instead ask the OS to run it (the system tier), where the platform has a service
+# for that.
+
+[dependencies]
+day-part-http = { workspace = true }
+day-async = { workspace = true }
+# The system tier's Android and HarmonyOS arms (src/bridge.rs, docs/bridge.md "Streams").
+day-bridge = { workspace = true }
+sha2 = "0.11"
+httpdate = "1"
+
+[build-dependencies]
+day-build = { workspace = true }
+
+# The system tier on macOS and iOS: a background URLSession (src/apple.rs), which Foundation runs
+# out of process so a transfer continues while the app is suspended or gone.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "block2",
+    "NSArray",
+    "NSBundle",
+    "NSData",
+    "NSDictionary",
+    "NSError",
+    "NSObject",
+    "NSString",
+    "NSURL",
+    "NSURLRequest",
+    "NSURLResponse",
+    "NSURLSession",
+] }
+
+# Android's arm reaches DownloadManager through the day runtime's JVM.
+[target.'cfg(target_os = "android")'.dependencies]
+day-android = { workspace = true }
+
+# The system tier on Windows: the Background Intelligent Transfer Service (src/windows.rs), the
+# same crate day-part-wakelock already brings.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Networking_BackgroundIntelligentTransferService",
+    "Win32_System_Com",
+] }
+
+# Free space before a transfer starts (statvfs).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

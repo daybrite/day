@@ -1,6 +1,6 @@
 ---
 title: "HTTP"
-description: "HTTP through each platform's network stack via day-part-http, inheriting system proxies and TLS."
+description: "HTTP through each platform's network stack via day-part-http: streaming, uploads, redirects, authentication, trust, cookies, caching and WebSockets."
 ---
 
 <!--
@@ -10,267 +10,518 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # HTTP through the platform stack (headless capability crate)
 
-> **Status: implemented** as `day-part-http` (in `parts/`), a headless day-ecosystem crate with no
-> UI Piece: request/response HTTP (plus streaming downloads) through each platform's networking
-> stack: NSURLSession on macOS/iOS, OkHttp on Android (the platform's frozen engine,
-> current; see the engine note below), WinHTTP on Windows, the browser's `fetch()` on the web
-> (`web-dom`, async entry points only; see the web tier below), with a
-> bundled ureq + rustls fallback on Linux and HarmonyOS. Verified end-to-end with a local-server
-> test suite on the real Apple half (macOS) and the real fallback half (Linux), and live on
-> macOS/iOS-sim/Android-emulator/browser via the showcase walkthrough and Day Skies' Open-Meteo
-> fetch.
+> **Status: implemented** as `day-part-http` (in `parts/`), a headless crate with no UI piece.
+> Requests run through each platform's own networking stack: URLSession on macOS and iOS, OkHttp
+> on Android, WinHTTP on Windows, the system's libcurl on Linux, the Network Kit on HarmonyOS, and
+> the browser's `fetch` and `WebSocket` on the web. The crate's tests run against its local test
+> server over URLSession and libcurl on macOS, and the showcase's Network & HTTP walkthrough
+> (`dayscript/network.yaml`) runs every client feature on macOS, iOS and Android.
 
-Day uses the platform stack because the OS already knows things an app cannot easily discover
-(system proxies and PAC scripts, per-network VPN routing, Low Data Mode, enterprise/MDM
-certificate stores, user-installed CAs). Apps that fetch through the platform inherit all of it,
-and the native targets use the platform's TLS (rustls compiles only into the cfg-gated Linux/OHOS
-fallback).
+The OS already knows things an app cannot easily discover: system proxies and PAC scripts,
+per-network VPN routing, Low Data Mode, and enterprise and user-installed certificate stores.
+Requests sent through the platform stack inherit all of it, and the app ships no TLS library of
+its own.
 
-## Authoring
+The crate has two entry points. The functions at the crate root send one request with no state
+kept between requests. A [`Client`](#the-client) carries policy across requests and adds the
+rest of a modern HTTP API: streamed bodies, uploads, redirect and challenge callbacks, trust
+decisions, cookies, caching, metrics and WebSockets.
+
+## Sending a request
 
 ```rust
 use day_part_http::{Request, fetch};
 
-// Blocking — call it off the UI thread (a worker thread of your own).
+// Blocking: call it off the UI thread.
 let resp = fetch(&Request::get("https://api.example.com/data.json"))?;
 if (200..300).contains(&resp.status) {
     let body: MyData = serde_json::from_slice(&resp.body)?;
 }
 ```
 
-`Request` is a builder: `get/post/put/delete/patch/head(url)`, `.header(k, v)` (duplicates
-allowed), `.body(Vec<u8>)`, `.timeout(Duration)`, `.allow_expensive(bool)` /
-`.allow_constrained(bool)`. `Response { status, headers, body }` adds `text()` (lossy UTF-8) and a
+`Request` is a builder: `get`, `post`, `put`, `delete`, `patch` and `head` start one, then
+`.header(name, value)` (duplicates allowed), `.bearer(token)`, `.basic_auth(user, password)`,
+`.body(bytes)`, `.timeout(d)`, `.timeout_total(d)`, `.allow_expensive(bool)`,
+`.allow_constrained(bool)`, `.cache(policy)` and `.priority(p)`. The upload builders are under
+[Uploads](#uploads). `Response { status, headers, body }` adds `text()` (lossy UTF-8) and a
 case-insensitive `header(name)`.
 
-Two contract points differ from ureq-style clients:
+Two contract points apply everywhere:
 
-- **4xx/5xx are `Ok`.** An HTTP error status is a *response* (`resp.status == 404`), not an
-  `HttpError`. Errors are transport-level only: `BadUrl`, `Timeout`, `Dns`, `Connect`, `Tls`,
-  `Io`, `Unsupported` (the enum is `#[non_exhaustive]`).
-- **`timeout` bounds progress, not the transfer.** It covers connecting, awaiting the response
-  head, and idle gaps; a multi-minute download that keeps moving is never cut off. Default 30 s.
+- **4xx and 5xx are responses.** An HTTP error status arrives as `resp.status == 404`. An
+  `HttpError` is a transport failure: `BadUrl`, `Timeout`, `Dns`, `Connect`, `Tls`, `Io`,
+  `Cancelled`, `TooManyRedirects`, `Status` or `Unsupported` (the enum is `#[non_exhaustive]`).
+- **`timeout` bounds progress.** It covers connecting, waiting for the response head, and idle
+  gaps in the body, so a long download that keeps moving runs to the end. The default is 30 s.
+  `timeout_total` bounds the whole request, redirects and challenges included.
 
-### Async + the Setter idiom
+The root functions are:
 
-```rust
-let status: Signal<String> = Signal::new(String::new());
-let done = status.setter(); // Copy + Send; hops to the UI thread itself
-day_part_http::fetch_async(Request::get(url), move |result| {
-    // Runs on an UNSPECIFIED BACKGROUND thread (URLSession's delegate queue on Apple,
-    // OkHttp's dispatcher on Android, a spawned thread on Windows and the Rust fallback).
-    // Never touch UI state directly here.
-    if let Ok(resp) = result {
-        done.set(resp.text()); // no-ops harmlessly if the page was disposed meanwhile
-    }
-});
-```
+| Function | Shape |
+|---|---|
+| `fetch(&req)` | blocks; returns `Response` |
+| `fetch_async(req, on_done)` | `on_done` runs on a background thread |
+| `fetch_future(req)` | a future; dropping it cancels the request |
+| `fetch_to_file(&req, &dest)`, `fetch_to_file_async` | writes the body to `dest` as it arrives |
+| `fetch_streamed(&req, &mut sink)` | hands the head and each chunk to a `StreamSink`, which can stop the transfer |
 
-`fetch_async(req, on_done)` completes on a background thread, because the crate never calls
-`day_reactive::on_main` (which requires an installed backend poster and would break plain-`main`
-programs and `cargo test`). Capturing a `Setter` in `on_done` is the standard delivery idiom
-(DESIGN §4.5); it marshals to the UI thread itself and absorbs late deliveries after disposal.
-The showcase's Network & HTTP page demonstrates it twice: a deterministic local fetch (a
-one-shot loopback server natively; on web-dom, where a tab can host no listener, the dev
-server's same-origin `/day-http-ok` echo endpoint with identical bodies), and
-a URL checker (type any http(s) URL, tap Check) that prints the response headers and body size.
-`resp.headers` is the full header list, `resp.header(name)` the case-insensitive lookup.
+They share one client that keeps no cookies and no cache, so every call starts fresh.
 
-### Feeding remote-image
-
-`day-piece-remote-image` stays fetch-agnostic (the app owns the bytes signal), but gains the
-one-liner for the common case:
+### Async and the Setter idiom
 
 ```rust
-remote_image_url("https://example.com/logo.png").rounded(8.0)
-```
-
-`remote_image_url` fetches once through `day-part-http` and pushes 2xx bytes into the piece's own
-signal via a `Setter`; failures leave the placeholder color showing.
-
-### Downloads and streaming
-
-```rust
-// Straight to disk — the body never sits in memory.
-let dl = fetch_to_file(&Request::get(apk_url), &dest)?;   // Download { status, headers, bytes_written }
-
-// Full control — progress, cancellation, incremental hashing:
-struct MySink { /* progress handle, hasher, file … */ }
-impl StreamSink for MySink {
-    fn head(&mut self, status: u16, headers: &[(String, String)]) -> bool {
-        status == 200 // returning false aborts before any chunk
-    }
-    fn chunk(&mut self, data: &[u8]) -> Result<(), HttpError> {
-        /* hash + write + report; return Err to cancel mid-body */ Ok(())
-    }
-}
-let dl = fetch_streamed(&Request::get(url), &mut MySink { .. })?;
-```
-
-`fetch_to_file` has an async twin (`fetch_to_file_async`). App Fair's downloader is the shipped
-reference: a `StreamSink` that hashes as it writes, reports progress, honors a cancel flag, and
-implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
-
-## Per-platform native realization
-
-| OS | API | dependency |
-|---|---|---|
-| macOS + iOS | `NSURLSession` (shared ephemeral session; per-request delegate session for streaming) | objc2-foundation, shared `apple.rs` |
-| Android | OkHttp 4.12: the asynchronous forms through a daybridge Java arm (`src/bridge.rs`, a `Done<Vec<u8>>` completed from OkHttp's dispatcher — [docs/bridge.md](bridge.md) "Callbacks"), the blocking forms through the part-owned `DayHttp.java` shim; one `byte[]` envelope per call either way | `day-bridge`, `day-android` + `[package.metadata.day.android]` (staged Java + the okhttp Gradle coordinate) |
-| Windows | WinHTTP (winhttp.dll, resolved dynamically; `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`): a synchronous session for the blocking forms, a `WINHTTP_FLAG_ASYNC` session with a status callback for `fetch_async`/`fetch_future` | raw FFI (runtime lookup) |
-| Web (`web-dom`) | the browser's `fetch()` via the day-dom shim's `day_dom_http_*` imports (request-id + AbortController); **async entry points only** — `fetch`/`fetch_to_file`/`fetch_streamed` return `Unsupported` | `web.rs` (wasm32; requires the day-dom host page, the day-part-prefs pattern) |
-| Linux | ureq 3 + rustls (the only tier that bundles TLS) | ureq, `fallback.rs` |
-| HarmonyOS | the ArkTS Network Kit (`@ohos.net.http`) through a daybridge ArkTS arm (`src/bridge.rs`): the OSS NDK has no HTTP C API, so the request runs on the JS thread and completes the bridge token; the blocking forms wait for that completion and answer `Unsupported` on the JS thread itself | `day-bridge`, `ohos.rs` (native only when `day build` staged the arm; a bare cargo build reports `Unavailable`) |
-| unknown/mock | catch-all: every call returns `HttpError::Unsupported` | — |
-
-`tier()` reports which of the three tiers the compiled target uses (`NativeStack`,
-`RustFallback`, or `Unavailable`), so an app (or a doc table) never has to guess:
-
-- **NativeStack**: system proxy + PAC, VPN routing, platform TLS + certificate stores all apply.
-  The web is this tier: the browser is the platform stack (proxies, TLS, certificate store,
-  HTTP/2/3 all come from it). But it is async-only: on the single browser thread a blocking wait
-  would starve the event loop the completion needs ([docs/web.md](web.md)), so the blocking entry points
-  return `Unsupported` while `fetch_async`/`fetch_future` work in full. Two web-only rules
-  apply: CORS governs cross-origin requests (and limits which response headers are visible),
-  and browser-controlled headers (`Host`, `Cookie`, `Origin`, …) cannot be set from a request.
-- **RustFallback**: correct HTTP(S) via rustls + webpki roots, but system awareness is limited to
-  the `http_proxy`/`https_proxy`/`no_proxy` environment variables (no PAC, no desktop proxy
-  settings).
-- **Unavailable**: every call fails with `Unsupported` (the mock/unknown-target posture).
-
-## Error mapping
-
-| `HttpError` | Apple (`NSURLErrorDomain`) | Android (exception) | Windows (`ERROR_WINHTTP_*`) | web (fetch rejection) | fallback (ureq) |
-|---|---|---|---|---|---|
-| `Timeout` | −1001 | `SocketTimeoutException` | 12002 | `AbortError` from the timeout timer | `Timeout` |
-| `Dns` | −1003, −1006 | `UnknownHostException` | 12007 | — (see below) | `HostNotFound` |
-| `Connect` | −1004, −1009 | `ConnectException` | 12029, 12030 | — (see below) | `ConnectionFailed` |
-| `Tls(msg)` | −1200…−1206 | `SSLException` | secure-failure set (12157, 12175, …) | — (see below) | `Tls` |
-| `BadUrl` | −1000, −1002 | `IllegalArgumentException` (URL rejected) | 12005, 12006 | `new URL(...)` rejects | `BadUri` |
-| `Cancelled` | −999 | `Call.isCanceled()` (sentinel −7) | — (discard tier) | `AbortError` from `day_dom_http_abort` | — (discard tier) |
-| `Io(msg)` | anything else | anything else | anything else | anything else (see below) | anything else |
-
-The web column is coarse because browsers collapse DNS, connect, TLS, and CORS failures
-into one opaque `TypeError` (an anti-fingerprinting measure), so every network-level failure
-surfaces as `Io` with the browser's message; `Dns`/`Connect`/`Tls` never occur on this tier.
-
-## Options: applied vs accepted
-
-Options that only some platforms can realize are documented per platform:
-
-| option | Apple | Android | Windows | web | fallback |
-|---|---|---|---|---|---|
-| `.timeout` | `timeoutInterval` (idle timer) | OkHttp connect/read/write per-phase bounds (no callTimeout) | per-operation `WinHttpSetTimeouts` | an abort timer over connect + response head (body phase uncapped — fallback parity; fetch has no native timeout) | resolve/connect/send/response-head timeouts (body phase uncapped) |
-| `.allow_expensive` / `.allow_constrained` | native (`allowsExpensiveNetworkAccess` / `allowsConstrainedNetworkAccess`, Low Data Mode) | advisory only | advisory only | advisory only | advisory only |
-| `.header` | as given | as given | as given | browser-controlled names (`Host`, `Cookie`, `Origin`, …) are ignored per the fetch spec | as given |
-| redirects | followed (no opt-out in v1) | followed | followed | followed | followed |
-
-## App Transport Security (iOS/macOS) and Android cleartext
-
-Both mobile platforms restrict plain `http://` by default; the platform stack enforces the
-platform's policy, and two notes apply:
-
-- **ATS** (Apple): `NSURLSession` refuses non-HTTPS URLs unless the app's Info.plist carries an
-  exception (`NSAppTransportSecurity`). Loopback IP fetches (`http://127.0.0.1:…`) are exempt;
-  the showcase's local demo needs no plist changes. For a real cleartext host, add a scoped
-  `NSExceptionDomains` entry; don't reach for `NSAllowsArbitraryLoads`.
-- **Android cleartext**: blocked app-wide since targetSdk 28, including loopback. The showcase
-  scaffold ships a `network_security_config.xml` permitting cleartext to `127.0.0.1` only (plus
-  the `android:networkSecurityConfig` manifest attribute); scope any real exception the same way.
-
-The fallback tier performs no such policy enforcement (ureq fetches `http://` without
-restriction), another reason `tier()` exists.
-
-## Threading
-
-`fetch`/`fetch_to_file`/`fetch_streamed` block the calling thread and must run off the UI thread
-(spawn, or `day::task`). On Android the calling thread is attached to the JVM via
-`day_android::with_env`; class resolution works from any Rust-spawned thread because day-android's
-`dfind`/`dcall_static` fall back to the app `ClassLoader` cached at init (a bare JNI `FindClass`
-on a native thread sees only the system loader). `fetch_async`/`fetch_to_file_async` are
-fire-and-forget wrappers that deliver on a background thread; see the Setter idiom above.
-
-Which thread that is differs by tier. Apple, Android, Windows and HarmonyOS are natively
-asynchronous: no Rust thread exists behind `fetch_async` or `fetch_future`. URLSession completes
-on its delegate queue; on Android the bridge arm hands the call to OkHttp's own dispatcher and
-its `Callback` completes the bridge token from there; on Windows a `WINHTTP_FLAG_ASYNC` session
-drives the request on WinHTTP's threads and its status callback delivers; on HarmonyOS the
-ArkTS arm runs the Network Kit's promise on the JS thread and settles the token (all 2026-09;
-before that a Rust thread per request parked inside the synchronous arm). Only the Rust
-fallback on desktop Linux still spawns a worker thread per asynchronous request.
-
-On HarmonyOS the blocking forms wait for that same completion, so they answer `Unsupported`
-when called on the JS thread — Day's UI thread there — where waiting would starve the loop that
-delivers it; and `fetch_streamed` delivers the whole body as one chunk, since the kit's
-streaming form is not bridged yet.
-
-On the web there is exactly one thread, and it must never wait: the blocking calls return
-`Unsupported` there, and `fetch_async`'s completion arrives on that sole (UI) thread from the
-browser event loop. Both delivery idioms work unchanged: a captured `Setter` detects it is
-already on the UI thread, and `fetch_future` under `day::task` resumes there anyway.
-
-## Async and cancellation
-
-```rust
-// Await-style (docs/async.md): starts immediately; resumes on the UI thread under day::task,
-// so the readout is a plain signal write — no Setter.
+// Await-style (docs/async.md): under day::task the continuation runs on the UI thread, so the
+// readout is a plain signal write.
 day::task(async move {
     match day_part_http::fetch_future(req).await {
         Ok(resp) => status.set(format!("{} · {} bytes", resp.status, resp.body.len())),
         Err(e) => status.set(format!("error: {e}")),
     }
 });
+
+// Callback-style: the completion runs on the transport's thread, so hand results to the UI
+// through a Setter, which hops threads itself and ignores late deliveries.
+let done = status.setter();
+day_part_http::fetch_async(Request::get(url), move |result| {
+    if let Ok(resp) = result {
+        done.set(resp.text().into_owned());
+    }
+});
 ```
 
-`fetch_future(req)` is oneshot plumbing over `fetch_async`'s completion: any executor can await
-it (`day::task`, or a test's ~25-line `block_on` in tests/http.rs). **Dropping the future cancels
-the request** where the platform can:
+The crate never calls `day_reactive::on_main` itself, which keeps it usable from plain `main`
+programs and `cargo test`. Aborting a `day::task` drops its future, which cancels the request.
 
-| tier | drop-cancel |
+## The client
+
+```rust
+use std::time::Duration;
+use day_part_http::{Client, Redirects, Request};
+
+let client = Client::builder()
+    .timeout_idle(Duration::from_secs(20))
+    .timeout_total(Duration::from_secs(120))
+    .redirects(Redirects::Follow(5))
+    .user_agent("Skies/1.0")
+    .on_challenge(|challenge, reply| {
+        if challenge.host == "api.example.com" {
+            reply.credential("day", "sunrise");
+        }
+    })
+    .build();
+
+day::task(async move {
+    match client.fetch_future(Request::get("https://api.example.com/forecast")).await {
+        Ok(resp) => status.set(format!("{} · {} bytes", resp.status, resp.body.len())),
+        Err(e) => status.set(format!("error: {e}")),
+    }
+});
+```
+
+A `Client` is cheap to clone, and clones share its policy, cookie store and platform session.
+Everything asynchronous has a callback form (`*_async`) and a future form (`*_future`). Callbacks
+run on the thread the platform reports on, and dropping a future, a `Body` or a `WebSocket`
+cancels what it stands for.
+
+| Builder option | Default |
 |---|---|
-| Apple | native — `NSURLSessionTask.cancel()`; a completion that beats the observer maps `NSURLErrorCancelled` → `HttpError::Cancelled` |
-| Android | native — OkHttp `Call.cancel()` through the bridge's `cancel_native(token)`, keyed by the `Done` token the arm registered BEFORE `enqueue` (sentinel −7 → `Cancelled`). No registration race remains: the token exists before the call is started, so a drop at any moment finds it |
-| Web | native — the shim's per-request `AbortController.abort()` (`day_dom_http_abort`), rejecting the in-flight fetch (or its body read) with `AbortError` → `Cancelled` |
-| Windows | native — `WinHttpCloseHandle` on the request from the dropping thread, WinHTTP's documented cancellation; the status callback then reports `ERROR_WINHTTP_OPERATION_CANCELLED` (12017) or closes straight to `HANDLE_CLOSING`, either of which delivers `Cancelled` exactly once |
-| HarmonyOS | native — `HttpRequest.destroy()` through the bridge's `cancel_native(token)`; the promise then rejects and the arm answers with the cancelled sentinel |
-| Rust fallback | discard-only — the request runs out on its worker thread under its `timeout` and the result is dropped |
+| `timeout_idle(d)` | 30 s, for requests that set no `timeout` |
+| `timeout_total(d)` | none |
+| `redirects(Redirects::Follow(n) \| Redirects::Never)` | `Follow(10)` |
+| `on_redirect`, `on_challenge`, `on_server_trust` | none |
+| `trust(Trust)`, `identity(Identity)` | the platform's evaluation, no identity |
+| `cookies(Cookies)` | the platform store on Apple and the web, an in-memory jar elsewhere |
+| `cache(Cache)` | the platform cache at 8 MiB in memory and 64 MiB on disk |
+| `header(name, value)`, `user_agent(agent)` | none |
+| `max_per_host(n)` | the platform's |
+| `wait_for_connectivity(bool)` | `false` |
+| `question_timeout(d)` | two minutes |
+| `transport(t)` | the platform's transport |
 
-Aborting a `day::task` that awaits a `fetch_future` (or superseding a `day::reactive::Resource`
-fetch) drops the future and takes the same path. The showcase's URL checker aborts its previous
-in-flight check on re-tap, a live demo of drop-cancel.
+A handler receives a reply object (`RedirectReply`, `ChallengeReply`, `TrustReply`). It may answer
+at once, or keep the reply and answer later from any thread while the exchange waits, up to the
+question timeout. Dropping a reply unanswered takes its default.
 
-## The Android engine (OkHttp)
+`client.capabilities()` (or the root `capabilities()`) reports what the platform's transport
+offers, and the [capability table](#capabilities) lists them per platform. An option the
+platform cannot honor fails the request with `Unsupported`, so a pin or a redirect handler never
+silently does nothing.
 
-The Android half moved from `java.net.HttpURLConnection` to OkHttp 4.12 (2026-07). AOSP's own
-`HttpURLConnection` has been a frozen OkHttp fork since Android 4.4, so this upgrade stays in the
-same lineage: the system `ProxySelector`, VPN routing, network security config (OkHttp checks
-`NetworkSecurityPolicy` for cleartext), and the platform `TrustManager`/user CA store all still
-apply. The engine adds HTTP/2 (over TLS via ALPN), PATCH (the classic `HttpURLConnection` gap;
-`Request::patch` now works on every platform), and thread-safe per-call cancellation. The costs
-and behavior changes are that the okhttp + okio + kotlin-stdlib Gradle dependencies add roughly
-1.5–2.5 MB pre-R8 (well under 1 MB after shrinking; OkHttp ships its own proguard rules), that
-cross-protocol redirects (https→http) are now followed, matching the other platforms, and that
-response headers now arrive in arrival order with duplicates preserved, where the old
-`Map`-shaped API merged them. The
-coordinate rides the part's own `[package.metadata.day.android] gradle-dependencies`, the
-day-piece-lottie mechanism ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie)).
+## Streaming responses
 
-## v2 notes (out of scope)
+```rust
+day::task(async move {
+    let streaming = match client.send_future(Request::get(url)).await {
+        Ok(streaming) => streaming,
+        Err(e) => return status.set(format!("error: {e}")),
+    };
+    let total = streaming.expected_length();
+    let mut body = streaming.into_body();
+    let mut received = 0;
+    while let Some(chunk) = body.next().await {
+        match chunk {
+            Ok(bytes) => {
+                received += bytes.len() as u64;
+                progress.set((received, total));
+            }
+            Err(e) => return status.set(format!("error: {e}")),
+        }
+    }
+});
+```
 
-Cookies, multipart, upload streaming, websockets, `no_redirect` (needs an Apple session delegate
-to honor), cancellation for `fetch_to_file`/`fetch_streamed` futures (today `StreamSink`
-cancels mid-body and covers the download cases), and a native HarmonyOS half via a
-framework-owned ArkTS `registerHttp` bridge (the `registerOpenUrl` pattern) if the Remote
-Communication Kit's C API reaches the OSS SDK.
+`send_future` resolves with the head: `status()`, `headers()`, `header(name)`, the final `url()`
+and `expected_length()`. The body is then pulled chunk by chunk as the platform delivers it:
+
+- **Backpressure.** A body holds at most four chunks, queued or granted, before it stops asking
+  the transport for more, so a slow reader slows the socket. `pause()` and `resume()` stop and
+  restart the flow explicitly.
+- **Other ways to read.** `next_blocking()` waits on the calling thread, `read_async(callback)`
+  delivers each chunk to a callback that returns whether it wants the next, and
+  `streaming.collect_future()` gathers the whole body into a `Response`.
+- **Cancellation.** Dropping the `Body` cancels the transfer. `body.in_flight()` returns an
+  `InFlight` handle that cancels it from anywhere, which is what [day-part-downloads](downloads.md)
+  keeps for each download.
+- **Progress.** `received()` counts bytes so far, and `metrics()` reports the finished transfer.
+
+## Uploads
+
+| Builder | Body |
+|---|---|
+| `.body(bytes)` | bytes in memory |
+| `.body_file(path)` | a file, read as it is sent |
+| `.body_stream(reader, len)` | any `Read + Send`, with its length when known |
+| `.form(Form)` | `multipart/form-data`, with text fields, in-memory files and files on disk |
+
+```rust
+use day_part_http::{Form, Request};
+
+let form = Form::new()
+    .text("title", "Sunrise")
+    .file("photo", &photo_path, "image/jpeg");
+let progress = sent.setter();
+let request = Request::post(url, Vec::new())
+    .form(form)
+    .upload_progress(move |bytes, total| progress.set((bytes, total)));
+```
+
+`upload_progress` reports bytes sent and the total where the length is known. A stream of
+unknown length goes out with chunked transfer encoding. Where the platform cannot send a body
+from a reader (`upload_streaming` is false: HarmonyOS and the web), file and stream bodies are
+read into memory first.
+
+## Redirects
+
+The client follows redirects itself on every platform that hands redirect responses back
+(`manual_redirects`), so the rules are the same everywhere:
+
+- A `303` turns any method but `HEAD` into `GET`, and a `301` or `302` turns a `POST` into a `GET`,
+  dropping the body.
+- `Authorization`, `Proxy-Authorization` and `Cookie` headers set on the request are dropped when a
+  redirect leaves the origin. Cookies from the client's store are chosen again for the new URL.
+- `Redirects::Follow(n)` fails with `TooManyRedirects` after `n` hops; `Redirects::Never`
+  delivers the redirect response itself.
+
+```rust
+let client = Client::builder()
+    .on_redirect(|hop, reply| {
+        if hop.to.starts_with("https://") {
+            reply.follow();
+        } else {
+            reply.stop();
+        }
+    })
+    .build();
+```
+
+`Hop` carries the `status`, `from` and `to` URLs, the `method` the next request uses, and how many
+redirects were `followed` before it. `stop()` makes the redirect response the response, and
+`cancel()` fails the request with `Cancelled`. HarmonyOS and the web follow redirects inside the
+platform, so there `on_redirect` fails requests with `Unsupported`, while `Redirects::Follow` and
+`Redirects::Never` still apply to what the platform returns.
+
+## Authentication
+
+A `401` or `407` without a handler is delivered as the response. With `on_challenge`, the client
+parses the `WWW-Authenticate` (or `Proxy-Authenticate`) header, asks the handler, and retries:
+
+- `reply.credential(user, password)` answers Basic or Digest (MD5 or SHA-256, `qop=auth`), and
+  the client writes whichever the server offered, preferring Digest.
+- `reply.bearer(token)` sends `Authorization: Bearer`.
+- `reply.default_handling()` delivers the challenge response; `reply.cancel()` fails the request.
+
+`Challenge` names the `url`, `host`, `port`, `realm`, `scheme`, whether a `proxy` asked, and the
+`previous_failures` for this request. After three refused answers the `401` is delivered.
+Credentials that succeed are reused for later requests to the same origin and realm without
+asking again.
+
+URLSession raises Basic, Digest, NTLM and Negotiate challenges itself (`auth_questions`,
+`native_auth_schemes`), and the client routes them to the same handler, so NTLM and Negotiate
+work on Apple. `Request::basic_auth` and `Request::bearer` set the header up front with no
+challenge round trip.
+
+## Server trust and client certificates
+
+```rust
+use day_part_http::{Client, Identity, Trust};
+
+let client = Client::builder()
+    .trust(Trust::system().pin("api.example.com", "sha256/Y9mvm0exBk1JoQ57f9Vm28jKo5lFm/woKcVxrYxu80o="))
+    .identity(Identity::pkcs12(p12_bytes, "password"))
+    .on_server_trust(|trust, reply| {
+        if trust.system_trusted {
+            reply.default_handling();
+        } else {
+            reply.reject();
+        }
+    })
+    .build();
+```
+
+- **Pins.** A pin is the SHA-256 of a certificate's public key, written `sha256/<base64>`. A host
+  (or `*.example.com`) with pins must present a chain holding one of them, on top of the
+  platform's own evaluation; several pins for one host accept any, which is how a key rotation
+  ships. `ServerTrust::pins()` prints the pins of a chain the platform reported. Pins need the
+  platform to report the chain (`server_trust`). Where it cannot, a pinned request fails with
+  `Unsupported` rather than connecting unpinned, and so does a WebSocket to a pinned host.
+- **Trust decisions.** `on_server_trust` sees the host, the DER chain, the platform's verdict
+  and its error. `accept()` trusts a server the platform refused (a self-signed development
+  server), `reject()` fails with `Tls`, and `default_handling()` keeps the verdict.
+- **Client certificates.** `Identity::pkcs12(der, password)` is presented when a server asks for
+  one, where `client_identity` is true.
+
+## Cookies
+
+`Cookies` chooses where a client keeps them:
+
+| Variant | Store |
+|---|---|
+| `Cookies::Platform` | `HTTPCookieStorage` on Apple and the browser's jar on the web; an in-memory jar where the platform offers none to share |
+| `Cookies::jar()` | an in-memory jar the client reads and writes |
+| `Cookies::jar_at(file)` | the same jar, saved to `file`, so cookies with an expiry survive a relaunch |
+| `Cookies::Off` | none sent, none kept |
+
+The jar follows RFC 6265: domain and path matching, `Secure`, `HttpOnly`, `Max-Age` and
+`Expires`, and the public suffix list, which keeps a site from setting a cookie for
+a whole registry such as `co.uk`. Cookies set on a redirect response apply to the next hop.
+`client.cookies()` lists the store and `client.clear_cookies()` empties it. A `CookieJar` also
+works on its own, through `store(url, set_cookie_values)` and `header(url)`.
+
+## Caching
+
+`Cache::platform()` (the default) or `Cache::Platform { memory, disk }` uses the platform's HTTP
+cache where it has one (`platform_cache`), and `Cache::Off` disables it. A request chooses how to
+use it with `Request::cache`:
+
+| `CachePolicy` | Behavior |
+|---|---|
+| `Default` | the response's own cache headers decide |
+| `Reload` | always from the network |
+| `PreferCache` | cached data when present, however old |
+
+`Metrics::from_cache` says whether a response came from the cache, and `client.clear_cache()`
+empties it. The root functions use no cache.
+
+## Metrics
+
+`body.metrics()` reports the finished transfer where the platform measures it (`metrics`): DNS,
+connect, TLS, time to first byte and total durations, the protocol (`http/1.1`, `h2`, `h3`),
+whether the connection was reused, the remote address, the TLS version, whether the response came
+from the cache, bytes sent and received, and the redirects followed. A field the platform does not
+report is `None`.
+
+## WebSockets
+
+```rust
+use day_part_http::{Message, Request};
+
+day::task(async move {
+    let request = Request::get("wss://chat.example.com/socket").protocols(["chat"]);
+    let mut socket = match client.websocket_future(request).await {
+        Ok(socket) => socket,
+        Err(e) => return state.set(format!("error: {e}")),
+    };
+    socket.sender().send_async(Message::Text("hello".into()), |_| {});
+    while let Some(message) = socket.next().await {
+        match message {
+            Ok(Message::Text(text)) => last.set(text),
+            Ok(Message::Binary(_)) => {}
+            Ok(Message::Close { code, reason }) => state.set(format!("closed · {code} {reason}")),
+            Err(e) => return state.set(format!("error: {e}")),
+        }
+    }
+});
+```
+
+`websocket_future` resolves once the handshake completes, and `socket.protocol()` names the
+subprotocol the server chose. `socket.sender()` returns a `WsSender` that any thread may keep, with
+`send_async`/`send_future`, `ping_async`/`ping_future` where `websocket_ping` is true, and
+`close(code, reason)`. Messages arrive in order through `next()` or `read_async`, with the same
+four-message backpressure window as a body. The last message is `Close`. The handshake carries the
+client's headers and cookies where `websocket_headers` is true. Dropping the `WebSocket` closes it.
+
+## Capabilities
+
+| Capability | macOS, iOS | Android | Linux | Windows | HarmonyOS | Web |
+|---|---|---|---|---|---|---|
+| `streaming` | yes | yes | yes | yes | yes | yes |
+| `upload_streaming` | yes | yes | yes | yes | no | no |
+| `upload_progress` | yes | yes | yes | yes | yes | no |
+| `manual_redirects` | yes | yes | yes | yes | no | no |
+| `auth_questions` | yes | no | no | no | no | no |
+| `native_auth_schemes` | yes | no | no | no | no | no |
+| `server_trust` | yes | yes | no | no | no | no |
+| `client_identity` | yes | yes | libcurl 7.71.0 and later | yes | no | no |
+| `platform_cookies` | yes | no | no | no | no | yes |
+| `platform_cache` | yes | yes | no | no | yes | yes |
+| `metrics` | yes | yes | yes | yes | no | no |
+| `websockets` | yes | yes | libcurl 8.11.0 and later, built with `ws` | yes | yes | yes |
+| `websocket_ping` | yes | no | no | no | no | no |
+| `websocket_headers` | yes | yes | with `websockets` | yes | yes | no |
+| `wait_for_connectivity` | yes | no | no | no | no | no |
+
+The client supplies what a transport lacks where it can: redirects, challenge answers, the cookie
+jar and total-time limits run in Rust on every platform. Server trust questions and client
+certificates need the stack's own TLS handshake, so they follow the table. On HarmonyOS the
+Network Kit delivers a body as fast as it arrives, with no way to hold it back, so unread chunks
+queue in the client.
+
+## Transports
+
+Each platform implements the crate's `Transport` trait, which performs one exchange at a time and
+reports it as events: the head, body chunks, upload progress, trust or authentication questions,
+metrics, then the end or a failure. The client asks for body chunks with `demand`, answers
+questions with `answer`, and stops an exchange with `cancel`.
+
+| Platform | Transport |
+|---|---|
+| macOS, iOS | one `URLSession` per client with a delegate (`src/apple.rs`): the delegate declines redirects so the client decides, raises challenges and server trust as questions, suspends a task while its body has no demand, and sends file and stream uploads from the file or a bound stream pair |
+| Android | OkHttp through a Java bridge arm (`src/bridge.rs`), with redirects and cookies left to the client; a reader pool reads each body only as far as demand allows, and an `X509ExtendedTrustManager` raises server trust questions |
+| Linux | the system's libcurl, opened with `dlopen` at run time (`libcurl.so.4`, then `libcurl-gnutls.so.4`) (`src/linux.rs`): one driver thread runs a multi handle, pauses a transfer's writes when demand runs out, and opens WebSockets in libcurl's connect-only mode |
+| Windows | WinHTTP in asynchronous mode (`src/windows.rs`): automatic proxy detection, redirects and cookies turned off in WinHTTP so the client handles them, reads issued only against demand, uploads written as the body is read, and WebSockets through `WinHttpWebSocket*` |
+| HarmonyOS | the Network Kit (`@ohos.net.http` `requestInStream`, `@ohos.net.webSocket`) through an ArkTS bridge arm |
+| Web | `fetch` with a `ReadableStream` reader that pulls under demand, an `AbortController` for cancellation and the idle bound, and the browser's `WebSocket`, through a JavaScript bridge arm |
+
+Android, HarmonyOS and the web share one Rust transport, `src/bridged.rs`, over the bridge's
+stream tier ([docs/bridge.md](bridge.md) "Streams"). Each exchange is one `Emit<Vec<u8>>` stream
+of frames, and every frame starts with a tag byte and the stream's token, big-endian:
+
+| Tag | Frame | Fields |
+|---|---|---|
+| 1 | head | status, final URL, header block, expected length (−1 when unknown) |
+| 2 | chunk | body bytes |
+| 3 | sent | bytes sent, total |
+| 4 | question | question id, kind, host, platform verdict, error, DER chain |
+| 5 | metrics | durations in microseconds, protocol, reuse, remote address, TLS version, cache flag, byte counts |
+| 6 | end | |
+| 7 | failed | sentinel, message |
+| 8 | need body | bytes wanted for a streamed upload |
+| 16–20 | WebSocket open, text, binary, closed, failed | protocol; message; bytes; code and reason; sentinel and message |
+
+Strings are a 32-bit length and UTF-8, and a header block is `name\nvalue\n` repeated. The
+sentinels are −1 timeout, −2 DNS, −3 TLS, −4 connect, −5 I/O, −6 bad URL and −7 cancelled. Plain
+calls go the other way: `demand_native`, `answer_native`, `body_native` (an empty chunk ends an
+upload), `exchange_cancel_native`, `ws_send_native` and `ws_close_native`.
+
+`ClientBuilder::transport` swaps in any other `Transport`: a scripted double in a unit test, or an
+app's own stack.
+
+`tier()` reports `NativeStack` wherever a transport is present. It reports `Unavailable` on Linux
+when no libcurl loads, on a HarmonyOS build made with bare cargo instead of `day build` (which
+stages the ArkTS arm), and on any other target; there every call fails with `Unsupported`.
+
+## Threads and blocking calls
+
+`fetch`, `fetch_to_file`, `fetch_streamed` and `Body::next_blocking` wait on the calling thread,
+so keep them off the UI thread. Callbacks and wakeups come from the transport's own thread:
+URLSession's delegate queue, OkHttp's reader pool, the libcurl driver thread, WinHTTP's callback
+threads, the HarmonyOS JS thread, or the browser's only thread. The one thread the crate starts
+for a request is the writer that feeds a streamed upload into URLSession's bound stream pair.
+
+Two platforms restrict the blocking calls:
+
+- **The web** has one thread, and waiting there would starve the event loop the answer needs
+  ([docs/web.md](web.md)), so the blocking calls return `Unsupported` and the `*_async` and
+  `*_future` forms work in full. CORS governs cross-origin requests and which response headers
+  are visible, and the browser controls headers such as `Host`, `Cookie` and `Origin`.
+- **HarmonyOS** runs the arm on the JS thread, which is Day's UI thread there. The blocking calls
+  return `Unsupported` when called on that thread and work from any other.
+
+## Error mapping
+
+| `HttpError` | Apple (`NSURLErrorDomain`) | Android (OkHttp) | Linux (`CURLE_*`) | Windows (`ERROR_WINHTTP_*`) | Web |
+|---|---|---|---|---|---|
+| `Timeout` | −1001 | `SocketTimeoutException` | `OPERATION_TIMEDOUT` | 12002 | the idle timer's abort |
+| `Dns` | −1003, −1006 | `UnknownHostException` | `COULDNT_RESOLVE_HOST`, `COULDNT_RESOLVE_PROXY` | 12007 | |
+| `Connect` | −1004, −1009 | `ConnectException` | `COULDNT_CONNECT` | 12029, 12030 | |
+| `Tls(msg)` | −1200 to −1206 | `SSLException` | the certificate and handshake codes | 12157, 12175 and the other secure failures | |
+| `BadUrl` | −1000, −1002 | a URL OkHttp rejects | `URL_MALFORMAT` | 12005, 12006 | `new URL` rejects it |
+| `Cancelled` | −999 | a cancelled call | an aborted transfer | 12017 | an `AbortError` from cancellation |
+| `Io(msg)` | anything else | anything else | anything else | anything else | anything else |
+
+Browsers report DNS, connection, TLS and CORS failures as one `TypeError` without detail, so on
+the web every network failure is `Io` with the browser's message.
+
+## App Transport Security and Android cleartext
+
+Both mobile platforms restrict plain `http://`, and the platform stack enforces the app's policy:
+
+- **App Transport Security** (Apple) refuses non-HTTPS URLs unless the app's `Info.plist` carries
+  an exception. Requests to IP addresses such as `http://127.0.0.1:…` are exempt, so the
+  showcase's local test server needs no plist change. For a real cleartext host, add a scoped
+  `NSExceptionDomains` entry rather than `NSAllowsArbitraryLoads`.
+- **Android cleartext** is blocked app-wide since targetSdk 28, loopback included. The scaffold
+  ships a `network_security_config.xml` that permits cleartext to `127.0.0.1` only, and a real
+  exception belongs in the same file.
+
+## Testing
+
+`day_part_http::testing::Server` is a local HTTP/1.1 and WebSocket server for tests and
+demonstrations, on every target but the web. It binds a loopback port and answers each
+connection on its own thread:
+
+```rust
+use day_part_http::{Request, fetch, testing::Server};
+
+#[test]
+fn follows_a_redirect_chain() {
+    let server = Server::start().expect("test server");
+    let resp = fetch(&Request::get(server.url("/redirect/3"))).expect("fetch");
+    assert_eq!(resp.text(), "redirected");
+}
+```
+
+Its routes cover the whole client: redirect chains, Basic, Digest and Bearer challenges, cookies
+set and deleted across redirects, `max-age` responses that count real hits, drip-fed chunked
+bodies, deterministic bytes with `Range`, `If-Range` and a rate limit, SHA-256 digests of those
+bytes, an upload digest, and a WebSocket echo. The module's documentation lists each route. The
+showcase's Network & HTTP page runs one inside the app on the platforms that allow a listening
+socket.
+
+## The Android engine
+
+The Android transport runs on OkHttp 4.12, the engine AOSP's own `HttpURLConnection` has been a
+fork of since Android 4.4. The system `ProxySelector`, VPN routing, the network security config
+(OkHttp checks `NetworkSecurityPolicy` for cleartext), and the platform trust manager with the
+user CA store all apply. OkHttp adds HTTP/2 over TLS and per-call cancellation. The okhttp, okio
+and kotlin-stdlib Gradle dependencies add roughly 1.5 to 2.5 MB before R8, and well under 1 MB
+after shrinking. The coordinate rides the part's own `[package.metadata.day.android]
+gradle-dependencies`, the mechanism [day-piece-lottie](https://github.com/daybrite/day-piece-lottie)
+also uses.
+
+## Deferred
+
+- Redirect approval, server trust questions and client certificates on HarmonyOS and the web,
+  whose platform APIs follow redirects and evaluate trust without asking.
+- Server trust questions on Linux and Windows.
+- Uploads the OS runs while the app is away. Downloads have that tier in
+  [day-part-downloads](downloads.md).
 
 ## What it shows about the extension system
 
-Like `day-part-network`, it is a headless part: `cfg(target_os)` halves behind one `mod imp`,
-per-target dependencies, and part-owned Java staged via `[package.metadata.day.android]` (which
-also contributes `android.permission.INTERNET`), with no framework changes. It is the first part
-with an async surface and background completion threads (the shape DESIGN §4.5 blesses) and the
-first whose Java runs on Rust-spawned threads, which motivated the app-ClassLoader fallback in
-day-android's
-`DayEnv` helpers. The web arm rides the day-part-prefs precedent (part-declared `extern "C"`
-imports the day-dom shim implements), extended with the shim's request-id callback pattern for
-its async completions; it is the first part to complete back into wasm.
+This is a headless part: `cfg(target_os)` backends behind one `mod imp`, per-target dependencies,
+and bridge arms in Java, ArkTS and JavaScript declared beside the Rust that reads their frames.
+Its Android arm contributes `android.permission.INTERNET` and the OkHttp coordinate through
+`[package.metadata.day.android]`. It was the first part on the bridge's stream tier, and
+[day-part-downloads](downloads.md) builds on its client without platform code of its own for the
+in-app tier.

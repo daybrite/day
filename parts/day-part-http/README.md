@@ -7,22 +7,24 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Fetch like the platform, not around it.
 
-This crate does HTTP through each platform's own networking stack — NSURLSession on macOS and
-iOS, OkHttp on Android, WinHTTP on Windows, the browser's `fetch()` on the web — so requests
-pick up everything the OS
-already knows: system proxies and PAC scripts, VPN routing, Low Data Mode, enterprise certificate
-stores. On Linux and HarmonyOS, where no OS-level HTTP API exists, a bundled ureq + rustls
-fallback keeps the same API working; `tier()` tells you which world you're in.
+This crate does HTTP through each platform's own networking stack: URLSession on macOS and iOS,
+OkHttp on Android, WinHTTP on Windows, the system's libcurl on Linux, the Network Kit on
+HarmonyOS, and the browser's `fetch` and `WebSocket` on the web. Requests pick up what the OS
+already knows: system proxies and PAC scripts, VPN routing, Low Data Mode, and enterprise
+certificate stores.
 
-The surface is small on purpose: blocking `fetch`, callback `fetch_async`, awaitable
-`fetch_future` (dropping it cancels the request), streaming
-`fetch_to_file` and `fetch_streamed` (progress, cancellation, hash-as-you-go). HTTP error
-statuses are responses, not errors, and a long download is never cut off by the request timeout —
-it bounds progress, not the transfer. In the browser only the asynchronous calls exist — a
-single-threaded page has no room for a blocking wait.
+The crate-root functions send one request at a time: blocking `fetch`, callback `fetch_async`,
+awaitable `fetch_future` (dropping it cancels the request), and `fetch_to_file` and
+`fetch_streamed` for bodies that belong on disk. A `Client` adds the rest of a modern HTTP API on
+the same stacks: response bodies streamed with backpressure, uploads from files, readers and
+multipart forms, redirect and authentication callbacks, public-key pins and server trust
+decisions, client certificates, cookies, caching, transfer metrics, and WebSockets.
+`capabilities()` reports what the platform offers. HTTP error statuses are responses rather than
+errors, and the request timeout bounds progress, so a long download that keeps moving runs to
+the end. The crate also ships the local test server its tests and the showcase use.
 
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the platform
-already provides. This one works in any Rust program — you don't need a Day app around it.
+Parts are Day's small capability crates: a plain Rust API over something the platform already
+provides. This one works in any Rust program, with or without a Day app around it.
 
 ## Part of Day
 

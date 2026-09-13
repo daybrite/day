@@ -241,6 +241,268 @@ pub fn start_future<T: Send + 'static>(
     }
 }
 
+// ---------------------------------------------------------------------------
+// The stream tier (docs/bridge.md "Streams")
+// ---------------------------------------------------------------------------
+
+/// One delivery on an `Emit<T>` stream: a value, the end, or a failure. The last two are
+/// terminal: nothing is delivered after either.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Item<T> {
+    Value(T),
+    End,
+    Failed(Error),
+}
+
+type StreamCallback<T> = Box<dyn FnMut(Item<T>) + Send>;
+
+struct SlotState<T> {
+    queue: std::collections::VecDeque<Item<T>>,
+    /// A thread is draining `queue` into the callback; others only enqueue.
+    delivering: bool,
+    /// A terminal item was enqueued, or the consumer stopped: later pushes are refused.
+    accepting: bool,
+    /// The consumer stopped: queued items are dropped undelivered.
+    stopped: bool,
+}
+
+struct StreamSlot<T> {
+    state: std::sync::Mutex<SlotState<T>>,
+    callback: std::sync::Mutex<Option<StreamCallback<T>>>,
+}
+
+fn lock_ignoring_poison<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// The consumers of one `Emit<T>` declaration's streams, keyed by token — the stream
+/// counterpart of [`Registry`]. The generator emits one `static` per declaration.
+///
+/// Delivery rules that make a token safe to hand to a platform thread:
+///
+/// - **In order, one at a time.** Items pushed from several threads (a response callback and
+///   a writer thread, say) reach the consumer serially, in push order. The first pusher drains
+///   the queue; the others only enqueue.
+/// - **Re-entrancy is allowed.** The consumer may stop its own stream, or cause another push to
+///   it, from inside the callback: neither waits on the callback's lock.
+/// - **Terminal once.** After `End` or `Failed` is pushed, further pushes return `false`;
+///   after [`Streams::stop`], queued items are dropped.
+pub struct Streams<T: 'static> {
+    slots: std::sync::Mutex<std::collections::BTreeMap<u64, std::sync::Arc<StreamSlot<T>>>>,
+}
+
+impl<T: Send + 'static> Default for Streams<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Send + 'static> Streams<T> {
+    /// An empty set of streams — `const`, so a generated `static` can own it.
+    pub const fn new() -> Self {
+        Self {
+            slots: std::sync::Mutex::new(std::collections::BTreeMap::new()),
+        }
+    }
+
+    fn insert(&self, cb: impl FnMut(Item<T>) + Send + 'static) -> u64 {
+        let token = day_async::next_token();
+        let slot = std::sync::Arc::new(StreamSlot {
+            state: std::sync::Mutex::new(SlotState {
+                queue: std::collections::VecDeque::new(),
+                delivering: false,
+                accepting: true,
+                stopped: false,
+            }),
+            callback: std::sync::Mutex::new(Some(Box::new(cb))),
+        });
+        lock_ignoring_poison(&self.slots).insert(token, slot);
+        token
+    }
+
+    /// Deliver what a generated export received: status 0 is a value (or a failure, when the
+    /// value did not convert), 2 the end, anything else a failure.
+    pub fn deliver(&self, token: u64, status: i32, outcome: Result<T, Error>) -> bool {
+        let item = match (status, outcome) {
+            (0, Ok(v)) => Item::Value(v),
+            (2, _) => Item::End,
+            (_, Err(e)) => Item::Failed(e),
+            (_, Ok(_)) => Item::Failed(Error::Runtime),
+        };
+        self.push(token, item)
+    }
+
+    /// Push a value. `false` when the stream has ended, failed, or been stopped.
+    pub fn emit(&self, token: u64, value: T) -> bool {
+        self.push(token, Item::Value(value))
+    }
+
+    /// End the stream.
+    pub fn end(&self, token: u64) -> bool {
+        self.push(token, Item::End)
+    }
+
+    /// Fail the stream.
+    pub fn fail(&self, token: u64, error: Error) -> bool {
+        self.push(token, Item::Failed(error))
+    }
+
+    /// Whether a consumer still listens under `token`.
+    pub fn is_open(&self, token: u64) -> bool {
+        lock_ignoring_poison(&self.slots).contains_key(&token)
+    }
+
+    /// The consumer stops listening: queued items are dropped, later pushes refused, and the
+    /// callback released as soon as no delivery is running.
+    pub fn stop(&self, token: u64) -> bool {
+        let Some(slot) = lock_ignoring_poison(&self.slots).remove(&token) else {
+            return false;
+        };
+        {
+            let mut st = lock_ignoring_poison(&slot.state);
+            st.stopped = true;
+            st.accepting = false;
+            st.queue.clear();
+        }
+        // From inside the callback this lock is held by the same thread: `try_lock` then fails
+        // and the draining loop releases the callback when it returns.
+        if let Ok(mut cb) = slot.callback.try_lock() {
+            *cb = None;
+        }
+        true
+    }
+
+    fn push(&self, token: u64, item: Item<T>) -> bool {
+        let terminal = !matches!(item, Item::Value(_));
+        let slot = {
+            let mut map = lock_ignoring_poison(&self.slots);
+            if terminal {
+                map.remove(&token)
+            } else {
+                map.get(&token).cloned()
+            }
+        };
+        let Some(slot) = slot else {
+            return false;
+        };
+        {
+            let mut st = lock_ignoring_poison(&slot.state);
+            if !st.accepting {
+                return false;
+            }
+            st.queue.push_back(item);
+            if terminal {
+                st.accepting = false;
+            }
+            if st.delivering {
+                return true;
+            }
+            st.delivering = true;
+        }
+        loop {
+            let next = {
+                let mut st = lock_ignoring_poison(&slot.state);
+                if st.stopped {
+                    st.queue.clear();
+                }
+                match st.queue.pop_front() {
+                    Some(item) => item,
+                    None => {
+                        st.delivering = false;
+                        break;
+                    }
+                }
+            };
+            let ends = !matches!(next, Item::Value(_));
+            let mut cb = lock_ignoring_poison(&slot.callback);
+            if let Some(f) = cb.as_mut() {
+                f(next);
+            }
+            if ends || lock_ignoring_poison(&slot.state).stopped {
+                *cb = None;
+            }
+        }
+        true
+    }
+}
+
+/// One open stream, handed to an arm. A Rust arm calls [`Emit::emit`] and then [`Emit::end`] or
+/// [`Emit::fail`]; a foreign arm receives [`Emit::token`] and delivers through the generated
+/// `<fn>_emit` / `<fn>_end` / `<fn>_fail` helpers.
+pub struct Emit<T: Send + 'static> {
+    token: u64,
+    streams: &'static Streams<T>,
+}
+
+impl<T: Send + 'static> Clone for Emit<T> {
+    fn clone(&self) -> Self {
+        Self {
+            token: self.token,
+            streams: self.streams,
+        }
+    }
+}
+
+impl<T: Send + 'static> Emit<T> {
+    /// Register `cb` and produce the handle the arm receives.
+    pub fn new(streams: &'static Streams<T>, cb: impl FnMut(Item<T>) + Send + 'static) -> Self {
+        Self {
+            token: streams.insert(cb),
+            streams,
+        }
+    }
+
+    /// The number a foreign arm carries and hands back to the generated helpers.
+    pub fn token(&self) -> u64 {
+        self.token
+    }
+
+    /// Hand the token to a foreign arm; the consumer stays registered until the stream ends,
+    /// fails, or is stopped.
+    pub fn into_token(self) -> u64 {
+        self.token
+    }
+
+    /// Deliver a value. `false` once the stream is over.
+    pub fn emit(&self, value: T) -> bool {
+        self.streams.emit(self.token, value)
+    }
+
+    /// End the stream.
+    pub fn end(&self) -> bool {
+        self.streams.end(self.token)
+    }
+
+    /// Fail the stream.
+    pub fn fail(&self, error: Error) -> bool {
+        self.streams.fail(self.token, error)
+    }
+
+    /// Whether the consumer still listens.
+    pub fn is_open(&self) -> bool {
+        self.streams.is_open(self.token)
+    }
+}
+
+/// Start an `Emit` call — what a generated `<fn>_stream` does. `cb` receives every item, in
+/// order, from whichever thread the platform delivers on. When the arm fails to start, `cb`
+/// receives that failure (once) and this returns it. `Ok` carries the token a stop call takes.
+pub fn start_stream<T: Send + 'static>(
+    streams: &'static Streams<T>,
+    cb: impl FnMut(Item<T>) + Send + 'static,
+    call: impl FnOnce(Emit<T>) -> Result<(), Error>,
+) -> Result<u64, Error> {
+    let emit = Emit::new(streams, cb);
+    let token = emit.token();
+    match call(emit) {
+        Ok(()) => Ok(token),
+        Err(e) => {
+            streams.fail(token, e.clone());
+            Err(e)
+        }
+    }
+}
+
 /// Run a generated completion export's body with panics contained: the export is called from
 /// C, the JVM, or the browser, and a panic unwinding into any of them is fatal.
 pub fn guard(f: impl FnOnce()) {
@@ -514,5 +776,127 @@ mod tests {
         assert_eq!(*hits.lock().unwrap(), 1);
         let token = start_async(&REG, |_| {}, |_done| Ok(())).expect("started");
         assert!(REG.is_pending(token), "the token names the live slot");
+    }
+
+    static STREAMS: Streams<u32> = Streams::new();
+
+    type Seen = Arc<Mutex<Vec<Item<u32>>>>;
+
+    fn collector() -> (Seen, impl FnMut(Item<u32>) + Send + 'static) {
+        let seen: Seen = Arc::new(Mutex::new(Vec::new()));
+        let s = seen.clone();
+        (seen, move |item| s.lock().unwrap().push(item))
+    }
+
+    #[test]
+    fn a_stream_delivers_in_order_then_ends_once() {
+        let (seen, cb) = collector();
+        let token = start_stream(&STREAMS, cb, |emit| {
+            let token = emit.into_token();
+            std::thread::spawn(move || {
+                for v in 0..100 {
+                    assert!(STREAMS.emit(token, v));
+                }
+                assert!(STREAMS.end(token));
+                assert!(!STREAMS.emit(token, 999), "nothing after the end");
+                assert!(!STREAMS.end(token), "the end is delivered once");
+            })
+            .join()
+            .unwrap();
+            Ok(())
+        })
+        .expect("started");
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 101);
+        assert!(
+            seen[..100]
+                .iter()
+                .enumerate()
+                .all(|(i, v)| *v == Item::Value(i as u32))
+        );
+        assert_eq!(seen[100], Item::End);
+        assert!(!STREAMS.is_open(token));
+    }
+
+    #[test]
+    fn pushes_from_many_threads_reach_the_consumer_serially() {
+        let busy = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (b, c) = (busy.clone(), count.clone());
+        let emit = Emit::new(&STREAMS, move |_item| {
+            assert!(
+                !b.swap(true, std::sync::atomic::Ordering::SeqCst),
+                "two deliveries overlapped"
+            );
+            std::thread::yield_now();
+            c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            b.store(false, std::sync::atomic::Ordering::SeqCst);
+        });
+        let workers: Vec<_> = (0..8)
+            .map(|_| {
+                let e = emit.clone();
+                std::thread::spawn(move || {
+                    for v in 0..200 {
+                        e.emit(v);
+                    }
+                })
+            })
+            .collect();
+        for w in workers {
+            w.join().unwrap();
+        }
+        emit.end();
+        assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 8 * 200 + 1);
+    }
+
+    #[test]
+    fn the_consumer_may_stop_its_own_stream_from_inside_the_callback() {
+        let token_cell = Arc::new(Mutex::new(0u64));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let (t, s) = (token_cell.clone(), seen.clone());
+        let emit = Emit::new(&STREAMS, move |item| {
+            s.lock().unwrap().push(item.clone());
+            if item == Item::Value(2) {
+                assert!(STREAMS.stop(*t.lock().unwrap()));
+            }
+        });
+        *token_cell.lock().unwrap() = emit.token();
+        for v in 0..5 {
+            emit.emit(v);
+        }
+        assert!(!emit.end(), "stopped streams refuse the end");
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![Item::Value(0), Item::Value(1), Item::Value(2)]
+        );
+        assert!(!emit.is_open());
+    }
+
+    #[test]
+    fn a_stream_that_fails_to_start_delivers_that_failure_once() {
+        let (seen, cb) = collector();
+        let r = start_stream(&STREAMS, cb, |_emit| Err(Error::Foreign("no radio".into())));
+        assert_eq!(r, Err(Error::Foreign("no radio".into())));
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![Item::Failed(Error::Foreign("no radio".into()))]
+        );
+    }
+
+    #[test]
+    fn deliver_maps_export_statuses() {
+        let (seen, cb) = collector();
+        let emit = Emit::new(&STREAMS, cb);
+        let token = emit.token();
+        assert!(STREAMS.deliver(token, 0, Ok(7)));
+        assert!(STREAMS.deliver(token, 0, Err(Error::Encoding)));
+        assert!(
+            !STREAMS.deliver(token, 2, Err(Error::Runtime)),
+            "already failed"
+        );
+        assert_eq!(
+            *seen.lock().unwrap(),
+            vec![Item::Value(7), Item::Failed(Error::Encoding)]
+        );
     }
 }

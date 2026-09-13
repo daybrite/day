@@ -115,14 +115,28 @@ pub struct Decl {
 }
 
 impl Decl {
-    /// The completion this function carries, when its last argument is `day_bridge::Done<T>`:
-    /// `(argument name, T)`. A function with one is asynchronous — it returns once the platform
-    /// ACCEPTED the request and answers later through the token (docs/bridge.md "Callbacks").
+    /// The callback handle this function carries, when its last argument is
+    /// `day_bridge::Done<T>` or `day_bridge::Emit<T>`: `(argument name, T)`. A function with one is
+    /// asynchronous — it returns once the platform ACCEPTED the request and answers later through
+    /// the token: once for a `Done` (docs/bridge.md "Callbacks"), any number of times and then an
+    /// end for an `Emit` ("Streams"). [`Decl::is_stream`] tells the two apart.
     pub fn done(&self) -> Option<(&str, String)> {
         let (name, ty) = self.args.last()?;
         let ty = ty.trim().trim_start_matches("day_bridge::");
-        let inner = ty.strip_prefix("Done<")?.strip_suffix('>')?;
+        let inner = ty
+            .strip_prefix("Done<")
+            .or_else(|| ty.strip_prefix("Emit<"))?
+            .strip_suffix('>')?;
         Some((name.as_str(), inner.trim().to_string()))
+    }
+
+    /// Whether the handle is a repeating `Emit<T>` stream rather than a one-shot `Done<T>`.
+    pub fn is_stream(&self) -> bool {
+        self.args.last().is_some_and(|(_, t)| {
+            t.trim()
+                .trim_start_matches("day_bridge::")
+                .starts_with("Emit<")
+        })
     }
 
     /// The arguments an arm marshals: every declared one except the completion handle, which
@@ -915,17 +929,16 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
             .iter()
             .enumerate()
             .filter(|(_, (_, t))| {
-                t.trim()
-                    .trim_start_matches("day_bridge::")
-                    .starts_with("Done<")
+                let t = t.trim().trim_start_matches("day_bridge::");
+                t.starts_with("Done<") || t.starts_with("Emit<")
             })
             .map(|(i, _)| i)
             .collect();
         if let Some(&first) = done_positions.first() {
             if done_positions.len() > 1 || first + 1 != decl.args.len() {
                 return Err(format!(
-                    "line {}: `{}` takes a `Done<T>` that is not its single, last argument \
-                     (docs/bridge.md \"Callbacks\")",
+                    "line {}: `{}` takes a `Done<T>` or `Emit<T>` that is not its single, last \
+                     argument (docs/bridge.md \"Callbacks\")",
                     decl.line, decl.name
                 ));
             }
@@ -949,6 +962,22 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
         for (arg, ty) in decl.plain_args() {
             check_type(ty, true)
                 .map_err(|e| format!("line {}: `{}`'s `{arg}`: {e}", decl.line, decl.name))?;
+        }
+        // A string or bytes argument crosses as a pointer and a length named after it, so no other
+        // argument may take either name: the generated JavaScript, C and Swift would declare that
+        // parameter twice.
+        for (buffer, ty) in decl.plain_args() {
+            if !matches!(ty.trim(), "&str" | "&[u8]") {
+                continue;
+            }
+            let reserved = [format!("{buffer}_ptr"), format!("{buffer}_len")];
+            if let Some((arg, _)) = decl.args.iter().find(|(name, _)| reserved.contains(name)) {
+                return Err(format!(
+                    "line {}: `{}`'s `{arg}` takes the name the generated code gives `{buffer}`'s \
+                     pointer or length; rename it (docs/bridge.md \"Types\")",
+                    decl.line, decl.name
+                ));
+            }
         }
         if !decl.ret.is_empty() {
             // Every generator spells a returned value as `Result<T, Error>`; a bare `-> bool`
@@ -1201,18 +1230,37 @@ fn rust_value_from_c(ty: &str, utf16: bool) -> String {
     }
 }
 
-/// The exported symbol a foreign arm completes a `Done` through (docs/bridge.md "Callbacks").
+/// The exported symbol a foreign arm completes a `Done` through, or delivers an `Emit` stream's
+/// items through (docs/bridge.md "Callbacks", "Streams").
 fn complete_symbol(crate_name: &str, decl: &Decl) -> String {
     format!(
-        "day_bridge_complete_{}_{}",
+        "day_bridge_{}_{}_{}",
+        callback_verb(decl),
         crate_name.replace('-', "_"),
         decl.name
     )
 }
 
-/// The name of the generated `static` registry for one `Done` declaration.
+/// `complete` for a `Done`, `emit` for an `Emit`: the symbol's verb and the helper an arm calls
+/// with a value.
+fn callback_verb(decl: &Decl) -> &'static str {
+    if decl.is_stream() { "emit" } else { "complete" }
+}
+
+/// The name of the generated `static` registry for one `Done` or `Emit` declaration.
 fn registry_name(decl: &Decl) -> String {
-    format!("DAY_BRIDGE_DONE_{}", decl.name.to_uppercase())
+    let kind = if decl.is_stream() { "EMIT" } else { "DONE" };
+    format!("DAY_BRIDGE_{kind}_{}", decl.name.to_uppercase())
+}
+
+/// How a generated export hands its outcome to the registry: `complete` resolves a `Done`,
+/// `deliver` interprets the status for an `Emit` (value, failure, end).
+fn registry_call(decl: &Decl, token: &str) -> String {
+    if decl.is_stream() {
+        format!("deliver({token}, status, outcome)")
+    } else {
+        format!("complete({token}, outcome)")
+    }
 }
 
 /// The translation unit for one C/C++ arm: the crate's prelude for that language, a `#line`
@@ -1259,14 +1307,19 @@ fn render_c(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
             .collect();
         let _ = writeln!(
             out,
-            "static void {}_complete({}) {{ {sym}({}); }}",
+            "static void {}_{}({}) {{ {sym}({}); }}",
             decl.name,
+            callback_verb(decl),
             ok_params.join(", "),
             ok_args.join(", ")
         );
+        let zeros: Vec<String> = c_value_zeros(&value)
+            .into_iter()
+            .map(String::from)
+            .collect();
         let fail_args: Vec<String> = std::iter::once("done".to_string())
             .chain(std::iter::once("1".to_string()))
-            .chain(c_value_zeros(&value).into_iter().map(String::from))
+            .chain(zeros.iter().cloned())
             .collect();
         let _ = writeln!(
             out,
@@ -1274,6 +1327,18 @@ fn render_c(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
             decl.name,
             fail_args.join(", ")
         );
+        if decl.is_stream() {
+            let end_args: Vec<String> = std::iter::once("done".to_string())
+                .chain(std::iter::once("2".to_string()))
+                .chain(zeros.iter().cloned())
+                .collect();
+            let _ = writeln!(
+                out,
+                "static void {}_end(uint64_t done) {{ {sym}({}); }}",
+                decl.name,
+                end_args.join(", ")
+            );
+        }
     }
     let _ = writeln!(out, "\n#line {} {}", arm.body_line, quote(source));
     let _ = writeln!(out, "{}\n", arm.body.as_deref().unwrap_or(""));
@@ -1354,7 +1419,8 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
             continue;
         };
         let sym = complete_symbol(crate_name, decl);
-        let raw = format!("__day_bridge_complete_{}", decl.name);
+        let verb = callback_verb(decl);
+        let raw = format!("__day_bridge_{verb}_{}", decl.name);
         let (abi_params, ok_param, ok_call, fail_call) = match value.as_str() {
             "()" => ("", String::new(), "".to_string(), "".to_string()),
             "String" => (
@@ -1409,7 +1475,7 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         if value == "()" {
             let _ = writeln!(
                 out,
-                "func {}_complete(_ done: UInt64) {{ {raw}(done, 0) }}",
+                "func {}_{verb}(_ done: UInt64) {{ {raw}(done, 0) }}",
                 decl.name
             );
             let _ = writeln!(
@@ -1417,10 +1483,17 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
                 "func {}_fail(_ done: UInt64) {{ {raw}(done, 1) }}",
                 decl.name
             );
+            if decl.is_stream() {
+                let _ = writeln!(
+                    out,
+                    "func {}_end(_ done: UInt64) {{ {raw}(done, 2) }}",
+                    decl.name
+                );
+            }
         } else {
             let _ = writeln!(
                 out,
-                "func {}_complete(_ done: UInt64{ok_param}) {{ {ok_call} }}",
+                "func {}_{verb}(_ done: UInt64{ok_param}) {{ {ok_call} }}",
                 decl.name
             );
             let _ = writeln!(
@@ -1428,6 +1501,14 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
                 "func {}_fail(_ done: UInt64) {{ {fail_call} }}",
                 decl.name
             );
+            if decl.is_stream() {
+                let end_call = fail_call.replacen("(done, 1", "(done, 2", 1);
+                let _ = writeln!(
+                    out,
+                    "func {}_end(_ done: UInt64) {{ {end_call} }}",
+                    decl.name
+                );
+            }
         }
     }
     let _ = writeln!(
@@ -1548,14 +1629,22 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         let value_param = if value == "()" { "" } else { ", value" };
         let _ = writeln!(
             out,
-            "function {}_complete(done{value_param}) {{ __rt.exports().{sym}(done, 0, {ok_value}0, 0); }}",
-            decl.name
+            "function {}_{}(done{value_param}) {{ __rt.exports().{sym}(done, 0, {ok_value}0, 0); }}",
+            decl.name,
+            callback_verb(decl)
         );
         let _ = writeln!(
             out,
             "function {}_fail(done, message) {{ __rt.exports().{sym}(done, 1, {zero_value}...__rt.intoWasm(String(message ?? ''))); }}",
             decl.name
         );
+        if decl.is_stream() {
+            let _ = writeln!(
+                out,
+                "function {}_end(done) {{ __rt.exports().{sym}(done, 2, {zero_value}0, 0); }}",
+                decl.name
+            );
+        }
     }
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
 
@@ -1605,17 +1694,21 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
                 // returned promise completes the token itself when it settles, so an `async`
                 // arm needs no helper call at all.
                 let (done, value) = decl.done().unwrap_or_default();
-                let resolve = if value == "()" {
-                    format!("{}_complete({done})", decl.name)
+                let on_resolve = if decl.is_stream() {
+                    // A stream arm's promise settling says nothing about the stream: it ends
+                    // through `<fn>_end`, and only a rejection fails it.
+                    "() => {}".to_string()
+                } else if value == "()" {
+                    format!("(v) => {}_complete({done})", decl.name)
                 } else {
-                    format!("{}_complete({done}, v)", decl.name)
+                    format!("(v) => {}_complete({done}, v)", decl.name)
                 };
                 let _ = writeln!(out, "      try {{");
                 let _ = writeln!(out, "        const r = {call};");
                 let _ = writeln!(out, "        if (r && typeof r.then === 'function') {{");
                 let _ = writeln!(
                     out,
-                    "          r.then((v) => {resolve}, (e) => {}_fail({done}, e && e.message ? e.message : e));",
+                    "          r.then({on_resolve}, (e) => {}_fail({done}, e && e.message ? e.message : e));",
                     decl.name
                 );
                 let _ = writeln!(out, "        }}");
@@ -1689,14 +1782,22 @@ fn render_arkts(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         let value_arg = if value == "()" { "undefined" } else { "value" };
         let _ = writeln!(
             out,
-            "function {}_complete(done: number{value_param}): void {{\n  nativeEntry.dayBridgeComplete('{sym}', done, 0, {value_arg}, '');\n}}",
-            decl.name
+            "function {}_{}(done: number{value_param}): void {{\n  nativeEntry.dayBridgeComplete('{sym}', done, 0, {value_arg}, '');\n}}",
+            decl.name,
+            callback_verb(decl)
         );
         let _ = writeln!(
             out,
             "function {}_fail(done: number, message: string): void {{\n  nativeEntry.dayBridgeComplete('{sym}', done, 1, undefined, message);\n}}",
             decl.name
         );
+        if decl.is_stream() {
+            let _ = writeln!(
+                out,
+                "function {}_end(done: number): void {{\n  nativeEntry.dayBridgeComplete('{sym}', done, 2, undefined, '');\n}}",
+                decl.name
+            );
+        }
     }
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
     let _ = writeln!(
@@ -1721,7 +1822,8 @@ fn render_arkts(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 /// one uniform shape for every value type (the shim marshals a JS value into it).
 fn arkts_complete_symbol(crate_name: &str, decl: &Decl) -> String {
     format!(
-        "day_bridge_complete_arkts_{}_{}",
+        "day_bridge_{}_arkts_{}_{}",
+        callback_verb(decl),
         crate_name.replace('-', "_"),
         decl.name
     )
@@ -1835,8 +1937,9 @@ fn render_arkts_rust(bridge: &Bridge, crate_name: &str) -> String {
         let _ = writeln!(out, "        }};");
         let _ = writeln!(
             out,
-            "        {}.complete(done, outcome);",
-            registry_name(decl)
+            "        {}.{};",
+            registry_name(decl),
+            registry_call(decl, "done")
         );
         let _ = writeln!(out, "    }});");
         let _ = writeln!(out, "}}\n");
@@ -1977,8 +2080,9 @@ fn render_js_rust(bridge: &Bridge, crate_name: &str) -> String {
         let _ = writeln!(out, "        }};");
         let _ = writeln!(
             out,
-            "        {}.complete(done, outcome);",
-            registry_name(decl)
+            "        {}.{};",
+            registry_name(decl),
+            registry_call(decl, "done")
         );
         let _ = writeln!(out, "    }});");
         let _ = writeln!(out, "}}\n");
@@ -2033,21 +2137,29 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         } else {
             format!(", {}", jvm_value_zero(&value))
         };
+        let native = jvm_native_name(decl);
+        let verb = callback_verb(decl);
         let _ = writeln!(
             out,
-            "    @JvmStatic private external fun dayComplete_{}(done: Long, status: Int{value_param}, message: String?)",
+            "    @JvmStatic private external fun {native}(done: Long, status: Int{value_param}, message: String?)"
+        );
+        let _ = writeln!(
+            out,
+            "    @JvmStatic fun {}_{verb}(done: Long{value_param}) {{ {native}(done, 0{value_arg}, null) }}",
             decl.name
         );
         let _ = writeln!(
             out,
-            "    @JvmStatic fun {}_complete(done: Long{value_param}) {{ dayComplete_{}(done, 0{value_arg}, null) }}",
-            decl.name, decl.name
+            "    @JvmStatic fun {}_fail(done: Long, message: String?) {{ {native}(done, 1{zero}, message) }}",
+            decl.name
         );
-        let _ = writeln!(
-            out,
-            "    @JvmStatic fun {}_fail(done: Long, message: String?) {{ dayComplete_{}(done, 1{zero}, message) }}",
-            decl.name, decl.name
-        );
+        if decl.is_stream() {
+            let _ = writeln!(
+                out,
+                "    @JvmStatic fun {}_end(done: Long) {{ {native}(done, 2{zero}, null) }}",
+                decl.name
+            );
+        }
     }
     for decl in &bridge.decls {
         let mut params: Vec<String> = decl
@@ -2130,21 +2242,30 @@ fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         } else {
             format!(", {}", jvm_value_zero(&value))
         };
+        let native = jvm_native_name(decl);
+        let verb = callback_verb(decl);
         let _ = writeln!(
             out,
-            "    private static native void dayComplete_{}(long done, int status{value_param}, String message);",
+            "    private static native void {native}(long done, int status{value_param}, String message);"
+        );
+        let _ = writeln!(
+            out,
+            "    public static void {}_{verb}(long done{value_param}) {{ {native}(done, 0{value_arg}, null); }}",
             decl.name
         );
         let _ = writeln!(
             out,
-            "    public static void {}_complete(long done{value_param}) {{ dayComplete_{}(done, 0{value_arg}, null); }}",
-            decl.name, decl.name
+            "    public static void {}_fail(long done, String message) {{ {native}(done, 1{zero}, message); }}",
+            decl.name
         );
-        let _ = writeln!(
-            out,
-            "    public static void {}_fail(long done, String message) {{ dayComplete_{}(done, 1{zero}, message); }}\n",
-            decl.name, decl.name
-        );
+        if decl.is_stream() {
+            let _ = writeln!(
+                out,
+                "    public static void {}_end(long done) {{ {native}(done, 2{zero}, null); }}",
+                decl.name
+            );
+        }
+        let _ = writeln!(out);
     }
     // The arm becomes the body of the class, so it writes ordinary `public static` methods and
     // never sees JNI — the same contract the Kotlin arm has.
@@ -2330,7 +2451,7 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         let _ = writeln!(
             out,
             "pub extern \"system\" fn {}({}) {{",
-            jni_export_name(crate_name, &format!("dayComplete_{}", decl.name)),
+            jni_export_name(crate_name, &jvm_native_name(decl)),
             params.join(", ")
         );
         let _ = writeln!(out, "    use day_android::{{DayEnv, with_env}};");
@@ -2350,13 +2471,21 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         let _ = writeln!(out, "        }};");
         let _ = writeln!(
             out,
-            "        {}.complete(done as u64, outcome);",
-            registry_name(decl)
+            "        {}.{};",
+            registry_name(decl),
+            registry_call(decl, "done as u64")
         );
         let _ = writeln!(out, "    }});");
         let _ = writeln!(out, "}}\n");
     }
     out
+}
+
+/// The `native` method a JVM arm's helpers call: `dayComplete_<fn>` for a `Done`,
+/// `dayEmit_<fn>` for an `Emit`.
+fn jvm_native_name(decl: &Decl) -> String {
+    let kind = if decl.is_stream() { "Emit" } else { "Complete" };
+    format!("day{kind}_{}", decl.name)
 }
 
 /// The JVM spelling of a completion value, in Kotlin or Java.
@@ -2641,8 +2770,9 @@ fn render_c_rust(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         let _ = writeln!(out, "        }};");
         let _ = writeln!(
             out,
-            "        {}.complete(done, outcome);",
-            registry_name(decl)
+            "        {}.{};",
+            registry_name(decl),
+            registry_call(decl, "done")
         );
         let _ = writeln!(out, "    }});");
         let _ = writeln!(out, "}}\n");
@@ -2737,7 +2867,43 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             .collect();
         let names: Vec<String> = decl.plain_args().iter().map(|(n, _)| n.clone()).collect();
         let reg = registry_name(decl);
-        let _ = writeln!(out, "#[allow(dead_code)]");
+        if decl.is_stream() {
+            // A stream: one set of consumers per declaration, the `<fn>_stream` wrapper that
+            // registers a consumer and calls the arm, and `<fn>_stop` (docs/bridge.md "Streams").
+            let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
+            let _ = writeln!(
+                out,
+                "static {reg}: day_bridge::Streams<{value}> = day_bridge::Streams::new();\n"
+            );
+            let mut stream_params = plain.clone();
+            stream_params.push(format!(
+                "on_{done}: impl FnMut(day_bridge::Item<{value}>) + Send + 'static"
+            ));
+            let mut call_args = names.clone();
+            call_args.push(done.to_string());
+            let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
+            let _ = writeln!(
+                out,
+                "pub(crate) fn {}_stream({}) -> Result<u64, day_bridge::Error> {{",
+                decl.name,
+                stream_params.join(", ")
+            );
+            let _ = writeln!(
+                out,
+                "    day_bridge::start_stream(&{reg}, on_{done}, move |{done}| {}({}))",
+                decl.name,
+                call_args.join(", ")
+            );
+            let _ = writeln!(out, "}}\n");
+            let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
+            let _ = writeln!(
+                out,
+                "pub(crate) fn {}_stop(token: u64) -> bool {{\n    {reg}.stop(token)\n}}\n",
+                decl.name
+            );
+            continue;
+        }
+        let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
         let _ = writeln!(
             out,
             "static {reg}: day_bridge::Registry<{value}> = day_bridge::Registry::new();\n"
@@ -2748,7 +2914,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         ));
         let mut call_args = names.clone();
         call_args.push(done.to_string());
-        let _ = writeln!(out, "#[allow(dead_code)]");
+        let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
         let _ = writeln!(
             out,
             "pub(crate) fn {}_async({}) -> Result<u64, day_bridge::Error> {{",
@@ -2762,7 +2928,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             call_args.join(", ")
         );
         let _ = writeln!(out, "}}\n");
-        let _ = writeln!(out, "#[allow(dead_code)]");
+        let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
         let _ = writeln!(
             out,
             "pub(crate) fn {}_future({}) -> day_bridge::Completion<{value}> {{",
@@ -2782,7 +2948,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         if let Some(cfg) = cfg_attr(&arm_cfg(arm, bridge)) {
             let _ = writeln!(out, "{cfg}");
         }
-        let _ = writeln!(out, "#[allow(dead_code)]");
+        let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
         let _ = writeln!(out, "{}\n", arm.body.as_deref().unwrap_or(""));
     }
 
@@ -2796,7 +2962,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
     for arm in bridge.arms.iter().filter(|a| staged_by_cli(a.lang)) {
         for fb in &fallback {
             let _ = writeln!(out, "#[cfg({})]", unstaged_cfg(arm));
-            let _ = writeln!(out, "#[allow(dead_code)]");
+            let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
             let _ = writeln!(out, "{}\n", fb.body.as_deref().unwrap_or(""));
         }
     }
@@ -2808,7 +2974,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         for item in block.split("\n\n").filter(|i| !i.trim().is_empty()) {
             let _ = writeln!(
                 out,
-                "#[cfg({cfg})]\n#[allow(dead_code)]\n{}\n",
+                "#[cfg({cfg})]\n#[allow(dead_code, clippy::too_many_arguments)]\n{}\n",
                 item.trim_end()
             );
         }
@@ -2821,7 +2987,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         for item in block.split("\n\n").filter(|i| !i.trim().is_empty()) {
             let _ = writeln!(
                 out,
-                "#[cfg({cfg})]\n#[allow(dead_code)]\n{}\n",
+                "#[cfg({cfg})]\n#[allow(dead_code, clippy::too_many_arguments)]\n{}\n",
                 item.trim_end()
             );
         }
@@ -2839,7 +3005,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         for item in block.split("\n\n").filter(|i| !i.trim().is_empty()) {
             let _ = writeln!(
                 out,
-                "#[cfg({cfg})]\n#[allow(dead_code)]\n{}\n",
+                "#[cfg({cfg})]\n#[allow(dead_code, clippy::too_many_arguments)]\n{}\n",
                 item.trim_end()
             );
         }
@@ -2858,7 +3024,11 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             Some(cfg) => {
                 // One cfg per item, so the block stays a set of plain items.
                 for item in block.split("\n\n").filter(|i| !i.trim().is_empty()) {
-                    let _ = writeln!(out, "{cfg}\n#[allow(dead_code)]\n{}\n", item.trim_end());
+                    let _ = writeln!(
+                        out,
+                        "{cfg}\n#[allow(dead_code, clippy::too_many_arguments)]\n{}\n",
+                        item.trim_end()
+                    );
                 }
             }
             None => {
@@ -2897,7 +3067,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             }
             let _ = writeln!(
                 out,
-                "#[allow(dead_code)]\npub(crate) fn {}_support() -> day_bridge::Support {{\n    \
+                "#[allow(dead_code, clippy::too_many_arguments)]\npub(crate) fn {}_support() -> day_bridge::Support {{\n    \
                  day_bridge::Support::{support}\n}}\n",
                 decl.name
             );
@@ -3046,6 +3216,22 @@ day_bridge::bridge! {
             rust.contains("Support::Unsupported"),
             "the fallback reports Unsupported"
         );
+    }
+
+    #[test]
+    fn rejects_an_argument_named_after_a_generated_length() {
+        let b = parse(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::declare]
+                extern "day" { fn f(body: &[u8], body_len: i64); }
+                #[day_bridge::impl(rust, platforms = [other])]
+                fn f(_body: &[u8], _body_len: i64) {}
+            }
+            "###,
+        );
+        let err = validate(&b).expect_err("a name the generated length takes");
+        assert!(err.contains("`body_len`"), "{err}");
     }
 
     #[test]
@@ -3844,5 +4030,198 @@ day_bridge::bridge! {
             "{rust}"
         );
         assert!(rust.contains("Ok(ret.i != 0)"), "{rust}");
+    }
+
+    const STREAM: &str = r###"
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        fn watch_native(key: &str, emit: day_bridge::Emit<Vec<u8>>) -> Result<(), day_bridge::Error>;
+        fn tick_native(emit: Emit<()>) -> Result<(), day_bridge::Error>;
+    }
+
+    #[day_bridge::impl(java, platforms = [android])]
+    java!(r#"
+        public static void watch_native(String key, long emit) { watch_native_emit(emit, new byte[0]); watch_native_end(emit); }
+        public static void tick_native(long emit) { tick_native_emit(emit); tick_native_end(emit); }
+    "#);
+
+    #[day_bridge::impl(swift, platforms = [ios, macos])]
+    swift!(r#"
+        func watch_native(key: String, emit: UInt64) throws { watch_native_emit(emit, []); watch_native_end(emit) }
+        func tick_native(emit: UInt64) throws { tick_native_emit(emit); tick_native_end(emit) }
+    "#);
+
+    #[day_bridge::impl(c, platforms = [linux])]
+    c!(r#"
+        int32_t watch_native(const char* key, uint64_t emit) { watch_native_emit(emit, NULL, 0); watch_native_end(emit); return 0; }
+        int32_t tick_native(uint64_t emit) { tick_native_emit(emit); tick_native_end(emit); return 0; }
+    "#);
+
+    #[day_bridge::impl(js, platforms = [web])]
+    js!(r#"
+        export async function watch_native(key, emit) { watch_native_emit(emit, new Uint8Array(0)); watch_native_end(emit); }
+        export function tick_native(emit) { tick_native_emit(emit); tick_native_end(emit); }
+    "#);
+
+    #[day_bridge::impl(arkts, platforms = [ohos])]
+    arkts!(r#"
+        export function watch_native(key: string, emit: number): void { watch_native_end(emit); }
+        export function tick_native(emit: number): void { tick_native_end(emit); }
+    "#);
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn watch_native(_key: &str, emit: day_bridge::Emit<Vec<u8>>) -> Result<(), day_bridge::Error> {
+        emit.end();
+        Ok(())
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn tick_native(emit: day_bridge::Emit<()>) -> Result<(), day_bridge::Error> {
+        emit.end();
+        Ok(())
+    }
+}
+"###;
+
+    #[test]
+    fn an_emit_argument_is_a_stream_handle() {
+        let b = parse(STREAM);
+        validate(&b).expect("valid");
+        assert!(b.decls[0].is_stream());
+        assert_eq!(b.decls[0].done(), Some(("emit", "Vec<u8>".to_string())));
+        assert_eq!(
+            b.decls[0].plain_args(),
+            &[("key".to_string(), "&str".to_string())]
+        );
+        assert!(!parse(ASYNC).decls[0].is_stream());
+    }
+
+    #[test]
+    fn the_rust_surface_gains_streams_a_stream_wrapper_and_a_stop() {
+        let b = parse(STREAM);
+        let rust = render_rust(&b, "day-part-demo");
+        assert!(
+            rust.contains("static DAY_BRIDGE_EMIT_WATCH_NATIVE: day_bridge::Streams<Vec<u8>> = day_bridge::Streams::new();"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("pub(crate) fn watch_native_stream(key: &str, on_emit: impl FnMut(day_bridge::Item<Vec<u8>>) + Send + 'static) -> Result<u64, day_bridge::Error>"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("day_bridge::start_stream(&DAY_BRIDGE_EMIT_WATCH_NATIVE, on_emit, move |emit| watch_native(key, emit))"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("pub(crate) fn watch_native_stop(token: u64) -> bool {\n    DAY_BRIDGE_EMIT_WATCH_NATIVE.stop(token)\n}"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("pub extern \"C\" fn day_bridge_emit_day_part_demo_watch_native(done: u64, status: i32, value: *const u8, value_len: usize)"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("DAY_BRIDGE_EMIT_WATCH_NATIVE.deliver(done, status, outcome);"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("pub extern \"system\" fn Java_dev_daybrite_day_bridge_day_1part_1demo_DayPartDemoBridge_dayEmit_1watch_1native("),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("DAY_BRIDGE_EMIT_WATCH_NATIVE.deliver(done as u64, status, outcome);"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("pub extern \"C\" fn day_bridge_emit_arkts_day_part_demo_watch_native("),
+            "{rust}"
+        );
+    }
+
+    #[test]
+    fn each_language_gets_emit_fail_and_end_helpers() {
+        let b = parse(STREAM);
+        let c_arm = b.arms.iter().find(|a| a.lang == Lang::C).unwrap();
+        let c = render_c(&b, c_arm, "day-part-demo");
+        assert!(
+            c.contains("static void watch_native_emit(uint64_t done, const uint8_t* value, size_t value_len) { day_bridge_emit_day_part_demo_watch_native(done, 0, value, value_len); }"),
+            "{c}"
+        );
+        assert!(
+            c.contains("static void watch_native_end(uint64_t done) { day_bridge_emit_day_part_demo_watch_native(done, 2, NULL, 0); }"),
+            "{c}"
+        );
+        assert!(
+            c.contains("static void tick_native_end(uint64_t done) { day_bridge_emit_day_part_demo_tick_native(done, 2); }"),
+            "{c}"
+        );
+
+        let swift_arm = b.arms.iter().find(|a| a.lang == Lang::Swift).unwrap();
+        let swift = render_swift(&b, swift_arm, "day-part-demo");
+        assert!(
+            swift.contains("func watch_native_emit(_ done: UInt64, _ value: [UInt8]) { value.withUnsafeBufferPointer { __day_bridge_emit_watch_native(done, 0, $0.baseAddress, $0.count) } }"),
+            "{swift}"
+        );
+        assert!(
+            swift.contains("func watch_native_end(_ done: UInt64) { __day_bridge_emit_watch_native(done, 2, nil, 0) }"),
+            "{swift}"
+        );
+        assert!(
+            swift.contains(
+                "func tick_native_end(_ done: UInt64) { __day_bridge_emit_tick_native(done, 2) }"
+            ),
+            "{swift}"
+        );
+
+        let js_arm = b.arms.iter().find(|a| a.lang == Lang::Js).unwrap();
+        let js = render_js(&b, js_arm, "day-part-demo");
+        assert!(
+            js.contains("function watch_native_end(done) { __rt.exports().day_bridge_emit_day_part_demo_watch_native(done, 2, 0, 0, 0, 0); }"),
+            "{js}"
+        );
+        assert!(
+            js.contains(
+                "r.then(() => {}, (e) => watch_native_fail(emit, e && e.message ? e.message : e));"
+            ),
+            "a resolved stream promise ends nothing:\n{js}"
+        );
+
+        let java_arm = b.arms.iter().find(|a| a.lang == Lang::Java).unwrap();
+        let java = render_java(&b, java_arm, "day-part-demo");
+        assert!(
+            java.contains("private static native void dayEmit_watch_native(long done, int status, byte[] value, String message);"),
+            "{java}"
+        );
+        assert!(
+            java.contains("public static void watch_native_emit(long done, byte[] value) { dayEmit_watch_native(done, 0, value, null); }"),
+            "{java}"
+        );
+        assert!(
+            java.contains("public static void watch_native_end(long done) { dayEmit_watch_native(done, 2, null, null); }"),
+            "{java}"
+        );
+        let kotlin = render_kotlin(&b, java_arm, "day-part-demo");
+        assert!(
+            kotlin.contains("@JvmStatic fun watch_native_end(done: Long) { dayEmit_watch_native(done, 2, null, null) }"),
+            "{kotlin}"
+        );
+
+        let arkts_arm = b.arms.iter().find(|a| a.lang == Lang::ArkTs).unwrap();
+        let ets = render_arkts(&b, arkts_arm, "day-part-demo");
+        assert!(
+            ets.contains("function watch_native_end(done: number): void {\n  nativeEntry.dayBridgeComplete('day_bridge_emit_arkts_day_part_demo_watch_native', done, 2, undefined, '');\n}"),
+            "{ets}"
+        );
+    }
+
+    #[test]
+    fn a_done_and_an_emit_cannot_share_a_function() {
+        let both = STREAM.replace(
+            "fn tick_native(emit: Emit<()>) -> Result<(), day_bridge::Error>;",
+            "fn tick_native(done: Done<()>, emit: Emit<()>) -> Result<(), day_bridge::Error>;",
+        );
+        let err = validate(&parse(&both)).expect_err("two handles");
+        assert!(err.contains("single, last argument"), "{err}");
     }
 }

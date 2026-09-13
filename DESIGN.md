@@ -85,7 +85,7 @@ the architecture-level view and the rationale.
 | extension packages — pieces, parts, `[package.metadata.day.*]` | [docs/extending.md](docs/extending.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
-| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, downloads, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/downloads.md](docs/downloads.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (webview, media, map, searchfield, combobox, color picker, …) and external ones (lottie) | [docs/webview.md](docs/webview.md), [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
@@ -337,8 +337,8 @@ scripts), and `day-cli` (the `day` binary).
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
 | `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day prepare`, `day icon --generate`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
-| `day-async` | the std-only async support parts ([docs/async.md](docs/async.md)): a `oneshot` future any executor can await, and the `TokenRegistry` a platform completion resolves through — no runtime, no reactor, no pool | — |
-| `day-bridge` | daybridge's runtime half ([§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api), [docs/bridge.md](docs/bridge.md)): the body-discarding `bridge!` macro, `Error`, the re-exported `Support`, and the callback tier's `Done<T>`, `Registry<T>` and `Completion<T>` | day-spec, day-async |
+| `day-async` | the std-only async support parts ([docs/async.md](docs/async.md)): a `oneshot` future any executor can await, the `TokenRegistry` a platform completion resolves through, and the process's one timer thread (`schedule`/`unschedule`) — no runtime, no reactor, no pool | — |
+| `day-bridge` | daybridge's runtime half ([§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api), [docs/bridge.md](docs/bridge.md)): the body-discarding `bridge!` macro, `Error`, the re-exported `Support`, the callback tier's `Done<T>`, `Registry<T>` and `Completion<T>`, and the stream tier's `Emit<T>`, `Streams<T>` and `Item<T>` | day-spec, day-async |
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
@@ -1850,7 +1850,7 @@ C), and DP-8 resolved to exactly the proposed hybrid — absolute placement insi
 ResizeObserver. The WebSocket dayscript transport shipped as sketched ([§14.5](#145-transport-and-rendezvous)):
 the page speaks WebSocket to the dev server, which bridges to the runner's TCP protocol — CI
 drives the full walkthrough this way, including the HTTP demo against the dev server's
-`/day-http-ok` echo (day-part-http's browser arm rides the shim, [docs/http.md](docs/http.md)). [docs/web.md](docs/web.md)
+`/day-http-ok` echo (day-part-http reaches `fetch` through its JavaScript bridge arm, [docs/http.md](docs/http.md)). [docs/web.md](docs/web.md)
 is the reference. Two hardenings for dependency graphs (2026-08): `day build` compiles every
 web app with `--cfg getrandom_backend="custom"` and day-dom answers getrandom v0.3's
 custom-backend hook from the shim's `crypto.getRandomValues` import (entropy for uuid/rand
@@ -2942,7 +2942,10 @@ repository in 2026-08; the runtime crate remains, with no in-repo app building a
 > gained its Rust half with the tier: the ArkUI shim dispatches a call onto the JS thread
 > (`day_ark_bridge_invoke`, posted and awaited from any other thread) and settles a returned
 > promise into the token; the host registers every arm at startup (`registerDayBridges`).
-> Streams and Kotlin `suspend` arms remain in "After v1".
+> **The stream tier followed** ([docs/bridge.md](docs/bridge.md) "Streams"): a function whose last
+> argument is `day_bridge::Emit<T>` delivers values in order and ends once, through the generated
+> `<fn>_stream`/`<fn>_stop` and each language's `<fn>_emit`/`<fn>_end`/`<fn>_fail` helpers.
+> day-part-http's Android transport is its first user. Kotlin `suspend` arms remain in "After v1".
 
 **The problem, measured.** Eleven parts (battery, clipboard, deviceinfo, haptics, http,
 local-notify, location, network, permissions, prefs, sensors) each carry an Android shim, and every
@@ -5406,7 +5409,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `assert_route` | `route` | current path |
 | `assert_visible` | `id` | realized with a nonzero frame |
 | `assert_missing` | `id` | the id is NOT in the tree — the assertion for a subtree a `when` has not mounted (a property row that does not apply). `assert_visible` cannot express it: a missing id is an error there |
-| `assert_text` | `id`, `text?` \| `key?` + `args?` | FSI/PDI-normalized ([§12.2](#122-api)) |
+| `assert_text` | `id`, `text?` \| `key?` + `args?`, `timeout_secs?` | FSI/PDI-normalized ([§12.2](#122-api)); `timeout_secs` raises the implicit wait for text that changes after slow work |
 | `assert_value` | `id`, `value` | typed per piece kind: toggle = bool, slider = number, field = string |
 | `assert_focused` | `id`, `focused?` | reads the probe's focus mirror; retryable |
 | `assert_presented` | `title?` | a native modal is up ([docs/dialogs.md](docs/dialogs.md)) |

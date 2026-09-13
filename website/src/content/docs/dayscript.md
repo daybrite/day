@@ -56,7 +56,7 @@ keys instead of literal strings, so the same script passes in every language.
 | Acting | `tap` (`repeat`), `input`, `set_value`, `toggle`, `select`, `submit`, `focus`, `scroll_to` (to an `edge`, an `x`/`y` offset, or an element to reveal), `reorder` (list row `from` → `to`) |
 | Navigation | `navigate`, `nav_back`, `assert_route` |
 | Window chrome | `menu` (`item`/`key`/`path`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`) |
-| Asserting | `assert_visible`, `assert_text`, `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
+| Asserting | `assert_visible`, `assert_text` (`timeout_secs` raises its budget), `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
 | Dialogs | `assert_presented`, `respond` (a `button` index, prompt `text`, file `path`, or `dismiss`) |
 | Evidence | `screenshot` (`window` captures a secondary window), `a11y_audit` |
 | Exit | `expect_exit` (the app must terminate within `within` seconds; always the last step) |

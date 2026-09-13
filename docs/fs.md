@@ -69,6 +69,11 @@ The contract points:
 `DAY_DATA_DIR` wins everywhere when set; the mobile hosts export it (DayActivity in day-android,
 EntryAbility in day-arkui's staged ArkTS host), and tests set it to a scratch directory.
 
+`day_part_fs::data_dir()` returns that directory without the `day-fs/` leaf on native targets,
+for code that keeps files of its own beside the part's: a download manager's journal and partial
+files, for instance ([docs/downloads.md](downloads.md)). The web has no such directory, so the
+function exists only off wasm32.
+
 ## Error taxonomy
 
 `NotFound`, `BadPath`, `Io(message)`, `Unsupported`. The web tier collapses provider detail

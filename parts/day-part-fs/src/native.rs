@@ -16,24 +16,23 @@ use std::path::PathBuf;
 
 use super::{BytesResult, FsError, ListResult, UnitResult};
 
-fn root_dir() -> Result<PathBuf, FsError> {
+/// The app's data directory, before the `day-fs/` leaf.
+pub(crate) fn data_dir() -> Result<PathBuf, FsError> {
     if let Some(dir) = std::env::var_os("DAY_DATA_DIR")
         && !dir.is_empty()
     {
-        return Ok(PathBuf::from(dir).join("day-fs"));
+        return Ok(PathBuf::from(dir));
     }
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         if let Some(home) = std::env::var_os("HOME") {
-            return Ok(PathBuf::from(home)
-                .join("Library/Application Support/day")
-                .join("day-fs"));
+            return Ok(PathBuf::from(home).join("Library/Application Support/day"));
         }
     }
     #[cfg(target_os = "windows")]
     {
         if let Some(app) = std::env::var_os("APPDATA") {
-            return Ok(PathBuf::from(app).join("day").join("day-fs"));
+            return Ok(PathBuf::from(app).join("day"));
         }
     }
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
@@ -42,13 +41,17 @@ fn root_dir() -> Result<PathBuf, FsError> {
         if let Some(dir) = std::env::var_os("XDG_DATA_HOME")
             && !dir.is_empty()
         {
-            return Ok(PathBuf::from(dir).join("day").join("day-fs"));
+            return Ok(PathBuf::from(dir).join("day"));
         }
         if let Some(home) = std::env::var_os("HOME") {
-            return Ok(PathBuf::from(home).join(".local/share/day").join("day-fs"));
+            return Ok(PathBuf::from(home).join(".local/share/day"));
         }
     }
     Err(FsError::Unsupported)
+}
+
+fn root_dir() -> Result<PathBuf, FsError> {
+    data_dir().map(|dir| dir.join("day-fs"))
 }
 
 fn io(e: std::io::Error) -> FsError {

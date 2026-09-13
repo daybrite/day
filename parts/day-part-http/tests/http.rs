@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! End-to-end tests against a local std::net server — no external network. On macOS CI hosts this
-//! exercises the REAL NSURLSession half; on Linux the ureq fallback: two production halves under
-//! one suite. (Android/Windows/HarmonyOS are covered by cross-compiles + the showcase device
-//! a live check, the parts' established posture.)
+//! End-to-end tests of the crate-root functions against a local std::net server, with no external
+//! network. A macOS host runs them over URLSession and a Linux host over libcurl. Android, Windows,
+//! HarmonyOS and the web compile in CI, and the showcase's Network & HTTP walkthrough runs the
+//! Android transport on a device.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};

@@ -112,6 +112,10 @@ its previous in-flight task on re-tap).
   register-before-call, remove-by-token map behind every platform completion that crosses an
   FFI boundary as a number. The bridge's callback tier ([docs/bridge.md](bridge.md) "Callbacks")
   is its first user; the parts' hand-rolled copies migrate onto it.
+- `day-async` also owns the process's one timer thread: `schedule(delay, job)` runs a job after a
+  delay and `unschedule(id)` forgets it, so a part's time limits and backoff wait there instead of
+  parking a thread each. day-part-http's total-time limits and question timeouts, and
+  day-part-downloads' retry backoff, use it. The web has no threads, so a timer never fires there.
 
 ## Test hooks
 

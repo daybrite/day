@@ -237,6 +237,15 @@ pub fn list_future(dir: &str) -> FsFuture<ListResult> {
     })
 }
 
+/// The app's data directory on native targets: `DAY_DATA_DIR` when the host sets it, else the
+/// platform's app-data convention (Application Support on Apple, `APPDATA` on Windows, XDG data
+/// elsewhere). This part's own files live in its `day-fs/` subdirectory; other parts that keep
+/// files, such as a download manager's journal, take a sibling. The web has no such directory.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn data_dir() -> Result<std::path::PathBuf, FsError> {
+    imp::data_dir()
+}
+
 // ---------------------------------------------------------------------------
 // Per-target implementations. Native targets share one std::fs backend rooted at the
 // per-platform app-data directory; web-dom rides the day-dom shim into OPFS.

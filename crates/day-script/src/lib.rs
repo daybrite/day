@@ -303,6 +303,11 @@ pub enum Step {
         key: Option<String>,
         #[serde(default)]
         args: Option<BTreeMap<String, serde_json::Value>>,
+        /// Upper bound in seconds for the implicit retry wait (§14.3), for text that changes only
+        /// after slow work (a download finishing, an upload's receipt). Defaults to the shared
+        /// step timeout.
+        #[serde(default)]
+        timeout_secs: Option<f64>,
     },
     AssertValue {
         id: String,
@@ -494,6 +499,10 @@ impl Step {
     fn wait_budget_secs(&self) -> f64 {
         match self {
             Step::WaitFor {
+                timeout_secs: Some(t),
+                ..
+            }
+            | Step::AssertText {
                 timeout_secs: Some(t),
                 ..
             } if *t > 0.0 => *t,
@@ -1487,6 +1496,7 @@ fn exec(step: Step) -> Reply {
                 text,
                 key,
                 args,
+                ..
             } => {
                 let actual = norm(&probe(&id)?.text);
                 let expected = if let Some(k) = key {
@@ -2023,6 +2033,20 @@ mod tests {
             );
         }
         unsafe { std::env::remove_var("DAY_SCRIPT_MAIN_TIMEOUT_SECS") };
+    }
+
+    /// A download finishing or an upload's receipt can take far longer than the shared wait, and
+    /// a step's `timeout_secs` is how a script says so. An `assert_text` that dropped the field
+    /// failed after five seconds while its script promised two minutes.
+    #[test]
+    fn assert_text_honors_its_own_timeout() {
+        let step = |json: &str| serde_json::from_str::<Step>(json).expect("step");
+        let slow = step(r#"{"op":"assert_text","id":"state","text":"done","timeout_secs":120}"#);
+        assert_eq!(slow.wait_budget_secs(), 120.0);
+        let plain = step(r#"{"op":"assert_text","id":"state","text":"done"}"#);
+        assert_eq!(plain.wait_budget_secs(), DEFAULT_TIMEOUT_SECS);
+        let waiting = step(r#"{"op":"wait_for","id":"state","timeout_secs":30}"#);
+        assert_eq!(waiting.wait_budget_secs(), 30.0);
     }
 
     /// `menu: { id: … }` is the address that survives a label change — which is exactly what a

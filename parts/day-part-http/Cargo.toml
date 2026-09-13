@@ -9,40 +9,53 @@ repository.workspace = true
 license.workspace = true
 
 # A HEADLESS day-ecosystem crate (no UI Piece): HTTP(S) requests through each platform's NATIVE
-# networking stack, so apps inherit the system's configuration — proxies + PAC, per-network VPN
-# routing, Low Data Mode, enterprise/MDM certificate stores — and ship ZERO bundled TLS on the
-# native targets. Platform selection is by `#[cfg(target_os)]` / `#[cfg(target_arch)]`
-# (networking is an OS concern, not a
-# widget-toolkit one), so there are no backend features — it "just works" per target:
-#   macOS/iOS — NSURLSession (Foundation; ephemeral sessions; Low Data Mode via
-#               allowsConstrainedNetworkAccess), shared src/apple.rs
-#   Android   — OkHttp via a Java shim staged through [package.metadata.day.android]
-#               (system ProxySelector, VPN routing, network security config + user CA store
-#               still apply; HTTP/2, PATCH, and per-call cancel come from the engine)
-#   Windows   — WinHTTP (winhttp.dll, resolved dynamically; automatic proxy/PAC, schannel +
-#               the system certificate store)
-#   Web       — the browser's fetch() through the day-dom shim (wasm32; async entry points
-#               only — the blocking calls return Unsupported; cancel via AbortController)
-#   Linux     — Rust fallback: ureq + rustls (the only target that bundles TLS; proxy from
-#               http(s)_proxy env vars)
-#   HarmonyOS — the OSS NDK has no HTTP C API, so the same Rust fallback (rustls compiles for
-#               aarch64-unknown-linux-ohos with the NDK clang)
-# `tier()` reports NativeStack / RustFallback / Unavailable. See docs/http.md.
+# networking stack, so apps inherit the system's configuration (proxies + PAC, per-network VPN
+# routing, Low Data Mode, enterprise/MDM certificate stores) and carry no TLS library of their own.
+# Platform selection is by `#[cfg(target_os)]` / `#[cfg(target_arch)]`, so there are no backend
+# features:
+#   macOS/iOS — URLSession with a session delegate per client (src/apple.rs)
+#   Android   — OkHttp through a Java bridge arm (src/bridge.rs, read by src/bridged.rs)
+#   Windows   — WinHTTP in asynchronous mode (src/windows.rs)
+#   Linux     — the system's libcurl, opened with dlopen at run time (src/linux.rs)
+#   HarmonyOS — the Network Kit through an ArkTS bridge arm (src/bridge.rs, src/bridged.rs)
+#   Web       — fetch and WebSocket through a JavaScript bridge arm (src/bridge.rs, src/bridged.rs)
+# `tier()` reports NativeStack or Unavailable, and `capabilities()` what a Client can do there.
+# See docs/http.md.
 
 [dependencies]
-# The bridge's runtime half (docs/bridge.md): the Android arm is a `Done<Vec<u8>>` completion
-# over OkHttp's own dispatcher, generated from `src/bridge.rs`.
+# The bridge's runtime half (docs/bridge.md "Streams"): the Android, HarmonyOS and web arms in
+# `src/bridge.rs` report each exchange as a stream of frames.
 day-bridge = { workspace = true }
+# Oneshot futures for the client's `*_future` forms (docs/async.md).
+day-async = { workspace = true }
+# The portable client's helpers (docs/http.md "Client"), each measured against the lock before it
+# came in: WHATWG URL parsing for redirect targets and cookie domains (icu4x is already in the
+# tree, so only idna's adapter, form_urlencoded and url arrive), HTTP dates for cookies and
+# Retry-After, the public suffix list for cookie domain safety, and the Digest hashes.
+url = "2"
+httpdate = "1"
+psl = "2"
+sha2 = "0.11"
+md-5 = "0.11"
 
 [build-dependencies]
 day-build = { workspace = true }
 
-# macOS/iOS: NSURLSession through objc2 — the completion handler is a block2 block that sends the
-# mapped result over std::sync::mpsc (sync fetch) or invokes the caller's callback (async fetch).
+# macOS/iOS: URLSession through objc2, with a session delegate per client (src/apple.rs).
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = [
+    "block2",
+    "NSArray",
+    "NSDate",
+    "NSHTTPCookie",
+    "NSHTTPCookieStorage",
+    "NSStream",
+    "NSURLAuthenticationChallenge",
+    "NSURLCache",
+    "NSURLCredential",
+    "NSURLProtectionSpace",
     "NSURLSession",
     "NSURLRequest",
     "NSURLResponse",
@@ -54,18 +67,38 @@ objc2-foundation = { version = "0.3", features = [
     "NSObject",
     "NSEnumerator",
     "NSOperation",
+    "NSValue",
+] }
+# Server trust (SecTrust: the chain and the platform verdict) and client identities
+# (SecPKCS12Import), both already part of every Apple app's Security framework.
+objc2-security = { version = "0.3", default-features = false, features = [
+    "std",
+    "objc2",
+    "SecBase",
+    "SecCertificate",
+    "SecIdentity",
+    "SecImportExport",
+    "SecTrust",
+] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "objc2",
+    "CFArray",
+    "CFBase",
+    "CFData",
+    "CFDictionary",
+    "CFError",
+    "CFString",
 ] }
 
-# Android rides the day runtime's cached JVM (like every part with a Java shim). The Java call is
-# BLOCKING on the calling thread — `with_env` attaches any thread to the JVM.
+# Android rides the day runtime's cached JVM, like every part with a Java arm.
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 
-# The Rust fallback tier (Linux desktop): ureq is the tree's blessed minimal synchronous client
-# (day-cli's update check uses it); rustls/webpki enter ONLY this target. HarmonyOS left it for
-# the ArkTS Network Kit through the bridge arm (src/bridge.rs, src/ohos.rs).
+# Linux desktop: the system's libcurl, opened with dlopen at run time (src/linux.rs), so the
+# binary links no HTTP or TLS library of its own and a system without libcurl reports Unavailable.
 [target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
-ureq = "3"
+libc = "0.2"
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
@@ -79,3 +112,5 @@ gradle-dependencies = ["com.squareup.okhttp3:okhttp:4.12.0"]
 # (No [package.metadata.day.ios]: NSURLSession lives in Foundation, which every app links already.)
 
 [dev-dependencies]
+# The libcurl transport's tests also run on macOS, against the system's libcurl.
+libc = "0.2"

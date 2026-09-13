@@ -220,6 +220,143 @@ impl<T> TokenRegistry<T> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Timers
+// ---------------------------------------------------------------------------
+
+/// A scheduled timer, for [`unschedule`].
+pub type TimerId = u64;
+
+#[cfg(not(target_arch = "wasm32"))]
+mod timer_thread {
+    use std::cmp::Reverse;
+    use std::collections::{BinaryHeap, HashMap};
+    use std::sync::{Condvar, Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+
+    use super::{TimerId, lock};
+
+    type Job = Box<dyn FnOnce() + Send>;
+
+    struct State {
+        heap: BinaryHeap<Reverse<(Instant, TimerId)>>,
+        jobs: HashMap<TimerId, Job>,
+        next: TimerId,
+        started: bool,
+    }
+
+    struct Timers {
+        state: Mutex<State>,
+        wake: Condvar,
+    }
+
+    fn timers() -> &'static Timers {
+        static TIMERS: OnceLock<Timers> = OnceLock::new();
+        TIMERS.get_or_init(|| Timers {
+            state: Mutex::new(State {
+                heap: BinaryHeap::new(),
+                jobs: HashMap::new(),
+                next: 0,
+                started: false,
+            }),
+            wake: Condvar::new(),
+        })
+    }
+
+    pub(super) fn schedule(delay: Duration, job: impl FnOnce() + Send + 'static) -> TimerId {
+        let t = timers();
+        let mut st = lock(&t.state);
+        st.next += 1;
+        let id = st.next;
+        st.heap.push(Reverse((Instant::now() + delay, id)));
+        st.jobs.insert(id, Box::new(job));
+        if !st.started {
+            st.started = std::thread::Builder::new()
+                .name("day-timers".into())
+                .spawn(run)
+                .is_ok();
+        }
+        t.wake.notify_one();
+        id
+    }
+
+    pub(super) fn unschedule(id: TimerId) {
+        lock(&timers().state).jobs.remove(&id);
+    }
+
+    fn run() {
+        let t = timers();
+        let mut st = lock(&t.state);
+        loop {
+            let Some(Reverse((at, id))) = st.heap.peek().copied() else {
+                st = t.wake.wait(st).unwrap_or_else(|p| p.into_inner());
+                continue;
+            };
+            let now = Instant::now();
+            if at > now {
+                st = t
+                    .wake
+                    .wait_timeout(st, at - now)
+                    .map(|(g, _)| g)
+                    .unwrap_or_else(|p| p.into_inner().0);
+                continue;
+            }
+            st.heap.pop();
+            if let Some(job) = st.jobs.remove(&id) {
+                drop(st);
+                job();
+                st = lock(&t.state);
+            }
+        }
+    }
+}
+
+/// Run `job` after `delay` on the process's one timer thread, which starts with the first
+/// timer. Parts use it for limits and backoff instead of parking a thread per wait. Jobs run one
+/// at a time, so a job should hand longer work elsewhere. The browser has no threads: there a
+/// timer never fires, and web code keeps its own clock.
+pub fn schedule(delay: std::time::Duration, job: impl FnOnce() + Send + 'static) -> TimerId {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        timer_thread::schedule(delay, job)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (delay, job);
+        0
+    }
+}
+
+/// Forget a timer that has not fired. A timer that already fired, or an unknown id, is a no-op.
+pub fn unschedule(id: TimerId) {
+    #[cfg(not(target_arch = "wasm32"))]
+    timer_thread::unschedule(id);
+    #[cfg(target_arch = "wasm32")]
+    let _ = id;
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod timer_tests {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn timers_fire_in_order_and_unscheduled_ones_never_do() {
+        let (tx, rx) = mpsc::channel();
+        let start = Instant::now();
+        let second = tx.clone();
+        let never = tx.clone();
+        super::schedule(Duration::from_millis(60), move || second.send(2).unwrap());
+        super::schedule(Duration::from_millis(20), move || tx.send(1).unwrap());
+        let dropped = super::schedule(Duration::from_millis(40), move || never.send(9).unwrap());
+        super::unschedule(dropped);
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(1));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)), Ok(2));
+        assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+        assert!(start.elapsed() >= Duration::from_millis(60));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

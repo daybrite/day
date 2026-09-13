@@ -14,7 +14,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: v1 shipped through phase 7 (2026-08).** The synchronous surface described here is in
 > the tree: every arm language and both generators, with `day-part-speech` as the reference
 > crate, since 2026-09 in a separate repository ([day-part-speech](https://github.com/daybrite/day-part-speech)). What remains is [phase 8](#implementation-phases), migrating the other synchronous parts,
-> and phase 9's gates; async, callbacks, and streams are [after v1](#after-v1). The type table,
+> and phase 9's gates; [callbacks](#callbacks) and [streams](#streams) shipped after v1. The type table,
 > the ownership rule, the threading rule, and the naming derivation are the API surface; changing
 > them now invalidates every arm written against them.
 
@@ -169,6 +169,9 @@ The table leaves out these rules:
   ```rust
   #[day_bridge::impl(cpp, platforms = [windows], encoding = "utf16", link = ["ole32", "sapi"])]
   ```
+- **A string or bytes argument reserves two names.** It crosses JavaScript, C and Swift as a
+  pointer and a length named `<arg>_ptr` and `<arg>_len`, so a declaration with `body: &[u8]`
+  cannot also take an argument called `body_len`. The build fails with the colliding name.
 - **`#[day_bridge::data]` structs are POD**: fields from this table only; v1 allows neither
   nesting nor `Option`. A struct is copied across the boundary, never shared.
 - **A struct is not versioned.** It crosses by layout, so changing a field is a breaking change to
@@ -183,8 +186,8 @@ The table leaves out these rules:
   until the arm returns and can report nothing afterwards; see
   [Synchronous means dispatched](#synchronous-means-dispatched) for what an `Ok` then promises.
   A function whose last argument is `day_bridge::Done<T>` answers later, through
-  [the callback tier](#callbacks). Streams (repeated delivery) are still deferred
-  ([After v1](#after-v1)).
+  [the callback tier](#callbacks), and one whose last argument is `day_bridge::Emit<T>` delivers
+  repeatedly through [streams](#streams).
 
 ## Ownership
 
@@ -331,7 +334,44 @@ same completion. The completion export for ArkTS has one uniform shape for every
 synchronous ArkTS arm may return a scalar (a boolean or a number), which the dispatcher hands
 back the same way; strings and bytes come back only through a `Done<T>`.
 
-**Kotlin `suspend` arms and streams** are not built.
+**Kotlin `suspend` arms** are not built.
+
+## Streams
+
+A function whose **last** argument is `day_bridge::Emit<T>` delivers any number of values, then
+ends or fails. Like a callback, it returns once the platform accepted the request:
+
+```rust
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        /// Each frame of one exchange, in order, then the end.
+        fn exchange_native(url: &str, emit: day_bridge::Emit<Vec<u8>>) -> Result<(), day_bridge::Error>;
+    }
+}
+```
+
+`T` takes the same types as a callback's. The generator emits, on every target:
+
+| Generated | Shape |
+|---|---|
+| `<fn>_stream(args…, on_item)` | `on_item: impl FnMut(day_bridge::Item<T>) + Send + 'static`; returns the stream's token |
+| `<fn>_stop(token)` | stops listening: the slot goes away and later values are dropped |
+| a `static` `Streams<T>` | the callbacks listening on this function, keyed by token |
+
+`Item<T>` is `Value(T)`, `End` or `Failed(Error)`. A foreign arm answers through three helpers:
+`<fn>_emit(emit, value)`, `<fn>_end(emit)` and `<fn>_fail(emit, message)`, over the same exported
+symbol the callback tier uses, whose status argument tells a value from the end. A Rust arm calls
+`emit.emit(value)`, `emit.end()` and `emit.fail(error)` on the handle.
+
+**In order, one at a time, and the end once.** Values pushed from several threads reach the
+callback serially and in push order: the first pusher drains the slot's queue while the others
+only enqueue, so a callback never runs twice at once. The callback may stop its own stream. After
+`End` or `Failed`, nothing more is delivered.
+
+**Flow control belongs to the part.** A stream carries no demand of its own. A part that needs
+backpressure declares a plain function for it: day-part-http's Android arm reads a response body
+only as far as the client's `demand_native` calls allow ([docs/http.md](http.md) "Transports").
 
 ## Errors
 
@@ -608,7 +648,8 @@ can be cut without stranding the phases before them.
 
 Deferred with the callback tier, not scheduled here: `day-part-location`, `day-part-sensors`,
 `day-part-permissions`, and `day-part-local-notify`, whose Android shims push events back to Rust
-(6, 6, 1, and 1 listener respectively) and therefore need [callbacks and streams](#after-v1).
+(6, 6, 1, and 1 listener respectively) and therefore need [callbacks](#callbacks) and
+[streams](#streams), both built since.
 
 ## After v1
 
@@ -617,10 +658,10 @@ Deferred, each with its shape sketched so v1 doesn't foreclose it:
 - **Callbacks and futures** shipped 2026-09 as [the callback tier](#callbacks), with one
   divergence from the sketch: the trampoline does not post to the main loop (see
   [Threads](#threads)).
-- **Streams.** Sensors and location want repeated delivery rather than a completion. This is a
-  separate declaration (`#[day_bridge::stream]`) rather than a relaxation of the at-most-once
-  callback rule: an `Emit<T>` fires many times and a paired stop arm ends it. The token
-  registry and the per-language completion symbols are its building blocks.
+- **Streams** shipped 2026-09 as [the stream tier](#streams). The sketch named a separate
+  `#[day_bridge::stream]` attribute; the tier instead recognizes an `Emit<T>` last argument, the way
+  the callback tier recognizes `Done<T>`, and the generated `<fn>_stop` replaces the paired stop
+  arm.
 - **Kotlin `suspend` arms**, launched by the generated wrapper and completing the token from the
   coroutine; opt-in per arm, since it pulls kotlinx-coroutines into the app's Gradle graph.
 - **The ArkTS Rust half** shipped 2026-09 (see [Callbacks](#callbacks)); a synchronous
@@ -638,7 +679,7 @@ Settled 2026-08-10, recorded so the reasoning outlives the discussion:
 | Win32 string width | **Opt-in per arm** (`encoding = "utf16"`), UTF-8 by default | A UTF-8 C library on Windows stays natural; an arm calling a wide API asks for what it needs |
 | Kotlin `suspend` | **Deferred** past the callback tier | Bridgeable now that tokens exist; waits for an arm that needs it |
 | Where a completion runs | **The platform's thread**; the generated future is the door to the UI thread (2026-09) | Posting from generated code would make an arm behave differently under `cargo test` and in an app, and a part may never call `on_main` ([docs/async.md](async.md) rule 3) |
-| Multi-shot callbacks | **Deferred**; a separate `#[day_bridge::stream]` when it lands | Sensors and location need repeated delivery, which is a different shape from at-most-once completion; half-building either would foreclose the other |
+| Multi-shot callbacks | **A separate tier**, built 2026-09 as `Emit<T>` ([Streams](#streams)) | Sensors and location need repeated delivery, which is a different shape from at-most-once completion; half-building either would foreclose the other |
 | Struct evolution | **No versioning.** A change breaks every arm at once, and file-form arms are signature-validated | Everything regenerates in one build, so the only drift risk is the hand-written file arm, which the validator catches |
 
 The one open question of v1 — whether to reserve argument space for the callback tier's `u64`

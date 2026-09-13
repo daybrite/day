@@ -50,6 +50,7 @@ members = [
     "parts/day-part-deviceinfo",
     "parts/day-part-fs",
     "parts/day-part-http",
+    "parts/day-part-downloads",
     "parts/day-part-permissions",
     "parts/day-part-location",
     "parts/day-part-local-notify",
@@ -143,6 +144,7 @@ day-part-wakelock = { path = "parts/day-part-wakelock", version = "0.4.3" }
 day-part-prefs ={ path = "parts/day-part-prefs", version = "0.4.3" }
 day-part-deviceinfo = { path = "parts/day-part-deviceinfo", version = "0.4.3" }
 day-part-http = { path = "parts/day-part-http", version = "0.4.3" }
+day-part-downloads = { path = "parts/day-part-downloads", version = "0.4.3" }
 day-part-permissions = { path = "parts/day-part-permissions", version = "0.4.3" }
 day-part-location = { path = "parts/day-part-location", version = "0.4.3" }
 day-part-local-notify = { path = "parts/day-part-local-notify", version = "0.4.3" }
