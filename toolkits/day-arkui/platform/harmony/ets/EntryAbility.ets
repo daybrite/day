@@ -2,6 +2,7 @@ import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.Ab
 import { window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import nativeEntry from 'libentry.so';
+import { registerDayBridges } from '../daybridge/DayBridges';
 
 // The app's main ability — the framework's, staged into `entry/src/main/ets/day/` by `day build`
 // from the day-arkui crate (docs/harmonyos.md). An app never edits this copy.
@@ -20,6 +21,10 @@ export default class EntryAbility extends UIAbility {
     // `start()` — runs. This is the HarmonyOS analogue of Android's intent-extra env delivery
     // (day/src/lib.rs): `day launch` passes them as `aa start --ps` string parameters.
     EntryAbility.applyLaunchEnv(want);
+    // Every bridged crate's ArkTS arm (docs/bridge.md "Callbacks"), by symbol, before the
+    // native side can ask for one. `day build` generates the aggregator, empty when no crate
+    // in the app carries an ArkTS arm.
+    nativeEntry.registerDayBridges(registerDayBridges());
     // The app's private files directory, for day-part-fs (docs/fs.md) — here rather than in
     // applyLaunchEnv, which is static and has no ability context.
     nativeEntry.setEnv('DAY_DATA_DIR', this.context.filesDir);

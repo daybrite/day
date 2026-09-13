@@ -2930,8 +2930,11 @@ repository in 2026-08; the runtime crate remains, with no in-repo app building a
 > token registry beneath. One divergence from the recorded design below: a completion runs on
 > the thread the platform delivers it on, and the generated future is what brings the answer
 > to the UI thread — generated code never posts to the main loop, so a bridged crate still works
-> in a plain `main` and under `cargo test` ([docs/async.md](docs/async.md) rule 3). Streams, Kotlin
-> `suspend` arms, and the ArkTS Rust half remain in "After v1".
+> in a plain `main` and under `cargo test` ([docs/async.md](docs/async.md) rule 3). The ArkTS arm
+> gained its Rust half with the tier: the ArkUI shim dispatches a call onto the JS thread
+> (`day_ark_bridge_invoke`, posted and awaited from any other thread) and settles a returned
+> promise into the token; the host registers every arm at startup (`registerDayBridges`).
+> Streams and Kotlin `suspend` arms remain in "After v1".
 
 **The problem, measured.** Eleven parts (battery, clipboard, deviceinfo, haptics, http,
 local-notify, location, network, permissions, prefs, sensors) each carry an Android shim, and every

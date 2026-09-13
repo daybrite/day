@@ -19,6 +19,10 @@
 
 #include <sys/mman.h>
 #include <unistd.h>
+#include <condition_variable>
+#include <dlfcn.h>
+#include <pthread.h>
+#include <vector>
 
 #include <arkui/drag_and_drop.h>
 #include <arkui/native_gesture.h>
@@ -2423,6 +2427,389 @@ static napi_value OnPermissionResult(napi_env env, napi_callback_info info) {
     return undef;
 }
 
+// ---- daybridge: ArkTS arms (docs/bridge.md "Callbacks") ------------------------------------
+// The host hands over the record `registerDayBridges()` built — `{ 'day_bridge_<crate>_<fn>':
+// Function }` — and generated Rust reaches an arm through `day_ark_bridge_invoke`, which runs it
+// on the JS thread (inline from that thread, posted and awaited from any other). An asynchronous
+// arm gets its `Done` token as a trailing number and answers through `dayBridgeComplete`, or by
+// returning a promise, which this shim settles into the same completion. The completion is one
+// uniform C export per function in the app's own cdylib (`day_bridge_complete_arkts_<crate>_<fn>`),
+// resolved here by name.
+
+// One argument crossing from Rust: `kind` selects the field (0 bool, 1 i32, 2 i64, 3 f64,
+// 4 utf-8 string, 5 bytes) — `day_bridge::arkts::Arg`.
+struct DayArkArg {
+    int32_t kind;
+    int64_t i;
+    double f;
+    const uint8_t* ptr;
+    size_t len;
+};
+
+typedef void (*DayBridgeCompleteFn)(uint64_t, int32_t, int64_t, double, const uint8_t*, size_t,
+                                    const uint8_t*, size_t);
+
+static napi_ref g_bridges = nullptr;
+static pthread_t g_js_thread;
+static bool g_js_thread_set = false;
+
+extern "C" int32_t day_ark_bridge_on_js_thread(void) {
+    return g_js_thread_set && pthread_equal(pthread_self(), g_js_thread) ? 1 : 0;
+}
+
+// A symbol of THIS library (the app's cdylib, libentry.so): the module is loaded RTLD_LOCAL by
+// the ArkTS runtime, so the process-wide default scope may not see it; a handle to our own file
+// always does.
+static void* day_bridge_self_symbol(const char* name) {
+    Dl_info info;
+    if (!dladdr((void*)&day_ark_bridge_on_js_thread, &info) || !info.dli_fname) return nullptr;
+    void* lib = dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD);
+    void* sym = nullptr;
+    if (lib) {
+        sym = dlsym(lib, name);
+        dlclose(lib);
+    }
+    if (!sym) sym = dlsym(RTLD_DEFAULT, name);
+    return sym;
+}
+
+// The host's record of every bridged crate's ArkTS arms: `registerDayBridges(record)`.
+static napi_value RegisterDayBridges(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    g_env = env;
+    if (g_bridges) {
+        napi_delete_reference(env, g_bridges);
+        g_bridges = nullptr;
+    }
+    if (argc > 0 && argv[0]) napi_create_reference(env, argv[0], 1, &g_bridges);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// Resolve a completion: marshal the JS value into the uniform shape and call the Rust export.
+static void day_bridge_complete(napi_env env, const char* symbol, uint64_t done, int32_t status,
+                                napi_value value, const std::string& message) {
+    auto fn = (DayBridgeCompleteFn)day_bridge_self_symbol(symbol);
+    if (!fn) {
+        OH_LOG_Print(LOG_APP, LOG_WARN, 0, "day", "day-bridge: no completion export %{public}s",
+                     symbol);
+        return;
+    }
+    int64_t num = 0;
+    double flt = 0;
+    std::string text;
+    const uint8_t* ptr = nullptr;
+    size_t len = 0;
+    napi_valuetype t = napi_undefined;
+    if (value) napi_typeof(env, value, &t);
+    switch (t) {
+        case napi_boolean: {
+            bool b = false;
+            napi_get_value_bool(env, value, &b);
+            num = b ? 1 : 0;
+            break;
+        }
+        case napi_number: {
+            napi_get_value_double(env, value, &flt);
+            num = (int64_t)flt;
+            break;
+        }
+        case napi_bigint: {
+            bool lossless = false;
+            napi_get_value_bigint_int64(env, value, &num, &lossless);
+            flt = (double)num;
+            break;
+        }
+        case napi_string: {
+            size_t n = 0;
+            napi_get_value_string_utf8(env, value, nullptr, 0, &n);
+            text.resize(n);
+            if (n > 0) napi_get_value_string_utf8(env, value, &text[0], n + 1, &n);
+            ptr = (const uint8_t*)text.data();
+            len = text.size();
+            break;
+        }
+        case napi_object: {
+            bool is = false;
+            if (napi_is_arraybuffer(env, value, &is) == napi_ok && is) {
+                void* data = nullptr;
+                size_t n = 0;
+                napi_get_arraybuffer_info(env, value, &data, &n);
+                ptr = (const uint8_t*)data;
+                len = n;
+            } else if (napi_is_typedarray(env, value, &is) == napi_ok && is) {
+                napi_typedarray_type type;
+                size_t length = 0;
+                void* data = nullptr;
+                napi_value ab = nullptr;
+                size_t offset = 0;
+                napi_get_typedarray_info(env, value, &type, &length, &data, &ab, &offset);
+                if (type == napi_uint8_array) {
+                    ptr = (const uint8_t*)data;
+                    len = length;
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    fn(done, status, num, flt, ptr, len, (const uint8_t*)message.data(), message.size());
+}
+
+// ArkTS side: `dayBridgeComplete(symbol, done, status, value, message)`.
+static napi_value DayBridgeComplete(napi_env env, napi_callback_info info) {
+    size_t argc = 5;
+    napi_value argv[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    if (argc < 3) return undef;
+    size_t n = 0;
+    napi_get_value_string_utf8(env, argv[0], nullptr, 0, &n);
+    std::string symbol(n, '\0');
+    if (n > 0) napi_get_value_string_utf8(env, argv[0], &symbol[0], n + 1, &n);
+    double done = 0, status = 0;
+    napi_get_value_double(env, argv[1], &done);
+    napi_get_value_double(env, argv[2], &status);
+    std::string message;
+    if (argc > 4 && argv[4]) {
+        napi_valuetype mt = napi_undefined;
+        napi_typeof(env, argv[4], &mt);
+        if (mt == napi_string) {
+            size_t m = 0;
+            napi_get_value_string_utf8(env, argv[4], nullptr, 0, &m);
+            message.resize(m);
+            if (m > 0) napi_get_value_string_utf8(env, argv[4], &message[0], m + 1, &m);
+        }
+    }
+    day_bridge_complete(env, symbol.c_str(), (uint64_t)done, (int32_t)status,
+                        argc > 3 ? argv[3] : nullptr, message);
+    return undef;
+}
+
+// A promise an arm returned: the two settle handlers share one context, freed by whichever
+// function object the runtime collects last.
+struct DayPromiseCtx {
+    std::string symbol;
+    uint64_t done;
+    int refs;
+};
+static void day_promise_ctx_release(napi_env, void* data, void*) {
+    auto ctx = (DayPromiseCtx*)data;
+    if (--ctx->refs == 0) delete ctx;
+}
+static napi_value DayPromiseResolved(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    void* data = nullptr;
+    napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+    auto ctx = (DayPromiseCtx*)data;
+    if (ctx) day_bridge_complete(env, ctx->symbol.c_str(), ctx->done, 0, argc > 0 ? argv[0] : nullptr, "");
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+static napi_value DayPromiseRejected(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    void* data = nullptr;
+    napi_get_cb_info(env, info, &argc, argv, nullptr, &data);
+    auto ctx = (DayPromiseCtx*)data;
+    std::string message;
+    if (argc > 0 && argv[0]) {
+        // `err.message` when the rejection is an Error, else its string form.
+        napi_valuetype t = napi_undefined;
+        napi_typeof(env, argv[0], &t);
+        napi_value text = argv[0];
+        if (t == napi_object) {
+            napi_value m = nullptr;
+            if (napi_get_named_property(env, argv[0], "message", &m) == napi_ok && m) text = m;
+        }
+        napi_value str = nullptr;
+        if (napi_coerce_to_string(env, text, &str) == napi_ok && str) {
+            size_t n = 0;
+            napi_get_value_string_utf8(env, str, nullptr, 0, &n);
+            message.resize(n);
+            if (n > 0) napi_get_value_string_utf8(env, str, &message[0], n + 1, &n);
+        }
+    }
+    if (ctx) day_bridge_complete(env, ctx->symbol.c_str(), ctx->done, 1, nullptr, message);
+    napi_value undef;
+    napi_get_undefined(env, &undef);
+    return undef;
+}
+
+// A scalar an arm returned, as the Rust side reads it: booleans and integers in `i`, numbers in
+// `f` (with `i` its truncation), anything else left as kind -1.
+static void day_bridge_capture(napi_env env, napi_value ret, DayArkArg* out) {
+    if (!out) return;
+    out->kind = -1;
+    out->i = 0;
+    out->f = 0;
+    out->ptr = nullptr;
+    out->len = 0;
+    if (!ret) return;
+    napi_valuetype t = napi_undefined;
+    napi_typeof(env, ret, &t);
+    if (t == napi_boolean) {
+        bool b = false;
+        napi_get_value_bool(env, ret, &b);
+        out->kind = 0;
+        out->i = b ? 1 : 0;
+    } else if (t == napi_number) {
+        napi_get_value_double(env, ret, &out->f);
+        out->kind = 3;
+        out->i = (int64_t)out->f;
+    } else if (t == napi_bigint) {
+        bool lossless = false;
+        napi_get_value_bigint_int64(env, ret, &out->i, &lossless);
+        out->kind = 2;
+        out->f = (double)out->i;
+    }
+}
+
+// Run one registered arm on the JS thread. 0 = the arm returned (or its promise is being
+// settled), 1 = it threw, 2 = no such arm is registered. A scalar return lands in `out`.
+static int32_t day_bridge_call_here(const char* symbol, const DayArkArg* args, size_t n,
+                                    uint64_t done, DayArkArg* out) {
+    if (!g_env || !g_bridges) return 2;
+    napi_env env = g_env;
+    napi_handle_scope scope;
+    napi_open_handle_scope(env, &scope);
+    int32_t result = 2;
+    napi_value record = nullptr;
+    napi_get_reference_value(env, g_bridges, &record);
+    napi_value fn = nullptr;
+    napi_valuetype ft = napi_undefined;
+    if (record && napi_get_named_property(env, record, symbol, &fn) == napi_ok && fn) {
+        napi_typeof(env, fn, &ft);
+    }
+    if (ft == napi_function) {
+        std::vector<napi_value> argv;
+        argv.reserve(n + 1);
+        for (size_t k = 0; k < n; k++) {
+            napi_value v = nullptr;
+            switch (args[k].kind) {
+                case 0: napi_get_boolean(env, args[k].i != 0, &v); break;
+                case 1:
+                case 2: napi_create_double(env, (double)args[k].i, &v); break;
+                case 3: napi_create_double(env, args[k].f, &v); break;
+                case 4:
+                    napi_create_string_utf8(env, (const char*)args[k].ptr, args[k].len, &v);
+                    break;
+                default: {
+                    // Bytes: a fresh ArrayBuffer the arm may keep, viewed as a Uint8Array.
+                    void* data = nullptr;
+                    napi_value ab = nullptr;
+                    napi_create_arraybuffer(env, args[k].len, &data, &ab);
+                    if (data && args[k].len > 0) memcpy(data, args[k].ptr, args[k].len);
+                    napi_create_typedarray(env, napi_uint8_array, args[k].len, ab, 0, &v);
+                    break;
+                }
+            }
+            argv.push_back(v);
+        }
+        if (done != 0) {
+            napi_value v = nullptr;
+            napi_create_double(env, (double)done, &v);
+            argv.push_back(v);
+        }
+        napi_value undef;
+        napi_get_undefined(env, &undef);
+        napi_value ret = nullptr;
+        napi_status st = napi_call_function(env, undef, fn, argv.size(), argv.data(), &ret);
+        bool pending = false;
+        napi_is_exception_pending(env, &pending);
+        if (st != napi_ok || pending) {
+            napi_value err = nullptr;
+            napi_get_and_clear_last_exception(env, &err);
+            OH_LOG_Print(LOG_APP, LOG_ERROR, 0, "day", "day-bridge: %{public}s threw", symbol);
+            result = 1;
+        } else {
+            result = 0;
+            day_bridge_capture(env, ret, out);
+            bool is_promise = false;
+            if (done != 0 && ret && napi_is_promise(env, ret, &is_promise) == napi_ok &&
+                is_promise) {
+                auto ctx = new DayPromiseCtx{symbol, done, 2};
+                napi_value resolved = nullptr, rejected = nullptr;
+                napi_create_function(env, "dayBridgeResolved", NAPI_AUTO_LENGTH,
+                                     DayPromiseResolved, ctx, &resolved);
+                napi_create_function(env, "dayBridgeRejected", NAPI_AUTO_LENGTH,
+                                     DayPromiseRejected, ctx, &rejected);
+                napi_add_finalizer(env, resolved, ctx, day_promise_ctx_release, nullptr, nullptr);
+                napi_add_finalizer(env, rejected, ctx, day_promise_ctx_release, nullptr, nullptr);
+                napi_value then = nullptr;
+                if (napi_get_named_property(env, ret, "then", &then) == napi_ok && then) {
+                    napi_value handlers[2] = {resolved, rejected};
+                    napi_value ignored = nullptr;
+                    napi_call_function(env, ret, then, 2, handlers, &ignored);
+                }
+            }
+        }
+    }
+    napi_close_handle_scope(env, scope);
+    return result;
+}
+
+// A call posted from another thread: the arguments are copied (the caller's buffers are only
+// valid until it returns, and it waits), and the caller parks on `cv` for the JS thread's answer.
+struct DayBridgeJob {
+    std::string symbol;
+    std::vector<DayArkArg> args;
+    std::vector<std::string> storage;
+    uint64_t done;
+    DayArkArg ret;
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool finished = false;
+    int32_t result = 2;
+};
+
+static void day_bridge_job_run(void* data) {
+    auto job = (DayBridgeJob*)data;
+    int32_t r = day_bridge_call_here(job->symbol.c_str(), job->args.data(), job->args.size(),
+                                     job->done, &job->ret);
+    {
+        std::lock_guard<std::mutex> lk(job->mtx);
+        job->result = r;
+        job->finished = true;
+    }
+    job->cv.notify_all();
+}
+
+// Rust-facing (day_bridge::arkts::invoke): run the arm registered under `symbol`. On the JS
+// thread the call is inline; from any other thread it is posted and awaited.
+extern "C" int32_t day_ark_bridge_invoke(const char* symbol, const DayArkArg* args, size_t n,
+                                         uint64_t done, DayArkArg* ret) {
+    if (!symbol) return 2;
+    if (day_ark_bridge_on_js_thread()) return day_bridge_call_here(symbol, args, n, done, ret);
+    if (!g_async_ready) return 2;
+    DayBridgeJob job;
+    job.symbol = symbol;
+    job.done = done;
+    job.ret = DayArkArg{-1, 0, 0.0, nullptr, 0};
+    job.args.reserve(n);
+    job.storage.reserve(n);
+    for (size_t k = 0; k < n; k++) {
+        DayArkArg a = args[k];
+        if ((a.kind == 4 || a.kind == 5) && a.ptr && a.len > 0) {
+            job.storage.emplace_back((const char*)a.ptr, a.len);
+            a.ptr = (const uint8_t*)job.storage.back().data();
+        }
+        job.args.push_back(a);
+    }
+    day_ark_post(day_bridge_job_run, &job);
+    std::unique_lock<std::mutex> lk(job.mtx);
+    job.cv.wait(lk, [&] { return job.finished; });
+    if (ret) *ret = job.ret;
+    return job.result;
+}
+
 // Rust-facing: ask the ArkTS prompter for `names` (0x1F-separated). Returns 1 when the request
 // went out and `cb` will be called with the grant mask on the JS thread; 0 when no prompter is
 // registered, in which case `cb` is never called. Runs on the JS thread, so a plain
@@ -2874,6 +3261,10 @@ static napi_value DayResized(napi_env env, napi_callback_info info) {
 }
 
 static napi_value NapiInit(napi_env env, napi_value exports) {
+    // The module registers on the JS thread: remember it, so a bridge call can tell whether it
+    // may run an arm inline or has to post (docs/bridge.md "Callbacks").
+    g_js_thread = pthread_self();
+    g_js_thread_set = true;
     napi_value fn;
     napi_create_function(env, "start", NAPI_AUTO_LENGTH, DayStart, nullptr, &fn);
     napi_set_named_property(env, exports, "start", fn);
@@ -2921,6 +3312,12 @@ static napi_value NapiInit(napi_env env, napi_value exports) {
     napi_set_named_property(env, exports, "navPageArea", fn);
     napi_create_function(env, "registerPiece", NAPI_AUTO_LENGTH, RegisterPiece, nullptr, &fn);
     napi_set_named_property(env, exports, "registerPiece", fn);
+    napi_create_function(env, "registerDayBridges", NAPI_AUTO_LENGTH, RegisterDayBridges, nullptr,
+                         &fn);
+    napi_set_named_property(env, exports, "registerDayBridges", fn);
+    napi_create_function(env, "dayBridgeComplete", NAPI_AUTO_LENGTH, DayBridgeComplete, nullptr,
+                         &fn);
+    napi_set_named_property(env, exports, "dayBridgeComplete", fn);
     napi_create_function(env, "pieceEvent", NAPI_AUTO_LENGTH, PieceEvent, nullptr, &fn);
     napi_set_named_property(env, exports, "pieceEvent", fn);
     return exports;

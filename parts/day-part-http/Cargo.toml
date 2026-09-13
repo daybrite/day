@@ -61,11 +61,10 @@ objc2-foundation = { version = "0.3", features = [
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 
-# The Rust fallback tier (Linux desktop + HarmonyOS): ureq is the tree's blessed minimal
-# synchronous client (day-cli's update check uses it); rustls/webpki enter ONLY these targets.
+# The Rust fallback tier (Linux desktop): ureq is the tree's blessed minimal synchronous client
+# (day-cli's update check uses it); rustls/webpki enter ONLY this target. HarmonyOS left it for
+# the ArkTS Network Kit through the bridge arm (src/bridge.rs, src/ohos.rs).
 [target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
-ureq = "3"
-[target.'cfg(all(target_os = "linux", target_env = "ohos"))'.dependencies]
 ureq = "3"
 
 # --- Android backend contribution (docs/extending.md) ---

@@ -36,6 +36,22 @@ export const registerPermissions: (
 // Report a permission prompt's outcome back to Day: bit i set when the i-th name was granted.
 export const onPermissionResult: (req: number, mask: number) => void;
 
+// daybridge (docs/bridge.md "Callbacks"): hand over the record `registerDayBridges()` in the
+// generated `daybridge/DayBridges.ets` builds — every bridged crate's ArkTS arm by symbol. Day
+// calls an arm on the JS thread; an asynchronous one receives its completion token as a trailing
+// number and answers through `dayBridgeComplete` (or by returning a promise).
+export const registerDayBridges: (record: Record<string, Function>) => void;
+
+// Resolve a bridge completion: `symbol` is the export named by the generated `<fn>_complete`
+// helper, `status` 0 for a value and 1 for a failure carrying `message`.
+export const dayBridgeComplete: (
+  symbol: string,
+  done: number,
+  status: number,
+  value: boolean | number | string | Uint8Array | undefined,
+  message: string
+) => void;
+
 // Hand the native side the app's ResourceManager so Day can read staged rawfile data resources
 // (§18.3) via OH_ResourceManager_*. Call once, before or after `start()`; until then the rawfile
 // resource opener returns nothing (day_ark_res_available == 0).

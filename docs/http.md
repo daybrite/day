@@ -117,10 +117,10 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 |---|---|---|
 | macOS + iOS | `NSURLSession` (shared ephemeral session; per-request delegate session for streaming) | objc2-foundation, shared `apple.rs` |
 | Android | OkHttp 4.12: the asynchronous forms through a daybridge Java arm (`src/bridge.rs`, a `Done<Vec<u8>>` completed from OkHttp's dispatcher — [docs/bridge.md](bridge.md) "Callbacks"), the blocking forms through the part-owned `DayHttp.java` shim; one `byte[]` envelope per call either way | `day-bridge`, `day-android` + `[package.metadata.day.android]` (staged Java + the okhttp Gradle coordinate) |
-| Windows | WinHTTP (winhttp.dll, resolved dynamically; `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`) | raw FFI (runtime lookup) |
+| Windows | WinHTTP (winhttp.dll, resolved dynamically; `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`): a synchronous session for the blocking forms, a `WINHTTP_FLAG_ASYNC` session with a status callback for `fetch_async`/`fetch_future` | raw FFI (runtime lookup) |
 | Web (`web-dom`) | the browser's `fetch()` via the day-dom shim's `day_dom_http_*` imports (request-id + AbortController); **async entry points only** — `fetch`/`fetch_to_file`/`fetch_streamed` return `Unsupported` | `web.rs` (wasm32; requires the day-dom host page, the day-part-prefs pattern) |
 | Linux | ureq 3 + rustls (the only tier that bundles TLS) | ureq, `fallback.rs` |
-| HarmonyOS | ureq 3 + rustls — the OSS 5.1 NDK has no HTTP C API (`HMS_Rcp_*` is HarmonyOS-NEXT-SDK-only) | ureq, same `fallback.rs` |
+| HarmonyOS | the ArkTS Network Kit (`@ohos.net.http`) through a daybridge ArkTS arm (`src/bridge.rs`): the OSS NDK has no HTTP C API, so the request runs on the JS thread and completes the bridge token; the blocking forms wait for that completion and answer `Unsupported` on the JS thread itself | `day-bridge`, `ohos.rs` (native only when `day build` staged the arm; a bare cargo build reports `Unavailable`) |
 | unknown/mock | catch-all: every call returns `HttpError::Unsupported` | — |
 
 `tier()` reports which of the three tiers the compiled target uses (`NativeStack`,
@@ -190,12 +190,19 @@ restriction), another reason `tier()` exists.
 on a native thread sees only the system loader). `fetch_async`/`fetch_to_file_async` are
 fire-and-forget wrappers that deliver on a background thread; see the Setter idiom above.
 
-Which thread that is differs by tier. Apple and Android are natively asynchronous: no Rust
-thread exists behind `fetch_async` or `fetch_future` — URLSession completes on its delegate
-queue, and on Android the bridge arm hands the call to OkHttp's own dispatcher and its
-`Callback` completes the bridge token from there (2026-09; before that a Rust thread per
-request parked inside `Call.execute()`). Windows and the Rust fallback still spawn a worker
-thread per asynchronous request and block it in the synchronous arm.
+Which thread that is differs by tier. Apple, Android, Windows and HarmonyOS are natively
+asynchronous: no Rust thread exists behind `fetch_async` or `fetch_future`. URLSession completes
+on its delegate queue; on Android the bridge arm hands the call to OkHttp's own dispatcher and
+its `Callback` completes the bridge token from there; on Windows a `WINHTTP_FLAG_ASYNC` session
+drives the request on WinHTTP's threads and its status callback delivers; on HarmonyOS the
+ArkTS arm runs the Network Kit's promise on the JS thread and settles the token (all 2026-09;
+before that a Rust thread per request parked inside the synchronous arm). Only the Rust
+fallback on desktop Linux still spawns a worker thread per asynchronous request.
+
+On HarmonyOS the blocking forms wait for that same completion, so they answer `Unsupported`
+when called on the JS thread — Day's UI thread there — where waiting would starve the loop that
+delivers it; and `fetch_streamed` delivers the whole body as one chunk, since the kit's
+streaming form is not bridged yet.
 
 On the web there is exactly one thread, and it must never wait: the blocking calls return
 `Unsupported` there, and `fetch_async`'s completion arrives on that sole (UI) thread from the
@@ -224,7 +231,9 @@ the request** where the platform can:
 | Apple | native — `NSURLSessionTask.cancel()`; a completion that beats the observer maps `NSURLErrorCancelled` → `HttpError::Cancelled` |
 | Android | native — OkHttp `Call.cancel()` through the bridge's `cancel_native(token)`, keyed by the `Done` token the arm registered BEFORE `enqueue` (sentinel −7 → `Cancelled`). No registration race remains: the token exists before the call is started, so a drop at any moment finds it |
 | Web | native — the shim's per-request `AbortController.abort()` (`day_dom_http_abort`), rejecting the in-flight fetch (or its body read) with `AbortError` → `Cancelled` |
-| Windows / fallback | discard-only — the request runs out on its worker thread under its `timeout` and the result is dropped |
+| Windows | native — `WinHttpCloseHandle` on the request from the dropping thread, WinHTTP's documented cancellation; the status callback then reports `ERROR_WINHTTP_OPERATION_CANCELLED` (12017) or closes straight to `HANDLE_CLOSING`, either of which delivers `Cancelled` exactly once |
+| HarmonyOS | native — `HttpRequest.destroy()` through the bridge's `cancel_native(token)`; the promise then rejects and the arm answers with the cancelled sentinel |
+| Rust fallback | discard-only — the request runs out on its worker thread under its `timeout` and the result is dropped |
 
 Aborting a `day::task` that awaits a `fetch_future` (or superseding a `day::reactive::Resource`
 fetch) drops the future and takes the same path. The showcase's URL checker aborts its previous

@@ -289,27 +289,36 @@ pub fn fetch_async(
         // `on_done` on the sole thread (docs/web.md).
         imp::fetch_async(req, Box::new(on_done));
     }
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", all(target_os = "linux", target_env = "ohos")))]
     {
-        // Natively async through the bridge arm: OkHttp's dispatcher runs the call and completes
-        // the token on its own thread (docs/bridge.md "Callbacks"). A start failure fires the
-        // callback with the error before this returns, so the token is not needed here.
+        // Natively async through the bridge arm: OkHttp's dispatcher (Android) or the ArkTS
+        // Network Kit on the JS thread (HarmonyOS) runs the call and completes the token
+        // (docs/bridge.md "Callbacks"). A start failure fires the callback with the error before
+        // this returns, so the token is not needed here.
         let _ = start_bridged(&req, on_done);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Natively async: a WINHTTP_FLAG_ASYNC session; WinHTTP's own threads drive the request
+        // and the status callback invokes `on_done` — no Rust thread.
+        imp::fetch_async(req, Box::new(on_done));
     }
     #[cfg(not(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "android",
-        target_arch = "wasm32"
+        target_os = "windows",
+        target_arch = "wasm32",
+        all(target_os = "linux", target_env = "ohos")
     )))]
     {
         std::thread::spawn(move || on_done(imp::fetch(&req)));
     }
 }
 
-/// Start `req` through the Android bridge arm, delivering the decoded response to `on_done`
-/// exactly once (docs/bridge.md "Callbacks"). `Ok` is the token a cancel takes.
-#[cfg(target_os = "android")]
+/// Start `req` through the bridge arm (Android, HarmonyOS), delivering the decoded response to
+/// `on_done` exactly once (docs/bridge.md "Callbacks"). `Ok` is the token a cancel takes.
+#[cfg(any(target_os = "android", all(target_os = "linux", target_env = "ohos")))]
 fn start_bridged(
     req: &Request,
     on_done: impl FnOnce(Result<Response, HttpError>) + Send + 'static,
@@ -452,12 +461,13 @@ fn start_future(req: Request, shared: Arc<Mutex<FutureState>>) -> Option<Box<dyn
     {
         imp::fetch_async_cancellable(req, Box::new(move |result| deliver_future(&shared, result)))
     }
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", all(target_os = "linux", target_env = "ohos")))]
     {
-        // The bridge arm registers the call under the token BEFORE `enqueue`, so a drop can never
-        // race the registration: the cancel closure fires `Call.cancel()` from whichever thread
-        // drops the future, and the completion then arrives as the `-7` sentinel
-        // (docs/http.md's cancel matrix). A start failure has already delivered its error.
+        // The bridge arm registers the call under the token BEFORE it starts, so a drop can never
+        // race the registration: the cancel closure fires `Call.cancel()` (Android) or
+        // `destroy()` (HarmonyOS) from whichever thread drops the future, and the completion
+        // then arrives as the `-7` sentinel (docs/http.md's cancel matrix). A start failure has
+        // already delivered its error.
         match start_bridged(&req, move |result| deliver_future(&shared, result)) {
             Ok(token) => Some(Box::new(move || bridge::cancel(token))),
             Err(_) => None,
@@ -471,16 +481,24 @@ fn start_future(req: Request, shared: Arc<Mutex<FutureState>>) -> Option<Box<dyn
         // leaves a cancel closure that harmlessly no-ops on an unknown id.
         imp::fetch_async_cancellable(req, Box::new(move |result| deliver_future(&shared, result)))
     }
+    #[cfg(target_os = "windows")]
+    {
+        // Natively async and cancellable: the closure closes the request handle, which is
+        // WinHTTP's cancellation from another thread; the callback then delivers `Cancelled`.
+        imp::fetch_async_cancellable(req, Box::new(move |result| deliver_future(&shared, result)))
+    }
     #[cfg(not(any(
         target_os = "macos",
         target_os = "ios",
         target_os = "android",
-        target_arch = "wasm32"
+        target_os = "windows",
+        target_arch = "wasm32",
+        all(target_os = "linux", target_env = "ohos")
     )))]
     {
-        // Windows / fallback / unavailable: blocking half on a worker thread; a drop before
+        // The Rust fallback / unavailable: blocking half on a worker thread; a drop before
         // the request started is a free discard, a drop mid-flight lets the request run out
-        // and discards the result (no platform cancel on these tiers — docs/http.md).
+        // and discards the result (no platform cancel on this tier — docs/http.md).
         std::thread::spawn(move || {
             if lock(&shared).cancelled {
                 return;
@@ -549,10 +567,15 @@ mod imp;
 #[path = "windows.rs"]
 mod imp;
 
-// Desktop Linux AND HarmonyOS (also `target_os = "linux"`) use the Rust fallback: Linux has no
-// OS-level HTTP service, and the OSS OpenHarmony NDK has no HTTP C API (only websocket).
-#[cfg(target_os = "linux")]
+// Desktop Linux uses the Rust fallback: Linux has no OS-level HTTP service.
+#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
 #[path = "fallback.rs"]
+mod imp;
+
+// HarmonyOS (also `target_os = "linux"`): the ArkTS Network Kit through the bridge arm — the
+// OSS OpenHarmony NDK has no HTTP C API (only websocket).
+#[cfg(all(target_os = "linux", target_env = "ohos"))]
+#[path = "ohos.rs"]
 mod imp;
 
 #[cfg(target_os = "android")]

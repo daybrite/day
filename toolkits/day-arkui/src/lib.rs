@@ -1217,6 +1217,30 @@ mod imp {
         })
     }
 
+    /// daybridge's door to an ArkTS arm (docs/bridge.md "Callbacks"): `day_bridge::arkts::invoke`
+    /// finds this by `dlsym` rather than a link-time dependency on this toolkit, and it forwards
+    /// to the shim's dispatcher, which runs the registered function on the JS thread.
+    #[unsafe(no_mangle)]
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `symbol`/`args` are valid for the call, per the bridge
+    pub extern "C" fn day_arkui_bridge_invoke(
+        symbol: *const c_char,
+        args: *const c_void,
+        n: usize,
+        done: u64,
+        ret: *mut c_void,
+    ) -> c_int {
+        day_spec::ffi_guard::contain(2, || unsafe {
+            ffi::day_ark_bridge_invoke(symbol, args, n, done, ret)
+        })
+    }
+
+    /// Whether the caller is the JS thread — the UI thread of a Day app here — where a bridged
+    /// crate's blocking call cannot wait for an ArkTS answer.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn day_arkui_bridge_on_js_thread() -> c_int {
+        unsafe { ffi::day_ark_bridge_on_js_thread() }
+    }
+
     /// The ArkTS host reports the app cache dir here (docs/files.md); it's the app-writable staging
     /// area for `save_file(..)`, since HarmonyOS's OS temp dir isn't writable by the app.
     #[unsafe(no_mangle)]

@@ -307,8 +307,28 @@ generated wrapper completes the token with the resolved value, or fails it with 
 message; an arm that answers from an event (`utterance.onend`) calls the helper instead and
 returns nothing. A thrown error is "failed to start", as for a synchronous arm.
 
-**Kotlin `suspend` arms, streams, and the ArkTS half** are not built: ArkTS modules are staged
-but the generator has no Rust half for them yet, so the fallback answers on HarmonyOS.
+**An ArkTS arm over a Huawei kit says so.** Core Speech, Push, Map, Scan and the other HMS kits
+are not in the public OpenHarmony SDK Day builds against, and the host compiles every staged
+ArkTS module, so one such import would fail the whole build. An arm that imports one declares
+`sdk = "hms"`; `day build` stages it only when hvigor's SDK carries an `hms` tree
+(`OHOS_BASE_SDK_HOME/<api>/hms`, DevEco's `default/hms`, or `DAY_OHOS_HMS=1`), and leaves it
+out otherwise — the crate's Rust half then finds no registered function and reports
+`Unsupported`, as day-part-speech does on an OpenHarmony-only build.
+
+**ArkTS arms run on the JS thread.** The generated Rust half reaches an arm through the ArkUI
+shim's dispatcher (`day_bridge::arkts::invoke`, found by `dlsym` at run time like the
+permissions prompter): from the JS thread — Day's UI thread on HarmonyOS — the call runs
+inline; from any other thread it is posted over the shim's `uv_async` rail and the caller
+parks until the loop has run it, so `Ok` still means the arm accepted the call. The host's
+`EntryAbility` hands the generated `DayBridges.ets` record to the native module at startup
+(`registerDayBridges`), and an arm completes through `dayBridgeComplete` — the generated
+`<fn>_complete`/`<fn>_fail` helpers — or by returning a promise, which the shim settles into the
+same completion. The completion export for ArkTS has one uniform shape for every value type
+(`day_bridge_complete_arkts_<crate>_<fn>`), and the shim marshals the JS value into it. A
+synchronous ArkTS arm may return a scalar (a boolean or a number), which the dispatcher hands
+back the same way; strings and bytes come back only through a `Done<T>`.
+
+**Kotlin `suspend` arms and streams** are not built.
 
 ## Errors
 
@@ -474,7 +494,7 @@ silently misread value.
 | A declared type outside the [type table](#types) | day-build, when the crate compiles |
 | No `other` arm in the crate | day-build; it could not compile under day-mock |
 | Two arms claiming the same target | day-build |
-| An unknown arm option, or an out-of-range `encoding`/`support` value | day-build |
+| An unknown arm option, or an out-of-range `encoding`/`support`/`sdk` value (`sdk` on a non-ArkTS arm too) | day-build |
 | A symbol prefix shared by two crates | `day build`, naming both manifests |
 | A file-form arm whose signature disagrees with the declaration | day-cli, per language |
 | A `package`, `namespace`, or `module` line inside a prelude | day-build |
@@ -600,10 +620,8 @@ Deferred, each with its shape sketched so v1 doesn't foreclose it:
   registry and the per-language completion symbols are its building blocks.
 - **Kotlin `suspend` arms**, launched by the generated wrapper and completing the token from the
   coroutine; opt-in per arm, since it pulls kotlinx-coroutines into the app's Gradle graph.
-- **The ArkTS Rust half.** ArkTS modules are staged and aggregated, but no generated Rust calls
-  into them and the host never calls `registerDayBridges()`; every ArkTS arm executes on the JS
-  thread, so the half is a `dlsym`'d invoke entry in the ArkUI shim posting over its `uv_async`
-  rail, with a synchronous arm parking a non-JS caller until the loop turns.
+- **The ArkTS Rust half** shipped 2026-09 (see [Callbacks](#callbacks)); a synchronous
+  `String`/`Vec<u8>` return still has no spelling on that arm.
 - **Kotlin/Java diagnostic remapping**, if inline arms in those languages turn out to be common
   enough to justify a `kotlinc` output rewriter.
 

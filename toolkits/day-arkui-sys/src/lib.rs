@@ -213,6 +213,19 @@ unsafe extern "C" {
     /// names, docs/permissions.md). Returns 1 when the request went out — `cb` is then called on
     /// the JS thread with the request id and a bit mask of the grants, in order — and 0 when no
     /// prompter is registered, in which case `cb` is never called.
+    /// daybridge (docs/bridge.md "Callbacks"): run the ArkTS arm registered under `symbol` with
+    /// `args` (`day_bridge::arkts::Arg`, `n` of them) on the JS thread, passing `done` as the
+    /// trailing completion token when nonzero. A scalar the arm returns lands in `ret` (an
+    /// `Arg`) when non-null. 0 = accepted, 1 = the arm threw, 2 = no such arm or no host.
+    pub fn day_ark_bridge_invoke(
+        symbol: *const c_char,
+        args: *const c_void,
+        n: usize,
+        done: u64,
+        ret: *mut c_void,
+    ) -> c_int;
+    /// Whether the caller is the JS thread (1) — where an ArkTS answer cannot be awaited.
+    pub fn day_ark_bridge_on_js_thread() -> c_int;
     pub fn day_ark_request_permissions(
         req: u64,
         names: *const c_char,

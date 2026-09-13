@@ -263,6 +263,138 @@ pub unsafe fn __take_wasm(ptr: *mut u8, len: usize) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr, len, len) }
 }
 
+/// The HarmonyOS side of the callback tier: how generated Rust reaches an ArkTS arm, and how a
+/// completion comes back (docs/bridge.md "Callbacks"). Every ArkTS arm runs on the JS thread; the
+/// ArkUI shim owns that dispatch, and this module finds the shim's entry at run time so a bridged
+/// crate keeps no link-time dependency on the toolkit — the same `dlsym` idiom
+/// day-part-permissions uses.
+#[cfg(all(target_os = "linux", target_env = "ohos"))]
+pub mod arkts {
+    use std::ffi::{c_char, c_int, c_void};
+
+    /// One argument crossing to ArkTS: `kind` selects the field (0 bool, 1 i32, 2 i64,
+    /// 3 f64, 4 str, 5 bytes), matching `DayArkArg` in the ArkUI shim.
+    #[repr(C)]
+    pub struct Arg {
+        pub kind: i32,
+        pub i: i64,
+        pub f: f64,
+        pub ptr: *const u8,
+        pub len: usize,
+    }
+
+    impl Arg {
+        fn plain(kind: i32, i: i64, f: f64) -> Self {
+            Self {
+                kind,
+                i,
+                f,
+                ptr: std::ptr::null(),
+                len: 0,
+            }
+        }
+        pub fn bool(v: bool) -> Self {
+            Self::plain(0, i64::from(v), 0.0)
+        }
+        pub fn i32(v: i32) -> Self {
+            Self::plain(1, i64::from(v), 0.0)
+        }
+        pub fn i64(v: i64) -> Self {
+            Self::plain(2, v, 0.0)
+        }
+        pub fn f64(v: f64) -> Self {
+            Self::plain(3, 0, v)
+        }
+        pub fn str(v: &str) -> Self {
+            Self {
+                kind: 4,
+                i: 0,
+                f: 0.0,
+                ptr: v.as_ptr(),
+                len: v.len(),
+            }
+        }
+        pub fn bytes(v: &[u8]) -> Self {
+            Self {
+                kind: 5,
+                i: 0,
+                f: 0.0,
+                ptr: v.as_ptr(),
+                len: v.len(),
+            }
+        }
+    }
+
+    type InvokeFn = unsafe extern "C" fn(*const c_char, *const Arg, usize, u64, *mut Arg) -> c_int;
+    type OnJsThreadFn = unsafe extern "C" fn() -> c_int;
+
+    unsafe extern "C" {
+        fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+    }
+
+    fn lookup(name: &std::ffi::CStr) -> *mut c_void {
+        // SAFETY: a plain symbol lookup in the running process, exactly as
+        // day-part-permissions resolves the shim's prompter.
+        unsafe { dlsym(std::ptr::null_mut(), name.as_ptr()) }
+    }
+
+    /// Call the ArkTS function registered under `symbol` with `args`, on the JS thread. `done`
+    /// is the completion token (0 for a synchronous function): the shim passes it as the
+    /// trailing argument, and completes it itself when the arm returns a promise. A call from
+    /// the JS thread runs inline; from any other thread it is posted and the caller parks until
+    /// the loop has run it, so `Ok` still means the arm accepted the call.
+    pub fn invoke(symbol: &str, args: &[Arg], done: u64) -> Result<(), super::Error> {
+        invoke_value(symbol, args, done).map(|_| ())
+    }
+
+    /// [`invoke`], keeping the arm's return value: a scalar the shim marshals into an [`Arg`]
+    /// (`i` for booleans and integers, `f` for numbers, both set for a JS number). What a
+    /// declaration returning `Result<T, Error>` reads its `T` from.
+    pub fn invoke_value(symbol: &str, args: &[Arg], done: u64) -> Result<Arg, super::Error> {
+        let entry = lookup(c"day_arkui_bridge_invoke");
+        if entry.is_null() {
+            return Err(super::Error::Runtime);
+        }
+        let Ok(name) = std::ffi::CString::new(symbol) else {
+            return Err(super::Error::Encoding);
+        };
+        let mut ret = Arg::plain(-1, 0, 0.0);
+        // SAFETY: the symbol is day-arkui's export with exactly this signature.
+        let invoke: InvokeFn = unsafe { std::mem::transmute(entry) };
+        match unsafe { invoke(name.as_ptr(), args.as_ptr(), args.len(), done, &mut ret) } {
+            0 => Ok(ret),
+            2 => Err(super::Error::Runtime),
+            _ => Err(super::Error::Foreign(format!("{symbol} failed"))),
+        }
+    }
+
+    /// Whether the caller is on the JS thread — the UI thread of a Day app on HarmonyOS, where
+    /// a blocking wait for an ArkTS answer would deadlock. `false` when no host is running.
+    pub fn on_js_thread() -> bool {
+        let entry = lookup(c"day_arkui_bridge_on_js_thread");
+        if entry.is_null() {
+            return false;
+        }
+        // SAFETY: the symbol is day-arkui's export with exactly this signature.
+        let f: OnJsThreadFn = unsafe { std::mem::transmute(entry) };
+        unsafe { f() != 0 }
+    }
+
+    /// Copy a buffer the shim passes to a completion export; it is valid only during the call.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point at `len` readable bytes, or be null.
+    #[doc(hidden)]
+    pub unsafe fn __bytes(ptr: *const u8, len: usize) -> Vec<u8> {
+        if ptr.is_null() || len == 0 {
+            return Vec::new();
+        }
+        // SAFETY: the caller's contract above.
+        unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+    }
+}
+
 /// Declare a crate's bridge: the API and its per-platform implementations.
 ///
 /// **The body is discarded.** This macro expands to nothing but an `include!` of the code
