@@ -115,7 +115,7 @@ mod tests {
         assert_eq!(slug("day-showcase"), "day-showcase");
         // Runs of separators collapse, and the edges are trimmed — never `--` or a leading `-`.
         assert_eq!(slug("  Day   Skies!! "), "day-skies");
-        assert_eq!(slug("Tradr 2.0"), "tradr-2-0");
+        assert_eq!(slug("Trader 2.0"), "trader-2-0");
         // Non-ASCII folds to the separator rather than reaching a URL unescaped (and here the
         // separator is then trimmed, being last).
         assert_eq!(slug("Café"), "caf");

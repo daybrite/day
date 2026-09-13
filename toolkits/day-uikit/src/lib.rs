@@ -8904,7 +8904,7 @@ mod imp {
                     //     <DayNavController> should have parent view controller <UIViewController>
                     //     but actual parent is <DayRootVC>
                     //
-                    // Two stacks under a tab bar is what surfaced it (one per tab, Day Tradr's
+                    // Two stacks under a tab bar is what surfaced it (one per tab, Day Trader's
                     // phone shell). A single one hid: only the SELECTED tab's view reaches a
                     // window at launch, and the check runs on the way in.
                     let host_vc = host_controller(child);
@@ -10140,7 +10140,7 @@ mod imp {
     /// animating there never completes once its view has left the window: the transition
     /// coordinator stays alive, the popped page stays on the stack, and `ui_idle` reports a
     /// UI that never settles — a walkthrough's every later screenshot failed "still settling"
-    /// on one variant in eight (Day-Tradr's back-then-switch on an iOS 27 iPhone). The
+    /// on one variant in eight (Day-Trader's back-then-switch on an iOS 27 iPhone). The
     /// selection already moved in Day's tree; only the native switch waits, bounded so a
     /// coordinator that never clears still gets its switch.
     fn tabs_select_when_settled(hp: usize, i: usize, attempt: u32) {

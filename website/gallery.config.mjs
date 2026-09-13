@@ -144,12 +144,12 @@ export const apps = [
     labels: { 'san-francisco-fahrenheit': 'San Francisco · in Fahrenheit' },
   },
   {
-    id: 'Day-Tradr',
-    label: 'Day Tradr',
+    id: 'Day-Trader',
+    label: 'Day Trader',
     blurb:
       'A stock watchlist that opens on the day at a glance: how many symbols moved which way, a sparkline per card, and the detail behind each one.',
-    repo: 'https://github.com/daybrite/Day-Tradr',
-    metadata: 'https://daybrite.github.io/Day-Tradr/gallery/gallery.json',
+    repo: 'https://github.com/daybrite/Day-Trader',
+    metadata: 'https://daybrite.github.io/Day-Trader/gallery/gallery.json',
     labels: {
       'watchlist-chip-absolute': 'Watchlist · absolute change',
       'watchlist-sorted': 'Watchlist · sorted',

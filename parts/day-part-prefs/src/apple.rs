@@ -13,7 +13,7 @@
 // the plist when it chooses, and on the simulator that was measured to be well after a scripted
 // run had ended (three writes to one key, the plist held the first). What survives a plain
 // relaunch is the daemon's copy, which is current; what loses the late writes is a REINSTALL of
-// the app, which migrates its container and rereads the stale plist. That cost Day-Tradr's iOS
+// the app, which migrates its container and rereads the stale plist. That cost Day-Trader's iOS
 // walkthrough matrix twice: once before `synchronize` was here at all, and once more because
 // `day launch` reinstalled the app for every locale variant — the CLI now installs a build once
 // per simulator and relaunches it. A preferences write is rare, small, and made because the

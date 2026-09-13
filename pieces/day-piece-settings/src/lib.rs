@@ -6,7 +6,7 @@
 //! applied live through day-core's appearance/locale seams. A COMPOSE piece: pure
 //! composition, no native code, works on every backend.
 //!
-//! The rows match the pattern Day-Skies/Day-Tradr/Day-Matrix each hand-rolled — one place
+//! The rows match the pattern Day-Skies/Day-Trader/Day-Matrix each hand-rolled — one place
 //! now — including the fixed element ids (`theme-picker`, `language-picker`) their
 //! walkthroughs assert. Labels come from the core catalog (`day-settings-*`,
 //! `day-theme-*`), so the rows localize with zero app keys.

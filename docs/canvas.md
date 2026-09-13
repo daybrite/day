@@ -82,7 +82,7 @@ renderer make.
 
 `smooth_polyline(&points, tension)` fits a Catmull-Rom spline through points and emits it as
 cubics. It passes through every point, so it is a drawing of the data rather than a fit to it.
-A spline still implies values between the samples, which is why Day Tradr smooths its
+A spline still implies values between the samples, which is why Day Trader smooths its
 sparklines and not the chart someone reads prices off.
 
 ### From SVG
@@ -316,6 +316,6 @@ are, rather than once per mark.
 `CanvasProps` holds the whole op list and a change replaces it, so a canvas is cheapest when its
 op count is stable and small. Two ways to keep it that way:
 
-- **One path over many segments.** Day Tradr's chart line went from one `Shape::Line` per sample
+- **One path over many segments.** Day Trader's chart line went from one `Shape::Line` per sample
   (about 250 ops for a year of daily closes, every corner unjoined) to a single path op.
 - **One stamp over many identical marks** — see [Stamping](#stamping) above.

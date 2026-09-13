@@ -310,7 +310,7 @@ Five things this backend learned the hard way:
 - **A tab switch waits for the visible stack's transition.** Switching tabs hides the outgoing
   tab's navigation controller, and a pop still animating there never finishes once its view has
   left the window: the transition coordinator stays alive, the popped page stays on the stack,
-  and every later screenshot reports the UI still settling (Day-Tradr's back-then-switch on
+  and every later screenshot reports the UI still settling (Day-Trader's back-then-switch on
   iOS 27, one walkthrough variant in eight). The selection moves in Day's tree at once; the
   native switch is deferred a few runloop turns until no on-screen stack is transitioning.
 - **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old

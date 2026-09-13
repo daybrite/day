@@ -1821,7 +1821,7 @@ pub fn launch_ios(
         // the daemon write on the simulator (measured: three chip-mode writes in a scripted
         // run, the plist held the first; a relaunch WITHOUT reinstall showed the last, and only
         // then did the plist follow). So a setting written late in one variant was gone by the
-        // next — Day-Tradr's iOS matrix, where the symbol one run removed was back for the
+        // next — Day-Trader's iOS matrix, where the symbol one run removed was back for the
         // next. A plain terminate + launch keeps the container and the daemon's cache, and the
         // app reads what it last wrote.
         if simulator_needs_install(udid, &outcome.artifact) {

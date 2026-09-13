@@ -4139,7 +4139,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    `preferReleaseScreenshots` in `website/gallery.config.mjs` is on (2026-09-13). The other is the
    fallback, and so is any index whose first capture URL does not resolve. daybrite.dev links those
    hosted images: one copy of the bytes, owned by the app that captured them, and `/gallery/<App>/`
-   for each of Day-Showcase, Day-Rise, Day-Skies, Day-Tradr, Day-News, Day-Sketch and Day-Games
+   for each of Day-Showcase, Day-Rise, Day-Skies, Day-Trader, Day-News, Day-Sketch and Day-Games
    under a hub at `/gallery/`.
    Adding an app is one entry in `website/gallery.config.mjs`; its rows, columns, themes and
    languages come from its index, so a newly captured screen appears with no change here. An
