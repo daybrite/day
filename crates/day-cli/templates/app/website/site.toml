@@ -43,6 +43,11 @@ host = "https://{{org}}.github.io/{{repo}}"
 # a bookmarked #<target> fragment (/en/#macos-appkit) outranks both.
 # default-platform = "web"
 
+# What the app mark does when a visitor hovers or taps it, by moving the layers the SVG master
+# marks (day:background, day:foreground, day:monochrome): raise, tilt, bloom, emboss, iris,
+# spin, or none. https://github.com/daybrite/daysite#icon-effect
+# icon-effect = "raise"
+
 # Locale tags the site is kept in sync with — maintained by `day localize add/remove`, not by hand.
 # locales = ["en"]
 

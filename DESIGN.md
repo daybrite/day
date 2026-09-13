@@ -2038,7 +2038,7 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   built it from the rows page's menu before that menu existed, GTK's foot switcher fell
 >   below the pane's clipped edge — so both now use the toolkit's own tab control (an
 >   `NSTabView` owning the pages; an `AdwViewSwitcher` over the `AdwViewStack`, pages in
->   filling `DayCell`s), labelled when the `NAV_MENU` is inserted; Qt's `QTabWidget` now
+>   filling `DayCell`s), labeled when the `NAV_MENU` is inserted; Qt's `QTabWidget` now
 >   honors a programmatic `NavPatch::Select` too (its suite branch was unreachable).
 > - **Section headers in a derived sidebar** *(2026-09)* — `nav(…).section(title)` and
 >   `item(…).section(title)` open a group header before the next row, so a data-driven,

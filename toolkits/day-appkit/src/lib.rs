@@ -1335,7 +1335,7 @@ struct NavState {
     /// changes it — push, pop and select alike — so a re-present can carry it across.
     selected: usize,
     /// The tab view (`NavPresentation::Tabs` only), holding the detail pages as its items and
-    /// labelled from the same rows the sidebar's outline view shows; a pick emits
+    /// labeled from the same rows the sidebar's outline view shows; a pick emits
     /// `SelectionChanged` against the same NAV_MENU node.
     tabs: Option<TabHost>,
     /// Back header (stack presentation only).
