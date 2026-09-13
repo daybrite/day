@@ -572,6 +572,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-async"
+version = "0.4.3"
+
+[[package]]
 name = "day-break"
 version = "0.4.3"
 dependencies = [
@@ -593,6 +597,7 @@ dependencies = [
 name = "day-bridge"
 version = "0.4.3"
 dependencies = [
+ "day-async",
  "day-spec",
 ]
 
@@ -819,6 +824,8 @@ version = "0.4.3"
 dependencies = [
  "block2",
  "day-android",
+ "day-bridge",
+ "day-build",
  "objc2",
  "objc2-foundation",
  "ureq",

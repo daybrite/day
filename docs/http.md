@@ -31,7 +31,7 @@ fallback).
 ```rust
 use day_part_http::{Request, fetch};
 
-// Blocking — call it off the UI thread (a worker thread, or day::task's pool).
+// Blocking — call it off the UI thread (a worker thread of your own).
 let resp = fetch(&Request::get("https://api.example.com/data.json"))?;
 if (200..300).contains(&resp.status) {
     let body: MyData = serde_json::from_slice(&resp.body)?;
@@ -58,7 +58,8 @@ let status: Signal<String> = Signal::new(String::new());
 let done = status.setter(); // Copy + Send; hops to the UI thread itself
 day_part_http::fetch_async(Request::get(url), move |result| {
     // Runs on an UNSPECIFIED BACKGROUND thread (URLSession's delegate queue on Apple,
-    // a spawned thread elsewhere). Never touch UI state directly here.
+    // OkHttp's dispatcher on Android, a spawned thread on Windows and the Rust fallback).
+    // Never touch UI state directly here.
     if let Ok(resp) = result {
         done.set(resp.text()); // no-ops harmlessly if the page was disposed meanwhile
     }
@@ -115,7 +116,7 @@ implements HTTP `Range` resume by deciding append-vs-restart in `head()`.
 | OS | API | dependency |
 |---|---|---|
 | macOS + iOS | `NSURLSession` (shared ephemeral session; per-request delegate session for streaming) | objc2-foundation, shared `apple.rs` |
-| Android | OkHttp 4.12 via the part-owned `DayHttp.java` shim; one `byte[]` envelope per call | `day-android` + `[package.metadata.day.android]` (staged Java + the okhttp Gradle coordinate) |
+| Android | OkHttp 4.12: the asynchronous forms through a daybridge Java arm (`src/bridge.rs`, a `Done<Vec<u8>>` completed from OkHttp's dispatcher — [docs/bridge.md](bridge.md) "Callbacks"), the blocking forms through the part-owned `DayHttp.java` shim; one `byte[]` envelope per call either way | `day-bridge`, `day-android` + `[package.metadata.day.android]` (staged Java + the okhttp Gradle coordinate) |
 | Windows | WinHTTP (winhttp.dll, resolved dynamically; `WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`) | raw FFI (runtime lookup) |
 | Web (`web-dom`) | the browser's `fetch()` via the day-dom shim's `day_dom_http_*` imports (request-id + AbortController); **async entry points only** — `fetch`/`fetch_to_file`/`fetch_streamed` return `Unsupported` | `web.rs` (wasm32; requires the day-dom host page, the day-part-prefs pattern) |
 | Linux | ureq 3 + rustls (the only tier that bundles TLS) | ureq, `fallback.rs` |
@@ -189,6 +190,13 @@ restriction), another reason `tier()` exists.
 on a native thread sees only the system loader). `fetch_async`/`fetch_to_file_async` are
 fire-and-forget wrappers that deliver on a background thread; see the Setter idiom above.
 
+Which thread that is differs by tier. Apple and Android are natively asynchronous: no Rust
+thread exists behind `fetch_async` or `fetch_future` — URLSession completes on its delegate
+queue, and on Android the bridge arm hands the call to OkHttp's own dispatcher and its
+`Callback` completes the bridge token from there (2026-09; before that a Rust thread per
+request parked inside `Call.execute()`). Windows and the Rust fallback still spawn a worker
+thread per asynchronous request and block it in the synchronous arm.
+
 On the web there is exactly one thread, and it must never wait: the blocking calls return
 `Unsupported` there, and `fetch_async`'s completion arrives on that sole (UI) thread from the
 browser event loop. Both delivery idioms work unchanged: a captured `Setter` detects it is
@@ -214,7 +222,7 @@ the request** where the platform can:
 | tier | drop-cancel |
 |---|---|
 | Apple | native — `NSURLSessionTask.cancel()`; a completion that beats the observer maps `NSURLErrorCancelled` → `HttpError::Cancelled` |
-| Android | native — OkHttp `Call.cancel()` via a cancel-token registry in `DayHttp.java` (sentinel −7 → `Cancelled`). One microsecond-scale race is accepted: a drop that lands between the worker starting and the Java-side registration degrades to discard-only (the token registry stays leak-free by pairing every put with a finally-remove — no tombstones) |
+| Android | native — OkHttp `Call.cancel()` through the bridge's `cancel_native(token)`, keyed by the `Done` token the arm registered BEFORE `enqueue` (sentinel −7 → `Cancelled`). No registration race remains: the token exists before the call is started, so a drop at any moment finds it |
 | Web | native — the shim's per-request `AbortController.abort()` (`day_dom_http_abort`), rejecting the in-flight fetch (or its body read) with `AbortError` → `Cancelled` |
 | Windows / fallback | discard-only — the request runs out on its worker thread under its `timeout` and the result is dropped |
 

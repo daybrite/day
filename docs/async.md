@@ -106,6 +106,12 @@ its previous in-flight task on re-tap).
 - `FetchFuture` ([docs/http.md](http.md)) is oneshot plumbing over `fetch_async`'s completion callback;
   its `Drop` runs the platform cancel. It has no executor dependency; any executor can await
   it, including a test's `block_on`.
+- `day-async` (2026-09) holds that plumbing once, std-only: `oneshot()` — a `Deliver<T>` any
+  thread may send from and a `Oneshot<T>` any executor can await, resolving to `Dropped` rather
+  than pending forever when the sender goes away — and `TokenRegistry<T>`, the
+  register-before-call, remove-by-token map behind every platform completion that crosses an
+  FFI boundary as a number. The bridge's callback tier ([docs/bridge.md](bridge.md) "Callbacks")
+  is its first user; the parts' hand-rolled copies migrate onto it.
 
 ## Test hooks
 

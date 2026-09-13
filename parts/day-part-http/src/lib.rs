@@ -289,10 +289,46 @@ pub fn fetch_async(
         // `on_done` on the sole thread (docs/web.md).
         imp::fetch_async(req, Box::new(on_done));
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_arch = "wasm32")))]
+    #[cfg(target_os = "android")]
+    {
+        // Natively async through the bridge arm: OkHttp's dispatcher runs the call and completes
+        // the token on its own thread (docs/bridge.md "Callbacks"). A start failure fires the
+        // callback with the error before this returns, so the token is not needed here.
+        let _ = start_bridged(&req, on_done);
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "android",
+        target_arch = "wasm32"
+    )))]
     {
         std::thread::spawn(move || on_done(imp::fetch(&req)));
     }
+}
+
+/// Start `req` through the Android bridge arm, delivering the decoded response to `on_done`
+/// exactly once (docs/bridge.md "Callbacks"). `Ok` is the token a cancel takes.
+#[cfg(target_os = "android")]
+fn start_bridged(
+    req: &Request,
+    on_done: impl FnOnce(Result<Response, HttpError>) + Send + 'static,
+) -> Result<u64, day_bridge::Error> {
+    let timeout_ms = i32::try_from(req.timeout.as_millis()).unwrap_or(i32::MAX);
+    bridge::fetch_native_async(
+        req.method.as_str(),
+        &req.url,
+        &bridge::header_block(&req.headers),
+        req.body.as_deref().unwrap_or(&[]),
+        timeout_ms,
+        move |envelope| {
+            on_done(
+                envelope
+                    .map_err(bridge::bridge_error)
+                    .and_then(|e| imp::response_from_envelope(&e)),
+            )
+        },
+    )
 }
 
 /// Download the response body straight to `dest` (create/truncate), never buffering it in memory.
@@ -410,8 +446,7 @@ fn deliver_future(shared: &Arc<Mutex<FutureState>>, result: Result<Response, Htt
 }
 
 /// Start the platform request for [`fetch_future`]; returns the platform cancel closure
-/// (`None` on the discard tiers — Windows, the Rust fallback, and Android until its
-/// cancel-token rail below).
+/// (`None` on the discard tiers — Windows and the Rust fallback).
 fn start_future(req: Request, shared: Arc<Mutex<FutureState>>) -> Option<Box<dyn FnOnce() + Send>> {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
@@ -419,20 +454,14 @@ fn start_future(req: Request, shared: Arc<Mutex<FutureState>>) -> Option<Box<dyn
     }
     #[cfg(target_os = "android")]
     {
-        // The blocking Java call runs on a worker thread, registered under an OkHttp cancel
-        // token; the cancel closure fires `Call.cancel()` from whichever thread drops the
-        // future (the call then returns the `-7` sentinel). A drop that beats the worker's
-        // registration degrades to a discard — the cancelled-flag check below catches the
-        // drop-before-start case for free (docs/http.md's cancel matrix).
-        let token = imp::next_token();
-        std::thread::spawn(move || {
-            if lock(&shared).cancelled {
-                return;
-            }
-            let result = imp::fetch_with_token(&req, token);
-            deliver_future(&shared, result);
-        });
-        Some(Box::new(move || imp::cancel(token)))
+        // The bridge arm registers the call under the token BEFORE `enqueue`, so a drop can never
+        // race the registration: the cancel closure fires `Call.cancel()` from whichever thread
+        // drops the future, and the completion then arrives as the `-7` sentinel
+        // (docs/http.md's cancel matrix). A start failure has already delivered its error.
+        match start_bridged(&req, move |result| deliver_future(&shared, result)) {
+            Ok(token) => Some(Box::new(move || bridge::cancel(token))),
+            Err(_) => None,
+        }
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -506,6 +535,10 @@ pub fn fetch_streamed(req: &Request, sink: &mut dyn StreamSink) -> Result<Downlo
 // and `fn fetch_to_file(&Request, &Path) -> Result<Download, HttpError>`; Apple additionally
 // exposes the natively-async `fetch_async`.
 // ---------------------------------------------------------------------------
+
+// The bridged half (docs/bridge.md "Callbacks"): the Android asynchronous entry points. The
+// declaration and its fallback compile everywhere; only Android reaches the arm.
+mod bridge;
 
 // macOS + iOS share one NSURLSession impl.
 #[cfg(any(target_os = "macos", target_os = "ios"))]

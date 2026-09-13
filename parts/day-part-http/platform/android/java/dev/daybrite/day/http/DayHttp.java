@@ -7,7 +7,9 @@
 // The engine swap (from java.net.HttpURLConnection, 2026-07) adds HTTP/2, real PATCH, and
 // per-call cancellation — AOSP's HttpURLConnection has been a frozen OkHttp fork since 4.4,
 // so this is the same lineage, current. BLOCKING by design: the Rust side calls this on the
-// caller's (non-UI) thread via the attached JVM. Results cross JNI as ONE byte[] envelope
+// caller's (non-UI) thread via the attached JVM. The ASYNCHRONOUS entry points live in the
+// crate's bridge arm (src/bridge.rs, docs/bridge.md "Callbacks"), which shares this class's
+// client, header block, and error mapping. Results cross JNI as ONE byte[] envelope
 // (a single array copy each way):
 //   [0..4)  status as i32 BE; NEGATIVE = transport error sentinel:
 //           -1 timeout, -2 dns, -3 tls, -4 connect, -5 io, -6 bad url, -7 cancelled
@@ -23,7 +25,6 @@ import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
@@ -38,7 +39,7 @@ public final class DayHttp {
     // Per-call timeout variants via newBuilder() reuse them — an OkHttp-documented cheap clone.
     private static OkHttpClient base;
 
-    private static synchronized OkHttpClient client(int timeoutMs) {
+    public static synchronized OkHttpClient client(int timeoutMs) {
         if (base == null) base = new OkHttpClient();
         // connect/read/write are PER-PHASE idle-style bounds (no callTimeout), preserving the
         // crate's "timeout bounds progress, not the transfer" contract for long downloads.
@@ -49,27 +50,13 @@ public final class DayHttp {
                 .build();
     }
 
-    // In-flight calls by Rust-side cancel token. The put-before-execute / remove-in-finally
-    // pairing keeps the map leak-free (every put has a matching remove on the same thread);
-    // cancel() is remove-then-cancel with NO tombstone, so a cancel racing registration
-    // degrades to discard-only: the request runs out under its timeout with nobody reading
-    // the result (the Rust future is already gone).
-    private static final ConcurrentHashMap<Long, Call> CALLS = new ConcurrentHashMap<>();
-
-    // Cancel the in-flight call registered under token — safe from any thread (Call.cancel is).
-    public static void cancel(long token) {
-        Call c = CALLS.remove(token);
-        if (c != null) c.cancel();
-    }
-
-    public static byte[] fetch(String method, String url, String[] kv, byte[] body, int timeoutMs,
-                               long cancelToken) {
-        return run(method, url, kv, body, timeoutMs, null, cancelToken);
+    public static byte[] fetch(String method, String url, String[] kv, byte[] body, int timeoutMs) {
+        return run(method, url, kv, body, timeoutMs, null);
     }
 
     public static byte[] fetchToFile(String method, String url, String[] kv, byte[] body,
                                      int timeoutMs, String dest) {
-        return run(method, url, kv, body, timeoutMs, dest, 0);
+        return run(method, url, kv, body, timeoutMs, dest);
     }
 
     private static okhttp3.Request build(String method, String url, String[] kv, byte[] body) {
@@ -87,11 +74,10 @@ public final class DayHttp {
     }
 
     private static byte[] run(String method, String url, String[] kv, byte[] body,
-                              int timeoutMs, String dest, long token) {
+                              int timeoutMs, String dest) {
         Call call = null;
         try {
             call = client(timeoutMs).newCall(build(method, url, kv, body));
-            if (token != 0) CALLS.put(token, call);
             try (Response resp = call.execute()) {
                 int status = resp.code();
                 String headers = headerBlock(resp.headers());
@@ -111,12 +97,11 @@ public final class DayHttp {
             return error(-6, e); // Request.Builder.url rejected it (bad url / scheme)
         } catch (Exception e) {
             return mapError(call, e);
-        } finally {
-            if (token != 0) CALLS.remove(token);
         }
     }
 
-    private static byte[] mapError(Call call, Exception e) {
+    // Shared with the bridge arm: the sentinel envelope for a transport failure.
+    public static byte[] mapError(Call call, Exception e) {
         // Cancellation FIRST: a cancel mid-read surfaces as SocketException("Socket closed") or
         // IOException("Canceled"), not a distinct exception type — isCanceled() is the truth.
         if (call != null && call.isCanceled()) return error(-7, e);
@@ -127,7 +112,8 @@ public final class DayHttp {
         return error(-5, e);
     }
 
-    private static String headerBlock(Headers h) {
+    // Shared with the bridge arm: the envelope's header block, arrival order, duplicates kept.
+    public static String headerBlock(Headers h) {
         // Indexed iteration: arrival order, duplicates preserved.
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < h.size(); i++) {

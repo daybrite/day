@@ -179,9 +179,12 @@ The table leaves out these rules:
   shim, a stale arm fails the build instead of silently misreading a field.
 - **`Option<T>` does not cross.** Model absence in the value (`level: i32` with `-1` for unknown)
   or return `Result`. Four languages spell null four ways, and negotiating that is not worth v1.
-- **Synchronous functions only.** v1 bridges plain synchronous calls; callbacks and futures come
-  later. See [Synchronous means dispatched](#synchronous-means-dispatched) for what that does and
-  does not promise, and [After v1](#after-v1) for what it defers.
+- **A function is synchronous unless it carries a `Done<T>`.** A plain call blocks the caller
+  until the arm returns and can report nothing afterwards; see
+  [Synchronous means dispatched](#synchronous-means-dispatched) for what an `Ok` then promises.
+  A function whose last argument is `day_bridge::Done<T>` answers later, through
+  [the callback tier](#callbacks). Streams (repeated delivery) are still deferred
+  ([After v1](#after-v1)).
 
 ## Ownership
 
@@ -197,11 +200,18 @@ allocated by the callee and released by the generated free function on the side 
 
 ## Threads
 
-**Every foreign→Rust re-entry goes through `day_reactive::on_main`.** A callback that fires on an
-Android binder thread, a Swift completion on a background queue, or a JS event handler all land on
-Day's main loop before any Rust closure runs. This is the one rule that survived
-[§15.3's dayffi design](../DESIGN.md), and it is not optional: Day's UI is single-threaded, signals
-are not `Send`, and a callback that writes a signal from a platform thread is a data race.
+**A completion runs where the platform delivers it, and the generated future is the door
+home.** An Android binder thread, a Swift completion on a background queue, an OkHttp dispatcher
+thread, the browser's sole thread: the closure a `Done<T>` resolves runs right there, which is
+why it is `Send`. Nothing in a bridged crate calls `day_reactive::on_main` — a part must work in
+a plain `main` and under `cargo test`, where no main loop exists ([docs/async.md](async.md)
+rule 3). What brings an answer to the UI thread is the awaitable form: `<fn>_future(…).await`
+under `day::task` resumes on the UI thread, so the code after the `.await` writes signals
+directly. A callback user captures a `Setter` instead, the same idiom every part documents.
+
+This revises the rule dayffi left behind (every re-entry posts to the main loop): posting from
+generated code would make the same arm behave differently in a test and in an app, and Day's
+`!Send` signals are protected by the type system either way — a completion cannot capture one.
 
 A bridged call itself runs on the caller's thread. On Android that means the generated adapter
 attaches the JVM to the current thread and promotes any `jobject` it keeps to a `GlobalRef` before
@@ -223,15 +233,82 @@ invisible to the caller. Three consequences follow:
   (usually by logging), because a rejected promise cannot travel back through a synchronous return.
   Only a *thrown* error is convertible, which is why the type table lists "thrown" rather than
   "rejected promise" for those two languages.
-- An API whose result the caller needs (a permission prompt, a share sheet, speech-finished) does not
-  belong in a v1 bridge. Write it in Rust against the platform's callback, or wait for the
-  callback tier.
+- An API whose result the caller needs later (a permission prompt, a share sheet, an utterance
+  ending) declares a `Done<T>` and answers through [the callback tier](#callbacks).
 - Blocking the caller means blocking Day's UI thread if the call comes from an action. Keep
-  bridged work short; anything long enough to be felt belongs in a part with its own async API
-  until the callback tier lands.
+  bridged work short; anything long enough to be felt belongs behind a `Done<T>`.
 
-`day-part-speech` fits this: `speak` and `stop` are fire-and-forget on
-every platform, so the sync contract costs it nothing.
+`day-part-speech` uses both shapes: `stop` is fire-and-forget, and `speak` carries a `Done<i32>`
+that the engine completes when the utterance ends.
+
+## Callbacks
+
+A function whose **last** argument is `day_bridge::Done<T>` is asynchronous. It returns once the
+platform has ACCEPTED the request — its own return is `Result<(), day_bridge::Error>` and never
+a value — and it answers exactly once, later, through the handle:
+
+```rust
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        /// `done` completes with `1` finished, `0` stopped.
+        fn speak_native(text: &str, done: day_bridge::Done<i32>) -> Result<(), day_bridge::Error>;
+    }
+
+    #[day_bridge::impl(swift, platforms = [ios, macos])]
+    swift!(r#"
+        func speak_native(text: String, done: UInt64) throws {
+            let utterance = AVSpeechUtterance(string: text)
+            pending[ObjectIdentifier(utterance)] = done   // answer from the delegate later:
+            synthesizer.speak(utterance)                  // speak_native_complete(done, 1)
+        }
+    "#);
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn speak_native(_text: &str, _done: day_bridge::Done<i32>) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)   // an Err completes the caller with it
+    }
+}
+```
+
+`T` is `()`, a scalar, `String`, or `Vec<u8>`. The generator emits, on every target:
+
+| Generated | Shape |
+|---|---|
+| `<fn>_async(args…, on_done)` | `on_done: impl FnOnce(Result<T, Error>) + Send + 'static`; returns `Result<(), Error>` |
+| `<fn>_future(args…)` | `day_bridge::Completion<T>`, a `Future<Output = Result<T, Error>>` |
+| `<fn>(args…, done: Done<T>)` | the arm itself — a Rust arm's own signature, or the generated marshalling for a foreign one |
+| a `static` registry | the closures waiting on this function, keyed by token |
+
+**The token.** A foreign arm receives the handle as a `u64` trailing argument (`uint64_t`,
+`UInt64`, `long`, a `BigInt`) and answers with two generated helpers it can call from any thread,
+at any later time: `<fn>_complete(done, value)` and `<fn>_fail(done)` (`<fn>_fail(done, message)`
+on the JVM and the web, where a message can cross). Underneath is one exported symbol per
+function, `day_bridge_complete_<crate>_<fn>`, which the generated Rust owns: a `@_silgen_name`
+declaration in Swift, an `extern` in C and C++, a `private static native` on the JVM class, a
+wasm export the module reaches through the runtime the shim hands `register(rt)`. Tokens come
+from one process-wide counter and are never reused.
+
+**At most once, and never never.** The closure is registered before the arm is called, so an arm
+that completes synchronously, or fails before returning, is found either way. A completion for a
+token that was already answered, cancelled, or never issued is a no-op. An arm that returns `Err`
+completes the caller with that error — `<fn>_async` fires the callback and returns it, so either
+channel alone is a complete answer. An arm that returns `Ok` and never completes leaves the
+future pending; that is the arm's bug, and the same one a foreign API has when its own callback
+never fires.
+
+**Cancellation.** Dropping a `Completion` removes the slot: a late completion then finds nothing.
+It does not reach into the platform — a dropped `speak_future` stops listening, not the voice.
+An arm that can cancel exposes it as its own declared function (`stop_native`), which is what a
+caller pairs with the drop.
+
+**Promise-returning JavaScript arms complete themselves.** When a `js` arm returns a promise, the
+generated wrapper completes the token with the resolved value, or fails it with the rejection's
+message; an arm that answers from an event (`utterance.onend`) calls the helper instead and
+returns nothing. A thrown error is "failed to start", as for a synchronous arm.
+
+**Kotlin `suspend` arms, streams, and the ArkTS half** are not built: ArkTS modules are staged
+but the generator has no Rust half for them yet, so the fallback answers on HarmonyOS.
 
 ## Errors
 
@@ -456,7 +533,12 @@ restamps, and the second restamps *and* drops the source mtime.
 - The `other` arm is what makes `cargo test` and day-mock work on a development host, so it is
   mandatory.
 - Each bridged crate carries a test that calls every declared function and asserts only that it
-  does not panic, the shape `day-part-battery` already uses.
+  does not panic, the shape `day-part-battery` already uses. A crate with a `Done<T>` also
+  checks that the callback and the future both answer on the fallback (`day-part-speech`'s
+  `the_completing_forms_always_answer`), with the ~20-line park/unpark `block_on` from
+  [docs/async.md](async.md).
+- day-build's `bridge_c.rs` compiles a C arm that completes a token, and `bridge_js.rs` parses
+  a module whose arm returns a promise, so the generated helpers stay valid in both languages.
 - Real behavior is checked where the arm runs: a dayscript step in the showcase walkthrough, on
   every target's CI leg.
 
@@ -509,18 +591,19 @@ Deferred with the callback tier, not scheduled here: `day-part-location`, `day-p
 
 Deferred, each with its shape sketched so v1 doesn't foreclose it:
 
-- **Callbacks.** A callback argument becomes a `u64` token plus a generated completion function:
-  the Rust side boxes the closure into a registry, the arm calls
-  `day_bridge_complete_<sig>(token, …)`, and the trampoline posts to the main loop, invokes once,
-  and frees the slot. A callback fires at most once; dropping the handle makes a late completion a
-  no-op, the way a disposed signal absorbs a late `Resource` write ([docs/async.md](async.md)). Nothing in v1
-  may reuse the `u64` argument space in a way that would collide with a token.
-- **Futures.** Generated on top of callbacks, so parts keep the shape `day-part-fs` established
-  (`speak_future(text).await` under `day::task`).
+- **Callbacks and futures** shipped 2026-09 as [the callback tier](#callbacks), with one
+  divergence from the sketch: the trampoline does not post to the main loop (see
+  [Threads](#threads)).
 - **Streams.** Sensors and location want repeated delivery rather than a completion. This is a
   separate declaration (`#[day_bridge::stream]`) rather than a relaxation of the at-most-once
-  callback rule; deciding which came first is why both are deferred rather than half-built.
-- **Kotlin `suspend` arms**, once callbacks exist to bridge them onto.
+  callback rule: an `Emit<T>` fires many times and a paired stop arm ends it. The token
+  registry and the per-language completion symbols are its building blocks.
+- **Kotlin `suspend` arms**, launched by the generated wrapper and completing the token from the
+  coroutine; opt-in per arm, since it pulls kotlinx-coroutines into the app's Gradle graph.
+- **The ArkTS Rust half.** ArkTS modules are staged and aggregated, but no generated Rust calls
+  into them and the host never calls `registerDayBridges()`; every ArkTS arm executes on the JS
+  thread, so the half is a `dlsym`'d invoke entry in the ArkUI shim posting over its `uv_async`
+  rail, with a synchronous arm parking a non-JS caller until the loop turns.
 - **Kotlin/Java diagnostic remapping**, if inline arms in those languages turn out to be common
   enough to justify a `kotlinc` output rewriter.
 
@@ -532,13 +615,12 @@ Settled 2026-08-10, recorded so the reasoning outlives the discussion:
 |---|---|---|
 | Symbol collisions | **Fail the build**, naming both manifest paths | A path hash would make the failure silent and the symbol unreadable in a crash log; predictable names are what the derivation table is for |
 | Win32 string width | **Opt-in per arm** (`encoding = "utf16"`), UTF-8 by default | A UTF-8 C library on Windows stays natural; an arm calling a wide API asks for what it needs |
-| Kotlin `suspend` | **Deferred** with the rest of async | Nothing to bridge it onto until the callback tier exists |
+| Kotlin `suspend` | **Deferred** past the callback tier | Bridgeable now that tokens exist; waits for an arm that needs it |
+| Where a completion runs | **The platform's thread**; the generated future is the door to the UI thread (2026-09) | Posting from generated code would make an arm behave differently under `cargo test` and in an app, and a part may never call `on_main` ([docs/async.md](async.md) rule 3) |
 | Multi-shot callbacks | **Deferred**; a separate `#[day_bridge::stream]` when it lands | Sensors and location need repeated delivery, which is a different shape from at-most-once completion; half-building either would foreclose the other |
 | Struct evolution | **No versioning.** A change breaks every arm at once, and file-form arms are signature-validated | Everything regenerates in one build, so the only drift risk is the hand-written file arm, which the validator catches |
 
-One question remains, and it is low-stakes enough that the implementation will proceed on the
-default unless review says otherwise: **should v1 reserve argument space for the callback tier's
-`u64` tokens?** The proposed answer is no. Both sides of every call are generated from the same
-declaration and rebuilt together, and nothing here is a published ABI, so adding a trailing token
-argument later is a regeneration with no compatibility cost. Reserving space now would put an
-unused parameter in every signature for a tier that may change shape before it ships.
+The one open question of v1 — whether to reserve argument space for the callback tier's `u64`
+tokens — was answered by the tier itself: no space was reserved, and the token became a trailing
+argument the generator adds, exactly as the default predicted. Nothing here is a published ABI,
+so the regeneration cost nothing.

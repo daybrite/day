@@ -5,13 +5,14 @@
 // Android: OkHttp via this crate's own Java shim (DayHttp.java, staged by `day build` through
 // [package.metadata.day.android], with the okhttp Gradle dependency riding the same metadata) —
 // on the platform's policy rails: system ProxySelector, VPN routing, network security config +
-// user CA store, plus HTTP/2, PATCH, and per-call cancellation from the engine. The Java call
-// BLOCKS the calling thread (day-android's `with_env` attaches ANY thread to the JVM), matching
-// `fetch`'s contract; results cross JNI as one byte[] envelope (see DayHttp.java's header).
+// user CA store, plus HTTP/2 and PATCH. The Java call BLOCKS the calling thread (day-android's
+// `with_env` attaches ANY thread to the JVM), matching `fetch`'s contract; results cross JNI as
+// one byte[] envelope (see DayHttp.java's header). The asynchronous entry points do not come
+// through here: they are the crate's bridge arm (`src/bridge.rs`), which runs on OkHttp's own
+// dispatcher and completes a token — no thread, and cancellation by that token.
 // ---------------------------------------------------------------------------
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use day_android::jni::objects::{JObject, JValue};
 use day_android::{DayEnv, with_env};
@@ -22,30 +23,15 @@ pub const TIER: Tier = Tier::NativeStack;
 
 const CLASS: &str = "dev/daybrite/day/http/DayHttp";
 
-/// Cancel tokens for `fetch_with_token` (0 = not cancellable; ids never reused).
-static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
-
-pub fn next_token() -> u64 {
-    NEXT_TOKEN.fetch_add(1, Ordering::Relaxed)
-}
-
-/// Cancel the in-flight call registered under `token` (any thread). A miss — completed,
-/// unknown, or not yet registered — is a documented no-op (docs/http.md's cancel matrix).
-pub fn cancel(token: u64) {
-    with_env(|env| {
-        let _ = env.dcall_static(CLASS, "cancel", "(J)V", &[JValue::Long(token as i64)]);
-    });
-}
-
 pub fn fetch(req: &Request) -> Result<Response, HttpError> {
-    fetch_with_token(req, 0)
+    let envelope = call(req, None)?;
+    response_from_envelope(&envelope)
 }
 
-/// [`fetch`] registered under a cancel token: `cancel(token)` from another thread makes the
-/// blocking call return the `-7` sentinel → [`HttpError::Cancelled`].
-pub fn fetch_with_token(req: &Request, token: u64) -> Result<Response, HttpError> {
-    let envelope = call(req, None, token)?;
-    let (status, headers, payload) = unpack(&envelope)?;
+/// A response envelope — from the blocking shim or the bridge arm's completion — as a
+/// [`Response`], with the transport sentinels mapped to [`HttpError`].
+pub fn response_from_envelope(envelope: &[u8]) -> Result<Response, HttpError> {
+    let (status, headers, payload) = unpack(envelope)?;
     Ok(Response {
         status,
         headers,
@@ -54,7 +40,7 @@ pub fn fetch_with_token(req: &Request, token: u64) -> Result<Response, HttpError
 }
 
 pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> {
-    let envelope = call(req, Some(dest), 0)?;
+    let envelope = call(req, Some(dest))?;
     let (status, headers, payload) = unpack(&envelope)?;
     let bytes_written = payload
         .try_into()
@@ -67,9 +53,8 @@ pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> 
     })
 }
 
-/// Invoke the Java shim; returns the raw envelope bytes. `token` (fetch only) registers the
-/// call for [`cancel`]; 0 = not cancellable.
-fn call(req: &Request, dest: Option<&Path>, token: u64) -> Result<Vec<u8>, HttpError> {
+/// Invoke the Java shim; returns the raw envelope bytes.
+fn call(req: &Request, dest: Option<&Path>) -> Result<Vec<u8>, HttpError> {
     let timeout_ms = i32::try_from(req.timeout.as_millis()).unwrap_or(i32::MAX);
     with_env(|env| -> Result<Vec<u8>, HttpError> {
         let jerr = |e: day_android::jni::errors::Error| HttpError::Io(format!("jni: {e}"));
@@ -96,14 +81,13 @@ fn call(req: &Request, dest: Option<&Path>, token: u64) -> Result<Vec<u8>, HttpE
                 .dcall_static(
                     CLASS,
                     "fetch",
-                    "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[BIJ)[B",
+                    "(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;[BI)[B",
                     &[
                         JValue::Object(&method),
                         JValue::Object(&url),
                         JValue::Object(&kv),
                         JValue::Object(&body),
                         JValue::Int(timeout_ms),
-                        JValue::Long(token as i64),
                     ],
                 )
                 .map_err(jerr)?,

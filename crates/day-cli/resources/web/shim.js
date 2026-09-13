@@ -2241,10 +2241,26 @@ async function boot(wasmUrl) {
   // join `env` before instantiation. A name collision between two crates is impossible — every
   // import is `day_bridge_<crate>_<fn>` — but a module that fails to load must not take the app
   // down with it, so a failure is logged and its arm simply stays unimplemented.
+  // The runtime a bridge module gets. `exports` is a lazy accessor because the instance is bound
+  // only after every module has registered; an asynchronous arm's completion (docs/bridge.md
+  // "Callbacks") reaches wasm through it, handing strings and bytes over as (ptr, len) pairs it
+  // allocated with `intoWasm` / `bytesIntoWasm`.
+  const bridgeRt = {
+    str, mem, memWrite, intoWasm,
+    // A `&[u8]` argument, copied out of wasm memory so the arm may keep it.
+    bytes: (ptr, len) => new Uint8Array(wasm.memory.buffer, ptr, len).slice(),
+    bytesIntoWasm: (bytes) => {
+      const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes ?? []);
+      const ptr = wasm.day_dom_alloc(u8.length);
+      mem().set(u8, ptr);
+      return [ptr, u8.length];
+    },
+    exports: () => wasm,
+  };
   for (const url of window.__DAY_BRIDGES ?? []) {
     try {
       const mod = await import(url);
-      Object.assign(env, mod.register({ str, mem, memWrite }));
+      Object.assign(env, mod.register(bridgeRt));
     } catch (e) {
       console.error(`day-bridge: ${url} failed to load`, e);
     }

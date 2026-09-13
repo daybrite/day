@@ -96,6 +96,12 @@ fn cfg_for(platform: &str) -> &'static str {
 /// declaration that four languages cannot agree on is caught before an arm is written against it.
 const SCALARS: &[&str] = &["bool", "i32", "i64", "f32", "f64"];
 
+/// What a completion may carry back (`Done<T>`): nothing, a scalar, a string, or bytes.
+fn completion_value_ok(ty: &str) -> bool {
+    let ty = ty.trim();
+    ty == "()" || SCALARS.contains(&ty) || ty == "String" || ty == "Vec<u8>"
+}
+
 /// One function in a `#[day_bridge::declare] extern "day" { … }` block.
 #[derive(Clone, Debug)]
 pub struct Decl {
@@ -106,6 +112,27 @@ pub struct Decl {
     pub ret: String,
     /// Byte offset of the declaration in its source file, for diagnostics.
     pub line: usize,
+}
+
+impl Decl {
+    /// The completion this function carries, when its last argument is `day_bridge::Done<T>`:
+    /// `(argument name, T)`. A function with one is asynchronous — it returns once the platform
+    /// ACCEPTED the request and answers later through the token (docs/bridge.md "Callbacks").
+    pub fn done(&self) -> Option<(&str, String)> {
+        let (name, ty) = self.args.last()?;
+        let ty = ty.trim().trim_start_matches("day_bridge::");
+        let inner = ty.strip_prefix("Done<")?.strip_suffix('>')?;
+        Some((name.as_str(), inner.trim().to_string()))
+    }
+
+    /// The arguments an arm marshals: every declared one except the completion handle, which
+    /// crosses as a token the generator adds itself.
+    pub fn plain_args(&self) -> &[(String, String)] {
+        match self.done() {
+            Some(_) => &self.args[..self.args.len() - 1],
+            None => &self.args,
+        }
+    }
 }
 
 /// One implementation of the declared API for a set of platforms.
@@ -184,7 +211,7 @@ pub fn swift_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 /// Kotlin plugin (see the check in `day lint` and the error in `day build`).
 pub fn jvm_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     match arm.lang {
-        Lang::Java => render_java(arm, crate_name),
+        Lang::Java => render_java(bridge, arm, crate_name),
         _ => render_kotlin(bridge, arm, crate_name),
     }
 }
@@ -868,7 +895,45 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
 
     // Types must be inside the v1 table.
     for decl in &bridge.decls {
-        for (arg, ty) in &decl.args {
+        // A completion handle is last, alone, and carries a value the table can spell; the
+        // function's own return is then the ACCEPTED/failed-to-start status, never a value.
+        let done_positions: Vec<usize> = decl
+            .args
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, t))| {
+                t.trim()
+                    .trim_start_matches("day_bridge::")
+                    .starts_with("Done<")
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if let Some(&first) = done_positions.first() {
+            if done_positions.len() > 1 || first + 1 != decl.args.len() {
+                return Err(format!(
+                    "line {}: `{}` takes a `Done<T>` that is not its single, last argument \
+                     (docs/bridge.md \"Callbacks\")",
+                    decl.line, decl.name
+                ));
+            }
+            let (_, value) = decl.done().unwrap_or_default();
+            if !completion_value_ok(&value) {
+                return Err(format!(
+                    "line {}: `{}` completes with `{value}`, which is outside the completion \
+                     table — `()`, a scalar, `String`, or `Vec<u8>` (docs/bridge.md \"Callbacks\")",
+                    decl.line, decl.name
+                ));
+            }
+            if result_value(&decl.ret).is_some() {
+                return Err(format!(
+                    "line {}: `{}` both returns a value and completes one; an asynchronous \
+                     function returns `Result<(), day_bridge::Error>` (accepted or not) and \
+                     answers through its `Done` (docs/bridge.md \"Callbacks\")",
+                    decl.line, decl.name
+                ));
+            }
+        }
+        for (arg, ty) in decl.plain_args() {
             check_type(ty, true)
                 .map_err(|e| format!("line {}: `{}`'s `{arg}`: {e}", decl.line, decl.name))?;
         }
@@ -902,7 +967,7 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
     // compiles and marshals the wrong bytes.
     for arm in &bridge.arms {
         for decl in &bridge.decls {
-            for (arg, ty) in &decl.args {
+            for (arg, ty) in decl.plain_args() {
                 if !implemented(arm.lang, ty, true) {
                     return Err(format!(
                         "line {}: `{}`'s `{arg}: {ty}` is in the type table but the {} generator \
@@ -1000,7 +1065,7 @@ fn implemented(lang: Lang, ty: &str, argument: bool) -> bool {
         return true;
     }
     if argument {
-        return SCALARS.contains(&ty) || ty == "&str";
+        return SCALARS.contains(&ty) || ty == "&str" || ty == "&[u8]";
     }
     match lang {
         // The JVM's error channel is the exception, so the return slot is free for a value.
@@ -1072,6 +1137,70 @@ fn rust_c_type(ty: &str, utf16: bool) -> &'static str {
     }
 }
 
+/// The C parameter list a completion value crosses as: a scalar by value, a string by pointer,
+/// bytes by pointer and length, nothing for `()`.
+fn c_value_params(ty: &str, utf16: bool) -> Vec<(String, String)> {
+    match ty.trim() {
+        "()" => Vec::new(),
+        "String" => vec![("value".into(), c_type("&str", utf16).into())],
+        "Vec<u8>" => vec![
+            ("value".into(), "const uint8_t*".into()),
+            ("value_len".into(), "size_t".into()),
+        ],
+        t => vec![("value".into(), c_type(t, false).into())],
+    }
+}
+
+/// The Rust spelling of [`c_value_params`].
+fn rust_value_params(ty: &str, utf16: bool) -> Vec<(String, String)> {
+    match ty.trim() {
+        "()" => Vec::new(),
+        "String" => vec![("value".into(), rust_c_type("&str", utf16).into())],
+        "Vec<u8>" => vec![
+            ("value".into(), "*const u8".into()),
+            ("value_len".into(), "usize".into()),
+        ],
+        t => vec![("value".into(), rust_c_type(t, false).into())],
+    }
+}
+
+/// The zero a failing completion passes in the value slot(s).
+fn c_value_zeros(ty: &str) -> Vec<&'static str> {
+    match ty.trim() {
+        "()" => Vec::new(),
+        "String" => vec!["NULL"],
+        "Vec<u8>" => vec!["NULL", "0"],
+        "f32" | "f64" => vec!["0.0"],
+        _ => vec!["0"],
+    }
+}
+
+/// The Rust expression turning a C-ABI completion value into `Result<T, Error>`.
+fn rust_value_from_c(ty: &str, utf16: bool) -> String {
+    match ty.trim() {
+        "()" => "Ok(())".into(),
+        "bool" => "Ok(value != 0)".into(),
+        "String" if utf16 => "{\n                let mut n = 0usize;\n                // SAFETY: the arm passes a NUL-terminated UTF-16 string or null.\n                while !value.is_null() && unsafe { *value.add(n) } != 0 {\n                    n += 1;\n                }\n                let units = if value.is_null() { &[][..] } else { unsafe { std::slice::from_raw_parts(value, n) } };\n                String::from_utf16(units).map_err(|_| day_bridge::Error::Encoding)\n            }".into(),
+        "String" => "if value.is_null() {\n                Ok(String::new())\n            } else {\n                // SAFETY: the arm passes a NUL-terminated string or null.\n                unsafe { std::ffi::CStr::from_ptr(value) }\n                    .to_str()\n                    .map(str::to_owned)\n                    .map_err(|_| day_bridge::Error::Encoding)\n            }".into(),
+        "Vec<u8>" => "if value.is_null() || value_len == 0 {\n                Ok(Vec::new())\n            } else {\n                // SAFETY: the arm passes `value_len` readable bytes.\n                Ok(unsafe { std::slice::from_raw_parts(value, value_len) }.to_vec())\n            }".into(),
+        _ => "Ok(value)".into(),
+    }
+}
+
+/// The exported symbol a foreign arm completes a `Done` through (docs/bridge.md "Callbacks").
+fn complete_symbol(crate_name: &str, decl: &Decl) -> String {
+    format!(
+        "day_bridge_complete_{}_{}",
+        crate_name.replace('-', "_"),
+        decl.name
+    )
+}
+
+/// The name of the generated `static` registry for one `Done` declaration.
+fn registry_name(decl: &Decl) -> String {
+    format!("DAY_BRIDGE_DONE_{}", decl.name.to_uppercase())
+}
+
 /// The translation unit for one C/C++ arm: the crate's prelude for that language, a `#line`
 /// pointing back at the `.rs` the arm was written in, the arm itself, and one exported adapter per
 /// declared function. The arm writes plain `speak_native(…)`; the adapter is what carries the
@@ -1086,8 +1215,51 @@ fn render_c(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         arm.line
     );
     let _ = writeln!(out, "#include <stdint.h>");
+    let _ = writeln!(out, "#include <stddef.h>");
     if let Some(prelude) = &arm.prelude {
         let _ = writeln!(out, "{}", prelude);
+    }
+    // The completion symbols an asynchronous arm answers through, declared before the arm so
+    // it can call `<fn>_complete(done, value)` / `<fn>_fail(done)` like any local function
+    // (docs/bridge.md "Callbacks"). Rust exports the underlying symbol.
+    for decl in &bridge.decls {
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let sym = complete_symbol(crate_name, decl);
+        let value_params = c_value_params(&value, utf16);
+        let mut params = vec!["uint64_t done".to_string(), "int32_t status".to_string()];
+        params.extend(value_params.iter().map(|(n, t)| format!("{t} {n}")));
+        let linkage = if arm.lang == Lang::Cpp {
+            "extern \"C\" "
+        } else {
+            "extern "
+        };
+        let _ = writeln!(out, "{linkage}void {sym}({});", params.join(", "));
+        let ok_params: Vec<String> = std::iter::once("uint64_t done".to_string())
+            .chain(value_params.iter().map(|(n, t)| format!("{t} {n}")))
+            .collect();
+        let ok_args: Vec<String> = std::iter::once("done".to_string())
+            .chain(std::iter::once("0".to_string()))
+            .chain(value_params.iter().map(|(n, _)| n.clone()))
+            .collect();
+        let _ = writeln!(
+            out,
+            "static void {}_complete({}) {{ {sym}({}); }}",
+            decl.name,
+            ok_params.join(", "),
+            ok_args.join(", ")
+        );
+        let fail_args: Vec<String> = std::iter::once("done".to_string())
+            .chain(std::iter::once("1".to_string()))
+            .chain(c_value_zeros(&value).into_iter().map(String::from))
+            .collect();
+        let _ = writeln!(
+            out,
+            "static void {}_fail(uint64_t done) {{ {sym}({}); }}",
+            decl.name,
+            fail_args.join(", ")
+        );
     }
     let _ = writeln!(out, "\n#line {} {}", arm.body_line, quote(source));
     let _ = writeln!(out, "{}\n", arm.body.as_deref().unwrap_or(""));
@@ -1098,12 +1270,23 @@ fn render_c(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         let _ = writeln!(out, "extern \"C\" {{");
     }
     for decl in &bridge.decls {
-        let params: Vec<String> = decl
-            .args
-            .iter()
-            .map(|(n, t)| format!("{} {n}", c_type(t, utf16)))
-            .collect();
-        let names: Vec<&str> = decl.args.iter().map(|(n, _)| n.as_str()).collect();
+        let mut params: Vec<String> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+        for (n, t) in decl.plain_args() {
+            if t.trim() == "&[u8]" {
+                params.push(format!("const uint8_t* {n}"));
+                params.push(format!("size_t {n}_len"));
+                names.push(n.clone());
+                names.push(format!("{n}_len"));
+            } else {
+                params.push(format!("{} {n}", c_type(t, utf16)));
+                names.push(n.clone());
+            }
+        }
+        if let Some((done, _)) = decl.done() {
+            params.push(format!("uint64_t {done}"));
+            names.push(done.to_string());
+        }
         let params = if params.is_empty() {
             "void".to_string()
         } else {
@@ -1150,6 +1333,89 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     }
     // swiftc maps every following line back to the crate's own source, so a type error in an arm
     // names the file its author opened (docs/bridge.md "Diagnostics").
+    // The completion symbols an asynchronous arm answers through (docs/bridge.md "Callbacks"):
+    // `<fn>_complete(done, value)` and `<fn>_fail(done)`, over the C symbol Rust exports.
+    for decl in &bridge.decls {
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let sym = complete_symbol(crate_name, decl);
+        let raw = format!("__day_bridge_complete_{}", decl.name);
+        let (abi_params, ok_param, ok_call, fail_call) = match value.as_str() {
+            "()" => ("", String::new(), "".to_string(), "".to_string()),
+            "String" => (
+                ", _ value: UnsafePointer<CChar>?",
+                ", _ value: String".to_string(),
+                "value.withCString { {raw}(done, 0, $0) }".replace("{raw}", &raw),
+                "{raw}(done, 1, nil)".replace("{raw}", &raw),
+            ),
+            "Vec<u8>" => (
+                ", _ value: UnsafePointer<UInt8>?, _ value_len: Int",
+                ", _ value: [UInt8]".to_string(),
+                "value.withUnsafeBufferPointer { {raw}(done, 0, $0.baseAddress, $0.count) }"
+                    .replace("{raw}", &raw),
+                "{raw}(done, 1, nil, 0)".replace("{raw}", &raw),
+            ),
+            "bool" => (
+                ", _ value: Int32",
+                ", _ value: Bool".to_string(),
+                "{raw}(done, 0, value ? 1 : 0)".replace("{raw}", &raw),
+                "{raw}(done, 1, 0)".replace("{raw}", &raw),
+            ),
+            t => {
+                let swift = match t {
+                    "i32" => "Int32",
+                    "i64" => "Int64",
+                    "f32" => "Float",
+                    _ => "Double",
+                };
+                let zero = if matches!(t, "f32" | "f64") {
+                    "0.0"
+                } else {
+                    "0"
+                };
+                (
+                    match t {
+                        "i32" => ", _ value: Int32",
+                        "i64" => ", _ value: Int64",
+                        "f32" => ", _ value: Float",
+                        _ => ", _ value: Double",
+                    },
+                    format!(", _ value: {swift}"),
+                    "{raw}(done, 0, value)".replace("{raw}", &raw),
+                    format!("{raw}(done, 1, {zero})"),
+                )
+            }
+        };
+        let _ = writeln!(out, "@_silgen_name({})", quote(&sym));
+        let _ = writeln!(
+            out,
+            "private func {raw}(_ done: UInt64, _ status: Int32{abi_params})"
+        );
+        if value == "()" {
+            let _ = writeln!(
+                out,
+                "func {}_complete(_ done: UInt64) {{ {raw}(done, 0) }}",
+                decl.name
+            );
+            let _ = writeln!(
+                out,
+                "func {}_fail(_ done: UInt64) {{ {raw}(done, 1) }}",
+                decl.name
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "func {}_complete(_ done: UInt64{ok_param}) {{ {ok_call} }}",
+                decl.name
+            );
+            let _ = writeln!(
+                out,
+                "func {}_fail(_ done: UInt64) {{ {fail_call} }}",
+                decl.name
+            );
+        }
+    }
     let _ = writeln!(
         out,
         "\n#sourceLocation(file: {}, line: {})",
@@ -1160,11 +1426,18 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     let _ = writeln!(out, "#sourceLocation()\n");
 
     for decl in &bridge.decls {
-        let params: Vec<String> = decl
-            .args
-            .iter()
-            .map(|(n, t)| format!("{n}: {}", swift_abi_type(t)))
-            .collect();
+        let mut params: Vec<String> = Vec::new();
+        for (n, t) in decl.plain_args() {
+            if t.trim() == "&[u8]" {
+                params.push(format!("{n}: UnsafePointer<UInt8>?"));
+                params.push(format!("{n}_len: Int"));
+            } else {
+                params.push(format!("{n}: {}", swift_abi_type(t)));
+            }
+        }
+        if let Some((done, _)) = decl.done() {
+            params.push(format!("{done}: UInt64"));
+        }
         let ret = if decl.ret.is_empty() { "" } else { " -> Int32" };
         let _ = writeln!(out, "@_cdecl({})", quote(&symbol(crate_name, decl)));
         let _ = writeln!(
@@ -1175,11 +1448,18 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         );
         // Marshal each argument into the Swift type the arm declared.
         let mut passed: Vec<String> = Vec::new();
-        for (n, t) in &decl.args {
+        for (n, t) in decl.plain_args() {
             match t.trim() {
                 "&str" => {
                     let _ = writeln!(out, "    let {n}_s = String(cString: {n})");
                     passed.push(format!("{n}: {n}_s"));
+                }
+                "&[u8]" => {
+                    let _ = writeln!(
+                        out,
+                        "    let {n}_a = Array(UnsafeBufferPointer(start: {n}, count: {n}_len))"
+                    );
+                    passed.push(format!("{n}: {n}_a"));
                 }
                 "bool" => {
                     let _ = writeln!(out, "    let {n}_b = {n} != 0");
@@ -1187,6 +1467,9 @@ fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
                 }
                 _ => passed.push(format!("{n}: {n}")),
             }
+        }
+        if let Some((done, _)) = decl.done() {
+            passed.push(format!("{done}: {done}"));
         }
         let call = format!("{}({})", decl.name, passed.join(", "));
         if decl.ret.is_empty() {
@@ -1227,6 +1510,39 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     if let Some(prelude) = &arm.prelude {
         let _ = writeln!(out, "{}", prelude);
     }
+    // The completion helpers an asynchronous arm answers through (docs/bridge.md "Callbacks"):
+    // `<fn>_complete(done, value)` and `<fn>_fail(done, message)`, over the wasm export Rust
+    // provides. `__rt` is the runtime the shim hands `register`; the exports it reaches are
+    // bound after registration, so the accessor is lazy.
+    if bridge.decls.iter().any(|d| d.done().is_some()) {
+        let _ = writeln!(out, "let __rt = null;");
+    }
+    for decl in &bridge.decls {
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let sym = complete_symbol(crate_name, decl);
+        let (ok_value, zero_value) = match value.as_str() {
+            "()" => ("", ""),
+            "bool" => ("value ? 1 : 0, ", "0, "),
+            "i32" => ("value | 0, ", "0, "),
+            "i64" => ("BigInt(value), ", "0n, "),
+            "f32" | "f64" => ("+value, ", "0, "),
+            "String" => ("...__rt.intoWasm(String(value)), ", "0, 0, "),
+            _ => ("...__rt.bytesIntoWasm(value), ", "0, 0, "),
+        };
+        let value_param = if value == "()" { "" } else { ", value" };
+        let _ = writeln!(
+            out,
+            "function {}_complete(done{value_param}) {{ __rt.exports().{sym}(done, 0, {ok_value}0, 0); }}",
+            decl.name
+        );
+        let _ = writeln!(
+            out,
+            "function {}_fail(done, message) {{ __rt.exports().{sym}(done, 1, {zero_value}...__rt.intoWasm(String(message ?? ''))); }}",
+            decl.name
+        );
+    }
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
 
     let _ = writeln!(
@@ -1234,19 +1550,30 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         "// The shim calls this once at boot and spreads the result into the wasm import object."
     );
     let _ = writeln!(out, "export function register(rt) {{");
+    if bridge.decls.iter().any(|d| d.done().is_some()) {
+        let _ = writeln!(out, "  __rt = rt;");
+    }
     let _ = writeln!(out, "  return {{");
     for decl in &bridge.decls {
         let mut params: Vec<String> = Vec::new();
         let mut passed: Vec<String> = Vec::new();
-        for (n, t) in &decl.args {
+        for (n, t) in decl.plain_args() {
             if t.trim() == "&str" {
                 params.push(format!("{n}_ptr"));
                 params.push(format!("{n}_len"));
                 passed.push(format!("rt.str({n}_ptr, {n}_len)"));
+            } else if t.trim() == "&[u8]" {
+                params.push(format!("{n}_ptr"));
+                params.push(format!("{n}_len"));
+                passed.push(format!("rt.bytes({n}_ptr, {n}_len)"));
             } else {
                 params.push(n.clone());
                 passed.push(n.clone());
             }
+        }
+        if let Some((done, _)) = decl.done() {
+            params.push(done.to_string());
+            passed.push(done.to_string());
         }
         let call = format!("{}({})", decl.name, passed.join(", "));
         let _ = writeln!(
@@ -1258,6 +1585,35 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         match (decl.ret.is_empty(), result_value(&decl.ret)) {
             (true, _) => {
                 let _ = writeln!(out, "      {call};");
+            }
+            (false, None) if decl.done().is_some() => {
+                // An asynchronous arm: a thrown error means "failed to start" (status 1); a
+                // returned promise completes the token itself when it settles, so an `async`
+                // arm needs no helper call at all.
+                let (done, value) = decl.done().unwrap_or_default();
+                let resolve = if value == "()" {
+                    format!("{}_complete({done})", decl.name)
+                } else {
+                    format!("{}_complete({done}, v)", decl.name)
+                };
+                let _ = writeln!(out, "      try {{");
+                let _ = writeln!(out, "        const r = {call};");
+                let _ = writeln!(out, "        if (r && typeof r.then === 'function') {{");
+                let _ = writeln!(
+                    out,
+                    "          r.then((v) => {resolve}, (e) => {}_fail({done}, e && e.message ? e.message : e));",
+                    decl.name
+                );
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "        return 0;");
+                let _ = writeln!(out, "      }} catch (e) {{");
+                let _ = writeln!(
+                    out,
+                    "        console.error('day-bridge: {}', e);",
+                    decl.name
+                );
+                let _ = writeln!(out, "        return 1;");
+                let _ = writeln!(out, "      }}");
             }
             (false, None) => {
                 // A thrown error is the failure channel, mapped to the same status code C uses.
@@ -1328,13 +1684,16 @@ fn render_js_rust(bridge: &Bridge, crate_name: &str) -> String {
     let _ = writeln!(out, "unsafe extern \"C\" {{");
     for decl in &bridge.decls {
         let mut params: Vec<String> = Vec::new();
-        for (n, t) in &decl.args {
-            if t.trim() == "&str" {
+        for (n, t) in decl.plain_args() {
+            if t.trim() == "&str" || t.trim() == "&[u8]" {
                 params.push(format!("{n}_ptr: *const u8"));
                 params.push(format!("{n}_len: usize"));
             } else {
                 params.push(format!("{n}: {}", rust_c_type(t, false)));
             }
+        }
+        if let Some((done, _)) = decl.done() {
+            params.push(format!("{done}: u64"));
         }
         let ret = match (decl.ret.is_empty(), result_value(&decl.ret)) {
             (true, _) => String::new(),
@@ -1359,8 +1718,8 @@ fn render_js_rust(bridge: &Bridge, crate_name: &str) -> String {
         };
         let _ = writeln!(out, "fn {}({}){ret} {{", decl.name, args.join(", "));
         let mut passed: Vec<String> = Vec::new();
-        for (n, t) in &decl.args {
-            if t.trim() == "&str" {
+        for (n, t) in decl.plain_args() {
+            if t.trim() == "&str" || t.trim() == "&[u8]" {
                 passed.push(format!("{n}.as_ptr()"));
                 passed.push(format!("{n}.len()"));
             } else if t.trim() == "bool" {
@@ -1368,6 +1727,9 @@ fn render_js_rust(bridge: &Bridge, crate_name: &str) -> String {
             } else {
                 passed.push(n.clone());
             }
+        }
+        if let Some((done, _)) = decl.done() {
+            passed.push(format!("{done}.into_token()"));
         }
         let call = format!(
             "unsafe {{ {}({}) }}",
@@ -1393,6 +1755,61 @@ fn render_js_rust(bridge: &Bridge, crate_name: &str) -> String {
                 let _ = writeln!(out, "    Ok({call})");
             }
         }
+        let _ = writeln!(out, "}}\n");
+    }
+
+    // The completion export a JavaScript arm calls through `<fn>_complete` / `<fn>_fail`: the
+    // value and the failure message both cross as (ptr, len) into memory the shim allocated
+    // with `day_dom_alloc`, consumed here exactly once (docs/web.md).
+    for decl in &bridge.decls {
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let mut params: Vec<String> = vec!["done: u64".into(), "status: i32".into()];
+        match value.as_str() {
+            "()" => {}
+            "String" | "Vec<u8>" => {
+                params.push("value: *mut u8".into());
+                params.push("value_len: usize".into());
+            }
+            t => params.push(format!("value: {}", rust_c_type(t, false))),
+        }
+        params.push("msg: *mut u8".into());
+        params.push("msg_len: usize".into());
+        let convert = match value.as_str() {
+            "()" => "Ok(())".to_string(),
+            "bool" => "Ok(value != 0)".to_string(),
+            "String" => "String::from_utf8(unsafe { day_bridge::__take_wasm(value, value_len) }).map_err(|_| day_bridge::Error::Encoding)".to_string(),
+            "Vec<u8>" => "Ok(unsafe { day_bridge::__take_wasm(value, value_len) })".to_string(),
+            _ => "Ok(value)".to_string(),
+        };
+        let _ = writeln!(out, "#[unsafe(no_mangle)]");
+        let _ = writeln!(
+            out,
+            "pub extern \"C\" fn {}({}) {{",
+            complete_symbol(crate_name, decl),
+            params.join(", ")
+        );
+        let _ = writeln!(out, "    day_bridge::guard(|| {{");
+        let _ = writeln!(
+            out,
+            "        // SAFETY: the shim handed over a `day_dom_alloc` buffer of `msg_len` bytes.\n        let message = String::from_utf8_lossy(&unsafe {{ day_bridge::__take_wasm(msg, msg_len) }}).into_owned();"
+        );
+        let _ = writeln!(out, "        let outcome = if status == 0 {{");
+        let _ = writeln!(out, "            {convert}");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(
+            out,
+            "            Err(day_bridge::Error::Foreign(if message.is_empty() {{ \"{} failed\".into() }} else {{ message }}))",
+            decl.name
+        );
+        let _ = writeln!(out, "        }};");
+        let _ = writeln!(
+            out,
+            "        {}.complete(done, outcome);",
+            registry_name(decl)
+        );
+        let _ = writeln!(out, "    }});");
         let _ = writeln!(out, "}}\n");
     }
     out
@@ -1427,22 +1844,61 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
 
     let _ = writeln!(out, "object {object} {{");
+    // The completion entries an asynchronous arm answers through (docs/bridge.md "Callbacks"):
+    // a `private external` JNI method Rust exports, and the two helpers the arm calls.
     for decl in &bridge.decls {
-        let params: Vec<String> = decl
-            .args
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let kt = jvm_value_type(&value, true);
+        let value_param = if value == "()" {
+            String::new()
+        } else {
+            format!(", value: {kt}")
+        };
+        let value_arg = if value == "()" { "" } else { ", value" };
+        let zero = if value == "()" {
+            String::new()
+        } else {
+            format!(", {}", jvm_value_zero(&value))
+        };
+        let _ = writeln!(
+            out,
+            "    @JvmStatic private external fun dayComplete_{}(done: Long, status: Int{value_param}, message: String?)",
+            decl.name
+        );
+        let _ = writeln!(
+            out,
+            "    @JvmStatic fun {}_complete(done: Long{value_param}) {{ dayComplete_{}(done, 0{value_arg}, null) }}",
+            decl.name, decl.name
+        );
+        let _ = writeln!(
+            out,
+            "    @JvmStatic fun {}_fail(done: Long, message: String?) {{ dayComplete_{}(done, 1{zero}, message) }}",
+            decl.name, decl.name
+        );
+    }
+    for decl in &bridge.decls {
+        let mut params: Vec<String> = decl
+            .plain_args()
             .iter()
             .map(|(n, t)| format!("{n}: {}", kotlin_type(t)))
             .collect();
+        let mut named: Vec<String> = decl
+            .plain_args()
+            .iter()
+            .map(|(n, _)| format!("{n} = {n}"))
+            .collect();
+        if let Some((done, _)) = decl.done() {
+            params.push(format!("{done}: Long"));
+            named.push(format!("{done} = {done}"));
+        }
         let call = format!(
             // Fully qualified so it resolves to the arm's top-level function, never to this
             // object's member of the same name.
             "{pkg}.{}({})",
             decl.name,
-            decl.args
-                .iter()
-                .map(|(n, _)| format!("{n} = {n}"))
-                .collect::<Vec<_>>()
-                .join(", ")
+            named.join(", ")
         );
         // No try/catch: on the JVM an exception IS the error channel, and JNI reports it to
         // the caller — so a Kotlin arm's failure becomes `Error::Foreign` on the Rust side with
@@ -1468,7 +1924,7 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 /// The generated Java class for one arm — the same shape the Kotlin emitter produces, for a
 /// project whose Gradle build has no Kotlin plugin. Java needs none: `com.android.application`
 /// compiles `.java` out of any `srcDir`, which is what makes this the arm that always works.
-fn render_java(arm: &Arm, crate_name: &str) -> String {
+fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     let pkg = kotlin_package(crate_name);
     let class = kotlin_object(crate_name);
     let source = arm.source.as_deref().unwrap_or("src/lib.rs");
@@ -1485,6 +1941,40 @@ fn render_java(arm: &Arm, crate_name: &str) -> String {
     }
     let _ = writeln!(out, "\npublic final class {class} {{");
     let _ = writeln!(out, "    private {class}() {{}}\n");
+    // The completion entries an asynchronous arm answers through (docs/bridge.md "Callbacks"):
+    // a `private static native` method Rust exports, and the two helpers the arm calls.
+    for decl in &bridge.decls {
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let jt = jvm_value_type(&value, false);
+        let value_param = if value == "()" {
+            String::new()
+        } else {
+            format!(", {jt} value")
+        };
+        let value_arg = if value == "()" { "" } else { ", value" };
+        let zero = if value == "()" {
+            String::new()
+        } else {
+            format!(", {}", jvm_value_zero(&value))
+        };
+        let _ = writeln!(
+            out,
+            "    private static native void dayComplete_{}(long done, int status{value_param}, String message);",
+            decl.name
+        );
+        let _ = writeln!(
+            out,
+            "    public static void {}_complete(long done{value_param}) {{ dayComplete_{}(done, 0{value_arg}, null); }}",
+            decl.name, decl.name
+        );
+        let _ = writeln!(
+            out,
+            "    public static void {}_fail(long done, String message) {{ dayComplete_{}(done, 1{zero}, message); }}\n",
+            decl.name, decl.name
+        );
+    }
     // The arm becomes the body of the class, so it writes ordinary `public static` methods and
     // never sees JNI — the same contract the Kotlin arm has.
     for line in arm.body.as_deref().unwrap_or("").lines() {
@@ -1526,13 +2016,23 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
             }
         );
         let _ = writeln!(out, "    }}");
+        if let Some((done, _)) = decl.done() {
+            let _ = writeln!(out, "    let {done}_token = {done}.into_token() as i64;");
+        }
         let _ = writeln!(out, "    let called = with_env(|env| {{");
         // Marshal arguments into JNI values; a String has to become a local ref first.
         let mut jvalues: Vec<String> = Vec::new();
-        for (n, t) in &decl.args {
+        for (n, t) in decl.plain_args() {
             match t.trim() {
                 "&str" => {
                     let _ = writeln!(out, "        let {n}_j = env.new_string({n}).ok()?;");
+                    jvalues.push(format!("(&{n}_j).into()"));
+                }
+                "&[u8]" => {
+                    let _ = writeln!(
+                        out,
+                        "        let {n}_j = env.byte_array_from_slice({n}).ok()?;"
+                    );
                     jvalues.push(format!("(&{n}_j).into()"));
                 }
                 // jni 0.22's `jboolean` is Rust's `bool`.
@@ -1543,6 +2043,11 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
                 "f64" => jvalues.push(format!("day_android::jni::objects::JValue::Double({n})")),
                 _ => jvalues.push(n.clone()),
             }
+        }
+        if let Some((done, _)) = decl.done() {
+            jvalues.push(format!(
+                "day_android::jni::objects::JValue::Long({done}_token)"
+            ));
         }
         let _ = writeln!(
             out,
@@ -1618,7 +2123,127 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         }
         let _ = writeln!(out, "}}\n");
     }
+
+    // The JNI export behind `dayComplete_<fn>`: the JVM helper's `(done, status, value,
+    // message)` becomes `Result<T, Error>` and resolves the token. Strings and byte arrays are
+    // copied out of the JVM at once (docs/bridge.md "Ownership").
+    for decl in &bridge.decls {
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let mut params: Vec<String> = vec![
+            "_env: day_android::jni::EnvUnowned<'_>".into(),
+            "_class: day_android::jni::objects::JClass<'_>".into(),
+            "done: day_android::jni::sys::jlong".into(),
+            "status: day_android::jni::sys::jint".into(),
+        ];
+        match value.as_str() {
+            "()" => {}
+            "bool" => params.push("value: day_android::jni::sys::jboolean".into()),
+            "i32" => params.push("value: day_android::jni::sys::jint".into()),
+            "i64" => params.push("value: day_android::jni::sys::jlong".into()),
+            "f32" => params.push("value: day_android::jni::sys::jfloat".into()),
+            "f64" => params.push("value: day_android::jni::sys::jdouble".into()),
+            "String" => params.push("value: day_android::jni::objects::JString<'_>".into()),
+            _ => params.push("value: day_android::jni::objects::JByteArray<'_>".into()),
+        }
+        params.push("message: day_android::jni::objects::JString<'_>".into());
+        let convert = match value.as_str() {
+            "()" => "Ok(())".to_string(),
+            "bool" => "Ok(value)".to_string(),
+            "String" => "if value.is_null() { Ok(String::new()) } else { with_env(|env| env.dstr(&value)).map_err(|_| day_bridge::Error::Encoding) }".to_string(),
+            "Vec<u8>" => "if value.is_null() { Ok(Vec::new()) } else { with_env(|env| env.convert_byte_array(&value)).map_err(|_| day_bridge::Error::Encoding) }".to_string(),
+            _ => "Ok(value)".to_string(),
+        };
+        let _ = writeln!(out, "#[unsafe(no_mangle)]");
+        let _ = writeln!(
+            out,
+            "pub extern \"system\" fn {}({}) {{",
+            jni_export_name(crate_name, &format!("dayComplete_{}", decl.name)),
+            params.join(", ")
+        );
+        let _ = writeln!(out, "    use day_android::{{DayEnv, with_env}};");
+        let _ = writeln!(out, "    day_bridge::guard(|| {{");
+        let _ = writeln!(out, "        let outcome = if status == 0 {{");
+        let _ = writeln!(out, "            {convert}");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(
+            out,
+            "            let text = if message.is_null() {{ String::new() }} else {{ with_env(|env| env.dstr(&message)).unwrap_or_default() }};"
+        );
+        let _ = writeln!(
+            out,
+            "            Err(day_bridge::Error::Foreign(if text.is_empty() {{ \"{} failed\".into() }} else {{ text }}))",
+            decl.name
+        );
+        let _ = writeln!(out, "        }};");
+        let _ = writeln!(
+            out,
+            "        {}.complete(done as u64, outcome);",
+            registry_name(decl)
+        );
+        let _ = writeln!(out, "    }});");
+        let _ = writeln!(out, "}}\n");
+    }
     out
+}
+
+/// The JVM spelling of a completion value, in Kotlin or Java.
+fn jvm_value_type(ty: &str, kotlin: bool) -> &'static str {
+    match (ty.trim(), kotlin) {
+        ("bool", true) => "Boolean",
+        ("bool", false) => "boolean",
+        ("i32", true) => "Int",
+        ("i32", false) => "int",
+        ("i64", true) => "Long",
+        ("i64", false) => "long",
+        ("f32", true) => "Float",
+        ("f32", false) => "float",
+        ("f64", true) => "Double",
+        ("f64", false) => "double",
+        ("String", _) => "String",
+        ("Vec<u8>", true) => "ByteArray",
+        ("Vec<u8>", false) => "byte[]",
+        _ => "",
+    }
+}
+
+/// The value a failing completion passes in the JVM value slot (the same spelling in Kotlin and
+/// Java).
+fn jvm_value_zero(ty: &str) -> &'static str {
+    match ty.trim() {
+        "bool" => "false",
+        "i64" => "0L",
+        "f32" => "0f",
+        "f64" => "0.0",
+        "String" | "Vec<u8>" => "null",
+        _ => "0",
+    }
+}
+
+/// JNI's mangling of one name component: `_` becomes `_1`, and a `.` or `/` package separator
+/// becomes `_`. Bridged names are ASCII identifiers, so the Unicode escape never applies.
+fn jni_mangle(component: &str) -> String {
+    let mut out = String::with_capacity(component.len());
+    for c in component.chars() {
+        match c {
+            '_' => out.push_str("_1"),
+            '.' | '/' => out.push('_'),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// `Java_dev_daybrite_day_bridge_day_1part_1speech_DayPartSpeechBridge_dayComplete_1speak_1native`:
+/// the exported symbol JNI resolves for a `native` method on the generated class.
+fn jni_export_name(crate_name: &str, method: &str) -> String {
+    let class = format!(
+        "{}.{}",
+        kotlin_package(crate_name),
+        kotlin_object(crate_name)
+    );
+    format!("Java_{}_{}", jni_mangle(&class), jni_mangle(method))
 }
 
 /// The `T` in `Result<T, Error>`, or `None` for `Result<(), Error>` and a unit return.
@@ -1645,8 +2270,8 @@ fn jvalue_accessor(ty: &str) -> &'static str {
 
 /// `(Ljava/lang/String;)I` — the descriptor `dcall_static` needs for one declaration.
 fn jni_signature(decl: &Decl) -> String {
-    let args: String = decl
-        .args
+    let mut args: String = decl
+        .plain_args()
         .iter()
         .map(|(_, t)| match t.trim() {
             "bool" => "Z",
@@ -1655,9 +2280,13 @@ fn jni_signature(decl: &Decl) -> String {
             "f32" => "F",
             "f64" => "D",
             "&str" => "Ljava/lang/String;",
+            "&[u8]" => "[B",
             _ => "Ljava/lang/Object;",
         })
         .collect();
+    if decl.done().is_some() {
+        args.push('J');
+    }
     let ret = match result_value(&decl.ret).as_deref() {
         None => "V",
         Some("bool") => "Z",
@@ -1679,6 +2308,7 @@ fn kotlin_type(ty: &str) -> &'static str {
         "f32" => "Float",
         "f64" => "Double",
         "&str" | "String" => "String",
+        "&[u8]" | "Vec<u8>" => "ByteArray",
         _ => "Any",
     }
 }
@@ -1720,11 +2350,18 @@ fn render_c_rust(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "unsafe extern \"C\" {{");
     for decl in &bridge.decls {
-        let args: Vec<String> = decl
-            .args
-            .iter()
-            .map(|(n, t)| format!("{n}: {}", rust_c_type(t, utf16)))
-            .collect();
+        let mut args: Vec<String> = Vec::new();
+        for (n, t) in decl.plain_args() {
+            if t.trim() == "&[u8]" {
+                args.push(format!("{n}: *const u8"));
+                args.push(format!("{n}_len: usize"));
+            } else {
+                args.push(format!("{n}: {}", rust_c_type(t, utf16)));
+            }
+        }
+        if let Some((done, _)) = decl.done() {
+            args.push(format!("{done}: u64"));
+        }
         let ret = if decl.ret.is_empty() { "" } else { " -> i32" };
         let _ = writeln!(
             out,
@@ -1744,7 +2381,7 @@ fn render_c_rust(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         };
         let _ = writeln!(out, "fn {}({}){ret} {{", decl.name, args.join(", "));
         let mut passed: Vec<String> = Vec::new();
-        for (n, t) in &decl.args {
+        for (n, t) in decl.plain_args() {
             match t.trim() {
                 "&str" if utf16 => {
                     let _ = writeln!(
@@ -1771,9 +2408,16 @@ fn render_c_rust(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
                     let _ = writeln!(out, "    }};");
                     passed.push(format!("{n}_c.as_ptr()"));
                 }
+                "&[u8]" => {
+                    passed.push(format!("{n}.as_ptr()"));
+                    passed.push(format!("{n}.len()"));
+                }
                 "bool" => passed.push(format!("{n} as i32")),
                 _ => passed.push(n.clone()),
             }
+        }
+        if let Some((done, _)) = decl.done() {
+            passed.push(format!("{done}.into_token()"));
         }
         let call = format!(
             "unsafe {{ {}({}) }}",
@@ -1793,6 +2437,43 @@ fn render_c_rust(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
             );
             let _ = writeln!(out, "    }}");
         }
+        let _ = writeln!(out, "}}\n");
+    }
+
+    // The completion export a C, C++ or Swift arm calls through `<fn>_complete` / `<fn>_fail`.
+    for decl in &bridge.decls {
+        let Some((_, value)) = decl.done() else {
+            continue;
+        };
+        let mut params: Vec<String> = vec!["done: u64".into(), "status: i32".into()];
+        params.extend(
+            rust_value_params(&value, utf16)
+                .into_iter()
+                .map(|(n, t)| format!("{n}: {t}")),
+        );
+        let _ = writeln!(out, "#[unsafe(no_mangle)]");
+        let _ = writeln!(
+            out,
+            "pub extern \"C\" fn {}({}) {{",
+            complete_symbol(crate_name, decl),
+            params.join(", ")
+        );
+        let _ = writeln!(out, "    day_bridge::guard(|| {{");
+        let _ = writeln!(out, "        let outcome = if status == 0 {{");
+        let _ = writeln!(out, "            {}", rust_value_from_c(&value, utf16));
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(
+            out,
+            "            Err(day_bridge::Error::Foreign(\"{} failed\".into()))",
+            decl.name
+        );
+        let _ = writeln!(out, "        }};");
+        let _ = writeln!(
+            out,
+            "        {}.complete(done, outcome);",
+            registry_name(decl)
+        );
+        let _ = writeln!(out, "    }});");
         let _ = writeln!(out, "}}\n");
     }
     out
@@ -1869,6 +2550,61 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
     );
     if bridge.decls.is_empty() {
         return out;
+    }
+
+    // The callback tier's Rust surface, the same on every target: one registry per `Done`
+    // declaration, and the `<fn>_async` / `<fn>_future` wrappers over whichever arm is active
+    // (docs/bridge.md "Callbacks").
+    for decl in &bridge.decls {
+        let Some((done, value)) = decl.done() else {
+            continue;
+        };
+        let plain: Vec<String> = decl
+            .plain_args()
+            .iter()
+            .map(|(n, t)| format!("{n}: {t}"))
+            .collect();
+        let names: Vec<String> = decl.plain_args().iter().map(|(n, _)| n.clone()).collect();
+        let reg = registry_name(decl);
+        let _ = writeln!(out, "#[allow(dead_code)]");
+        let _ = writeln!(
+            out,
+            "static {reg}: day_bridge::Registry<{value}> = day_bridge::Registry::new();\n"
+        );
+        let mut async_params = plain.clone();
+        async_params.push(format!(
+            "on_{done}: impl FnOnce(Result<{value}, day_bridge::Error>) + Send + 'static"
+        ));
+        let mut call_args = names.clone();
+        call_args.push(done.to_string());
+        let _ = writeln!(out, "#[allow(dead_code)]");
+        let _ = writeln!(
+            out,
+            "pub(crate) fn {}_async({}) -> Result<u64, day_bridge::Error> {{",
+            decl.name,
+            async_params.join(", ")
+        );
+        let _ = writeln!(
+            out,
+            "    day_bridge::start_async(&{reg}, on_{done}, move |{done}| {}({}))",
+            decl.name,
+            call_args.join(", ")
+        );
+        let _ = writeln!(out, "}}\n");
+        let _ = writeln!(out, "#[allow(dead_code)]");
+        let _ = writeln!(
+            out,
+            "pub(crate) fn {}_future({}) -> day_bridge::Completion<{value}> {{",
+            decl.name,
+            plain.join(", ")
+        );
+        let _ = writeln!(
+            out,
+            "    day_bridge::start_future(&{reg}, move |{done}| {}({}))",
+            decl.name,
+            call_args.join(", ")
+        );
+        let _ = writeln!(out, "}}\n");
     }
 
     for arm in bridge.arms.iter().filter(|a| a.lang == Lang::Rust) {
@@ -2415,7 +3151,7 @@ day_bridge::bridge! {
         // descriptors — only the syntax and the file name differ (docs/bridge.md "Android").
         let b = parse(&SPEECH.replace("kotlin", "java"));
         let arm = b.arms.iter().find(|a| a.lang == Lang::Java).unwrap();
-        let java = render_java(arm, "day-part-speech");
+        let java = render_java(&b, arm, "day-part-speech");
         assert!(
             java.contains("package dev.daybrite.day.bridge.day_part_speech;"),
             "{java}"
@@ -2559,6 +3295,276 @@ day_bridge::bridge! {
         assert_eq!(
             adapter_name(kotlin, "day-part-speech"),
             "day-part-speech-android.kt"
+        );
+    }
+
+    const ASYNC: &str = r###"
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        fn speak_native(text: &str, done: day_bridge::Done<bool>) -> Result<(), day_bridge::Error>;
+        fn engine_ready_native(done: Done<()>) -> Result<(), day_bridge::Error>;
+        fn stop_native();
+    }
+
+    #[day_bridge::impl(java, platforms = [android])]
+    java!(r#"
+        public static void speak_native(String text, long done) { speak_native_complete(done, true); }
+        public static void engine_ready_native(long done) { engine_ready_native_complete(done); }
+        public static void stop_native() {}
+    "#);
+
+    #[day_bridge::impl(swift, platforms = [ios, macos])]
+    swift!(r#"
+        func speak_native(text: String, done: UInt64) throws { speak_native_complete(done, true) }
+        func engine_ready_native(done: UInt64) throws { engine_ready_native_complete(done) }
+        func stop_native() {}
+    "#);
+
+    #[day_bridge::impl(c, platforms = [linux])]
+    c!(r#"
+        int32_t speak_native(const char* text, uint64_t done) { speak_native_complete(done, 1); return 0; }
+        int32_t engine_ready_native(uint64_t done) { engine_ready_native_complete(done); return 0; }
+        void stop_native(void) {}
+    "#);
+
+    #[day_bridge::impl(js, platforms = [web])]
+    js!(r#"
+        export async function speak_native(text, done) { return true; }
+        export function engine_ready_native(done) { engine_ready_native_complete(done); }
+        export function stop_native() {}
+    "#);
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn speak_native(_text: &str, done: day_bridge::Done<bool>) -> Result<(), day_bridge::Error> {
+        done.complete(Err(day_bridge::Error::Unsupported));
+        Ok(())
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn engine_ready_native(done: day_bridge::Done<()>) -> Result<(), day_bridge::Error> {
+        done.complete(Err(day_bridge::Error::Unsupported));
+        Ok(())
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn stop_native() {}
+}
+"###;
+
+    #[test]
+    fn a_done_argument_is_recognised_and_stripped_from_the_marshalled_list() {
+        let b = parse(ASYNC);
+        validate(&b).expect("valid");
+        let speak = &b.decls[0];
+        assert_eq!(speak.done(), Some(("done", "bool".to_string())));
+        assert_eq!(
+            speak.plain_args(),
+            &[("text".to_string(), "&str".to_string())]
+        );
+        assert_eq!(b.decls[1].done(), Some(("done", "()".to_string())));
+        assert_eq!(b.decls[2].done(), None);
+    }
+
+    #[test]
+    fn the_rust_surface_gains_a_registry_and_two_wrappers_per_done() {
+        let b = parse(ASYNC);
+        let rust = render_rust(&b, "day-part-speech");
+        assert!(
+            rust.contains("static DAY_BRIDGE_DONE_SPEAK_NATIVE: day_bridge::Registry<bool> = day_bridge::Registry::new();"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("pub(crate) fn speak_native_async(text: &str, on_done: impl FnOnce(Result<bool, day_bridge::Error>) + Send + 'static) -> Result<u64, day_bridge::Error>"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains(
+                "pub(crate) fn speak_native_future(text: &str) -> day_bridge::Completion<bool>"
+            ),
+            "{rust}"
+        );
+        assert!(
+            rust.contains("day_bridge::start_future(&DAY_BRIDGE_DONE_SPEAK_NATIVE, move |done| speak_native(text, done))"),
+            "{rust}"
+        );
+        // The C-family completion export resolves the registry with a bool from an int32.
+        assert!(
+            rust.contains("pub extern \"C\" fn day_bridge_complete_day_part_speech_speak_native(done: u64, status: i32, value: i32)"),
+            "{rust}"
+        );
+        assert!(rust.contains("Ok(value != 0)"), "{rust}");
+        assert!(
+            rust.contains("fn day_bridge_day_part_speech_speak_native(text: *const std::ffi::c_char, done: u64) -> i32;"),
+            "the token is the trailing argument:\n{rust}"
+        );
+        // The JVM export carries JNI's mangling of the crate's underscores.
+        assert!(
+            rust.contains("pub extern \"system\" fn Java_dev_daybrite_day_bridge_day_1part_1speech_DayPartSpeechBridge_dayComplete_1speak_1native("),
+            "{rust}"
+        );
+        assert!(rust.contains("JValue::Long(done_token)"), "{rust}");
+        // The wasm export takes the value and the message as (ptr, len) pairs.
+        assert!(
+            rust.contains("pub extern \"C\" fn day_bridge_complete_day_part_speech_speak_native(done: u64, status: i32, value: i32, msg: *mut u8, msg_len: usize)"),
+            "{rust}"
+        );
+    }
+
+    #[test]
+    fn the_c_arm_gets_complete_and_fail_helpers_before_its_body() {
+        let b = parse(ASYNC);
+        let arm = b.arms.iter().find(|a| a.lang == Lang::C).unwrap();
+        let c = render_c(&b, arm, "day-part-speech");
+        assert!(
+            c.contains("extern void day_bridge_complete_day_part_speech_speak_native(uint64_t done, int32_t status, int32_t value);"),
+            "{c}"
+        );
+        assert!(
+            c.contains("static void speak_native_complete(uint64_t done, int32_t value) { day_bridge_complete_day_part_speech_speak_native(done, 0, value); }"),
+            "{c}"
+        );
+        assert!(
+            c.contains("static void speak_native_fail(uint64_t done) { day_bridge_complete_day_part_speech_speak_native(done, 1, 0); }"),
+            "{c}"
+        );
+        assert!(
+            c.contains("static void engine_ready_native_complete(uint64_t done) { day_bridge_complete_day_part_speech_engine_ready_native(done, 0); }"),
+            "{c}"
+        );
+        let helpers = c.find("speak_native_complete(uint64_t").unwrap();
+        let body = c.find("#line").unwrap();
+        assert!(
+            helpers < body,
+            "helpers precede the arm so it can call them:\n{c}"
+        );
+        assert!(
+            c.contains("int32_t day_bridge_day_part_speech_speak_native(const char* text, uint64_t done) { return speak_native(text, done); }"),
+            "{c}"
+        );
+    }
+
+    #[test]
+    fn the_swift_arm_completes_through_a_silgen_name_symbol() {
+        let b = parse(ASYNC);
+        let arm = b.arms.iter().find(|a| a.lang == Lang::Swift).unwrap();
+        let swift = render_swift(&b, arm, "day-part-speech");
+        assert!(
+            swift.contains("@_silgen_name(\"day_bridge_complete_day_part_speech_speak_native\")"),
+            "{swift}"
+        );
+        assert!(
+            swift.contains("func speak_native_complete(_ done: UInt64, _ value: Bool) { __day_bridge_complete_speak_native(done, 0, value ? 1 : 0) }"),
+            "{swift}"
+        );
+        assert!(
+            swift.contains("func engine_ready_native_complete(_ done: UInt64) { __day_bridge_complete_engine_ready_native(done, 0) }"),
+            "{swift}"
+        );
+        assert!(
+            swift.contains("public func day_bridge_day_part_speech_speak_native(text: UnsafePointer<CChar>, done: UInt64) -> Int32 {"),
+            "{swift}"
+        );
+        assert!(
+            swift.contains("try speak_native(text: text_s, done: done)"),
+            "{swift}"
+        );
+    }
+
+    #[test]
+    fn the_java_class_gets_a_native_completion_and_two_helpers() {
+        let b = parse(ASYNC);
+        let arm = b.arms.iter().find(|a| a.lang == Lang::Java).unwrap();
+        let java = render_java(&b, arm, "day-part-speech");
+        assert!(
+            java.contains("private static native void dayComplete_speak_native(long done, int status, boolean value, String message);"),
+            "{java}"
+        );
+        assert!(
+            java.contains("public static void speak_native_complete(long done, boolean value) { dayComplete_speak_native(done, 0, value, null); }"),
+            "{java}"
+        );
+        assert!(
+            java.contains("public static void speak_native_fail(long done, String message) { dayComplete_speak_native(done, 1, false, message); }"),
+            "{java}"
+        );
+        assert!(
+            java.contains("private static native void dayComplete_engine_ready_native(long done, int status, String message);"),
+            "{java}"
+        );
+        assert_eq!(jni_signature(&b.decls[0]), "(Ljava/lang/String;J)V");
+        assert_eq!(jni_signature(&b.decls[1]), "(J)V");
+        let kotlin = render_kotlin(&b, arm, "day-part-speech");
+        assert!(
+            kotlin.contains("@JvmStatic private external fun dayComplete_speak_native(done: Long, status: Int, value: Boolean, message: String?)"),
+            "{kotlin}"
+        );
+        assert!(
+            kotlin.contains("fun speak_native(text: String, done: Long) {"),
+            "{kotlin}"
+        );
+    }
+
+    #[test]
+    fn the_js_module_completes_a_returned_promise_itself() {
+        let b = parse(ASYNC);
+        let arm = b.arms.iter().find(|a| a.lang == Lang::Js).unwrap();
+        let js = render_js(&b, arm, "day-part-speech");
+        assert!(js.contains("let __rt = null;"), "{js}");
+        assert!(js.contains("__rt = rt;"), "{js}");
+        assert!(
+            js.contains("function speak_native_complete(done, value) { __rt.exports().day_bridge_complete_day_part_speech_speak_native(done, 0, value ? 1 : 0, 0, 0); }"),
+            "{js}"
+        );
+        assert!(
+            js.contains("function speak_native_fail(done, message) { __rt.exports().day_bridge_complete_day_part_speech_speak_native(done, 1, 0, ...__rt.intoWasm(String(message ?? ''))); }"),
+            "{js}"
+        );
+        assert!(
+            js.contains("day_bridge_day_part_speech_speak_native(text_ptr, text_len, done) {"),
+            "{js}"
+        );
+        assert!(
+            js.contains("r.then((v) => speak_native_complete(done, v), (e) => speak_native_fail(done, e && e.message ? e.message : e));"),
+            "{js}"
+        );
+        assert!(
+            js.contains(
+                "r.then((v) => engine_ready_native_complete(done), (e) => engine_ready_native_fail("
+            ),
+            "a unit completion ignores the promise's value:\n{js}"
+        );
+    }
+
+    #[test]
+    fn a_done_must_be_last_alone_and_carry_a_table_value() {
+        let not_last = ASYNC.replace(
+            "fn speak_native(text: &str, done: day_bridge::Done<bool>)",
+            "fn speak_native(done: day_bridge::Done<bool>, text: &str)",
+        );
+        let err = validate(&parse(&not_last)).expect_err("done must be last");
+        assert!(err.contains("single, last argument"), "{err}");
+
+        let bad_value = ASYNC.replace("Done<bool>", "Done<Option<bool>>");
+        let err = validate(&parse(&bad_value)).expect_err("value outside the table");
+        assert!(err.contains("completion table"), "{err}");
+
+        let returns_too = ASYNC.replace(
+            "fn engine_ready_native(done: Done<()>) -> Result<(), day_bridge::Error>",
+            "fn engine_ready_native(done: Done<()>) -> Result<bool, day_bridge::Error>",
+        );
+        let err = validate(&parse(&returns_too)).expect_err("a value and a completion");
+        assert!(
+            err.contains("both returns a value and completes one"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn jni_mangling_escapes_underscores_in_every_component() {
+        assert_eq!(
+            jni_export_name("day-part-speech", "dayComplete_speak_native"),
+            "Java_dev_daybrite_day_bridge_day_1part_1speech_DayPartSpeechBridge_dayComplete_1speak_1native"
         );
     }
 }

@@ -30,6 +30,12 @@ license.workspace = true
 # `tier()` reports NativeStack / RustFallback / Unavailable. See docs/http.md.
 
 [dependencies]
+# The bridge's runtime half (docs/bridge.md): the Android arm is a `Done<Vec<u8>>` completion
+# over OkHttp's own dispatcher, generated from `src/bridge.rs`.
+day-bridge = { workspace = true }
+
+[build-dependencies]
+day-build = { workspace = true }
 
 # macOS/iOS: NSURLSession through objc2 — the completion handler is a block2 block that sends the
 # mapped result over std::sync::mpsc (sync fetch) or invokes the caller's callback (async fetch).

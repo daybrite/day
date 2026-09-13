@@ -337,6 +337,8 @@ scripts), and `day-cli` (the `day` binary).
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
 | `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day prepare`, `day icon --generate`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
+| `day-async` | the std-only async support parts ([docs/async.md](docs/async.md)): a `oneshot` future any executor can await, and the `TokenRegistry` a platform completion resolves through — no runtime, no reactor, no pool | — |
+| `day-bridge` | daybridge's runtime half ([§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api), [docs/bridge.md](docs/bridge.md)): the body-discarding `bridge!` macro, `Error`, the re-exported `Support`, and the callback tier's `Done<T>`, `Registry<T>` and `Completion<T>` | day-spec, day-async |
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
@@ -2916,11 +2918,20 @@ repository in 2026-08; the runtime crate remains, with no in-repo app building a
 > walkthrough on each target. [docs/bridge.md](docs/bridge.md) is the normative
 > contract (type table, ownership rule, threading rule, name derivation) and remains the place to
 > read before writing an arm; this section is the architecture-level view. What is left is
-> migrating the remaining synchronous parts and the CI gates (phases 8–9). **v1 bridges
-> synchronous functions only**: callbacks, futures, and streams are sketched in [docs/bridge.md](docs/bridge.md)'s
-> "After v1" but deliberately unbuilt, and line-number remapping is best-effort per language
-> (Swift, C/C++, JS, and ArkTS have it; Kotlin and Java do not, so long arms there stay in their
-> own files).
+> migrating the remaining synchronous parts and the CI gates (phases 8–9). Line-number
+> remapping is best-effort per language (Swift, C/C++, JS, and ArkTS have it; Kotlin and Java do
+> not, so long arms there stay in their own files).
+>
+> **The callback tier shipped 2026-09** ([docs/bridge.md](docs/bridge.md) "Callbacks"): a
+> function whose last argument is `day_bridge::Done<T>` returns once the platform accepted the
+> request and answers once, later, through a `u64` token — `<fn>_async(…, on_done)` and
+> `<fn>_future(…)` are generated on every target, each language gets `<fn>_complete`/`<fn>_fail`
+> helpers over one exported symbol per function, and `day-async` (§3.2) holds the oneshot and
+> token registry beneath. One divergence from the recorded design below: a completion runs on
+> the thread the platform delivers it on, and the generated future is what brings the answer
+> to the UI thread — generated code never posts to the main loop, so a bridged crate still works
+> in a plain `main` and under `cargo test` ([docs/async.md](docs/async.md) rule 3). Streams, Kotlin
+> `suspend` arms, and the ArkTS Rust half remain in "After v1".
 
 **The problem, measured.** Eleven parts (battery, clipboard, deviceinfo, haptics, http,
 local-notify, location, network, permissions, prefs, sensors) each carry an Android shim, and every

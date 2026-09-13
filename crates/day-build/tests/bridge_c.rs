@@ -60,8 +60,14 @@ day_bridge::bridge! {{
     )
 }
 
+/// The build-script environment is process-wide, and the tests here run on separate threads:
+/// one at a time through the fake environment, or one test's `remove_var` lands mid-way
+/// through another's `cc` run.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// `cc` reads cargo's build-script environment; a test is not a build script, so supply it.
 fn with_build_env(out: &Path, platform: &str, f: impl FnOnce()) {
+    let _serial = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let vars = [
         ("OUT_DIR", out.display().to_string()),
         (
@@ -185,6 +191,101 @@ fn c_arm_generates_and_compiles() {
     );
     assert!(
         rust.contains("fn add_native(a: i32, b: i32) -> Result<(), day_bridge::Error>"),
+        "{rust}"
+    );
+
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+/// An asynchronous arm (docs/bridge.md "Callbacks"): the generated translation unit declares the
+/// completion symbol Rust exports and the `<fn>_complete` / `<fn>_fail` helpers the arm calls,
+/// and it has to compile as plain C with nothing but the arm's own code.
+#[test]
+fn c_arm_with_a_completion_compiles() {
+    let platform = host_platform();
+    let source = format!(
+        r###"
+day_bridge::bridge! {{
+    #[day_bridge::declare]
+    extern "day" {{
+        fn lookup_native(key: &str, done: day_bridge::Done<String>) -> Result<(), day_bridge::Error>;
+        fn ping_native(done: day_bridge::Done<()>) -> Result<(), day_bridge::Error>;
+    }}
+
+    #[day_bridge::impl(c, platforms = [{platform}])]
+    c!(r#"
+        int32_t lookup_native(const char* key, uint64_t done) {{
+            if (key[0] == 0) {{
+                lookup_native_fail(done);
+                return 0;
+            }}
+            lookup_native_complete(done, key);
+            return 0;
+        }}
+
+        int32_t ping_native(uint64_t done) {{ ping_native_complete(done); return 0; }}
+    "#);
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn lookup_native(_key: &str, done: day_bridge::Done<String>) -> Result<(), day_bridge::Error> {{
+        done.complete(Err(day_bridge::Error::Unsupported));
+        Ok(())
+    }}
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn ping_native(done: day_bridge::Done<()>) -> Result<(), day_bridge::Error> {{
+        done.complete(Err(day_bridge::Error::Unsupported));
+        Ok(())
+    }}
+}}
+"###
+    );
+    let tmp = std::env::temp_dir().join(format!("day-bridge-c-done-{}", std::process::id()));
+    let src = tmp.join("src");
+    std::fs::create_dir_all(&src).expect("temp crate");
+    std::fs::write(src.join("lib.rs"), &source).expect("write source");
+    let out = tmp.join("out");
+    std::fs::create_dir_all(&out).expect("out dir");
+
+    with_build_env(&out, platform, || {
+        day_build::bridge::generate_in(&tmp, &out, "day-part-async").expect("bridge codegen");
+    });
+
+    let c = std::fs::read_to_string(
+        out.join("day-bridge")
+            .join(format!("day-part-async-{platform}.c")),
+    )
+    .expect("generated C");
+    assert!(
+        c.contains("extern void day_bridge_complete_day_part_async_lookup_native(uint64_t done, int32_t status, const char* value);"),
+        "{c}"
+    );
+    assert!(
+        c.contains("int32_t day_bridge_day_part_async_lookup_native(const char* key, uint64_t done) { return lookup_native(key, done); }"),
+        "{c}"
+    );
+    let compiled = std::fs::read_dir(&out)
+        .expect("out dir")
+        .flatten()
+        .any(|e| {
+            let name = e.file_name().to_string_lossy().to_string();
+            name.starts_with("libday_bridge_day_part_async") || name.ends_with(".lib")
+        });
+    assert!(compiled, "cc produced no archive in {}", out.display());
+
+    let rust = std::fs::read_to_string(out.join("day-bridge").join("mod.rs")).expect("mod.rs");
+    assert!(
+        rust.contains("pub extern \"C\" fn day_bridge_complete_day_part_async_lookup_native(done: u64, status: i32, value: *const std::ffi::c_char)"),
+        "{rust}"
+    );
+    assert!(
+        rust.contains(
+            "pub(crate) fn lookup_native_future(key: &str) -> day_bridge::Completion<String>"
+        ),
+        "{rust}"
+    );
+    assert!(
+        rust.contains("pub(crate) fn ping_native_async(on_done: impl FnOnce(Result<(), day_bridge::Error>) + Send + 'static) -> Result<u64, day_bridge::Error>"),
         "{rust}"
     );
 

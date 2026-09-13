@@ -1,0 +1,15 @@
+[package]
+name = "day-async"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# The std-only async support parts (docs/async.md "day-async"): a oneshot future any executor can
+# await, and the token registry a platform completion resolves through. No runtime, no reactor,
+# no thread pool — the pieces every part and the bridge's callback tier hand-rolled before.
+
+[dependencies]

@@ -16,3 +16,5 @@ license.workspace = true
 # `Support` is day-spec's, not a second copy: a bridged crate's `available()` must return the same
 # type `day::capability()` does, or callers end up matching two enums that mean the same thing.
 day-spec = { workspace = true }
+# The oneshot future behind `Completion` and the token registry behind `Done` (docs/async.md).
+day-async = { workspace = true }
