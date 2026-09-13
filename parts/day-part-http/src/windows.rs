@@ -719,7 +719,7 @@ unsafe extern "system" fn on_status(
                 },
                 STATUS_WRITE_COMPLETE => conn.sent(),
                 STATUS_CLOSE_COMPLETE => conn.close_complete(handle),
-                STATUS_REQUEST_ERROR => conn.fail(map_error(error())),
+                STATUS_REQUEST_ERROR => conn.request_error(error()),
                 _ => {}
             }
         }
@@ -1350,6 +1350,8 @@ struct WsState {
     open: bool,
     request_closing: bool,
     socket_closing: bool,
+    /// The app started the closing handshake: the close completion reports the peer's answer.
+    closing: bool,
     demand: u32,
     receiving: bool,
     message: Vec<u8>,
@@ -1440,6 +1442,7 @@ impl WsConn {
                 open: false,
                 request_closing: false,
                 socket_closing: false,
+                closing: false,
                 demand: 0,
                 receiving: false,
                 message: Vec::new(),
@@ -1527,6 +1530,7 @@ impl WsConn {
             if st.events.is_none()
                 || !st.open
                 || st.socket_closing
+                || st.closing
                 || st.receiving
                 || st.demand == 0
             {
@@ -1669,7 +1673,11 @@ impl WsConn {
         loop {
             let (socket, kind, data, len) = {
                 let mut st = lock(&self.state);
-                if st.events.is_none() || !st.open || st.socket_closing || st.sending_done.is_some()
+                if st.events.is_none()
+                    || !st.open
+                    || st.socket_closing
+                    || st.closing
+                    || st.sending_done.is_some()
                 {
                     return;
                 }
@@ -1698,6 +1706,19 @@ impl WsConn {
                 done(Err(map_error(rc)));
             }
         }
+    }
+
+    /// STATUS_REQUEST_ERROR for the socket. Closing cancels the receive or send in flight, and
+    /// STATUS_CLOSE_COMPLETE then reports the peer's close, so that cancellation is not a failure.
+    fn request_error(&self, code: DWORD) {
+        {
+            let mut st = lock(&self.state);
+            if st.closing && code == E_OPERATION_CANCELLED {
+                st.receiving = false;
+                return;
+            }
+        }
+        self.fail(map_error(code));
     }
 
     fn fail(&self, error: HttpError) {
@@ -1794,10 +1815,11 @@ impl Socket for WsConn {
 
     fn close(&self, code: u16, reason: &str) {
         let socket = {
-            let st = lock(&self.state);
-            if st.events.is_none() {
+            let mut st = lock(&self.state);
+            if st.events.is_none() || st.closing {
                 return;
             }
+            st.closing = st.open;
             st.open.then_some(st.socket)
         };
         let Some(socket) = socket else {

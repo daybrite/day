@@ -1337,6 +1337,9 @@ struct NavMenuState {
     rows: usize,
     /// Programmatic selection in flight: don't re-emit SelectionChanged.
     suppress: Rc<std::cell::Cell<bool>>,
+    /// The row index last selected, by Day or by the user: a `row-selected` naming it again is
+    /// an echo and is not reported.
+    current: Rc<std::cell::Cell<Option<i32>>>,
 }
 
 fn widget_key(w: &Handle) -> usize {
@@ -3626,14 +3629,23 @@ impl Toolkit for Gtk {
                     &p.menus,
                 );
                 let suppress = Rc::new(std::cell::Cell::new(false));
+                let current = Rc::new(std::cell::Cell::new(p.selected.map(|i| i as i32)));
                 {
-                    let suppress = suppress.clone();
+                    let (suppress, current) = (suppress.clone(), current.clone());
                     listbox.connect_row_selected(move |_, row| {
                         ffi_guard::contain((), || {
                             if suppress.get() {
                                 return;
                             }
-                            if let Some(row) = row {
+                            // Only a CHANGE is a navigation. After a rebuild the box selects the
+                            // row it was already on once more, outside the `suppress` window, and
+                            // reporting it would rewrite the nav's selection with the same key —
+                            // which an app watching that signal reads as the user picking the
+                            // row again (Day News closed its open article when an unread badge
+                            // changed).
+                            if let Some(row) = row
+                                && current.replace(Some(row.index())) != Some(row.index())
+                            {
                                 emit(id, Event::SelectionChanged(row.index() as i64));
                             }
                         });
@@ -3663,6 +3675,7 @@ impl Toolkit for Gtk {
                             listbox,
                             rows: p.items.len(),
                             suppress,
+                            current,
                         },
                     )
                 });
@@ -4513,6 +4526,7 @@ impl Toolkit for Gtk {
                                 .select_row(state.listbox.row_at_index(*i as i32).as_ref()),
                             None => state.listbox.unselect_all(),
                         }
+                        state.current.set(selected.map(|i| i as i32));
                         state.suppress.set(false);
                     });
                     // The rows are a navigation suite's switcher where the menu sits in one
@@ -4545,6 +4559,7 @@ impl Toolkit for Gtk {
                                 .select_row(state.listbox.row_at_index(*i as i32).as_ref()),
                             None => state.listbox.unselect_all(),
                         }
+                        state.current.set(sel.map(|i| i as i32));
                         state.suppress.set(false);
                     });
                 }
