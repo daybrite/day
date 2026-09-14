@@ -36,7 +36,6 @@ members = [
     "toolkits/day-arkui-sys",
     "toolkits/day-dom",
     "pieces/day-piece-combobox",
-    "pieces/day-piece-media",
     "pieces/day-piece-swiftui",
     "parts/day-part-battery",
     "parts/day-part-sensors",
@@ -134,7 +133,6 @@ day-part-battery = { path = "parts/day-part-battery", version = "0.4.3" }
 day-part-sensors = { path = "parts/day-part-sensors", version = "0.4.3" }
 day-part-clipboard = { path = "parts/day-part-clipboard", version = "0.4.3" }
 day-part-network = { path = "parts/day-part-network", version = "0.4.3" }
-day-piece-media = { path = "pieces/day-piece-media", version = "0.4.3" }
 day-part-haptics = { path = "parts/day-part-haptics", version = "0.4.3" }
 day-part-sound = { path = "parts/day-part-sound", version = "0.4.3" }
 day-part-wakelock = { path = "parts/day-part-wakelock", version = "0.4.3" }

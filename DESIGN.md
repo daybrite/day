@@ -86,7 +86,7 @@ the architecture-level view and the rationale.
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, downloads, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/downloads.md](docs/downloads.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| bundled pieces (media, map, searchfield, combobox, color picker, …) and external ones (lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| bundled pieces (map, searchfield, combobox, color picker, …) and external ones (media, lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
 | built-in controls — picker, text area | [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -2684,9 +2684,10 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 Two package kinds share the mechanism:
 
 - **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
-  datetime, color picker, styled-text editor, pull-refresh, media, map,
-  remote-image. Lottie and the web view are the same kind of package in their own repositories
-  ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie),
+  datetime, color picker, styled-text editor, pull-refresh, map,
+  remote-image. Media, Lottie, and the web view live in their own repositories
+  ([daybrite/day-piece-media](https://github.com/daybrite/day-piece-media),
+  [daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie),
   [daybrite/day-piece-webview](https://github.com/daybrite/day-piece-webview)); see the note
   under [§15.2](#152-package-layout-and-aggregation) for what an external repository adds.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
@@ -4015,9 +4016,9 @@ day/                                # THIS repository
   toolkits/                         # day-appkit, day-uikit, day-gtk, day-qt(+sys),
                                     #   day-android, day-xaml(+sys), day-arkui(+sys)
   pieces/                           # external-style UI pieces (day-piece-combobox, -searchfield,
-                                    #   -picker, -rating, -activity, -media, -map,
-                                    #   -remote-image, -colorpicker, -texteditor); day-piece-lottie
-                                    #   and day-piece-webview live in their own repositories (§15.2)
+                                    #   -picker, -rating, -activity, -map,
+                                    #   -remote-image, -colorpicker, -texteditor); day-piece-media,
+                                    #   day-piece-lottie and day-piece-webview live in their own repositories (§15.2)
   parts/                            # headless platform services (day-part-battery, -network,
                                     #   -sensors, -clipboard, -prefs, -haptics, -sound, -wakelock, -deviceinfo,
                                     #   -http, -permissions, -location)

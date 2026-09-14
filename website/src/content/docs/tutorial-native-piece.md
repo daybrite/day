@@ -447,7 +447,7 @@ Toolkits that are hard to drive from Rust (Qt, XAML, non-`@objc` iOS classes, an
 which hand-rolls `AVPlayerViewController`, declares:
 
 ```toml
-# pieces/day-piece-media/Cargo.toml
+# day-piece-media/Cargo.toml (external repository)
 [package.metadata.day.ios]
 frameworks = ["AVKit", "AVFoundation", "CoreMedia"]   # linked via the generated DayPieces SwiftPM pkg
 ```
@@ -582,6 +582,6 @@ the other.
 The reference crate to read end-to-end is
 [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield),
 the six-backend native realization of one piece;
-[`day-piece-media`](https://github.com/daybrite/day/tree/main/pieces/day-piece-media) shows
+[`day-piece-media`](https://github.com/daybrite/day-piece-media) shows
 framework linking. The mechanism is documented in full in
 [`docs/extending.md`](https://github.com/daybrite/day/blob/main/docs/extending.md).

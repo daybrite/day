@@ -52,7 +52,6 @@ nothing derived from `realize` can.
 | `day-piece-combobox` | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | · | · |
 | `day-piece-datetime` | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day-piece-map` | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
-| `day-piece-media` | `day.piece.media` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day-piece-pullrefresh` | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
 | `day-piece-remote-image` | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
 | `day-piece-searchfield` | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
