@@ -283,6 +283,10 @@ unsafe extern "C" {
     /// `joined` = row titles (U+001F-separated). `icons` = a PARALLEL list of icon file
     /// paths (also U+001F-separated, empty entry = no icon for that row). `tints` = a
     /// PARALLEL list of per-row "#rrggbb" icon tints (empty entry = palette text color).
+    /// `sections` = a PARALLEL list of section headings, each opening a group before its row
+    /// (empty entry = the row continues the current group). The shim draws a heading as an item
+    /// of its own but keeps reporting and accepting DAY's row indices, so headings never shift
+    /// what `day_qt_navlist_set_selected` and the selection callback mean.
     pub fn day_qt_navlist_set_items(
         w: *mut c_void,
         joined: *const c_char,
@@ -290,6 +294,7 @@ unsafe extern "C" {
         tints: *const c_char,
         badge_icons: *const c_char,
         badge_tints: *const c_char,
+        sections: *const c_char,
     );
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
     /// The navigation splitter: sidebar, content list, detail. `list_width` <= 0 hides the

@@ -686,7 +686,9 @@ const env = {
       });
       el.addEventListener('keydown', (e) => {
         if (e.metaKey || e.ctrlKey || e.altKey) return;
-        const rows = [...el.children];
+        // Rows only: a section heading sits between them but is not one of Day's rows, and the
+        // arrow keys step straight past it.
+        const rows = [...el.querySelectorAll(':scope > .day-navmenu-row')];
         const last = rows.length - 1;
         if (last < 0) return;
         const cur = rows.findIndex((r) => r.classList.contains('selected'));
@@ -708,6 +710,16 @@ const env = {
     }
     el.textContent = '';
     spec.items.forEach((item, i) => {
+      // The section heading that opens a group before this row (docs/navigation.md). A sibling
+      // of the rows rather than a wrapper around them, so the rows stay direct children in Day's
+      // order and `i` stays their index everywhere — the click below, the arrow keys above,
+      // day_dom_navmenu_select. Tabs and rails hide it in CSS; the grouping is a sidebar's.
+      if (item.section) {
+        const heading = div('day-navmenu-heading');
+        heading.setAttribute('role', 'presentation');
+        heading.textContent = item.section;
+        el.append(heading);
+      }
       const row = div('day-navmenu-row');
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', i === spec.selected ? 'true' : 'false');
@@ -925,7 +937,8 @@ const env = {
   },
 
   day_dom_navmenu_select(id, idx) {
-    [...E(id).children].forEach((row, i) => {
+    // Rows only, in Day's order — the section headings between them are not addressed by index.
+    [...E(id).querySelectorAll(':scope > .day-navmenu-row')].forEach((row, i) => {
       row.classList.toggle('selected', i === idx);
       row.setAttribute('aria-selected', i === idx ? 'true' : 'false');
     });

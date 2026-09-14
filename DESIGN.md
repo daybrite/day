@@ -2045,7 +2045,10 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 > - **Section headers in a derived sidebar** *(2026-09)* — `nav(…).section(title)` and
 >   `item(…).section(title)` open a group header before the next row, so a data-driven,
 >   search-filtered sidebar (the showcase's eight groups) keeps its grouping through the derive;
->   flat-list backends ignore it. The AppKit outline used the row's NSString as its item
+>   flat-list backends ignore it. Qt, web-dom, Windows and HarmonyOS draw them too since
+>   2026-09-14 — a flagless `QListWidgetItem`, a heading element between the rows, a
+>   `NavigationViewItemHeader` in the pane, a title node above the group's rows. The tab and rail
+>   presentations are still flat. The AppKit outline used the row's NSString as its item
 >   identity and `NSOutlineView` matches items with `isEqual:`, so a header titled like an item
 >   collapsed onto it and wore its icon; rows are keyed by index (an `NSNumber`) now.
 > - **The content list** *(2026-08)* — `nav(…).content_list(build)` adds the Mail shape's

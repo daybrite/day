@@ -178,6 +178,9 @@ unsafe extern "C" {
     pub fn day_ark_list_scroll_to_row(node: *mut c_void, index: u32);
     /// Style a NAV_MENU / tab-bar row: full width, `height_vp` tall, left-aligned padded text.
     pub fn day_ark_style_row(node: *mut c_void, height_vp: f64);
+    /// Style a NAV_MENU section title (docs/navigation.md): full width, medium weight, padded
+    /// with more room above than below. `first` != 0 trims the top padding for the list's head.
+    pub fn day_ark_style_nav_heading(node: *mut c_void, first: c_int);
 
     /// Mount `node` into the ArkTS `NodeContent` slot. Returns 0 on success.
     pub fn day_ark_content_add(content: *mut c_void, node: *mut c_void) -> c_int;

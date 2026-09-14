@@ -1109,6 +1109,33 @@ void day_qt_set_transform(void *w, double tx, double ty, double sx, double sy, d
 }
 
 // --- navigation menu (docs/navigation.md): QListWidget with a sidebar treatment ---
+
+// A nav list item's index in DAY's flat row list. A section heading is an item of the
+// QListWidget (see day_qt_navlist_set_items) but not one of Day's rows, so the widget's row
+// number and Day's index part ways below the first heading. Everything that crosses that
+// boundary — the selection reported out, the selection applied in, a row's context menu — goes
+// through this role, which keeps the grouping private to the list: Rust addresses rows exactly
+// as it does on a backend with no headings.
+static constexpr int DAY_NAV_INDEX_ROLE = Qt::UserRole + 18;
+
+// Day's index for the item at `listRow`, or -1 for a heading or no item at all.
+static int day_qt_navlist_day_index(QListWidget *l, int listRow) {
+    QListWidgetItem *it = l->item(listRow);
+    if (!it) return -1;
+    const QVariant v = it->data(DAY_NAV_INDEX_ROLE);
+    return v.isValid() ? v.toInt() : -1;
+}
+
+// The widget row holding Day's row `dayIndex`, or -1.
+static int day_qt_navlist_list_row(QListWidget *l, int dayIndex) {
+    if (dayIndex < 0) return -1;
+    for (int r = 0; r < l->count(); ++r) {
+        const QVariant v = l->item(r)->data(DAY_NAV_INDEX_ROLE);
+        if (v.isValid() && v.toInt() == dayIndex) return r;
+    }
+    return -1;
+}
+
 void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
     auto *w = new QListWidget();
     w->setFrameShape(QFrame::NoFrame);
@@ -1122,8 +1149,11 @@ void *day_qt_navlist_new(uint64_t id, void (*cb)(uint64_t, int)) {
         "QListWidget::item{padding:6px 10px;border-radius:6px;margin:1px 4px;}"
         "QListWidget::item:selected{background:palette(highlight);"
         "color:palette(highlighted-text);}");
-    QObject::connect(w, &QListWidget::currentRowChanged,
-                     [id, cb](int row) { cb(id, row); });
+    // Reported as Day's index, not the widget's row. A heading carries no item flags, so it can
+    // never become current; a row that maps to nothing is the list emptying, and Rust ignores -1.
+    QObject::connect(w, &QListWidget::currentRowChanged, [w, id, cb](int row) {
+        cb(id, row < 0 ? -1 : day_qt_navlist_day_index(w, row));
+    });
     return w;
 }
 // Template glyphs are black-on-transparent; tint to the palette text color so they show
@@ -1238,7 +1268,7 @@ public:
 
 void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
                               const char *tints, const char *badge_icons,
-                              const char *badge_tints) {
+                              const char *badge_tints, const char *sections) {
     auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
     if (!l) return;
     // Split titles WITHOUT SkipEmptyParts so the icon list stays row-aligned; the icon
@@ -1253,6 +1283,9 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
         QString::fromUtf8(badge_icons).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QStringList badgeTintStrs =
         QString::fromUtf8(badge_tints).split(QChar(0x1f), Qt::KeepEmptyParts);
+    // A heading title per row (empty entry = the row continues the current group).
+    const QStringList sectionTitles =
+        QString::fromUtf8(sections).split(QChar(0x1f), Qt::KeepEmptyParts);
     const QColor textColor = l->palette().color(QPalette::Text);
     // Installed once, tracked by a dynamic property: `qobject_cast` would need Q_OBJECT and
     // therefore moc, which this shim is deliberately built without (plain cc-rs, no code
@@ -1264,7 +1297,27 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
     l->blockSignals(true);
     l->clear();
     for (int i = 0; i < titles.size(); ++i) {
+        // The section heading that opens a group before this row (docs/navigation.md): small,
+        // bold and dim, the group title AppKit's source list and GTK's list box draw. It is an
+        // item of its own, because a QListWidgetItem has no header slot — but with no flags at
+        // all, so it takes no click, no hover and no selection. DAY_NAV_INDEX_ROLE is what keeps
+        // it out of Day's row numbering.
+        if (i < sectionTitles.size() && !sectionTitles.at(i).isEmpty()) {
+            auto *heading = new QListWidgetItem(sectionTitles.at(i), l);
+            heading->setFlags(Qt::NoItemFlags);
+            QFont font = l->font();
+            font.setBold(true);
+            font.setPointSizeF(font.pointSizeF() * 0.85);
+            heading->setFont(font);
+            heading->setForeground(l->palette().color(QPalette::PlaceholderText));
+            heading->setTextAlignment(Qt::AlignLeading | Qt::AlignBottom);
+            // Room above every heading but a first one at the top of the pane, so a group
+            // reads as apart from the rows before it.
+            const int gap = l->count() == 1 ? 10 : 16;
+            heading->setSizeHint(QSize(0, QFontMetrics(font).height() + gap));
+        }
         auto *item = new QListWidgetItem(titles.at(i), l);
+        item->setData(DAY_NAV_INDEX_ROLE, i);
         if (i < iconPaths.size() && !iconPaths.at(i).isEmpty()) {
             // A row's own "#rrggbb" tint (docs/vectors.md) wins over the palette default.
             QColor rowColor = textColor;
@@ -1291,7 +1344,8 @@ void day_qt_navlist_set_selected(void *w, int idx) {
     auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
     if (!l) return;
     l->blockSignals(true);
-    l->setCurrentRow(idx);
+    // `idx` is Day's row; the widget's row sits below every heading above it.
+    l->setCurrentRow(day_qt_navlist_list_row(l, idx));
     l->blockSignals(false);
 }
 
@@ -3202,7 +3256,8 @@ void day_qt_navlist_set_row_menus(void *w, void *const *menus, int32_t n) {
     QObject::connect(l, &QWidget::customContextMenuRequested, l, [l, rows](const QPoint &pos) {
         QListWidgetItem *item = l->itemAt(pos);
         if (!item) return;
-        int row = l->row(item);
+        // The menus are indexed by Day's rows; a heading maps to -1 and opens nothing.
+        int row = day_qt_navlist_day_index(l, l->row(item));
         if (row >= 0 && row < rows->size() && (*rows)[row])
             (*rows)[row]->popup(l->mapToGlobal(pos));
     });

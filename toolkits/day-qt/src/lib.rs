@@ -115,8 +115,9 @@ day_core::tls_group! {
     /// Cover widget → NodeId (set at realize).
     static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
 
-    /// NAV_MENU widget → row count (for measure).
-    static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+    /// NAV_MENU widget → (row count, section heading count), for measure: the shim draws each
+    /// heading as a band of its own above its row.
+    static NAV_MENU_ROWS: RefCell<HashMap<usize, (usize, usize)>> = RefCell::new(HashMap::new());
 
 }
 
@@ -1269,6 +1270,18 @@ fn navlist_apply_row_menus(w: *mut c_void, menus: &[Vec<day_spec::MenuItem>]) {
     unsafe { ffi::day_qt_navlist_set_row_menus(w, ptrs.as_ptr(), ptrs.len() as i32) };
 }
 
+/// The nav menu's section headings as a U+001F-joined list parallel to its rows (empty entry =
+/// the row continues the current group), with how many headings there are.
+fn nav_sections_joined(sections: &[Option<String>]) -> (String, usize) {
+    let headings = sections.iter().filter(|s| s.is_some()).count();
+    let joined = sections
+        .iter()
+        .map(|s| s.as_deref().unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\u{1f}");
+    (joined, headings)
+}
+
 /// Per-row nav icon tints as a U+001F-joined list of "#rrggbb" entries (empty entry = no
 /// row tint, the shim falls back to the palette text color), parallel to the icon list
 /// (docs/vectors.md).
@@ -1777,6 +1790,7 @@ impl Toolkit for Qt {
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
                     let badge_tints_joined = nav_tints_joined(&p.badge_tints);
+                    let (sections_joined, headings) = nav_sections_joined(&p.sections);
                     ffi::day_qt_navlist_set_items(
                         w,
                         cstr(&joined).as_ptr(),
@@ -1784,13 +1798,15 @@ impl Toolkit for Qt {
                         cstr(&tints_joined).as_ptr(),
                         cstr(&badge_icons_joined).as_ptr(),
                         cstr(&badge_tints_joined).as_ptr(),
+                        cstr(&sections_joined).as_ptr(),
                     );
                     navlist_apply_row_menus(w, &p.menus);
                     ffi::day_qt_navlist_set_selected(
                         w,
                         p.selected.map(|i| i as c_int).unwrap_or(-1),
                     );
-                    NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(w as usize, p.items.len()));
+                    NAV_MENU_ROWS
+                        .with(|m| m.borrow_mut().insert(w as usize, (p.items.len(), headings)));
                     QtHandle(w)
                 }
                 Some(Builtin::Scroll) => {
@@ -2019,6 +2035,7 @@ impl Toolkit for Qt {
                         menus,
                         badge_icons,
                         badge_tints,
+                        sections,
                         selected,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
@@ -2038,6 +2055,7 @@ impl Toolkit for Qt {
                             .collect::<Vec<_>>()
                             .join("\u{1f}");
                         let badge_tints_joined = nav_tints_joined(badge_tints);
+                        let (sections_joined, headings) = nav_sections_joined(sections);
                         ffi::day_qt_navlist_set_items(
                             h.0,
                             cstr(&joined).as_ptr(),
@@ -2045,13 +2063,15 @@ impl Toolkit for Qt {
                             cstr(&tints_joined).as_ptr(),
                             cstr(&badge_icons_joined).as_ptr(),
                             cstr(&badge_tints_joined).as_ptr(),
+                            cstr(&sections_joined).as_ptr(),
                         );
                         navlist_apply_row_menus(h.0, menus);
                         ffi::day_qt_navlist_set_selected(
                             h.0,
                             selected.map(|i| i as c_int).unwrap_or(-1),
                         );
-                        NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(h.0 as usize, items.len()));
+                        NAV_MENU_ROWS
+                            .with(|m| m.borrow_mut().insert(h.0 as usize, (items.len(), headings)));
                     } else if let Some(NavMenuPatch::Selected(sel)) =
                         patch.downcast_ref::<NavMenuPatch>()
                     {
@@ -2578,11 +2598,15 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_size_hint(h.0, &mut w, &mut hh) };
         match kind {
             kinds::NAV_MENU => {
-                let rows =
-                    NAV_MENU_ROWS.with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or(0));
+                let (rows, headings) = NAV_MENU_ROWS
+                    .with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or((0, 0)));
+                // A heading band is its caption plus the gap above it (shim.cpp,
+                // day_qt_navlist_set_items); left uncounted, a sectioned sidebar under-reports by
+                // a band per group.
                 Size::new(
                     p.width.unwrap_or(220.0),
-                    p.height.unwrap_or(rows as f64 * 34.0 + 8.0),
+                    p.height
+                        .unwrap_or(rows as f64 * 34.0 + headings as f64 * 30.0 + 8.0),
                 )
             }
             kinds::LABEL => {

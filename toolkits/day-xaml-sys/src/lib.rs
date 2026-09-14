@@ -140,9 +140,15 @@ unsafe extern "C" {
     // Paint one cell's selected treatment (0 clears it).
     pub fn day_xaml_cell_set_selected(cell: *mut c_void, on: c_int);
 
-    // navigation sidebar menu (docs/navigation.md): a single-select ListView
+    // navigation sidebar menu (docs/navigation.md): a single-select ListView. `sections_joined`
+    // runs parallel to `items_joined`, one line per row, naming the section title that opens
+    // before that row (an empty line for none). Indices in and out count rows only.
     pub fn day_xaml_navlist_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
-    pub fn day_xaml_navlist_set_items(w: *mut c_void, items_joined: *const c_char);
+    pub fn day_xaml_navlist_set_items(
+        w: *mut c_void,
+        items_joined: *const c_char,
+        sections_joined: *const c_char,
+    );
     pub fn day_xaml_navlist_set_selected(w: *mut c_void, idx: c_int);
 
     // native NavigationView split nav (docs/navigation.md): the idiomatic Windows sidebar+header,
@@ -166,6 +172,7 @@ unsafe extern "C" {
         badge_icons_joined: *const c_char,
         badge_geoms_joined: *const c_char,
         badge_tints_joined: *const c_char,
+        sections_joined: *const c_char,
     );
     pub fn day_xaml_nav_set_selected(nav: *mut c_void, idx: c_int);
     // Inspector (docs/inspector.md): a right-pane SplitView. `out_content`/`out_panel` receive

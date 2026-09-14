@@ -2173,32 +2173,68 @@ void day_xaml_cell_set_selected(void* cell, int on) {
 // Navigation sidebar item list (docs/navigation.md): a single-select ListView of route titles.
 // The NAV host + pages are plain Canvases; day-core's NavLayout positions the sidebar/detail
 // split, so no native split control is needed. Items are '\n'-joined (titles have no newlines).
+//
+// Section titles (docs/navigation.md) are disabled ListViewItems ahead of their group's first row,
+// so the user cannot pick one. The rows themselves stay boxed
+// strings, so a ListViewItem in Items() is always a title, and the two helpers below turn an
+// Items() position into Day's row index and back by counting past them (-1 = none).
+static int navlist_row_of(WUXC::ListView const& lv, int at) {
+    auto items = lv.Items();
+    if (at < 0 || static_cast<uint32_t>(at) >= items.Size()) return -1;
+    if (items.GetAt(static_cast<uint32_t>(at)).try_as<WUXC::ListViewItem>()) return -1;
+    int row = 0;
+    for (uint32_t i = 0; i < static_cast<uint32_t>(at); ++i)
+        if (!items.GetAt(i).try_as<WUXC::ListViewItem>()) ++row;
+    return row;
+}
+static int navlist_index_of(WUXC::ListView const& lv, int row) {
+    if (row < 0) return -1;
+    auto items = lv.Items();
+    int seen = 0;
+    for (uint32_t i = 0; i < items.Size(); ++i) {
+        if (items.GetAt(i).try_as<WUXC::ListViewItem>()) continue;
+        if (seen == row) return static_cast<int>(i);
+        ++seen;
+    }
+    return -1;
+}
 void* day_xaml_navlist_new(unsigned long long id, void (*cb)(unsigned long long, int)) {
     WUXC::ListView lv;
     lv.SelectionMode(WUXC::ListViewSelectionMode::Single);
     lv.SelectionChanged([id, cb](WF::IInspectable const& s, WUXC::SelectionChangedEventArgs const&) {
-        cb(id, s.as<WUXC::ListView>().SelectedIndex());
+        auto list = s.as<WUXC::ListView>();
+        cb(id, navlist_row_of(list, list.SelectedIndex()));
     });
     return boxh(lv);
 }
-void day_xaml_navlist_set_items(void* w, const char* items_joined) {
+static std::vector<std::string> split_lines(const char* joined);
+void day_xaml_navlist_set_items(void* w, const char* items_joined, const char* sections_joined) {
     auto lv = elem(w).try_as<WUXC::ListView>();
     if (!lv) return;
     lv.Items().Clear();
-    std::string all = items_joined ? items_joined : "";
-    size_t start = 0;
-    while (start <= all.size()) {
-        size_t nl = all.find('\n', start);
-        std::string item =
-            all.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
-        if (!(item.empty() && all.empty())) lv.Items().Append(winrt::box_value(hs(item.c_str())));
-        if (nl == std::string::npos) break;
-        start = nl + 1;
+    auto titles = split_lines(items_joined);
+    auto sections = split_lines(sections_joined);
+    for (size_t i = 0; i < titles.size(); ++i) {
+        if (i < sections.size() && !sections[i].empty()) {
+            WUXC::TextBlock label;
+            label.Text(hs(sections[i].c_str()));
+            label.FontSize(12.0);
+            label.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
+            WUXC::ListViewItem heading;
+            heading.Content(label);
+            heading.IsEnabled(false);
+            heading.MinHeight(32.0);
+            heading.VerticalContentAlignment(WUX::VerticalAlignment::Bottom);
+            lv.Items().Append(heading);
+        }
+        lv.Items().Append(winrt::box_value(hs(titles[i].c_str())));
     }
 }
 void day_xaml_navlist_set_selected(void* w, int idx) {
     auto lv = elem(w).try_as<WUXC::ListView>();
-    if (lv && lv.SelectedIndex() != idx) lv.SelectedIndex(idx);
+    if (!lv) return;
+    int at = navlist_index_of(lv, idx);
+    if (lv.SelectedIndex() != at) lv.SelectedIndex(at);
 }
 
 // --- native NavigationView (docs/navigation.md): the idiomatic Windows split navigation, as in
@@ -2346,6 +2382,42 @@ extern "C" int day_xaml_toggle_sidebar() try {
     return 0;
 }
 
+// Section titles (docs/navigation.md) are NavigationViewItemHeaders interleaved with the
+// destinations in MenuItems, so a MenuItems position is not Day's row index. These two walk the
+// pane counting only NavigationViewItems; -1 means "not a destination".
+static int nav_row_of(WUXC::NavigationView const& nv, WF::IInspectable const& item) {
+    if (!item) return -1;
+    int row = 0;
+    for (auto const& it : nv.MenuItems()) {
+        if (!it.try_as<WUXC::NavigationViewItem>()) continue;
+        if (it == item) return row;
+        ++row;
+    }
+    return -1;
+}
+static int nav_menu_index(WUXC::NavigationView const& nv, int row) {
+    if (row < 0) return -1;
+    auto items = nv.MenuItems();
+    int seen = 0;
+    for (uint32_t i = 0; i < items.Size(); ++i) {
+        if (!items.GetAt(i).try_as<WUXC::NavigationViewItem>()) continue;
+        if (seen == row) return static_cast<int>(i);
+        ++seen;
+    }
+    return -1;
+}
+
+// A tab strip (Top) and an icon rail (LeftCompact) present the destinations flat, so their
+// section titles collapse there and come back with the sidebar forms.
+static void nav_sync_headers(WUXC::NavigationView const& nv) {
+    auto mode = nv.PaneDisplayMode();
+    bool flat = mode == WUXC::NavigationViewPaneDisplayMode::Top ||
+                mode == WUXC::NavigationViewPaneDisplayMode::LeftCompact;
+    auto shown = flat ? WUX::Visibility::Collapsed : WUX::Visibility::Visible;
+    for (auto const& it : nv.MenuItems())
+        if (auto header = it.try_as<WUXC::NavigationViewItemHeader>()) header.Visibility(shown);
+}
+
 // The pane's FORM: 0 Left (split), 1 LeftMinimal (stack), 2 Top (tabs), 3 LeftCompact (rail).
 //
 // One NavigationView wears all four — which is why a re-present here is a property write rather
@@ -2375,6 +2447,7 @@ void day_xaml_nav_set_pane_mode(void* navh, int mode) {
             nv.OpenPaneLength(DAY_NAV_SIDEBAR_WIDTH);
             break;
     }
+    nav_sync_headers(nv);
     });
 }
 
@@ -2440,8 +2513,8 @@ void* day_xaml_nav_new(unsigned long long id,
             if (args.IsSettingsSelected()) return;
             auto item = args.SelectedItem();
             if (!item) return;
-            uint32_t idx = 0;
-            if (sender.MenuItems().IndexOf(item, idx)) sel_cb(id, static_cast<int>(idx));
+            int row = nav_row_of(sender, item);
+            if (row >= 0) sel_cb(id, row);
         });
     nv.BackRequested([id, back_cb](WUXC::NavigationView const&,
                                    WUXC::NavigationViewBackRequestedEventArgs const&) {
@@ -2526,12 +2599,14 @@ void day_xaml_delete(void* h);
 void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* icons_joined,
                             const char* geoms_joined, const char* tints_joined,
                             const char* badge_icons_joined, const char* badge_geoms_joined,
-                            const char* badge_tints_joined) {
+                            const char* badge_tints_joined, const char* sections_joined) {
     NavMutation mutating;
     guard([&] {
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
         nv.MenuItems().Clear();
+        // One line per row: the section title that opens before it, empty for none.
+        auto sections = split_lines(sections_joined);
         auto titles = split_lines(items_joined);
         auto icons = split_lines(icons_joined);
         auto geoms = split_lines(geoms_joined ? geoms_joined : "");
@@ -2540,6 +2615,11 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
         auto badge_geoms = split_lines(badge_geoms_joined ? badge_geoms_joined : "");
         auto badge_tints = split_lines(badge_tints_joined ? badge_tints_joined : "");
         for (size_t i = 0; i < titles.size(); ++i) {
+            if (i < sections.size() && !sections[i].empty()) {
+                WUXC::NavigationViewItemHeader header;
+                header.Content(winrt::box_value(hs(sections[i].c_str())));
+                nv.MenuItems().Append(header);
+            }
             WUXC::NavigationViewItem nvi;
             // The trailing status glyph (docs/navigation.md). NavigationViewItem has ONE Icon
             // slot and it is the leading one, so a badge has to ride the Content: a row with one
@@ -2626,6 +2706,7 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
             }
             nv.MenuItems().Append(nvi);
         }
+        nav_sync_headers(nv);
     });
 }
 
@@ -2636,12 +2717,12 @@ void day_xaml_nav_set_selected(void* navh, int idx) {
     guard([&] {
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
-        auto items = nv.MenuItems();
-        if (idx < 0 || static_cast<uint32_t>(idx) >= items.Size()) {
+        int at = nav_menu_index(nv, idx);
+        if (at < 0) {
             nv.SelectedItem(nullptr);
             return;
         }
-        auto want = items.GetAt(static_cast<uint32_t>(idx));
+        auto want = nv.MenuItems().GetAt(static_cast<uint32_t>(at));
         if (nv.SelectedItem() != want) nv.SelectedItem(want);
     });
 }

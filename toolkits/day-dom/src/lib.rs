@@ -845,7 +845,7 @@ fn apply_font(el: u32, f: &FontSpec) {
 // JSON writer (tiny, escapes only what the shim needs — no serde dependency).
 // ---------------------------------------------------------------------------
 
-/// Build the nav-menu JSON (`{items:[{title, icon?, tint?}], selected}`) the shim's
+/// Build the nav-menu JSON (`{items:[{title, section?, icon?, tint?}], selected}`) the shim's
 /// `day_dom_navmenu` consumes. Shared by NAV_MENU realize and the data-driven
 /// `NavMenuPatch::Items` rebuild.
 fn navmenu_json(
@@ -854,6 +854,7 @@ fn navmenu_json(
     tints: &[Option<day_spec::Color>],
     badge_icons: &[Option<String>],
     badge_tints: &[Option<day_spec::Color>],
+    sections: &[Option<String>],
     selected: Option<usize>,
 ) -> String {
     let mut json = String::from("{\"items\":[");
@@ -863,6 +864,13 @@ fn navmenu_json(
         }
         json.push_str("{\"title\":");
         json_str(&mut json, item);
+        // The section heading that opens a group before this row (docs/navigation.md). It rides
+        // the row rather than the list, so the shim draws it between rows and every index that
+        // addresses rows stays Day's.
+        if let Some(Some(section)) = sections.get(i) {
+            json.push_str(",\"section\":");
+            json_str(&mut json, section);
+        }
         if let Some(Some(icon)) = icons.get(i) {
             json.push_str(",\"icon\":");
             json_str(&mut json, &image_url(icon));
@@ -1601,6 +1609,7 @@ impl Toolkit for Dom {
                     &p.tints,
                     &p.badge_icons,
                     &p.badge_tints,
+                    &p.sections,
                     p.selected,
                 );
                 unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
@@ -1895,12 +1904,20 @@ impl Toolkit for Dom {
                     tints,
                     badge_icons,
                     badge_tints,
+                    sections,
                     selected,
                     ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
-                    let json =
-                        navmenu_json(items, icons, tints, badge_icons, badge_tints, *selected);
+                    let json = navmenu_json(
+                        items,
+                        icons,
+                        tints,
+                        badge_icons,
+                        badge_tints,
+                        sections,
+                        *selected,
+                    );
                     unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()

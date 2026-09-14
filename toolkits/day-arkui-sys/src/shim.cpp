@@ -2310,6 +2310,39 @@ void day_ark_style_row(void* n, double height_vp) {
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TEXT_ALIGN, &tit);
 }
 
+void day_ark_style_nav_heading(void* n, int first) {
+    if (!g_api || !n) return;
+    ArkUI_NumberValue wp[1];
+    wp[0].f32 = 1.0f; // 100% of the parent width
+    ArkUI_AttributeItem wit{};
+    wit.value = wp;
+    wit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_WIDTH_PERCENT, &wit);
+    // Four NODE_PADDING values run top, right, bottom, left. The gap above separates the group
+    // from the one before it; the list's first title only needs to clear the top edge.
+    ArkUI_NumberValue pad[4];
+    pad[0].f32 = first ? 8.0f : 20.0f;
+    pad[1].f32 = 16.0f;
+    pad[2].f32 = 6.0f;
+    pad[3].f32 = 16.0f;
+    ArkUI_AttributeItem pit{};
+    pit.value = pad;
+    pit.size = 4;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_PADDING, &pit);
+    ArkUI_NumberValue fw[] = {{.i32 = ARKUI_FONT_WEIGHT_MEDIUM}};
+    ArkUI_AttributeItem fit{};
+    fit.value = fw;
+    fit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_FONT_WEIGHT, &fit);
+    // NODE_TEXT_ALIGN: 0 = START, which follows the layout direction.
+    ArkUI_NumberValue ta[1];
+    ta[0].i32 = 0;
+    ArkUI_AttributeItem tit{};
+    tit.value = ta;
+    tit.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TEXT_ALIGN, &tit);
+}
+
 } // extern "C"
 
 // Read a NAPI string argument into a std::string (queries the exact length first).

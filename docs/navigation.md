@@ -259,7 +259,13 @@ the only way a row is reachable, and a row's icon tint is the grouping signal th
 there. AppKit draws them as source-list group rows (small, bold, secondary, pinned as their
 group scrolls under them); the outline keys its rows by index, not by title, so a header may
 share its text with an item ("Controls" over Controls) without the two collapsing into one row.
-UIKit and Android draw them from their list's own header slot, described below.
+UIKit and Android draw them from their list's own header slot, described below. GTK draws them
+in its list box's header slot. Qt, whose `QListWidget` has no header slot, draws each as a small
+bold dimmed item of its own that takes no click, hover or selection, and web-dom as a heading
+element between the rows. Windows adds a `NavigationViewItemHeader` to the pane's items (a disabled
+item in the plain `ListView` sidebar), collapsing them while the pane is a tab strip or an icon
+rail, and HarmonyOS a secondary-colored title above the group's first row. These four translate
+indices at the list, so a row keeps the index Day gave it however many headings sit above it.
 
 ```rust
 nav(section)

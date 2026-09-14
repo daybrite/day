@@ -459,6 +459,23 @@ body.day-has-toolbar #day-root {
 }
 .day-navmenu-row:hover { background: var(--day-control-bg); }
 .day-navmenu-row.selected { background: var(--day-accent); color: var(--day-accent-fg); }
+/* A section heading (docs/navigation.md): small, bold and dimmed, the group title AppKit's source
+   list and GTK's list box draw. shim.js puts it between the rows, never inside one, and nothing
+   that addresses rows by index counts it — so it takes no hover, no selection and no pointer.
+   Inset like the row text, so the heading and the icons below it share a left edge. */
+.day-navmenu-heading {
+  padding: 1em 0.75em 0.3em;
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--day-fg-dim);
+  cursor: default;
+  user-select: none;
+}
+.day-navmenu-heading:first-child { padding-top: 0.25em; }
+/* Tabs and rails have no grouped rows, so the headings stay out of the chrome and the rows read as
+   one flat set there — the grouping contract every backend follows. */
+.day-nav.tabs .day-navmenu-heading,
+.day-nav.rail .day-navmenu-heading { display: none; }
 
 /* Tabs -------------------------------------------------------------------- */
 

@@ -69,8 +69,8 @@ day_core::tls_group! {
     /// Label ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell a link
     /// run's Hyperlink which node to report against. Entries drop in `release`.
     static LABEL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
-    /// NAV_MENU widget ptr → row count (for measure).
-    static NAV_MENU_ROWS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
+    /// NAV_MENU widget ptr → (rows, section titles) (for measure).
+    static NAV_MENU_ROWS: RefCell<HashMap<usize, (usize, usize)>> = RefCell::new(HashMap::new());
     /// NAV host ptr → its native presentation (NavigationView split / two-pane, docs/navigation.md).
     static NAV_STATE: RefCell<HashMap<usize, NavState>> = RefCell::new(HashMap::new());
     /// NAV_PAGE handle ptr → its node id (so region-resize callbacks can emit FrameChanged).
@@ -1665,6 +1665,7 @@ impl Toolkit for Xaml {
                             cstr(&badge_icons_joined).as_ptr(),
                             cstr(&join_geoms(&p.badge_icons)).as_ptr(),
                             cstr(&join_tints(&p.badge_tints)).as_ptr(),
+                            cstr(&join_sections(&p.sections)).as_ptr(),
                         );
                         ffi::day_xaml_nav_set_selected(
                             pending,
@@ -1689,12 +1690,18 @@ impl Toolkit for Xaml {
                     } else {
                         // Standalone ListView (non-split fallback).
                         let w = ffi::day_xaml_navlist_new(id.0, nav_menu_changed);
-                        ffi::day_xaml_navlist_set_items(w, cstr(&p.items.join("\n")).as_ptr());
+                        ffi::day_xaml_navlist_set_items(
+                            w,
+                            cstr(&p.items.join("\n")).as_ptr(),
+                            cstr(&join_sections(&p.sections)).as_ptr(),
+                        );
                         ffi::day_xaml_navlist_set_selected(
                             w,
                             p.selected.map(|i| i as c_int).unwrap_or(-1),
                         );
-                        NAV_MENU_ROWS.with(|m| m.borrow_mut().insert(w as usize, p.items.len()));
+                        let headings = p.sections.iter().filter(|s| s.is_some()).count();
+                        NAV_MENU_ROWS
+                            .with(|m| m.borrow_mut().insert(w as usize, (p.items.len(), headings)));
                         WinHandle(w)
                     }
                 }
@@ -2004,20 +2011,23 @@ impl Toolkit for Xaml {
                         // The row set changed (a filtered sidebar, a data-driven list). Without
                         // this the pane kept its original rows for the life of the window, and
                         // NAV_MENU_ROWS — which `measure` sizes the list from — went stale.
-                        // Text badges and sections still have no NavigationView counterpart and
-                        // are dropped here as at realize; the trailing status GLYPH does have one
-                        // (it composes into the item's Content) and rides along below.
+                        // Text badges still have no NavigationView counterpart and are dropped
+                        // here as at realize; the trailing status GLYPH does have one (it
+                        // composes into the item's Content) and rides along below, as do the
+                        // section titles (a NavigationViewItemHeader ahead of the group).
                         Some(NavMenuPatch::Items {
                             items,
                             icons,
                             tints,
                             badge_icons,
                             badge_tints,
+                            sections,
                             selected,
                             ..
                         }) => {
                             let idx = selected.map(|i| i as c_int).unwrap_or(-1);
                             let joined = cstr(&items.join("\n"));
+                            let sections_joined = cstr(&join_sections(sections));
                             match host {
                                 Some(nav) => {
                                     let icons_joined = icons
@@ -2047,14 +2057,21 @@ impl Toolkit for Xaml {
                                         .as_ptr(),
                                         cstr(&join_geoms(badge_icons)).as_ptr(),
                                         cstr(&join_tints(badge_tints)).as_ptr(),
+                                        sections_joined.as_ptr(),
                                     );
                                     ffi::day_xaml_nav_set_selected(nav, idx);
                                 }
                                 None => {
-                                    ffi::day_xaml_navlist_set_items(h.0, joined.as_ptr());
+                                    ffi::day_xaml_navlist_set_items(
+                                        h.0,
+                                        joined.as_ptr(),
+                                        sections_joined.as_ptr(),
+                                    );
                                     ffi::day_xaml_navlist_set_selected(h.0, idx);
-                                    NAV_MENU_ROWS
-                                        .with(|m| m.borrow_mut().insert(h.0 as usize, items.len()));
+                                    let headings = sections.iter().filter(|s| s.is_some()).count();
+                                    NAV_MENU_ROWS.with(|m| {
+                                        m.borrow_mut().insert(h.0 as usize, (items.len(), headings))
+                                    });
                                 }
                             }
                         }
@@ -2471,11 +2488,12 @@ impl Toolkit for Xaml {
                 if NAV_MENU_HOST.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
                     return Size::new(0.0, 0.0);
                 }
-                let rows =
-                    NAV_MENU_ROWS.with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or(0));
+                let (rows, headings) = NAV_MENU_ROWS
+                    .with(|m| m.borrow().get(&(h.0 as usize)).copied().unwrap_or((0, 0)));
                 Size::new(
                     p.width.unwrap_or(220.0),
-                    p.height.unwrap_or(rows as f64 * 40.0 + 8.0),
+                    p.height
+                        .unwrap_or(rows as f64 * 40.0 + headings as f64 * 32.0 + 8.0),
                 )
             }
             kinds::PROGRESS => {
@@ -2973,6 +2991,16 @@ fn argb(c: day_spec::Color) -> u32 {
     let g = (c.g.clamp(0.0, 1.0) * 255.0) as u32;
     let b = (c.b.clamp(0.0, 1.0) * 255.0) as u32;
     (a << 24) | (r << 16) | (g << 8) | b
+}
+
+/// Per-row section titles (docs/navigation.md) as one line-joined list, parallel to the rows: the
+/// title that opens before a row, an empty line for none.
+fn join_sections(sections: &[Option<String>]) -> String {
+    sections
+        .iter()
+        .map(|s| s.as_deref().unwrap_or_default())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Per-row nav icon tints (docs/vectors.md) as one line-joined ARGB list, parallel to the rows.

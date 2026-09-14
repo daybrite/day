@@ -330,9 +330,18 @@ mod imp {
         tints: &[Option<day_spec::Color>],
         badge_icons: &[Option<String>],
         badge_tints: &[Option<day_spec::Color>],
+        sections: &[Option<String>],
     ) -> AHandle {
         let scroll = new_node(K_SCROLL);
-        let col = build_nav_menu_rows(menu, items, icons, tints, badge_icons, badge_tints);
+        let col = build_nav_menu_rows(
+            menu,
+            items,
+            icons,
+            tints,
+            badge_icons,
+            badge_tints,
+            sections,
+        );
         unsafe { ffi::day_ark_insert_child(scroll.0, col.0, 0) };
         // The rows column is owned content: registering it here lets `NavMenuPatch::Items`
         // swap it wholesale and `release` dispose it with the scroll.
@@ -343,6 +352,10 @@ mod imp {
 
     /// The rows column for a NAV_MENU (see [`build_nav_menu`]): registers one synthetic click
     /// id per row in [`MENU_ROWS`]. Rebuilt wholesale on `NavMenuPatch::Items`.
+    ///
+    /// A section title (docs/navigation.md) is a plain text node ahead of its group's first row.
+    /// It registers no click id, so [`MENU_ROWS`] keeps Day's own row indices however many titles
+    /// sit above a row, and the hairline a title replaces is left out.
     fn build_nav_menu_rows(
         menu: NodeId,
         items: &[String],
@@ -350,10 +363,22 @@ mod imp {
         tints: &[Option<day_spec::Color>],
         badge_icons: &[Option<String>],
         badge_tints: &[Option<day_spec::Color>],
+        sections: &[Option<String>],
     ) -> AHandle {
         let col = new_node(K_COLUMN);
         let mut pos: c_int = 0;
         for (i, title) in items.iter().enumerate() {
+            if let Some(Some(section)) = sections.get(i) {
+                let heading = new_node(K_TEXT);
+                unsafe {
+                    ffi::day_ark_set_text(heading.0, cstr(section).as_ptr());
+                    ffi::day_ark_set_font_size(heading.0, 14.0);
+                    ffi::day_ark_set_font_color(heading.0, theme_color(0x9900_0000, 0x99FF_FFFF));
+                    ffi::day_ark_style_nav_heading(heading.0, c_int::from(pos == 0));
+                    ffi::day_ark_insert_child(col.0, heading.0, pos);
+                }
+                pos += 1;
+            }
             // A Row (vertically centered children) carries the whole-row click target.
             let row = new_node(K_ROW);
             let label = new_node(K_TEXT);
@@ -437,7 +462,7 @@ mod imp {
                 ffi::day_ark_insert_child(col.0, row.0, pos);
             }
             pos += 1;
-            if i + 1 < items.len() {
+            if i + 1 < items.len() && !matches!(sections.get(i + 1), Some(Some(_))) {
                 let sep = new_node(K_STACK);
                 unsafe {
                     ffi::day_ark_menu_separator(sep.0, theme_color(0x1400_0000, 0x24FF_FFFF));
@@ -1588,6 +1613,7 @@ mod imp {
                         &p.tints,
                         &p.badge_icons,
                         &p.badge_tints,
+                        &p.sections,
                     )
                 }
                 // Canvas: a custom node whose on-draw callback replays the encoded display list.
@@ -1744,6 +1770,7 @@ mod imp {
                         tints,
                         badge_icons,
                         badge_tints,
+                        sections,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
@@ -1769,6 +1796,7 @@ mod imp {
                             tints,
                             badge_icons,
                             badge_tints,
+                            sections,
                         );
                         unsafe { ffi::day_ark_insert_child(h.0, col.0, 0) };
                         SCROLL_CONTENT.with(|m| m.borrow_mut().insert(key, col.0 as usize));
