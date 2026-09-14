@@ -302,6 +302,13 @@ jobs:
       # the tagged commit precedes the real upload in the `publish` job).
       - name: Verify publishability (cargo publish --workspace --dry-run)
         run: cargo publish --workspace --dry-run --locked
+      # The dry-run leaves each unpacked package in target/package. rust-cache's post-job cleanup
+      # reads any `tests/` directory there as trybuild output and logs ENOENT errors for day-cli
+      # and day-build. The unpacked sources are not worth caching; the verification build's
+      # compiled output stays in the workspace's own build directories.
+      - name: Drop the unpacked packages before the cache is saved
+        if: ${{ always() }}
+        run: rm -rf target/package
 
       # --- GitHub release (semantic tags only) ---
       - name: Check the tag matches the workspace version
