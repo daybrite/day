@@ -44,6 +44,16 @@ pub(crate) fn navigate_page() -> impl Piece {
 /// pane's own chrome: a column toolbar on a desktop, the navigation bar on a phone.
 pub(crate) fn item_list_pane() -> impl Piece {
     let scene = Scene::ambient();
+    // Closing the editor drops the selection with it: the row un-highlights, and where the editor
+    // sits beside the list, the back that closed it leaves the empty state behind.
+    watch(
+        move || scene.detail_open.get(),
+        move |open, _| {
+            if !open {
+                scene.clear_selection();
+            }
+        },
+    );
     item_list(scene).grow().toolbar([
         toolbar_toggle("tb-show-done", res::str::cmd_show_done(), scene.show_done)
             .icon(Symbol::Filter)

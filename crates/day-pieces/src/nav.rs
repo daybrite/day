@@ -235,6 +235,30 @@ struct NavHostCx {
     /// re-present under us: a page built while the window is narrow should merge, and one built
     /// after it widens should not.
     split: Rc<Cell<bool>>,
+    /// Votes to route this host's native back through Day (`NavPatch::GuardTop`): a guarded stack
+    /// above its root holds one, and so does a detail shown beside its composed list. Counted, so
+    /// one voter withdrawing never disarms another.
+    guards: Rc<Cell<usize>>,
+}
+
+impl NavHostCx {
+    /// Add (`true`) or withdraw (`false`) one vote to route the native back through Day. The
+    /// patch goes out only when the count crosses zero.
+    fn vote_guard(&self, on: bool) {
+        let was = self.guards.get();
+        let now = if on { was + 1 } else { was.saturating_sub(1) };
+        self.guards.set(now);
+        if (was == 0) != (now == 0) {
+            let host = self.host;
+            with_tree(|t| {
+                t.patch(
+                    host,
+                    Box::new(day_spec::props::NavPatch::GuardTop(now > 0)),
+                    false,
+                )
+            });
+        }
+    }
 }
 
 day_reactive::tls_group! {
@@ -1592,6 +1616,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
             sizes: sizes.clone(),
             owners: owners.clone(),
             split: Rc::new(Cell::new(false)),
+            guards: Rc::default(),
         };
         let root_page = nav_page(
             host,
@@ -2126,6 +2151,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         sizes: sizes.clone(),
         owners: owners.clone(),
         split: split_cell.clone(),
+        guards: Rc::default(),
     };
 
     // Sidebar / root page. `Pane::Sidebar` is unconditional: it says what this page IS in the
@@ -2793,6 +2819,39 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         );
     }
 
+    // A detail open BESIDE its list closes before the section is left (docs/navigation.md). Where
+    // the list is composed into the destination's page, the platform's back would pop that whole
+    // page, list and detail together, so while a detail is open side by side this host routes the
+    // native back through Day (`NavHostCx::vote_guard`) and the back handler below closes the
+    // detail instead. A native pane is a column of its own, which no native back pops.
+    let beside: Rc<Cell<bool>> = Rc::default();
+    if let Some(dv) = detail_visible
+        && list_build.is_some()
+        && !native_list
+    {
+        let (hc, s, pred, beside) = (
+            host_cx.clone(),
+            selection.clone(),
+            list_pred.clone(),
+            beside.clone(),
+        );
+        bind(
+            move || {
+                let k = s.read();
+                dv.get()
+                    && presentation_sig.get().is_split()
+                    && !k.key().is_empty()
+                    && pred.as_ref().is_none_or(|p| p(&k))
+            },
+            move |want: &bool| {
+                if *want != beside.get() {
+                    beside.set(*want);
+                    hc.vote_guard(*want);
+                }
+            },
+        );
+    }
+
     // What a presentation change means for the MODEL, whoever caused it. Widening with nothing
     // selected would leave the detail pane empty, the one state a split presentation has no way
     // to draw — adopt the same first-item rule the build uses. Narrowing keeps the selection
@@ -3122,13 +3181,26 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     // a nested stack has merged its pages on top, its owners run first (docs/navigation.md). A
     // typed key deselects via its "" decoding (`Option<Section>` → `None`); a bare enum has no
     // list-only state so its owner's deselect is a no-op — back is effectively ignored.
+    //
+    // A detail open beside its composed list comes first: `beside` holds this host's guard vote,
+    // so the platform has not popped, and the back closes the detail rather than the section —
+    // unless a stack merged above the section page owns it.
     {
         let owners = owners.clone();
+        let (beside, dv_back) = (beside.clone(), detail_visible);
         cx.on(host, move |ev| match ev {
             Event::NavBack { already_popped } => {
-                let top = owners.borrow().last().cloned();
-                if let Some(f) = top {
-                    f(*already_popped);
+                if !*already_popped
+                    && beside.get()
+                    && owners.borrow().len() <= 1
+                    && let Some(dv) = dv_back
+                {
+                    dv.set(false);
+                } else {
+                    let top = owners.borrow().last().cloned();
+                    if let Some(f) = top {
+                        f(*already_popped);
+                    }
                 }
             }
             Event::RouteRequested(route) => {
@@ -3149,6 +3221,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         list_in_stack.clone(),
         presentation_cell.clone(),
     );
+    let (has_list_pop, pred_pop) = (list_build.is_some(), list_pred.clone());
     let s_cur = selection.clone();
     let (tp_enter, s_enter) = (typed.clone(), selection.clone());
     let s_seg = selection.clone();
@@ -3175,19 +3248,24 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 }
             },
             move |_| {
-                if s_pop.peek().key().is_empty() {
+                let current = s_pop.peek();
+                let pres = pres_pop.get();
+                if current.key().is_empty() {
                     false
-                } else if merged_list
-                    && pres_pop.get() == NavPresentation::Stack
-                    && lis_pop.get()
-                    && let Some(dv) = dv_pop
+                } else if let Some(dv) = dv_pop
                     && dv.peek()
+                    && has_list_pop
+                    && pred_pop.as_ref().is_none_or(|p| p(&current))
+                    && (pres.is_split()
+                        || (merged_list && pres == NavPresentation::Stack && lis_pop.get()))
                 {
-                    // The gated detail is the innermost layer while the list is interposed
-                    // (docs/navigation.md): the native back closes it through the page's
-                    // owner, and an imperative `nav_back` lands in the same place rather
-                    // than leaving the section — which is what it did on a phone, popping
-                    // the list and the section under a script's back.
+                    // The detail is the innermost layer wherever it shows with its list
+                    // (docs/navigation.md): over it while the list is interposed in a collapsed
+                    // stack, where the native back closes it through the page's owner, and
+                    // beside it in a split, where the back closes it before the section is left.
+                    // An imperative `nav_back` lands in the same place rather than leaving the
+                    // section, which is what it did on a phone, popping the list and the section
+                    // under a script's back.
                     dv.set(false);
                     true
                 } else if let Some(root) = K::from_key("") {
@@ -3445,6 +3523,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                 sizes: sizes.clone(),
                 owners: owners.clone(),
                 split: Rc::new(Cell::new(false)),
+                guards: Rc::default(),
             };
             let root_page = nav_page(
                 host,
@@ -3529,8 +3608,9 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
         // Reconcile the native stack to `want`: keep the common prefix, pop the rest, push
         // the new suffix. A pop the native already performed (iOS back) is not re-issued. Pages
         // and owners land on `host` (our own, or the enclosing one when merged).
-        // `true` once GuardTop(true) has been sent for the current depth, so we only re-emit on
-        // a real transition (arming/disarming native gesture handling is not free on every pop).
+        // `true` while this stack holds a guard vote on its host (`NavHostCx::vote_guard`), so the
+        // vote moves only on a real transition (arming/disarming native gesture handling is not
+        // free on every pop), and a merged stack shares the count with the host's other voters.
         let guard_armed_sent = Rc::new(Cell::new(false));
         let has_guard = on_back.is_some();
         let reconcile = {
@@ -3613,7 +3693,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                     let armed = !entries.borrow().is_empty();
                     if armed != guard_armed_sent.get() {
                         guard_armed_sent.set(armed);
-                        with_tree(|t| t.patch(host, Box::new(NavPatch::GuardTop(armed)), false));
+                        host_cx.vote_guard(armed);
                     }
                 }
                 with_tree(|t| {
@@ -3670,8 +3750,14 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                 owners.clone(),
                 native_popped.clone(),
             );
+            let (guard_c, host_cx_c) = (guard_armed_sent.clone(), host_cx.clone());
             nav_scope.on_cleanup(move || {
                 let alive = with_tree(|t| t.node_kind(host).is_some());
+                // A vote this stack still holds would keep the enclosing host routing every back
+                // through Day after the stack is gone.
+                if alive && guard_c.replace(false) {
+                    host_cx_c.vote_guard(false);
+                }
                 loop {
                     let e = entries_c.borrow_mut().pop();
                     let Some(e) = e else { break };

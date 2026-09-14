@@ -1246,6 +1246,112 @@ fn content_list_composes_where_unsupported() {
     );
 }
 
+/// Side by side (docs/navigation.md): a detail open beside its composed list is the innermost
+/// layer. While it is open the host routes the native back through Day (`NavPatch::GuardTop`),
+/// and a back, native or `nav_back()`, closes the detail before a second one leaves the section.
+#[test]
+fn composed_side_by_side_back_closes_the_detail_first() {
+    let sel = Signal::new(String::new());
+    let dv = Signal::new(false);
+    let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(1000.0, 700.0), {
+        move || content_list_selector(sel, Some(dv))
+    });
+    let navs = probe.find_by_kind("day.nav");
+    assert_eq!(
+        navs[0].1.presentation,
+        Some(day_spec::props::NavPresentation::Split),
+    );
+    let host = NodeId(navs[0].1.node);
+    // A split host's `flag` records split-ness, so the arming is read from the patch log.
+    let guard = |probe: &MockProbe, since: usize| -> Vec<String> {
+        probe
+            .log_since(since)
+            .iter()
+            .filter_map(|l| l.find("nav guard=").map(|at| l[at..].to_string()))
+            .collect()
+    };
+    assert_eq!(sel.get_untracked(), "about");
+    assert!(
+        guard(&probe, 0).is_empty(),
+        "nothing open, nothing to intercept"
+    );
+
+    let mark = probe.log_len();
+    batch(|| dv.set(true));
+    flush_sync();
+    assert_eq!(
+        guard(&probe, mark),
+        ["nav guard=true"],
+        "an open detail routes the native back through Day"
+    );
+
+    // The native back closes the detail and keeps the section.
+    let mark = probe.log_len();
+    probe.emit(
+        host,
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert!(
+        !dv.get_untracked(),
+        "back closes the detail beside the list"
+    );
+    assert_eq!(sel.get_untracked(), "about", "the section survives");
+    assert_eq!(
+        guard(&probe, mark),
+        ["nav guard=false"],
+        "closed, the platform's back is its own again"
+    );
+
+    // `nav_back()` lands in the same place, and only the next one leaves the section.
+    batch(|| dv.set(true));
+    flush_sync();
+    assert!(nav_back());
+    flush_sync();
+    assert!(!dv.get_untracked());
+    assert_eq!(sel.get_untracked(), "about");
+    assert!(nav_back());
+    flush_sync();
+    assert_eq!(sel.get_untracked(), "");
+
+    // A destination that keeps the whole pane has no detail beside a list to close.
+    assert!(navigate("extra"));
+    let mark = probe.log_len();
+    batch(|| dv.set(true));
+    flush_sync();
+    assert!(guard(&probe, mark).is_empty(), "no list, no interception");
+}
+
+/// The same rule over a native pane: the list is a column of its own, which no native back pops,
+/// so nothing is intercepted, but `nav_back()` still closes the detail before leaving the section.
+#[test]
+fn native_side_by_side_nav_back_closes_the_detail_first() {
+    let sel = Signal::new(String::new());
+    let dv = Signal::new(false);
+    let probe = boot_content_list(day_spec::Support::Native, Size::new(1000.0, 700.0), {
+        move || content_list_selector(sel, Some(dv))
+    });
+    let mark = probe.log_len();
+    batch(|| dv.set(true));
+    flush_sync();
+    assert!(
+        !probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav guard=")),
+        "a native pane needs no interception"
+    );
+    assert!(nav_back());
+    flush_sync();
+    assert!(!dv.get_untracked(), "nav_back closes the detail first");
+    assert_eq!(sel.get_untracked(), "about");
+    assert!(nav_back());
+    flush_sync();
+    assert_eq!(sel.get_untracked(), "");
+}
+
 /// `Cap::NavContentList` Native: the list is its own `Pane::List` page, resident from the
 /// build, and per-destination visibility flows as `NavPatch::ListVisible`.
 #[test]

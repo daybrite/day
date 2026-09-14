@@ -514,6 +514,11 @@ gesture and route the back through Day instead (`NavPatch::GuardTop`). What that
 The guard's logic (intercept, defer, proceed, never-on-programmatic-write) is identical everywhere
 and covered by `mock_e2e::nav_stack_on_back_guard_intercepts_and_defers`.
 
+A nav host arms the same patch for a reason of its own: while a detail is open beside a composed
+content list, so the platform's back closes the detail instead of popping the page that holds
+both (see `detail_visible` below). The host counts the requests to arm it, so a guarded stack
+merged into the host and an open detail never disarm each other.
+
 ## Routes: the string-route adapter (deep links & dayscript)
 
 Each mounted surface registers a small adapter over its own signal, so a string route can
@@ -546,9 +551,10 @@ flight; a push you perform by writing the path signal directly carries its data 
 state instead.
 
 - `nav_back()`: pops the innermost surface, falling through when it is already at its root. On a
-  sidebar whose content list is interposed in a collapsed stack, the innermost layer is the
-  gated detail: the call closes it (`detail_visible` := false), the same place the native back
-  lands, and only a second call leaves the section.
+  sidebar with a content list, an open detail is the innermost layer, whether it is pushed over
+  the list in a collapsed stack or shown beside it in a split: the call closes it
+  (`detail_visible` := false), the same place the native back lands, and only a second call
+  leaves the section.
 - `current_route()`: the **full** path, every mounted surface's contribution from outermost to
   innermost (`"mail/inbox/msg-42"`). It round-trips through `navigate`, so persisting the *whole*
   route by hand is two lines: save `current_route()` on the way out (day-part-prefs works),
@@ -774,9 +780,15 @@ nav(section).style(NavStyle::Sidebar)
   composes the list beside each list-backed destination while split, and as the root layer of
   the gated push flow while compact.
 - **`detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts
-  ignore it (the detail pane is always on screen, showing the app's empty state until a row is
-  chosen). Stacked, the content list is the top of the stack until the app writes `true` (a
-  row was opened); the detail pushes then, and the platform's back writes `false` on the way
+  never gate on it (the detail pane is always on screen, showing the app's empty state until a
+  row is chosen), but a back still treats it as the open layer: while it is `true` beside the
+  list, the back closes the detail (writes `false`) and only the next back leaves the section,
+  so clear what the pane shows when the signal goes `false`. Where the list is composed into
+  the destination's page, a platform back (Android's, HarmonyOS's) would pop that page, list
+  and detail together, so the host arms `NavPatch::GuardTop` while a detail is open side by
+  side and closes it through Day instead. Stacked, the content list is the top of the stack
+  until the app writes `true` (a row was opened); the detail pushes then, and the platform's
+  back writes `false` on the way
   out. In a chrome presentation (a tab bar, a rail) the same flow runs inside the tab: the
   destination's page is a nested navigation host (a `UINavigationController` in the tab, a
   Material toolbar over the fragment back stack), so the tab gets a navigation bar, a title,

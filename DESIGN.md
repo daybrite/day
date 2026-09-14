@@ -2092,6 +2092,13 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   `.detail_title(text)` names the detail layer's bar, reactively, on the native pane shapes
 >   too. To keep a mid-build inner push ordered, a stacked destination page is now PRESENTED
 >   (`NavPatch::Pushed`) before its content builds, not after.
+> - **Back closes a side-by-side detail first** *(2026-09)* — a detail open beside its content
+>   list (`.detail_visible` true in a split) is now the innermost layer: `nav_back()` closes it
+>   before leaving the section. Where the list is composed into the destination's page, the
+>   nav host arms `NavPatch::GuardTop` while the detail is open, so the Android and HarmonyOS
+>   system back closes it too, where it used to pop the page holding list and detail. A host
+>   counts the requests to arm it, so a guarded `nav_stack()` merged into it and an open detail
+>   never disarm each other. [docs/navigation.md](docs/navigation.md) is normative.
 > - **Superseded (2026-09) by toolbar contributions.** `bar_action`/`list_action`, `NavBarAction`
 >   and `NavBarScope` are gone: a command on the chrome is a toolbar item declared on the piece it
 >   acts on, and which bar it rides — and when it leaves — follows from that
