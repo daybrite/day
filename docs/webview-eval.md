@@ -23,7 +23,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **GTK** carries an inert `WebPatch::Eval` arm so its `match` stays exhaustive, and reports
 > `Unsupported`. The per-platform research below is what that arm needs.
 > **web-dom can never do this for remote pages**, because `contentWindow.eval` throws across origins
-> (an inline site's same-origin frame is the noted future exception, [docs/webview.md](webview.md)).
+> (an inline site's same-origin frame is the noted future exception, in day-piece-webview's
+> [docs/webview.md](https://github.com/daybrite/day-piece-webview/blob/main/docs/webview.md)).
 >
 > Verified end to end on **macos-qt (21/21 script steps)** and **macos-appkit (20/21; only the
 > engine-specific `SyntaxError` wording differs)**: values, object serialization, thrown exceptions
@@ -36,7 +37,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > `TypeError: Converting circular structure to JSON`, and a string carrying an escaped quote and
 > `é` round-tripping as `café`. `1 +` reports **`SyntaxError: Unexpected end of input`**,
 > the case the JS envelope structurally cannot catch, delivered by `ExecuteScriptWithResult`'s
-> engine-level error channel. See [webview.md](./webview.md) for the shipped piece.
+> engine-level error channel. See day-piece-webview's
+> [docs/webview.md](https://github.com/daybrite/day-piece-webview/blob/main/docs/webview.md) for the shipped piece.
 
 ## The dayscript step: `web_eval`
 

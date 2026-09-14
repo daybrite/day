@@ -360,8 +360,8 @@ const env = {
   day_dom_set_attr(id, a, al, v, vl) {
     const el = V(id); const name = str(a, al); const val = str(v, vl);
     if (name === 'value') { el.value = val; return; }
-    // The inline web view's link-policy hook (docs/webview.md) rides an attribute because a
-    // piece renderer has no way to add shim code of its own.
+    // The inline web view's link-policy hook (day-piece-webview's docs/webview.md) rides an
+    // attribute because a piece renderer has no way to add shim code of its own.
     if (name === 'data-day-inline-base') { dayInlineHook(id, el, val); return; }
     // Boolean attrs use a marker convention from the Rust side: "" removes, "-" sets.
     if (name === 'disabled' || name === 'readonly') {
@@ -1263,7 +1263,8 @@ async function fsOpfs(op, path, data) {
 
 function mods(e) { return (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0); }
 
-// The inline web view's link policy (docs/webview.md). The bundled site deploys beside the app
+// The inline web view's link policy (day-piece-webview's docs/webview.md). The bundled site
+// deploys beside the app
 // under assets/data/, so its iframe is SAME-ORIGIN and the shim can reach inside: on every
 // document the frame loads, a capture-phase click listener resolves each followed <a> against
 // the site base — in-site links navigate the frame as normal, leaving ones are cancelled and

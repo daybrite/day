@@ -204,7 +204,7 @@ modules:
 
 /// Does this ELF binary link QtWebEngine? Reads the shared-library names the dynamic linker will
 /// load (`DT_NEEDED`) and looks for a `libQt6WebEngine*` among them — the piece links
-/// `Qt6WebEngineWidgets` directly (pieces/day-piece-webview/build.rs), so the link is recorded
+/// `Qt6WebEngineWidgets` directly (day-piece-webview's build.rs), so the link is recorded
 /// here whenever a webview is actually compiled in.
 ///
 /// `None` = "can't tell": not the ELF64 little-endian shape Day packs flatpaks for (x86_64,

@@ -65,7 +65,8 @@ An `AssetName`'s value is the `/`-relative path, which is exactly what every nat
 resolves (`file` paths, `AAssetManager` paths, gresource/qrc aliases, rawfile paths). File and
 directory symbols share one namespace per level, so `site.old` beside `site-old/` is a build
 error. The inline web view builds on directory constants: `web_view_inline(res::assets::web::minisite)`
-serves the subtree as a bundled site ([docs/webview.md](webview.md)).
+serves the subtree as a bundled site (day-piece-webview's
+[docs/webview.md](https://github.com/daybrite/day-piece-webview/blob/main/docs/webview.md)).
 
 For a name known only at runtime, opt in explicitly; this bypasses the presence guarantee:
 

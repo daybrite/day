@@ -30,7 +30,7 @@ communication, dependencies, and packaging; this guide compares those areas with
 | `electron-store`, `localStorage` | `day::prefs` ([guide](/docs/guide-storage)) |
 | Node `fs` | `day-part-fs`, or `std::fs` — it's ordinary Rust |
 | `fetch` / Node `net` | [`day-part-http`](/docs/guide-http) — each platform's networking stack |
-| `<webview>` / `WebContentsView` | [`day-piece-webview`](/docs/internal/webview) — the system webview |
+| `<webview>` / `WebContentsView` | [`day-piece-webview`](https://github.com/daybrite/day-piece-webview) — the system webview |
 | native modules (N-API, node-gyp) | [parts](/docs/parts) and [pieces](/docs/extending), compiled with the app |
 | `nodeIntegration` / `contextIsolation` hardening | not applicable; the UI is compiled Rust driving native widgets, so there is nothing to isolate |
 | `electron-builder` / Forge | `day pack -p <target>` |
@@ -218,7 +218,7 @@ The [desktop guide](/docs/guide-desktop) walks all three subsystems.
 
 A Day app links the toolkit the OS already has, so the binary stays small: the Day Showcase (26
 pages exercising every widget, chart, and part in this documentation) packs to a 5.7 MB notarized
-`.dmg`. Remote content goes through [`day-piece-webview`](/docs/internal/webview), which hosts the
+`.dmg`. Remote content goes through [`day-piece-webview`](https://github.com/daybrite/day-piece-webview), which hosts the
 system web view (WKWebView, WebView2, WebKitGTK).
 
 ## Reusing web code

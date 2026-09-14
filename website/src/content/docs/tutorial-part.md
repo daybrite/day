@@ -496,7 +496,7 @@ is auto-linked by the iOS SDK. You only need the `frameworks` key for a system f
 linked by default (SystemConfiguration, WebKit, …).
 
 This is the same contribution channel [`pieces/day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield) (Android Java + Gradle deps) and
-[`pieces/day-piece-webview`](https://github.com/daybrite/day/tree/main/pieces/day-piece-webview) (a framework + a permission) use.
+[`day-piece-webview`](https://github.com/daybrite/day-piece-webview) (a framework + a permission) use.
 ## 5. Use it
 
 Any Rust code (inside a Day app or a plain binary) depends on the crate and calls the function:

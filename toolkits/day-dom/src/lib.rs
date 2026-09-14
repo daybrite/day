@@ -3535,8 +3535,9 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
 }
 
 /// A piece-defined Custom event from the shim (docs/extending.md §8.2's open channel): `num` is
-/// the piece's own discriminator — the inline web view's link reports use -1 (docs/webview.md) —
-/// and `text` the payload. The mirror of the Android bridge's kind-12 and ArkUI's `pieceEvent`.
+/// the piece's own discriminator (the inline web view's link reports use -1, per
+/// day-piece-webview's docs/webview.md) and `text` the payload. The mirror of the Android
+/// bridge's kind-12 and ArkUI's `pieceEvent`.
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_piece_event(el: u32, num: f64, ptr: *mut u8, len: usize) {
     let t = take_string(ptr, len);

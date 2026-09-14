@@ -3031,7 +3031,7 @@ static napi_value RegisterPiece(napi_env env, napi_callback_info info) {
 // An ArkTS-built component reports back to its piece: `pieceEvent(id, text, num?)`. Rides the
 // SAME Custom channel the Android bridge uses (BridgeKind::Custom) — the payload is the whole
 // event, and the optional `num` is the piece's own discriminator (the web view's link reports
-// use -1, its URL reports omit it — docs/webview.md). JS thread only.
+// use -1, its URL reports omit it — day-piece-webview's docs/webview.md). JS thread only.
 static napi_value PieceEvent(napi_env env, napi_callback_info info) {
     size_t argc = 3;
     napi_value argv[3] = {nullptr, nullptr, nullptr};

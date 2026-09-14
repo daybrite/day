@@ -38,8 +38,7 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 ## External pieces
 
 `✓` = the crate ships that backend's renderer arm; `·` = no arm, so the kind renders the
-placeholder. A piece may still be absent at runtime if the app does not enable its feature,
-and one arm (`day-piece-webview` on GTK) is further limited to Linux hosts.
+placeholder. A piece may still be absent at runtime if the app does not enable its feature.
 
 A `·` is not always a gap: `day-piece-colorpicker` answers android and arkui with a picker
 COMPOSED from ordinary pieces, which by construction registers no renderer for its kind
@@ -60,7 +59,6 @@ nothing derived from `realize` can.
 | `day-piece-stepper` | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
 | `day-piece-swiftui` | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
 | `day-piece-texteditor` | `day.piece.texteditor` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `day-piece-webview` | `day.piece.webview` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## Capabilities
 

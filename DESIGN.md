@@ -86,7 +86,7 @@ the architecture-level view and the rationale.
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, downloads, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/downloads.md](docs/downloads.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
-| bundled pieces (webview, media, map, searchfield, combobox, color picker, …) and external ones (lottie) | [docs/webview.md](docs/webview.md), [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| bundled pieces (media, map, searchfield, combobox, color picker, …) and external ones (lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
 | built-in controls — picker, text area | [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -2675,9 +2675,10 @@ The shipped ladder, cheapest first (a single package may mix rungs per toolkit):
 Two package kinds share the mechanism:
 
 - **Pieces** (`pieces/day-piece-*`): UI — combobox, search field, rating, activity,
-  datetime, color picker, styled-text editor, pull-refresh, webview, media, map,
-  remote-image. Lottie is the same kind of package in its own repository
-  ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie)); see the note
+  datetime, color picker, styled-text editor, pull-refresh, media, map,
+  remote-image. Lottie and the web view are the same kind of package in their own repositories
+  ([daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie),
+  [daybrite/day-piece-webview](https://github.com/daybrite/day-piece-webview)); see the note
   under [§15.2](#152-package-layout-and-aggregation) for what an external repository adds.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, sound
@@ -2703,7 +2704,10 @@ Two package kinds share the mechanism:
 > first piece to live in its own repository, and the reference for the next one. `day-part-speech`
 > followed as the first part ([daybrite/day-part-speech](https://github.com/daybrite/day-part-speech)),
 > under the same rules; a part adds nothing to them, since a bridge crate's arms ride
-> `cargo metadata` and its `build.rs` like any dependency's. Nothing about
+> `cargo metadata` and its `build.rs` like any dependency's. `day-piece-webview` followed
+> ([daybrite/day-piece-webview](https://github.com/daybrite/day-piece-webview)) with its eight backends;
+> the day-core evaluation hook it registers with stays here, described in
+> [docs/webview-eval.md](docs/webview-eval.md). Nothing about
 > the layout or the aggregation changed; what an external repository adds is a dependency rule
 > and a test harness. Its day dependencies name the BARE canonical URL
 > (`git = "https://github.com/daybrite/day.git"`, no branch, tag, or rev): cargo unifies a git
@@ -3933,7 +3937,8 @@ and emits (into `$OUT_DIR`, surfaced by the scaffold's one-line `pub mod res { i
 `resource/assets/` is a TREE: subdirectories generate nested modules, each directory doubling as
 a typed `AssetDir` const of the same name (`res::assets::web::minisite` beside
 `res::assets::web::minisite::index_html`; values are `/`-relative paths, staged verbatim by every
-§18.3 stager) — the handle `web_view_inline` serves bundled sites from ([docs/webview.md](docs/webview.md)).
+§18.3 stager) — the handle `web_view_inline` serves bundled sites from (day-piece-webview's
+[docs/webview.md](https://github.com/daybrite/day-piece-webview/blob/main/docs/webview.md)).
 `image`, `resource`, and `Font::custom` take those newtypes, so `image(res::images::nav_home)` is a
 build error if the file is missing and the available names autocomplete; `cargo:rerun-if-changed`
 regenerates when a file is added or removed. A name known only at runtime uses the explicit
@@ -3994,9 +3999,9 @@ day/                                # THIS repository
   toolkits/                         # day-appkit, day-uikit, day-gtk, day-qt(+sys),
                                     #   day-android, day-xaml(+sys), day-arkui(+sys)
   pieces/                           # external-style UI pieces (day-piece-combobox, -searchfield,
-                                    #   -picker, -rating, -activity, -webview, -media, -map,
+                                    #   -picker, -rating, -activity, -media, -map,
                                     #   -remote-image, -colorpicker, -texteditor); day-piece-lottie
-                                    #   lives in its own repository (§15.2)
+                                    #   and day-piece-webview live in their own repositories (§15.2)
   parts/                            # headless platform services (day-part-battery, -network,
                                     #   -sensors, -clipboard, -prefs, -haptics, -sound, -wakelock, -deviceinfo,
                                     #   -http, -permissions, -location)
@@ -5248,7 +5253,8 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 ### B.3 WebView (tier 2 — complex: commands + events)
 
 > [!NOTE]
-> **Shipped** as `pieces/day-piece-webview` ([docs/webview.md](docs/webview.md)): WKWebView / android.webkit /
+> **Shipped** as `day-piece-webview`, since 2026-09 in its own repository
+> ([daybrite/day-piece-webview](https://github.com/daybrite/day-piece-webview), [§15.2](#152-package-layout-and-aggregation)): WKWebView / android.webkit /
 > WebKitGTK / QWebEngineView / WebView2 / ArkUI web, driven by tier-1 Rust renderers with C++
 > shims where the toolkit needs one. Navigation events ride `Event::Custom`; the
 > `evaluate_js(…).await`-over-dayffi design was not needed.

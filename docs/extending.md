@@ -476,9 +476,9 @@ What a declared target does **not** get:
 - **`day pack`** — packaging formats are per-OS CLI code; the guard says so explicitly.
 - **`day new` / `day app add`** — scaffolding stays builtin; the toolkit crate documents its own
   project shape.
-- **The in-repo pieces' native renderers:** `day-piece-webview` has no `wxwidgets` feature arm, so
-  extension-piece kinds render Day's visible `⟨kind⟩` placeholders unless the external ecosystem
-  ships renderer crates for its backend (the `Registry`/`renderer!` registration path is the same
+- **The pieces' native renderers:** no in-repo piece ships a `wxwidgets` feature arm, and neither
+  does the external `day-piece-webview`, so extension-piece kinds render Day's visible `⟨kind⟩`
+  placeholders unless the external ecosystem ships renderer crates for its backend (the `Registry`/`renderer!` registration path is the same
   one in-repo pieces use). The built-in vocabulary is the backend's own `realize`: cover what you
   support and placeholder the rest; the `assert_no_placeholders` allow-lists record which kinds
   still render a placeholder on each backend.
@@ -511,10 +511,13 @@ pieces/day-piece-searchfield/
 xaml)` line (§2), so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
 native surface for a toolkit lives in one place.
 
-`pieces/day-piece-webview` (see [webview.md](webview.md)) is a second reference: a heavier native
-backend (an embedded browser) that additionally contributes an Android permission, hand-rolls the iOS
-`WKWebView` (`dlopen`-ing WebKit.framework so the piece stays self-contained), and returns the proposal
-from `measure` so a growing leaf fills on Android.
+[day-piece-webview](https://github.com/daybrite/day-piece-webview) is a second reference, in its own
+repository since 2026-09 (its `docs/webview.md` covers the piece): a heavier native backend (an
+embedded browser) that additionally contributes an Android permission, hand-rolls the iOS
+`WKWebView` (linking WebKit.framework through the `frameworks` key above), and returns the proposal
+from `measure` so a growing leaf fills on Android. It follows the external-repository rules
+described under day-piece-lottie below, and its `demo/` app's dayscript is its on-device test. The
+JavaScript evaluation seam it registers with stays here, in [webview-eval.md](webview-eval.md).
 
 [day-piece-lottie](https://github.com/daybrite/day-piece-lottie) is a third reference, and the first
 piece to live in a separate repository: an iOS/Android-only piece that pulls an external native package

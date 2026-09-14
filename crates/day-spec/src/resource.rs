@@ -288,8 +288,8 @@ pub fn resolve_asset_file(name: &str) -> Option<PathBuf> {
 
 /// Resolve a data-asset DIRECTORY (an [`AssetDir`]'s `/`-relative path) to its on-disk
 /// location — for consumers whose local-content channel is a file URL, like the inline web
-/// view on the Apple backends (docs/webview.md). Same probe order as file resolution:
-/// `DAY_ASSET_ROOT` (dev / `day launch`), then the bundle-relative roots.
+/// view on the Apple backends (day-piece-webview's docs/webview.md). Same probe order as file
+/// resolution: `DAY_ASSET_ROOT` (dev / `day launch`), then the bundle-relative roots.
 pub fn resolve_asset_dir(rel: &str) -> Option<PathBuf> {
     // Canonicalized: consumers derive URLs from this path, and a literal `..` segment (the
     // bundle probe below goes through `MacOS/../Resources`) breaks prefix comparison against

@@ -36,7 +36,6 @@ members = [
     "toolkits/day-arkui-sys",
     "toolkits/day-dom",
     "pieces/day-piece-combobox",
-    "pieces/day-piece-webview",
     "pieces/day-piece-media",
     "pieces/day-piece-swiftui",
     "parts/day-part-battery",
@@ -132,7 +131,6 @@ day-persistence = { path = "crates/day-persistence", version = "0.4.3", default-
 day-sqlite-worker = { path = "crates/day-sqlite-worker", version = "0.4.3" }
 day = { path = "crates/day", version = "0.4.3" }
 day-piece-combobox = { path = "pieces/day-piece-combobox", version = "0.4.3" }
-day-piece-webview = { path = "pieces/day-piece-webview", version = "0.4.3" }
 day-part-battery = { path = "parts/day-part-battery", version = "0.4.3" }
 day-part-sensors = { path = "parts/day-part-sensors", version = "0.4.3" }
 day-part-clipboard = { path = "parts/day-part-clipboard", version = "0.4.3" }

@@ -156,7 +156,7 @@ Day finds both toolkits through `pkg-config`, so it is required.
 
 ## Optional: web views
 
-The [web view piece](/docs/internal/webview) needs one extra development package on the Linux
+The [web view piece](https://github.com/daybrite/day-piece-webview) needs one extra development package on the Linux
 desktop toolkits. Without it the piece compiles out and renders a placeholder; the rest of the app
 is unaffected.
 

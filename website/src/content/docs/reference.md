@@ -71,7 +71,7 @@ Standalone UI Pieces: native widgets that live in their own crates and plug in w
 | Page | Covers |
 |---|---|
 | [swiftui](/docs/internal/swiftui) | `day-piece-swiftui` — embed your own SwiftUI views (macOS, iOS) |
-| [webview](/docs/internal/webview) | `day-piece-webview` — embedded web view, remote and bundled sites |
+| [day-piece-webview](https://github.com/daybrite/day-piece-webview) | `day-piece-webview` — embedded web view, remote and bundled sites; in its own repository |
 | [webview-eval](/docs/internal/webview-eval) | web view JavaScript evaluation: API and per-platform support |
 | [map](/docs/internal/map) | `day-piece-map` — native maps |
 | [media](/docs/internal/media) | `day-piece-media` — audio/video playback |

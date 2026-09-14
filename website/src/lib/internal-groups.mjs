@@ -67,7 +67,6 @@ export const groups = [
       'Standalone UI Pieces: native widgets that live in their own crates and plug in without any core changes.',
     docs: [
       ['swiftui', '`day-piece-swiftui` — embed your own SwiftUI views (macOS, iOS)'],
-      ['webview', '`day-piece-webview` — embedded web view, remote and bundled sites'],
       ['webview-eval', 'web view JavaScript evaluation: API and per-platform support'],
       ['map', '`day-piece-map` — native maps'],
       ['media', '`day-piece-media` — audio/video playback'],
