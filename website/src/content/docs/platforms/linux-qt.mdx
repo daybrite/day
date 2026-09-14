@@ -54,7 +54,8 @@ day pack -p linux-qt        # single-file .flatpak (org.kde.Platform runtime) AN
 `day pack` produces both formats by default: the flatpak resolves Qt from its runtime; the
 AppImage carries its own.
 
-If your binary links QtWebEngine, `day pack` adds the Qt WebEngine BaseApp (about 87 MB of
+The webview crate declares a Qt WebEngine BaseApp requirement. If your binary links the engine,
+`day pack` includes that base (about 87 MB of
 Chromium), because no runtime ships it. Apps that don't link it stay small; `day pack` inspects
 the built binary to decide.
 

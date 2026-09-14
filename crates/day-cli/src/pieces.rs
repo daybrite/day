@@ -329,6 +329,72 @@ pub(crate) fn piece_meta<T: serde::de::DeserializeOwned>(
     }
 }
 
+/// A dependency's conditional Flatpak base requirement.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub(crate) struct FlatpakBase {
+    pub toolkit: String,
+    pub library_prefix: String,
+    pub id: String,
+    /// Omitted means use the target's runtime version, including its environment override.
+    pub version: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FlatpakMeta {
+    bases: Vec<FlatpakBase>,
+}
+
+pub(crate) fn resolve_flatpak(
+    project: &Project,
+    toolkit: &str,
+) -> Result<Vec<FlatpakBase>, String> {
+    let mut features = vec![toolkit.to_string()];
+    features.extend(feature_union(project, toolkit));
+    let refs: Vec<_> = features.iter().map(String::as_str).collect();
+    flatpak_bases(&cargo_metadata(project, &refs)?)
+}
+
+fn flatpak_bases(meta: &Metadata) -> Result<Vec<FlatpakBase>, String> {
+    let reachable = closure(meta);
+    let mut bases = Vec::new();
+    for pkg in &meta.packages {
+        if !reachable.contains(&pkg.id) {
+            continue;
+        }
+        let Some(table) = pkg
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("day"))
+            .and_then(|d| d.get("flatpak"))
+        else {
+            continue;
+        };
+        // Packaging must not silently omit a dependency because its declaration is malformed.
+        let declared: FlatpakMeta = serde_json::from_value(table.clone()).map_err(|e| {
+            format!(
+                "{}: invalid [package.metadata.day.flatpak]: {e}",
+                pkg.manifest_path
+            )
+        })?;
+        for base in declared.bases {
+            if base.toolkit.trim().is_empty()
+                || base.library_prefix.trim().is_empty()
+                || base.id.trim().is_empty()
+                || base.version.as_ref().is_some_and(|v| v.trim().is_empty())
+            {
+                return Err(format!(
+                    "{}: Flatpak base fields must not be empty",
+                    pkg.manifest_path
+                ));
+            }
+            bases.push(base);
+        }
+    }
+    Ok(bases)
+}
+
 /// Resolve every piece in the app's Android dependency closure and collect its contributions.
 /// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
 /// by that feature set contribute) — currently `["mdc"]`, no default features.
@@ -1604,6 +1670,34 @@ pub(crate) fn prune_except(root: &Path, expected: &HashSet<std::path::PathBuf>) 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn flatpak_requirements_follow_dependency_closure_and_validate_metadata() {
+        let mut data = serde_json::json!({
+            "packages": [
+                {"id":"app", "name":"app", "manifest_path":"app/Cargo.toml"},
+                {"id":"piece", "name":"piece", "manifest_path":"piece/Cargo.toml",
+                 "metadata":{"day":{"flatpak":{"bases":[{
+                     "toolkit":"qt", "library-prefix":"libExample", "id":"org.example.BaseApp"
+                 }]}}}},
+                {"id":"unused", "name":"unused", "manifest_path":"unused/Cargo.toml",
+                 "metadata":{"day":{"flatpak":{"bad-field":true}}}}
+            ],
+            "resolve":{"root":"app", "nodes":[
+                {"id":"app", "deps":[{"pkg":"piece"}]}, {"id":"piece", "deps":[]}
+            ]}
+        });
+        let collect = |v: &serde_json::Value| {
+            super::flatpak_bases(&serde_json::from_value(v.clone()).unwrap())
+        };
+        let bases = collect(&data).unwrap();
+        assert_eq!(bases.len(), 1);
+        assert_eq!(bases[0].id, "org.example.BaseApp");
+        data["packages"][1]["metadata"]["day"]["flatpak"]["bases"][0]["library-prefix"] = "".into();
+        assert!(collect(&data).unwrap_err().contains("must not be empty"));
+        data["packages"][1]["metadata"]["day"]["flatpak"] = serde_json::json!({"unknown":true});
+        assert!(collect(&data).unwrap_err().contains("invalid"));
+    }
+
     use super::*;
     use crate::permissions::AndroidRaw;
 

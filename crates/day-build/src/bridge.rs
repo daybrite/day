@@ -1646,13 +1646,18 @@ fn render_js(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
             );
         }
     }
-    let _ = writeln!(out, "\n{}\n", arm.body.as_deref().unwrap_or(""));
+    let _ = writeln!(
+        out,
+        "let dayHost = null;\n{}\n",
+        arm.body.as_deref().unwrap_or("")
+    );
 
     let _ = writeln!(
         out,
         "// The shim calls this once at boot and spreads the result into the wasm import object."
     );
     let _ = writeln!(out, "export function register(rt) {{");
+    let _ = writeln!(out, "  dayHost = rt;");
     if bridge.decls.iter().any(|d| d.done().is_some()) {
         let _ = writeln!(out, "  __rt = rt;");
     }
@@ -3873,6 +3878,29 @@ day_bridge::bridge! {
             kotlin.contains("fun speak_native(text: String, done: Long) {"),
             "{kotlin}"
         );
+    }
+
+    #[test]
+    fn synchronous_js_arms_can_access_the_host_runtime() {
+        let b = parse(
+            r###"
+            day_bridge::bridge! {
+                #[day_bridge::declare]
+                extern "day" { fn attach(id: i32); }
+                #[day_bridge::impl(js, platforms = [web])]
+                js!(r#"function attach(id) { dayHost.dom.element(id); }"#);
+                #[day_bridge::impl(rust, platforms = [other])]
+                fn attach(_id: i32) {}
+            }
+        "###,
+        );
+        let arm = b.arms.iter().find(|a| a.lang == Lang::Js).unwrap();
+        let js = render_js(&b, arm, "day-piece-demo");
+        assert!(js.contains("let dayHost = null;"), "{js}");
+        assert!(js.contains("dayHost = rt;"), "{js}");
+        assert!(js.contains("dayHost.dom.element(id)"), "{js}");
+        assert!(js.contains("day_bridge_day_piece_demo_attach(id)"), "{js}");
+        assert!(!js.contains("let __rt"), "{js}");
     }
 
     #[test]

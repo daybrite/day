@@ -1137,45 +1137,10 @@ pub fn synthesize_text(node: RNode, text: String) {
     tree::enqueue_event(tree::rnode_to_id(node), day_spec::Event::TextChanged(text));
 }
 
-// ---------------------------------------------------------------------------
-// Webview-evaluation seam (docs/webview-eval.md): a webview PIECE registers its evaluator
-// here; the dayscript `web_eval` step drives it. day-core owns only the handoff — the
-// script engine and the piece never depend on each other.
-// ---------------------------------------------------------------------------
-
-/// A webview piece's evaluator: run RAW `script` (the piece applies its own envelope) against
-/// a node of the piece's kind, delivering `Ok(json)` — the value as JSON text — or `Err` (a
-/// human-readable message) to the callback at a later event drain, never inline.
-pub type WebviewEvalFn = std::rc::Rc<dyn Fn(RNode, &str, WebviewEvalDone)>;
-/// The reply callback [`WebviewEvalFn`] must eventually call (a dropped callback shows up as
-/// a step that waits out its retry window — deliver an `Err` instead where possible).
-pub type WebviewEvalDone = Box<dyn FnOnce(Result<String, String>)>;
-
-thread_local! {
-    static WEBVIEW_EVAL: std::cell::RefCell<Option<(day_spec::PieceKind, WebviewEvalFn)>> =
-        const { std::cell::RefCell::new(None) };
-}
-
-/// Register the evaluator for webview nodes of `kind`. Called by the webview piece's
-/// constructors (idempotent — the last registration wins); an app that never builds a web
-/// view never registers one, and the `web_eval` step says so.
-pub fn register_webview_eval(kind: day_spec::PieceKind, f: WebviewEvalFn) {
-    WEBVIEW_EVAL.with(|c| *c.borrow_mut() = Some((kind, f)));
-}
-
-/// Start an evaluation for the dayscript `web_eval` step: `false` when no evaluator is
-/// registered or `node` is not the registered webview kind (the step fails, non-retryably,
-/// with that story); `true` means the evaluator took the request and WILL call `done`.
-pub fn webview_eval(node: RNode, script: &str, done: WebviewEvalDone) -> bool {
-    let Some((kind, f)) = WEBVIEW_EVAL.with(|c| c.borrow().clone()) else {
-        return false;
-    };
-    if tree::with_tree(|t| t.node_kind(node)) != Some(kind) {
-        return false;
-    }
-    f(node, script, done);
-    true
-}
+mod piece_ops;
+pub use piece_ops::{
+    PieceOperationDone, PieceOperationFn, piece_operation, register_piece_operation,
+};
 
 /// Override the app's appearance: `Some(true)` dark, `Some(false)` light, `None` follow the
 /// system again. On backends reporting `Cap::Appearance` the native widgets restyle in place

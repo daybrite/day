@@ -1241,7 +1241,7 @@ fn exec(step: Step) -> Reply {
                         let cell = cell.clone();
                         Box::new(move |r: Result<String, String>| *cell.borrow_mut() = Some(r))
                     };
-                    if !day_core::webview_eval(node, &script, done) {
+                    if !day_core::piece_operation(node, "day.webview.eval", &script, done) {
                         return Err(Reply::fail(
                             format!(
                                 "web_eval {id:?}: not a web view (or no webview piece registered an evaluator)"

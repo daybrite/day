@@ -34,6 +34,9 @@ Extensibility rests on two mechanisms:
    three functions, same dispatch, different moment; see [media.md](media.md).)
 2. **Native backend assets** (C++ shims, Android Java, Gradle deps) are declared in the crate's own
    `Cargo.toml` / `build.rs` and folded into the app's native build automatically.
+   Browser JavaScript can ship in a `day_bridge::bridge!` arm: the CLI stages and registers its
+   module. [Browser DOM access](bridge.md#browser-dom-access) covers element access, events, and
+   cleanup for browser renderers.
 
 ## 1. The front-end (any backend)
 
@@ -553,3 +556,49 @@ capabilities: it contributes Android Java (for `BatteryManager`, now through a
 [bridge](bridge.md) arm) but registers nothing into any `RENDERERS` slice, and selects its per-OS impl by
 `#[cfg(target_os)]` rather than a toolkit feature. Any Rust code can depend on it and call
 `day_part_battery::status()`.
+
+## Named piece operations
+
+A piece can expose operations without making Day depend on its crate or native backend.
+Register a handler with `day_core::register_piece_operation(kind, name, handler)` and call it
+through `day_core::piece_operation(node, name, input, done)`. Names should include a namespace,
+such as `example.document.search`; the piece defines the textual input and result formats.
+
+The registry is keyed by both piece kind and operation name. Different pieces and different
+operations coexist; re-registering the same pair replaces its handler. Dispatch looks up the
+live node's kind and releases the registry and tree borrows before invoking the handler.
+It returns `false` for a missing node or operation, without calling the completion callback.
+A handler that accepts a request must complete it with a result or error, either immediately
+or later. Callers must keep the event loop running while awaiting asynchronous results.
+
+Dayscript's existing `web_eval` command is an adapter for the external webview's `day.webview.eval`
+operation. The core registry does not interpret that name or its payload.
+
+## Flatpak dependencies
+
+A dependency can declare the Flatpak base its native library requires:
+
+```toml
+[[package.metadata.day.flatpak.bases]]
+toolkit = "qt"
+library-prefix = "libExampleEngine"
+id = "org.example.Engine.BaseApp"
+# version = "1"  # Omit to follow the target runtime version.
+```
+
+`day pack` reads declarations from the app's resolved dependency graph, including the app
+itself, with the toolkit and discovered piece features enabled. It selects declarations for
+the target toolkit whose `library-prefix` matches a direct ELF `DT_NEEDED` entry. The prefix
+is literal, not a glob. A known non-match omits the base; an unreadable or unsupported binary
+retains the declared requirement so a failed probe cannot silently drop a runtime dependency.
+
+Flatpak supports one base. Identical base IDs and resolved versions coalesce; conflicting
+requirements stop packaging with an error. Malformed declarations also fail packaging.
+If `version` is omitted, it follows the selected runtime version, including `DAY_KDE_RUNTIME`
+or `DAY_GNOME_RUNTIME` overrides. Engine IDs, prefixes, and version pins belong to the declaring
+crate; Day only resolves and renders the declarations.
+
+When running Day's full lint script against an external crate under development, set
+`DAY_LINT_LOCAL_CHECKOUTS` to its checkout path. Multiple paths are separated by newlines.
+The script adds them to Showcase's local patch table alongside Day, so its Clippy checks use
+the same sources as your local app builds.

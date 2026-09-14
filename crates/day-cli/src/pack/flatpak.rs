@@ -9,10 +9,8 @@
 //! flatpak-builder → repo → `flatpak build-bundle` with --runtime-repo so the runtime resolves
 //! from Flathub at install time. Flathub-ready offline manifests are a later mode.
 //!
-//! One dependency is NOT in a runtime: QtWebEngine. A flatpak `base:` is copied INTO the app at
-//! build time (a `runtime:` is resolved at install), so naming the Qt WebEngine BaseApp adds
-//! ~87 MB of Chromium to the bundle. Day names it only when the packed binary actually links
-//! WebEngine — see [`links_qt_webengine`].
+//! Dependencies declare conditional base requirements in `package.metadata.day.flatpak`.
+//! The packer selects them from the resolved graph and the binary's linked libraries.
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -27,8 +25,6 @@ use crate::targets::Target;
 // Overridable runtime pins (DAY_GNOME_RUNTIME / DAY_KDE_RUNTIME) so CI can bump without a release.
 const GNOME_RUNTIME_VERSION: &str = "48";
 const KDE_RUNTIME_VERSION: &str = "6.9";
-/// Qt WebEngine is NOT part of org.kde.Platform — apps that link it need the Qt BaseApp.
-const QT_WEBENGINE_BASEAPP: &str = "io.qt.qtwebengine.BaseApp";
 
 pub fn pack(
     project: &Project,
@@ -75,23 +71,21 @@ pub fn pack(
     super::linux::stage_exports(project, &stage, &id, &title, &id).map_err(PackError::Other)?;
 
     // --- manifest -------------------------------------------------------------
-    // The WebEngine BaseApp is dead weight for a Qt app that never opens a webview, so ask the
-    // binary. An unreadable/unexpected ELF answers "don't know" — take the base, since a bundle
-    // that is too big still runs and one missing QtWebEngine does not.
-    let webengine = target.toolkit == "qt" && links_qt_webengine(&outcome.artifact).unwrap_or(true);
-    if target.toolkit == "qt" {
+    let requirements =
+        crate::pieces::resolve_flatpak(project, target.toolkit).map_err(PackError::Other)?;
+    let base = select_base(&requirements, target, &outcome.artifact).map_err(PackError::Other)?;
+    if let Some((id, version)) = &base {
         status(
             "Packing",
-            if webengine {
-                "linked against QtWebEngine — bundling the Qt WebEngine BaseApp"
-            } else {
-                "no QtWebEngine link — packing without the Qt WebEngine BaseApp"
-            },
+            &format!("bundling dependency base {id}/{version}"),
         );
     }
     let manifest_path = work.join(format!("{id}.yml"));
-    std::fs::write(&manifest_path, manifest_yaml(target, &id, &name, webengine))
-        .map_err(|e| PackError::Other(e.to_string()))?;
+    std::fs::write(
+        &manifest_path,
+        manifest_yaml(target, &id, &name, base.as_ref()),
+    )
+    .map_err(|e| PackError::Other(e.to_string()))?;
 
     // --- flatpak-builder → repo → bundle ---------------------------------------
     status("Packing", "flatpak-builder");
@@ -143,8 +137,6 @@ pub fn pack(
     })
 }
 
-/// The generated flatpak-builder manifest: runtime per toolkit, module = dump the staged tree.
-/// `webengine` adds the Qt WebEngine BaseApp — only for a Qt app that links it (§16.5).
 /// The Flathub runtime a target links against, as `(id, version)`.
 ///
 /// Recorded in the Debian `.buildinfo` (§20.4): `Installed-Build-Depends` describes the machine that
@@ -163,15 +155,23 @@ pub(crate) fn runtime_for(target: &Target) -> (&'static str, String) {
     }
 }
 
-pub(crate) fn manifest_yaml(target: &Target, id: &str, name: &str, webengine: bool) -> String {
+pub(crate) fn manifest_yaml(
+    target: &Target,
+    id: &str,
+    name: &str,
+    base: Option<&(String, String)>,
+) -> String {
     let (runtime, runtime_version) = runtime_for(target);
     let sdk = runtime.replace(".Platform", ".Sdk");
-    // Qt apps that link WebEngine need the BaseApp (QtWebEngine is not in org.kde.Platform).
-    let base = if webengine {
-        format!("base: {QT_WEBENGINE_BASEAPP}\nbase-version: '{runtime_version}'\n")
-    } else {
-        String::new()
-    };
+    let base = base
+        .map(|(id, version)| {
+            format!(
+                "base: {}\nbase-version: {}\n",
+                serde_json::to_string(id).expect("string"),
+                serde_json::to_string(version).expect("string")
+            )
+        })
+        .unwrap_or_default();
     format!(
         r#"id: {id}
 runtime: {runtime}
@@ -202,17 +202,37 @@ modules:
     )
 }
 
-/// Does this ELF binary link QtWebEngine? Reads the shared-library names the dynamic linker will
-/// load (`DT_NEEDED`) and looks for a `libQt6WebEngine*` among them — the piece links
-/// `Qt6WebEngineWidgets` directly (day-piece-webview's build.rs), so the link is recorded
-/// here whenever a webview is actually compiled in.
-///
-/// `None` = "can't tell": not the ELF64 little-endian shape Day packs flatpaks for (x86_64,
-/// aarch64), unreadable, or statically linked. Callers treat that as "assume yes".
-///
-/// Header offsets are the ELF64 spec's; the file is read through a handful of small seeks rather
-/// than slurped, since a release binary with debug info can be hundreds of megabytes.
-fn links_qt_webengine(binary: &Path) -> Option<bool> {
+/// Resolve the one base Flatpak supports. Identical requirements coalesce; incompatible
+/// bases fail instead of silently choosing a dependency's runtime over another's.
+fn select_base(
+    requirements: &[crate::pieces::FlatpakBase],
+    target: &Target,
+    binary: &Path,
+) -> Result<Option<(String, String)>, String> {
+    let mut selected = std::collections::BTreeSet::new();
+    for base in requirements.iter().filter(|b| b.toolkit == target.toolkit) {
+        // An unreadable or unfamiliar binary is inconclusive: preserve the declared dependency.
+        if links_library(binary, &base.library_prefix).unwrap_or(true) {
+            selected.insert((
+                base.id.clone(),
+                base.version
+                    .clone()
+                    .unwrap_or_else(|| runtime_for(target).1),
+            ));
+        }
+    }
+    if selected.len() > 1 {
+        return Err(format!(
+            "incompatible Flatpak base requirements: {selected:?}; Flatpak supports one base"
+        ));
+    }
+    Ok(selected.into_iter().next())
+}
+
+/// Match a declared library prefix against ELF64 little-endian DT_NEEDED entries.
+/// None means unreadable, unsupported, or no dynamic section. Callers retain declared bases
+/// when the probe is inconclusive. Read small sections rather than the whole executable.
+fn links_library(binary: &Path, prefix: &str) -> Option<bool> {
     const SHT_DYNAMIC: u32 = 6;
     const DT_NULL: u64 = 0;
     const DT_NEEDED: u64 = 1;
@@ -282,7 +302,7 @@ fn links_qt_webengine(binary: &Path) -> Option<bool> {
         let mut buf = [0u8; 256];
         let n = f.read(&mut buf).ok()?;
         let name = buf[..n].split(|b| *b == 0).next().unwrap_or_default();
-        if name.starts_with(b"libQt6WebEngine") {
+        if name.starts_with(prefix.as_bytes()) {
             return Some(true);
         }
     }
@@ -312,22 +332,22 @@ mod tests {
             targets::find("linux-gtk").unwrap(),
             "dev.x.app",
             "app",
-            false,
+            None,
         );
         assert!(gtk.contains("runtime: org.gnome.Platform"));
         assert!(gtk.contains("sdk: org.gnome.Sdk"));
         assert!(!gtk.contains("base:"));
-        let qt = manifest_yaml(targets::find("linux-qt").unwrap(), "dev.x.app", "app", true);
-        assert!(qt.contains("runtime: org.kde.Platform"));
-        assert!(qt.contains("base: io.qt.qtwebengine.BaseApp"));
-        assert!(qt.contains("command: dev.x.app"));
-        // A Qt app with no WebEngine link keeps the runtime but drops the ~87 MB BaseApp.
-        let lean = manifest_yaml(
+        let qt = manifest_yaml(
             targets::find("linux-qt").unwrap(),
             "dev.x.app",
             "app",
-            false,
+            Some(&("org.example.Browser.BaseApp".into(), "1".into())),
         );
+        assert!(qt.contains("runtime: org.kde.Platform"));
+        assert!(qt.contains("base: \"org.example.Browser.BaseApp\""));
+        assert!(qt.contains("command: dev.x.app"));
+        // An app without a matching base requirement keeps only its runtime.
+        let lean = manifest_yaml(targets::find("linux-qt").unwrap(), "dev.x.app", "app", None);
         assert!(lean.contains("runtime: org.kde.Platform"));
         assert!(!lean.contains("base:"));
         // Both manifests must be valid YAML and skip the debuginfo split (its eu-strip
@@ -339,8 +359,58 @@ mod tests {
         }
     }
 
+    #[test]
+    fn dependency_bases_match_libraries_and_reject_conflicts() {
+        let dir = std::env::temp_dir().join(format!("day-flatpak-bases-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let binary = dir.join("app");
+        std::fs::write(&binary, elf_needing(&["libExampleBrowser.so.1"])).unwrap();
+        let target = targets::find("linux-qt").unwrap();
+        let base = crate::pieces::FlatpakBase {
+            toolkit: "qt".into(),
+            library_prefix: "libExampleBrowser".into(),
+            id: "org.example.Browser.BaseApp".into(),
+            version: None,
+        };
+        let expected = Some((base.id.clone(), runtime_for(target).1));
+        assert_eq!(
+            select_base(&[base.clone(), base.clone()], target, &binary).unwrap(),
+            expected
+        );
+        assert_eq!(
+            select_base(
+                std::slice::from_ref(&base),
+                targets::find("linux-gtk").unwrap(),
+                &binary
+            )
+            .unwrap(),
+            None
+        );
+        let mut other = base.clone();
+        other.id = "org.example.Other.BaseApp".into();
+        assert!(
+            select_base(&[base.clone(), other], target, &binary)
+                .unwrap_err()
+                .contains("incompatible")
+        );
+        let mut other_version = base.clone();
+        other_version.version = Some("different".into());
+        assert!(select_base(&[base.clone(), other_version], target, &binary).is_err());
+        std::fs::write(&binary, elf_needing(&["libUnrelated.so.1"])).unwrap();
+        assert_eq!(
+            select_base(std::slice::from_ref(&base), target, &binary).unwrap(),
+            None
+        );
+        // Preserve declared requirements if the executable cannot be inspected.
+        assert_eq!(
+            select_base(&[base], target, &dir.join("missing")).unwrap(),
+            expected
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// A minimal ELF64 LE file whose dynamic section lists `names` as DT_NEEDED — enough shape
-    /// for [`links_qt_webengine`], so the probe is testable on every host, not just Linux.
+    /// for [`links_library`], so the probe is testable on every host, not just Linux.
     fn elf_needing(names: &[&str]) -> Vec<u8> {
         const STR_OFF: usize = 0x100;
         const DYN_OFF: usize = 0x400;
@@ -377,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn webengine_probe_reads_dt_needed() {
+    fn library_probe_reads_dt_needed() {
         let dir = std::env::temp_dir().join(format!("day-flatpak-elf-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let write = |stem: &str, bytes: &[u8]| {
@@ -388,24 +458,23 @@ mod tests {
 
         let with = write(
             "with",
-            &elf_needing(&[
-                "libQt6Widgets.so.6",
-                "libQt6WebEngineWidgets.so.6",
-                "libc.so.6",
-            ]),
+            &elf_needing(&["libQt6Widgets.so.6", "libExampleBrowser.so.1", "libc.so.6"]),
         );
-        assert_eq!(links_qt_webengine(&with), Some(true));
+        assert_eq!(links_library(&with, "libExampleBrowser"), Some(true));
 
         let without = write(
             "without",
             &elf_needing(&["libQt6Widgets.so.6", "libQt6Gui.so.6", "libc.so.6"]),
         );
-        assert_eq!(links_qt_webengine(&without), Some(false));
+        assert_eq!(links_library(&without, "libExampleBrowser"), Some(false));
 
         // Not an ELF (e.g. a Mach-O host build): "can't tell" — the caller keeps the BaseApp.
         let alien = write("alien", b"\xcf\xfa\xed\xfe not an elf at all");
-        assert_eq!(links_qt_webengine(&alien), None);
-        assert_eq!(links_qt_webengine(&dir.join("nonexistent")), None);
+        assert_eq!(links_library(&alien, "libExampleBrowser"), None);
+        assert_eq!(
+            links_library(&dir.join("nonexistent"), "libExampleBrowser"),
+            None
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

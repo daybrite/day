@@ -65,8 +65,9 @@ The runtime is resolved from Flathub during installation. Install a bundle with:
 flatpak install ./my-app-1.0-linux-gtk-x86_64.flatpak
 ```
 
-The filename includes the toolkit so GTK and Qt bundles can coexist. Apps that link QtWebEngine
-also include the Qt WebEngine BaseApp, because the shared runtime does not provide that engine.
+The filename includes the toolkit so GTK and Qt bundles can coexist. The webview crate declares a Qt WebEngine BaseApp requirement, which Day includes when the
+binary links that engine. Other dependencies can declare their own
+[Flatpak base requirements](/docs/internal/extending#flatpak-dependencies).
 
 An AppImage bundles the toolkit libraries with the executable. Mark it executable before running it:
 

@@ -51,7 +51,13 @@ skip() { printf '\033[33m− SKIP %s — %s\033[0m\n' "$1" "$2"; SKIPPED+=("$1: 
 # rather than silently disappearing, which is the whole contract of this script.
 SHOWCASE="${SHOWCASE:-$ROOT/../Day-Showcase}"
 if [ -f "$SHOWCASE/Day.toml" ]; then
-  cargo run -q -p day-cli -- --project "$SHOWCASE" patch --local "$ROOT" --check >/dev/null 2>&1 \
+  # Additional local dependencies (one checkout per line) participate in the same patch table.
+  # This avoids replacing a developer's external-crate changes with Git sources during lint.
+  local_patches=(--local "$ROOT")
+  while IFS= read -r checkout; do
+    [ -z "$checkout" ] || local_patches+=(--local "$checkout")
+  done <<< "${DAY_LINT_LOCAL_CHECKOUTS:-}"
+  cargo run -q -p day-cli -- --project "$SHOWCASE" patch "${local_patches[@]}" --check >/dev/null 2>&1 \
     || { printf '\033[33m− the showcase patch table could not be verified; its legs will skip\033[0m\n'; SHOWCASE=""; }
 else
   SHOWCASE=""

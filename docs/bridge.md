@@ -686,3 +686,26 @@ The one open question of v1 — whether to reserve argument space for the callba
 tokens — was answered by the tier itself: no space was reserved, and the token became a trailing
 argument the generator adds, exactly as the default predicted. Nothing here is a published ABI,
 so the regeneration cost nothing.
+
+## Browser DOM access
+
+JavaScript arms can use `dayHost`, the runtime supplied when Day registers the generated module.
+Call it from an arm or an event handler, after registration; it is not available during module
+initialization. The name is reserved for generated code.
+
+On web-dom, `dayHost.dom` provides three operations for crate-owned browser behavior:
+
+- `element(id)` returns the DOM element for a `DomHandle` ID, or no element after release.
+- `emit(id, num, text = '')` sends a custom event to the piece through Day's normal event dispatch.
+  Events for released handles are ignored.
+- `onRelease(id, dispose)` registers cleanup for a live handle. Day calls it once, before removing
+  the element, and discards the callback. Detaching an element for reuse does not run cleanup.
+  Use this to remove listeners and cancel subscriptions.
+
+A crate calls `day_build::bridge::generate()` in `build.rs`. `day build` discovers its bridge,
+stages the generated ES module, and registers its imports before starting the app. No application
+script tag or change to Day's shared browser shim is needed.
+
+The [webview browser arm](https://github.com/daybrite/day-piece-webview/blob/main/src/browser.rs)
+uses these hooks to intercept links in bundled pages and release its iframe listeners. Its URL
+policy belongs to the piece; the shared runtime only provides element access, events, and cleanup.

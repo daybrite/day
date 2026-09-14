@@ -42,6 +42,9 @@ def check(path, label):
             if name not in existing:
                 continue
             start = m.start()
+            if any(link.start() <= start < link.end()
+                   for link in re.finditer(r"\]\([^\n)]*\)", line)):
+                continue  # includes paths inside links to an external repository
             before = line[max(0, start - 1) : start]
             two = line[max(0, start - 2) : start]
             after = line[m.end() : m.end() + 1]

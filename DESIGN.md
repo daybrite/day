@@ -2715,8 +2715,8 @@ Two package kinds share the mechanism:
 > under the same rules; a part adds nothing to them, since a bridge crate's arms ride
 > `cargo metadata` and its `build.rs` like any dependency's. `day-piece-webview` followed
 > ([daybrite/day-piece-webview](https://github.com/daybrite/day-piece-webview)) with its eight backends;
-> the day-core evaluation hook it registers with stays here, described in
-> [docs/webview-eval.md](docs/webview-eval.md). Nothing about
+> it registers its evaluation operation through Day's general
+> [piece-operation interface](docs/extending.md#named-piece-operations). Nothing about
 > the layout or the aggregation changed; what an external repository adds is a dependency rule
 > and a test harness. Its day dependencies name the BARE canonical URL
 > (`git = "https://github.com/daybrite/day.git"`, no branch, tag, or rev): cargo unifies a git
@@ -3388,9 +3388,9 @@ The two Linux formats are siblings, and the split is where the toolkit comes fro
 **`.flatpak`** takes GTK/Qt from a runtime the user's flatpak installation resolves at install
 time (`org.gnome.Platform` / `org.kde.Platform`), which keeps the bundle app-only and Qt's LGPL
 obligations satisfied by the runtime's relinkable shared libs; icons are generated at the
-freedesktop policy sizes, and the Qt WebEngine BaseApp — which a `base:` copies INTO the bundle at
-~87 MB — is named only when the packed binary's `DT_NEEDED` list actually links WebEngine
-(2026-07; it was previously added to every Qt bundle). The **`.appimage`** carries its toolkit
+freedesktop policy sizes. Dependency-declared Flatpak bases are selected by matching their library
+prefixes against the packed binary's `DT_NEEDED` list
+(see [the metadata contract](docs/extending.md#flatpak-dependencies)). The **`.appimage`** carries its toolkit
 inside, so it runs on a machine with nothing installed, which is what a one-line
 `curl … | bash` launcher needs (daybrite/actions ships one per release). Day stages the AppDir
 and delegates the bundling to `linuxdeploy` plus its `gtk`/`qt` plugin: the parts a naive `ldd`
