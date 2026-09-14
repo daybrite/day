@@ -1665,10 +1665,14 @@ fn fail(st: &mut FlightState, error: HttpError, actions: &mut Vec<Action>) {
     match st.stage {
         Stage::Head => {
             st.stage = Stage::Done;
+            // Tear the exchange down before the caller hears of the failure, as the body arm
+            // does: a caller told "timed out" who retries at once must not have the old exchange
+            // still running beside the new one. The `Failed(Cancelled)` a transport may raise
+            // from inside `cancel` finds the flight `Done` and is dropped.
+            teardown(st, actions);
             if let Some(on_head) = st.on_head.take() {
                 actions.push(Action::HeadFailed(on_head, error));
             }
-            teardown(st, actions);
         }
         Stage::Body => {
             if let Some(t) = st.transfer.take() {
@@ -3981,6 +3985,9 @@ mod client_tests {
         demand: u32,
         waiting: bool,
         emitting: bool,
+        /// Emits nothing but keeps its events until cancelled, like a real stalled exchange; that
+        /// hold is what keeps a callback-started flight alive.
+        stalled: bool,
     }
 
     struct ScriptedTransfer {
@@ -3993,7 +4000,7 @@ mod client_tests {
             loop {
                 let (events, event) = {
                     let mut st = lock(&self.state);
-                    if st.emitting || st.waiting {
+                    if st.emitting || st.waiting || st.stalled {
                         return;
                     }
                     let Some(events) = st.events.clone() else {
@@ -4124,7 +4131,7 @@ mod client_tests {
             let transfer = Arc::new(ScriptedTransfer {
                 owner: self.clone(),
                 state: Mutex::new(ExchangeState {
-                    events: (!reply.stall).then(|| events.clone()),
+                    events: Some(events.clone()),
                     head: Some(Head {
                         status: reply.status,
                         headers: reply.headers,
@@ -4135,6 +4142,7 @@ mod client_tests {
                     demand: 0,
                     waiting: reply.question.is_some(),
                     emitting: false,
+                    stalled: reply.stall,
                 }),
             });
             if let Some(question) = reply.question {
@@ -4536,9 +4544,19 @@ mod client_tests {
     fn the_total_limit_fails_a_stalled_request() {
         let t = Scripted::new(|_| Reply::new(200).stall());
         let client = builder(&t).timeout_total(Duration::from_millis(50)).build();
-        let err = wait(client.fetch_future(Request::get("http://day.test/"))).unwrap_err();
-        assert_eq!(err, HttpError::Timeout);
-        assert_eq!(t.cancels.load(Ordering::SeqCst), 1);
+        // The count is read inside the callback, where the caller first hears of the timeout:
+        // the stalled exchange must be cancelled by then, not a moment later on the timer's
+        // thread (reading it after a woken future raced that thread, and lost on Windows CI).
+        let cancels = t.cancels.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let _flight = client.fetch_async(Request::get("http://day.test/"), move |result| {
+            let _ = tx.send((result.err(), cancels.load(Ordering::SeqCst)));
+        });
+        let (err, cancelled) = rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the total limit fires");
+        assert_eq!(err, Some(HttpError::Timeout));
+        assert_eq!(cancelled, 1);
     }
 
     #[test]
