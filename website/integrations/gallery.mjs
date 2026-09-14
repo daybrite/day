@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { assembleGallery } from '../scripts/assemble-gallery.mjs';
-import { assembleHeroShots } from '../scripts/hero-shots.mjs';
+import { APP_ID as HERO_APP_ID, assembleHeroShots } from '../scripts/hero-shots.mjs';
 import { assembleDownloads } from '../scripts/assemble-downloads.mjs';
 import { groups } from '../src/lib/internal-groups.mjs';
 
@@ -47,7 +47,7 @@ export default function gallery() {
     hooks: {
       'astro:config:setup': async ({ logger }) => {
         if (assembleReferenceIndex()) logger.info('regenerated reference.md internal-docs tables');
-        const { apps, captures, dropped, stale } = await assembleGallery({ quiet: true });
+        const { apps, captures, dropped, reasons, stale } = await assembleGallery({ quiet: true });
         logger.info(
           apps > 0
             ? `indexed ${captures} published screenshot(s) across ${apps} app(s)`
@@ -63,6 +63,31 @@ export default function gallery() {
         // the live gallery for local previews). Only verified, non-blank screenshots are admitted.
         const { count } = await assembleHeroShots({ quiet: true });
         logger.info(`hero carousel: ${count} verified screenshot(s)`);
+        // The front page leads with the Showcase: the hero carousel is built from its screenshots
+        // alone, and /gallery/ opens on it. A build that could not read them still renders — an
+        // empty carousel, a gallery without its first app — and on 2026-09-13 exactly that went
+        // live, with nothing failing. So a build that is going to be PUBLISHED refuses to finish
+        // without them, which keeps the last good deploy up until the Showcase's site answers.
+        //
+        // website.yml sets DAY_REQUIRE_SHOWCASE on every run that deploys. `astro dev`, a local
+        // build and a pull request's build go on rendering without the network, as they always
+        // have: none of them publishes anything.
+        if (process.env.DAY_REQUIRE_SHOWCASE) {
+          const problems = [];
+          if (dropped.includes(HERO_APP_ID)) {
+            problems.push(`${HERO_APP_ID}'s gallery could not be built (${reasons[HERO_APP_ID] ?? 'no usable index'})`);
+          } else if (stale.includes(HERO_APP_ID)) {
+            // A cached index links images on a site that just failed to answer.
+            problems.push(`${HERO_APP_ID}'s gallery is only a cached index — its site did not answer this build`);
+          }
+          if (count === 0) problems.push('the front-page carousel has no verified screenshot');
+          if (problems.length) {
+            throw new Error(
+              `not building a site to publish: ${problems.join('; ')}. The last deploy stays live; ` +
+                'rebuild once the app site serves its gallery again (DAY_REQUIRE_SHOWCASE).',
+            );
+          }
+        }
         // Resolve the /showcase/ downloads from the latest GitHub release — the only packages
         // that are signed and notarized. No release reachable ⇒ placeholders, like the gallery.
         const dl = await assembleDownloads({ quiet: true });

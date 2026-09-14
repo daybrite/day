@@ -2350,6 +2350,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         let width = sel.content_list_width;
         let dv = detail_visible;
         let items_c = items.clone();
+        // The live rows, for a data-driven key's title: only a static item carries a
+        // `TextSource` of its own, and without these a row from `.items` titled its pushed page
+        // with its raw key ("feed:5756…") instead of the name the row shows.
+        let (typed_c, titles_c) = (typed.clone(), titles.clone());
         let pres = presentation_sig;
         let win = window;
         let host_cx_g = host_cx.clone();
@@ -2362,6 +2366,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             let (i1, i2) = (items_c.clone(), items_c.clone());
             let (k1, k2) = (key.clone(), key.clone());
             let (hc, dt) = (host_cx_g.clone(), detail_title_g.clone());
+            let (tk, tt) = (typed_c.clone(), titles_c.clone());
             let ba = gated_toolbar.clone();
             AnyPiece::new(
                 when(
@@ -2395,6 +2400,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                             let title = retitle
                                 .as_ref()
                                 .map(TextSource::initial)
+                                .or_else(|| {
+                                    let at = tk.borrow().iter().position(|x| x.key() == k.key())?;
+                                    tt.borrow().get(at).cloned()
+                                })
                                 .unwrap_or_else(|| k.title());
                             gated_detail_piece(
                                 GatedDetail {

@@ -91,6 +91,11 @@ jobs:
           # /showcase/ offers the app's own releases: it is its own repository, and only that
           # release lane's macOS build is signed and notarized.
           DAY_RELEASE_REPO: daybrite/Day-Showcase
+          # Fail rather than publish a front page without the Showcase's screenshots: its gallery
+          # and the hero carousel built from it (website/integrations/gallery.mjs). Only on runs
+          # that deploy — the same condition as the deploy job below — so a pull request still
+          # builds and linkchecks while an app's site is down, since it publishes nothing.
+          DAY_REQUIRE_SHOWCASE: ${{ github.event_name != 'pull_request' && '1' || '' }}
         run: |
           npm ci
           npm run build

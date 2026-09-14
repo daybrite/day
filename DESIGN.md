@@ -4147,6 +4147,10 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    Adding an app is one entry in `website/gallery.config.mjs`; its rows, columns, themes and
    languages come from its index, so a newly captured screen appears with no change here. An
    unreachable app site falls back to the cached copy of its last index and says so on the page.
+   A run that deploys builds with `DAY_REQUIRE_SHOWCASE` set and fails rather than finish without
+   the Showcase's gallery or a front-page carousel screenshot (2026-09-14). The 2026-09-13 deploy
+   rendered both empty while the Showcase's site served no usable index; the last good deploy now
+   stays live instead.
    Triggers: pushes touching `website/` or `docs/`, a daily schedule, `workflow_dispatch`, and a
    `gallery-published` `repository_dispatch` an app's CI can send. It builds its own rustdoc bundle
    into `dist/api` — Pages deploys one artifact, so the workflow that deploys assembles all of it;

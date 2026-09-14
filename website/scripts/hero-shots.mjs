@@ -37,7 +37,7 @@ const WEBSITE_ROOT = resolve(HERE, '..');
 
 // The app whose screenshots feed the hero: the Showcase, which is the one that covers every
 // piece on every target. The carousel links each slide into that app's gallery page.
-const APP_ID = 'Day-Showcase';
+export const APP_ID = 'Day-Showcase';
 
 // The carousel shows only the "primary" target per OS — one canonical native toolkit each (plus
 // the web) — not the secondary/cross ports (macos-qt, macos-gtk, windows-gtk, windows-qt) that

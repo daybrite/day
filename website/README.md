@@ -117,6 +117,13 @@ sends one `HEAD` to its first capture, and an index whose images are not where i
 over for the other rather than rendered as a page of broken images. A page built from the branch
 build says so beside its publication date.
 
+A build that is going to be published fails when it cannot produce the Showcase's screenshots:
+Day-Showcase left out of the gallery, shown only from a cached index, or a front-page carousel with
+no verified screenshot (the carousel is built from the Showcase alone). `website.yml` sets
+`DAY_REQUIRE_SHOWCASE` on every run that deploys, so the last good deploy stays live until the
+Showcase's site serves its gallery again. Without it — `npm run dev`, a local `npm run build`, a
+pull request's build — the site still renders offline, and the missing app is a warning.
+
 The index describes itself, so a row's heading, its caption, the source file it links, the columns,
 the themes and the languages all come from the app — an app that captures a new screen shows it
 here on the next build, with no change in this repository.

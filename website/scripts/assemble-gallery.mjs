@@ -151,7 +151,7 @@ async function loadIndex(app, log) {
     }
   }
   log(`${app.id}: ${why} — no cached index, so the app is left out of this build`);
-  return null;
+  return { error: why };
 }
 
 /** Turn one published index into the app's manifest entry. */
@@ -295,7 +295,7 @@ function coverOf(shots, themes, locales, max = 6) {
 
 /**
  * @param {{ quiet?: boolean }} [opts]
- * @returns {Promise<{ manifestPath: string, apps: number, captures: number, dropped: string[], stale: string[] }>}
+ * @returns {Promise<{ manifestPath: string, apps: number, captures: number, dropped: string[], reasons: Record<string, string>, stale: string[] }>}
  */
 export async function assembleGallery(opts = {}) {
   const dataDir = join(WEBSITE_ROOT, 'src', 'data');
@@ -303,12 +303,16 @@ export async function assembleGallery(opts = {}) {
   mkdirSync(dataDir, { recursive: true });
 
   const dropped = [];
+  /** Why each dropped app was left out. The integration builds quietly, and a build that has to
+   *  fail over a missing app (integrations/gallery.mjs) has to be able to say why. */
+  const reasons = {};
   const stale = [];
   const apps = [];
   for (const app of galleryConfig.apps) {
     const loaded = await loadIndex(app, log);
-    if (!loaded) {
+    if (!loaded.data) {
       dropped.push(app.id);
+      reasons[app.id] = loaded.error;
       continue;
     }
     if (loaded.stale) stale.push(app.id);
@@ -316,6 +320,7 @@ export async function assembleGallery(opts = {}) {
     if (entry.counts.captures === 0) {
       log(`${app.id}: its index describes no linkable screenshot — left out`);
       dropped.push(app.id);
+      reasons[app.id] = 'its index describes no linkable screenshot';
       continue;
     }
     log(
@@ -338,7 +343,7 @@ export async function assembleGallery(opts = {}) {
       ? `indexed ${captures} published screenshot(s) across ${apps.length} app(s)`
       : 'no app index could be read — the gallery is empty (expected offline, on a cold checkout)',
   );
-  return { manifestPath, apps: apps.length, captures, dropped, stale };
+  return { manifestPath, apps: apps.length, captures, dropped, reasons, stale };
 }
 
 // Standalone entry point.

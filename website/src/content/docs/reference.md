@@ -103,6 +103,7 @@ Headless capability crates, the non-UI counterpart of Pieces. They provide devic
 | [wakelock](/docs/internal/wakelock) | `day-part-wakelock` |
 | [deviceinfo](/docs/internal/deviceinfo) | `day-part-deviceinfo` |
 | [http](/docs/internal/http) | `day-part-http` |
+| [downloads](/docs/internal/downloads) | `day-part-downloads` |
 | [permissions](/docs/internal/permissions) | `day-part-permissions` |
 | [location](/docs/internal/location) | `day-part-location` |
 

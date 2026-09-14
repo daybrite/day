@@ -99,6 +99,7 @@ export const groups = [
       ['wakelock', '`day-part-wakelock`'],
       ['deviceinfo', '`day-part-deviceinfo`'],
       ['http', '`day-part-http`'],
+      ['downloads', '`day-part-downloads`'],
       ['permissions', '`day-part-permissions`'],
       ['location', '`day-part-location`'],
     ],
