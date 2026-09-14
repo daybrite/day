@@ -117,7 +117,6 @@ export const groups = [
       ['recorder-matrix', 'event → recorded dayscript step coverage (generated, CI-gated)'],
       ['logging', 'the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers'],
       ['break', '`day-break` consent-first crash reporting'],
-      ['lite', '`day-lite` JS/TS miniapps and superapp embedding'],
       ['store', 'store listings and `day store`'],
       ['agent', 'dayscript sessions, `day drive`, and the agent-facing tooling'],
       ['api-style', 'the API design conventions Day itself follows'],

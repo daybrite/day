@@ -4,7 +4,7 @@
 //! Self-contained localization for the consent surface (feature `ui`). The four catalogs are
 //! embedded (a library crate must not touch the app-owned `day_l10n::install`), formatted through
 //! a per-locale `FluentBundle`, and resolved off the live locale — the day-lite i18n pattern
-//! (`crates/day-lite/src/i18n.rs`) minus the on-disk store.
+//! (`src/i18n.rs` in [day-lite](https://github.com/daybrite/day-lite)) minus the on-disk store.
 
 use std::cell::RefCell;
 

@@ -84,12 +84,11 @@ jobs:
       - name: Clippy (host-portable crates, CLI, mock backend)
         run: |
           cargo clippy --locked --all-targets
-          # day-lite is named explicitly because it is a workspace member but NOT a
-          # default-member (its oxc tree is heavy enough to keep out of every bare `cargo
-          # check`), so the line above never compiles it. Without this it is a crate no CI job
-          # builds — which is how a dependabot bump that split the oxc family across two minor
-          # versions sat on main for four days, breaking only `--workspace` builds.
-          cargo clippy --locked -p day-cli -p day-script -p day-lite --all-targets
+          # day-pieces' `dyn-registry` feature is named explicitly because no workspace member
+          # turns it on: its consumer, day-lite, lives in its own repository
+          # (daybrite/day-lite). Without it no CI job compiles the dynamic piece registry, and a
+          # change that breaks the registry would first surface there.
+          cargo clippy --locked -p day-cli -p day-script -p day-pieces --features day-pieces/dyn-registry --all-targets
 
   # Spelling + the American-English rule (STYLE_GUIDE.md), enforced by `typos` over the whole
   # tree — prose, doc comments, and code comments alike. It is a spelling gate and a dialect gate

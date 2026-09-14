@@ -44,8 +44,9 @@ corresponding runtime path, from creating a widget to handling its events.
 ```
 
 Support crates omitted from the diagram: `day-fonts` and `day-vector` (shared resource rules the
-CLI and runtime agree on), `day-toolchain` (SDK discovery), `day-break` (crash reporting), and
-`day-lite` (JS/TS miniapps).
+CLI and runtime agree on), `day-toolchain` (SDK discovery), and `day-break` (crash reporting).
+JS/TS miniapps run on [`day-lite`](https://github.com/daybrite/day-lite), which lives in its own
+repository.
 
 `day-spec` is the boundary between portable and platform code: it defines the `Toolkit` trait and
 the descriptor types (`LabelProps`, `ButtonPatch`, events, …) that flow across it. `day-core` is

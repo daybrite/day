@@ -181,7 +181,7 @@ real. An external crate can implement `SqliteDriver` for an engine the built-ins
 (libSQL, SEE, a proxy). Beyond `execute`/`query`, the connection trait carries `execute_batch`
 (a statement script — a migration step) and `query_named` (rows with their column names, for
 callers that surface rows as named objects); the built-ins implement both, defaults keep
-external drivers compiling. [day-lite](lite.md)'s per-miniapp storage rides this same driver,
+external drivers compiling. [day-lite](https://github.com/daybrite/day-lite)'s per-miniapp storage rides this same driver,
 so a superapp carrying both crates compiles one SQLite and the app's engine features govern
 miniapp storage too.
 

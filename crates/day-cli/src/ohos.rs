@@ -886,9 +886,9 @@ pub fn build_ohos(
                 format!("AR_{}", triple.replace('-', "_")),
                 format!("{ndk}/llvm/bin/llvm-ar"),
             )
-            // bindgen (rquickjs-sys under day-lite, docs/lite.md §13) runs the HOST libclang,
-            // which inherits neither the CC_* wrapper nor its sysroot — feed it the same flags
-            // the NDK's `<triple>-clang` wrapper script passes (`-unknown` dropped from the
+            // bindgen (rquickjs-sys under daybrite/day-lite, its docs/lite.md §13) runs the HOST
+            // libclang, which inherits neither the CC_* wrapper nor its sysroot — feed it the same
+            // flags the NDK's `<triple>-clang` wrapper script passes (`-unknown` dropped from the
             // clang -target, per the wrapper).
             .env(
                 format!("BINDGEN_EXTRA_CLANG_ARGS_{}", triple.replace('-', "_")),

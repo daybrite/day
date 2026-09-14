@@ -71,12 +71,11 @@ members = [
     "crates/day-toolchain",
     "crates/day-build",
     "crates/day-cli",
-    "crates/day-lite",
     "crates/day-break",
 ]
 # The quick-iteration set: what a FLAGLESS `cargo build`/`check`/`test` compiles, kept small so
-# editor loops stay fast (day-lite's oxc tree, the CLI, and the piece/part catalog are
-# deliberately out). This list is NOT the CI test roster — CI tests the whole workspace minus
+# editor loops stay fast (the CLI and the piece/part catalog are deliberately out). This list is
+# NOT the CI test roster — CI tests the whole workspace minus
 # the toolkit backends via scripts/ci/host-test.sh, so a crate absent here still has its tests
 # run on every push.
 default-members = [
@@ -125,8 +124,8 @@ day-fluent = { path = "crates/day-fluent", version = "0.4.3" }
 day-script = { path = "crates/day-script", version = "0.4.3" }
 day-vector = { path = "crates/day-vector", version = "0.4.3" }
 day-model = { path = "crates/day-model", version = "0.4.3" }
-# default-features = false so trait-only and engine-agnostic consumers (day-lite) can inherit
-# without an engine choice; consumers wanting the default engine say `default-features = true`.
+# default-features = false so trait-only and engine-agnostic consumers can inherit without an
+# engine choice; consumers wanting the default engine say `default-features = true`.
 day-persistence = { path = "crates/day-persistence", version = "0.4.3", default-features = false }
 day-sqlite-worker = { path = "crates/day-sqlite-worker", version = "0.4.3" }
 day = { path = "crates/day", version = "0.4.3" }
@@ -167,7 +166,6 @@ day-toolchain = { path = "crates/day-toolchain", version = "0.4.3" }
 day-build = { path = "crates/day-build", version = "0.4.3" }
 day-async = { path = "crates/day-async", version = "0.4.3" }
 day-bridge = { path = "crates/day-bridge", version = "0.4.3" }
-day-lite = { path = "crates/day-lite", version = "0.4.3" }
 day-break = { path = "crates/day-break", version = "0.4.3" }
 day-appkit = { path = "toolkits/day-appkit", version = "0.4.3" }
 day-gtk = { path = "toolkits/day-gtk", version = "0.4.3" }

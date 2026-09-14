@@ -93,7 +93,7 @@ the architecture-level view and the rationale.
 | styled text editing — `StyledText`, its Markdown/HTML/RTF codecs, and the editor piece over them | [docs/texteditor.md](docs/texteditor.md) | [B.5](#b5-richtext-tier-2--deep-native-control) |
 | HarmonyOS / OpenHarmony | [docs/harmonyos.md](docs/harmonyos.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | web — the `web-dom` backend (wasm32 + DOM) | [docs/web.md](docs/web.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
-| day-lite — JS/TS miniapps, the dyn piece registry, superapp embedding, a headless miniapp test runner | [docs/lite.md](docs/lite.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
+| day-lite — JS/TS miniapps, superapp embedding, a headless miniapp test runner (in its own repository since 2026-09); the dyn piece registry it drives stays in day-pieces | [daybrite/day-lite](https://github.com/daybrite/day-lite) (its `docs/lite.md`) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | logging — the `log` facade every day crate emits through, the auto-installed default logger, per-platform sinks (stderr / logcat / the browser console), `DAY_LOG` | [docs/logging.md](docs/logging.md) | [§8.5](#85-panics-and-crashes) |
 | day-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
 | secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
@@ -342,7 +342,6 @@ scripts), and `day-cli` (the `day` binary).
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
-| `day-lite` | dynamic miniapps ([docs/lite.md](docs/lite.md)): QuickJS runtime (`rquickjs`), oxc TypeScript stripping, the JS `day.*` API over the day-pieces dyn registry, package store (install/update/permissions), sqlite (over day-persistence's driver, so a superapp compiles one engine) + sandboxed fs, the headless test-runner core (`day_lite::run_tests`) | day-core, day-pieces (`dyn-registry`), day-part-http, day-persistence (driver only) |
 | `day-break` | OPTIONAL consent-first crash reporting ([docs/break.md](docs/break.md), [§8.5](#85-panics-and-crashes)): chained panic hook + POSIX signal handlers + Android UEH, session sentinel, next-launch reconcile into a schema-versioned JSON report, pluggable `Reporter` upload (never automatic) | day-core, day-pieces (`ui`), day-part-http, day-part-deviceinfo |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui` (+`day-arkui-sys`), `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec (NOT day-core) |
@@ -2900,7 +2899,10 @@ events over the shipped channel), **Lottie** (bridging famous native libraries v
 ### §15.4 day-lite: the dynamic-language extension surface
 
 > [!NOTE]
-> **Status: new (2026-07).** Normative doc: [docs/lite.md](docs/lite.md).
+> **Status: new (2026-07); in its own repository since 2026-09**
+> ([daybrite/day-lite](https://github.com/daybrite/day-lite)). Normative doc: that repository's
+> `docs/lite.md`. The `dyn-registry` feature it drives stays here, in day-pieces, and day's CI
+> compiles and tests it with the feature turned on.
 
 Where §15.1–§15.2 extend day with *compiled* Rust crates, `day-lite` extends it with
 *interpreted* apps: JS/TS **miniapps** (W3C MiniApp-shaped packages served from any git
@@ -2912,7 +2914,10 @@ are day-reactive `Signal`s (one reactive system across both languages), parts ar
 permission-gated bridge modules, and sqlite + a sandboxed filesystem are built in. day-lite's runner runs
 a miniapp's own headless tests against day-mock. The reference superapp embedding (catalog,
 install/update, permission disclosure) lived in `apps/daylite` and was removed from this
-repository in 2026-08; the runtime crate remains, with no in-repo app building against it.
+repository in 2026-08. The runtime crate followed in 2026-09, with its history, into
+[daybrite/day-lite](https://github.com/daybrite/day-lite), where it depends on the day crates
+through the bare git URL like the external pieces and parts
+([§15.2](#152-package-layout-and-aggregation)).
 
 ### §15.5 External toolkits (Stage 0 — experimental)
 
@@ -3168,10 +3173,11 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)); the Xcode scaffolds also call `stage-resources` (macOS bundle resources) and `stage-strings` (iOS `[[shortcuts]]` label localizations) |
 
 > [!NOTE]
-> `day lite test` ([docs/lite.md](docs/lite.md) §11) is **not** built into the published `day` CLI yet: day-cli must
-> not depend on `day-lite`, which stays `publish = false` until it ships on crates.io. The runner core
-> lives in `day-lite` (`day_lite::run_tests`); re-add the `Lite` subcommand + the `day-lite` dependency
-> to expose it once day-lite is publishable.
+> `day lite test` (§11 of day-lite's `docs/lite.md`) is **not** built into the published `day` CLI:
+> day-cli must not depend on `day-lite`, which lives in its own repository since 2026-09
+> ([daybrite/day-lite](https://github.com/daybrite/day-lite)) and is not on crates.io. The runner
+> core is `day_lite::run_tests` there; re-add the `Lite` subcommand + the `day-lite` dependency to
+> expose it once day-lite is publishable.
 
 #### `day new`
 

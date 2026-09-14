@@ -122,7 +122,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [recorder-matrix](/docs/internal/recorder-matrix) | event → recorded dayscript step coverage (generated, CI-gated) |
 | [logging](/docs/internal/logging) | the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers |
 | [break](/docs/internal/break) | `day-break` consent-first crash reporting |
-| [lite](/docs/internal/lite) | `day-lite` JS/TS miniapps and superapp embedding |
+| [day-lite](https://github.com/daybrite/day-lite) | `day-lite` JS/TS miniapps and superapp embedding; in its own repository |
 | [store](/docs/internal/store) | store listings and `day store` |
 | [agent](/docs/internal/agent) | dayscript sessions, `day drive`, and the agent-facing tooling |
 | [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
