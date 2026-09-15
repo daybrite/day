@@ -3811,14 +3811,15 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   cannot be found" — because the check runs before the phase does, and an incremental tree hides
   it behind last build's copy. The plumbing detects sandboxing at runtime and fails with
   `day::build::xcode_script_sandboxed` + fix instructions; `day doctor` checks it too.
-- **android/**: `settings.gradle.kts` applies the **committed** `day.gradle.kts`, which registers
-  a proper task class (`DayRustBuildTask`) — **configuration-cache compatible** (Gradle 9 enables
-  it by default): declared inputs (target/profile/ABI list + the conveyance properties file),
-  output `layout.buildDirectory.dir("day/jniLibs")` registered via `sourceSets jniLibs.srcDir`
-  (**never** writing into `src/main/jniLibs` — source-tree pollution and broken up-to-date
-  checks), `outputs.upToDateWhen { false }`, `ExecOperations` only inside `@TaskAction`, invoking
-  the arg-less `"$DAY_BIN" gradle-backend build`. A tested Gradle/AGP version matrix is published;
-  CI builds the scaffold with `--configuration-cache` ([§20](#20-continuous-integration)).
+- **android/**: `day build` compiles the Rust `.so` with cargo-ndk into `build/day/jniLibs` before
+  Gradle runs, and the scaffold adds that directory with `sourceSets jniLibs.srcDir` (**never**
+  `src/main/jniLibs`, which pollutes the source tree and breaks up-to-date checks). Everything
+  else `day build` generates for Gradle (piece contributions in `day-pieces.json`, Day.toml
+  identity, release signing, the manifest overlay) lives in `build/day/android/`, and the scaffold
+  reads it at configuration time through `providers.fileContents`. The configuration cache tracks
+  those reads, so the scaffold enables it (`org.gradle.configuration-cache=true`): a changed,
+  created, or deleted file discards the cached configuration, and a rewrite with the same
+  contents reuses it. A tested Gradle/AGP version matrix is published.
   The scaffold also commits `gradle/wrapper/gradle-wrapper.properties`, pinning the Gradle version
   the app builds with; `day build` runs the app's own `./gradlew` when it has one and falls back to
   `gradle` on PATH otherwise, so the CLI and an IDE build with the same Gradle. Only the properties

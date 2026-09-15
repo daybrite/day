@@ -250,9 +250,13 @@ throw. See
 `pieces/day-piece-searchfield/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`, and
 `pieces/day-piece-texteditor/src/lib-android.rs` for the fallback.
 
-> **Gradle configuration cache.** The scaffold reads `day-pieces.json` at *configuration* time, and
-> `day build` rewrites it every build; the config cache can't track that read, so it would serve stale
-> piece contributions. The scaffold ships with `org.gradle.configuration-cache=false` for this reason.
+> **Gradle configuration cache.** The scaffold reads `day-pieces.json`, and the other files `day build`
+> generates under `build/day/android/`, at *configuration* time through `providers.fileContents`.
+> Gradle tracks those reads, so the scaffold ships with `org.gradle.configuration-cache=true`: adding
+> or removing a piece changes `day-pieces.json`, which discards the cached configuration. Apps
+> scaffolded before this change read the files directly, which the cache does not track, and keep
+> `org.gradle.configuration-cache=false`. Enabling the cache there first requires the same
+> `providers.fileContents` reads in `settings.gradle.kts` and `app/build.gradle.kts`.
 > Some pieces also pull libraries that require AndroidX (Lottie's view extends `AppCompatImageView`), so
 > the scaffold sets `android.useAndroidX=true`.
 

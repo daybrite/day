@@ -4,14 +4,22 @@ plugins {
     id("com.android.application")
 }
 
+// Everything `day build` generates for Gradle lives in build/day/android/ and is read at
+// configuration time through `providers.fileContents`, which the configuration cache records as an
+// input (gradle.properties). A file whose contents changed, or that appeared or went away, discards
+// the cached configuration; a rewrite with the same contents keeps it.
+val dayGenerated = rootProject.layout.projectDirectory.dir("../../build/day/android")
+fun dayGeneratedText(name: String): String? =
+    providers.fileContents(dayGenerated.file(name)).asText.orNull
+
 // Standalone-piece backend contributions (docs/extending.md): `day build` resolves every piece in
 // the app's dependency tree from `cargo metadata` and stages its Java dirs + Gradle deps here. Read
 // generically — a piece adds native Android code with NO edits to this file.
-val dayPiecesFile = rootProject.projectDir.resolve("../../build/day/android/day-pieces.json")
 @Suppress("UNCHECKED_CAST")
 val dayPieces: Map<String, Any> =
-    if (dayPiecesFile.exists()) groovy.json.JsonSlurper().parse(dayPiecesFile) as Map<String, Any>
-    else emptyMap()
+    dayGeneratedText("day-pieces.json")
+        ?.let { groovy.json.JsonSlurper().parseText(it) as Map<String, Any> }
+        ?: emptyMap()
 @Suppress("UNCHECKED_CAST")
 val pieceJavaDirs = (dayPieces["javaSrcDirs"] as? List<String>) ?: emptyList()
 @Suppress("UNCHECKED_CAST")
@@ -28,9 +36,8 @@ val pieceProguardFiles = (dayPieces["proguardFiles"] as? List<String>) ?: emptyL
 
 // Day.toml identity/version, conveyed by `day build` / `day pack` (§17.5), read
 // generically so this file names no project of its own.
-val dayAppFile = rootProject.projectDir.resolve("../../build/day/android/day-app.properties")
 val dayApp = Properties().apply {
-    if (dayAppFile.exists()) dayAppFile.inputStream().use { s -> load(s) }
+    dayGeneratedText("day-app.properties")?.let { load(it.reader()) }
 }
 
 // Day.toml identity, conveyed by `day build` / `day pack` (§17.5). REQUIRED rather than
@@ -46,9 +53,9 @@ fun dayRequired(key: String): String = dayApp.getProperty(key)
 
 // Release signing, resolved by `day pack` (Day.toml `signing.android` env refs, or its generated
 // dev keystore). Absent file ⇒ unsigned release build (a plain `day build --profile release`).
-val daySigningFile = rootProject.projectDir.resolve("../../build/day/android/day-signing.properties")
+val daySigningText = dayGeneratedText("day-signing.properties")
 val daySigning = Properties().apply {
-    if (daySigningFile.exists()) daySigningFile.inputStream().use { s -> load(s) }
+    daySigningText?.let { load(it.reader()) }
 }
 
 android {
@@ -102,13 +109,13 @@ android {
         // one manifest slot; main keeps the app's). Gate on the FILE, not on the permission list:
         // a part can contribute components without needing a permission, and `day build` removes
         // the overlay when it has nothing to say.
-        val pieceManifest = rootProject.projectDir.resolve("../../build/day/android/day-pieces-manifest.xml")
-        if (pieceManifest.exists()) {
-            getByName("debug").manifest.srcFile(pieceManifest)
-            getByName("release").manifest.srcFile(pieceManifest)
+        val pieceManifest = dayGenerated.file("day-pieces-manifest.xml")
+        if (providers.fileContents(pieceManifest).asBytes.isPresent) {
+            getByName("debug").manifest.srcFile(pieceManifest.asFile)
+            getByName("release").manifest.srcFile(pieceManifest.asFile)
         }
     }
-    if (daySigningFile.exists()) {
+    if (daySigningText != null) {
         signingConfigs {
             create("release") {
                 storeFile = file(daySigning.getProperty("storeFile"))
@@ -131,7 +138,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
             dayProguardFile?.let { proguardFiles(it) }
             pieceProguardFiles.forEach { proguardFiles(it) }
-            if (daySigningFile.exists()) {
+            if (daySigningText != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
