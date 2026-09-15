@@ -435,7 +435,9 @@ jobs:
     uses: daybrite/actions/.github/workflows/dayapp.yml@main
     with:
       targets: linux-gtk
-      project-path: canary-app
+      # Under a directory whose name holds a space, so the shared workflow's build, pack, and
+      # launch steps, and the tools under them, run against a project path containing one.
+      project-path: Day Project Root/canary-app
       # The project is generated rather than checked out, and `setup-command` is the shared
       # workflow's hook for exactly that (a reusable workflow only checks out the caller's
       # repository). `day patch` then points the scaffold's day dependencies at THIS commit, so
@@ -443,9 +445,10 @@ jobs:
       # (Setting it also skips the pristine assertion, which is right: the project is generated
       # here, and `day patch` writes a config file into it.)
       setup-command: |
-        "$DAY_BIN" new app canary-app --toolkit linux-gtk \
-          --appid dev.daybrite.canary --git --no-input
-        "$DAY_BIN" --project canary-app patch --local "$GITHUB_WORKSPACE" --check
+        mkdir -p "Day Project Root"
+        (cd "Day Project Root" && "$DAY_BIN" new app canary-app --toolkit linux-gtk \
+          --appid dev.daybrite.canary --git --no-input)
+        "$DAY_BIN" --project "Day Project Root/canary-app" patch --local "$GITHUB_WORKSPACE" --check
       day-source: artifact
       artifact-prefix: canary-
       app-id: dev.daybrite.canary
@@ -560,7 +563,10 @@ jobs:
         run: |
           set -euo pipefail
           DAY=$DAY_BIN
-          cd "$RUNNER_TEMP" && rm -rf scratch-piece scratch-part scratch-app remote-check
+          # Under a directory whose name holds a space, so the scaffolds, cargo, and every build
+          # script below (cc, bindgen, the Qt and XAML shims) run against a path containing one.
+          WORK="$RUNNER_TEMP/Day Project Root"
+          rm -rf "$WORK" && mkdir -p "$WORK" && cd "$WORK"
           TARGET=""
           LIB=""
           if [ -n "${{ matrix.rust_target }}" ]; then
@@ -569,7 +575,7 @@ jobs:
           fi
           # One target directory for the four builds below: they compile the same day crates from
           # this checkout, and the piece's demo would otherwise build all of them a second time.
-          export CARGO_TARGET_DIR="$RUNNER_TEMP/scratch-target"
+          export CARGO_TARGET_DIR="$WORK/scratch-target"
           "$DAY" new piece scratch-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
           "$DAY" new part  scratch-part  --local "$GITHUB_WORKSPACE"
           "$DAY" new app   scratch-app   --toolkit ${{ matrix.combo }} --appid com.example.scratchapp --local "$GITHUB_WORKSPACE"

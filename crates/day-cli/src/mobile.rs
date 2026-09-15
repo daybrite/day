@@ -544,9 +544,18 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 fn oso_prefix_setting(project_root: &Path) -> String {
     let root = std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
     format!(
-        "OTHER_LDFLAGS=$(inherited) -Wl,-oso_prefix,{}/ -Wl,-objc_stubs_small",
-        root.display()
+        "OTHER_LDFLAGS=$(inherited) {} -Wl,-objc_stubs_small",
+        xcode_list_item(&format!("-Wl,-oso_prefix,{}/", root.display()))
     )
+}
+
+/// One element of an Xcode string-list build setting (`OTHER_LDFLAGS`, …), quoted so Xcode keeps
+/// it whole. Xcode splits a list setting at whitespace, so a project under `Day Project Root/`
+/// handed the linker `…/Day`, `Project` and `Root/…` as three arguments. Inside double quotes a
+/// space is literal; a backslash or a quote in the path is escaped.
+fn xcode_list_item(item: &str) -> String {
+    let escaped = item.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
 }
 
 /// The product bundle to install. A RENAME leaves the previous `PRODUCT_NAME.app` sitting in
@@ -2818,5 +2827,35 @@ mod system_dialog_tests {
             ]
         );
         assert!(system_dialogs(&parse_window_titles("")).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod xcode_setting_tests {
+    use super::{oso_prefix_setting, xcode_list_item};
+
+    /// Xcode splits a list setting at whitespace, so the linker's `-oso_prefix` path has to be one
+    /// quoted element, or a project under `Day Project Root/` hands the linker three arguments.
+    #[test]
+    fn a_project_path_with_spaces_is_one_quoted_linker_argument() {
+        let dir = std::env::temp_dir().join(format!("day xcode setting {}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let root = std::fs::canonicalize(&dir).expect("canonical path");
+        assert!(root.display().to_string().contains(' '));
+
+        let setting = oso_prefix_setting(&dir);
+        let quoted = xcode_list_item(&format!("-Wl,-oso_prefix,{}/", root.display()));
+        assert_eq!(
+            setting,
+            format!("OTHER_LDFLAGS=$(inherited) {quoted} -Wl,-objc_stubs_small")
+        );
+        assert!(quoted.starts_with('"') && quoted.ends_with('"'), "{quoted}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_items_escape_quotes_and_backslashes() {
+        assert_eq!(xcode_list_item("plain"), "\"plain\"");
+        assert_eq!(xcode_list_item("a \"b\" c\\d"), "\"a \\\"b\\\" c\\\\d\"");
     }
 }

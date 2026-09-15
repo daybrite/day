@@ -123,12 +123,14 @@ jobs:
       # --- the check: doctor → new → build → pack, for this combo --------------------------
       # `--day-version` decides BOTH halves of what is under test: checkup installs that day-cli
       # (skipping the install when the CLI above is already that version — the `latest` cells) and
-      # pins the app it scaffolds to the same day. The scaffold goes to a temporary directory
-      # checkup makes and removes; the run's build time and packaged artifact size land in the
-      # job summary.
+      # pins the app it scaffolds to the same day. The scaffold goes under `--dir`, a directory in
+      # the runner's temp dir whose name holds a space, so new → build → pack (and the CLI install
+      # checkup puts in the same root) all run against a path containing one. Checkup removes each
+      # combo's project as it finishes; the run's build time and packaged artifact size land in the
+      # job summary. `runner.temp` rather than `$RUNNER_TEMP`: the Windows legs run PowerShell.
       #
       # --profile release, not checkup's own debug default: the sizes then describe what users
       # actually download, and release is where the full format set exists (`day pack` builds the
       # Play .aab only for release, so a debug run would leave that pipeline unchecked).
       - name: day checkup -p ${{ matrix.combo }} (day ${{ matrix.day-version }})
-        run: day checkup -p ${{ matrix.combo }} --day-version ${{ matrix.day-version }} --profile release --strict
+        run: day checkup -p ${{ matrix.combo }} --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"

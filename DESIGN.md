@@ -4082,7 +4082,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > [!IMPORTANT]
 > **Status: shipped, consolidated.** Instead of the designed four workflows, one `ci.yml`
 > carries the whole build pipeline, plus `checkup.yml` (scheduled end-user install checks — one
-> `day checkup -p <combo> --day-version <v> --strict` per cell of an 11-combo × 2-version matrix,
+> `day checkup -p <combo> --day-version <v> --strict --dir "<runner temp>/Day Project Root"` per
+> cell of an 11-combo × 2-version matrix, scaffolding under a directory whose name contains a space,
 > `main` and `latest`, [§16.5](#165-subcommands); it was `install.yml` until 2026-08, when the
 > doctor/new/build steps moved into the CLI and packaging and the version axis joined them) and
 > `website.yml` (2026-09, step 6 below) in this repo.
@@ -4141,9 +4142,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    scaffolds a 21-locale project and lints it with `--strict --allow store-placeholder`, so every
    rule but the listing TODOs a human still has to write holds against a fresh project. It runs on
    all three OSes because the four locale surfaces (`resource/locales/`, `store/`, Xcode's
-   `knownRegions`, `website/site.toml`) are written through platform path handling.
+   `knownRegions`, `website/site.toml`) are written through platform path handling. The project
+   sits under `Day Project Root/`, a directory whose name contains a space, so the build, pack,
+   rebuild, and launch steps meet the path a user's own folder names produce (2026-09).
 3. **Framework checks** — `toolkit (<backend>)` lints the showcase against one backend crate's
-   feature and scaffolds a piece/part/app for it. Feature unification is why it exists — a
+   feature and scaffolds a piece/part/app for it, also under a directory with a space in its name
+   (the shared cargo target directory included, so build scripts see one too). Feature unification is why it exists — a
    `--workspace` clippy would link several backends into one binary and trip the
    one-backend-per-binary guard ([§3](#3-crate-architecture)). It used to run INSIDE the
    per-combo jobs, which made every build job framework-shaped and unusable as an app pipeline;

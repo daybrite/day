@@ -38,8 +38,10 @@ COMBO="${2:-}"
 DAY="$(cd "$(dirname "$DAY")" && pwd)/$(basename "$DAY")"
 
 # Outside the checkout: a Day.toml inside it would sit in the cargo workspace, and
-# scripts/ci/assert-pristine.sh would see the tree as dirty.
-WORK="$ROOT/../day-scaffold-check"
+# scripts/ci/assert-pristine.sh would see the tree as dirty. The directory name holds a space, so
+# every step below (cargo, xcodebuild, Gradle, hvigor, the packagers, the rebuild) runs against a
+# project path containing one, the way a project kept in a user's "My Projects" folder would.
+WORK="$ROOT/../Day Project Root"
 rm -rf "$WORK"
 mkdir -p "$WORK"
 cd "$WORK"
