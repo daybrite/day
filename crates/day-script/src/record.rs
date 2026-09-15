@@ -52,9 +52,11 @@ pub fn annotate_yaml(steps: &[Step], labels: &[Option<String>]) -> String {
     // serde_norway renders each step as a `- <op>:` list item followed by indented params. Walk the
     // lines, tracking which step we are inside, and append the comment to that step's key line.
     let key_of = |step: &Step| match step {
-        Step::Tap { .. } | Step::Input { .. } | Step::Select { .. } | Step::WaitFor { .. } => {
-            Some("id:")
-        }
+        Step::Tap { .. }
+        | Step::Input { .. }
+        | Step::Select { .. }
+        | Step::Activate { .. }
+        | Step::WaitFor { .. } => Some("id:"),
         Step::Navigate { .. } => Some("route:"),
         _ => None,
     };
@@ -204,6 +206,10 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
             key: None,
             args: None,
         }),
+        Event::ListActivated(index) => id.map(|id| Step::Activate {
+            id: id.to_string(),
+            index: *index,
+        }),
         Event::SelectionChanged(index) => id.map(|id| Step::Select {
             id: id.to_string(),
             index: *index,
@@ -253,6 +259,11 @@ const PLAYBACK_EMISSIONS: &[(&str, &[Event], Disposition)] = &[
         "tap",
         &[Event::Tap(day_spec::Point::ZERO)],
         Disposition::Records("tap"),
+    ),
+    (
+        "activate",
+        &[Event::ListActivated(1)],
+        Disposition::Records("activate"),
     ),
     // lib.rs `Step::Select`, and a toggle, which replays through `select`.
     (
@@ -474,6 +485,9 @@ fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
         }
         Step::Input { id, text, .. } => {
             let _ = write!(line, "input {id} = {:?}", text.as_deref().unwrap_or(""));
+        }
+        Step::Activate { id, index } => {
+            let _ = write!(line, "activate {id} = {index}");
         }
         Step::Select { id, index } => {
             let _ = write!(line, "select {id} = {index}");

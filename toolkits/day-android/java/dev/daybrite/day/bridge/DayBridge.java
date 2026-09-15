@@ -130,6 +130,7 @@ public final class DayBridge {
     public static final int K_TOGGLE_CHANGED = 2;
     public static final int K_VALUE_CHANGED = 3;
     public static final int K_SELECTION_CHANGED = 4;
+    public static final int K_LIST_ACTIVATED = 31;
     public static final int K_NAV_BACK = 5;
     public static final int K_FRAME_CHANGED = 6;
     public static final int K_DEEPLINK = 7;
@@ -496,7 +497,8 @@ public final class DayBridge {
                         public void onClick(View v) {
                             int pos = h.getBindingAdapterPosition();
                             if (pos != RecyclerView.NO_POSITION) {
-                                nativeOnEvent(hostId, K_SELECTION_CHANGED, pos, ""); // kind 4
+                                nativeOnEvent(hostId, K_SELECTION_CHANGED, pos, "");
+                                nativeOnEvent(hostId, K_LIST_ACTIVATED, pos, "");
                             }
                         }
                     });

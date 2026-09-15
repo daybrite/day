@@ -492,13 +492,22 @@ const env = {
     // Clicking a row is how a list normally comes into focus, and the cells are children, so
     // the press has to be caught on the way down. `preventScroll` because the browser would
     // otherwise scroll the freshly focused host into view and undo the list's own position.
-    host.addEventListener('pointerdown', () => {
+    host.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('button,input,select,textarea,a,[contenteditable]')) return;
       if (document.activeElement !== host) host.focus({ preventScroll: true });
     });
     host.addEventListener('keydown', (e) => {
+      if (e.target !== host) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const dirs = { ArrowUp: 0, ArrowDown: 1, Home: 2, End: 3 };
+      const dirs = { ArrowUp: 0, ArrowDown: 1, Home: 2, End: 3, Enter: 4 };
       if (!(e.key in dirs)) return;
+      if (e.key === 'Enter') {
+        if (wasm.day_dom_list_key(id, dirs[e.key], 0)) {
+          e.preventDefault();
+          keepFocus(host);
+        }
+        return;
+      }
       // Claimed even at the ends of the list, where the row does not move: the alternative is
       // the page scrolling under a list that plainly has the keyboard.
       e.preventDefault();
@@ -1527,7 +1536,23 @@ function dayEditorListen(id, el) {
 
 function listen(id, mask) {
   const host = E(id); const el = V(id);
-  if (mask & 1) el.addEventListener('click', (e) => wasm.day_dom_event(id, 1, mods(e), 0, 0, 0));
+  if (mask & 1) {
+    const rowControl = (e) => el.getAttribute('role') === 'option' && e.target.closest('button,input,select,textarea,a,[contenteditable]');
+    // WebKit can report a touch-generated click as mouse. Preserve the pointerdown
+    // source for one click, then clear it so keyboard clicks cannot inherit a stale touch.
+    let pointerType;
+    let clickPointerType;
+    el.addEventListener('pointerdown', (e) => { pointerType = e.pointerType; });
+    el.addEventListener('pointercancel', () => { pointerType = undefined; });
+    el.addEventListener('click', (e) => {
+      clickPointerType = pointerType ?? e.pointerType;
+      pointerType = undefined;
+      if (!rowControl(e)) wasm.day_dom_event(id, 1, mods(e), 1, clickPointerType === 'touch' ? 1 : 0, 0);
+    });
+    el.addEventListener('dblclick', (e) => {
+      if (el.getAttribute('role') === 'option' && clickPointerType !== 'touch' && !rowControl(e)) wasm.day_dom_event(id, 1, mods(e), 2, 0, 0);
+    });
+  }
   if (mask & 2) el.addEventListener('input', () => {
     if (el.type === 'range') wasm.day_dom_event(id, 5, Number(el.value), 0, 0, 0);
     else { const [p, l] = intoWasm(el.value); wasm.day_dom_event_text(id, 2, p, l); }

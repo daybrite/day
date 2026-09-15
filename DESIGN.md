@@ -1585,7 +1585,9 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > up direction, 2026-08 — emitted only by native fronts), `Event::Edit(EditOp)` (the edit
 > bridge's up direction, 2026-08 — the platform's Cut/Copy/Paste route, [docs/menus.md](docs/menus.md)) and `CoverHidden` ([docs/cover.md](docs/cover.md); `BridgeKind::CoverHidden = 26` on the
 > trampoline wire), while warm deep links now arrive as the existing `RouteRequested` — leaving
-> `Custom` purely piece-defined. `BridgeKind::ToolbarChanged = 30` (2026-09) carries a phone
+> `Custom` purely piece-defined. `BridgeKind::ListActivated = 31` carries the activated row
+> index as `Event::ListActivated`; recording and replay use the `activate` step.
+> `BridgeKind::ToolbarChanged = 30` (2026-09) carries a phone
 > toolbar item's toggle state or chosen segment up as `Event::ToolbarChanged`, now that the window
 > toolbar rides the mobile navigation chrome — the navigation bar on UIKit, the app bar on Android,
 > in both cases the bar the page already has rather than a second one below it. A window whose
@@ -1606,6 +1608,7 @@ pub enum Event {
     ValueChanged(f64),                        // slider et al.
     SelectionChanged(i64),                    // pickers, tabs, nav lists
     SelectionSet(Vec<i64>),                   // multi-select lists (docs/list.md)
+    ListActivated(usize),                     // invoke a row independently of selection
     FocusChanged(bool),                       // docs/focus.md
     Tap(Point), LongPress(Point),
     ContextMenu { local, window },            // a reported summon — the composed menu
@@ -1932,7 +1935,7 @@ list(messages.rows(ordered_keys), move |row: ModelSlot<Message>| {
     ))
 })
 .row_height(RowHeight::Uniform(56.0))          // or ::Automatic (self-sizing, slower)
-.on_select(move |it: Elem<Message>| open(it.key()))
+.on_activate(move |it: Elem<Message>| open(it.key()))
 ```
 
 Slot semantics are as specified in [§5.4](#54-keyed-collections-each): plain-data rows get `ItemSlot` (Copy handle,
@@ -1940,6 +1943,13 @@ tracked `get()`, equality-gated `field()` projections, the structure-from-`get()
 lint); store rows get `ModelSlot` (a day-model `Source` whose accessors bind two-way and follow
 the recycle). Key uniqueness is asserted per diff in debug builds. A designed `.row_kind`
 (native reuse-identifier pools) has not shipped; every list runs one pool.
+
+`List::on_activate` invokes a row independently of selection, resolving the event index
+against the current row source. `ListProps::activatable` identifies lists with an activation
+callback; custom Enter handlers leave the key unhandled without a callback or selected row.
+Desktop lists use their activation gesture or Enter; touch
+lists use a tap. Dayscript records and replays this as `activate: { id, index }`. See
+[docs/list.md](docs/list.md#selection-and-activation).
 
 ### §10.2 Realization: the RowHost protocol
 
@@ -2425,7 +2435,7 @@ every locale (the engine resolves the key in the app's active locale). This is w
 screenshot generator with zero per-locale script maintenance.
 
 The shipped step catalog — waiting (`wait_for`, `wait_idle`, `pause`), acting (`tap`, `input`,
-`set_value`, `toggle`, `select`, `focus`), navigation (`navigate`, `deep_link`, `nav_back`, `assert_route`),
+`set_value`, `toggle`, `select`, `activate`, `focus`), navigation (`navigate`, `deep_link`, `nav_back`, `assert_route`),
 asserting (`assert_visible`, `assert_missing`, `assert_text`, `assert_value`, `assert_focused`), dialogs
 (`assert_presented`, `respond`), evidence (`screenshot`, `a11y_audit`), and termination
 (`expect_exit` — the one step that tolerates the app dying, for crash-reporting flows,
@@ -2529,7 +2539,8 @@ app-authored id a step would target.
 Scope is **actions only, and only where the step is portable**:
 
 - `Pressed` **and** `Tap(Point)` → `tap`, `TextChanged` → `input` (coalesced per field),
-  `SelectionChanged`/`ToggleChanged` → `select`, `RouteRequested` → `navigate` (coalesced),
+  `SelectionChanged`/`ToggleChanged` → `select`, `ListActivated` → `activate`,
+  `RouteRequested` → `navigate` (coalesced),
   `NavBack` → `nav_back`.
 - `ValueCommitted` → `set_value`: a slider records the value it SETTLED on, once.
 - **Dropped, deliberately:** gestures other than tap, `ValueChanged` (the live value a drag
@@ -5419,7 +5430,8 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |
 | `set_value` | `id`, `value` | sliders et al. |
 | `toggle` | `id`, `value?` | omitted value = flip |
-| `select` | `id`, `index` | pickers/tabs |
+| `select` | `id`, `index` | pickers/tabs/list selection |
+| `activate` | `id`, `index` | invoke a list row without changing selection; out-of-range indices are ignored |
 | `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam ([docs/list.md](docs/list.md)); a guard denial fails the step, non-retryably |
 | `delete_row` | `id`, `row` | delete a list row through the same guard → commit path a native swipe takes ([docs/list.md](docs/list.md)); a guard refusal fails the step, non-retryably |
 | `swipe_row` | `id`, `row`, `edge?`, `action?`, `label?`/`key?` | activate a row's swipe action through the offer → commit seam ([docs/list.md](docs/list.md)): `edge` defaults to `trailing`, `action` to 0 (the full-swipe button); `label:`/`key:` (Fluent, run-locale) pins which button may be pressed — a mismatched offer refuses the press, leaving state untouched |

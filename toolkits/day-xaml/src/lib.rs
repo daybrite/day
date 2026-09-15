@@ -381,11 +381,42 @@ fn list_paint_selection(entry: &ListEntry) {
     }
 }
 
+/// Enter activates the selected row without changing the selection.
+extern "C" fn on_list_key(node: u64, key: c_int) -> c_int {
+    ffi_guard::contain(0, || {
+        if key != 4 {
+            return 0;
+        }
+        let row = LIST_BY_NODE
+            .with(|m| m.borrow().get(&node).copied())
+            .and_then(|host| {
+                LIST_STATE.with(|m| {
+                    let state = m.borrow();
+                    let list = state.get(&host)?;
+                    list.selectable
+                        .then(|| list.selected.last().copied())
+                        .flatten()
+                })
+            });
+        if let Some(row) = row {
+            emit(NodeId(node), Event::ListActivated(row));
+            return 1;
+        }
+        0
+    })
+}
+
 /// A press on an emulated list cell (docs/list.md). Owns the selection semantics: a plain click
 /// replaces the selection, ctrl toggles the row, shift extends from the anchor (multi-select
 /// only) — then repaints and reports (`SelectionSet` in multi mode, `SelectionChanged` single).
 extern "C" fn on_list_row_click(node: u64, row: c_int, mods: c_int) {
     ffi_guard::contain((), || {
+        if mods == 4 {
+            if row >= 0 {
+                emit(NodeId(node), Event::ListActivated(row as usize));
+            }
+            return;
+        }
         let row = row.max(0) as usize;
         let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) else {
             return;
@@ -1827,6 +1858,9 @@ impl Toolkit for Xaml {
                     LIST_BY_NODE.with(|m| m.borrow_mut().insert(id.0, host as usize));
                     // Rows are built as they scroll in, so the list has to hear about scrolling.
                     ffi::day_xaml_list_on_scroll(host, id.0, on_list_scrolled);
+                    if p.selectable && p.activatable {
+                        ffi::day_xaml_list_keynav(host, id.0, on_list_key);
+                    }
                     WinHandle(host)
                 }
                 Some(Builtin::Progress) => {

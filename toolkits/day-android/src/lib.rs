@@ -47,6 +47,7 @@ mod bridge_kinds_parity {
             ("K_SEARCH_CHANGED", BridgeKind::SearchChanged),
             ("K_NAV_PRESENTATION", BridgeKind::NavPresentation),
             ("K_SELECTION_CHANGED", BridgeKind::SelectionChanged),
+            ("K_LIST_ACTIVATED", BridgeKind::ListActivated),
             ("K_NAV_BACK", BridgeKind::NavBack),
             ("K_FRAME_CHANGED", BridgeKind::FrameChanged),
             ("K_DEEPLINK", BridgeKind::Deeplink),
@@ -1229,6 +1230,7 @@ mod imp {
     const K_VALUE_COMMITTED: i32 = bridge::BridgeKind::ValueCommitted as i32;
     const K_SEARCH_CHANGED: i32 = bridge::BridgeKind::SearchChanged as i32;
     const K_NAV_PRESENTATION: i32 = bridge::BridgeKind::NavPresentation as i32;
+    const K_LIST_ACTIVATED: i32 = bridge::BridgeKind::ListActivated as i32;
     const K_SELECTION_CHANGED: i32 = bridge::BridgeKind::SelectionChanged as i32;
     const K_NAV_BACK: i32 = bridge::BridgeKind::NavBack as i32;
     const K_FRAME_CHANGED: i32 = bridge::BridgeKind::FrameChanged as i32;
@@ -1289,6 +1291,7 @@ mod imp {
                 day_spec::props::NavPresentation::Stack
             }),
             K_SELECTION_CHANGED => Event::SelectionChanged(num as i64),
+            K_LIST_ACTIVATED => Event::ListActivated(num as usize),
             // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
             // means the native FragmentManager already popped (predictive back commit, back
             // button, up arrow) — Rust updates the path without re-issuing the pop.

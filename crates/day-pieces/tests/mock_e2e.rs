@@ -7221,3 +7221,37 @@ fn a_stamp_encodes_as_one_prefix_its_points_and_one_template() {
     let (wire, _) = day_spec::encode_ops(&big);
     assert!(wire.len() < 50_000 * 9 / 3, "{} wire numbers", wire.len());
 }
+
+#[test]
+fn list_activation_is_independent_and_uses_current_rows() {
+    let selections = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let activations = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let selected = selections.clone();
+    let activated = activations.clone();
+    let source = std::rc::Rc::new(std::cell::Cell::new(None));
+    let source_out = source.clone();
+    let probe = boot(move || {
+        let rows = Signal::new(vec!["a".to_owned(), "b".to_owned()]);
+        source_out.set(Some(rows));
+        list(
+            items(move || rows.get(), |s: &String| s.clone()),
+            |row: ItemSlot<String, String>| label(move || row.get()),
+        )
+        .on_select(move |key| selected.borrow_mut().push(key))
+        .id("activatable-list")
+        .on_activate(move |key| activated.borrow_mut().push(key))
+    });
+    let node = node_id(&probe, "day.list", 0);
+    probe.emit(node, Event::SelectionChanged(1));
+    flush_sync();
+    assert_eq!(&*selections.borrow(), &["b"]);
+    assert!(activations.borrow().is_empty());
+    source.get().unwrap().set(vec!["b".into(), "a".into()]);
+    flush_sync();
+    probe.emit(node, Event::ListActivated(1));
+    probe.emit(node, Event::ListActivated(99));
+    probe.emit(node, Event::ListActivated(1));
+    flush_sync();
+    assert_eq!(&*activations.borrow(), &["a", "a"]);
+    assert_eq!(&*selections.borrow(), &["b"]);
+}

@@ -2055,6 +2055,31 @@ void day_xaml_list_on_scroll(void* sv, uint64_t node, void (*cb)(uint64_t)) {
                              WUXC::ScrollViewerViewChangedEventArgs const&) { cb(node); });
 }
 
+// Leave focus and activation to controls embedded in a row.
+static bool list_embedded_control(WF::IInspectable const& source, WUX::DependencyObject const& host) {
+    auto current = source.try_as<WUX::DependencyObject>();
+    while (current && current != host) {
+        if (current.try_as<WUXC::Control>()) return true;
+        current = WUXM::VisualTreeHelper::GetParent(current);
+    }
+    return false;
+}
+
+void day_xaml_list_keynav(void* sv, uint64_t node, int (*cb)(uint64_t, int)) {
+    auto scroll = elem(sv).try_as<WUXC::ScrollViewer>();
+    if (!scroll) return;
+    scroll.IsTabStop(true);
+    scroll.PointerPressed([sv](WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& event) {
+        auto host = elem(sv).as<WUXC::ScrollViewer>();
+        if (!list_embedded_control(event.OriginalSource(), host)) host.Focus(WUX::FocusState::Pointer);
+    });
+    scroll.KeyDown([sv, node, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& event) {
+        if (event.Key() != WS::VirtualKey::Enter) return;
+        if (event.OriginalSource() != elem(sv)) return;
+        if (cb(node, 4)) event.Handled(true);
+    });
+}
+
 // --- emulated list drag-to-reorder (docs/list.md) ---
 // The real WinRT drag pipeline (CanDrag / DragOver / Drop — the same visuals every Windows app
 // gets) over the emulated Canvas list. The DECISIONS stay Rust's: every hovered slot is vetted
@@ -2140,6 +2165,9 @@ void day_xaml_list_cell_click(void* cell, unsigned long long id, int row, DayRow
             if ((mods & WS::VirtualKeyModifiers::Shift) != WS::VirtualKeyModifiers::None) m |= 2;
             cb(id, row, m);
         });
+    canvas.DoubleTapped([cell, id, row, cb](WF::IInspectable const&, WUXIn::DoubleTappedRoutedEventArgs const& event) {
+        if (!list_embedded_control(event.OriginalSource(), elem(cell))) cb(id, row, 4);
+    });
 }
 
 // Paint (or clear) one cell's selected treatment. The fill is the theme's list-selection accent

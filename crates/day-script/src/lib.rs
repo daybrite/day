@@ -143,6 +143,11 @@ pub enum Step {
         #[serde(default)]
         value: Option<bool>,
     },
+    /// Invoke a list row without changing selection. Out-of-range indices are ignored.
+    Activate {
+        id: String,
+        index: usize,
+    },
     Select {
         id: String,
         index: i64,
@@ -1110,6 +1115,10 @@ fn exec(step: Step) -> Reply {
                     None => !probe(&id)?.flag,
                 };
                 emit(&id, Event::ToggleChanged(target))?;
+                Ok(Reply::ok())
+            }
+            Step::Activate { id, index } => {
+                emit(&id, Event::ListActivated(index))?;
                 Ok(Reply::ok())
             }
             Step::Select { id, index } => {

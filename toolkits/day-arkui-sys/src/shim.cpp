@@ -91,6 +91,7 @@ extern "C" int32_t day_arkui_node_handles_keys(uint64_t id);
 #define DAY_K_TOGGLE_CHANGED 2
 #define DAY_K_VALUE_CHANGED 3
 #define DAY_K_SELECTION_CHANGED 4
+#define DAY_K_LIST_ACTIVATED 31
 #define DAY_K_GESTURE 11
 #define DAY_K_CUSTOM 12
 #define DAY_K_PRESENT_FILE 15
@@ -2187,6 +2188,7 @@ bool day_list_cell_click(ArkUI_NodeHandle n) {
         auto it = dl->rows.find(n);
         if (it != dl->rows.end()) {
             day_arkui_on_event(dl->host_id, DAY_K_SELECTION_CHANGED, (double)it->second, "");
+            day_arkui_on_event(dl->host_id, DAY_K_LIST_ACTIVATED, (double)it->second, "");
             return true;
         }
     }

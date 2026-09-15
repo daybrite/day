@@ -1865,7 +1865,7 @@ jobs:
       # values, and assert the CONVERTED numbers — the deg/s → rad/s conversion and the
       # beta/gamma/alpha → x/y/z mapping are where a browser sensor arm actually goes wrong
       # (docs/sensors.md).
-      - name: Sensors (synthetic devicemotion)
+      - name: Browser gestures and sensors
         working-directory: showcase-src
         env:
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
@@ -1880,6 +1880,7 @@ jobs:
             echo "the web server never reported a URL:"; cat "$RUNNER_TEMP/weblaunch.log"; exit 1
           fi
           node "$GITHUB_WORKSPACE/scripts/ci/webdom-sensor-test.mjs" "$URL/"
+          node "$GITHUB_WORKSPACE/scripts/ci/webdom-list-activation-test.mjs" "$URL/"
       - name: Validate screenshot content
         run: scripts/ci/validate-screenshots.sh showcase-src/build/day/screenshots/web-dom
       - name: Upload screenshots

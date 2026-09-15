@@ -210,6 +210,14 @@ struct ListEntry {
     multi: bool,
 }
 
+extern "C" fn on_list_activate(node: u64, row: c_int) {
+    ffi_guard::contain((), || {
+        if row >= 0 {
+            emit_deferred(NodeId(node), Event::ListActivated(row as usize));
+        }
+    });
+}
+
 /// The view's selection changed under the user (a click, the keyboard walker, a range): report
 /// it the way docs/list.md wants — the full set where several rows may be selected, the one
 /// row otherwise, and an emptied selection as an empty set either way, since only the set can
@@ -1958,6 +1966,7 @@ impl Toolkit for Qt {
                         c_int::from(p.multi_select),
                         c_int::from(p.reorderable),
                         on_list_selection,
+                        on_list_activate,
                         on_list_can_move,
                         on_list_move,
                     );

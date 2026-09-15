@@ -2283,6 +2283,30 @@ fn post_realize_visible_rows(key: usize) {
 // 2026-08; it also froze row content mid-swipe, revealing actions behind a motionless row.)
 // ---------------------------------------------------------------------------
 
+define_class!(
+    #[unsafe(super(NSTableView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayListView"]
+    struct DayListView;
+    unsafe impl NSObjectProtocol for DayListView {}
+    impl DayListView {
+        #[unsafe(method(keyDown:))]
+        fn key_down(&self, event: &objc2_app_kit::NSEvent) {
+            ffi_guard::contain((), || {
+                let key = unsafe { event.keyCode() };
+                if key == 36 || key == 76 {
+                    let row = unsafe { self.selectedRow() };
+                    if row >= 0 && let Some(target) = unsafe { self.target() } {
+                        let _: () = unsafe { msg_send![&*target, activateRow: self] };
+                        return;
+                    }
+                }
+                let _: () = unsafe { msg_send![super(self), keyDown: event] };
+            });
+        }
+    }
+);
+
 struct ListIvars {
     node: NodeId,
     /// Injected by `attach_list` once day-core wires the driver.
@@ -2306,6 +2330,23 @@ define_class!(
 
     unsafe impl NSObjectProtocol for DayListData {}
     unsafe impl NSControlTextEditingDelegate for DayListData {}
+
+    impl DayListData {
+        #[unsafe(method(activateRow:))]
+        fn activate_row(&self, table: &NSTableView) {
+            ffi_guard::contain((), || {
+                let row = unsafe { table.selectedRow() };
+                if row >= 0 { emit(self.ivars().node, Event::ListActivated(row as usize)); }
+            });
+        }
+        #[unsafe(method(doubleClickRow:))]
+        fn double_click_row(&self, table: &NSTableView) {
+            ffi_guard::contain((), || {
+                let row = unsafe { table.clickedRow() };
+                if row >= 0 { emit(self.ivars().node, Event::ListActivated(row as usize)); }
+            });
+        }
+    }
 
     unsafe impl NSTableViewDataSource for DayListData {
         #[unsafe(method(numberOfRowsInTableView:))]
@@ -5461,7 +5502,13 @@ impl Toolkit for AppKit {
                 let Some(p) = props_of::<ListProps>(kind, "appkit", props) else {
                     return placeholder_view(mtm, kind);
                 };
-                let table = unsafe { NSTableView::new(mtm) };
+                let table = if p.activatable {
+                    let table: Retained<DayListView> =
+                        unsafe { msg_send![DayListView::alloc(mtm), init] };
+                    Retained::into_super(table)
+                } else {
+                    unsafe { NSTableView::new(mtm) }
+                };
                 let col = unsafe {
                     NSTableColumn::initWithIdentifier(
                         NSTableColumn::alloc(mtm),
@@ -5515,6 +5562,10 @@ impl Toolkit for AppKit {
                     table.setBackgroundColor(&objc2_app_kit::NSColor::clearColor());
                     table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                     table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                    if p.activatable {
+                        table.setTarget(Some(&*data));
+                        table.setDoubleAction(Some(sel!(doubleClickRow:)));
+                    }
                     if p.reorderable {
                         // Native drag-to-reorder (docs/list.md): rows drag within this table
                         // only (move locally, nothing leaves the app), and the drop target shows

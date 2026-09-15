@@ -75,7 +75,7 @@ fn tool_list() -> serde_json::Value {
         },
         {
             "name": "day_drive",
-            "description": "Drive a RUNNING app with dayscript steps and see the result. Ops: navigate {route}, nav_back, tap {id, repeat?}, input {id, text|key}, set_value {id, value}, toggle {id, on}, select {id, index}, wait_for {id}, wait_idle, assert_visible {id}, assert_text {id, text|key}, assert_value {id, value}, assert_route {route}, assert_presented {kind}, respond {…}, a11y_audit, pause {secs}, screenshot {name}. Screenshots return as images — take one after navigating to verify what the user sees.",
+            "description": "Drive a RUNNING app with dayscript steps and see the result. Ops: navigate {route}, nav_back, tap {id, repeat?}, input {id, text|key}, set_value {id, value}, toggle {id, on}, select {id, index}, activate {id, index}, wait_for {id}, wait_idle, assert_visible {id}, assert_text {id, text|key}, assert_value {id, value}, assert_route {route}, assert_presented {kind}, respond {…}, a11y_audit, pause {secs}, screenshot {name}. Screenshots return as images — take one after navigating to verify what the user sees.",
             "inputSchema": {"type": "object", "required": ["target", "steps"], "properties": {
                 "target": {"type": "string"},
                 "steps": {"type": "array", "items": {"type": "object"}, "description": "e.g. [{\"navigate\":{\"route\":\"settings\"}},{\"ui_idle\":null},{\"screenshot\":\"settings\"}]"}

@@ -464,6 +464,7 @@ pub struct List<S: RowSource> {
     build_row: Rc<dyn Fn(S::Slot) -> AnyPiece>,
     row_height: RowHeight,
     on_select: Option<Rc<dyn Fn(S::Ref)>>,
+    on_activate: Option<Rc<dyn Fn(S::Ref)>>,
     on_selection: Option<SelectionFn<S::Ref>>,
     multi_select: bool,
     selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
@@ -569,6 +570,7 @@ where
         build_row: Rc::new(move |slot| AnyPiece::new(build_row(slot))),
         row_height: RowHeight::Automatic,
         on_select: None,
+        on_activate: None,
         on_selection: None,
         multi_select: false,
         selected_rows: None,
@@ -594,6 +596,13 @@ impl<S: RowSource + 'static> List<S> {
         self.row_height = h;
         self
     }
+    /// Open, play, or otherwise activate a row. Desktop lists use double-click or Enter;
+    /// touch lists use a tap. Selection callbacks remain independent.
+    pub fn on_activate(mut self, f: impl Fn(S::Ref) + 'static) -> Self {
+        self.on_activate = Some(Rc::new(f));
+        self
+    }
+
     /// Called with the selected row when the native list reports a selection — the key for a
     /// plain-data source, the row's `Elem` handle for a store source.
     pub fn on_select(mut self, f: impl Fn(S::Ref) + 'static) -> Self {
@@ -754,8 +763,11 @@ impl<S: RowSource + 'static> List<S> {
 impl<S: RowSource + 'static> Piece for List<S> {
     fn build(mut self, cx: &mut BuildCx) -> RNode {
         let props = ListProps {
+            activatable: self.on_activate.is_some(),
             row_height: self.row_height,
-            selectable: self.on_select.is_some() || self.on_selection.is_some(),
+            selectable: self.on_select.is_some()
+                || self.on_selection.is_some()
+                || self.on_activate.is_some(),
             multi_select: self.multi_select,
             reorderable: self.reorderable,
             deletable: self.deletable,
@@ -781,6 +793,17 @@ impl<S: RowSource + 'static> Piece for List<S> {
         // expected to echo back. When the refresh below sees exactly this order, the native rows
         // already sit in it (the gesture animated them there) — take the data, skip the reload.
         let pending_echo: Rc<RefCell<Option<Vec<u64>>>> = Rc::new(RefCell::new(None));
+
+        if let Some(activate) = self.on_activate.clone() {
+            let conn = conn.clone();
+            cx.on(node, move |event| {
+                if let Event::ListActivated(row) = event
+                    && let Some(reference) = conn.select_ref(*row)
+                {
+                    activate(reference);
+                }
+            });
+        }
 
         // Selection → refs (translate the native row indices through the snapshot). A
         // single-selection report also feeds `on_selection` as a one-element set, so an app
@@ -1409,6 +1432,7 @@ impl<Inner: WhenBuilder + Piece> WhenBuilder for Decorated<Inner> {
 pub trait ListBuilder<S: RowSource + 'static>: Sized {
     fn row_height(self, h: RowHeight) -> Self;
     fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self;
+    fn on_activate(self, f: impl Fn(S::Ref) + 'static) -> Self;
     fn multi_select(self, on: bool) -> Self;
     fn on_selection(self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self;
     fn selected_rows(self, rows: impl Fn() -> Vec<usize> + 'static) -> Self;
@@ -1433,6 +1457,9 @@ impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
     }
     fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self {
         List::on_select(self, f)
+    }
+    fn on_activate(self, f: impl Fn(S::Ref) + 'static) -> Self {
+        List::on_activate(self, f)
     }
     fn multi_select(self, on: bool) -> Self {
         List::multi_select(self, on)
@@ -1490,6 +1517,9 @@ impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for D
     }
     fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.on_select(f))
+    }
+    fn on_activate(self, f: impl Fn(S::Ref) + 'static) -> Self {
+        self.map_inner(|p| p.on_activate(f))
     }
     fn multi_select(self, on: bool) -> Self {
         self.map_inner(|inner_piece| inner_piece.multi_select(on))

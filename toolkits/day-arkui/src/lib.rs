@@ -875,6 +875,9 @@ mod imp {
             0 => Event::Pressed,
             // SelectionChanged (swiper tab / menu row), carried as the index in `num`.
             4 => Event::SelectionChanged(num as i64),
+            k if k == day_spec::bridge::BridgeKind::ListActivated as i32 => {
+                Event::ListActivated(num as usize)
+            }
             1 => {
                 let s = if text.is_null() {
                     String::new()

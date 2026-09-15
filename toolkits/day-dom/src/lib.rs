@@ -569,6 +569,7 @@ fn nav_mode(p: NavPresentation) -> u32 {
 }
 
 struct ListEntry {
+    activatable: bool,
     node: NodeId,
     content: u32,
     row_height: f64,
@@ -1637,6 +1638,7 @@ impl Toolkit for Dom {
                             bound: Vec::new(),
                             fill_pending: false,
                             last_width: -1.0,
+                            activatable: p.activatable,
                             selectable: p.selectable,
                             separators: p.separators == Some(true),
                             multi: p.multi_select,
@@ -3007,10 +3009,24 @@ fn list_reveal_row(host: u32, row: usize, row_height: f64) {
 /// An arrow, Home or End the shim's list keyboard route claims for a focused list
 /// (docs/list.md): `dir` is 0 up, 1 down, 2 home, 3 end, and `mods` is a `KeyEvent` mask. Moves
 /// the selection one row (or to an end), extends the range instead when a multi-select list is
-/// shifted, reveals the row and reports the same event a click on it would.
+/// shifted, reveals the row and reports the same event a click on it would. `dir == 4`
+/// activates the selected row. Returns 1 when handled; 0 lets Enter reach the default action.
 #[unsafe(no_mangle)]
-pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) {
-    day_spec::ffi_guard::contain((), || {
+pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
+    day_spec::ffi_guard::contain(0, || {
+        if dir == 4 {
+            let active = LISTS.with(|m| {
+                m.borrow()
+                    .get(&host)
+                    .filter(|s| s.activatable && !s.selected.is_empty())
+                    .and_then(|s| list_cursor(s).map(|row| (s.node, row)))
+            });
+            if let Some((node, row)) = active {
+                emit(node, Event::ListActivated(row));
+                return 1;
+            }
+            return 0;
+        }
         let moved = LISTS.with(|m| {
             let mut m = m.borrow_mut();
             let st = m.get_mut(&host)?;
@@ -3051,11 +3067,12 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) {
             Some((st.node, ev, row, st.row_height.max(1.0)))
         });
         let Some((node, ev, row, row_height)) = moved else {
-            return;
+            return 0;
         };
         list_reveal_row(host, row, row_height);
         emit(node, ev);
-    });
+        1
+    })
 }
 
 fn list_patch(el: u32, p: &ListPatch) {
@@ -3502,7 +3519,17 @@ pub extern "C" fn day_dom_event(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f
 
 fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
     if kind == ev::CLICK && CELL_ROWS.with(|m| m.borrow().contains_key(&el)) {
-        list_cell_click(el, a as u32);
+        if b != 2.0 {
+            list_cell_click(el, a as u32);
+        }
+        if b == 2.0 || c == 1.0 {
+            let row = CELL_ROWS.with(|m| m.borrow().get(&el).copied());
+            if let Some((host, row)) = row
+                && let Some(node) = node_of(host)
+            {
+                emit(node, Event::ListActivated(row));
+            }
+        }
         return;
     }
     let Some(node) = node_of(el) else { return };

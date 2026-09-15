@@ -567,6 +567,8 @@ pub mod bridge {
         /// 0 ⇒ off, `"sel"` with `num` = the chosen segment. Decodes to
         /// [`crate::Event::ToolbarChanged`]. A plain toolbar button sends `MenuAction`.
         ToolbarChanged = 30,
+        /// An activated list row; `num` is its current index.
+        ListActivated = 31,
         /// A non-text key reached the FOCUSED node (docs/menus.md); `text` = the day key name
         /// (`"ArrowLeft"`, `"5"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
         /// [`crate::Event::Key`].
@@ -575,7 +577,7 @@ pub mod bridge {
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 31] = [
+        pub const ALL: [BridgeKind; 32] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -607,6 +609,7 @@ pub mod bridge {
             BridgeKind::UndoInvoked,
             BridgeKind::Key,
             BridgeKind::ToolbarChanged,
+            BridgeKind::ListActivated,
         ];
     }
 
@@ -667,6 +670,9 @@ pub enum Event {
     /// record (docs/coverage-matrix.md).
     ValueCommitted(f64),
     SelectionChanged(i64),
+    /// A list row was activated: desktop double-click/Enter, or a touch tap.
+    /// Separate from selection so keyboard browsing need not open or play the row.
+    ListActivated(usize),
     /// The platform's own undo affordance fired through a native front (⌘Z on the Edit menu,
     /// a three-finger swipe, shake-to-undo) — `redo` distinguishes the pair. Only backends
     /// with a native undo system emit it; everywhere else the app's own controls call the
@@ -4732,6 +4738,8 @@ pub mod props {
     /// row content on demand through the injected `ListSource` (see `Toolkit::attach_list`).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ListProps {
+        /// Whether the app handles row activation. Do not claim activation keys when false.
+        pub activatable: bool,
         pub row_height: RowHeight,
         /// Whether the native list reports row selection (`Event::SelectionChanged` with the row).
         pub selectable: bool,

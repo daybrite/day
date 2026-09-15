@@ -161,6 +161,7 @@ unsafe extern "C" {
         multi: c_int,
         reorderable: c_int,
         on_select: extern "C" fn(u64, *const c_int, c_int),
+        on_activate: extern "C" fn(u64, c_int),
         can: extern "C" fn(u64, c_int, c_int) -> c_int,
         mv: extern "C" fn(u64, c_int, c_int),
     ) -> *mut c_void;

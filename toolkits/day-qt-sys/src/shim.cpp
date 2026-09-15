@@ -2352,7 +2352,7 @@ protected:
 };
 
 void *day_qt_list_new(uint64_t node, int row_h, int selectable, int multi, int reorderable,
-                      DayListSelectionCb on_select, DayListCanMoveCb can, DayListMoveCb mv) {
+                      DayListSelectionCb on_select, void (*on_activate)(uint64_t, int), DayListCanMoveCb can, DayListMoveCb mv) {
     static bool watching = false;
     if (!watching) {
         watching = true;
@@ -2360,6 +2360,9 @@ void *day_qt_list_new(uint64_t node, int row_h, int selectable, int multi, int r
     }
     auto *l = new DayListWidget(node, row_h);
     l->onSelect = on_select;
+    QObject::connect(l, &QListWidget::itemActivated, l, [l, node, on_activate](QListWidgetItem *item) {
+        if (on_activate && item) on_activate(node, l->row(item));
+    });
     l->can = can;
     l->commit = mv;
     l->setSelectionMode(!selectable ? QAbstractItemView::NoSelection

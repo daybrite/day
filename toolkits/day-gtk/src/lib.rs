@@ -4032,6 +4032,10 @@ impl Toolkit for Gtk {
                 });
                 // No model until the first rebuild fills one from the injected source.
                 let listview = gtk4::ListView::new(None::<gtk4::SelectionModel>, Some(factory));
+                listview.set_single_click_activate(false);
+                listview.connect_activate(move |_, row| {
+                    ffi_guard::contain((), || emit(id, Event::ListActivated(row as usize)))
+                });
                 day_list_rows(&listview);
                 // Summon-time ROW context menus (docs/menus.md, docs/tree.md): right-click
                 // (and long-press) picks the row under the pointer and asks the tree's

@@ -5577,6 +5577,7 @@ mod imp {
                     unsafe { tv.deselectRowAtIndexPath_animated(index_path, true) };
                     if self.ivars().selectable.get() {
                         emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                        emit(self.ivars().node, Event::ListActivated(row as usize));
                     }
                 });
             }

@@ -405,3 +405,36 @@ their own separation turns the native line off rather than showing both).
 Rows drag within their own list only; nothing is draggable out of the app. `RowHeight::Automatic`
 lists compute the drop slot from a uniform-pitch approximation on GTK/Qt/XAML/ArkUI; prefer
 `Uniform` heights for reorderable lists there.
+
+## Selection and activation
+
+Selection identifies the row the user is browsing. Activation performs its main action,
+such as opening a document or playing a station. Use separate callbacks when selecting a
+row should update an inspector without starting that action:
+
+```rust,ignore
+list(stations, station_row)
+    .on_select(move |station| selected.set(Some(station)))
+    .on_activate(move |station| player.play(station));
+```
+
+Desktop lists activate on double-click or Enter; Qt follows the platform's activation
+preference. UIKit, Android, and ArkUI activate on a tap. The browser uses double-click or
+Enter for a mouse and a single tap for touch. Arrow-key
+selection and programmatic selection do not activate rows. `on_activate` receives the row's
+key or model reference from the current list snapshot, so reordering does not leave it pointing
+to an old index. An explicit button within a row can offer the same action separately.
+
+At the toolkit boundary, `Event::ListActivated(index)` carries the current zero-based row
+index. It is independent of `SelectionChanged` and `SelectionSet`; no selection change is
+required when the user activates an already selected row.
+
+Dayscript keeps the two operations separate:
+
+```yaml
+- select: { id: stations, index: 0 }
+- activate: { id: stations, index: 0 }
+```
+
+`activate` invokes the row without changing selection. An out-of-range index is ignored.
+Recordings preserve activation even when the row was already selected.
