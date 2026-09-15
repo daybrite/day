@@ -70,7 +70,7 @@ day-mock = { workspace = true }
 # widget factory ship with THIS crate. Material is already in the app template, but the piece
 # declares its own dependency so a standalone app that trims the template still builds.
 [package.metadata.day.android]
-java = ["platform/android/java"]
+java = ["src/DayDateTime.java"]
 # A theme overlay fixing MaterialTimePicker's dialog buttons under a non-AppCompat activity
 # (see platform/android/res/values/themes.xml) — the reference use of piece-shipped Android resources.
 res = ["platform/android/res"]

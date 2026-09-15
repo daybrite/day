@@ -234,7 +234,7 @@ relayout. Qt draws no double underline (it degrades to single). Monospace comes 
 `monospace` family from a char format; the label path hit the same limit.
 
 **mdc.** An `EditText` subclass over its live `Editable`, with the piece's own Java
-(`platform/android/java/…/DayTextEditor.java`) staged by `[package.metadata.day.android]`. Attributes are
+(`src/DayTextEditor.java`) staged by `[package.metadata.day.android]`. Attributes are
 applied to the buffer the user is typing in, removing only the span classes this file sets, so the
 IME's composing spans and the framework's selection spans survive (removing those cancels a
 half-typed Japanese or Korean word). Runs cross as flat parallel int arrays, the shape

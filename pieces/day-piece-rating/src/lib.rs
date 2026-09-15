@@ -5,7 +5,7 @@
 //!
 //! Everything here is built PURELY from Day's core primitives ([`row`], [`canvas`], the
 //! [`Decorate`] modifiers, [`with_environment`], …). There is **no** per-backend/native code and
-//! **no** cargo features: these widgets work on every backend for free — the flagship demonstration
+//! **no** cargo features: these widgets work on every backend — the flagship demonstration
 //! that native pieces are the exception, not the rule. Drop the crate in as a plain dependency and
 //! call [`rating`], [`badge`], or the [`Card`] modifier from `use day::prelude::*` code.
 

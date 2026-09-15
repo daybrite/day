@@ -102,7 +102,7 @@ frameworks = ["WebKit"]
 swift-packages = [ … ]
 
 [package.metadata.day.android]
-java = ["platform/android/java"]     # Java sources shipped in the crate
+java = ["src/DayLottie.java"]        # Java sources shipped in the crate: a dir, or one file
 gradle-dependencies = ["com.airbnb.android:lottie:6.4.0"]
 permissions = ["android.permission.INTERNET"]
 # also: res, gradle-repositories, proguard, manifest-components

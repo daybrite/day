@@ -9,7 +9,7 @@
 //!
 //! Android contract (`[package.metadata.day.android]`):
 //! ```toml
-//! java = ["platform/android/java"]                 # dirs (rel. to the crate) → Gradle java srcDirs
+//! java = ["platform/android/java"]                 # dirs or single files (rel. to the crate) → Gradle java srcDirs
 //! res = ["platform/android/res"]                   # dirs (rel. to the crate) → Gradle res srcDirs
 //! gradle-dependencies = ["g:a:v", …]      # → the app module's dependencies { }
 //! gradle-repositories = ["https://…", …]  # → extra Maven repos
@@ -17,6 +17,9 @@
 //! proguard = ["platform/android/proguard-rules.pro"]  # → R8 keep rules for classes native code reaches by name
 //! manifest-components = ["platform/android/components.xml"]  # → <receiver>/<service>/… merged into <application>
 //! ```
+//! A `java` entry naming one `.java` or `.kt` file (`src/DayFoo.java`, beside the crate's Rust) is
+//! linked into `build/day/android/piece-java/<package path>/`, a generated source root that joins
+//! the directories ([`link_java_files`]).
 //! The resolved contributions are written to `build/day/android/day-pieces.json`, which the app's
 //! `build.gradle.kts` reads generically (loops over the lists — no per-piece Gradle edits, ever).
 //! Permissions additionally go into a generated manifest overlay (`day-pieces-manifest.xml`) that the
@@ -80,6 +83,11 @@ pub struct AndroidPieces {
     /// Absolute Java/Kotlin source dirs to add as Gradle `java.srcDir`s.
     #[serde(rename = "javaSrcDirs")]
     pub java_src_dirs: Vec<String>,
+    /// Absolute single Java/Kotlin files named by a `java` entry. Gradle compiles source roots, so
+    /// `write_android_manifest` links these under one generated root ([`link_java_files`]) and adds
+    /// that root to `java_src_dirs`; the list itself never reaches Gradle.
+    #[serde(skip)]
+    pub java_files: Vec<std::path::PathBuf>,
     /// Absolute Android resource dirs to add as Gradle `res.srcDir`s — a piece can ship its own
     /// styles/drawables (e.g. a theme overlay its dialog needs) without touching the scaffold.
     #[serde(rename = "resSrcDirs")]
@@ -442,12 +450,21 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
             .parent()
             .unwrap_or(Path::new("."));
         for rel in &android.java.0 {
-            let dir = crate_dir.join(rel);
-            if !dir.is_dir() {
-                eprintln!("day: {} java dir {:?} not found — skipping", pkg.id, dir);
+            let path = crate_dir.join(rel);
+            if path.is_file() {
+                // One source file, kept beside the crate's Rust (`src/DayFoo.java`). Gradle
+                // compiles roots rather than files, so it is linked under a generated root when
+                // day-pieces.json is written.
+                if !pieces.java_files.contains(&path) {
+                    pieces.java_files.push(path);
+                }
                 continue;
             }
-            let abs = dir.to_string_lossy().into_owned();
+            if !path.is_dir() {
+                eprintln!("day: {} java path {:?} not found — skipping", pkg.id, path);
+                continue;
+            }
+            let abs = path.to_string_lossy().into_owned();
             if seen_java.insert(abs.clone()) {
                 pieces.java_src_dirs.push(abs);
             }
@@ -601,6 +618,12 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
         Ok(Some(dir)) => pieces.java_src_dirs.push(dir.display().to_string()),
         Ok(None) => {}
         Err(e) => eprintln!("day: bridge staging failed ({e}); building without bridged Kotlin"),
+    }
+    // Single-file `java` entries become one generated source root. Unlike the bridge above, a
+    // failure here stops the build: a piece's Rust arm reaches its Java class by name, so an APK
+    // built without the class installs and then crashes on first use.
+    if let Some(dir) = link_java_files(&project.root, &pieces.java_files)? {
+        pieces.java_src_dirs.push(dir.display().to_string());
     }
 
     // day-pieces.json is written AFTER the merge so Gradle sees the full list.
@@ -1668,6 +1691,126 @@ pub(crate) fn prune_except(root: &Path, expected: &HashSet<std::path::PathBuf>) 
     }
 }
 
+/// Link each single-file `java` contribution under `build/day/android/piece-java`, in the directory
+/// its `package` line names, and return that root for Gradle's `java.srcDirs` (`None`, with the
+/// root removed, when there are none). Gradle compiles source roots and javac places a class by
+/// its package, so a file kept beside a crate's Rust sources needs a root of its own. A link keeps
+/// the crate's file the one that is edited and compiled. Links no longer contributed are pruned.
+/// The link keeps the file's name, so a `.java` file must be named after its public class, as
+/// javac requires.
+pub(crate) fn link_java_files(
+    project_root: &Path,
+    files: &[std::path::PathBuf],
+) -> Result<Option<std::path::PathBuf>, String> {
+    let root = project_root.join("build/day/android/piece-java");
+    if files.is_empty() {
+        let _ = std::fs::remove_dir_all(&root);
+        return Ok(None);
+    }
+    let mut staged: std::collections::HashMap<std::path::PathBuf, &Path> =
+        std::collections::HashMap::new();
+    for file in files {
+        let source = std::fs::read_to_string(file)
+            .map_err(|e| format!("java file {}: {e}", file.display()))?;
+        let name = file
+            .file_name()
+            .ok_or_else(|| format!("java file {} has no file name", file.display()))?;
+        let mut link = root.clone();
+        for segment in jvm_package(&source).split('.').filter(|s| !s.is_empty()) {
+            link.push(segment);
+        }
+        link.push(name);
+        if let Some(other) = staged.get(&link) {
+            return Err(format!(
+                "java files {} and {} both belong at {}; rename one or move it to another package",
+                other.display(),
+                file.display(),
+                link.strip_prefix(&root).unwrap_or(&link).display()
+            ));
+        }
+        if let Some(dir) = link.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        link_file(file, &link)?;
+        staged.insert(link, file);
+    }
+    prune_except(&root, &staged.into_keys().collect());
+    Ok(Some(root))
+}
+
+/// Make `link` a symlink to `target`. The target is absolute: it sits in the crate, wherever cargo
+/// keeps it, and `build/` is never moved with a checkout. A link already pointing at `target` is
+/// left alone. Where no symlink can be made (Windows without the privilege) the file is copied,
+/// and the copy is rewritten only when the source changes, so Gradle does not recompile it.
+fn link_file(target: &Path, link: &Path) -> Result<(), String> {
+    match std::fs::symlink_metadata(link) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            if std::fs::read_link(link).is_ok_and(|to| to == target) {
+                return Ok(());
+            }
+            std::fs::remove_file(link).map_err(|e| format!("{}: {e}", link.display()))?;
+        }
+        // A copy made earlier on a host without symlinks.
+        Ok(meta) if meta.is_file() => return copy_if_changed(target, link),
+        Ok(_) => {
+            std::fs::remove_dir_all(link).map_err(|e| format!("{}: {e}", link.display()))?;
+        }
+        Err(_) => {}
+    }
+    #[cfg(unix)]
+    let linked = std::os::unix::fs::symlink(target, link).is_ok();
+    #[cfg(windows)]
+    let linked = std::os::windows::fs::symlink_file(target, link).is_ok();
+    #[cfg(not(any(unix, windows)))]
+    let linked = false;
+    if linked {
+        Ok(())
+    } else {
+        copy_if_changed(target, link)
+    }
+}
+
+/// The package a Java or Kotlin source declares, or `""` for the default package. Reads past blank
+/// lines, `//` and `/* */` comments, and Kotlin `@file:` annotations to the first declaration, so
+/// `package a.b;` and Kotlin's `package a.b` both count.
+fn jvm_package(source: &str) -> String {
+    let mut in_comment = false;
+    for line in source.lines() {
+        let mut rest = line.trim();
+        if in_comment {
+            match rest.find("*/") {
+                Some(end) => {
+                    in_comment = false;
+                    rest = rest[end + 2..].trim_start();
+                }
+                None => continue,
+            }
+        }
+        while let Some(body) = rest.strip_prefix("/*") {
+            match body.find("*/") {
+                Some(end) => rest = body[end + 2..].trim_start(),
+                None => {
+                    in_comment = true;
+                    rest = "";
+                }
+            }
+        }
+        if rest.is_empty() || rest.starts_with("//") || rest.starts_with("@file:") {
+            continue;
+        }
+        return match rest.strip_prefix("package") {
+            Some(decl) if decl.starts_with(char::is_whitespace) => decl
+                .trim_start()
+                .split([';', ' ', '\t'])
+                .next()
+                .unwrap_or("")
+                .to_string(),
+            _ => String::new(),
+        };
+    }
+    String::new()
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -1928,5 +2071,91 @@ mod tests {
         assert!(text.contains(".product(name: \"Lottie\", package: \"lottie-ios\"),"));
         assert!(text.contains(".process(\"Media.xcassets\")"));
         assert!(text.contains("[package.metadata.day.ios]"));
+    }
+
+    #[test]
+    fn jvm_package_reads_past_headers_to_the_declaration() {
+        use super::jvm_package;
+        assert_eq!(
+            jvm_package("// Copyright\n// SPDX\n\npackage dev.example.foo;\n\nimport x;\n"),
+            "dev.example.foo"
+        );
+        assert_eq!(
+            jvm_package("/*\n * License\n */\npackage a.b.c; // trailing\n"),
+            "a.b.c"
+        );
+        assert_eq!(jvm_package("/* one */ package a.b;\n"), "a.b");
+        // Kotlin: no semicolon, and file annotations may come first.
+        assert_eq!(
+            jvm_package("@file:JvmName(\"Foo\")\npackage dev.example.kt\n\nobject Foo\n"),
+            "dev.example.kt"
+        );
+        // The default package: the first declaration is not a package.
+        assert_eq!(jvm_package("public final class Foo {}\n"), "");
+        assert_eq!(jvm_package("packages x;\n"), "");
+    }
+
+    #[test]
+    fn single_java_files_link_under_their_package_and_prune() {
+        use super::link_java_files;
+        let base =
+            std::env::temp_dir().join(format!("day-pieces-java-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let project = base.join("app");
+        let crate_src = base.join("piece/src");
+        std::fs::create_dir_all(&crate_src).expect("mkdir");
+        let foo = crate_src.join("DayFoo.java");
+        std::fs::write(
+            &foo,
+            "package dev.example.foo;\npublic final class DayFoo {}\n",
+        )
+        .expect("write foo");
+        let bar = crate_src.join("DayBar.java");
+        std::fs::write(
+            &bar,
+            "package dev.example.bar;\npublic final class DayBar {}\n",
+        )
+        .expect("write bar");
+
+        let root = link_java_files(&project, &[foo.clone(), bar.clone()])
+            .expect("links")
+            .expect("a root");
+        assert_eq!(root, project.join("build/day/android/piece-java"));
+        let foo_link = root.join("dev/example/foo/DayFoo.java");
+        let bar_link = root.join("dev/example/bar/DayBar.java");
+        assert_eq!(
+            std::fs::read_to_string(&foo_link).expect("read the link"),
+            std::fs::read_to_string(&foo).expect("read the source")
+        );
+        #[cfg(unix)]
+        assert!(
+            std::fs::symlink_metadata(&foo_link)
+                .expect("link metadata")
+                .file_type()
+                .is_symlink()
+        );
+        assert!(bar_link.is_file());
+
+        // Running again changes nothing, and a file no longer contributed loses its link.
+        link_java_files(&project, &[foo.clone(), bar.clone()]).expect("relink");
+        link_java_files(&project, std::slice::from_ref(&foo)).expect("prune");
+        assert!(foo_link.is_file());
+        assert!(
+            std::fs::symlink_metadata(&bar_link).is_err(),
+            "the stale link survived"
+        );
+
+        // Two files that belong at the same path are refused rather than one silently winning.
+        let other = base.join("other/src");
+        std::fs::create_dir_all(&other).expect("mkdir");
+        let clash = other.join("DayFoo.java");
+        std::fs::write(&clash, "package dev.example.foo;\n").expect("write clash");
+        let err = link_java_files(&project, &[foo.clone(), clash]).expect_err("a clash");
+        assert!(err.contains("DayFoo.java"), "{err}");
+
+        // No files: no root.
+        assert!(link_java_files(&project, &[]).expect("empty").is_none());
+        assert!(!root.exists());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

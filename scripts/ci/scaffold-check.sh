@@ -164,7 +164,8 @@ if [ -n "$COMBO" ]; then
     # what puts its metadata in front of the aggregator.
     if [ "$COMBO" = ios-uikit ]; then
         mkdir -p pieces
-        ( cd pieces && "$DAY" new piece ci-swiftpm --toolkits uikit --local "$ROOT" --no-input )
+        # --no-demo: the fixture only has to sit in the app's dependency closure; nothing runs it.
+        ( cd pieces && "$DAY" new piece ci-swiftpm --toolkits uikit --local "$ROOT" --no-input --no-demo )
         cat >> pieces/ci-swiftpm/Cargo.toml <<'TOML'
 
 # The scaffold-check fixture: one real SwiftPM package, resolved and linked by `day pack`.

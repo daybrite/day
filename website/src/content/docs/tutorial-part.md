@@ -42,7 +42,7 @@ that fold native assets into the app build) but registers nothing into any `REND
 Start with the scaffolder. `day new part` generates almost all of the layout below: `Cargo.toml`, a
 `src/lib.rs` with the `#[cfg]`/`#[path]` dispatch already wired (including the mandatory
 `None`-returning fallback), a stub `src/<os>.rs` per platform, an `examples/` runner, and, when you
-target Android, the `platform/android/java/.../Day<Name>.java` shim plus the `[package.metadata.day.android]`
+target Android, the `src/Day<Name>.java` shim plus the `[package.metadata.day.android]`
 block:
 
 ```bash
@@ -61,13 +61,13 @@ A part is an ordinary library crate with this layout:
 ```
 parts/day-part-battery/
 ├── Cargo.toml
-├── platform/android/java/dev/daybrite/day/battery/DayBattery.java   # Android backend (Java)
 ├── examples/battery.rs                                     # a plain `main`, no Day at all
 └── src/
     ├── lib.rs        # the flat API + a #[cfg]/#[path] index of per-OS impls
     ├── macos.rs      # IOKit (Rust → C FFI)
     ├── ios.rs        # UIDevice (Rust → objc2)
     ├── android.rs    # calls the Java shim via JNI
+    ├── DayBattery.java   # the Java shim, linked into the app's Gradle build
     ├── linux.rs      # /sys/class/power_supply (pure std)
     ├── windows.rs    # GetSystemPowerStatus (Rust → C FFI)
     └── ohos.rs       # libohbattery_info.so (Rust → C FFI) — added by hand, not scaffolded
@@ -446,13 +446,13 @@ merges it into the app from that file alone.
 
 ```toml
 [package.metadata.day.android]
-java = ["platform/android/java"]                                   # → Gradle java srcDirs
+java = ["src/DayBattery.java"]                                      # → linked into Gradle java srcDirs
 permissions = ["android.permission.ACCESS_NETWORK_STATE"] # → <uses-permission> overlay (if needed)
 manifest-components = ["platform/android/components.xml"]          # → <receiver>/<service> overlay (if needed)
 ```
 
 `day-part-battery` needs no permission (the sticky battery broadcast is unrestricted), so it declares
-only `java = ["platform/android/java"]`. `day-part-network`, whose `ConnectivityManager` call *does* require
+only `java = ["src/DayBattery.java"]`. `day-part-network`, whose `ConnectivityManager` call *does* require
 `ACCESS_NETWORK_STATE`, adds the `permissions` line above.
 
 `manifest-components` is required when a part's Java half is a `BroadcastReceiver` or a `Service`:

@@ -2762,7 +2762,7 @@ The shipped layout — everything rides `Cargo.toml`, no side manifest:
 day-piece-lottie/
   Cargo.toml            # the Rust API crate (one feature per toolkit) + [package.metadata.day.*]
   src/lib.rs            # pub fn lottie(source) -> impl Piece  + per-backend renderer! modules
-  platform/android/java/…    # Java shim sources, staged into the app's Gradle build
+  src/DayLottie.java    # Java shim, linked into the app's Gradle build
   platform/ios/swift/…       # Swift shim sources, compiled into the generated DayPieces package
   platform/harmony/ets/…     # ArkTS sources, staged into the hvigor project (when the piece has an arm)
 ```
@@ -2773,7 +2773,7 @@ reads the paths from the metadata below and folds them into the app's host proje
 
 ```toml
 [package.metadata.day.android]
-java = ["platform/android/java"]           # dirs → Gradle java srcDirs
+java = ["src/DayLottie.java"]              # dirs → Gradle java srcDirs; a single .java/.kt file is linked under build/day/android/piece-java by its package
 res = []                                   # dirs → Gradle res srcDirs (piece-shipped styles/drawables)
 gradle-dependencies = ["com.airbnb.android:lottie:6.x"]
 gradle-repositories = []                   # extra Maven repos if needed
@@ -3172,7 +3172,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | command | what it does |
 |---|---|
 | `day version` | version, build profile, git ref — the tag or branch when there is one, and **always the commit** (`0.3.0 (release, branch main, bd026ff7)`), so a build can be told from another build of the same branch. Omitted entirely off a git checkout, which is what a crates.io build looks like |
-| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
+| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; a piece scaffold includes `demo/`, the app template rendered by the same code as `day new app` and cut to one page that shows the piece, on the targets its toolkits draw on (every target for a composite piece); `--no-demo` omits it; a piece's or part's Android Java goes to `src/Day<Name>.java`, declared as a single-file `java` entry (`--java-in-src=false` keeps a `platform/android/java/` tree); `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -p <target>… [--day-src <path\|url[@ref]>]` | build for one or more targets, in parallel; `--day-src` builds against a different `day` — a checkout, or a branch of the framework — for THAT build only ([`day launch`](#day-launch)) |
 | `day launch -p <target>… [--git <url>[@<ref>]] [--dir <d>] [--day-src <path\|url[@ref]>] [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own; `--day-src` swaps the FRAMEWORK for that one run — a checkout or a branch of `day`, patched in without writing anything to the project ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
@@ -3208,7 +3208,10 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 Interactive when run bare (`inquire` prompts: name, id, targets, locales); non-interactive with
 flags + `--no-input` for CI/agents. Templates are embedded in the CLI binary; `app`, `piece`,
 and `part` scaffolds exist — the latter two produce the [§15](#15-extensibility-pieces-parts-and-tweaks) package shapes with per-toolkit
-feature wiring. An app scaffold gets a unique generated icon ([docs/icons.md#generate](docs/icons.md#generate)), seeded
+feature wiring. A piece scaffold also carries `demo/`: `write_app` in `new.rs`, the function behind
+`day new app`, renders the app template for the targets the piece's toolkits draw on (all of them
+for a composite piece) and cuts it to one page that shows the piece, with `dayscript/demo.yaml` as
+the piece's on-device test; `--no-demo` omits it. An app scaffold gets a unique generated icon ([docs/icons.md#generate](docs/icons.md#generate)), seeded
 by the app id so the same id always scaffolds the same icon; `--icon-seed` overrides.
 
 Which `day` a scaffold depends on is `--day-version` (2026-08): a release pins the matching

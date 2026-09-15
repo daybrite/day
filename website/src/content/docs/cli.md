@@ -84,6 +84,12 @@ day new app my-app --template ./my-template          # a local directory
 day new app my-app --template https://github.com/you/tpl#v1   # a git repo (optional #ref)
 ```
 
+`day new piece` also writes `demo/` beside the crate: the same app template, cut to one page that
+shows the piece, with a `dayscript/demo.yaml` walkthrough. A native piece's demo targets the
+platforms its toolkits draw on, and a composite piece's demo targets all of them. The demo depends
+on the piece by path, so `day launch -p <target> --script dayscript/demo.yaml`, run from `demo/`,
+builds the code you are editing. `--no-demo` leaves it out.
+
 `day new --describe` prints the questions themselves (every kind's fields, their options, and the
 flag each one fills) as a versioned JSON document. It takes no project, so an editor can read it
 to build its own New Project dialog without copying the target list into a second place. The VS

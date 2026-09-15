@@ -102,7 +102,7 @@ libc = "0.2"
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
-java = ["platform/android/java"]
+java = ["src/DayHttp.java"]
 # Normal install-time permission; no runtime prompt.
 permissions = ["android.permission.INTERNET"]
 # The HTTP engine (docs/http.md): OkHttp on the platform trust/proxy/policy rails. Resolved

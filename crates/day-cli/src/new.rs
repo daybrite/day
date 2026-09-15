@@ -3,7 +3,7 @@
 
 //! `day new` — scaffold Day extension crates and apps (DESIGN.md §8/§15). Three shapes:
 //!
-//! * `day new piece <name>` — a COMPOSITE piece (pure composition, every backend for free, no
+//! * `day new piece <name>` — a COMPOSITE piece (pure composition, every backend without any
 //!   per-backend code).
 //! * `day new piece <name> --toolkits <csv>` — a NATIVE piece (a distinct native control per toolkit,
 //!   registered link-time with `renderer!`).
@@ -11,6 +11,8 @@
 //!   UI, dispatched by `#[cfg(target_os)]`).
 //!
 //! Every scaffold is its OWN cargo workspace, carries a README + .gitignore, and BUILDS out of the box.
+//! A piece also gets `demo/`: the app template, written by the same code as `day new app` and cut to
+//! one page that shows the piece (`--no-demo` skips it).
 //!
 //! Dependencies default to the **`day` git remote**, because the framework crates are not published to
 //! crates.io yet; `--registry` writes **versioned crates.io** deps pinned to this CLI's own version
@@ -438,12 +440,12 @@ pub fn describe() -> serde_json::Value {
                             {
                                 "value": "composite",
                                 "label": "Composite",
-                                "detail": "Pure composition; every backend for free, no per-backend code",
+                                "detail": "Composite piece without any native per-toolkit implementation code",
                             },
                             {
                                 "value": "native",
                                 "label": "Native",
-                                "detail": "A distinct native control, one implementation per toolkit",
+                                "detail": "A native control with separate per-toolkit implementations",
                             },
                         ],
                     },
@@ -528,8 +530,11 @@ pub fn interactive() -> Result<(), CliError> {
             &[],   // extra locales are the flag's job too — the scaffold's own default is en
             None,  // icon seed defaults to the app id (docs/icons.md#generate)
         ),
-        1 => part(None, None, None, None, false, false, None, false),
-        _ => piece(None, None, false, None, None, false, false, None, false),
+        // Interactive scaffolds keep a piece's demo and the Java in src/; opting out is the flags' job.
+        1 => part(None, None, None, None, false, false, None, false, None),
+        _ => piece(
+            None, None, false, None, None, false, false, None, false, false, None,
+        ),
     }
 }
 
@@ -740,6 +745,9 @@ fn resolve_deps(
 }
 
 /// Scaffold a piece. No `--toolkits` (and not interactively chosen native) ⇒ a COMPOSITE piece.
+/// Unless `no_demo`, `demo/` beside the crate is a one-page app that shows it ([`PieceDemo`]).
+/// A native piece's Android Java goes to `src/Day<Name>.java` unless `java_in_src` is
+/// `Some(false)`, which keeps a `platform/android/java/` tree.
 #[allow(clippy::too_many_arguments)] // one arg per `day new piece` flag, resolved in order
 pub fn piece(
     name: Option<&str>,
@@ -751,6 +759,8 @@ pub fn piece(
     registry: bool,
     day_version: Option<&str>,
     no_input: bool,
+    no_demo: bool,
+    java_in_src: Option<bool>,
 ) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
     let name = kebab_name(&resolve_name(&p, name)?);
@@ -770,7 +780,7 @@ pub fn piece(
         let native = p.choose(
             "What kind of piece?",
             &[
-                "Composite — pure composition; every backend for free, no per-backend code".into(),
+                "Composite — pure composition; every toolkit with no per-backend code".into(),
                 "Native — a distinct native control, one implementation per toolkit".into(),
             ],
             0,
@@ -795,6 +805,15 @@ pub fn piece(
         Vec::new()
     };
 
+    // Only the Android backend has Java to place. Naming the flag without `mdc` is a mistake; the
+    // default simply has nothing to move.
+    if java_in_src == Some(true) && !toolkits.iter().any(|t| t == "mdc") {
+        return Err(CliError::usage(
+            "--java-in-src places a native piece's Android Java; add mdc to --toolkits.",
+        ));
+    }
+    let java_in_src = java_in_src.unwrap_or(true);
+
     let rid = resolve_id(
         &p,
         "Reverse-DNS id (also the piece KIND)",
@@ -803,17 +822,47 @@ pub fn piece(
     );
     let repl = Repl::new(&name, Some(rid.as_str()));
 
-    let (files, next) = if toolkits.is_empty() {
+    let (mut files, next) = if toolkits.is_empty() {
         (composite_piece_files(&repl, &deps), COMPOSITE_NEXT)
     } else {
-        (native_piece_files(&repl, &deps, &toolkits), NATIVE_NEXT)
+        (
+            native_piece_files(&repl, &deps, &toolkits, java_in_src),
+            NATIVE_NEXT,
+        )
     };
+    let mut next = repl.expand(next);
+    if !no_demo {
+        for (path, text) in files.iter_mut() {
+            if path == "README.md" {
+                text.push_str(&repl.expand(DEMO_SECTION));
+            }
+        }
+    }
     write_all(&dir, &files, &name)?;
-    eprintln!("{}", repl.expand(next));
+    if !no_demo {
+        let demo = PieceDemo {
+            piece: &repl,
+            toolkits: &toolkits,
+        };
+        let app = demo.app(&deps);
+        write_app(
+            &dir.join("demo"),
+            &format!("{name}/demo"),
+            &app,
+            Some(&demo),
+        )?;
+        next.push_str(&format!(
+            "    # the demo app:  cd demo && day launch -p {} --script dayscript/demo.yaml\n",
+            targets::suggested(&app.targets)
+        ));
+    }
+    eprintln!("{next}");
     Ok(())
 }
 
 /// Scaffold a headless part. No `--platforms` (and not interactively chosen) ⇒ all platforms.
+/// Its Android Java goes to `src/Day<Name>.java` unless `java_in_src` is `Some(false)`, which
+/// keeps a `platform/android/java/` tree.
 #[allow(clippy::too_many_arguments)] // one arg per `day new part` flag, resolved in order
 pub fn part(
     name: Option<&str>,
@@ -824,6 +873,7 @@ pub fn part(
     registry: bool,
     day_version: Option<&str>,
     no_input: bool,
+    java_in_src: Option<bool>,
 ) -> Result<(), CliError> {
     let p = Prompt::new(no_input);
     let name = kebab_name(&resolve_name(&p, name)?);
@@ -847,6 +897,14 @@ pub fn part(
         PLATFORMS.iter().map(|s| s.to_string()).collect()
     };
 
+    // Only the Android platform has Java to place. Naming the flag without it is a mistake; the
+    // default simply has nothing to move.
+    if java_in_src == Some(true) && !platforms.iter().any(|pl| pl == "android") {
+        return Err(CliError::usage(
+            "--java-in-src places a part's Android Java; add android to --platforms.",
+        ));
+    }
+
     let rid = resolve_id(
         &p,
         "Reverse-DNS id (also the Java package)",
@@ -854,7 +912,7 @@ pub fn part(
         &default_id(&name),
     );
     let repl = Repl::new(&name, Some(rid.as_str()));
-    let files = part_files(&repl, &deps, &platforms);
+    let files = part_files(&repl, &deps, &platforms, java_in_src.unwrap_or(true));
     write_all(&dir, &files, &name)?;
     eprintln!("{}", repl.expand(PART_NEXT));
     Ok(())
@@ -994,28 +1052,58 @@ pub fn app(
 
     let mut repl = Repl::new(&name, Some(rid.as_str()));
     repl.repo = repo.clone();
-    let ctx = template_context(&repl, title, &deps, &targets);
     // Computed here rather than taken from the template context: this is advice for the person
     // standing at THIS terminal, and nothing rendered into the project may depend on the host.
     let run_target = targets::suggested(&targets).to_string();
+    let spec = AppSpec {
+        repl,
+        title,
+        deps: &deps,
+        targets,
+        template,
+        no_website,
+        locales: wanted_locales,
+        icon_seed,
+    };
+    write_app(&dir, &name, &spec, None)?;
+    // The suggested target is what THIS machine can run, not the first one declared — see
+    // `targets::suggested`. `day doctor` stays unscoped: the app declares several targets and a
+    // first run is the moment to learn which of them this machine is missing tools for.
+    eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {run_target}\n");
+    Ok(())
+}
 
-    let files = load_template(template).map_err(CliError::failure)?;
-    // Only the host projects the chosen targets need — `day app add-toolkit` materializes the
-    // rest from the same template later.
-    let mut files = crate::template::filter_for_targets(files, &targets);
-    // website/ ships by default: two small files that make the shared CI workflow build and
-    // deploy a project site (daysite). Opting out is one flag, and adding it back later is
-    // copying those two files — nothing else references them.
-    if no_website {
-        files.retain(|f| !f.path.starts_with("website/"));
-    }
-    let rendered = crate::template::render(&files, &ctx).map_err(CliError::failure)?;
-    write_all_bytes(&dir, &rendered, &name)?;
+/// An app with every question answered: what [`write_app`] scaffolds.
+struct AppSpec<'a> {
+    repl: Repl,
+    title: String,
+    deps: &'a Deps,
+    targets: Vec<String>,
+    /// The `--template` source; `None` is the embedded app template.
+    template: Option<&'a str>,
+    no_website: bool,
+    /// Locales beyond the template's own `en`.
+    locales: Vec<String>,
+    icon_seed: Option<&'a str>,
+}
+
+/// Everything `day new app` does once its questions are answered: render the template, write it
+/// into `dir`, add the extra locales, and generate the icon. `day new piece` writes its `demo/`
+/// through here too, so a demo gets the same host projects, manifest, and icon an app does.
+/// `label` names the directory in the status line.
+fn write_app(
+    dir: &Path,
+    label: &str,
+    app: &AppSpec<'_>,
+    demo: Option<&PieceDemo<'_>>,
+) -> Result<(), CliError> {
+    let rendered = render_app(app, demo).map_err(CliError::failure)?;
+    write_all_bytes(dir, &rendered, label)?;
     // The scaffold itself ships `en`; each further locale is exactly a `day localize add` on
     // the fresh project, so the flag and the command can never disagree about what adding a
     // locale means (fluent copies, store copies, knownRegions, site.toml — localize.rs).
-    for tag in wanted_locales.iter().filter(|t| t.as_str() != "en") {
-        let lines = crate::localize::add(&dir, tag)
+    for tag in app.locales.iter().filter(|t| t.as_str() != "en") {
+        let lines = crate::localize::add(dir, tag)
             .map_err(|e| CliError::failure(format!("--locales {tag}: {e}")))?;
         for l in &lines {
             ops::status("Localize", l);
@@ -1026,11 +1114,11 @@ pub fn app(
     // template's placeholder master is replaced, then every platform output is rendered from
     // it. Best-effort: a fresh scaffold without its icon set regenerated is still a valid
     // project (`day icon` finishes the job), so failures warn rather than abort.
-    let seed = match icon_seed {
+    let seed = match app.icon_seed {
         Some(spec) => crate::icon::resolve_seed(Some(spec)),
-        None => day_vector::icongen::seed_from_str(&rid),
+        None => day_vector::icongen::seed_from_str(&app.repl.id),
     };
-    match crate::meta::find_project(Some(&dir)) {
+    match crate::meta::find_project(Some(dir)) {
         Ok(project) => match crate::icon::generate_master(&project, seed, true) {
             Ok(master) => {
                 ops::status("Icon", &format!("generated (seed {seed})"));
@@ -1061,11 +1149,177 @@ pub fn app(
         },
         Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon --generate`")),
     }
-    // The suggested target is what THIS machine can run, not the first one declared — see
-    // `targets::suggested`. `day doctor` stays unscoped: the app declares several targets and a
-    // first run is the moment to learn which of them this machine is missing tools for.
-    eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {run_target}\n");
     Ok(())
+}
+
+/// The files [`write_app`] writes, rendered and not yet on disk.
+fn render_app(
+    app: &AppSpec<'_>,
+    demo: Option<&PieceDemo<'_>>,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    let mut ctx = template_context(&app.repl, app.title.clone(), app.deps, &app.targets);
+    if let Some(demo) = demo {
+        demo.adjust_context(&mut ctx, app.deps);
+    }
+    let files = load_template(app.template)?;
+    // Only the host projects the chosen targets need — `day app add-toolkit` materializes the
+    // rest from the same template later.
+    let mut files = crate::template::filter_for_targets(files, &app.targets);
+    // website/ ships by default: two small files that make the shared CI workflow build and
+    // deploy a project site (daysite). Opting out is one flag, and adding it back later is
+    // copying those two files — nothing else references them.
+    if app.no_website {
+        files.retain(|f| !f.path.starts_with("website/"));
+    }
+    let rendered = crate::template::render(&files, &ctx)?;
+    Ok(match demo {
+        Some(demo) => demo.cut(rendered, app),
+        None => rendered,
+    })
+}
+
+/// A piece's `demo/`: the app template, rendered by [`render_app`] like any app and then cut to
+/// one page that shows the piece. Its manifests and host projects are what `day new app` writes
+/// for the same targets.
+struct PieceDemo<'a> {
+    piece: &'a Repl,
+    /// A native piece's toolkits; empty for a composite piece.
+    toolkits: &'a [String],
+}
+
+impl PieceDemo<'_> {
+    /// The demo as an app: `<piece>-demo`, id `<piece id>.demo`, on the targets the piece draws on.
+    fn app<'d>(&self, deps: &'d Deps) -> AppSpec<'d> {
+        let name = format!("{}-demo", self.piece.crate_name);
+        let id = format!("{}.demo", self.piece.id);
+        AppSpec {
+            repl: Repl::new(&name, Some(&id)),
+            title: format!("{} Demo", default_title(&self.piece.crate_name)),
+            deps,
+            targets: demo_targets(self.toolkits),
+            template: None,
+            no_website: true,
+            locales: Vec::new(),
+            icon_seed: None,
+        }
+    }
+
+    /// Depend on the piece in place of the starter's own crates.
+    fn adjust_context(
+        &self,
+        ctx: &mut std::collections::BTreeMap<&'static str, String>,
+        deps: &Deps,
+    ) {
+        // The starter's editor binds through `model`, and one page has no editor.
+        ctx.insert("day_dep", deps.dep("day", ""));
+        // The piece by path, in place of the four the starter uses, so the demo always builds the
+        // code beside it.
+        ctx.insert(
+            "day_piece_deps",
+            format!("{} = {{ path = \"..\" }}", self.piece.crate_name),
+        );
+    }
+
+    /// Keep what the template rendered for the manifests and host projects ([`DEMO_KEEPS`]), and
+    /// replace the starter's pages, strings, walkthroughs, and README with the demo's own.
+    fn cut(&self, rendered: Vec<(String, Vec<u8>)>, app: &AppSpec<'_>) -> Vec<(String, Vec<u8>)> {
+        let mut files: Vec<(String, Vec<u8>)> = rendered
+            .into_iter()
+            .filter(|(path, _)| {
+                DEMO_KEEPS.iter().any(|keep| {
+                    path.as_str() == *keep || (keep.ends_with('/') && path.starts_with(*keep))
+                })
+            })
+            .map(|(path, bytes)| {
+                let bytes = match path.as_str() {
+                    "Cargo.toml" => demo_cargo_toml(&bytes),
+                    ".gitignore" => demo_gitignore(&bytes),
+                    _ => bytes,
+                };
+                (path, bytes)
+            })
+            .collect();
+        let native = !self.toolkits.is_empty();
+        let pick = |native_tpl: &'static str, composite_tpl: &'static str| {
+            if native { native_tpl } else { composite_tpl }
+        };
+        let first_target = app.targets.first().map_or("macos-appkit", String::as_str);
+        for (path, tpl) in [
+            ("README.md", DEMO_README),
+            ("src/lib.rs", pick(DEMO_NATIVE_LIB, DEMO_COMPOSITE_LIB)),
+            (
+                "resource/locales/en/app.ftl",
+                pick(DEMO_NATIVE_STRINGS, DEMO_COMPOSITE_STRINGS),
+            ),
+            (
+                "dayscript/demo.yaml",
+                pick(DEMO_NATIVE_SCRIPT, DEMO_COMPOSITE_SCRIPT),
+            ),
+        ] {
+            let text = self
+                .piece
+                .expand(tpl)
+                .replace("__TITLE__", &app.title)
+                .replace("__FIRST_TARGET__", first_target);
+            files.push((path.to_string(), text.into_bytes()));
+        }
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        files
+    }
+}
+
+/// What a piece's demo keeps from the rendered app template: the manifests, the build script, the
+/// desktop entry point, the icon master, and every host project. A trailing `/` keeps a directory.
+const DEMO_KEEPS: &[&str] = &[
+    "Cargo.toml",
+    "Day.toml",
+    "build.rs",
+    ".gitignore",
+    "src/main.rs",
+    "resource/icons/",
+    "platform/",
+];
+
+/// Every target a native piece's toolkits draw on; every target for a composite piece, which
+/// renders wherever Day does.
+fn demo_targets(toolkits: &[String]) -> Vec<String> {
+    targets::TARGETS
+        .iter()
+        .filter(|t| toolkits.is_empty() || toolkits.iter().any(|tk| tk == t.toolkit))
+        .map(|t| t.name.to_string())
+        .collect()
+}
+
+/// The app template's Cargo.toml without the serde dependencies the starter's item list persists
+/// through (src/model.rs); a one-page demo has no item list.
+fn demo_cargo_toml(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut out = String::with_capacity(text.len());
+    for line in text
+        .lines()
+        .filter(|l| !l.starts_with("serde") && !l.contains("src/model.rs"))
+    {
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.into_bytes()
+}
+
+/// The app template's .gitignore, with its advice to commit Cargo.lock replaced by an entry that
+/// ignores it: the demo builds the piece beside it, and the piece commits no lock.
+fn demo_gitignore(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let lock = "# Cargo.lock too: the demo builds the piece beside it, which commits no lock.\nCargo.lock\n";
+    let out = match text.find("# NOT Cargo.lock") {
+        Some(start) => {
+            let end = text[start..]
+                .find("\n\n")
+                .map_or(text.len(), |i| start + i + 1);
+            format!("{}{lock}{}", &text[..start], &text[end..])
+        }
+        None => format!("{text}\n{lock}"),
+    };
+    out.into_bytes()
 }
 
 /// The template context (docs/cli.md): every {{placeholder}} a template may use — built ONCE
@@ -1364,7 +1618,7 @@ version = "0.1.0"
 edition = "2024"
 
 # A COMPOSITE Day piece: a reusable widget built PURELY from Day's core primitives — no native /
-# per-backend code and NO cargo features, so it works on every backend for free. Depend on it with a
+# per-backend code and no cargo features, so it works on every toolkit. Depend on it with a
 # plain `{{ workspace = true }}` (or git) line and call the builder from `use day::prelude::*` code.
 
 [dependencies]
@@ -1392,8 +1646,26 @@ edition = "2024"
 // NATIVE piece — a distinct native control per toolkit, two-way bound to a Signal<String>.
 // ---------------------------------------------------------------------------
 
-fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String, String)> {
+fn native_piece_files(
+    r: &Repl,
+    deps: &Deps,
+    toolkits: &[String],
+    java_in_src: bool,
+) -> Vec<(String, String)> {
     let has = |t: &str| toolkits.iter().any(|x| x == t);
+    // Where the Android factory lives: a source tree under platform/, or one file beside the Rust
+    // arms (`--java-in-src`), which `day build` links into the Gradle build by its package. The
+    // first is the `java` entry the metadata declares, the second the file written.
+    let (java_entry, java_file) = if java_in_src {
+        // javac requires a public class to live in a file of the same name.
+        let file = format!("src/Day{}.java", r.pascal);
+        (file.clone(), file)
+    } else {
+        (
+            "platform/android/java".to_string(),
+            format!("platform/android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
+        )
+    };
     let needs_build_rs = has("qt") || has("xaml");
 
     // [features]
@@ -1469,15 +1741,16 @@ fn native_piece_files(r: &Repl, deps: &Deps, toolkits: &[String]) -> Vec<(String
     // Android / iOS backend-contribution metadata.
     let mut meta = String::new();
     if has("mdc") {
-        meta.push_str(
+        meta.push_str(&format!(
             "\n# Standalone-piece Android contribution: `day build` reads this from `cargo metadata`\n\
              # and folds the piece's own Java into the app's Gradle build, without touching day-android.\n\
+             # `java` takes source dirs or single files; a file is linked in by its `package` line.\n\
              [package.metadata.day.android]\n\
-             java = [\"platform/android/java\"]\n\
+             java = [\"{java_entry}\"]\n\
              # res = [\"platform/android/res\"]\n\
              # gradle-dependencies = [\"group:artifact:version\"]\n\
              # permissions = [\"android.permission.INTERNET\"]\n",
-        );
+        ));
     }
     if has("uikit") {
         meta.push_str(
@@ -1586,10 +1859,7 @@ linkme = "0.3"
     }
     if has("mdc") {
         files.push(("src/lib-android.rs".into(), r.expand(ANDROID_IMPL)));
-        files.push((
-            format!("platform/android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
-            r.expand(ANDROID_JAVA),
-        ));
+        files.push((java_file, r.expand(ANDROID_JAVA)));
     }
     if has("xaml") {
         files.push(("src/lib-xaml.rs".into(), r.expand(XAML_IMPL)));
@@ -1606,8 +1876,25 @@ linkme = "0.3"
 // PART — a headless cross-platform capability.
 // ---------------------------------------------------------------------------
 
-fn part_files(r: &Repl, deps: &Deps, platforms: &[String]) -> Vec<(String, String)> {
+fn part_files(
+    r: &Repl,
+    deps: &Deps,
+    platforms: &[String],
+    java_in_src: bool,
+) -> Vec<(String, String)> {
     let has = |p: &str| platforms.iter().any(|x| x == p);
+    // Where the Android shim lives: one file beside the Rust, named after its public class as javac
+    // requires, or a source tree under platform/. The first is the `java` entry the metadata
+    // declares, the second the file written.
+    let (java_entry, java_file) = if java_in_src {
+        let file = format!("src/Day{}.java", r.pascal);
+        (file.clone(), file)
+    } else {
+        (
+            "platform/android/java".to_string(),
+            format!("platform/android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
+        )
+    };
 
     // Per-platform cfg/path module declarations for src/lib.rs.
     let mut cfg_mods = String::new();
@@ -1655,13 +1942,14 @@ fn part_files(r: &Repl, deps: &Deps, platforms: &[String]) -> Vec<(String, Strin
     // Backend-contribution metadata.
     let mut meta = String::new();
     if has("android") {
-        meta.push_str(
+        meta.push_str(&format!(
             "\n# `day build` stages this Java into the app's Gradle build (and merges any permissions),\n\
-             # without touching day-android. This headless part registers NO renderer.\n\
+             # without touching day-android. This headless part registers no renderer. `java` takes\n\
+             # source dirs or single files; a file is linked in by its `package` line.\n\
              [package.metadata.day.android]\n\
-             java = [\"platform/android/java\"]\n\
+             java = [\"{java_entry}\"]\n\
              # permissions = [\"android.permission.INTERNET\"]\n",
-        );
+        ));
     }
     if has("ios") || has("macos") {
         meta.push_str(
@@ -1678,9 +1966,9 @@ name = "{name}"
 version = "0.1.0"
 edition = "2024"
 
-# A HEADLESS Day part: a cross-platform capability with NO UI. Any Rust code can depend on it and call
+# A HEADLESS Day part: a cross-platform capability with no UI. Any Rust code can depend on it and call
 # `{ident}::status()`. Platform selection is by `#[cfg(target_os)]` (it depends on the OS, not a widget
-# toolkit), so there are NO backend features — it "just works" per target.
+# toolkit), so there are no backend features — it "just works" per target.
 
 [dependencies]
 # Most platforms need no crates for a native reading (plain std / C FFI). Add per-platform deps as you
@@ -1723,10 +2011,7 @@ edition = "2024"
     }
     if has("android") {
         files.push(("src/android.rs".into(), r.expand(PART_ANDROID)));
-        files.push((
-            format!("platform/android/java/{}/Day{}.java", r.pkg_slash, r.pascal),
-            r.expand(PART_ANDROID_JAVA),
-        ));
+        files.push((java_file, r.expand(PART_ANDROID_JAVA)));
     }
     files
 }
@@ -1812,9 +2097,9 @@ fn view() -> impl Piece {
 cargo build                 # compiles the library against day on crates.io
 ```
 
-Composite pieces have no runnable binary of their own — they are verified by compiling and by being
-used from an app. Scaffold against the day git remote with `--git`, or against a local day checkout
-with `DAY_LOCAL` set / `day new piece … --local <path>`.
+The crate has no binary of its own; it is checked by compiling and by an app that uses it. Scaffold
+against the day git remote with `--git`, or against a local day checkout with `DAY_LOCAL` set /
+`day new piece … --local <path>`.
 
 ## Next steps
 
@@ -2310,8 +2595,8 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
     make: make, update: update, measure: measure);
 "#;
 
-const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java factory (Day__PASCAL__) is bundled under platform/android/java and
-// pulled into the app's Gradle build via [package.metadata.day.android] — no edits to day-android. A
+const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java factory (Day__PASCAL__), declared by `java` in
+// [package.metadata.day.android], is pulled into the app's Gradle build — no edits to day-android. A
 // TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …) (kind 1 = TextChanged).
 
 use super::*;
@@ -2647,13 +2932,154 @@ cargo build --features appkit    # or gtk / qt / uikit / mdc / xaml
 
 - `appkit` / `uikit` build on macOS with the iOS-sim target respectively.
 - `qt` / `xaml` compile a small C++ shim (`build.rs`).
-- `mdc` carries its own Java factory under `platform/android/java` (staged into the app's Gradle build).
+- `mdc` carries its own Java factory, declared by `java` in `[package.metadata.day.android]` and staged
+  into the app's Gradle build.
 
 ## Next steps
 
 - Rename the `__PASCAL__` type / `__SNAKE__` builder and adjust `__PASCAL__Props` / `__PASCAL__Patch`.
 - Wire your control's real events in each `src/lib-<backend>.rs`.
 - Drop any backends you don't need from `[features]` and `[package.metadata.day.piece]`.
+"#;
+
+// --- piece DEMO -------------------------------------------------------------
+// Written into `demo/` over the rendered app template (`PieceDemo::cut`), expanded with the PIECE's
+// names. `__TITLE__` is the demo's title and `__FIRST_TARGET__` the first target its Day.toml lists.
+
+/// Appended to the piece's own README when `demo/` is scaffolded.
+const DEMO_SECTION: &str = r#"
+## Demo
+
+`demo/` is a one-page app that shows this piece, and its walkthrough is the piece's on-device test.
+It depends on the crate by path, so it always builds the code here. From `demo/`, run
+`day launch -p <target> --script dayscript/demo.yaml` with any target its `Day.toml` lists.
+"#;
+
+const DEMO_README: &str = r#"# __TITLE__
+
+A one-page app that shows [`__CRATE__`](..). It depends on the piece by path
+(`__CRATE__ = { path = ".." }`), so it always builds the code beside it.
+
+## Run it
+
+```sh
+day doctor
+day launch -p __FIRST_TARGET__ --script dayscript/demo.yaml
+```
+
+`Day.toml` lists the targets the piece supports; pass any of them to `-p`. The walkthrough checks
+that the page and the piece are on screen and saves a screenshot under `build/day/screenshots/`.
+Add a step for each feature you give the piece (https://daybrite.dev/docs/dayscript).
+"#;
+
+const DEMO_COMPOSITE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE__`, driven by `dayscript/demo.yaml`.
+
+use day::prelude::*;
+
+// Entry point for the mobile hosts; a desktop build enters through src/main.rs.
+day::day_start!(options: window(), root);
+
+// Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
+day::resources!();
+
+/// Options for every window.
+pub fn window() -> day::WindowOptions {
+    day::WindowOptions {
+        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
+        title_fn: Some(|| res::str::app_title().format()),
+        // Desktop only; phones fill the screen.
+        size: day::prelude::Size::new(960.0, 640.0),
+        ..Default::default()
+    }
+}
+
+/// The page. Each piece has an id, so `dayscript/demo.yaml` can find it.
+pub fn root() -> impl Piece {
+    let piece = __CRATE_IDENT__::__SNAKE__(res::str::demo_text().format());
+    column((
+        label(res::str::app_title())
+            .font(Font::Title)
+            .id("demo-title"),
+        piece.id("demo-piece"),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+}
+"#;
+
+const DEMO_NATIVE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE__`, driven by `dayscript/demo.yaml`.
+
+use day::prelude::*;
+
+// Entry point for the mobile hosts; a desktop build enters through src/main.rs.
+day::day_start!(options: window(), root);
+
+// Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
+day::resources!();
+
+/// Options for every window.
+pub fn window() -> day::WindowOptions {
+    day::WindowOptions {
+        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
+        title_fn: Some(|| res::str::app_title().format()),
+        // Desktop only; phones fill the screen.
+        size: day::prelude::Size::new(960.0, 640.0),
+        ..Default::default()
+    }
+}
+
+/// The page. Each piece has an id, so `dayscript/demo.yaml` can find it.
+pub fn root() -> impl Piece {
+    // The piece edits `text` and the label under it reads it back, so the walkthrough can check
+    // what reached the app.
+    let text = Signal::new(String::new());
+    let piece = __CRATE_IDENT__::__SNAKE__(text);
+    column((
+        label(res::str::app_title())
+            .font(Font::Title)
+            .id("demo-title"),
+        piece
+            .placeholder(res::str::demo_placeholder())
+            .id("demo-piece"),
+        label(move || text.get()).id("demo-echo"),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+}
+"#;
+
+const DEMO_COMPOSITE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/localization).
+
+app_title = __TITLE__
+demo_text = Hello
+"#;
+
+const DEMO_NATIVE_STRINGS: &str = r#"# __TITLE__ UI strings (https://daybrite.dev/docs/localization).
+
+app_title = __TITLE__
+demo_placeholder = Type here
+"#;
+
+const DEMO_COMPOSITE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/dayscript) and the piece's on-device test:
+#
+#     day launch -p __FIRST_TARGET__ --script dayscript/demo.yaml
+flow:
+  - wait_for: { id: demo-piece }
+  - assert_text: { id: demo-title, text: "__TITLE__" }
+  - assert_visible: { id: demo-piece }
+  - screenshot: demo
+"#;
+
+const DEMO_NATIVE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/dayscript) and the piece's on-device test:
+#
+#     day launch -p __FIRST_TARGET__ --script dayscript/demo.yaml
+flow:
+  - wait_for: { id: demo-piece }
+  - assert_text: { id: demo-title, text: "__TITLE__" }
+  # Typing reaches the app through the piece's own event handler, and the label shows what arrived.
+  - input: { id: demo-piece, text: "Typed by the walkthrough" }
+  - assert_text: { id: demo-echo, text: "Typed by the walkthrough" }
+  - screenshot: demo
 "#;
 
 // --- PART -------------------------------------------------------------------
@@ -2709,9 +3135,10 @@ mod tests {
 }
 "#;
 
-const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shim (platform/android/java/…/Day__PASCAL__.java) — staged into the
-// app's Gradle build by `day build` via [package.metadata.day.android], without touching day-android
-// (it registers NO renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it
+const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shim (Day__PASCAL__.java, declared by `java` in
+// [package.metadata.day.android]) — staged into the app's Gradle build by `day build`, without
+// touching day-android
+// (it registers no renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it
 // through day-android's re-exported `jni`.
 
 use day_android::{DayEnv, with_env};
@@ -2778,7 +3205,8 @@ cargo run --example __SNAKE__   # prints a sample reading
 ```
 
 Each `src/<os>.rs` is a stub returning a sample `Sample { value: 42 }`. Android reads through a bundled
-Java shim (`platform/android/java/…/Day__PASCAL__.java`) that `day build` stages into the app's Gradle build.
+Java shim (`Day__PASCAL__.java`, declared by `java` in `[package.metadata.day.android]`) that `day build`
+stages into the app's Gradle build.
 
 ## Next steps
 
@@ -3117,5 +3545,199 @@ mod scaffold_tests {
         // The app's lib crate is what `day build` compiles for every toolkit feature.
         assert!(!text("src/lib.rs").is_empty());
         assert!(!text("src/main.rs").is_empty());
+    }
+
+    /// A piece's demo is the app template rendered through `render_app`, the path `day new app`
+    /// takes, then cut to one page: the manifests and host projects stay, the starter's own files
+    /// go, and the page, strings, and walkthrough use the piece.
+    #[test]
+    fn piece_demo_is_the_app_template_cut_to_one_page() {
+        let piece = Repl::new("day-piece-chip", Some("dev.example.daypiecechip"));
+        let deps = Deps::Git(None);
+        for toolkits in [Vec::new(), vec!["appkit".to_string()]] {
+            let demo = PieceDemo {
+                piece: &piece,
+                toolkits: &toolkits,
+            };
+            let app = demo.app(&deps);
+            let rendered = render_app(&app, Some(&demo)).expect("the demo renders");
+            let text = |path: &str| -> String {
+                let (_, bytes) = rendered
+                    .iter()
+                    .find(|(p, _)| p == path)
+                    .unwrap_or_else(|| panic!("{path} missing from the demo"));
+                String::from_utf8_lossy(bytes).into_owned()
+            };
+
+            for (path, _) in &rendered {
+                let starter = path.starts_with("src/pages/")
+                    || path == "src/model.rs"
+                    || path == "AGENTS.md"
+                    || path.starts_with(".vscode/")
+                    || path.starts_with("store/")
+                    || path.starts_with("website/")
+                    || path.starts_with("resource/images/")
+                    || path.starts_with("resource/vectors/")
+                    || path == "dayscript/toolbar-enable.yaml";
+                assert!(!starter, "the starter's {path} is in the demo");
+            }
+            assert!(text("build.rs").contains("generate_resources"));
+            assert!(!text("resource/icons/icon.svg").is_empty());
+            assert!(!text("src/main.rs").is_empty());
+
+            let cargo = text("Cargo.toml");
+            assert!(cargo.contains("name = \"day-piece-chip-demo\""), "{cargo}");
+            assert!(
+                cargo.contains("day-piece-chip = { path = \"..\" }"),
+                "{cargo}"
+            );
+            for starter_dep in ["serde", "model", "day-piece-datetime"] {
+                assert!(!cargo.contains(starter_dep), "{starter_dep} in {cargo}");
+            }
+            let gitignore = text(".gitignore");
+            assert!(gitignore.lines().any(|l| l == "Cargo.lock"), "{gitignore}");
+            assert!(!gitignore.contains("# NOT Cargo.lock"), "{gitignore}");
+
+            let day_toml = text("Day.toml");
+            assert!(
+                day_toml.contains("id = \"dev.example.daypiecechip.demo\""),
+                "{day_toml}"
+            );
+            assert!(
+                day_toml.contains("title = \"Day Piece Chip Demo\""),
+                "{day_toml}"
+            );
+
+            let lib = text("src/lib.rs");
+            assert!(lib.contains("day_piece_chip::day_piece_chip("), "{lib}");
+            for demo_file in [
+                "README.md",
+                "src/lib.rs",
+                "resource/locales/en/app.ftl",
+                "dayscript/demo.yaml",
+            ] {
+                let body = text(demo_file);
+                assert!(
+                    !body.contains("__") && !body.contains("{{"),
+                    "unexpanded placeholder in {demo_file}:\n{body}"
+                );
+            }
+
+            if toolkits.is_empty() {
+                // A composite piece renders wherever Day does, so its demo declares every target.
+                for t in crate::targets::TARGETS {
+                    assert!(
+                        day_toml.contains(&format!("\"{}\"", t.name)),
+                        "{} missing from {day_toml}",
+                        t.name
+                    );
+                }
+                assert!(text("resource/locales/en/app.ftl").contains("demo_text ="));
+            } else {
+                // A native piece's demo declares only the targets the piece has a renderer for.
+                assert!(day_toml.contains("\"macos-appkit\""), "{day_toml}");
+                assert!(!day_toml.contains("\"ios-uikit\""), "{day_toml}");
+                assert!(
+                    rendered
+                        .iter()
+                        .any(|(p, _)| p.starts_with("platform/macos/"))
+                );
+                assert!(!rendered.iter().any(|(p, _)| p.starts_with("platform/ios/")));
+                assert!(text("dayscript/demo.yaml").contains("input: { id: demo-piece"));
+            }
+        }
+    }
+
+    /// `--java-in-src` moves a native piece's Android factory beside its Rust arms and names that
+    /// one file in the metadata; without the flag the factory keeps its platform/ source tree.
+    #[test]
+    fn java_in_src_writes_the_factory_beside_the_rust_arms() {
+        let r = Repl::new("day-piece-field", Some("dev.example.daypiecefield"));
+        let toolkits = vec!["mdc".to_string()];
+        let deps = Deps::Git(None);
+        let paths = |files: &[(String, String)]| -> Vec<String> {
+            files.iter().map(|(p, _)| p.clone()).collect()
+        };
+        let cargo = |files: &[(String, String)]| -> String {
+            files
+                .iter()
+                .find(|(p, _)| p == "Cargo.toml")
+                .map(|(_, t)| t.clone())
+                .unwrap_or_default()
+        };
+
+        let in_src = native_piece_files(&r, &deps, &toolkits, true);
+        assert!(
+            paths(&in_src).contains(&"src/DayDayPieceField.java".to_string()),
+            "{:?}",
+            paths(&in_src)
+        );
+        assert!(
+            !paths(&in_src).iter().any(|p| p.starts_with("platform/")),
+            "{:?}",
+            paths(&in_src)
+        );
+        assert!(
+            cargo(&in_src).contains("java = [\"src/DayDayPieceField.java\"]"),
+            "{}",
+            cargo(&in_src)
+        );
+
+        let in_platform = native_piece_files(&r, &deps, &toolkits, false);
+        assert!(
+            paths(&in_platform).contains(
+                &"platform/android/java/dev/example/daypiecefield/DayDayPieceField.java"
+                    .to_string()
+            ),
+            "{:?}",
+            paths(&in_platform)
+        );
+        assert!(cargo(&in_platform).contains("java = [\"platform/android/java\"]"));
+    }
+
+    /// A part's Android shim lands beside its Rust by default, named after its public class, and
+    /// the metadata names that one file; `java_in_src = false` keeps the platform/ source tree.
+    #[test]
+    fn part_java_in_src_writes_the_shim_beside_the_rust() {
+        let r = Repl::new("day-part-gauge", Some("dev.example.daypartgauge"));
+        let platforms = vec!["android".to_string(), "linux".to_string()];
+        let deps = Deps::Git(None);
+        let find = |files: &[(String, String)], path: &str| -> Option<String> {
+            files
+                .iter()
+                .find(|(p, _)| p == path)
+                .map(|(_, t)| t.clone())
+        };
+
+        let in_src = part_files(&r, &deps, &platforms, true);
+        let java = find(&in_src, "src/DayDayPartGauge.java").expect("the shim beside the Rust");
+        assert!(
+            java.contains("public final class DayDayPartGauge"),
+            "{java}"
+        );
+        assert!(!in_src.iter().any(|(p, _)| p.starts_with("platform/")));
+        let cargo = find(&in_src, "Cargo.toml").expect("Cargo.toml");
+        assert!(
+            cargo.contains("java = [\"src/DayDayPartGauge.java\"]"),
+            "{cargo}"
+        );
+
+        let in_platform = part_files(&r, &deps, &platforms, false);
+        assert!(
+            find(
+                &in_platform,
+                "platform/android/java/dev/example/daypartgauge/DayDayPartGauge.java"
+            )
+            .is_some()
+        );
+        assert!(
+            find(&in_platform, "Cargo.toml")
+                .expect("Cargo.toml")
+                .contains("java = [\"platform/android/java\"]")
+        );
+
+        // Without Android there is no shim to place, whichever way the flag points.
+        let linux_only = part_files(&r, &deps, &["linux".to_string()], true);
+        assert!(!linux_only.iter().any(|(p, _)| p.ends_with(".java")));
     }
 }

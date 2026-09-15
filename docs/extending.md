@@ -19,7 +19,8 @@ with no edits to any core Day crate. `day-piece-searchfield` is the reference im
 generates a ready-to-build project (remote Day deps by default; `--local <path>` for a local Day
 checkout). With no `--toolkits` it emits a **composite** piece (front-end only); with
 `--toolkits appkit,gtk,qt,uikit,mdc,xaml` (any subset) it emits a **native** piece with a renderer
-per backend plus the C++/Java/Swift glue each one needs. The companion `day new part <name>` scaffolds
+per backend plus the C++/Java/Swift glue each one needs. Either kind comes with `demo/`, a one-page
+app that shows the piece and runs its walkthrough (`--no-demo` skips it). The companion `day new part <name>` scaffolds
 a headless part. For full walkthroughs see the tutorials:
 [composite piece](https://daybrite.dev/docs/tutorial-composite-piece/),
 [native piece](https://daybrite.dev/docs/tutorial-native-piece/), and
@@ -147,7 +148,7 @@ The piece carries its own Java/Kotlin under a crate dir and declares it in `Carg
 
 ```toml
 [package.metadata.day.android]
-java = ["platform/android/java"]                                        # → Gradle java srcDirs
+java = ["platform/android/java"]                                        # → Gradle java srcDirs (a dir, or one .java/.kt file)
 res = ["platform/android/res"]                                          # → Gradle res srcDirs (optional)
 gradle-dependencies = ["com.google.android.material:material:1.11.0"]   # → app dependencies { }
 gradle-repositories = ["https://jitpack.io"]                  # → extra Maven repos (optional)
@@ -160,6 +161,16 @@ manifest-components = ["platform/android/components.xml"]              # → <re
 every piece's contributions, and writes `build/day/android/day-pieces.json`. The app's checked-in
 `platform/android/{app/build.gradle.kts,settings.gradle.kts}` read that file generically (a loop, so
 per-piece edits are never needed) and add the Java dirs, res dirs, dependencies, and repos.
+
+**A single Java file.** A `java` entry may name one `.java` or `.kt` file instead of a directory, so
+a piece or part keeps its Android code beside its Rust (`java = ["src/DaySearch.java"]`, the layout
+`day new piece` and `day new part` scaffold; `--java-in-src=false` keeps a `platform/android/java/`
+tree). Gradle compiles source roots, so `day build` links each such file into
+`build/day/android/piece-java/<package path>/`, the directory its `package` line names, and adds that
+one root to the Java dirs. The link keeps the file's name, and javac requires a public top-level class
+to live in a file of the same name, so a `.java` file is named after its class. A host that cannot
+create symlinks (Windows without the privilege) gets a copy instead, rewritten when the source
+changes.
 
 **Piece resources.** `res` dirs compile into the app's resource table, so a piece can ship the styles
 or drawables its Java needs (e.g. a theme overlay for a dialog). The app's `R` package differs per
@@ -497,14 +508,13 @@ toolkit backend in a separate file:
 pieces/day-piece-searchfield/
 ├── Cargo.toml               # features + [package.metadata.day.android]
 ├── build.rs                 # compiles lib-qt-shim.cpp / lib-xaml-shim.cpp per feature
-├── platform/android/java/…/DaySearch.java   # this piece's own Android backend
 └── src/
     ├── lib.rs               # front-end (the `Piece`) + `day_pieces::glue_modules!(…)`
     ├── lib-appkit.rs        # one file per toolkit renderer …
     ├── lib-gtk.rs
     ├── lib-qt.rs            (+ lib-qt-shim.cpp)
     ├── lib-uikit.rs
-    ├── lib-android.rs      (+ platform/android/java DaySearch.java)
+    ├── lib-android.rs      (+ DaySearch.java)
     ├── lib-xaml.rs        (+ lib-xaml-shim.cpp)
     ├── lib-qt-shim.cpp
     └── lib-xaml-shim.cpp

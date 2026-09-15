@@ -698,6 +698,19 @@ enum NewKind {
         /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
         #[arg(long)]
         no_input: bool,
+        /// Skip `demo/`, the one-page app beside the crate that shows the piece.
+        #[arg(long)]
+        no_demo: bool,
+        /// Where a native piece's Android Java goes: `src/Day<Name>.java`, beside its Rust sources
+        /// (the default), or under `platform/android/java/` with `--java-in-src=false`.
+        #[arg(
+            long,
+            value_name = "BOOL",
+            num_args = 0..=1,
+            require_equals = true,
+            default_missing_value = "true"
+        )]
+        java_in_src: Option<bool>,
     },
     /// Scaffold a Day PART crate (a headless, UI-less capability).
     Part {
@@ -728,6 +741,16 @@ enum NewKind {
         /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
         #[arg(long)]
         no_input: bool,
+        /// Where the Android Java shim goes: `src/Day<Name>.java`, beside the Rust sources (the
+        /// default), or under `platform/android/java/` with `--java-in-src=false`.
+        #[arg(
+            long,
+            value_name = "BOOL",
+            num_args = 0..=1,
+            require_equals = true,
+            default_missing_value = "true"
+        )]
+        java_in_src: Option<bool>,
     },
     /// Scaffold a new Day app (the canonical app command).
     App {
@@ -1349,6 +1372,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 day_version,
                 local,
                 no_input,
+                no_demo,
+                java_in_src,
             }) => crate::new::piece(
                 name.as_deref(),
                 toolkits.as_deref(),
@@ -1359,6 +1384,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 registry,
                 day_version.as_deref(),
                 no_input,
+                no_demo,
+                java_in_src,
             )
             .map(|()| 0),
             Some(NewKind::Part {
@@ -1370,6 +1397,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 day_version,
                 local,
                 no_input,
+                java_in_src,
             }) => crate::new::part(
                 name.as_deref(),
                 platforms.as_deref(),
@@ -1379,6 +1407,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 registry,
                 day_version.as_deref(),
                 no_input,
+                java_in_src,
             )
             .map(|()| 0),
             Some(NewKind::App {

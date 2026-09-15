@@ -65,8 +65,8 @@ day-mock = { workspace = true }
 # Java (dev.daybrite.day.piece.combobox.DayCombo), without touching day-android. A plain
 # AutoCompleteTextView needs no Gradle dependency or manifest permission.
 [package.metadata.day.android]
-# Java/Kotlin source dir(s), relative to this crate root — added as Gradle `java.srcDir`s.
-java = ["platform/android/java"]
+# Java/Kotlin sources, relative to this crate root: dirs, or single files linked in by package.
+java = ["src/DayCombo.java"]
 # Gradle dependency coordinates added to the app module (none — a framework widget).
 gradle-dependencies = []
 # Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().

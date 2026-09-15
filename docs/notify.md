@@ -473,7 +473,7 @@ day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
-java = ["platform/android/java"]
+java = ["src/DayLocalNotify.java", "src/DayNotifyAlarmReceiver.java", "src/DayNotifyBootReceiver.java"]
 res = ["platform/android/res"]            # the monochrome default small icon (see pitfalls)
 # POST_NOTIFICATIONS is the runtime permission the APP declares via day-part-permissions; the
 # scheduling permissions are structural (no user-facing prompt, no reason string), so the crate

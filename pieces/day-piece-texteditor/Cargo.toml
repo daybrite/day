@@ -68,7 +68,7 @@ day-mock = { workspace = true }
 # The editor's Android half: an EditText subclass over a SpannableStringBuilder, with the
 # onSelectionChanged hook the framework only exposes to a subclass.
 [package.metadata.day.android]
-java = ["platform/android/java"]
+java = ["src/DayTextEditor.java"]
 gradle-dependencies = []
 gradle-repositories = []
 permissions = []

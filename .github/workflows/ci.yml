@@ -567,11 +567,17 @@ jobs:
             TARGET="--target ${{ matrix.rust_target }}"
             LIB="--lib"   # the mobile hosts build the app as a library
           fi
+          # One target directory for the four builds below: they compile the same day crates from
+          # this checkout, and the piece's demo would otherwise build all of them a second time.
+          export CARGO_TARGET_DIR="$RUNNER_TEMP/scratch-target"
           "$DAY" new piece scratch-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
           "$DAY" new part  scratch-part  --local "$GITHUB_WORKSPACE"
           "$DAY" new app   scratch-app   --toolkit ${{ matrix.combo }} --appid com.example.scratchapp --local "$GITHUB_WORKSPACE"
           # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
           ( cd scratch-piece && cargo build --features ${{ matrix.toolkit }} $TARGET )
+          # The piece's demo/ is an app, built the way scratch-app is below.
+          # shellcheck disable=SC2086
+          ( cd scratch-piece/demo && cargo build $LIB --no-default-features --features ${{ matrix.toolkit }} $TARGET )
           # shellcheck disable=SC2086
           ( cd scratch-part  && cargo build $TARGET )
           # `--no-default-features` is what `day build` passes for the app crate, and what an app

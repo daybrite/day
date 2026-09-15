@@ -10,8 +10,8 @@ companions.
 
 There is no native code in this crate at all: everything is composed from Day's public
 primitives — rows, canvas drawing, gestures, signals. That's the point it proves: when a
-component can be built from core pieces, it runs on every backend for free, and this crate
-is the reference example of doing exactly that.
+component can be built from core pieces, it runs on every backend without any custom
+per-toolkit implementation. This crate is the reference example.
 
 Pieces are Day's reusable UI components, shipped as ordinary crates: one Rust API in
 front, a real native control per platform behind it. Enable the backends you build for

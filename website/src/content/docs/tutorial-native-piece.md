@@ -53,8 +53,10 @@ day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,xaml
 
 Pick any subset of `appkit,gtk,qt,uikit,mdc,xaml`; passing `--toolkits` at all makes it a native
 piece rather than a composite one. The crate builds against a remote Day release (add `--local
-<path>` for a local Day checkout). Everything from here down describes what the scaffolder produces
-and how the halves fit together.
+<path>` for a local Day checkout). It also writes `demo/`, a one-page app that shows the piece on the
+targets those toolkits draw on, with `dayscript/demo.yaml` as its walkthrough (`--no-demo` skips
+it). Everything from here down describes what the scaffolder produces and how the halves fit
+together.
 
 One crate carries both halves of the piece:
 
@@ -385,13 +387,12 @@ if std::env::var("CARGO_FEATURE_QT").is_ok() {
 
 ### Android: a Java factory staged through Gradle, called over JNI
 
-The Android widget is created by a Java factory the piece ships under
-`platform/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`. It uses only `day-android`'s public
+The Android widget is created by a Java factory the piece ships as `src/DaySearch.java`. It uses only `day-android`'s public
 Java surface: `DayBridge.ctx` (the `Context`) and `DayBridge.nativeOnEvent(id, kind, num, str)` (the
 event trampoline; `kind 1` = TextChanged):
 
 ```java
-// platform/android/java/…/DaySearch.java (abridged)
+// src/DaySearch.java (abridged)
 public static View makeSearch(final long id, String placeholder, String initial) {
     EditText e = new EditText(DayBridge.ctx);
     e.setSingleLine(true);
@@ -415,11 +416,17 @@ the piece declares its Java dir in `Cargo.toml`, and `day build` folds it in wit
 ```toml
 # pieces/day-piece-searchfield/Cargo.toml
 [package.metadata.day.android]
-java = ["platform/android/java"]        # → Gradle java.srcDirs
+java = ["src/DaySearch.java"]           # → linked into Gradle java.srcDirs
 gradle-dependencies = []       # EditText is a framework widget; nothing to pull
 gradle-repositories = []
 # permissions = ["android.permission.INTERNET"]   # add if your control needs one (e.g. a web view)
 ```
+
+A `java` entry names a directory or, as here, one file beside the Rust arms, which is the layout
+`day new piece` scaffolds. `day build` links the file into a generated Gradle source directory at
+the path its `package` line names. javac requires a public class to live in a file of its own name,
+so the file is `DaySearch.java`. `--java-in-src=false` scaffolds a `platform/android/java/` tree
+instead.
 
 ### XAML: a C++/WinRT shim, boxed through `day-xaml-sys`
 

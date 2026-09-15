@@ -67,7 +67,11 @@ day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
-java = ["platform/android/java"]
+java = [
+    "src/DayLocalNotify.java",
+    "src/DayNotifyAlarmReceiver.java",
+    "src/DayNotifyBootReceiver.java",
+]
 res = ["platform/android/res"]
 # Structural, not user-facing: re-arming scheduled notifications after a reboot needs no consent
 # prompt and no reason string, so the crate contributes it rather than the app. POST_NOTIFICATIONS
