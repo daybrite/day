@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Android: `Context.checkSelfPermission`, and `requestPermissions` through this crate's OWN Java
+//! Android: `Context.checkSelfPermission`, and `requestPermissions` through this crate's Java
 //! shim (`src/DayPermissions.java`) — staged into the app's Gradle build by `day build`
 //! through `[package.metadata.day.android]`, exactly like the UI pieces but registering no renderer.
 //!

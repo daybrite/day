@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) wrapping a
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) wrapping a
 // Windows.UI.Xaml.Controls.ProgressRing — the native UWP-XAML indeterminate spinner — boxed into a
 // day handle via day-xaml-sys's `day_xaml_box`/`day_xaml_unbox` seam (like the media/picker/
 // webview xaml pieces). `IsActive` maps to `.animating`; `.large` sets Width/Height. Windows-only;

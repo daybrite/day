@@ -2390,7 +2390,7 @@ day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
     make: make, update: update, measure: measure);
 "#;
 
-const QT_IMPL: &str = r#"// Qt: this crate's OWN shim (src/lib-qt-shim.cpp) — a QLineEdit behind a flat C ABI. textChanged
+const QT_IMPL: &str = r#"// Qt: this crate's shim (src/lib-qt-shim.cpp) — a QLineEdit behind a flat C ABI. textChanged
 // dispatches Event::TextChanged; programmatic setText is wrapped in blockSignals so it never echoes.
 
 use super::*;
@@ -2595,7 +2595,7 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
     make: make, update: update, measure: measure);
 "#;
 
-const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's OWN Java factory (Day__PASCAL__), declared by `java` in
+const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's Java factory (Day__PASCAL__), declared by `java` in
 // [package.metadata.day.android], is pulled into the app's Gradle build — no edits to day-android. A
 // TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …) (kind 1 = TextChanged).
 
@@ -2696,7 +2696,7 @@ public final class Day__PASCAL__ {
 }
 "#;
 
-const XAML_IMPL: &str = r#"// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — a TextBox boxed into a Day handle
+const XAML_IMPL: &str = r#"// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — a TextBox boxed into a Day handle
 // via the day_xaml_box/unbox seam that day-xaml-sys exports. Windows-only; built in CI, not verified
 // on non-Windows hosts.
 
@@ -3135,7 +3135,7 @@ mod tests {
 }
 "#;
 
-const PART_ANDROID: &str = r#"// Android: read through this crate's OWN Java shim (Day__PASCAL__.java, declared by `java` in
+const PART_ANDROID: &str = r#"// Android: read through this crate's Java shim (Day__PASCAL__.java, declared by `java` in
 // [package.metadata.day.android]) — staged into the app's Gradle build by `day build`, without
 // touching day-android
 // (it registers no renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it

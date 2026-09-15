@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: this crate's OWN shim (src/lib-qt-shim.cpp) — a QPlainTextEdit (multi-line plain-text editor) with
+// Qt: this crate's shim (src/lib-qt-shim.cpp) — a QPlainTextEdit (multi-line plain-text editor) with
 // a native placeholder, word wrap, and an internal scrollbar, behind a flat C ABI. textChanged
 // dispatches Event::TextChanged; programmatic setPlainText is wrapped in blockSignals so it never echoes
 // back (like the searchfield shim). `measure` calls the shim's content-height helper, clamped to the

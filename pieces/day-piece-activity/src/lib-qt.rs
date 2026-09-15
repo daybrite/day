@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: Qt has no native spinner widget, so this crate's OWN shim (src/lib-qt-shim.cpp) wraps a
+// Qt: Qt has no native spinner widget, so this crate's shim (src/lib-qt-shim.cpp) wraps a
 // QProgressBar in **busy mode** (range 0..0), the idiomatic Qt indeterminate indicator — the same
 // technique day-qt uses for `spinner()`. build.rs compiles the shim against Qt6Widgets (already
 // linked by day-qt-sys, so no extra link flags). Animating toggles between busy (range 0..0) and a

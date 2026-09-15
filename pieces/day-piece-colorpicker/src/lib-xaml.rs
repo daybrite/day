@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — a swatch `Button` whose
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — a swatch `Button` whose
 // `Flyout` holds the system `ColorPicker`. Components cross the flat C ABI as four doubles;
 // XAML's `Windows.UI.Color` is 8-bit, so a pick made here comes back quantized (docs/colorpicker.md).
 // Windows-only, built in CI, NOT verified locally.

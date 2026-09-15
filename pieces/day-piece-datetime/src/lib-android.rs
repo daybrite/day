@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Android: this crate's OWN Java factory (`dev.daybrite.day.piece.datetime.DayDateTime`, bundled
+// Android: this crate's Java factory (`dev.daybrite.day.piece.datetime.DayDateTime`, bundled
 // in src/DayDateTime.java and folded into the app's Gradle build via [package.metadata.day.android]).
 // Compact = a value button launching the modal MaterialDatePicker / MaterialTimePicker through
 // DayActivity's FragmentManager (the Material idiom — a dialog, not a popover); Inline = the

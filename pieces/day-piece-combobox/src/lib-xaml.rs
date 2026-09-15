@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — an EDITABLE ComboBox
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — an EDITABLE ComboBox
 // (IsEditable, Windows 10 1809+), the platform's real combo box, boxed into a Day handle via
 // the day_xaml_box/unbox seam that day-xaml-sys exports. Windows-only, built in CI, not
 // verified locally. Documented divergence: XAML's ComboBox has no per-keystroke text event, so

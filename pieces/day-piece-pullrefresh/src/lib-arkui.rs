@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// ArkUI (HarmonyOS): the real thing — ARKUI_NODE_REFRESH, created by this crate's OWN NDK shim
+// ArkUI (HarmonyOS): the real thing — ARKUI_NODE_REFRESH, created by this crate's NDK shim
 // (src/refresh-arkui.cpp, compiled by build.rs against OHOS_NDK_HOME — the tickmarks pattern).
 // The realized node IS the Refresh node: day-core's generic day_ark_insert_child mounts the
 // wrapped scrollable into it (Refresh hosts exactly one child). Pull-begins route from

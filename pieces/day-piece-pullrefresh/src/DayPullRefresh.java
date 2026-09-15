@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The day-piece-pullrefresh crate's OWN Android backend — bundled here and folded into the app's
+// The day-piece-pullrefresh crate's Android backend — bundled here and folded into the app's
 // Gradle build via [package.metadata.day.android], which ALSO adds the AndroidX
 // swiperefreshlayout dependency. Uses only day-android's PUBLIC Java surface: DayBridge.ctx and
 // DayBridge.nativeOnEvent. SwipeRefreshLayout IS a ViewGroup, so DayBridge.addChild mounts the

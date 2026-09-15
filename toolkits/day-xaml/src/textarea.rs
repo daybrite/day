@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — a multi-line TextBox (AcceptsReturn
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — a multi-line TextBox (AcceptsReturn
 // = true, TextWrapping = Wrap, a native PlaceholderText) boxed into a Day handle via the
 // day_xaml_box/unbox seam that day-xaml-sys exports. This mirrors the searchfield XAML renderer (own
 // shim for the control; reuse the sys crate's generic measure), then clamps the natural height to the

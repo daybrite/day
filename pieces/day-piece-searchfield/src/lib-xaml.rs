@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — an AutoSuggestBox (the XAML
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — an AutoSuggestBox (the XAML
 // search control, with a query magnifier) boxed into a Day handle via the day_xaml_box/unbox seam
 // that day-xaml-sys exports. This mirrors the picker/media XAML renderers (own shim for the
 // control; reuse the sys crate's generic measure). Windows-only, built in CI, not verified locally.

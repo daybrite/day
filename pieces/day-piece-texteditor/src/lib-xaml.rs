@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's OWN C++/WinRT shim (src/lib-xaml-shim.cpp) — a `RichEditBox` driven through
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — a `RichEditBox` driven through
 // its Text Object Model document. Positions are UTF-16 code units, so this arm shares the Apple
 // conversion; colors cross packed as 0xAARRGGBB, as they do to the Qt shim.
 //
