@@ -7255,3 +7255,65 @@ fn list_activation_is_independent_and_uses_current_rows() {
     assert_eq!(&*activations.borrow(), &["a", "a"]);
     assert_eq!(&*selections.borrow(), &["b"]);
 }
+
+#[test]
+fn button_icons_seed_content_and_update_without_replacing_the_control() {
+    let state = std::rc::Rc::new(std::cell::Cell::new(None));
+    let saved = state.clone();
+    let probe = boot(move || {
+        let playing = day_reactive::Signal::new(false);
+        saved.set(Some(playing));
+        row((
+            button(move || if playing.get() { "Pause" } else { "Play" })
+                .padding(4.0)
+                .icon(move || {
+                    if playing.get() {
+                        day_spec::Symbol::Pause
+                    } else {
+                        day_spec::Symbol::Play
+                    }
+                })
+                .icon_only()
+                .action(move || playing.set(!playing.get())),
+            button(move || if playing.get() { "Playing" } else { "Stopped" }),
+            button("Artwork")
+                .padding(4.0)
+                .image(day_spec::ImageName::from_static("cover")),
+        ))
+    });
+    let buttons = probe.find_by_kind("day.button");
+    assert_eq!(buttons.len(), 3);
+    let player = buttons.iter().find(|(_, w)| w.text == "Play").unwrap();
+    assert!(
+        !probe
+            .log()
+            .iter()
+            .any(|l| !l.starts_with("realize ") && (l.contains("content=") || l.contains("title="))),
+        "realization must not be followed by a redundant content/title patch: {:?}", probe.log()
+    );
+    probe.clear_log();
+    probe.emit(NodeId(player.1.node), Event::Pressed);
+    flush_sync();
+    assert!(state.get().unwrap().get());
+    let log = probe.log();
+    assert_eq!(log.iter().filter(|l| l.contains("content=")).count(), 1);
+    assert_eq!(
+        log.iter().filter(|l| l.contains("title=")).count(),
+        1,
+        "plain buttons keep using ButtonPatch::Title"
+    );
+    assert!(
+        log.iter()
+            .any(|l| l.contains("Symbol(Pause)") && l.contains("icon_only: true"))
+    );
+    assert!(
+        probe
+            .find_by_kind("day.button")
+            .iter()
+            .any(|(_, w)| w.node == player.1.node && w.text == "Pause")
+    );
+    assert!(
+        !log.iter()
+            .any(|l| l.starts_with("realize ") || l.starts_with("release "))
+    );
+}

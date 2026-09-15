@@ -729,6 +729,31 @@ pub fn emit(id: NodeId, ev: Event) {
     }
 }
 
+fn apply_button_content(
+    h: *mut c_void,
+    title: &str,
+    icon: Option<&day_spec::Icon>,
+    icon_only: bool,
+) {
+    let (glyph, name, geometry) = match icon {
+        Some(day_spec::Icon::Symbol(s)) => (toolbar::glyph_for(*s), String::new(), String::new()),
+        Some(day_spec::Icon::Image(name)) => {
+            ("", name.clone(), vector_geometry(name).unwrap_or_default())
+        }
+        None => ("", String::new(), String::new()),
+    };
+    unsafe {
+        ffi::day_xaml_button_set_content(
+            h,
+            cstr(title).as_ptr(),
+            cstr(glyph).as_ptr(),
+            cstr(&name).as_ptr(),
+            cstr(&geometry).as_ptr(),
+            icon_only as c_int,
+        )
+    };
+}
+
 /// Hand a [`day_spec::props::ButtonStyleSpec`] to the shim, which styles the Button in place.
 /// The element stays a `Button`, so focus, keyboard activation and its automation peer are
 /// unaffected by the style.
@@ -1769,6 +1794,9 @@ impl Toolkit for Xaml {
                     };
                     let h = ffi::day_xaml_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
                     apply_button_style(h, p.style);
+                    if p.icon.is_some() {
+                        apply_button_content(h, &p.title, p.icon.as_ref(), p.icon_only);
+                    }
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
                     WinHandle(h)
@@ -1978,6 +2006,9 @@ impl Toolkit for Xaml {
                 kinds::BUTTON => {
                     if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                         match p {
+                            ButtonPatch::Content(c) => {
+                                apply_button_content(h.0, &c.title, c.icon.as_ref(), c.icon_only)
+                            }
                             ButtonPatch::Title(t) => {
                                 ffi::day_xaml_button_set_title(h.0, cstr(t).as_ptr())
                             }

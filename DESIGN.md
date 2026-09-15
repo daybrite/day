@@ -89,7 +89,7 @@ the architecture-level view and the rationale.
 | bundled pieces (map, searchfield, combobox, color picker, …) and external ones (media, lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
-| built-in controls — picker, text area | [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
+| built-in controls — button styles and icons, picker, text area | [docs/buttons.md](docs/buttons.md), [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | styled text editing — `StyledText`, its Markdown/HTML/RTF codecs, and the editor piece over them | [docs/texteditor.md](docs/texteditor.md) | [B.5](#b5-richtext-tier-2--deep-native-control) |
 | HarmonyOS / OpenHarmony | [docs/harmonyos.md](docs/harmonyos.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | web — the `web-dom` backend (wasm32 + DOM) | [docs/web.md](docs/web.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
@@ -732,6 +732,9 @@ label(text)                        // text: impl IntoText — value, Signal<Stri
 link(text, url)                    // tappable accent text → opens url in the system browser /
                                    //   default handler (§8.1 open_url); .font() / .color() / .bold()
 button(text).action(f)             // .bordered() / .prominent() / .tint(color) (docs/buttons.md)
+    .icon(Symbol::Play)            // native symbol; reactive symbol sources are supported
+    .icon_only()                   // hide the visible title, retain its accessible name
+button(text).image(res::vectors::mark) // bundled image/vector instead of a symbol
 toggle(on)                         // two-way bool
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
 text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .focused(…) (docs/focus.md)
@@ -865,6 +868,14 @@ fn basics_section() -> impl Piece {
     .title(res::str::controls_basics())
 }
 ```
+
+Buttons remain native controls when displaying icons. `ButtonProps` carries an optional
+`Icon` and an `icon_only` flag. Icon buttons send `ButtonPatch::Content` when their title or
+symbol changes; the binding is seeded from the realized content, so mounting does not trigger
+an extra update. Plain buttons retain `ButtonPatch::Title`. Toolkits use the title as the
+accessible name and add automatic tooltips only when it is hidden. The existing toolbar
+resource loaders resolve symbols and bundled images; no additional build metadata is needed.
+See [docs/buttons.md](docs/buttons.md) for platform behavior and backend implementation notes.
 
 ### §5.4 Keyed collections: `each`
 
@@ -5456,7 +5467,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
-| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
+| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On an Android emulator the capture first closes a system dialog left on screen (an ANR or crash dialog, the "Viewing full screen" hint). `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
 | `pause` | `secs` | demos only |
 | `size_class` | `width`, `height?` | REPORT a size class the window is not actually at, so a nav host re-presents and a piece reading `day::size_class()` rebuilds. Changes no pixels — a screenshot after it shows the new layout at the old size. `width: auto` restores what the backend reports ([docs/size-classes.md](docs/size-classes.md)) |
 | `resize` | `width`, `height`, or `auto` | `size_class`'s complement: change the window's REAL geometry. Runner-side first (a device's window belongs to the system — android-mdc drives `adb shell wm size`), then the engine half waits for the app to report the new class. A target with no host-side lever FAILS the step rather than passing one that moved nothing ([docs/size-classes.md](docs/size-classes.md)) |

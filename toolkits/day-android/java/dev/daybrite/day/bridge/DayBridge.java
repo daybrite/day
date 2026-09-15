@@ -943,6 +943,19 @@ public final class DayBridge {
      *  later style patch away from Compact can put them back. */
     static final java.util.WeakHashMap<View, int[]> buttonMetrics = new java.util.WeakHashMap<>();
 
+    public static void setButtonContent(View view, String title, String iconName, boolean iconOnly) {
+        if (!(view instanceof com.google.android.material.button.MaterialButton)) return;
+        com.google.android.material.button.MaterialButton button = (com.google.android.material.button.MaterialButton) view;
+        android.graphics.drawable.Drawable icon = drawableByName(view.getContext(), iconName);
+        button.setIcon(icon);
+        button.setIconSize((int) (20 * view.getResources().getDisplayMetrics().density));
+        button.setIconGravity(com.google.android.material.button.MaterialButton.ICON_GRAVITY_TEXT_START);
+        button.setIconPadding(iconOnly ? 0 : (int) (6 * view.getResources().getDisplayMetrics().density));
+        button.setText(iconOnly && icon != null ? "" : title);
+        button.setContentDescription(title);
+        button.setTooltipText(iconOnly && icon != null ? title : null);
+    }
+
     public static View makeButton(final long id, String title) {
         MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
         buttonTints.put(b, b.getBackgroundTintList());

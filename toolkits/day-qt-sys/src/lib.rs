@@ -104,6 +104,13 @@ unsafe extern "C" {
     pub fn day_qt_label_height_for_width(w: *mut c_void, width: c_int) -> c_int;
 
     pub fn day_qt_button_new(title: *const c_char, id: u64, cb: extern "C" fn(u64)) -> *mut c_void;
+    pub fn day_qt_button_set_content(
+        w: *mut c_void,
+        title: *const c_char,
+        icon: *const c_char,
+        fallback: c_int,
+        icon_only: c_int,
+    );
     pub fn day_qt_button_set_title(w: *mut c_void, title: *const c_char);
     pub fn day_qt_button_set_style(w: *mut c_void, kind: c_int, argb: u32, fg_argb: u32);
 

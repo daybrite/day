@@ -45,6 +45,8 @@ pub use ext::*;
 type Sink = Rc<dyn Fn(NodeId, Event)>;
 
 day_core::tls_group! {
+    static BUTTON_CONTENT: day_spec::sidetable::SideTable<day_spec::props::ButtonContent> = day_spec::sidetable::SideTable::new();
+    static BUTTON_INK: day_spec::sidetable::SideTable<day_spec::Color> = day_spec::sidetable::SideTable::new();
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
     /// Canvas ptr → its display list (`replay` writes, the draw func reads). A [`SideTable`]:
     /// the release sweep drops a dead canvas's list, so a recycled address can't briefly
@@ -207,6 +209,53 @@ fn set_label_runs(label: &gtk4::Label, text: &str, runs: &[day_spec::TextRun]) {
 // has to be selective rather than the widget. Each color gets its own class and its own
 // provider, installed once; a second button in the same color reuses it.
 
+fn apply_button_content(
+    btn: &gtk4::Button,
+    title: &str,
+    icon: Option<&day_spec::Icon>,
+    icon_only: bool,
+) {
+    let ink = BUTTON_INK.with(|m| m.get(btn.as_ptr() as usize));
+    let image = match icon {
+        Some(day_spec::Icon::Symbol(sym)) => toolbar::icon_name_for(*sym)
+            .filter(|name| gtk4::IconTheme::for_display(&btn.display()).has_icon(name))
+            .map(gtk4::Image::from_icon_name)
+            .or_else(|| {
+                day_spec::resource::stage_symbol_svg(*sym)
+                    .and_then(|path| tinted_template_icon(&path.to_string_lossy(), ink))
+            }),
+        Some(day_spec::Icon::Image(name)) => tinted_template_icon(name, ink),
+        None => None,
+    };
+    BUTTON_CONTENT.with(|m| {
+        m.insert(
+            btn.as_ptr() as usize,
+            day_spec::props::ButtonContent {
+                title: title.into(),
+                icon: icon.cloned(),
+                icon_only,
+            },
+        );
+    });
+    let hides_title = icon_only && image.is_some();
+    if let Some(image) = image {
+        image.set_pixel_size(20);
+        if icon_only {
+            btn.set_child(Some(&image));
+        } else {
+            let content = gtk4::Box::new(gtk4::Orientation::Horizontal, 6);
+            content.set_halign(gtk4::Align::Center);
+            content.append(&image);
+            content.append(&gtk4::Label::new(Some(title)));
+            btn.set_child(Some(&content));
+        }
+    } else {
+        btn.set_label(title);
+    }
+    btn.set_tooltip_text(hides_title.then_some(title));
+    btn.update_property(&[gtk4::accessible::Property::Label(title)]);
+}
+
 /// Put a [`day_spec::props::ButtonStyleSpec`] on a `GtkButton`, keeping it a GtkButton.
 ///
 /// Prominent is Adwaita's own `suggested-action`. A tint sets `background-image` (which is what
@@ -259,6 +308,24 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
         }
         // A GtkButton hugs a one-glyph title already.
         S::Bordered | S::Automatic | S::Compact => {}
+    }
+    let key = btn.as_ptr() as usize;
+    let ink = match style {
+        S::Tinted(c) => S::on_tint(c),
+        S::Prominent => day_spec::Color::WHITE,
+        _ => {
+            if adw::StyleManager::default().is_dark() {
+                day_spec::Color::WHITE
+            } else {
+                day_spec::Color::hex(0x1a1a1a)
+            }
+        }
+    };
+    BUTTON_INK.with(|m| {
+        m.insert(key, ink);
+    });
+    if let Some(c) = BUTTON_CONTENT.with(|m| m.get(key)) {
+        apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only);
     }
 }
 
@@ -3742,6 +3809,10 @@ impl Toolkit for Gtk {
                 };
                 let btn = gtk4::Button::with_label(&p.title);
                 apply_button_style(&btn, p.style);
+                if p.icon.is_some() {
+                    apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
+                }
+                btn.set_sensitive(p.enabled);
                 btn.connect_clicked(move |_| ffi_guard::contain((), || emit(id, Event::Pressed)));
                 wire_focus(&btn, id);
                 btn.upcast()
@@ -4647,6 +4718,9 @@ impl Toolkit for Gtk {
                     h.downcast_ref::<gtk4::Button>(),
                 ) {
                     match p {
+                        ButtonPatch::Content(c) => {
+                            apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only)
+                        }
                         ButtonPatch::Title(t) => btn.set_label(t),
                         ButtonPatch::Enabled(e) => btn.set_sensitive(*e),
                         ButtonPatch::Style(s) => apply_button_style(btn, *s),

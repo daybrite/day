@@ -1881,6 +1881,7 @@ jobs:
           fi
           node "$GITHUB_WORKSPACE/scripts/ci/webdom-sensor-test.mjs" "$URL/"
           node "$GITHUB_WORKSPACE/scripts/ci/webdom-list-activation-test.mjs" "$URL/"
+          node "$GITHUB_WORKSPACE/scripts/ci/webdom-button-test.mjs" "$URL/"
       - name: Validate screenshot content
         run: scripts/ci/validate-screenshots.sh showcase-src/build/day/screenshots/web-dom
       - name: Upload screenshots

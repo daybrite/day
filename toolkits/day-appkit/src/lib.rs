@@ -3658,6 +3658,42 @@ fn draw_gradient_in(paint: &day_spec::Paint, bounds: day_spec::Rect) {
     }
 }
 
+fn apply_button_content(
+    btn: &NSButton,
+    title: &str,
+    icon: Option<&day_spec::Icon>,
+    icon_only: bool,
+) {
+    let image = icon.and_then(|i| crate::toolbar::image_for(i, title, btn.mtm()));
+    if let Some(image) = &image {
+        let size = image.size();
+        let longest = size.width.max(size.height);
+        if longest > 0.0 {
+            image.setSize(objc2_foundation::NSSize::new(
+                size.width * 20.0 / longest,
+                size.height * 20.0 / longest,
+            ));
+        }
+    }
+    let style = BUTTON_STYLES
+        .with(|m| m.borrow().get(&ptr_of(btn)).copied())
+        .unwrap_or_default();
+    set_button_title(btn, title, style);
+    unsafe {
+        btn.setImage(image.as_deref());
+        btn.setImagePosition(if image.is_none() {
+            objc2_app_kit::NSCellImagePosition::NoImage
+        } else if icon_only {
+            objc2_app_kit::NSCellImagePosition::ImageOnly
+        } else {
+            objc2_app_kit::NSCellImagePosition::ImageLeading
+        });
+        btn.setAccessibilityLabel(Some(&NSString::from_str(title)));
+        let tooltip = (icon_only && image.is_some()).then(|| NSString::from_str(title));
+        btn.setToolTip(tooltip.as_deref());
+    }
+}
+
 /// Put a [`day_spec::props::ButtonStyleSpec`] on an `NSButton`, keeping it an NSButton.
 ///
 /// Prominent = the return-key default button. Tinted = `bezelColor`, which AppKit composites
@@ -3679,6 +3715,13 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
         }
     }
     BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));
+    let ink = match style {
+        S::Tinted(c) => Some(nscolor(S::on_tint(c))),
+        _ => None,
+    };
+    unsafe {
+        btn.setContentTintColor(ink.as_deref());
+    }
     set_button_title(btn, &title, style);
 }
 
@@ -4997,6 +5040,10 @@ impl Toolkit for AppKit {
                     )
                 };
                 apply_button_style(&btn, p.style);
+                if p.icon.is_some() {
+                    apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
+                }
+                unsafe { btn.setEnabled(p.enabled) };
                 let view = view_of(btn);
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
@@ -5813,6 +5860,9 @@ impl Toolkit for AppKit {
                     h.clone().downcast::<NSButton>(),
                 ) {
                     match p {
+                        ButtonPatch::Content(c) => {
+                            apply_button_content(&btn, &c.title, c.icon.as_ref(), c.icon_only)
+                        }
                         ButtonPatch::Title(t) => {
                             let style = BUTTON_STYLES
                                 .with(|m| m.borrow().get(&ptr_of(&btn)).copied())

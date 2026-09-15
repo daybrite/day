@@ -701,6 +701,10 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             // and reporting a failure that is really a race.
             if spec.wait || spec.orientation.is_some() {
                 wait_for_android_boot(&serial, 600, &avd, started.as_mut())?;
+                // Straight after boot, before anything is installed: the minutes that follow are
+                // when SystemUI misses its deadlines, and a dialog raised then stays on screen
+                // (mobile.rs `quiet_system_dialogs`).
+                crate::mobile::quiet_system_dialogs(&serial);
             }
             if let Some(o) = spec.orientation {
                 rotate_android(&serial, o)?;

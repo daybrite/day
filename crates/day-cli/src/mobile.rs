@@ -8,7 +8,7 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::cli::{CliError, Profile};
 use crate::meta::{Project, find_project};
@@ -1961,6 +1961,163 @@ fn adb(serial: Option<&str>) -> Command {
     c
 }
 
+/// Window titles AOSP gives the system dialogs a capture must never show: the ANR dialog
+/// (`AppNotRespondingDialog`), the crash dialog (`AppErrorDialog`), and the "Viewing full screen"
+/// hint a device shows the first time an app hides the system bars.
+const ANR_DIALOG: &str = "Application Not Responding: ";
+const CRASH_DIALOG: &str = "Application Error: ";
+const FULL_SCREEN_HINT: &str = "ImmersiveModeConfirmation";
+
+/// How long an ANR dialog gets to dismiss itself before [`clear_system_dialogs`] closes it.
+const ANR_GRACE: Duration = Duration::from_secs(5);
+/// The longest [`clear_system_dialogs`] waits for a clear screen before the capture goes ahead.
+const CLEAR_LIMIT: Duration = Duration::from_secs(30);
+/// One `adb shell` probe's deadline, so a wedged emulator cannot hang a capture.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// One `adb -s <serial> shell <command>`, trimmed. `None` when the command fails or times out.
+fn adb_shell_text(serial: &str, command: &str) -> Option<String> {
+    let out = crate::ops::run_capture_within(
+        adb(Some(serial)).args(["shell", command]),
+        &format!("adb shell {command} ({serial})"),
+        PROBE_TIMEOUT,
+    )
+    .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// The window titles in `dumpsys window windows` lines such as
+/// `  Window #8 Window{b2b653c u0 dev.daybrite.games/dev.daybrite.day.bridge.DayActivity}:`.
+fn parse_window_titles(dump: &str) -> Vec<String> {
+    dump.lines()
+        .filter(|line| line.trim_start().starts_with("Window #"))
+        .filter_map(|line| {
+            let inner = line.split_once("Window{")?.1.rsplit_once('}')?.0;
+            // `<hash> u<user> <title>`, and a dialog's title has spaces of its own.
+            inner.splitn(3, ' ').nth(2).map(str::to_string)
+        })
+        .collect()
+}
+
+/// The titles in `titles` that belong to a system dialog.
+fn system_dialogs(titles: &[String]) -> Vec<&str> {
+    titles
+        .iter()
+        .map(String::as_str)
+        .filter(|t| {
+            t.starts_with(ANR_DIALOG) || t.starts_with(CRASH_DIALOG) || *t == FULL_SCREEN_HINT
+        })
+        .collect()
+}
+
+/// Every window the emulator lists, top first. `None` when adb could not ask.
+fn android_window_titles(serial: &str) -> Option<Vec<String>> {
+    // Filtered on the device: the full dump runs to hundreds of lines, and `--verbose` echoes
+    // whatever comes back.
+    adb_shell_text(serial, "dumpsys window windows | grep 'Window #'")
+        .map(|dump| parse_window_titles(&dump))
+}
+
+/// EMULATORS ONLY: the settings that keep system dialogs off an emulator's screen.
+///
+/// `hide_error_dialogs` is the standard test-device setting. A loaded host makes an emulated main
+/// thread miss Android's hardcoded 5 s input-dispatch deadline, and the resulting "isn't
+/// responding" dialog overlays the app, obscuring screenshots and blocking taps mid-walkthrough.
+/// With the setting on, the system ends an unresponsive process without asking; the ANR itself
+/// still lands in logcat. `immersive_mode_confirmations=confirmed` is what tapping "Got it" on the
+/// "Viewing full screen" hint stores. A fresh AVD has never had that tap, so every page that hides
+/// the system bars (Day-Games' boards) was captured under the hint. WindowManager observes both
+/// settings, so a write takes effect at once and also removes a hint already on screen.
+///
+/// Never touched on a physical device (global, persistent settings); best-effort.
+pub(crate) fn quiet_system_dialogs(serial: &str) {
+    if !serial.starts_with("emulator-") {
+        return;
+    }
+    let _ = adb_shell_text(serial, "settings put global hide_error_dialogs 1");
+    let _ = adb_shell_text(
+        serial,
+        "settings put secure immersive_mode_confirmations confirmed",
+    );
+}
+
+/// EMULATORS ONLY: remove a system dialog already on screen, so the next capture shows the app.
+///
+/// [`quiet_system_dialogs`] stops new dialogs; this handles one raised before those settings
+/// landed. CI boots an emulator and installs onto it under the heaviest load of the run, and an
+/// ANR dialog raised then stays over whatever comes to the front until its process recovers or
+/// something closes it. A clear screen costs one filtered window listing.
+///
+/// Writing the settings removes the full-screen hint. The error dialogs close on the
+/// `CLOSE_SYSTEM_DIALOGS` broadcast, which the shell may send, and closing an ANR dialog ends its
+/// process (the dialog's own "Close app"; measured on an API 36 emulator). An ANR dialog also
+/// dismisses itself once its process handles input again, so it gets [`ANR_GRACE`] to do that
+/// first; a process still stuck after that is one `hide_error_dialogs` would have ended anyway.
+/// When the process was SystemUI, the wait goes on until a new SystemUI has its status bar window
+/// back, so the capture keeps the system bars.
+pub(crate) fn clear_system_dialogs(serial: &str) {
+    if !serial.starts_with("emulator-") {
+        return;
+    }
+    let Some(titles) = android_window_titles(serial) else {
+        return;
+    };
+    let found = system_dialogs(&titles).join(", ");
+    if found.is_empty() {
+        return;
+    }
+    quiet_system_dialogs(serial);
+    let systemui = || adb_shell_text(serial, "pidof com.android.systemui");
+    let systemui_before = system_dialogs(&titles)
+        .iter()
+        .any(|t| t.strip_prefix(ANR_DIALOG) == Some("com.android.systemui"))
+        .then(systemui)
+        .flatten();
+    let started = Instant::now();
+    let mut last_close: Option<Instant> = None;
+    loop {
+        std::thread::sleep(Duration::from_millis(250));
+        let Some(titles) = android_window_titles(serial) else {
+            return;
+        };
+        let left = system_dialogs(&titles);
+        let systemui_restarting = last_close.is_some()
+            && systemui_before.as_deref().is_some_and(|before| {
+                systemui().as_deref().is_none_or(|now| now == before)
+                    || !titles.iter().any(|t| t == "StatusBar")
+            });
+        if left.is_empty() && !systemui_restarting {
+            break;
+        }
+        let close_due = left.iter().any(|t| {
+            t.starts_with(CRASH_DIALOG)
+                || (t.starts_with(ANR_DIALOG) && started.elapsed() >= ANR_GRACE)
+        });
+        if close_due && last_close.is_none_or(|at| at.elapsed() >= ANR_GRACE) {
+            let _ = adb_shell_text(
+                serial,
+                "am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS",
+            );
+            last_close = Some(Instant::now());
+        }
+        if started.elapsed() >= CLEAR_LIMIT {
+            let what = if left.is_empty() {
+                "SystemUI has not restarted".to_string()
+            } else {
+                format!("still showing {}", left.join(", "))
+            };
+            status(
+                "Warning",
+                &format!("{serial} {what} after {}s", CLEAR_LIMIT.as_secs()),
+            );
+            return;
+        }
+    }
+    status("Dismissed", &format!("{found} on {serial}"));
+}
+
 /// Every device in `adb devices` in the `device` state, paired with its primary ABI
 /// (`ro.product.cpu.abi`). `DAY_ANDROID_ABI`, when set, overrides the queried ABI for every device
 /// (CI's KVM emulator leg pins `x86_64`); when it holds a LIST, the first entry is the per-device
@@ -2289,6 +2446,8 @@ pub fn launch_android(
     // Install + launch on EVERY connected device; the one APK already carries each device's ABI.
     let mut log_threads = Vec::new();
     for dev in &devices {
+        // Before the install, the heaviest step a loaded emulator sees (quiet_system_dialogs).
+        quiet_system_dialogs(&dev.serial);
         status(
             "Installing",
             &format!("{} on {}", outcome.target, dev.serial),
@@ -2309,23 +2468,9 @@ pub fn launch_android(
             &format!("am force-stop ({})", dev.serial),
             LAUNCH_TIMEOUT,
         )?;
-        // EMULATORS ONLY: suppress the system ANR/crash dialogs (the standard test-device
-        // setting). A loaded host makes an emulated main thread miss Android's hardcoded 5 s
-        // input-dispatch deadline, and the resulting "isn't responding" dialog overlays the app —
-        // obscuring screenshots and blocking taps mid-walkthrough. The ANR itself still lands in
-        // logcat. Never touched on a physical device (a global, persistent setting); best-effort.
-        if dev.serial.starts_with("emulator-") {
-            let _ = adb(Some(&dev.serial))
-                .args([
-                    "shell",
-                    "settings",
-                    "put",
-                    "global",
-                    "hide_error_dialogs",
-                    "1",
-                ])
-                .output();
-        }
+        // A dialog raised before those settings landed (during boot or the install) would
+        // otherwise sit over the app for the whole run.
+        clear_system_dialogs(&dev.serial);
         // DAY_THEME must be in effect BEFORE the activity inflates: the manifest handles the
         // uiMode config change itself (no recreation), so an in-app UiModeManager flip leaves the
         // already-resolved window theme in the old scheme. Setting the DEVICE night mode first —
@@ -2628,5 +2773,50 @@ mod abi_tests {
         unsafe { std::env::set_var("DAY_ANDROID_ABI", "x86_64") };
         assert_eq!(android_build_abis(), vec!["x86_64"]);
         unsafe { std::env::remove_var("DAY_ANDROID_ABI") };
+    }
+}
+
+#[cfg(test)]
+mod system_dialog_tests {
+    use super::{parse_window_titles, system_dialogs};
+
+    /// The listing's shape as an API 36 emulator printed it with an ANR dialog up: property lines
+    /// in between, and titles that carry spaces of their own.
+    #[test]
+    fn finds_system_dialogs_in_the_window_listing() {
+        let dump = [
+            "  Window #0 Window{25d9ae6 u0 ScreenDecorOverlayBottom}:",
+            "    mViewVisibility=0x4 mHaveFrame=true mObscured=false",
+            "  Window #1 Window{7d0c1e2 u0 Application Not Responding: com.android.systemui}:",
+            "    isVisible=true",
+            "  Window #2 Window{ff64abb u0 StatusBar}:",
+            "  Window #3 Window{1a2b3c4 u10 Application Error: dev.daybrite.games}:",
+            "  Window #4 Window{5e6f708 u0 ImmersiveModeConfirmation}:",
+            "  Window #5 Window{b2b653c u0 dev.daybrite.games/dev.daybrite.day.bridge.DayActivity}:",
+            "  Window #6 Window{9a8b7c6 u0 dev.example/dev.example.ImmersiveModeConfirmationActivity}:",
+        ]
+        .join("\n");
+        let titles = parse_window_titles(&dump);
+        assert_eq!(
+            titles,
+            [
+                "ScreenDecorOverlayBottom",
+                "Application Not Responding: com.android.systemui",
+                "StatusBar",
+                "Application Error: dev.daybrite.games",
+                "ImmersiveModeConfirmation",
+                "dev.daybrite.games/dev.daybrite.day.bridge.DayActivity",
+                "dev.example/dev.example.ImmersiveModeConfirmationActivity",
+            ]
+        );
+        assert_eq!(
+            system_dialogs(&titles),
+            [
+                "Application Not Responding: com.android.systemui",
+                "Application Error: dev.daybrite.games",
+                "ImmersiveModeConfirmation",
+            ]
+        );
+        assert!(system_dialogs(&parse_window_titles("")).is_empty());
     }
 }

@@ -584,6 +584,8 @@ impl Piece for Link {
 
 pub struct Button {
     title: TextSource,
+    icon: Reactive<Option<day_spec::Icon>>,
+    icon_only: bool,
     action: Option<Rc<dyn Fn()>>,
     native_style: day_spec::props::ButtonStyleSpec,
     /// A reactive tint, kept apart from `native_style` so the color can follow a signal. Set by
@@ -595,6 +597,8 @@ pub struct Button {
 pub fn button<M>(title: impl IntoText<M>) -> Button {
     Button {
         title: title.into_text(),
+        icon: Reactive::Const(None),
+        icon_only: false,
         action: None,
         native_style: day_spec::props::ButtonStyleSpec::Automatic,
         tint: None,
@@ -603,6 +607,28 @@ pub fn button<M>(title: impl IntoText<M>) -> Button {
 }
 
 impl Button {
+    /// Show a platform symbol. A signal or closure updates it without replacing the button.
+    pub fn icon<M>(mut self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self {
+        let symbol = symbol.into_reactive();
+        self.icon = match symbol {
+            Reactive::Const(s) => Reactive::Const(Some(day_spec::Icon::Symbol(s))),
+            Reactive::Dyn(f) => Reactive::Dyn(Rc::new(move || Some(day_spec::Icon::Symbol(f())))),
+        };
+        self
+    }
+
+    /// Show a bundled image or vector alongside the label.
+    pub fn image(mut self, name: impl Into<day_spec::ImageName>) -> Self {
+        self.icon = Reactive::Const(Some(day_spec::Icon::Image(name.into().as_str().to_owned())));
+        self
+    }
+
+    /// Hide the visible label when an icon is available; retain it for accessibility and help.
+    pub fn icon_only(mut self) -> Self {
+        self.icon_only = true;
+        self
+    }
+
     pub fn action(mut self, f: impl Fn() + 'static) -> Self {
         self.action = Some(Rc::new(f));
         self
@@ -664,6 +690,9 @@ impl Button {
 /// [`Button`]'s own builders, reachable THROUGH a decoration — the [`LabelBuilder`] pattern, for
 /// buttons: `button(…).padding(8.0).prominent()` resolves.
 pub trait ButtonBuilder: Sized {
+    fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self;
+    fn image(self, name: impl Into<day_spec::ImageName>) -> Self;
+    fn icon_only(self) -> Self;
     fn action(self, f: impl Fn() + 'static) -> Self;
     fn bordered(self) -> Self;
     fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
@@ -673,6 +702,15 @@ pub trait ButtonBuilder: Sized {
 }
 
 impl ButtonBuilder for Button {
+    fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self {
+        Button::icon(self, symbol)
+    }
+    fn image(self, name: impl Into<day_spec::ImageName>) -> Self {
+        Button::image(self, name)
+    }
+    fn icon_only(self) -> Self {
+        Button::icon_only(self)
+    }
     fn action(self, f: impl Fn() + 'static) -> Self {
         Button::action(self, f)
     }
@@ -694,6 +732,15 @@ impl ButtonBuilder for Button {
 }
 
 impl<P: ButtonBuilder + Piece> ButtonBuilder for Decorated<P> {
+    fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self {
+        self.map_inner(|p| p.icon(symbol))
+    }
+    fn image(self, name: impl Into<day_spec::ImageName>) -> Self {
+        self.map_inner(|p| p.image(name))
+    }
+    fn icon_only(self) -> Self {
+        self.map_inner(ButtonBuilder::icon_only)
+    }
     fn action(self, f: impl Fn() + 'static) -> Self {
         self.map_inner(|p| p.action(f))
     }
@@ -725,7 +772,9 @@ impl Piece for Button {
         let node = cx.leaf(
             kinds::BUTTON,
             &ButtonProps {
-                title: initial,
+                title: initial.clone(),
+                icon: self.icon.get_untracked(),
+                icon_only: self.icon_only,
                 enabled: self.enabled.get_untracked(),
                 style,
             },
@@ -773,8 +822,33 @@ impl Piece for Button {
                 }
             });
         }
-        self.title
-            .bind_to(node, |t| Box::new(ButtonPatch::Title(t)), true);
+        if matches!(&self.icon, Reactive::Const(None)) {
+            // Preserve the existing patch contract for plain buttons and external toolkits.
+            self.title
+                .bind_to(node, |t| Box::new(ButtonPatch::Title(t)), true);
+        } else {
+            let icon = self.icon;
+            let icon_only = self.icon_only;
+            let seed = day_spec::props::ButtonContent {
+                title: initial,
+                icon: icon.get_untracked(),
+                icon_only,
+            };
+            let title = self.title;
+            bind_seeded(
+                seed,
+                move || day_spec::props::ButtonContent {
+                    title: title.resolve(),
+                    icon: icon.get(),
+                    icon_only,
+                },
+                move |content: &day_spec::props::ButtonContent| {
+                    with_tree(|t| {
+                        t.patch(node, Box::new(ButtonPatch::Content(content.clone())), true)
+                    });
+                },
+            );
+        }
         node
     }
 }

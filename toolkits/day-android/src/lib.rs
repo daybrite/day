@@ -864,6 +864,28 @@ mod imp {
         ((f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)) as i32
     }
 
+    fn apply_button_content(
+        env: &mut Env,
+        view: &Gref,
+        title: &str,
+        icon: Option<&day_spec::Icon>,
+        icon_only: bool,
+    ) {
+        let title = jstr(env, title);
+        let icon = jstr(env, &icon_name(icon));
+        let _ = env.dcall_static(
+            BRIDGE,
+            "setButtonContent",
+            "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Z)V",
+            &[
+                JValue::Object(view.as_obj()),
+                JValue::Object(&title),
+                JValue::Object(&icon),
+                JValue::Bool(icon_only),
+            ],
+        );
+    }
+
     /// Style a button in place through the bridge. The view stays a `MaterialButton`, so its
     /// ripple, state overlays, focus and accessibility role are Material's, not ours.
     pub fn apply_button_style(env: &mut Env, v: &Gref, style: day_spec::props::ButtonStyleSpec) {
@@ -2432,7 +2454,16 @@ mod imp {
                             "(JLjava/lang/String;)Landroid/view/View;",
                             &[JValue::Long(idj), JValue::Object(&s)],
                         );
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setEnabled",
+                            "(Landroid/view/View;Z)V",
+                            &[JValue::Object(v.as_obj()), JValue::Bool(p.enabled)],
+                        );
                         apply_button_style(env, &v, p.style);
+                        if p.icon.is_some() {
+                            apply_button_content(env, &v, &p.title, p.icon.as_ref(), p.icon_only);
+                        }
                         AHandle(v)
                     })
                 }
@@ -2861,6 +2892,15 @@ mod imp {
                 kinds::BUTTON => {
                     if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                         match p {
+                            ButtonPatch::Content(c) => with_env(|env| {
+                                apply_button_content(
+                                    env,
+                                    &h.0,
+                                    &c.title,
+                                    c.icon.as_ref(),
+                                    c.icon_only,
+                                )
+                            }),
                             ButtonPatch::Title(t) => with_env(|env| {
                                 let s = jstr(env, t);
                                 let _ = env.dcall_static(

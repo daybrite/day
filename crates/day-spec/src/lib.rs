@@ -1342,7 +1342,7 @@ pub fn sf_symbol_name(s: Symbol) -> &'static str {
     }
 }
 
-/// A toolbar item's picture: a standard [`Symbol`] (drawn with the platform's own icon set) or
+/// A button or toolbar item's picture: a standard [`Symbol`] (drawn with the platform's own icon set) or
 /// a bundled image from `resource/images` for something only this app has.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Icon {
@@ -4160,14 +4160,26 @@ pub mod props {
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]
+    /// The visible content and accessible title of a button with an icon.
+    pub struct ButtonContent {
+        /// Also serves as the accessible name when only the icon is visible.
+        pub title: String,
+        pub icon: Option<Icon>,
+        pub icon_only: bool,
+    }
+    #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ButtonProps {
         pub title: String,
+        pub icon: Option<Icon>,
+        pub icon_only: bool,
         pub enabled: bool,
         pub style: ButtonStyleSpec,
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum ButtonPatch {
         Title(String),
+        /// Update an icon button's label and icon together. Plain buttons still use `Title`.
+        Content(ButtonContent),
         Enabled(bool),
         /// A live style change — what a reactive `.tint(…)` sends, so a button can recolor with
         /// app state without being torn down and realized again.

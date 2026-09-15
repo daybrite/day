@@ -400,9 +400,18 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
         TargetKind::Android => {
             // Pin the device the runner forwarded to — `android_devices` is already narrowed to
             // this run's selection — else `adb` errors with several attached.
+            let serial = crate::mobile::android_devices()
+                .into_iter()
+                .next()
+                .map(|dev| dev.serial);
+            // A system dialog left over the app would be captured with it. Emulators only; a
+            // clear screen costs one window listing (mobile.rs `clear_system_dialogs`).
+            if let Some(serial) = &serial {
+                crate::mobile::clear_system_dialogs(serial);
+            }
             let mut cmd = Command::new(day_toolchain::adb_bin());
-            if let Some(dev) = crate::mobile::android_devices().first() {
-                cmd.args(["-s", &dev.serial]);
+            if let Some(serial) = &serial {
+                cmd.args(["-s", serial]);
             }
             let out = cmd
                 .args(["exec-out", "screencap", "-p"])

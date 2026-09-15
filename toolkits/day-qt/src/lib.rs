@@ -145,6 +145,24 @@ fn argb(c: day_spec::Color) -> u32 {
     (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
 }
 
+fn apply_button_content(
+    h: *mut c_void,
+    title: &str,
+    icon: Option<&day_spec::Icon>,
+    icon_only: bool,
+) {
+    let (name, fallback) = toolbar::icon_args(icon);
+    unsafe {
+        ffi::day_qt_button_set_content(
+            h,
+            cstr(title).as_ptr(),
+            cstr(&name).as_ptr(),
+            fallback,
+            icon_only as c_int,
+        )
+    };
+}
+
 /// Hand a [`day_spec::props::ButtonStyleSpec`] to the shim, which styles the QPushButton in
 /// place. The widget stays a QPushButton, so focus, Space/Enter activation and the a11y role
 /// are unaffected whatever the style is.
@@ -1858,7 +1876,11 @@ impl Toolkit for Qt {
                         return placeholder_handle(kind);
                     };
                     let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
+                    ffi::day_qt_set_enabled(w, p.enabled as c_int);
                     apply_button_style(w, p.style);
+                    if p.icon.is_some() {
+                        apply_button_content(w, &p.title, p.icon.as_ref(), p.icon_only);
+                    }
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
@@ -2300,6 +2322,9 @@ impl Toolkit for Qt {
                 kinds::BUTTON => {
                     if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                         match p {
+                            ButtonPatch::Content(c) => {
+                                apply_button_content(h.0, &c.title, c.icon.as_ref(), c.icon_only)
+                            }
                             ButtonPatch::Title(t) => {
                                 ffi::day_qt_button_set_title(h.0, cstr(t).as_ptr())
                             }

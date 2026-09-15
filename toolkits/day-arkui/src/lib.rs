@@ -52,6 +52,8 @@ mod imp {
         /// ArkUI node pointer), the host's attached page children in order (page ptr → day
         /// NodeId, so a Pushed patch can re-home the just-attached last page), and pages
         /// re-homed into ArkTS NodeContents (page ptr → key).
+        static BUTTON_INK: day_spec::sidetable::SideTable<u32> = day_spec::sidetable::SideTable::new();
+        static BUTTON_CHILDREN: RefCell<HashMap<usize, Vec<AHandle>>> = RefCell::new(HashMap::new());
         static NAV_HOST: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
         static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
@@ -692,12 +694,104 @@ mod imp {
         }
     }
 
+    fn clear_button_content(node: AHandle) {
+        if let Some(children) = BUTTON_CHILDREN.with(|m| m.borrow_mut().remove(&(node.0 as usize)))
+        {
+            if let Some(root) = children.first() {
+                unsafe { ffi::day_ark_remove_child(node.0, root.0) };
+            }
+            if let Some(root) = children.first() {
+                for child in children.iter().skip(1) {
+                    unsafe { ffi::day_ark_remove_child(root.0, child.0) };
+                }
+            }
+            for child in children.into_iter().rev() {
+                unsafe { ffi::day_ark_node_dispose(child.0) };
+            }
+        }
+    }
+
+    fn apply_button_content(
+        node: AHandle,
+        title: &str,
+        icon: Option<&day_spec::Icon>,
+        icon_only: bool,
+    ) {
+        clear_button_content(node);
+        let source = match icon {
+            Some(day_spec::Icon::Symbol(s)) => {
+                day_spec::resource::stage_symbol_svg(*s).map(|p| p.to_string_lossy().into_owned())
+            }
+            Some(day_spec::Icon::Image(name)) => {
+                let svg = format!("day/{name}.svg");
+                let vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
+                let png = format!("day/{name}.png");
+                let raster = unsafe { ffi::day_ark_rawfile_exists(cstr(&png).as_ptr()) } != 0;
+                (vector || raster).then(|| {
+                    format!(
+                        "resource://RAWFILE/day/{name}.{}",
+                        if vector { "svg" } else { "png" }
+                    )
+                })
+            }
+            None => None,
+        };
+        unsafe {
+            ffi::day_ark_set_a11y(node.0, cstr(title).as_ptr(), 0);
+            ffi::day_ark_set_button_label(
+                node.0,
+                cstr(if source.is_some() { "" } else { title }).as_ptr(),
+            );
+        }
+        if let Some(source) = source {
+            let ink = BUTTON_INK
+                .with(|m| m.get(node.0 as usize))
+                .unwrap_or(0xFFFF_FFFF);
+            let row = new_node(K_ROW);
+            let image = new_node(K_IMAGE);
+            let mut children = vec![row, image];
+            unsafe {
+                ffi::day_ark_set_image_src(image.0, cstr(&source).as_ptr());
+                ffi::day_ark_set_image_fill(image.0, ink);
+                ffi::day_ark_set_size(image.0, 20.0, 20.0);
+                ffi::day_ark_insert_child(row.0, image.0, 0);
+                if !icon_only {
+                    let label = new_node(K_TEXT);
+                    ffi::day_ark_set_text(label.0, cstr(&format!("  {title}")).as_ptr());
+                    ffi::day_ark_set_font_color(label.0, ink);
+                    ffi::day_ark_insert_child(row.0, label.0, 1);
+                    children.push(label);
+                }
+                ffi::day_ark_insert_child(node.0, row.0, 0);
+            }
+            BUTTON_CHILDREN.with(|m| m.borrow_mut().insert(node.0 as usize, children));
+        }
+    }
+
     fn apply_button_style(n: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
         use day_spec::props::ButtonStyleSpec as S;
         let argb = |c: day_spec::Color| {
             let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
             (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
         };
+        let ink = if let S::Tinted(c) = style {
+            argb(S::on_tint(c))
+        } else {
+            0xFFFF_FFFF
+        };
+        BUTTON_INK.with(|m| {
+            m.insert(n as usize, ink);
+        });
+        BUTTON_CHILDREN.with(|m| {
+            if let Some(children) = m.borrow().get(&(n as usize)) {
+                if let Some(image) = children.get(1) {
+                    unsafe { ffi::day_ark_set_image_fill(image.0, ink) };
+                }
+                if let Some(label) = children.get(2) {
+                    unsafe { ffi::day_ark_set_font_color(label.0, ink) };
+                }
+            }
+        });
         // Bordered, Prominent and Compact keep the stock ArkUI button (it hugs its title).
         if let S::Tinted(c) = style {
             // SAFETY: `n` is a live ARKUI_NODE_BUTTON; both setters take a packed color.
@@ -1427,6 +1521,10 @@ mod imp {
                         ffi::day_ark_enable_focus(n.0, id.0, 0);
                     }
                     apply_button_style(n.0, p.style);
+                    if p.icon.is_some() {
+                        apply_button_content(n, &p.title, p.icon.as_ref(), p.icon_only);
+                    }
+                    unsafe { ffi::day_ark_set_enabled(n.0, p.enabled as c_int) };
                     n
                 }
                 Some(Builtin::TextField) => {
@@ -1885,6 +1983,12 @@ mod imp {
                     }
                 }
                 kinds::BUTTON => match patch.downcast_ref::<ButtonPatch>() {
+                    Some(ButtonPatch::Content(c)) => {
+                        apply_button_content(*h, &c.title, c.icon.as_ref(), c.icon_only)
+                    }
+                    Some(ButtonPatch::Enabled(on)) => unsafe {
+                        ffi::day_ark_set_enabled(h.0, *on as c_int)
+                    },
                     Some(ButtonPatch::Title(t)) => {
                         unsafe { ffi::day_ark_set_button_label(h.0, cstr(t).as_ptr()) };
                     }
@@ -2021,6 +2125,7 @@ mod imp {
             }
         }
         fn release(&mut self, h: AHandle) {
+            clear_button_content(h);
             let key = h.0 as usize;
             // One sweep drops this node's entry from every registered `SideTable` — present
             // and future — before the manual purges below (day_spec::sidetable; the existing

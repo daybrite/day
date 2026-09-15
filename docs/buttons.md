@@ -1,6 +1,6 @@
 ---
 title: "Buttons"
-description: "The button piece and its styles on every backend, from plain to prominent to destructive."
+description: "Native buttons with labels, icons, reactive state, and platform styles."
 ---
 
 <!-- Copyright © The Daybrite Project
@@ -8,89 +8,105 @@ description: "The button piece and its styles on every backend, from plain to pr
 
 # Buttons
 
+A Day button uses the platform's button control, including its keyboard handling, focus
+ring, accessibility role, and pressed and disabled states. Give it a title describing the
+action, then add an icon or style when that helps the user recognize it.
+
 ```rust
-button("Save").action(save)                 // the platform's ordinary button
-button("Save").prominent().action(save)     // its accent / default-action button
-button("Delete").tint(RUST).action(delete)  // filled in a color you choose
-button("Send").enabled(move || !busy.get()) // the platform's own disabled rendering
+button("Save").action(save)
+button("Save").icon(Symbol::Save).prominent().action(save)
+button("Play").icon(Symbol::Play).icon_only().action(play)
+button("About").image(res::vectors::app_mark).action(about)
+button("Send").enabled(move || !busy.get()).action(send)
 ```
 
-## The rule: a button is always a native button
+## Icons and labels
 
-`button()` realizes the platform's button control on every backend, whatever modifiers it
-carries. It is never composed into a container with a tap handler.
+`.icon(symbol)` adds a platform symbol beside the title. It accepts a `Symbol`, signal, or
+closure. `.image(name)` uses a bundled image or vector; pass a generated `res::images` or
+`res::vectors` constant. The last `.icon()` or `.image()` call determines the image.
+Use a small template glyph with a transparent background, as you would for a toolbar icon.
+Resource staging uses the existing [image and vector pipeline](vectors.md).
 
-A native button carries a large amount of behavior an app would otherwise have to reimplement
-one platform at a time:
+`.icon_only()` hides the visible title when an icon is available. Keep a meaningful title:
+it remains the accessible name and, on desktop and web, the automatic tooltip. Buttons
+with a visible title do not receive an automatic tooltip. With no icon, the title stays
+visible. Native loaders that cannot resolve an icon also fall back to the title; web image
+loading is asynchronous, so a missing asset can leave the icon blank.
 
-- **Focus and keyboard.** Tab order, the focus ring, Space and Enter activation, and on macOS the
-  return-key default binding.
-- **Accessibility.** The button role, so a screen reader announces it as a button and offers its
-  activation action. A `div` or a `UIView` with a tap gesture announces nothing.
-- **Pressed and hover rendering.** Every platform's timing and treatment: Material's ripple,
-  UIKit's dimming, AppKit's bezel highlight, the `:active` state on the web.
-- **Platform subtleties.** Pointer effects on iPadOS, the Windows focus rectangle, right-to-left
-  mirroring, high-contrast and reduced-motion behavior, minimum hit targets.
+Keep the title and symbol in sync for actions that change:
 
-So when a backend cannot honor a modifier, it **ignores that modifier** and still draws a button.
-It never substitutes something that is not one. A plain button on one platform is a much smaller
-loss than a colored rectangle that no longer behaves like a button anywhere.
+```rust
+button(move || if playing.get() { "Pause" } else { "Play" })
+    .icon(move || if playing.get() { Symbol::Pause } else { Symbol::Play })
+    .icon_only()
+    .action(move || playing.set(!playing.get()))
+```
+
+These updates preserve the button instance. The icon builders also work after decorations,
+for example `button("Play").padding(4.0).icon(Symbol::Play)`.
 
 ## Styles
 
-| Modifier | What it asks for |
+| Modifier | Behavior |
 | --- | --- |
 | *(none)* | The platform's ordinary button |
-| `.bordered()` | A visually contained button where the stock look is borderless (iOS's plain button reads as a link) |
-| `.prominent()` | The platform's accent / default-action button |
-| `.tint(color)` | A filled button in an app-chosen color |
-| `.compact()` | A button no wider than its title: a stepper's "−" and "+", a chip's "×". Drops the minimum width and wide insets of toolkits that have them (Material's 88 dp button); a no-op where the stock button already hugs its title |
+| `.bordered()` | A contained button where the stock style is borderless, notably UIKit |
+| `.prominent()` | The platform's primary or default-action treatment |
+| `.tint(color)` | A filled button with a contrasting foreground |
+| `.compact()` | Removes extra minimum width and horizontal padding on Android and web |
+| `.enabled(value)` | Enables or disables interaction; accepts reactive values |
 
-`.tint()` wins over `.bordered()` and `.prominent()`, being the more specific ask. It takes a
-reactive color, so a button can recolor with app state without being rebuilt:
+`.tint()` takes precedence over the other styles and can follow a signal. Day chooses black
+or white foreground according to which has the higher WCAG contrast ratio against the fill.
+Disabled buttons reject actions even when a dayscript injects a press.
 
 ```rust
-button("Record").tint(move || if recording.get() { RUST } else { SLATE })
+button("Record")
+    .icon(Symbol::Play)
+    .tint(move || if recording.get() { RUST } else { SLATE })
 ```
 
-**Day picks the label color**: `ButtonStyleSpec::on_tint` chooses whichever of black or
-white contrasts better against the fill, by WCAG's contrast ratio. A pale amber gets dark text and
-a saturated navy gets white, with nothing said at the call site.
+## Platform implementation
 
-Comparing the two ratios matters more than it sounds. A mid amber has a relative luminance of
-0.44, so a "brighter than half" test calls it dark and puts white on it (2.2:1, unreadable)
-where black would be 9.7:1. The two ratios cross at 0.179, not 0.5.
+| Toolkit | Button and icon implementation |
+| --- | --- |
+| AppKit | `NSButton` image and image-position properties; SF Symbols or bundled template images |
+| UIKit | `UIButtonConfiguration` image, title, and spacing; SF Symbols or bundled template images sized to 20 points |
+| Android | `MaterialButton` icon, gravity, padding, and content description; packaged drawables |
+| GTK | `GtkButton` containing an image and optional label; icon-theme symbols with Day outlines as fallback |
+| Qt | `QPushButton` with a `QIcon`; theme icons, standard icons, Day outlines, or bundled files |
+| XAML | `Button` content containing an icon and optional text; symbol glyphs, vector paths, or bundled images |
+| ArkUI | A native button containing an image and optional text; Day symbol outlines or packaged SVG/PNG assets |
+| web-dom | A native `<button>` with a CSS image mask using the current text color |
 
-## Per-toolkit
+The button owns interaction in every case; the icon is content, not a separate action.
+Symbols may look different between platforms. Bundled template images use the existing
+[toolbar icon loaders](toolbars.md), including their platform-specific tint behavior.
 
-| toolkit | `.prominent()` | `.tint(c)` |
-| --- | --- | --- |
-| AppKit | return-key default button | `bezelColor` + an attributed title (see below) |
-| UIKit | `borderedProminent` configuration | `filled` configuration + `baseBackgroundColor` |
-| GTK | `suggested-action` | a per-color CSS class on the display's provider |
-| Qt | `setDefault` (styles vary) | a stylesheet with explicit `:hover`/`:pressed`/`:disabled` |
-| Android | the stock M3 filled button | `backgroundTint` on the `MaterialButton` |
+AppKit's `.prominent()` establishes the Return-key default action. GTK uses
+`suggested-action`, UIKit uses its bordered-prominent configuration, and XAML requests
+`AccentButtonStyle` where available. Qt asks the current style to draw a default button;
+Android and ArkUI retain their stock filled treatment.
 
-`.compact()` changes only Android (no `minWidth`, 12 dp horizontal padding) and web-dom (the
-`compact` class); every other toolkit's button hugs a one-glyph title as it is.
-| ArkUI | the stock filled capsule | `NODE_BACKGROUND_COLOR` + `NODE_FONT_COLOR` |
-| XAML | `AccentButtonStyle` where the resource set has it | `Background` + `Foreground` |
-| web-dom | `.day-btn.prominent` | `.day-btn.tinted` with the color in a CSS variable |
+Tinting preserves native controls but can affect their feedback. Qt uses explicit hover,
+pressed, and disabled stylesheet rules. XAML's local background brush reduces the template's
+usual pressed-color change. AppKit applies label contrast through an attributed title and
+icon contrast through `contentTintColor`; UIKit uses configuration foreground and background
+colors.
 
-AppKit, Qt, and XAML each need a note.
+## Backend contract
 
-**AppKit** colors the label through an attributed title rather than `contentTintColor`. On a
-bordered `NSButton`, `contentTintColor` tints template images and AppKit keeps drawing the title
-in its own control text color, which rendered white-on-rust as black-on-rust. The consequence
-is that `ButtonPatch::Title` has to re-apply the attributed title, so the backend remembers each
-button's style to do that.
+`ButtonProps` seeds the title, optional `Icon`, `icon_only`, enabled state, and style. Plain
+buttons continue to send `ButtonPatch::Title`. Icon buttons send `ButtonPatch::Content`,
+which updates their title and icon together and invalidates their measured size. The
+reactive binding uses `bind_seeded`, avoiding a duplicate update immediately after creation.
 
-**Qt** has no native accent button, so `.prominent()` asks the style for the default-button
-treatment and otherwise leaves the stock look. Its tint is a stylesheet, which suppresses the
-native bevel, so the `:hover`, `:pressed` and `:disabled` rules are spelled out to replace what
-the bevel would have given.
+`Enabled` and `Style` patches remain independent of content. A backend must preserve the
+icon and accessible title when a style changes. UIKit retains content in a side table because
+replacing a configuration also replaces its image. ArkUI releases its internal image and
+text nodes when content changes or the button is released.
 
-**XAML** composes a local `Background` over the template's own brushes, and a local value wins
-over the theme's PointerOver and Pressed brushes. A tinted button there dims less on press than a
-stock one. Fixing that properly needs a full control template, which would replace the control
-rather than style it, so the dimmer press stays as the smaller wrong.
+External toolkit implementations can keep their existing plain-button title handling.
+To support icons, read the new props and handle `Content`, retaining its title as the
+accessible name even when it is not drawn.

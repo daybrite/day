@@ -76,6 +76,7 @@ unsafe extern "C" {
         scale_permille: c_int,
         base_fp: f64,
     );
+    pub fn day_ark_set_enabled(node: *mut c_void, enabled: c_int);
     pub fn day_ark_set_button_label(node: *mut c_void, s: *const c_char);
     pub fn day_ark_set_input_text(node: *mut c_void, s: *const c_char);
     pub fn day_ark_set_placeholder(node: *mut c_void, s: *const c_char);

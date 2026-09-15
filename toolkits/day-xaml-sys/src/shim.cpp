@@ -4554,6 +4554,25 @@ static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::strin
     return nullptr;
 }
 
+void day_xaml_button_set_content(void* h, const char* title, const char* glyph, const char* image, const char* geometry, int icon_only) {
+    auto button = elem(h).try_as<WUXC::Button>();
+    if (!button) return;
+    auto icon = toolbar_icon(glyph, image, geometry);
+    WUXC::StackPanel content;
+    content.Orientation(WUXC::Orientation::Horizontal);
+    content.Spacing(6);
+    if (icon) content.Children().Append(icon);
+    if (!icon_only || !icon) {
+        WUXC::TextBlock label;
+        label.Text(hs(title));
+        content.Children().Append(label);
+    }
+    button.Content(content);
+    WUX::Automation::AutomationProperties::SetName(button, hs(title));
+    WUXC::ToolTipService::SetToolTip(button, icon_only && icon ? winrt::box_value(hs(title)) : nullptr);
+}
+
+
 /// Build the docked CommandBar for `root`, replacing any previous one; null for an empty spec.
 /// `elems` receives this window's id→element map for the targeted patches. Shared by the primary
 /// window and every secondary one, exactly like `install_menu_bar`.

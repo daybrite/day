@@ -114,6 +114,8 @@ mod imp {
         std::sync::LazyLock::new(|| std::env::var("DAY_DIAG_NAV").is_ok());
 
     day_core::tls_group! {
+        static BUTTON_CONTENT: day_spec::sidetable::SideTable<day_spec::props::ButtonContent> = day_spec::sidetable::SideTable::new();
+
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
         static WINDOW: RefCell<Option<Retained<UIWindow>>> = const { RefCell::new(None) };
@@ -6006,6 +6008,51 @@ mod imp {
         }
     }
 
+    fn apply_button_content(
+        btn: &UIButton,
+        title: &str,
+        icon: Option<&day_spec::Icon>,
+        icon_only: bool,
+    ) {
+        let image = menu_image(icon).map(|image| {
+            let image = if matches!(icon, Some(day_spec::Icon::Image(_))) {
+                image
+                    .imageByPreparingThumbnailOfSize(CGSize::new(20.0, 20.0))
+                    .unwrap_or(image)
+            } else {
+                image
+            };
+            image.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
+        });
+        let visible_title = if icon_only && image.is_some() {
+            ""
+        } else {
+            title
+        };
+        unsafe {
+            {
+                let config = btn.configuration().unwrap_or_else(|| {
+                    objc2_ui_kit::UIButtonConfiguration::plainButtonConfiguration(btn.mtm())
+                });
+                config.setTitle(Some(&NSString::from_str(visible_title)));
+                config.setImage(image.as_deref());
+                config.setImagePadding(if icon_only { 0.0 } else { 6.0 });
+                btn.setConfiguration(Some(&config));
+            }
+            btn.setAccessibilityLabel(Some(&NSString::from_str(title)), btn.mtm());
+        }
+        BUTTON_CONTENT.with(|m| {
+            m.insert(
+                ptr_of(btn),
+                day_spec::props::ButtonContent {
+                    title: title.into(),
+                    icon: icon.cloned(),
+                    icon_only,
+                },
+            );
+        });
+    }
+
     /// Put a [`day_spec::props::ButtonStyleSpec`] on a `UIButton`, keeping it a UIButton.
     ///
     /// Bordered / Prominent map to `UIButtonConfiguration` tiers (iOS 15+) — the plain system
@@ -7881,6 +7928,10 @@ mod imp {
                     let target = DayTarget::new(mtm, id);
                     let btn = unsafe { UIButton::buttonWithType(UIButtonType::System, mtm) };
                     apply_button_style(&btn, &p.title, p.style, mtm);
+                    if p.icon.is_some() {
+                        apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
+                    }
+                    unsafe { btn.setEnabled(p.enabled) };
                     unsafe {
                         let tobj: &AnyObject = target.as_ref();
                         btn.addTarget_action_forControlEvents(
@@ -8408,6 +8459,9 @@ mod imp {
                         (**h).downcast_ref::<UIButton>(),
                     ) {
                         match p {
+                            ButtonPatch::Content(c) => {
+                                apply_button_content(btn, &c.title, c.icon.as_ref(), c.icon_only)
+                            }
                             ButtonPatch::Title(t) => unsafe {
                                 // A configured (bordered/prominent) button titles via its
                                 // configuration; a plain one via the state title.
@@ -8433,6 +8487,14 @@ mod imp {
                                 }
                                 .unwrap_or_default();
                                 apply_button_style(btn, &title, *s, mtm());
+                                if let Some(c) = BUTTON_CONTENT.with(|m| m.get(ptr_of(btn))) {
+                                    apply_button_content(
+                                        btn,
+                                        &c.title,
+                                        c.icon.as_ref(),
+                                        c.icon_only,
+                                    );
+                                }
                             }
                         }
                     }

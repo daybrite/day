@@ -205,6 +205,44 @@ fn attr(el: u32, a: &str, v: &str) {
 fn text(el: u32, t: &str) {
     unsafe { day_dom_set_text(el, t.as_ptr(), t.len()) };
 }
+fn apply_button_content(el: u32, title: &str, icon: Option<&day_spec::Icon>, icon_only: bool) {
+    fn escape(s: &str) -> String {
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&#39;")
+    }
+    let url = match icon {
+        Some(day_spec::Icon::Symbol(s)) => symbol_svg(*s),
+        Some(day_spec::Icon::Image(name)) => Some(image_url(name)),
+        None => None,
+    };
+    attr(el, "aria-label", title);
+    attr(
+        el,
+        "title",
+        if icon_only && url.is_some() {
+            title
+        } else {
+            ""
+        },
+    );
+    let html = match url {
+        Some(url) => format!(
+            "<span aria-hidden=\"true\" style=\"display:inline-block;width:20px;height:20px;vertical-align:middle;background:currentColor;mask:url('{}') center/contain no-repeat\"></span>{}",
+            escape(&url.replace('\'', "%27").replace('"', "%22")),
+            if icon_only {
+                String::new()
+            } else {
+                format!(" <span>{}</span>", escape(title))
+            }
+        ),
+        None => escape(title),
+    };
+    unsafe { day_dom_set_html(el, html.as_ptr(), html.len()) };
+}
+
 /// Put a [`ButtonStyleSpec`] on a `<button>`, keeping it a `<button>`.
 ///
 /// A tint sets two CSS custom properties and adds `.tinted`; day.css does the rest, including
@@ -1383,7 +1421,11 @@ impl Toolkit for Dom {
                     return realize_placeholder(kind, id);
                 };
                 let el = unsafe { day_dom_create(EL_BUTTON) };
-                text(el, &p.title);
+                if p.icon.is_some() {
+                    apply_button_content(el, &p.title, p.icon.as_ref(), p.icon_only);
+                } else {
+                    text(el, &p.title);
+                }
                 apply_button_style(el, p.style);
                 if !p.enabled {
                     attr(el, "disabled", "-");
@@ -1754,6 +1796,9 @@ impl Toolkit for Dom {
             kinds::BUTTON => {
                 if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                     match p {
+                        ButtonPatch::Content(c) => {
+                            apply_button_content(el, &c.title, c.icon.as_ref(), c.icon_only)
+                        }
                         ButtonPatch::Title(t) => text(el, t),
                         ButtonPatch::Enabled(e) => set_enabled(el, *e),
                         ButtonPatch::Style(st) => apply_button_style(el, *st),

@@ -258,7 +258,10 @@ booted. A target whose toolchain is missing reports `available: false` with a no
 looking like nothing is plugged in.
 
 `day devices boot` starts one of the `bootable` entries. On iOS an app cannot be installed onto a
-shut-down simulator, so boot one before `day launch`.
+shut-down simulator, so boot one before `day launch`. With `--wait`, booting an Android emulator
+also turns off its "isn't responding" and crash dialogs and its "Viewing full screen" hint, as
+`day launch` does on every emulator, so they stay out of screenshots. Physical devices keep their
+own settings.
 
 `day devices shutdown` is the other direction. Both spellings of an Android emulator work — the adb
 serial the listing reports, or the AVD name you booted it by — and the command waits until the

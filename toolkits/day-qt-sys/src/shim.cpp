@@ -599,6 +599,16 @@ int day_qt_label_height_for_width(void *w, int width) {
 }
 
 // --- button ---
+static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap, int px);
+void day_qt_button_set_content(void *w, const char *title, const char *icon, int fallback, int icon_only) {
+    auto *button = static_cast<QPushButton *>(w);
+    auto image = day_qt_toolbar_icon(icon, fallback, 20);
+    button->setIcon(image);
+    button->setIconSize(QSize(20, 20));
+    button->setText(icon_only && !image.isNull() ? QString() : QString::fromUtf8(title));
+    button->setAccessibleName(QString::fromUtf8(title));
+    button->setToolTip(icon_only && !image.isNull() ? QString::fromUtf8(title) : QString());
+}
 void *day_qt_button_new(const char *title, uint64_t id, void (*cb)(uint64_t)) {
     QPushButton *b = new QPushButton(QString::fromUtf8(title));
     QObject::connect(b, &QPushButton::clicked, [id, cb]() { cb(id); });

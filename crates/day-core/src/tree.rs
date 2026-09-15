@@ -1409,6 +1409,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                     match p {
                         ButtonPatch::Title(t) => n.probe.text = t.clone(),
+                        ButtonPatch::Content(c) => n.probe.text = c.title.clone(),
                         ButtonPatch::Enabled(e) => n.probe.enabled = *e,
                         // The style is a look, not something a probe asserts on.
                         ButtonPatch::Style(_) => {}

@@ -549,6 +549,12 @@ void day_ark_label_set_selectable(void* n, int on) {
     it.size = 1;
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TEXT_COPY_OPTION, &it);
 }
+void day_ark_set_enabled(void* n, int enabled) {
+    if (!g_api || !n) return;
+    ArkUI_NumberValue value{}; value.i32 = enabled;
+    ArkUI_AttributeItem item{}; item.value = &value; item.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_ENABLED, &item);
+}
 void day_ark_set_button_label(void* n, const char* s) { set_str(n, NODE_BUTTON_LABEL, s); }
 void day_ark_set_input_text(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_TEXT, s); }
 void day_ark_set_placeholder(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_PLACEHOLDER, s); }

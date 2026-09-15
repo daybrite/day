@@ -857,6 +857,10 @@ impl Toolkit for MockToolkit {
                 }
             } else if let Some(p) = patch.downcast_ref::<ButtonPatch>() {
                 match p {
+                    ButtonPatch::Content(c) => {
+                        w.text = c.title.clone();
+                        format!("content={c:?}")
+                    }
                     ButtonPatch::Title(t) => {
                         w.text = t.clone();
                         format!("title={t:?}")
