@@ -158,9 +158,21 @@ manifest-components = ["platform/android/components.xml"]              # → <re
 ```
 
 `day build` (for `android-mdc`) runs `cargo metadata`, walks the app's dependency closure, collects
-every piece's contributions, and writes `build/day/android/day-pieces.json`. The app's checked-in
-`platform/android/{app/build.gradle.kts,settings.gradle.kts}` read that file generically (a loop, so
-per-piece edits are never needed) and add the Java dirs, res dirs, dependencies, and repos.
+every piece's contributions, and writes `build/day/android/day-pieces.json`. Day's Gradle plugins
+read that file generically (a loop, so per-piece edits are never needed) and add the Java dirs, res
+dirs, dependencies, and repos.
+
+**Day's Gradle plugins.** An app's Gradle scripts stay small. `settings.gradle.kts` includes
+`build/day/android/gradle-plugin` and applies `dev.daybrite.day.settings`, which adds the
+repositories. `app/build.gradle.kts` applies `dev.daybrite.day.android`, which applies
+`com.android.application` and configures the module from `build/day/android/`: Day.toml identity,
+the SDK levels, the day-android shim and piece sources, libraries, the manifest overlay, R8 rules, and
+release signing. The plugins are Java sources in `toolkits/day-android/gradle-plugin`. `day build`,
+`day prepare`, and `day open` stage them from the day-android crate the app resolves, so an app
+always builds with the plugin that matches its Java shim. The app's own `android {}` and
+`dependencies {}` blocks run after the plugin, so a value set there overrides Day's. A change to
+Day's Android build goes in the plugin: every app picks it up on its next `day build`, while a
+scaffold change reaches only new apps.
 
 **A single Java file.** A `java` entry may name one `.java` or `.kt` file instead of a directory, so
 a piece or part keeps its Android code beside its Rust (`java = ["src/DaySearch.java"]`, the layout
@@ -199,8 +211,8 @@ part contributes components but no permissions.
 
 **Manifest permissions.** A piece that needs a permission (a web view needs `INTERNET`) can't reach the
 app's `AndroidManifest.xml`, so `day build` also writes the collected permissions into a generated
-**overlay manifest** (`build/day/android/day-pieces-manifest.xml`). The scaffold points its debug +
-release source-set manifests at that overlay, and AGP's manifest merger folds the `<uses-permission>`
+**overlay manifest** (`build/day/android/day-pieces-manifest.xml`). Day's Gradle plugin points the
+debug and release source-set manifests at that overlay, and AGP's manifest merger folds the `<uses-permission>`
 entries into the app manifest (deduping against any the app already declares). So a WebView-using app
 needs no manual manifest edit: the piece declares the permission and it shows up in the merged
 manifest. `day-piece-webview` is the reference. (A piece can only add a permission; it never
@@ -236,7 +248,7 @@ Two layers keep the right names.
 -keep class com.example.mypiece.MyPieceView { *; }
 ```
 
-The app's `platform/android/app/build.gradle.kts` reads `dayProguardFile` + `proguardFiles` from
+Day's Gradle plugin reads `dayProguardFile` and `proguardFiles` from
 `day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-searchfield` (framework
 side) and App Fair's `platform/android/proguard-rules.pro` (app side) are the references.
 
@@ -250,13 +262,14 @@ throw. See
 `pieces/day-piece-searchfield/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`, and
 `pieces/day-piece-texteditor/src/lib-android.rs` for the fallback.
 
-> **Gradle configuration cache.** The scaffold reads `day-pieces.json`, and the other files `day build`
-> generates under `build/day/android/`, at *configuration* time through `providers.fileContents`.
-> Gradle tracks those reads, so the scaffold ships with `org.gradle.configuration-cache=true`: adding
-> or removing a piece changes `day-pieces.json`, which discards the cached configuration. Apps
-> scaffolded before this change read the files directly, which the cache does not track, and keep
-> `org.gradle.configuration-cache=false`. Enabling the cache there first requires the same
-> `providers.fileContents` reads in `settings.gradle.kts` and `app/build.gradle.kts`.
+> **Gradle configuration cache.** Day's Gradle plugin reads `day-pieces.json`, and the other files
+> `day build` generates under `build/day/android/`, at *configuration* time through
+> `providers.fileContents`. Gradle tracks those reads, so the scaffold ships with
+> `org.gradle.configuration-cache=true`: adding or removing a piece changes `day-pieces.json`, which
+> discards the cached configuration. Apps scaffolded before the plugin keep this logic in their own
+> `settings.gradle.kts` and `app/build.gradle.kts`. Taking the scaffold's versions of those two
+> files, the root `build.gradle.kts`, and `gradle.properties`, then moving the app's own additions
+> into its `android {}` and `dependencies {}` blocks, puts the app on the plugin.
 > Some pieces also pull libraries that require AndroidX (Lottie's view extends `AppCompatImageView`), so
 > the scaffold sets `android.useAndroidX=true`.
 

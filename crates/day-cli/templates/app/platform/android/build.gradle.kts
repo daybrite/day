@@ -1,3 +1,1 @@
-plugins {
-    id("com.android.application") version "9.3.2" apply false
-}
+// The Android Gradle Plugin, and its version, come with Day's plugin (settings.gradle.kts).

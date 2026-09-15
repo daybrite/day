@@ -175,7 +175,7 @@ day build -p android-mdc
 │
 ├── piece discovery ──────────────► build/day/android/day-pieces.json
 │                                   (each piece's Java dirs, Gradle deps, Maven repos,
-│                                    manifest permissions — read generically by the scaffold)
+│                                    manifest permissions — read generically by Day's Gradle plugin)
 │
 └── gradle assembleDebug   platform/android/
         │
@@ -188,8 +188,9 @@ platform/android/app/build/outputs/apk/debug/app-debug.apk
 adb install … && am start DayActivity                   (day launch)
 ```
 
-The Gradle scaffold also calls back (`day gradle-backend build`) so a build started from Android
-Studio rebuilds the Rust `.so` the same way.
+Day's Gradle plugin configures that project from `build/day/android/`
+([The Gradle project](/docs/platforms/android-mdc#the-gradle-project)). A build started from Android
+Studio packages the Rust `.so` from the last `day build`.
 
 ### HarmonyOS: `harmony-arkui`
 

@@ -20,10 +20,11 @@
 //! A `java` entry naming one `.java` or `.kt` file (`src/DayFoo.java`, beside the crate's Rust) is
 //! linked into `build/day/android/piece-java/<package path>/`, a generated source root that joins
 //! the directories ([`link_java_files`]).
-//! The resolved contributions are written to `build/day/android/day-pieces.json`, which the app's
-//! `build.gradle.kts` reads generically (loops over the lists — no per-piece Gradle edits, ever).
+//! The resolved contributions are written to `build/day/android/day-pieces.json`, which Day's Gradle
+//! plugin (`toolkits/day-android/gradle-plugin`, staged into `build/day/android/gradle-plugin`) reads
+//! generically (loops over the lists — no per-piece Gradle edits, ever).
 //! Permissions additionally go into a generated manifest overlay (`day-pieces-manifest.xml`) that the
-//! scaffold points its debug+release source-set manifests at, so AGP merges them into the app manifest.
+//! plugin points the debug+release source-set manifests at, so AGP merges them into the app manifest.
 //!
 //! iOS contract (`[package.metadata.day.ios]`):
 //! ```toml
@@ -80,6 +81,11 @@ pub struct AndroidPieces {
     /// renames the JNI-reached bridge (docs/extending.md).
     #[serde(rename = "dayProguardFile")]
     pub day_proguard_file: Option<String>,
+    /// Day's Gradle plugins (`gradle-plugin/` beside the day-android crate), which
+    /// `write_android_manifest` stages into `build/day/android/gradle-plugin` for the app's
+    /// `settings.gradle.kts` to include. Never written to day-pieces.json.
+    #[serde(skip)]
+    pub gradle_plugin_dir: Option<std::path::PathBuf>,
     /// Absolute Java/Kotlin source dirs to add as Gradle `java.srcDir`s.
     #[serde(rename = "javaSrcDirs")]
     pub java_src_dirs: Vec<String>,
@@ -538,6 +544,13 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
             if rules.is_file() {
                 pieces.day_proguard_file = Some(rules.to_string_lossy().into_owned());
             }
+            let plugin = Path::new(&pkg.manifest_path)
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join("gradle-plugin");
+            if plugin.is_dir() {
+                pieces.gradle_plugin_dir = Some(plugin);
+            }
         }
         let Some(android) = piece_meta::<AndroidMeta>(pkg, "android") else {
             continue;
@@ -684,8 +697,8 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
     // Day.toml's [permissions] joins the pieces' raw contributions here, so BOTH reach the overlay
-    // through one path. `pieces.permissions` must carry every name: the scaffold's build.gradle.kts
-    // gates the overlay on that list being non-empty.
+    // through one path. `pieces.permissions` must carry every name: scaffolds generated before
+    // manifest components existed gate the overlay on that list being non-empty.
     let contributed = contributed_permissions(project, &["mdc"]);
     let declared = crate::permissions::resolve_project(project, "android", &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
@@ -721,13 +734,18 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     if let Some(dir) = link_java_files(&project.root, &pieces.java_files)? {
         pieces.java_src_dirs.push(dir.display().to_string());
     }
+    // Day's Gradle plugins, from the same day-android crate as the Java shim, so the build logic
+    // always matches the shim it configures.
+    if let Some(src) = &pieces.gradle_plugin_dir {
+        stage_gradle_plugin(src, &dir.join("gradle-plugin"))?;
+    }
 
     // day-pieces.json is written AFTER the merge so Gradle sees the full list.
     let json = serde_json::to_string_pretty(&pieces).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("day-pieces.json"), json).map_err(|e| e.to_string())?;
 
-    // Permissions → a manifest overlay AGP merges into the app manifest (the scaffold points its
-    // debug+release source-set manifests here). Remove any stale overlay when there are none.
+    // Permissions → a manifest overlay AGP merges into the app manifest (Day's Gradle plugin points
+    // the debug+release source-set manifests here). Remove any stale overlay when there are none.
     //
     // The FILENAME is a compatibility surface: it is baked into every scaffold `day new` has ever
     // generated, and a source set has exactly one manifest slot (debug and release are both already
@@ -761,6 +779,88 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// Stage Day's Gradle plugins without building, for `day prepare`: resolve the day-android crate
+/// the app builds against and put its `gradle-plugin/` in place, so an IDE can sync a fresh clone.
+/// A project without an Android host is left alone.
+pub fn stage_android_gradle_plugin(project: &Project) -> Result<(), String> {
+    if !project
+        .root
+        .join("platform/android/settings.gradle.kts")
+        .is_file()
+    {
+        return Ok(());
+    }
+    let pieces = resolve_android(project, &["mdc"])?;
+    match &pieces.gradle_plugin_dir {
+        Some(src) => {
+            stage_gradle_plugin(src, &project.root.join("build/day/android/gradle-plugin"))
+        }
+        None => Ok(()),
+    }
+}
+
+/// What Gradle writes inside the staged build. Staging neither copies nor prunes these.
+const GRADLE_OUTPUT_DIRS: [&str; 3] = ["build", ".gradle", ".kotlin"];
+
+/// Mirror the plugin sources in `src` into `dest`. Unchanged files keep their bytes and mtimes, so
+/// an unchanged plugin is not recompiled; files the source no longer has are removed.
+fn stage_gradle_plugin(src: &Path, dest: &Path) -> Result<(), String> {
+    let mut expected = HashSet::new();
+    copy_plugin_tree(src, dest, true, &mut expected)?;
+    prune_plugin_tree(dest, true, &expected);
+    Ok(())
+}
+
+fn is_gradle_output(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|n| GRADLE_OUTPUT_DIRS.contains(&n))
+}
+
+fn copy_plugin_tree(
+    src: &Path,
+    dest: &Path,
+    top: bool,
+    expected: &mut HashSet<std::path::PathBuf>,
+) -> Result<(), String> {
+    std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
+    let rd = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
+    for entry in rd.flatten() {
+        let name = entry.file_name();
+        if top && is_gradle_output(&name) {
+            continue;
+        }
+        let (from, to) = (entry.path(), dest.join(&name));
+        if from.is_dir() {
+            copy_plugin_tree(&from, &to, false, expected)?;
+        } else {
+            copy_if_changed(&from, &to)?;
+        }
+        expected.insert(to);
+    }
+    Ok(())
+}
+
+fn prune_plugin_tree(dir: &Path, top: bool, expected: &HashSet<std::path::PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in rd.flatten() {
+        let path = entry.path();
+        if top && is_gradle_output(&entry.file_name()) {
+            continue;
+        }
+        if !expected.contains(&path) {
+            let _ = if path.is_dir() {
+                std::fs::remove_dir_all(&path)
+            } else {
+                std::fs::remove_file(&path)
+            };
+        } else if path.is_dir() {
+            prune_plugin_tree(&path, false, expected);
+        }
+    }
 }
 
 /// Everything outside `<!-- … -->`. Used for validation only — the comments are kept in the
@@ -1935,6 +2035,38 @@ mod tests {
         assert!(collect(&data).unwrap_err().contains("must not be empty"));
         data["packages"][1]["metadata"]["day"]["flatpak"] = serde_json::json!({"unknown":true});
         assert!(collect(&data).unwrap_err().contains("invalid"));
+    }
+
+    #[test]
+    fn gradle_plugin_staging_mirrors_sources_and_keeps_gradle_outputs() {
+        let tmp =
+            std::env::temp_dir().join(format!("day-gradle-plugin-stage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let (src, dest) = (tmp.join("src"), tmp.join("dest"));
+        std::fs::create_dir_all(src.join("src/main/java")).unwrap();
+        std::fs::write(src.join("build.gradle.kts"), "plugins {}").unwrap();
+        std::fs::write(src.join("src/main/java/A.java"), "class A {}").unwrap();
+        std::fs::create_dir_all(src.join("build")).unwrap();
+        std::fs::write(src.join("build/out.jar"), "jar").unwrap();
+
+        super::stage_gradle_plugin(&src, &dest).unwrap();
+        assert!(dest.join("src/main/java/A.java").is_file());
+        assert!(
+            !dest.join("build").exists(),
+            "the source's own outputs are not staged"
+        );
+
+        // Gradle's state in the stage survives a restage; a file the source dropped does not.
+        std::fs::create_dir_all(dest.join(".gradle")).unwrap();
+        std::fs::write(dest.join(".gradle/state"), "state").unwrap();
+        std::fs::write(dest.join("src/main/java/Stale.java"), "class Stale {}").unwrap();
+        std::fs::remove_file(src.join("src/main/java/A.java")).unwrap();
+        super::stage_gradle_plugin(&src, &dest).unwrap();
+        assert!(dest.join(".gradle/state").is_file());
+        assert!(dest.join("build.gradle.kts").is_file());
+        assert!(!dest.join("src/main/java/A.java").exists());
+        assert!(!dest.join("src/main/java/Stale.java").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

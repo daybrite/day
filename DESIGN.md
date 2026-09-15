@@ -2847,9 +2847,9 @@ the resolved dependency graph via `cargo metadata`, collects every crate's
 `[package.metadata.day.<platform>]`, and regenerates gitignored files the checked-in scaffolds
 reference generically, exactly once:
 
-- **android**: contributions land in `build/day/android/day-pieces.json`; the app's committed
-  `build.gradle.kts` loops over its lists (srcDirs, dependencies, repositories) — no per-piece
-  Gradle edits, ever. Permissions merge through a generated manifest overlay. Release builds minify
+- **android**: contributions land in `build/day/android/day-pieces.json`, which Day's Gradle
+  plugin (§17.4) reads generically (srcDirs, dependencies, repositories) — no per-piece Gradle
+  edits, ever. Permissions merge through a generated manifest overlay. Release builds minify
   with R8: since Day reaches Java by name (JNI FindClass, `dcall_static`, reflection), `day build`
   also folds in keep rules — day-android's own (the whole `dev.daybrite.day.**` namespace) plus each
   app/piece's declared `proguard` file — so minification never renames a JNI-reached class out from
@@ -3319,8 +3319,10 @@ target's "Build Rust (day)" phase, so a GUI build never compiles a stale catalog
 For `harmony-arkui`, `day prepare` (and every build) also stages the framework's ArkTS host —
 the abilities, pages and native typings that live in the day-arkui crate — into the hvigor
 project, gitignored, the way Gradle reads the Java shim from day-android (2026-09; before that
-every app carried its own copy and drifted). `day open -p <target>` prepares, then opens the
-target's host project in its IDE (Xcode, Android Studio, DevEco Studio).
+every app carried its own copy and drifted). For `android-mdc`, `day prepare`, `day open`, and
+every build stage Day's Gradle plugins from day-android into `build/day/android/gradle-plugin` the
+same way (§17.4), so Android Studio can sync a fresh clone. `day open -p <target>` prepares, then
+opens the target's host project in its IDE (Xcode, Android Studio, DevEco Studio).
 
 `day icon --generate [--seed <int|string>] [--overwrite] [--out <file.svg>]` writes a seeded
 pseudo-random layered master (`day-vector`'s `icongen`) and prepares the outputs from it;
@@ -3811,27 +3813,39 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   cannot be found" — because the check runs before the phase does, and an incremental tree hides
   it behind last build's copy. The plumbing detects sandboxing at runtime and fails with
   `day::build::xcode_script_sandboxed` + fix instructions; `day doctor` checks it too.
-- **android/**: `day build` compiles the Rust `.so` with cargo-ndk into `build/day/jniLibs` before
-  Gradle runs, and the scaffold adds that directory with `sourceSets jniLibs.srcDir` (**never**
-  `src/main/jniLibs`, which pollutes the source tree and breaks up-to-date checks). Everything
-  else `day build` generates for Gradle (piece contributions in `day-pieces.json`, Day.toml
-  identity, release signing, the manifest overlay) lives in `build/day/android/`, and the scaffold
-  reads it at configuration time through `providers.fileContents`. The configuration cache tracks
-  those reads, so the scaffold enables it (`org.gradle.configuration-cache=true`): a changed,
-  created, or deleted file discards the cached configuration, and a rewrite with the same
-  contents reuses it. A tested Gradle/AGP version matrix is published.
+- **android/**: the committed Gradle scripts are thin. `settings.gradle.kts` includes Day's Gradle
+  plugins from `build/day/android/gradle-plugin` (`pluginManagement { includeBuild(…) }`) and
+  applies `dev.daybrite.day.settings` for the repositories; `app/build.gradle.kts` applies
+  `dev.daybrite.day.android` and keeps empty `android {}` and `dependencies {}` blocks for the app's
+  own settings, which run after the plugin and so override it. The plugins are Java sources in the
+  day-android crate (`toolkits/day-android/gradle-plugin`), staged by `day build`, `day prepare`,
+  and `day open` from the crate the app resolves, so the build logic always matches the Java shim
+  it configures and a change to Day's Android build reaches existing apps without script edits.
+  The plugin carries the AGP version (always one a current Android Studio release supports, since
+  the IDE refuses to sync a project on a newer AGP), the SDK levels, and the shim's libraries; applies
+  `com.android.application`; and configures the module from `build/day/android/` (piece
+  contributions in `day-pieces.json`, Day.toml identity, release signing, the manifest overlay),
+  reading each file through `providers.fileContents`. The configuration cache tracks those reads,
+  so the scaffold enables it (`org.gradle.configuration-cache=true`): a changed, created, or
+  deleted file discards the cached configuration, and a rewrite with the same contents reuses it.
+  `day build` compiles the Rust `.so` with cargo-ndk into `build/day/jniLibs` before Gradle runs,
+  and the plugin adds that directory as a jniLibs source directory (**never** `src/main/jniLibs`,
+  which pollutes the source tree and breaks up-to-date checks). A build started from Android
+  Studio packages the `.so` the last `day build` compiled. A tested Gradle/AGP version matrix is
+  published.
   The scaffold also commits `gradle/wrapper/gradle-wrapper.properties`, pinning the Gradle version
   the app builds with; `day build` runs the app's own `./gradlew` when it has one and falls back to
   `gradle` on PATH otherwise, so the CLI and an IDE build with the same Gradle. Only the properties
   are committed, not `gradlew` and its jar: an IDE resolves the distribution from the properties
   alone. Without that file an IDE writes its own, pinned to AGP's declared minimum — a milestone
   build newer Android Studio then refuses to sync against.
-- **Freshness and fresh clones**: both callback entrypoints regenerate conveyance from `Day.toml`
+- **Freshness and fresh clones**: the Xcode callback phase regenerates conveyance from `Day.toml`
   first (content-hashed, [§17.5](#175-metadata-conveyance-daytoml--each-build-system)); because Xcode reads xcconfig *before* the phase runs, drift is
   detected and that build fails with "metadata changed — build again". `settings.gradle.kts`
-  guards the generated `day-pieces.gradle.kts` apply with an existence check throwing "run `Day
-  build` once". Committed-vs-generated is explicit: `day.gradle.kts` and a bootstrap xcconfig stub
-  are **create-time committed** files; only value-bearing generated files are gitignored; the
+  checks for the staged Gradle plugin and, on a fresh clone without one, fails with "run `day
+  prepare` or `day build -p android-mdc`". Committed-vs-generated is explicit: the thin Gradle
+  scripts and a bootstrap xcconfig stub are **create-time committed** files; only value-bearing
+  generated files are gitignored; the
   pbxproj references generated `.lproj` outputs via a folder reference so it never names
   gitignored files.
 - Recursion guard: the plumbing entrypoints never re-enter the native build; `DAY_BUILD_PARENT`
@@ -3842,7 +3856,7 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
 > [!IMPORTANT]
 > **Status: shipped; concrete filenames evolved.** The mechanism is exactly as designed —
 > generated, gitignored, content-hashed files that committed scaffolds reference generically.
-> The real names: Android reads `build/day/android/day-app.properties`, `day-signing.properties`,
+> The real names: Android's Gradle plugin reads `build/day/android/day-app.properties`, `day-signing.properties`,
 > and `day-pieces.json` ([§15.2](#152-package-layout-and-aggregation)); iOS and macOS convey
 > identity through `build/day/xcconfig/<platform>.xcconfig` (2026-08), `#include?`d LAST by the
 > committed `platform/<p>/DayApp.xcconfig` holding the user-adjustable settings ([§16.5](#165-the-command-surface) day build),

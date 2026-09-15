@@ -1544,6 +1544,20 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     if harmony && !check {
                         crate::ohos::stage_host(project).map_err(CliError::build)?;
                     }
+                    // Day's Gradle plugins are staged from the day-android crate the same way, so
+                    // Android Studio can sync a fresh clone before its first `day build`.
+                    let android = platforms.is_empty()
+                        && project
+                            .manifest
+                            .app
+                            .targets
+                            .iter()
+                            .any(|t| t == "android-mdc")
+                        || platforms.iter().any(|p| p == "android-mdc");
+                    if android && !check {
+                        crate::pieces::stage_android_gradle_plugin(project)
+                            .map_err(CliError::build)?;
+                    }
                     if cli.format == OutputFormat::Json {
                         println!(
                             "{}",
@@ -1579,6 +1593,10 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             crate::icon::ensure(project, &[target.name]).map_err(CliError::build)?;
             if target.name == "harmony-arkui" {
                 crate::ohos::stage_host(project).map_err(CliError::build)?;
+            }
+            // Android Studio syncs through Day's Gradle plugin, staged from the day-android crate.
+            if target.name == "android-mdc" {
+                crate::pieces::stage_android_gradle_plugin(project).map_err(CliError::build)?;
             }
             crate::ops::open_native(project, target).map(|()| 0)
         }),

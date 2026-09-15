@@ -465,7 +465,7 @@ pub fn kotlin_plugin_help(crates: &[String]) -> String {
          2. Apply the Kotlin plugin in platform/android/app/build.gradle.kts:\n\
          \n\
          \x20      plugins {{\n\
-         \x20          id(\"com.android.application\")\n\
+         \x20          id(\"dev.daybrite.day.android\")\n\
          \x20          id(\"org.jetbrains.kotlin.android\") version \"2.2.0\"\n\
          \x20      }}\n\
          \n\
@@ -592,18 +592,19 @@ day_bridge::bridge! {
     fn a_kotlin_arm_needs_the_plugin_and_java_does_not() {
         let scaffold = r#"
             plugins {
-                id("com.android.application")
+                id("dev.daybrite.day.android")
             }
-            android { namespace = "dev.example.app" }
+            android {
+            }
         "#;
         assert!(!super::gradle_compiles_kotlin(scaffold));
         assert!(super::gradle_compiles_kotlin(&scaffold.replace(
-            "id(\"com.android.application\")",
-            "id(\"com.android.application\")\n id(\"org.jetbrains.kotlin.android\")"
+            "id(\"dev.daybrite.day.android\")",
+            "id(\"dev.daybrite.day.android\")\n id(\"org.jetbrains.kotlin.android\")"
         )));
         // A project that wires Kotlin its own way opts out by saying so.
         assert!(super::gradle_compiles_kotlin(
-            "// day: kotlin-ok — wired below\nplugins { id(\"com.android.application\") }"
+            "// day: kotlin-ok — wired below\nplugins { id(\"dev.daybrite.day.android\") }"
         ));
 
         // The message names the crates and leads with the fix that always works.

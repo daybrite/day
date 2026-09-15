@@ -30,12 +30,36 @@ cd my-app
 day launch -p android-mdc         # installs on every connected device/emulator, right ABI each
 ```
 
-Android Studio works as well; the Gradle scaffold calls back (`day gradle-backend build`) so a
-build started from the IDE rebuilds the Rust `.so` the same way.
-
 ```sh
 day pack -p android-mdc           # release-signed .apk + .aab
 ```
+
+## The Gradle project
+
+`platform/android/` is a standard Gradle project with short scripts. Day's Gradle plugin, applied in
+`settings.gradle.kts` and `app/build.gradle.kts`, configures the app module from `Day.toml` and your
+pieces: the application id and version, the SDK levels, the Android Gradle Plugin version, source
+folders, libraries, the merged manifest, release minification, and signing. `day build`,
+`day prepare`, and `day open` put the plugin in place from the version of Day your app builds
+against, so updating Day updates your Android build and these files stay as they are.
+
+Your own settings go in `app/build.gradle.kts`. They apply after Day's plugin, so they take
+precedence:
+
+```kotlin
+android {
+    defaultConfig {
+        minSdk = 26
+    }
+}
+
+dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}
+```
+
+`day open -p android-mdc` opens the project in Android Studio. A build started there packages the
+Rust library from the last `day build`, so run `day build -p android-mdc` after changing Rust code.
 
 ## Caveats
 
