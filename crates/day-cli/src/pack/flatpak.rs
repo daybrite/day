@@ -63,8 +63,13 @@ pub fn pack(
     let staged = super::linux::stage_tree(project, target, &outcome.artifact, &stage)
         .map_err(PackError::Other)?;
     let launcher_path = stage.join("bin").join(&id);
-    std::fs::write(&launcher_path, super::linux::launcher("/app", "", &staged))
-        .map_err(|e| PackError::Other(e.to_string()))?;
+    // No dependency defaults: `[package.metadata.day.appimage]` concerns bundled libraries, and a
+    // flatpak takes its toolkit from the runtime.
+    std::fs::write(
+        &launcher_path,
+        super::linux::launcher("/app", "", &staged, &[]),
+    )
+    .map_err(|e| PackError::Other(e.to_string()))?;
     super::linux::set_executable(&launcher_path).map_err(PackError::Other)?;
 
     // --- exports: icons, .desktop, metainfo (all app-id-named) ---------------

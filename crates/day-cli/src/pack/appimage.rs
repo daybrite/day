@@ -75,6 +75,23 @@ pub fn pack(
     super::linux::stage_exports(project, &prefix, &id, &title, "AppRun")
         .map_err(PackError::Other)?;
 
+    // Defaults the app's dependencies declare for this toolkit's AppImage (docs/extending.md). The
+    // image runs against its bundled libraries, and a crate can know that one of them needs a
+    // particular setting there. Qt Multimedia's GStreamer backend finds no element plugins in an
+    // AppImage, so day-piece-media selects the FFmpeg backend, whose codec libraries are bundled.
+    let defaults =
+        crate::pieces::resolve_appimage(project, target.toolkit).map_err(PackError::Other)?;
+    for d in &defaults {
+        status(
+            "Packing",
+            &format!(
+                "AppRun default {}={} (from {})",
+                d.name, d.value, d.declared_by
+            ),
+        );
+    }
+    let env: Vec<_> = defaults.into_iter().map(|d| (d.name, d.value)).collect();
+
     // `$0` is AppRun itself, and `readlink -f` resolves the symlink the host may have made — so
     // HERE is the AppDir root wherever the image mounted this run.
     let apprun = appdir.join("AppRun");
@@ -84,6 +101,7 @@ pub fn pack(
             "$HERE/usr",
             "HERE=\"$(dirname \"$(readlink -f \"$0\")\")\"\n",
             &staged,
+            &env,
         ),
     )
     .map_err(|e| PackError::Other(e.to_string()))?;

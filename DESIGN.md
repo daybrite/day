@@ -2796,6 +2796,16 @@ ets = ["platform/harmony/ets"]             # ArkTS source dirs, staged into the 
 
 [package.metadata.day.permissions]
 uses = ["camera"]                          # PORTABLE permissions this crate needs (docs/permissions.md)
+
+[[package.metadata.day.flatpak.bases]]     # a Flatpak base the crate's native library needs (docs/extending.md)
+toolkit = "qt"
+library-prefix = "libExampleEngine"        # selected only when the packed binary links it
+id = "org.example.Engine.BaseApp"
+
+[[package.metadata.day.appimage.env]]      # an AppImage launcher default for one toolkit (docs/extending.md);
+toolkit = "qt"                             # set only when the user's environment leaves it unset
+name = "QT_MEDIA_BACKEND"
+value = "ffmpeg"
 ```
 > [!NOTE]
 > **Localized reasons (2026-09).** A reason is a catalog message (`permission_<name>` in
@@ -3423,7 +3433,11 @@ inside, so it runs on a machine with nothing installed, which is what a one-line
 and delegates the bundling to `linuxdeploy` plus its `gtk`/`qt` plugin: the parts a naive `ldd`
 closure misses — GdkPixbuf loaders, GIO modules, GSettings schemas, Qt's platform plugins — are
 exactly where a hand-rolled bundler goes wrong. Without the plugin the AppImage still builds and
-still runs on a machine that already has the toolkit, and says so loudly (§20). The payload tree
+still runs on a machine that already has the toolkit, and says so loudly (§20). A dependency can
+also declare launcher defaults for one toolkit's AppImage (`[package.metadata.day.appimage]`, §15.2),
+for a bundled library that needs a particular setting inside the image: day-piece-media selects Qt's
+FFmpeg backend, because the bundled libgstreamer looks for element plugins only beside itself and
+the image carries none. The payload tree
 inside both is staged once (`pack/linux.rs`), so one recorded digest set verifies either (§20.3).
 GTK/Qt bundling on non-native OSes remains unsupported (the extra combos are dev targets), and
 the designed LGPL/licenses-stage guard rails remain future work.

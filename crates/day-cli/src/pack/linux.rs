@@ -96,12 +96,20 @@ pub(crate) fn stage_tree(
     })
 }
 
-/// The launcher script: exports the `DAY_*` roots, then execs the real binary.
+/// The launcher script: exports the `DAY_*` roots and the `env` defaults, then execs the real
+/// binary.
 ///
 /// `prefix` is a SHELL EXPRESSION, not a path — `/app` for a flatpak, `"$HERE/usr"` for an
 /// AppImage whose mount point is only known at run time — and `preamble` is whatever has to run
-/// before it resolves.
-pub(crate) fn launcher(prefix: &str, preamble: &str, staged: &Staged) -> String {
+/// before it resolves. Each `(name, value)` in `env` applies only when the variable is unset or
+/// empty at launch, so the user's own setting wins; the value is single-quoted, so it stays
+/// literal.
+pub(crate) fn launcher(
+    prefix: &str,
+    preamble: &str,
+    staged: &Staged,
+    env: &[(String, String)],
+) -> String {
     let name = &staged.name;
     let mut lines = vec![
         format!(r#"export DAY_ASSET_ROOT="{prefix}/share/{name}/assets""#),
@@ -112,6 +120,13 @@ pub(crate) fn launcher(prefix: &str, preamble: &str, staged: &Staged) -> String 
     ];
     if let Some((var, file)) = &staged.resource_blob {
         lines.push(format!(r#"export {var}="{prefix}/share/{name}/{file}""#));
+    }
+    for (var, value) in env {
+        // A quote inside the value closes the quoting, adds an escaped quote, and reopens it.
+        let quoted = value.replace('\'', r"'\''");
+        lines.push(format!(
+            r#"[ -n "${{{var}:-}}" ] || export {var}='{quoted}'"#
+        ));
     }
     format!(
         "#!/bin/sh\n{preamble}{}\nexec \"{prefix}/bin/{name}-bin\" \"$@\"\n",
@@ -281,6 +296,7 @@ mod tests {
             "/app",
             "",
             &staged(Some(("DAY_GRESOURCE", "demo.gresource"))),
+            &[],
         );
         assert!(sh.starts_with("#!/bin/sh\n"), "{sh}");
         assert!(
@@ -306,7 +322,7 @@ mod tests {
     #[test]
     fn the_appimage_launcher_resolves_every_path_at_run_time() {
         let preamble = "HERE=\"$(dirname \"$(readlink -f \"$0\")\")\"\n";
-        let sh = launcher("$HERE/usr", preamble, &staged(None));
+        let sh = launcher("$HERE/usr", preamble, &staged(None), &[]);
         assert!(sh.contains("readlink -f"), "{sh}");
         assert!(
             sh.contains(r#"export DAY_ASSET_ROOT="$HERE/usr/share/demo/assets""#),
@@ -322,6 +338,47 @@ mod tests {
         assert!(!sh.contains("DAY_QRESOURCE"), "{sh}");
         // Nothing may reference an absolute build path.
         assert!(!sh.contains("/app/"), "{sh}");
+    }
+
+    /// A dependency's default applies only where the user set nothing, and reaches the program
+    /// exactly as declared. The script runs through `sh`, because quoting is where it can break.
+    #[cfg(unix)]
+    #[test]
+    fn launcher_defaults_yield_to_the_user_and_stay_literal() {
+        let env = [
+            ("PIECE_TEST_BACKEND".to_string(), "ffmpeg".to_string()),
+            (
+                "PIECE_TEST_NOTE".to_string(),
+                r#"it's "$HOME" `id`"#.to_string(),
+            ),
+        ];
+        let sh = launcher("$HERE/usr", "", &staged(None), &env);
+        assert!(
+            sh.contains(
+                r#"[ -n "${PIECE_TEST_BACKEND:-}" ] || export PIECE_TEST_BACKEND='ffmpeg'"#
+            ),
+            "{sh}"
+        );
+        let exec = sh.find("\nexec ").expect("the launcher ends in exec");
+        let script = format!(
+            "{}\nprintf '%s|%s' \"$PIECE_TEST_BACKEND\" \"$PIECE_TEST_NOTE\"",
+            &sh[..exec]
+        );
+        let run = |backend: Option<&str>| {
+            let mut cmd = std::process::Command::new("sh");
+            cmd.arg("-c").arg(&script).env_remove("PIECE_TEST_NOTE");
+            match backend {
+                Some(v) => cmd.env("PIECE_TEST_BACKEND", v),
+                None => cmd.env_remove("PIECE_TEST_BACKEND"),
+            };
+            let out = cmd.output().expect("sh runs");
+            assert!(out.status.success(), "{out:?}");
+            String::from_utf8(out.stdout).expect("utf-8")
+        };
+        let note = r#"it's "$HOME" `id`"#;
+        assert_eq!(run(None), format!("ffmpeg|{note}"));
+        assert_eq!(run(Some("")), format!("ffmpeg|{note}"));
+        assert_eq!(run(Some("gstreamer")), format!("gstreamer|{note}"));
     }
 
     /// The tree itself, staged from a fixture project. Both Linux formats read this layout, so a

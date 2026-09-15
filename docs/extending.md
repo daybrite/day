@@ -612,3 +612,31 @@ When running Day's full lint script against an external crate under development,
 `DAY_LINT_LOCAL_CHECKOUTS` to its checkout path. Multiple paths are separated by newlines.
 The script adds them to Showcase's local patch table alongside Day, so its Clippy checks use
 the same sources as your local app builds.
+
+## AppImage environment
+
+A dependency can set an environment variable in one toolkit's AppImage launcher:
+
+```toml
+[[package.metadata.day.appimage.env]]
+toolkit = "qt"
+name = "QT_MEDIA_BACKEND"
+value = "ffmpeg"
+```
+
+An AppImage runs against the libraries bundled inside it, and a bundled library can need a
+setting that the build machine did not. `day pack` reads declarations from the app's resolved
+dependency graph, including the app itself, the same way it reads Flatpak bases. It writes each
+declaration for the target toolkit into the AppImage's `AppRun`. At launch, the variable is set
+only when the user's environment leaves it unset or empty, so the user's own setting wins. The
+value is literal; the launcher expands nothing in it.
+
+A name uses letters, digits, and `_`, and must not start with a digit or with `DAY_`, which the
+launcher uses for its own paths. Identical declarations coalesce. Two crates giving one variable
+different values stop packaging with an error, and so does a malformed declaration. The Flatpak
+launcher does not apply these defaults, because a Flatpak takes its toolkit from the runtime.
+
+`day-piece-media` is the reference. linuxdeploy bundles libgstreamer but no GStreamer element
+plugins, and the bundled library looks for plugins only beside itself. Qt Multimedia's GStreamer
+backend then finds no elements and crashes, so the crate selects Qt's FFmpeg backend, whose codec
+libraries linuxdeploy does bundle.

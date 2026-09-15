@@ -403,6 +403,102 @@ fn flatpak_bases(meta: &Metadata) -> Result<Vec<FlatpakBase>, String> {
     Ok(bases)
 }
 
+/// A dependency's default for one variable in a toolkit's AppImage launcher.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub(crate) struct AppImageEnv {
+    pub toolkit: String,
+    pub name: String,
+    pub value: String,
+    /// The crate that declared it, for the pack log and conflict errors.
+    #[serde(skip)]
+    pub declared_by: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AppImageMeta {
+    env: Vec<AppImageEnv>,
+}
+
+/// The launcher defaults the app's dependency closure declares for `toolkit`, sorted by name.
+pub(crate) fn resolve_appimage(
+    project: &Project,
+    toolkit: &str,
+) -> Result<Vec<AppImageEnv>, String> {
+    let mut features = vec![toolkit.to_string()];
+    features.extend(feature_union(project, toolkit));
+    let refs: Vec<_> = features.iter().map(String::as_str).collect();
+    appimage_env(&cargo_metadata(project, &refs)?, toolkit)
+}
+
+fn appimage_env(meta: &Metadata, toolkit: &str) -> Result<Vec<AppImageEnv>, String> {
+    let reachable = closure(meta);
+    let mut chosen = std::collections::BTreeMap::<String, AppImageEnv>::new();
+    for pkg in &meta.packages {
+        if !reachable.contains(&pkg.id) {
+            continue;
+        }
+        let Some(table) = pkg
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("day"))
+            .and_then(|d| d.get("appimage"))
+        else {
+            continue;
+        };
+        // Validated for every toolkit, so a bad declaration fails the first pack, not the one
+        // that happens to select it.
+        let declared: AppImageMeta = serde_json::from_value(table.clone()).map_err(|e| {
+            format!(
+                "{}: invalid [package.metadata.day.appimage]: {e}",
+                pkg.manifest_path
+            )
+        })?;
+        for mut entry in declared.env {
+            if entry.toolkit.trim().is_empty() || entry.value.is_empty() {
+                return Err(format!(
+                    "{}: AppImage env fields must not be empty",
+                    pkg.manifest_path
+                ));
+            }
+            if !is_env_name(&entry.name) || entry.name.starts_with("DAY_") {
+                return Err(format!(
+                    "{}: `{}` cannot be an AppImage env name; use letters, digits and `_`, not \
+                     starting with a digit or with DAY_ (the launcher's own paths)",
+                    pkg.manifest_path, entry.name
+                ));
+            }
+            if entry.toolkit != toolkit {
+                continue;
+            }
+            entry.declared_by = pkg.name.clone();
+            match chosen.get(&entry.name) {
+                Some(prev) if prev.value == entry.value => {}
+                Some(prev) => {
+                    return Err(format!(
+                        "conflicting AppImage defaults for {}: `{}` from {}, `{}` from {}",
+                        entry.name, prev.value, prev.declared_by, entry.value, entry.declared_by
+                    ));
+                }
+                None => {
+                    chosen.insert(entry.name.clone(), entry);
+                }
+            }
+        }
+    }
+    Ok(chosen.into_values().collect())
+}
+
+/// A POSIX shell variable name.
+fn is_env_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c == '_' || c.is_ascii_alphabetic())
+        && chars.all(|c| c == '_' || c.is_ascii_alphanumeric())
+}
+
 /// Resolve every piece in the app's Android dependency closure and collect its contributions.
 /// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
 /// by that feature set contribute) — currently `["mdc"]`, no default features.
@@ -1839,6 +1935,70 @@ mod tests {
         assert!(collect(&data).unwrap_err().contains("must not be empty"));
         data["packages"][1]["metadata"]["day"]["flatpak"] = serde_json::json!({"unknown":true});
         assert!(collect(&data).unwrap_err().contains("invalid"));
+    }
+
+    #[test]
+    fn appimage_defaults_follow_closure_and_toolkit_and_refuse_conflicts() {
+        let mut data = serde_json::json!({
+            "packages": [
+                {"id":"app", "name":"app", "manifest_path":"app/Cargo.toml"},
+                {"id":"piece", "name":"piece", "manifest_path":"piece/Cargo.toml",
+                 "metadata":{"day":{"appimage":{"env":[
+                     {"toolkit":"qt", "name":"QT_MEDIA_BACKEND", "value":"ffmpeg"},
+                     {"toolkit":"gtk", "name":"GDK_DEBUG", "value":"portals"}
+                 ]}}}},
+                {"id":"other", "name":"other", "manifest_path":"other/Cargo.toml",
+                 "metadata":{"day":{"appimage":{"env":[
+                     {"toolkit":"qt", "name":"QT_MEDIA_BACKEND", "value":"ffmpeg"}
+                 ]}}}},
+                {"id":"unused", "name":"unused", "manifest_path":"unused/Cargo.toml",
+                 "metadata":{"day":{"appimage":{"bad-field":true}}}}
+            ],
+            "resolve":{"root":"app", "nodes":[
+                {"id":"app", "deps":[{"pkg":"piece"}, {"pkg":"other"}]},
+                {"id":"piece", "deps":[]}, {"id":"other", "deps":[]}
+            ]}
+        });
+        let collect = |v: &serde_json::Value, toolkit: &str| {
+            super::appimage_env(&serde_json::from_value(v.clone()).unwrap(), toolkit)
+        };
+        // Two crates agreeing coalesce to the first; the unreachable crate's table is never read.
+        let qt = collect(&data, "qt").unwrap();
+        assert_eq!(qt.len(), 1);
+        assert_eq!(
+            (
+                qt[0].name.as_str(),
+                qt[0].value.as_str(),
+                qt[0].declared_by.as_str()
+            ),
+            ("QT_MEDIA_BACKEND", "ffmpeg", "piece")
+        );
+        let gtk = collect(&data, "gtk").unwrap();
+        assert_eq!(gtk.len(), 1);
+        assert_eq!(gtk[0].name, "GDK_DEBUG");
+
+        let entry = "/packages/2/metadata/day/appimage/env/0";
+        *data.pointer_mut(&format!("{entry}/value")).unwrap() = "gstreamer".into();
+        let err = collect(&data, "qt").unwrap_err();
+        assert!(err.contains("conflicting") && err.contains("piece") && err.contains("other"));
+        // The other toolkit's pack does not see the conflict.
+        assert!(collect(&data, "gtk").is_ok());
+
+        // A bad name fails every toolkit's pack, not only the one that selects it.
+        for bad in ["DAY_ASSET_ROOT", "1ST", "QT MEDIA", ""] {
+            *data.pointer_mut(&format!("{entry}/name")).unwrap() = bad.into();
+            let err = collect(&data, "gtk").unwrap_err();
+            assert!(err.contains("env name"), "{bad}: {err}");
+        }
+        *data.pointer_mut(&format!("{entry}/name")).unwrap() = "QT_MEDIA_BACKEND".into();
+        *data.pointer_mut(&format!("{entry}/value")).unwrap() = "".into();
+        assert!(
+            collect(&data, "qt")
+                .unwrap_err()
+                .contains("must not be empty")
+        );
+        data["packages"][2]["metadata"]["day"]["appimage"] = serde_json::json!({"unknown":true});
+        assert!(collect(&data, "qt").unwrap_err().contains("invalid"));
     }
 
     use super::*;
