@@ -290,11 +290,21 @@ fn pane_width(requested: f64, total: f64) -> f64 {
 
 /// The composed inspector's split: the content, the side pane (a container around the
 /// `when`), and the compact-width sheet, placed by [`SplitLayout`] so the pane's width follows
-/// the window rather than being fixed at build time.
-fn split_row<C: PieceSeq>(width: f64, children: C) -> impl Piece {
+/// the window rather than being fixed at build time. `shown` is the reactive condition shared
+/// with the pane's `when`; it determines whether the layout reserves side-pane width.
+fn split_row<C: PieceSeq>(
+    width: f64,
+    shown: impl Fn() -> bool + 'static,
+    children: C,
+) -> impl Piece {
     piece_fn(move |cx| {
+        let initial = untrack(&shown);
+        let pane_is_shown = Rc::new(Cell::new(initial));
         let node = cx.layout_only(
-            Rc::new(SplitLayout { width }),
+            Rc::new(SplitLayout {
+                width,
+                pane_is_shown: pane_is_shown.clone(),
+            }),
             Flex {
                 grow_w: true,
                 grow_h: true,
@@ -303,12 +313,20 @@ fn split_row<C: PieceSeq>(width: f64, children: C) -> impl Piece {
             Boundary::No,
         );
         cx.under(node, |cx| children.build_each(cx));
+        bind_seeded(initial, shown, move |show: &bool| {
+            pane_is_shown.set(*show);
+            with_tree(|tree| {
+                tree.mark_needs_measure(node);
+                tree.mark_layout_dirty();
+            });
+        });
         node
     })
 }
 
 struct SplitLayout {
     width: f64,
+    pane_is_shown: Rc<Cell<bool>>,
 }
 
 impl day_core::Layout for SplitLayout {
@@ -326,14 +344,9 @@ impl day_core::Layout for SplitLayout {
     fn place(&self, cx: &mut dyn day_core::LayoutOps, children: &[RNode], bounds: Rect) {
         let (w, h) = (bounds.size.width, bounds.size.height);
         let pane = pane_width(self.width, w);
-        // The side container is zero-wide while its `when` is hidden.
-        let side_w = children
-            .get(1)
-            .map(|s| {
-                let m = cx.measure_child(*s, Proposal::new(Some(pane), Some(h)));
-                if m.width > 0.0 { pane } else { 0.0 }
-            })
-            .unwrap_or(0.0);
+        // An empty growable container still measures to the proposed width. Visibility
+        // comes from the binding and window size class, never from that measurement.
+        let side_w = if self.pane_is_shown.get() { pane } else { 0.0 };
         if let Some(&c) = children.first() {
             cx.place_child(c, Rect::new(0.0, 0.0, (w - side_w).max(0.0), h));
         }
@@ -376,13 +389,15 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
         ))
         .build(cx);
     }
-    let side_visible = visible.clone();
+    let pane_binding = visible.clone();
+    let show_pane = move || pane_binding.read() && !compact(window);
     let side_panel = panel.clone();
     let sheet_panel = panel;
     let sheet_close = visible.clone();
     let done = sheet_done.initial();
     split_row(
         width,
+        show_pane.clone(),
         (
             content.grow(),
             // The side pane: mounted only while visible on a non-compact window, so the compact
@@ -390,10 +405,9 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
             // (`pane_width`), so the row fills whatever it is proposed.
             // A hairline divider, then the panel filling the rest of the pane, both the
             // pane's full height.
-            column((when(
-                move || side_visible.read() && !compact(window),
-                move || row((divider().width(1.0).grow_h(), scroll(side_panel()).grow())).grow(),
-            ),))
+            column((when(show_pane, move || {
+                row((divider().width(1.0).grow_h(), scroll(side_panel()).grow())).grow()
+            }),))
             .grow(),
             // The compact home: a fullscreen sheet. Unrouted — the inspector is chrome, not a
             // place (`Cover::unrouted`) — and carrying its own way out, since a fullscreen

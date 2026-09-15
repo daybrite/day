@@ -65,6 +65,10 @@ Resizing across the breakpoint re-homes the panel automatically in both directio
 the sheet's open state is derived from `visible` **and** the window's size class rather than
 stored anywhere.
 
+A hidden composed pane reserves no width. While its panel is shown as a compact sheet,
+the underlying content also keeps the full width. This follows the visibility binding and
+the size class of the owning window, including when the window is resized.
+
 The native desktop panes do not re-home on a narrow window; a desktop window dragged narrow
 squeezes its split, the same rule the nav sidebar follows.
 

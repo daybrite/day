@@ -785,6 +785,7 @@ cover(open, build)                 // fullscreen modal surface bound to a Signal
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
                                    //   split where Cap::Inspector is Native, composed pane +
                                    //   compact-width sheet elsewhere (docs/inspector.md);
+                                   //   hidden composed panes and compact sheets leave content at full width;
                                    //   .edge(PaneEdge::Leading) makes it a leading utility
                                    //   pane (a layer panel, docs/tree.md)
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)

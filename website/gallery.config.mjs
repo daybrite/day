@@ -184,6 +184,15 @@ export const apps = [
     metadata: 'https://daybrite.github.io/Day-Sketch/gallery/gallery.json',
   },
   {
+    id: 'Day-Tunes',
+    label: 'Day Tunes',
+    blurb:
+      'An internet radio player with station search, favorites, listening history, and native playback controls.',
+    repo: 'https://github.com/daybrite/Day-Tunes',
+    metadata: 'https://daybrite.github.io/Day-Tunes/gallery/gallery.json',
+    hero: 'browse',
+  },
+  {
     id: 'Day-Games',
     label: 'Day Games',
     blurb:
