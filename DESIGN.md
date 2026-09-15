@@ -3821,8 +3821,10 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   day-android crate (`toolkits/day-android/gradle-plugin`), staged by `day build`, `day prepare`,
   and `day open` from the crate the app resolves, so the build logic always matches the Java shim
   it configures and a change to Day's Android build reaches existing apps without script edits.
-  The plugin carries the AGP version (always one a current Android Studio release supports, since
-  the IDE refuses to sync a project on a newer AGP), the SDK levels, and the shim's libraries; applies
+  The plugin carries the AGP version (9.4, which needs Android Studio 2026.1.4 or newer; always one a
+  current Android Studio release supports, since the IDE refuses to sync a project on a newer AGP,
+  and listed as a prerequisite in the website's system requirements), the SDK levels, and the
+  shim's libraries; applies
   `com.android.application`; and configures the module from `build/day/android/` (piece
   contributions in `day-pieces.json`, Day.toml identity, release signing, the manifest overlay),
   reading each file through `providers.fileContents`. The configuration cache tracks those reads,

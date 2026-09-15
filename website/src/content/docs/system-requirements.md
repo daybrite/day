@@ -208,6 +208,11 @@ rustup target add x86_64-linux-android     # x86_64 emulator
 cargo install cargo-ndk
 ```
 
+To open, build, or run the app from Android Studio, use **Android Studio 2026.1.4 (Quail 4) or
+newer**. Day's Gradle plugin builds with the Android Gradle Plugin 9.4, and Android Studio syncs
+only the AGP versions it supports. `day build` and `day launch` run Gradle themselves, so they work
+with any Android Studio release.
+
 ### Setting up an emulator
 
 Create an AVD in Android Studio's **Device Manager**, or with `avdmanager create avd`, then start

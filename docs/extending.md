@@ -167,7 +167,10 @@ dirs, dependencies, and repos.
 repositories. `app/build.gradle.kts` applies `dev.daybrite.day.android`, which applies
 `com.android.application` and configures the module from `build/day/android/`: Day.toml identity,
 the SDK levels, the day-android shim and piece sources, libraries, the manifest overlay, R8 rules, and
-release signing. The plugins are Java sources in `toolkits/day-android/gradle-plugin`. `day build`,
+release signing. The plugins are Java sources in `toolkits/day-android/gradle-plugin`, built on
+AGP 9.4, which needs Android Studio 2026.1.4 or newer to sync. Raise that version only to one a
+current Android Studio release supports, and update the Android Studio prerequisite on the
+website's system requirements and android-mdc pages with it. `day build`,
 `day prepare`, and `day open` stage them from the day-android crate the app resolves, so an app
 always builds with the plugin that matches its Java shim. The app's own `android {}` and
 `dependencies {}` blocks run after the plugin, so a value set there overrides Day's. A change to

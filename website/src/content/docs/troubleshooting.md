@@ -172,6 +172,11 @@ For Java or Gradle compatibility errors, check the JDK selected by `JAVA_HOME`. 
 builds use that setting, so a newer `java` on `PATH` does not fix a `JAVA_HOME` pointing at an older
 JDK. Follow the [Android setup instructions](/docs/system-requirements#android), then repeat doctor.
 
+If Android Studio's Gradle sync reports "The project is using an incompatible version (AGP 9.4.0)
+of the Android Gradle plugin", update Android Studio to 2026.1.4 or newer. Day's Gradle plugin
+builds with that AGP release, which older Android Studio versions cannot sync. `day build` works
+either way.
+
 For a launch failure:
 
 ```bash
