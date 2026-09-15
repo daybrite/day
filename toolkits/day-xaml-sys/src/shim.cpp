@@ -4554,7 +4554,7 @@ static WUXC::IconElement toolbar_icon(const std::string& glyph, const std::strin
     return nullptr;
 }
 
-void day_xaml_button_set_content(void* h, const char* title, const char* glyph, const char* image, const char* geometry, int icon_only) {
+extern "C" void day_xaml_button_set_content(void* h, const char* title, const char* glyph, const char* image, const char* geometry, int icon_only) try {
     auto button = elem(h).try_as<WUXC::Button>();
     if (!button) return;
     auto icon = toolbar_icon(glyph, image, geometry);
@@ -4570,6 +4570,7 @@ void day_xaml_button_set_content(void* h, const char* title, const char* glyph, 
     button.Content(content);
     WUX::Automation::AutomationProperties::SetName(button, hs(title));
     WUXC::ToolTipService::SetToolTip(button, icon_only && icon ? winrt::box_value(hs(title)) : nullptr);
+} catch (...) {
 }
 
 
