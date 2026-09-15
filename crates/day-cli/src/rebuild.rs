@@ -587,8 +587,18 @@ fn checkout(repository: &str, commit: &str, dest: &Path) -> Result<(), String> {
 
 /// Entry names never copied by [`copy_project`], at any depth. `.git` is history the rebuild has
 /// no use for; `build`, `target`, and `node_modules` are build products, and a stale artifact or
-/// object file carried into the copy would poison the rebuild it is meant to check.
-const COPY_EXCLUDES: [&str; 4] = [".git", "build", "target", "node_modules"];
+/// object file carried into the copy would poison the rebuild it is meant to check. `.gradle` and
+/// `.kotlin` are Gradle's and Kotlin's per-project caches: a copied configuration cache records the
+/// ORIGINAL project's absolute paths, so Gradle reuses it, finds the original's outputs up to date,
+/// and never writes an APK into the copy.
+const COPY_EXCLUDES: [&str; 6] = [
+    ".git",
+    "build",
+    "target",
+    "node_modules",
+    ".gradle",
+    ".kotlin",
+];
 
 /// Copy a project directory into the scratch tree for a `--from-dir` rebuild.
 ///
@@ -2167,11 +2177,26 @@ image-type      : UDIF read-only [write once]
             ".git/objects",
             "target/release",
             "website/node_modules/dep",
+            "platform/android/.gradle/configuration-cache",
+            "platform/android/.kotlin/sessions",
+            "platform/android/app",
         ] {
             std::fs::create_dir_all(src.join(dir)).expect("mkdir");
         }
         std::fs::write(src.join("Day.toml"), "schema = 1\n").expect("Day.toml");
         std::fs::write(src.join("src/main.rs"), "fn main() {}\n").expect("main.rs");
+        std::fs::write(
+            src.join("platform/android/.gradle/configuration-cache/entry.bin"),
+            b"cached configuration",
+        )
+        .expect("cache entry");
+        std::fs::write(src.join("platform/android/.kotlin/sessions/s"), b"session")
+            .expect("kotlin");
+        std::fs::write(
+            src.join("platform/android/app/build.gradle.kts"),
+            "plugins {}\n",
+        )
+        .expect("app script");
         std::fs::write(src.join("build/day/dist/stale.dmg"), b"stale").expect("stale");
         std::fs::write(src.join(".git/HEAD"), "ref: refs/heads/main\n").expect("HEAD");
         std::fs::write(src.join("target/release/app"), b"old binary").expect("old bin");
@@ -2195,6 +2220,16 @@ image-type      : UDIF read-only [write once]
             dest.join("website/site.toml").is_file(),
             "…while the directory around it survives"
         );
+        // A copied Gradle configuration cache points the rebuild at the original's outputs.
+        assert!(
+            !dest.join("platform/android/.gradle").exists(),
+            ".gradle is excluded"
+        );
+        assert!(
+            !dest.join("platform/android/.kotlin").exists(),
+            ".kotlin is excluded"
+        );
+        assert!(dest.join("platform/android/app/build.gradle.kts").is_file());
         let _ = std::fs::remove_dir_all(&tmp);
     }
 }
