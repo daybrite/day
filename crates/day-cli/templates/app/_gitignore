@@ -32,6 +32,10 @@ platform/*/DayApp.local.xcconfig
 platform/android/.gradle/
 platform/android/**/build/
 platform/android/local.properties
+# Gradle's `updateDaemonJvm` task writes this when an IDE syncs the project: a daemon JVM vendor
+# and version chosen on one machine, with download URLs. A project that means to pin its daemon
+# JVM commits it on purpose (`git add -f`).
+platform/android/gradle/gradle-daemon-jvm.properties
 # Android Studio writes its project model into the Gradle root it opens. The Xcode counterpart
 # (xcuserdata/) is above; this is the same thing for the other IDE, and without it the first
 # person to open platform/android in Studio leaves a dozen untracked files behind.

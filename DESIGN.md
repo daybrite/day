@@ -2174,6 +2174,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   *Frame rule (2026-09-11):* the COVER node's own frame is the backend's; the core never
 >   applies the parent's placement to it (it measures zero where it sits), so a relayout of
 >   the parent — a window resize — cannot collapse a presented cover ([docs/cover.md](docs/cover.md)).
+>   *Android touch boundary:* `DayCover.onTouchEvent` consumes touches left unhandled by its
+>   descendants, including passive headers, padding and safe-area margins. Drawing an opaque
+>   background does not prevent Android from dispatching a rejected DOWN to the sibling below.
+>   Normal child dispatch runs first, preserving buttons, scrolling and canvas gestures; the
+>   shell neither intercepts them nor advertises a dummy accessibility click action. Once GONE,
+>   the shell no longer participates in hit testing and the underlying page is interactive again.
 >
 > The paragraphs below are the design-era rationale, kept because the trade-offs still explain
 > the shape.

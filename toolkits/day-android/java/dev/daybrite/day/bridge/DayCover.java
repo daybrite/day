@@ -3,6 +3,7 @@
 
 package dev.daybrite.day.bridge;
 
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
@@ -23,6 +24,15 @@ public class DayCover extends FrameLayout {
      *  (z-order re-syncs) must leave it alone (see DayBridge.addChild/removeChild). */
     boolean presented;
     private androidx.activity.OnBackPressedCallback backCb;
+
+    /** A modal surface must own touches its descendants do not handle (labels, spacers,
+     *  padding and safe-area margins). An opaque FrameLayout alone is not a touch barrier:
+     *  returning false on DOWN lets the activity root try the sibling underneath the cover.
+     *  Consume here, AFTER normal child dispatch, so buttons, scrolling and canvas gestures
+     *  keep their streams. Do not intercept children or make the shell a clickable a11y node. */
+    @Override public boolean onTouchEvent(MotionEvent event) {
+        return true;
+    }
 
     public DayCover(android.content.Context ctx, final long node) {
         super(ctx);

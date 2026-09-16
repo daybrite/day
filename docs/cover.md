@@ -148,13 +148,18 @@ reopen it, and a "link me to this screen" URL point at a modal.
 - A native dismissal *request* (Android back) arrives as `Event::NavBack` on the cover
   node; the piece writes `None` into the signal unless dismissal is disabled, the same
   origin-tagged write-back discipline as every control.
+- A presented cover is a touch boundary, including blank content and safe-area margins.
+  Android's `DayCover.onTouchEvent` consumes events that descendants do not handle, after
+  normal child dispatch. Background opacity alone does not stop taps reaching the page below;
+  apps do not need dummy gesture handlers on headers or spacers. Hiding the cover restores
+  interaction with the underlying page.
 
 ## Per-toolkit realization
 
 | Toolkit | Present | Dismiss request | Hidden report |
 |---|---|---|---|
 | uikit | `DayCoverVC` (fullscreen modal) over a `DayNavPageView`, through the dialog FIFO | none (fullscreen has no sheet gesture) | dismiss completion block |
-| android | `DayCover` shell re-homed onto the activity content root, slide-up `ViewPropertyAnimator` | `OnBackPressedCallback` → `NavBack` | slide-out end action |
+| android | `DayCover` shell re-homed onto the activity content root, slide-up `ValueAnimator` | `OnBackPressedCallback` → `NavBack` | slide-out completion, shell becomes GONE |
 | arkui | Stack re-homed onto the window root at full bounds (no transition) | none | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
 | appkit / gtk / qt / xaml / dom | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |
