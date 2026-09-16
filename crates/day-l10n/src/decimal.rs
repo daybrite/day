@@ -75,7 +75,7 @@ pub fn format_decimal_in(locale: &str, v: f64, fraction_digits: usize) -> String
     })
 }
 
-/// Render `v` in the CURRENT locale (tracked, like [`crate::compare`]), so a label inside a
+/// Render `v` in the current locale (tracked, like [`crate::compare`]), so a label inside a
 /// reactive closure re-renders when the locale switches.
 pub fn format_decimal(v: f64, fraction_digits: usize) -> String {
     let locale = crate::locale().get();

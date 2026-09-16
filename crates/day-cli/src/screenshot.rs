@@ -257,7 +257,7 @@ pub fn target_entry(
 /// (device, variant, file). Entries whose files no longer exist are dropped, so a trimmed
 /// walkthrough trims the index.
 ///
-/// The index stays ONE file per target even when captures come from several devices: a device is
+/// The index stays one file per target even when captures come from several devices: a device is
 /// a dimension of a capture, like its theme and its locale, not a separate target.
 pub fn record_target_entries(screenshots_root: &Path, target: &str, entries: Vec<TargetEntry>) {
     if entries.is_empty() {
@@ -488,7 +488,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 script_ordered.push(target.clone());
             }
             let list = by_target.entry(target).or_default();
-            // The per-target index leads — in ITS order, which is the dayscript's declaration
+            // The per-target index leads — in its order, which is the dayscript's declaration
             // order. Files stay the truth: an entry whose file is gone contributes nothing.
             for e in &known.screenshots {
                 if capture_path(&tdir, e.device.as_deref(), &e.variant, &e.file).exists()

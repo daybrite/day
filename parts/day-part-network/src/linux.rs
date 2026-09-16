@@ -5,7 +5,7 @@
 // systemd-networkd are optional), so scan /sys/class/net — a non-loopback interface with operstate
 // "up" means link-level connectivity. Kind is inferred from the kernel's predictable interface-name
 // prefixes (wl* wireless, en*/eth* wired, ww* wwan), preferring wired > wifi > cellular when several
-// are up. "online" here means a link is up, NOT that internet access was validated; meteredness is a
+// are up. "online" here means a link is up, not that internet access was validated; meteredness is a
 // desktop-session concept the kernel doesn't know, so expensive is always None. Pure std.
 
 use super::{NetworkKind, NetworkStatus};

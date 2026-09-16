@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // Android: a multi-line EditText (inputType textMultiLine|textCapSentences, gravity top) that grows
 // between minLines and maxLines and scrolls internally past maxLines. The Java factory
-// (`dev.daybrite.day.piece.textarea.DayTextArea`) is bundled with THIS crate under `android/java` and
+// (`dev.daybrite.day.piece.textarea.DayTextArea`) is bundled with this crate under `android/java` and
 // pulled into the app's Gradle build automatically via `[package.metadata.day.android]` — so the piece
 // carries its own backend Java without touching day-android. A TextWatcher dispatches edits back to
 // Rust via `DayBridge.nativeOnEvent(id, 1, …)` (kind 1 = TextChanged). `measure` fills the proposed

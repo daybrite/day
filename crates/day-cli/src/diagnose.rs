@@ -5,7 +5,7 @@
 //! connection is lost (docs/agent.md, docs/break.md).
 //!
 //! A scripted run that ends in "engine connection lost" says only that the app is gone. The
-//! evidence for WHY is on the machine and nobody looks at it: day-break's crash artifacts in the
+//! evidence for why is on the machine and nobody looks at it: day-break's crash artifacts in the
 //! app's own store, the OS crash report, the emulator's crash buffer. In CI nobody can look — the
 //! runner is deleted minutes later — so this gathers what it can and prints it into the job log
 //! while the machine still exists.
@@ -114,8 +114,8 @@ fn day_break_findings(
     if !dir.is_dir() {
         return;
     }
-    // Both shapes, ranked together by mtime and filtered to THIS run. Reports are finalized on
-    // the app's NEXT launch, so a crash seconds ago has left raw artifacts while `reports/` still
+    // Both shapes, ranked together by mtime and filtered to this run. Reports are finalized on
+    // the app's next launch, so a crash seconds ago has left raw artifacts while `reports/` still
     // holds the PREVIOUS crash — reading reports/ first would confidently describe the wrong
     // death. `since` is what makes that impossible.
     let mut files = newest_files(&dir.join("reports"), 4);
@@ -263,7 +263,7 @@ fn os_crash_findings(
             let dir = home.join("Library/Logs/DiagnosticReports");
             looked.push(format!("macOS crash reports ({})", dir.display()));
             let stem = process_stem(project, target);
-            // ReportCrash writes the `.ips` a second or two AFTER the process dies, which is
+            // ReportCrash writes the `.ips` a second or two after the process dies, which is
             // after the engine loss that brought us here. Looking once finds the PREVIOUS run's
             // report or nothing at all, so wait for this run's — briefly, and only on a run that
             // has already failed.
@@ -365,7 +365,7 @@ fn os_crash_findings(
                 ),
             }
         }
-        // Windows writes nothing on its own: no core file, no crash report on disk. What it DOES
+        // Windows writes nothing on its own: no core file, no crash report on disk. What it does
         // record is a WER event in the Application log naming the faulting module and the
         // exception code, which is most of the diagnosis — and a full minidump if (and only if)
         // LocalDumps was switched on beforehand. Both are read here, and the advice for enabling
@@ -455,7 +455,7 @@ fn os_crash_findings(
             }
         }
         TargetKind::Android => {
-            // The emulator's own log FIRST, because it is the one source here that does not
+            // The emulator's own log first, because it is the one source here that does not
             // go through adb. The failure this arm most often describes is not a crash but a
             // device that stopped answering — measured as a tablet AVD whose guest froze while
             // its WebView's GPU process was loading shaders, with no crash to find — and there
@@ -541,7 +541,7 @@ fn modified_since(path: &Path, since: SystemTime) -> bool {
 
 /// Block until this run's crash report appears, or the budget runs out; `true` when one landed.
 ///
-/// ReportCrash writes the `.ips` well AFTER the process dies — measured at 20–40 s on this
+/// ReportCrash writes the `.ips` well after the process dies — measured at 20–40 s on this
 /// machine — which is always after the engine loss that brought us here. Looking once finds the
 /// previous run's report or nothing at all. Waiting costs only a run that has already failed, and
 /// a run that fails without saying why costs someone an afternoon.
@@ -559,7 +559,7 @@ fn wait_for_fresh_ips(dir: &Path, stem: &str, since: SystemTime, pid: Option<u32
             if !name.starts_with(&stem) || !modified_since(&p, since) {
                 return false;
             }
-            // With a pid in hand, wait for THAT process's report rather than any fresh one — a
+            // With a pid in hand, wait for that process's report rather than any fresh one — a
             // sibling instance's crash would otherwise end the wait early.
             match (
                 pid,

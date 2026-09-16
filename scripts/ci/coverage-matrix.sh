@@ -137,7 +137,7 @@ out = [
 ]
 for variant, kind in kinds:
     row = [f"`{kind}`"]
-    # Word-boundary match, NOT a substring test: `Builtin::List` is a prefix of
+    # Word-boundary match, not a substring test: `Builtin::List` is a prefix of
     # `Builtin::ListCell`, which every realize body mentions in its fallback arm.
     arm = re.compile(r"\bBuiltin::" + re.escape(variant) + r"\b")
     for n in names:

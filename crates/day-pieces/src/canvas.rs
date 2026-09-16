@@ -97,7 +97,7 @@ impl PathBuilder {
     /// [`Shape::Arc`] and [`PathBuilder::circle`] already use, so the crate has one.
     ///
     /// A *segment*, not a shape: the arc joins whatever came before it, which is what lets a
-    /// donut wedge, a rounded gauge or a pie slice with a hole be ONE closed path. Without it
+    /// donut wedge, a rounded gauge or a pie slice with a hole be one closed path. Without it
     /// every such figure is hand-rolled from cubics — `day-piece-charts` carried forty lines of
     /// exactly this to draw a wedge.
     ///
@@ -256,7 +256,7 @@ impl Draw {
         self.ops
             .push(DrawOp::Stroke(shape, paint.into(), style.clone()));
     }
-    /// Draw `shape` once at EVERY position in `at` — one op for the whole batch.
+    /// Draw `shape` once at every position in `at` — one op for the whole batch.
     ///
     /// The template is authored around the ORIGIN and each copy is it translated by one point, so
     /// a 6-point dot is `Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0))`. Order is drawing order.

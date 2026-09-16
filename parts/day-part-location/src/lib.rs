@@ -24,7 +24,7 @@
 //! This crate never prompts. A platform denial arrives as [`LocationError::PermissionDenied`], and
 //! the app asks for access through `day-part-permissions` (`Permission::Location`) — so neither
 //! crate depends on the other, and an app that already has permission pays nothing for the machinery
-//! that requests it. Every mobile OS ALSO needs a build-time declaration, which `[permissions]` in
+//! that requests it. Every mobile OS also needs a build-time declaration, which `[permissions]` in
 //! Day.toml generates (docs/permissions.md).
 //!
 //! # Threading

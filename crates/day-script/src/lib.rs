@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! day-script — the embedded dayscript engine (DESIGN.md §14). Bind-only-when-invited: the
-//! server starts ONLY when DAYSCRIPT_PORT + DAYSCRIPT_TOKEN are present in the environment
+//! server starts only when DAYSCRIPT_PORT + DAYSCRIPT_TOKEN are present in the environment
 //! (never otherwise), listens on 127.0.0.1, and accepts only the step catalog. Steps execute
 //! as synthesized Day events on the main thread between flushes — deterministic and
 //! toolkit-uniform. Locator steps get an implicit bounded wait (default 5s).
@@ -25,7 +25,7 @@ pub use record::play;
 
 pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
 
-/// How long ONE dispatch may wait for the main thread before the step is failed.
+/// How long one dispatch may wait for the main thread before the step is failed.
 ///
 /// This is not the step's implicit-wait budget ([`DEFAULT_TIMEOUT_SECS`], §14.3). That one governs
 /// re-asking a question whose answer may change — "is it visible yet?". This one governs a main
@@ -75,7 +75,7 @@ pub enum Step {
         id: String,
         #[serde(default)]
         repeat: Option<u32>,
-        /// Tap at THIS point in the element's own coordinate space instead of its center —
+        /// Tap at this point in the element's own coordinate space instead of its center —
         /// what canvas hit-testing needs (`- tap: { id: canvas, at: [40, 60] }`).
         #[serde(default)]
         at: Option<[f64; 2]>,
@@ -103,7 +103,7 @@ pub enum Step {
     /// `Event::Drag` stream a native recognizer delivers, so `.on_drag` state machines
     /// (canvas move/resize) run their whole preview→commit path. Injected, like every
     /// dayscript step: green here says the app logic holds, not that the platform recognizer
-    /// fires — verify THAT with real input (docs/agent.md).
+    /// fires — verify that with real input (docs/agent.md).
     Drag {
         id: String,
         from: [f64; 2],
@@ -179,7 +179,7 @@ pub enum Step {
         expanded: bool,
     },
     /// Move a tree row programmatically: `row` lands under `parent` (absent = the root) at
-    /// `index` (absent = dropped ONTO the parent — append), through the same guard → commit
+    /// `index` (absent = dropped onto the parent — append), through the same guard → commit
     /// path a native drag takes (docs/tree.md). Fails (non-retryably) when the tree isn't
     /// `.movable()` or a guard — structural or the app's — denies the move.
     TreeMove {
@@ -194,7 +194,7 @@ pub enum Step {
     /// a native swipe takes (docs/list.md) — the app's `delete_guard` may refuse it. Fails
     /// (non-retryably) when the list isn't `.deletable()` or the guard refuses.
     ///
-    /// This is how a walkthrough asserts deletion on EVERY target, including the desktops whose
+    /// This is how a walkthrough asserts deletion on every target, including the desktops whose
     /// toolkits answer `Cap::ListDelete = Unsupported` and have no gesture to simulate: the step
     /// drives the seam, not the platform's gesture recognizer.
     DeleteRow {
@@ -207,13 +207,13 @@ pub enum Step {
     /// offer → commit path a native gesture takes (docs/list.md). `label:` (literal) or
     /// `key:` (a Fluent key resolved in the run's locale) PINS which button may be pressed —
     /// offers are state-dependent ("Mark as Read" vs "Mark as Unread"), and the pin is
-    /// checked BEFORE the press: a mismatched offer refuses the activation and fails the
+    /// checked before the press: a mismatched offer refuses the activation and fails the
     /// step with the row's state untouched, so a stale pin (leftover state from an aborted
     /// earlier run) fails once instead of flipping state and poisoning every later run.
     /// Fails (non-retryably) when the list offers no swipe actions or the row's offer has
     /// no such action.
     ///
-    /// This is how a walkthrough exercises swipe actions on EVERY target, including the
+    /// This is how a walkthrough exercises swipe actions on every target, including the
     /// toolkits that answer `Cap::ListSwipeActions = Unsupported` and show no affordance:
     /// the step drives the seam, not the platform's gesture recognizer.
     SwipeRow {
@@ -427,7 +427,7 @@ pub enum Step {
         focused: Option<bool>,
     },
     /// Expect the app to TERMINATE — the only step that tolerates the app dying (docs/break.md's
-    /// crash-reporting flow, docs/agent.md). MUST be the last step: a preceding step triggered an
+    /// crash-reporting flow, docs/agent.md). Must be the last step: a preceding step triggered an
     /// intentional exit/crash, and `expect_exit` treats the connection dropping within `within`
     /// seconds (default 15) as success; the app surviving the window is the failure. Handled
     /// runner-side (`day-cli`), so the in-app engine never executes it — this arm is defensive.
@@ -681,7 +681,7 @@ fn serve(port: u16, token: String) {
     // app on it every variant: the previous instance can still be letting go of the socket when
     // this one starts. Giving up on the first EADDRINUSE is what made that silent — the engine
     // thread simply ended, the app carried on without one, and the runner then talked to
-    // whatever WAS still listening. That is the previous variant's app, which shares this run's
+    // whatever was still listening. That is the previous variant's app, which shares this run's
     // token and answers every step, so a locale sweep re-photographs the earlier locale instead
     // of failing.
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
@@ -778,7 +778,7 @@ fn run_on_main(step: Step, budget: Duration) -> Reply {
         if flag.load(Ordering::SeqCst) {
             return;
         }
-        // The engine listens from the moment `day_script::init` runs, which is BEFORE the
+        // The engine listens from the moment `day_script::init` runs, which is before the
         // backend has built the tree — a runner that connects during a slow startup (day-break
         // reconciling a crash from the previous launch is the reliable way to be slow) can land
         // a step in that window. Answering "retryable" hands it back to the bounded wait, which
@@ -877,7 +877,7 @@ fn find_menu_actions(
                     role,
                     ..
                 } => {
-                    // An `id:` step is an EXACT address and nothing else may answer it: matching
+                    // An `id:` step is an exact address and nothing else may answer it: matching
                     // the label too would let a step that named a missing id quietly hit some
                     // other item whose title happened to read the same.
                     let by_id = target_id.is_some_and(|w| id.as_deref() == Some(w));
@@ -1210,7 +1210,7 @@ fn exec(step: Step) -> Reply {
                     (None, Some(k)) => Some(format_key(k, None)),
                     (None, None) => None,
                 };
-                // The pin is checked BEFORE the press (docs/list.md): a mismatched offer
+                // The pin is checked before the press (docs/list.md): a mismatched offer
                 // refuses the activation rather than flipping state the script did not mean
                 // to flip — which is how one aborted run would poison every later one.
                 match day_core::list_try_swipe(node, row, edge, action, expected.as_deref()) {
@@ -1227,7 +1227,7 @@ fn exec(step: Step) -> Reply {
                 contains,
                 text,
             } => {
-                // The eval resolves at a LATER event drain, and a step handler cannot block
+                // The eval resolves at a later event drain, and a step handler cannot block
                 // the pump it needs — so the step is a retryable poll: the first pass starts
                 // the evaluation, retries within the runner's implicit wait collect it, and
                 // an assertion mismatch discards the result so the retry re-evaluates (a page
@@ -1415,7 +1415,7 @@ fn exec(step: Step) -> Reply {
                 index,
             } => {
                 // `key` resolves through the run's locale, like `input`'s does; `text` stays a
-                // literal. Resolved BEFORE the item lookup so a bad key fails as a bad key.
+                // literal. Resolved before the item lookup so a bad key fails as a bad key.
                 let text = match key {
                     Some(k) => Some(format_key(&k, args)),
                     None => text,
@@ -1796,7 +1796,7 @@ fn exec(step: Step) -> Reply {
                     }
                     Ok(Reply::ok())
                 } else if day_core::size_class().is_some_and(|c| c.prefers_split()) {
-                    // Nothing to pop, and nothing SHOULD be: a window past the compact width keeps
+                    // Nothing to pop, and nothing should be: a window past the compact width keeps
                     // the detail beside the list instead of pushing it (docs/size-classes.md), so
                     // the script is already where `nav_back` would have taken it.
                     //
@@ -2101,7 +2101,7 @@ mod tests {
         // Same id on either side of the flip, though the label is a different string each time.
         assert_eq!(by_id(&model("\u{2713} ")), vec![42]);
         assert_eq!(by_id(&model("    ")), vec![42]);
-        // The unmarked spelling matches the OTHER item by label, which is the ambiguity an id
+        // The unmarked spelling matches the other item by label, which is the ambiguity an id
         // exists to avoid.
         assert_eq!(
             find_menu_actions(&model("    "), "Grid", None, None, &[])

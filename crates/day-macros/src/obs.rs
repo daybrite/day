@@ -8,7 +8,7 @@
 //! - `impl day_model::Identified for Item` from the `#[obs(key)]` field — always explicit, never
 //!   inferred: a struct that happens to carry an `id` that is not its key would make inference a
 //!   trap, and one attribute line is cheap;
-//! - an `ItemFields` trait with one accessor per field, implemented for EVERY
+//! - an `ItemFields` trait with one accessor per field, implemented for every
 //!   `Source<Item>` — so `store.name()`, `store.elem(id).name()` and `item.address().city()`
 //!   all work;
 //! - `Item::OBSERVED_FIELDS`, so a test can assert what is observable without reflection.
@@ -353,7 +353,7 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
     }
 
     // Typed column refs: `Trip::name()` in a predicate, beside `trip.name()` the binding.
-    // Inherent fns WITHOUT a receiver never collide with the Fields trait's methods (which
+    // Inherent fns without a receiver never collide with the Fields trait's methods (which
     // take self) — method-call syntax finds the trait, path syntax finds these.
     let mut cols = String::new();
     for f in &persisted {

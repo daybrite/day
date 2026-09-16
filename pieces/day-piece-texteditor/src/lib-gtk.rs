@@ -159,7 +159,7 @@ fn para_tag(st: &EdState, p: &day_spec::ParagraphStyle) -> gtk4::TextTag {
     } else {
         MARKER_INDENT
     };
-    // GTK's `indent` is the FIRST line's offset relative to the left margin, so the marker's
+    // GTK's `indent` is the first line's offset relative to the left margin, so the marker's
     // hanging indent is a negative first-line offset against a wider margin — the inverse of the
     // way Apple spells the same layout.
     tag.set_left_margin(MARGIN_H + (indent + marker) as i32);

@@ -6,7 +6,7 @@
 //! `UIActivityIndicatorView` on UIKit, `GtkSpinner` on GTK, a busy `QProgressBar` (range 0..0) on
 //! Qt, `android.widget.ProgressBar` on Android, and `ProgressRing` on XAML. One Rust API registered
 //! link-time into each backend's renderer slice without touching day, carrying both a
-//! front-end AND its own native backends (including an Android Java shim), see docs/extending.md.
+//! front-end and its own native backends (including an Android Java shim), see docs/extending.md.
 //!
 //! Unlike a media player, a spinner has an **intrinsic size** — the piece is a natural-size leaf
 //! (no `fill_measure`; each backend's default `measure` returns the native indicator's fitting
@@ -113,7 +113,7 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Activity`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`Activity`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ActivityBuilder: Sized {
     fn animating<M>(self, source: impl IntoReactive<bool, M>) -> Self;

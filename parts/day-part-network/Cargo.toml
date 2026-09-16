@@ -33,7 +33,7 @@ day-android = { workspace = true }
 day-bridge = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
-# The SAME mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages this
+# The same mechanism the UI pieces use — but this crate registers NO renderer: `day build` stages this
 # Java into the app's Gradle build and merges the permission into the app manifest, without touching
 # any core day crate.
 [package.metadata.day.android]
@@ -44,7 +44,7 @@ permissions = ["android.permission.ACCESS_NETWORK_STATE"]
 # --- iOS backend contribution (docs/extending.md) ---
 # SCNetworkReachability lives in SystemConfiguration.framework. src/apple.rs has a Rust
 # `#[link(name = "SystemConfiguration", kind = "framework")]`, but that is honored only when cargo
-# drives the final link (macOS desktop). On iOS, xcodebuild links the Rust staticlib and does NOT
+# drives the final link (macOS desktop). On iOS, xcodebuild links the Rust staticlib and does not
 # read Rust link metadata, so the app must link the framework itself — declared here and linked via
 # the generated DayPieces SwiftPM package (resolve_ios scans every closure dep, part or piece).
 [package.metadata.day.ios]

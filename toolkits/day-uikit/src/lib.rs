@@ -419,7 +419,7 @@ mod imp {
         let bounds = scene_bounds(scene);
         if *DIAG_NAV {
             let screen = scene.screen().bounds();
-            // The scene's own size versus the display's — they are DIFFERENT on any iPad running
+            // The scene's own size versus the display's — they are different on any iPad running
             // iPadOS 26, which opens apps windowed, and the gap is what makes measuring the
             // screen a bug rather than a shortcut (docs/size-classes.md). `min` echoes back the
             // `sizeRestrictions` the app just asked for, read back off the restrictions object
@@ -544,7 +544,7 @@ mod imp {
     const DAY_WINDOW_ACTIVITY: &str = "dev.daybrite.day.window";
 
     /// Scroll the focused field's nearest enclosing UIScrollView so the field is visible
-    /// (keyboard avoidance, docs/focus.md). Runs a turn AFTER the keyboard-driven root resize
+    /// (keyboard avoidance, docs/focus.md). Runs a turn after the keyboard-driven root resize
     /// so Day's relayout has settled the frames it converts.
     fn reveal_focused_field() {
         // Next main-queue turn: Day's relayout for the resized root has run by then, so the
@@ -1231,7 +1231,7 @@ mod imp {
         NavBar,
         /// Nowhere: an expanded split's sidebar or list column.
         None,
-        /// Not this controller's concern: a stack nested INSIDE another host's page. The
+        /// Not this controller's concern: a stack nested inside another host's page. The
         /// window's bar rides the outer host, and a nested stack is left entirely alone — a
         /// toolbar-visibility call on it during its own push transition cancels the push on
         /// iOS 26 and later (the Showcase's Stack page popped straight back on CI's iPhone).
@@ -1636,7 +1636,7 @@ mod imp {
         // An ADAPTIVE TABS host draws its own chrome — the strip of destinations across the top
         // in `.tabSidebar`, a tab bar below in compact — and iPadOS puts a tabbed app's commands
         // on that same bar through the controller's `navigationItem`. Day used to dock a
-        // navigation bar of its own ABOVE it, which is what stacked two bars on an iPad and
+        // navigation bar of its own above it, which is what stacked two bars on an iPad and
         // clipped the content between them (docs/toolbars.md).
         if let Some(tabbar) = tabs_host_under(&root_view) {
             undock_window_toolbar(root, &root_view);
@@ -2343,7 +2343,7 @@ mod imp {
         /// The PRIMARY column's navigation controller — the sidebar page's stack.
         ///
         /// It has to be a navigation controller, not a bare view controller: UIKit merges the
-        /// secondary column INTO the primary's stack when it collapses, and with nothing to merge
+        /// secondary column into the primary's stack when it collapses, and with nothing to merge
         /// into it drops the navigation bar entirely — the collapsed list rendered with no title
         /// and no bar button. Which of the two is live therefore depends on the presentation,
         /// which is what `active_nav` answers (docs/size-classes.md).
@@ -2711,7 +2711,7 @@ mod imp {
             }
         }
 
-        // THE observation point for the user's back (docs/navigation.md): UIKit routes the
+        // The observation point for the user's back (docs/navigation.md): UIKit routes the
         // back button here once `shouldPopItem:` agrees, the swipe here under an interactive
         // transition, and the history menu to `popToViewController:`. Day's own stack changes
         // are `setViewControllers:` and never arrive here; its two pops on a collapsed triple
@@ -3055,7 +3055,7 @@ mod imp {
         // them in the same pass, so each page can keep the frame it had in the other
         // presentation: the list drawn at sidebar width on top of a detail still sized for the
         // split. Forcing the layout inline does not help either, because this callback runs
-        // DURING the transition and the bounds are still mid-animation. Deferring is the same
+        // During the transition and the bounds are still mid-animation. Deferring is the same
         // shape as the Qt fix, where hiding a splitter pane does not resize its sibling until Qt
         // has run its own layout pass (docs/size-classes.md).
         dispatch2::DispatchQueue::main().exec_async(move || {
@@ -3087,7 +3087,7 @@ mod imp {
                 // (docs/size-classes.md).
                 //
                 // Every page is full-bleed within its own navigation controller, so that
-                // controller's view bounds ARE the page's frame.
+                // controller's view bounds are the page's frame.
                 // Ask each COLUMN to lay itself out, rather than resizing pages by hand.
                 //
                 // The navigation controller owns its pages' frames AND their safe-area insets, so
@@ -3121,7 +3121,7 @@ mod imp {
                 // The search field follows it too (docs/search.md): pinned beside the detail,
                 // behind a pull-down once the columns merge. Both stacks are walked because the
                 // sidebar page lives in the primary column expanded and in the merged one
-                // collapsed, and only the page that HAS the controller is touched.
+                // collapsed, and only the page that has the controller is touched.
                 if state.search.is_some() {
                     for nav in [&parts.primary_nav, &state.nav] {
                         for vc in unsafe { nav.viewControllers() }.iter() {
@@ -3421,7 +3421,7 @@ mod imp {
         mount_split(&built.split_vc, &container);
     }
 
-    /// Apply Day's model of the stack to the ACTIVE navigation controller in ONE
+    /// Apply Day's model of the stack to the ACTIVE navigation controller in one
     /// `setViewControllers:animated:` — UIKit's atomic stack primitive (docs/navigation.md).
     ///
     /// Incremental push/pop calls raced a fast driver: a selection change is a pop AND a
@@ -3429,7 +3429,7 @@ mod imp {
     /// reporting a transient state — one mid-flight read hit a 1-count and the detail-column
     /// wipe emptied the MERGED stack, sidebar included; the late didShow train then read as
     /// a user back and tore the route down. Deriving the whole array from the mirror at
-    /// execution time is idempotent: however calls interleave, the LAST sync applies the
+    /// execution time is idempotent: however calls interleave, the last sync applies the
     /// final model and every intermediate state converges. A sync's settled count equals the
     /// mirror's by construction, so `didShow` can never mistake it for a user pop.
     /// The stack UIKit reports for `nav`, flattened: a merge on iOS 26 nests the secondary
@@ -3639,7 +3639,7 @@ mod imp {
         }
     }
 
-    /// Apply everything queued for `host` as ONE stack change — or, on a collapsed triple
+    /// Apply everything queued for `host` as one stack change — or, on a collapsed triple
     /// column, one UIKit column call per change, since that stack is driven only through
     /// UIKit's own APIs (docs/navigation.md).
     fn apply_ops(host: usize) {
@@ -4131,12 +4131,12 @@ mod imp {
         /// The window root's content holder. UIKit resizes it on rotation, on iPad
         /// multitasking, and — since iPadOS 26 — on every drag of a resizable window's edge,
         /// then runs this layout pass. That is Day's size-change rail: re-pin the day root to
-        /// the CURRENT safe area and emit `WindowResized`, the same shape as Android's
+        /// the current safe area and emit `WindowResized`, the same shape as Android's
         /// configuration-change delivery (§9). It fires only when the BASE frame really
         /// changed, so the keyboard rail's shrunken root (which alters the frame but not the
         /// base) is never stomped.
         ///
-        /// Everything here is resolved through THIS holder's own scene, never the primary's
+        /// Everything here is resolved through this holder's own scene, never the primary's
         /// statics (docs/size-classes.md). One process can hold two windows at two sizes —
         /// Stage Manager, two side-by-side iPad windows — and reporting a secondary's geometry
         /// against `WINDOW_NODE` re-framed the primary's root view and re-bucketed the wrong
@@ -4168,7 +4168,7 @@ mod imp {
                     // A window with no navigation host of its own carries the window toolbar
                     // here, across the top (docs/toolbars.md), where a page's bar would be.
                     // Framed on every pass rather than autoresized: its height is the bar's
-                    // own answer for THIS width and it starts at the safe area's top edge,
+                    // own answer for this width and it starts at the safe area's top edge,
                     // both of which a rotation changes — and the root's own frame is measured
                     // from them. A standalone bar lays its items out in the frame it is GIVEN
                     // (a navigation controller's insets itself), so a bar spanning the top
@@ -4285,7 +4285,7 @@ mod imp {
 
     // -------------------------------------------------------------------
     // Adaptive tabs (docs/navigation.md): a NAV host lowered `Tabs` becomes a
-    // `UITabBarController` in `.tabSidebar` mode — ONE controller that draws a tab bar when the
+    // `UITabBarController` in `.tabSidebar` mode — one controller that draws a tab bar when the
     // window is compact and a sidebar when it is not, with UIKit's own animation and the
     // iPadOS user-facing toggle. It is what SwiftUI's `.tabViewStyle(.sidebarAdaptable)`
     // compiles down to.
@@ -4389,7 +4389,7 @@ mod imp {
         /// this one names the TAB — and a tab is the thing Day addresses there, so the row comes
         /// from its identifier rather than from `selectedIndex`, which cannot see into a group.
         ///
-        /// Declared OUTSIDE the protocol block on purpose. A protocol block asks the RUNTIME for
+        /// Declared outside the protocol block on purpose. A protocol block asks the RUNTIME for
         /// the nav host's type encoding, and `tabBarController:didSelectTab:previousTab:` is iOS
         /// 18's — on an older runtime the class fails to register at all ("method not found"),
         /// which took the whole scene down the moment a tabs host was realized. As a plain method
@@ -4432,7 +4432,7 @@ mod imp {
     ///
     /// `UITab` rather than a `viewControllers` array of `UITabBarItem`s (2026-09). Apple's guidance
     /// since iOS 18 is that adopting `UITab` is what gives a tab bar its automatic adaptivity —
-    /// the tab bar and the sidebar are then two renderings of ONE list of tabs, which is exactly
+    /// the tab bar and the sidebar are then two renderings of one list of tabs, which is exactly
     /// Day's model, and it is what `.tabSidebar` mode is built to consume. The old array still
     /// works, but the controller has to infer everything from view controllers, and the
     /// sidebar-side affordances (reordering, customization, `sidebar.preferredPlacement`) have no
@@ -4775,7 +4775,7 @@ mod imp {
                 // useful outside a list that publishes the trait, which is why this had to stop
                 // being a UITableView to work at all.)
                 // `defaultContentConfiguration` rather than the class method: it comes back
-                // already resolved against THIS cell's list environment and its current state,
+                // already resolved against this cell's list environment and its current state,
                 // which is where the selected row's tinted label comes from. The class method
                 // resolves the environment but not the state, so the pill drew and the label
                 // stayed the resting color.
@@ -5050,7 +5050,7 @@ mod imp {
     }
 
     impl DayNavTableData {
-        // The parameters ARE `NavMenuProps`, minus `selected`: index-aligned per-row
+        // The parameters are `NavMenuProps`, minus `selected`: index-aligned per-row
         // decoration arrays. Taking the props struct instead would tie this to one caller —
         // `NavMenuPatch::Items` carries the same arrays without a props value to hand over.
         #[allow(clippy::too_many_arguments)]
@@ -5148,7 +5148,7 @@ mod imp {
 
     // -----------------------------------------------------------------------
     // The hierarchical tree (docs/tree.md): a list-layout UICollectionView, its rows driven
-    // by a diffable data source over ONE section's snapshot — the token tree itself. Day owns
+    // by a diffable data source over one section's snapshot — the token tree itself. Day owns
     // disclosure end to end: the cell's outline-disclosure accessory carries a custom action
     // handler that only EMITS `Event::TreeExpanded`; the piece answers with
     // `TreePatch::Expand`, which re-applies the section snapshot — so a native tap and the
@@ -5162,7 +5162,7 @@ mod imp {
             Option<Retained<objc2_ui_kit::UICollectionViewDiffableDataSource<NSObject, NSObject>>>,
         >,
         /// token → its interned NSNumber: the diffable identifiers compare by isEqual, and
-        /// ONE object per token also keeps snapshot identity stable across reloads.
+        /// One object per token also keeps snapshot identity stable across reloads.
         items: RefCell<HashMap<u64, Retained<objc2_foundation::NSNumber>>>,
         /// Disclosure by token, as last patched — what a rebuilt snapshot restores.
         expanded: RefCell<std::collections::HashSet<u64>>,
@@ -5287,7 +5287,7 @@ mod imp {
             unsafe { msg_send![super(this), init] }
         }
 
-        /// The SAME NSNumber for a token, every time (see `TreeIvars::items`).
+        /// The same NSNumber for a token, every time (see `TreeIvars::items`).
         fn intern(&self, token: u64) -> Retained<objc2_foundation::NSNumber> {
             self.ivars()
                 .items
@@ -5328,7 +5328,7 @@ mod imp {
             emit(self.ivars().node, Event::TreeSelection(tokens));
         }
 
-        /// Rebuild the section snapshot from the source's CURRENT hierarchy and re-apply the
+        /// Rebuild the section snapshot from the source's current hierarchy and re-apply the
         /// recorded disclosure. Call outside any day-core borrow (deferred by the patches).
         fn apply_snapshot(&self, animated: bool) {
             let Some(ds) = self.ivars().ds.borrow().clone() else {
@@ -5534,7 +5534,7 @@ mod imp {
                 _tv: &objc2_ui_kit::UITableView,
                 index_path: &objc2_foundation::NSIndexPath,
             ) -> objc2::runtime::Bool {
-                // A row the guard won't move ANYWHERE (a pinned row) refuses the lift itself:
+                // A row the guard won't move anywhere (a pinned row) refuses the lift itself:
                 // probing (row -> row) is the cheapest "may this row drag at all" question.
                 // The verdict runs the app's guard closure — contained (§8.5), refusing on panic.
                 let row = unsafe { index_path.row() } as usize;
@@ -5599,7 +5599,7 @@ mod imp {
 
             // --- swipe actions (docs/list.md). `UISwipeActionsConfiguration` is the modern
             // spelling: it gives the full native UX — the row tracking the finger, the actions
-            // revealing behind it, the full-swipe shortcut for the FIRST action — where the
+            // revealing behind it, the full-swipe shortcut for the first action — where the
             // older `commitEditingStyle` pair only offered a fixed Delete button. The trailing
             // edge carries the delete affordance first (full swipe deletes, the Mail idiom),
             // then the row's own trailing offer; the leading edge is the offer alone.
@@ -5638,7 +5638,7 @@ mod imp {
                                       done: NonNull<
                                     block2::DynBlock<dyn Fn(objc2::runtime::Bool)>,
                                 >| {
-                                    // Commit through the seam FIRST — it shortens Day's snapshot
+                                    // Commit through the seam first — it shortens Day's snapshot
                                     // synchronously — then let the table animate the row away.
                                     // Deleting the row natively (rather than reloading) keeps the
                                     // swipe's own animation continuous into the removal.
@@ -5777,7 +5777,7 @@ mod imp {
             }
         }
 
-        // The drag delegate that lets rows lift WITHOUT editing mode (docs/list.md): one drag
+        // The drag delegate that lets rows lift without editing mode (docs/list.md): one drag
         // item with an empty provider — nothing leaves the table; UIKit treats it as a local
         // reorder and drives the data-source move above.
         unsafe impl UITableViewDragDelegate for DayListData {
@@ -6210,7 +6210,7 @@ mod imp {
         use day_spec::DrawOp;
         unsafe {
             match op {
-                // ONE path for the whole batch, then one fill or stroke — the AppKit twin
+                // One path for the whole batch, then one fill or stroke — the AppKit twin
                 // (docs/canvas.md "Stamping"). `apply` is UIBezierPath's own transform, so each
                 // copy is the template translated without touching the graphics state.
                 DrawOp::Stamp(st) => {
@@ -6348,7 +6348,7 @@ mod imp {
                     }
                     let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
                 }
-                // A released bitmap draws NOTHING rather than a placeholder: a canvas re-records
+                // A released bitmap draws nothing rather than a placeholder: a canvas re-records
                 // on every tracked read, so a handle can be dropped between the record and this
                 // replay, and a frame that flashes a grey box is worse than one that omits it.
                 DrawOp::Image {
@@ -7096,7 +7096,7 @@ mod imp {
         use objc2_ui_kit::*;
         let base: Retained<UIFont> = match spec.style {
             Font::System(pt) => unsafe {
-                // A custom size, weighted, then run through UIFontMetrics so it ALSO honors Dynamic
+                // A custom size, weighted, then run through UIFontMetrics so it also honors Dynamic
                 // Type (accessibility text scale) instead of being a fixed pixel size.
                 let w = spec.weight.map(ui_weight).unwrap_or(UIFontWeightRegular);
                 let raw = UIFont::systemFontOfSize_weight(pt, w);
@@ -7126,7 +7126,7 @@ mod imp {
                     // No weight override → preferredFont, which is Dynamic Type (auto-scales live).
                     None => UIFont::preferredFontForTextStyle(ts),
                     // A weight override: build the weighted system font at the style's DEFAULT size,
-                    // then run it through the style's UIFontMetrics so it ALSO auto-scales with Dynamic
+                    // then run it through the style's UIFontMetrics so it also auto-scales with Dynamic
                     // Type (a bare `systemFont(ofSize:weight:)` is a fixed size and would NOT re-scale).
                     Some(w) => {
                         let raw =
@@ -7185,7 +7185,7 @@ mod imp {
         } else {
             font
         };
-        // Relative size (`FontSpec::scale`), applied LAST over whatever face the traits settled
+        // Relative size (`FontSpec::scale`), applied last over whatever face the traits settled
         // on. `fontWithSize:` keeps the typeface, and because the size it scales is the one
         // Dynamic Type already produced, a scaled run keeps tracking the reader's setting.
         if spec.scale != 1.0 {
@@ -7214,7 +7214,7 @@ mod imp {
         let whole = NSRange::new(0, ns.length());
         unsafe {
             s.addAttribute_value_range(objc2_ui_kit::NSFontAttributeName, base_font, whole);
-            // ALWAYS a foreground: a UITextView draws an attributed range with no color
+            // Always a foreground: a UITextView draws an attributed range with no color
             // attribute in black, which is invisible in dark mode. `labelColor` is the adaptive
             // default a plain label would have used.
             let fg = color.map(uicolor).unwrap_or_else(UIColor::labelColor);
@@ -7301,7 +7301,7 @@ mod imp {
         }
     }
 
-    /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling
+    /// Warn once per kind that this backend has no registered renderer for `kind`, before falling
     /// back to a visible placeholder. A missing renderer usually means the piece's `uikit` feature
     /// wasn't enabled (Tier A.2 derives it automatically under `day build`). Deduped per kind so a
     /// placeholder rendered every frame doesn't spam the log.
@@ -7321,7 +7321,7 @@ mod imp {
     impl Toolkit for Uikit {
         type Handle = Handle;
 
-        /// iOS badges are NUMBERS ONLY, and they are part of the notification grant: without the
+        /// iOS badges are NUMBERS only, and they are part of the notification grant: without the
         /// user allowing notifications the count is simply not drawn (docs/badge.md).
         ///
         /// `UNUserNotificationCenter.setBadgeCount:` (iOS 16+) rather than the deprecated
@@ -7366,7 +7366,7 @@ mod imp {
             }
             WINDOW_TOOLBARS.with(|t| {
                 let mut t = t.borrow_mut();
-                // A model change re-fills the SAME bar (`dock_window_toolbar` sets its items
+                // A model change re-fills the same bar (`dock_window_toolbar` sets its items
                 // afresh); rebuilding the view would flash the strip on every enable change.
                 let docked = t.get_mut(&root).and_then(|w| w.docked.take());
                 t.insert(
@@ -7453,7 +7453,7 @@ mod imp {
                 // A `UISplitViewController` hosts every `nav(Sidebar)`, so two columns are
                 // available wherever the window is wide enough — an iPad, and a Plus/Pro Max
                 // iPhone in landscape (docs/size-classes.md).
-                // `.tabSidebar` (docs/navigation.md): ONE `UITabBarController` that draws a tab
+                // `.tabSidebar` (docs/navigation.md): One `UITabBarController` that draws a tab
                 // bar when compact and a sidebar when not — what SwiftUI's `.sidebarAdaptable`
                 // compiles down to, and the container adaptive navigation exists for.
                 //
@@ -7536,7 +7536,7 @@ mod imp {
                     let root_vc = WINDOW
                         .with(|w| w.borrow().clone())
                         .and_then(|w| w.rootViewController());
-                    // `presentation: Stack` in props means a stack at EVERY size — a nested
+                    // `presentation: Stack` in props means a stack at every size — a nested
                     // `nav_stack()` under a split host (docs/size-classes.md) — realized as a PLAIN
                     // navigation controller. A `UISplitViewController` assumes it owns the
                     // window; nested inside a detail pane its column layout collapses into
@@ -7682,7 +7682,7 @@ mod imp {
                     let search = p
                         .search
                         .as_ref()
-                        // EVERY placement lands here, because on iOS the two name one surface.
+                        // Every placement lands here, because on iOS the two name one surface.
                         // `UINavigationItem` owns the bar's buttons AND its search controller, and
                         // the window toolbar rides that same item (docs/toolbars.md) — so
                         // "in the toolbar" and "attached to the navigation surface" are the same
@@ -7834,7 +7834,7 @@ mod imp {
                     select_nav_path(&table, p.selected.and_then(|r| data.path_of(r)));
                     let view = view_of(table);
                     NAV_MENUS.with(|m| m.borrow_mut().insert(ptr_of(&view), (data, p.items.len())));
-                    // Remember the rows for a `.tabSidebar` host: UIKit draws BOTH its tab bar
+                    // Remember the rows for a `.tabSidebar` host: UIKit draws both its tab bar
                     // and its sidebar from the tabs, so a nav host's row labels have to reach the
                     // tabs rather than only this table (docs/navigation.md).
                     NAV_MENU_ROWS.with(|m| {
@@ -8053,7 +8053,7 @@ mod imp {
                     let Some(p) = day_spec::props_of::<LabelProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
                     };
-                    // A UILabel does no hit testing at all, so a label that arrives WITH a link
+                    // A UILabel does no hit testing at all, so a label that arrives with a link
                     // run is built as a read-only text view instead — the same backing
                     // `.selectable()` swaps to, and the only one UIKit can activate a link in
                     // (docs/text-runs.md). A link that first appears in a later patch cannot
@@ -8300,7 +8300,7 @@ mod imp {
                                 }
                                 unsafe { iv.setTintColor(c.map(uicolor).as_deref()) };
                             }
-                            // A source swap repaints the SAME view (docs/images.md), so an
+                            // A source swap repaints the same view (docs/images.md), so an
                             // `image()` bound to a signal shows new pixels without rebuilding
                             // its subtree.
                             day_spec::props::ImagePatch::Source(source) => {
@@ -8370,7 +8370,7 @@ mod imp {
                                         };
                                     }
                                     unsafe { cv.reloadData() };
-                                    // Resolved from THIS data source, which the borrow above
+                                    // Resolved from this data source, which the borrow above
                                     // holds: `select_nav_row` would borrow the same map again.
                                     select_nav_path(cv, selected.and_then(|r| data.path_of(r)));
                                 }
@@ -8380,7 +8380,7 @@ mod imp {
                         patch.downcast_ref::<NavMenuPatch>()
                         && let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
                     {
-                        // Applied WITHOUT re-emitting: `selectRowAtIndexPath` does not call the
+                        // Applied without re-emitting: `selectRowAtIndexPath` does not call the
                         // delegate, so there is no echo to suppress here.
                         select_nav_row(cv, *sel);
                     }
@@ -8443,7 +8443,7 @@ mod imp {
                         }
                     }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
-                        // Copy out of NAV_STATE BEFORE touching UIKit: push/pop can invoke
+                        // Copy out of NAV_STATE before touching UIKit: push/pop can invoke
                         // the delegate synchronously, which re-borrows NAV_STATE.
                         enum Act {
                             Title(Retained<UIViewController>, String),
@@ -8629,7 +8629,7 @@ mod imp {
                             },
                             ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
                             ButtonPatch::Style(s) => {
-                                // Re-apply with the CURRENT title: a configured button carries
+                                // Re-apply with the current title: a configured button carries
                                 // its title in the configuration, which this replaces.
                                 let title = unsafe {
                                     btn.configuration()
@@ -8940,7 +8940,7 @@ mod imp {
             GESTURES.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
-            // ONE sweep clears every `day_spec::sidetable::SideTable` on this thread —
+            // One sweep clears every `day_spec::sidetable::SideTable` on this thread —
             // CTX_MENUS (whose teardown detaches the interaction from the view first),
             // PAGE_PANE, canvas OPS, and the picker/textarea state tables — present and
             // future, so a new table can never be forgotten here again. The RefCell maps
@@ -8959,7 +8959,7 @@ mod imp {
                 holder.setNeedsLayout();
             }
             // A NAV_MENU joining the tree: if it lands anywhere inside a `.tabSidebar` host, its
-            // rows ARE that host's tabs. This is the first moment the menu has a superview chain
+            // rows are that host's tabs. This is the first moment the menu has a superview chain
             // to find its host through.
             if let Some((node, titles, icons)) =
                 NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&ptr_of(child)))
@@ -9046,7 +9046,7 @@ mod imp {
             // This page's OWN toolbar items (docs/toolbars.md). Every page kind takes them —
             // the sidebar column's, the content list's, and each detail — so a command sits on
             // the chrome of the content it acts on. Applied before the placement branches below,
-            // and OUTSIDE any `NAV_STATE` borrow, because building the items runs app code.
+            // and outside any `NAV_STATE` borrow, because building the items runs app code.
             // The CONTENT-LIST page is the supplementary column's root, the same shape one
             // column over (docs/navigation.md): never a member of the `vcs` mirror — while
             // collapsed the pieces layer interposes it explicitly (`NavPatch::ListInStack`).
@@ -9481,7 +9481,7 @@ mod imp {
                         Retained::into_super(pan)
                     }
                     day_spec::GestureKind::Hover => {
-                        // UIKit DOES have a hover recognizer, and it fires only with a pointer:
+                        // UIKit does have a hover recognizer, and it fires only with a pointer:
                         // an iPad with a trackpad, a mouse, or an Apple Pencil hovering. A
                         // finger-only device attaches it and never hears from it, which is the
                         // contract (docs/canvas.md "Interaction").
@@ -9578,7 +9578,7 @@ mod imp {
             if let Some(data) = tree_entry_u(key) {
                 data.ivars().source.replace(Some(source));
             }
-            // Prime OUTSIDE this borrow: the one flat snapshot that creates the section,
+            // Prime outside this borrow: the one flat snapshot that creates the section,
             // then the first section snapshot from the (possibly still empty) hierarchy —
             // the piece's own initial Reload re-applies once the data lands.
             <Uikit as Platform>::post(Box::new(move || {
@@ -10205,7 +10205,7 @@ mod imp {
             // applied through `set_appearance` is on the window immediately, while the ambient
             // trait collection only picks it up at the next layout pass — and
             // `note_appearance_changed` reads this the instant the override is set. Reading the
-            // ambient one there answers with the OLD appearance, so `dark_mode()`'s signal never
+            // ambient one there answers with the old appearance, so `dark_mode()`'s signal never
             // flips: every native view around it recolors and every canvas keeps its stale
             // palette, which is dark text on a dark ground.
             let override_style = WINDOW.with(|w| {
@@ -10486,7 +10486,7 @@ mod imp {
         };
         match op {
             ModalOp::Present(req, vc) => {
-                // Presenting while ANOTHER transition animates (a nav push the script just
+                // Presenting while another transition animates (a nav push the script just
                 // triggered, an appearance change) is refused by UIKit without ever calling
                 // the completion — the original stuck-dialog bug. Wait it out.
                 if topmost_vc().is_some_and(|top| top.transitionCoordinator().is_some()) {
@@ -10732,7 +10732,7 @@ mod imp {
 
     define_class!(
         // UIResponder, not NSObject: nil-target actions (`sendAction(cut:, nil)` from the
-        // menu, the system's edit commands) reach the app delegate ONLY when it is a
+        // menu, the system's edit commands) reach the app delegate only when it is a
         // responder — the standard iOS template shape, and the same end-of-chain catch the
         // macOS window delegate provides.
         #[unsafe(super(objc2_ui_kit::UIResponder))]
@@ -10994,7 +10994,7 @@ mod imp {
                     if PENDING.with(|p| p.borrow().is_some()) && node.is_none() {
                         // The primary scene: build the window and mount the day tree. The
                         // parked launch options carry the app's own minimum window size;
-                        // read WITHOUT taking, since the take below is what mounts the tree.
+                        // read without taking, since the take below is what mounts the tree.
                         let min =
                             PENDING.with(|p| p.borrow().as_ref().and_then(|(_, o, _)| o.min_size));
                         let (window, root_view, inner) = build_scene_window(mtm, win_scene, min);
@@ -11106,7 +11106,7 @@ mod imp {
             }
 
             // Warm deep link under the scene lifecycle (docs/deep-links.md): once an app
-            // adopts scenes, URL opens arrive HERE, not at the app delegate's
+            // adopts scenes, URL opens arrive here, not at the app delegate's
             // `application:openURL:options:` (kept for the pre-scene path).
             #[unsafe(method(scene:openURLContexts:))]
             fn scene_open_url_contexts(

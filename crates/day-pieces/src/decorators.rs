@@ -44,10 +44,10 @@ impl IntoInsets for Insets {
 ///
 /// **`AnyPiece` here is a trade, not a requirement.** It is not object safety: a `Modifier` is
 /// never stored as `dyn Modifier`, and [`Decorate::modifier`] takes `impl Modifier` and applies
-/// it on the spot. It is the closure impl below. A closure has ONE fixed parameter type, and
+/// it on the spot. It is the closure impl below. A closure has one fixed parameter type, and
 /// Rust has no `for<P> FnOnce(P) -> _` bound — higher-ranked bounds range over lifetimes, not
 /// types — so making `apply` generic over the content (`fn apply<P: Piece>(self, c: P) ->
-/// Self::Out<P>`, which a named modifier CAN satisfy with a GAT) would leave no closure able to
+/// Self::Out<P>`, which a named modifier can satisfy with a GAT) would leave no closure able to
 /// implement the trait at all. Pinning the input to the one piece type that accepts anything is
 /// what keeps `|p| …` a modifier, and the erasure is what that costs — which is why this is the
 /// single `Decorate` method that erases.
@@ -200,7 +200,7 @@ impl<P: Piece> Decorated<P> {
 impl<P: Piece> Piece for Decorated<P> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Decorated { inner, ops } = self;
-        // Ops compose outward in call order: the FIRST modifier is innermost, matching the
+        // Ops compose outward in call order: the first modifier is innermost, matching the
         // per-modifier wrapper chain this replaced.
         let mut build: Build = Box::new(move |cx| inner.build(cx));
         for op in ops {
@@ -240,7 +240,7 @@ fn op_tweak(f: impl FnOnce(day_core::RNode) + 'static) -> impl FnOnce(Build) -> 
         Box::new(move |cx| {
             let n = inner(cx);
             f(n);
-            // Mark the node so a LATER backing swap (`.selectable()` on a toolkit that
+            // Mark the node so a later backing swap (`.selectable()` on a toolkit that
             // rebuilds the widget) warns about the discarded tweak instead of losing it
             // silently (docs/tweaks.md).
             with_tree(|t| t.note_node_tweaked(n));
@@ -591,7 +591,7 @@ fn op_context_menu_fn_body(
         {
             let n = inner(cx);
             // Each summon lowers a fresh menu whose action closures live in their own scope,
-            // disposed when the NEXT summon replaces them (and with the build scope at
+            // disposed when the next summon replaces them (and with the build scope at
             // teardown) — so per-click menus never accumulate registrations.
             let last: Rc<std::cell::RefCell<Option<day_reactive::Scope>>> = Rc::default();
             {
@@ -989,7 +989,7 @@ impl<P: Piece> Decorated<P> {
     /// A context menu built AT SUMMON TIME (docs/menus.md "Dynamic context menus"): the
     /// closure runs when the user summons the menu, with the location in this piece's own
     /// coordinates, and whatever it returns is shown — so a canvas can select what is under
-    /// the pointer and offer commands for THAT selection. An empty result shows nothing.
+    /// the pointer and offer commands for that selection. An empty result shows nothing.
     pub fn context_menu_fn(self, f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static) -> Self {
         self.push(op_context_menu_fn(f))
     }
@@ -1122,7 +1122,7 @@ pub trait Decorate: Piece + Sized {
     /// [`day_core::invalidate_size`]. Day may overwrite *managed* properties (title, value,
     /// enabled, frame, a11y) on its next patch; unmanaged properties are stable.
     ///
-    /// Order it AFTER any modifier that can rebuild the backing widget — today
+    /// Order it after any modifier that can rebuild the backing widget — today
     /// [`selectable`](Decorate::selectable), which on UIKit realizes the label as a different
     /// native class. Chained before it, the tweak runs against the widget the rebuild discards
     /// (Day warns at runtime); chained after, it sees the widget that ships.
@@ -1255,7 +1255,7 @@ pub trait Decorate: Piece + Sized {
 
     /// Declare toolbar items on the chrome this piece sits under (docs/toolbars.md).
     ///
-    /// Takes ONE item, a list of them, or a closure that derives the list and re-runs whenever
+    /// Takes one item, a list of them, or a closure that derives the list and re-runs whenever
     /// its reactive reads change:
     ///
     /// ```ignore
@@ -1264,7 +1264,7 @@ pub trait Decorate: Piece + Sized {
     /// page.toolbar(move || vec![toolbar_button("undo", tr("undo")).enabled_when(can_undo)])
     /// ```
     ///
-    /// WHICH chrome carries them follows from where this piece is built — a destination page's
+    /// Which chrome carries them follows from where this piece is built — a destination page's
     /// own bar, a content-list pane's, or the window's if it is under no page at all — and the
     /// items are withdrawn when this piece is disposed. Where on that chrome they sit is
     /// [`ToolbarEntry::placement`](crate::ToolbarEntry::placement).
@@ -1362,7 +1362,7 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).rotation(degrees)
     }
 
-    /// Translate the piece by (`x`, `y`) points WITHOUT relayout (animatable) — the
+    /// Translate the piece by (`x`, `y`) points without relayout (animatable) — the
     /// animation-friendly sibling of `.offset`.
     fn translation<Mx, My>(
         self,
@@ -1388,7 +1388,7 @@ pub trait Decorate: Piece + Sized {
         m.apply(self.any())
     }
 
-    /// Draw `over` on top of this piece, centered, WITHOUT affecting layout size — a badge /
+    /// Draw `over` on top of this piece, centered, without affecting layout size — a badge /
     /// annotation overlay. `self` is the sizing content (bottom of the z-order); `over` is proposed
     /// `self`'s size and drawn on top. For an explicit alignment use [`Self::overlay_aligned`]; for
     /// a stack that sizes to the UNION of its children use [`zstack`].
@@ -1438,14 +1438,14 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers set
-    /// facts on the node the grid sees: apply them LAST (outermost), like `.grow_w()` — an
+    /// facts on the node the grid sees: apply them last (outermost), like `.grow_w()` — an
     /// outer wrapper would hide the facts from the grid.
     fn grid_span(self, n: usize) -> Decorated<Self> {
         Decorated::new(self).grid_span(n)
     }
 
     /// Override this cell's alignment within its cell rect of the enclosing [`grid`]
-    /// (docs/grid.md). Apply LAST (outermost), like [`Self::grid_span`].
+    /// (docs/grid.md). Apply last (outermost), like [`Self::grid_span`].
     fn grid_align(self, a: Alignment) -> Decorated<Self> {
         Decorated::new(self).grid_align(a)
     }

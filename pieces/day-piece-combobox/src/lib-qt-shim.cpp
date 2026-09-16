@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // The combo piece's OWN Qt shim behind a flat C ABI: an EDITABLE QComboBox — Qt's real combo
-// box (free text + a dropdown of items). editTextChanged fires on typing AND when picking an
+// box (free text + a dropdown of items). editTextChanged fires on typing and when picking an
 // item (the pick writes the edit text), so it is the single change path back to Rust (UTF-8,
 // valid only during the callback; Rust copies it). Programmatic setters are wrapped in
 // blockSignals so they never echo. Items cross joined by '\n'. Qt libs are already linked by

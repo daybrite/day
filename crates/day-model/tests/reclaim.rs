@@ -289,7 +289,7 @@ fn a_stale_handle_heals_after_reclamation() {
     watcher.dispose();
 }
 
-/// The recycling shape: ONE long-lived binding whose tracked row rotates. Claims made from
+/// The recycling shape: One long-lived binding whose tracked row rotates. Claims made from
 /// inside a computation belong to its current RUN and are released on re-track — so old rows'
 /// triggers and interner slots do not pile up behind a recycled list cell.
 #[test]

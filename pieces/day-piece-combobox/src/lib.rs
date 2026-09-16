@@ -6,7 +6,7 @@
 //! edits to Day or its toolkit crates. The Qt and XAML renderers carry their own C++ shims;
 //! the Android renderer its own Java factory.
 //!
-//! A REAL combo box: free-form text entry PLUS a dropdown of suggestions, as the platform's
+//! A REAL combo box: free-form text entry plus a dropdown of suggestions, as the platform's
 //! genuine combo control — `NSComboBox` (AppKit), `GtkComboBoxText` with an entry (GTK), an
 //! editable `QComboBox` (Qt), `AutoCompleteTextView` (Android), an editable `ComboBox` (XAML).
 //! Because a typed value need not be in the list, the VALUE is the text: a `Signal<String>`
@@ -150,7 +150,7 @@ day_pieces::glue_modules!(appkit, gtk, qt, mdc, xaml);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`ComboBox`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`ComboBox`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ComboBoxBuilder: Sized {
     fn placeholder<M>(self, t: impl IntoText<M>) -> Self;

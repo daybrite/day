@@ -99,7 +99,7 @@ day_core::tls_group! {
 
     static NAV_SUITES: RefCell<HashMap<usize, NavSuite>> = RefCell::new(HashMap::new());
     /// Suite page widgets, so a released one drops out of its suite. Unlike the `tabs()` piece's
-    /// pages these ARE framed by Day: NavLayout computes exactly the content rect the tab widget
+    /// pages these are framed by Day: NavLayout computes exactly the content rect the tab widget
     /// would give them, and letting Qt's stacked layout do it instead left them at zero size.
     static NAV_SUITE_PAGES: RefCell<std::collections::HashSet<usize>> =
         RefCell::new(std::collections::HashSet::new());
@@ -491,7 +491,7 @@ fn list_fill_window(host_key: usize) {
         let source = st.source.borrow().clone()?;
         let n = (source.len)();
         let rowh = st.row_height.max(1.0);
-        // The view holds one item per row; the extent is the WHOLE source, built or not, since
+        // The view holds one item per row; the extent is the whole source, built or not, since
         // the scroll bar is how the user reaches rows that do not exist yet.
         unsafe { ffi::day_qt_list_set_count(st.host, n as c_int) };
         let (mut w, mut h) = (0.0_f64, 0.0_f64);
@@ -914,7 +914,7 @@ struct NavState {
 /// Per host, so a second window's button toggles that window's own pane. `false` when the
 /// host is not split (nothing to toggle).
 pub(crate) fn toggle_sidebar(host: *mut std::os::raw::c_void) -> bool {
-    // The pane flips OUTSIDE the borrow: the sibling panes' resize reports read `NAV_STATE`.
+    // The pane flips outside the borrow: the sibling panes' resize reports read `NAV_STATE`.
     let flip = NAV_STATE.with(|m| {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&(host as usize))?;
@@ -1024,7 +1024,7 @@ fn nav_present(host: *mut std::os::raw::c_void, split: bool) {
         }
     });
     // Deferred one turn, like the pop path: hiding a QSplitter pane does not resize its sibling
-    // until Qt runs its own layout pass, so reading the pane sizes now would report the OLD
+    // until Qt runs its own layout pass, so reading the pane sizes now would report the old
     // detail width and leave the page laid out for a window that still had a sidebar.
     let host_addr = host as usize;
     <Qt as Platform>::post(Box::new(move || {
@@ -1159,7 +1159,7 @@ struct NavSuite {
 
 /// Put the rows on the bar, for as many tabs as currently exist.
 ///
-/// Called from BOTH sides, because either can arrive first: the pages are inserted as the tree is
+/// Called from both sides, because either can arrive first: the pages are inserted as the tree is
 /// built, and the rows come with the nav menu nested somewhere inside the sidebar page. Whichever
 /// lands last completes the bar.
 fn suite_apply_rows(host: *mut std::os::raw::c_void) {
@@ -1496,7 +1496,7 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
                 icon,
                 ..
             } => {
-                // A nonzero id ALWAYS wins (the appkit precedence, docs/menus.md): the item
+                // A nonzero id always wins (the appkit precedence, docs/menus.md): the item
                 // dispatches the day action, with the role only supplying label/shortcut
                 // defaults — the auto Preferences item and `MenuRole::NewWindow` arrive
                 // this way. Routing them through the role-only path dropped the dispatch
@@ -1549,7 +1549,7 @@ pub(crate) fn build_qt_menu(menu: *mut c_void, items: &[day_spec::MenuItem]) {
     }
 }
 
-/// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling back to
+/// Warn once per kind that this backend has no registered renderer for `kind`, before falling back to
 /// a visible placeholder. A missing renderer usually means the piece's `qt` feature wasn't enabled
 /// (Tier A.2 derives it automatically under `day build`). Deduped per kind so a placeholder rendered
 /// every frame doesn't spam the log.
@@ -1781,7 +1781,7 @@ impl Toolkit for Qt {
                     }
                     ffi::day_qt_splitter_on_moved(host, nav_splitter_moved);
                     ffi::day_qt_splitter_on_resized(host, nav_splitter_moved);
-                    // The back header goes in for BOTH presentations, hidden until a stack
+                    // The back header goes in for both presentations, hidden until a stack
                     // actually pushes. Installing it lazily would mean restructuring the detail
                     // pane's layout under live, absolutely-positioned pages the first time a
                     // window narrowed (docs/size-classes.md) — this way the widget tree is the
@@ -1790,7 +1790,7 @@ impl Toolkit for Qt {
                     if !pages.is_null() {
                         detail_pane = pages;
                     }
-                    // Depth titles for the back header. Recorded in BOTH presentations, so a
+                    // Depth titles for the back header. Recorded in both presentations, so a
                     // window that narrows into a stack already knows what to put in the header
                     // (docs/size-classes.md); the header simply stays hidden while split.
                     let titles = vec![nav_props.map(|p| p.title.clone()).unwrap_or_default()];
@@ -2116,7 +2116,7 @@ impl Toolkit for Qt {
                                 let tint = c.map(hex_rgb).unwrap_or_default();
                                 ffi::day_qt_image_set_tint(h.0, cstr(&tint).as_ptr());
                             }
-                            // A source swap repaints the SAME widget (docs/images.md), so an
+                            // A source swap repaints the same widget (docs/images.md), so an
                             // `image()` bound to a signal shows new pixels without rebuilding
                             // its subtree.
                             day_spec::props::ImagePatch::Source(source) => match source {
@@ -2292,7 +2292,7 @@ impl Toolkit for Qt {
                         return;
                     }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
-                        // A pane shown or hidden OUTSIDE the borrow below: Qt resizes the
+                        // A pane shown or hidden outside the borrow below: Qt resizes the
                         // sibling panes synchronously, the pane filter reports them, and
                         // that report reads `NAV_STATE` — a re-entrant borrow otherwise.
                         let mut list_apply: Option<(*mut c_void, bool, Option<f64>)> = None;
@@ -2388,7 +2388,7 @@ impl Toolkit for Qt {
                                 ffi::day_qt_splitter_set_pane_width(h.0, 1, w);
                             }
                         }
-                        // Header visibility follows the depth AFTER the pop completes (the
+                        // Header visibility follows the depth after the pop completes (the
                         // popped page leaves `pages` via remove()); defer one turn so the
                         // header + page sizes settle against the final stack. The raw QWidget
                         // pointer crosses the (main-thread-only) post as usize. The same
@@ -2516,7 +2516,7 @@ impl Toolkit for Qt {
     }
     fn release(&mut self, h: QtHandle) {
         // A released window content = that window is gone (docs/windows.md teardown):
-        // NOW destroy the whole DayWindow (deleteLater — after this event dispatch), never
+        // Now destroy the whole DayWindow (deleteLater — after this event dispatch), never
         // before, so day's child-widget releases can't touch freed memory.
         self.secondary.retain(|w| {
             if w.content == h.0 {
@@ -2532,7 +2532,7 @@ impl Toolkit for Qt {
                 m.borrow_mut().remove(&entry.node);
             });
         }
-        // A disposed nav host / page MUST drop its NAV_STATE / NAV_PAGE_IDS entry — otherwise a
+        // A disposed nav host / page must drop its NAV_STATE / NAV_PAGE_IDS entry — otherwise a
         // later widget that reuses the freed address is mistaken for a nav host in `set_frame`,
         // and `nav_sync_panes` reads its freed panes (a use-after-free SIGSEGV).
         NAV_STATE.with(|m| {
@@ -2573,7 +2573,7 @@ impl Toolkit for Qt {
         COVER_IDS.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        // ONE sweep drops this handle from EVERY SideTable registered on this thread — the
+        // One sweep drops this handle from every SideTable registered on this thread — the
         // slider ranges, the tab icons, the textarea line bands, and any table added later —
         // so a widget recycling the freed address can't inherit the dead widget's entries.
         // (The explicit purges above stay: they key by node id / value pairs, not this address.)
@@ -2604,7 +2604,7 @@ impl Toolkit for Qt {
                         .unwrap_or(NodeId(0));
                     suite.pages.push((*child, id));
                     // Hiding tab 0 does not move off it — QTabWidget keeps showing whatever the
-                    // current index points at, so the FIRST destination has to claim it or the
+                    // current index points at, so the first destination has to claim it or the
                     // content area stays on the sidebar page nobody is meant to see.
                     if suite.pages.len() == 1 {
                         ffi::day_qt_tabs_set_current(parent.0, 1);
@@ -2841,7 +2841,7 @@ impl Toolkit for Qt {
         if INSPECTOR_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             inspector_sync_panes(h.0);
         }
-        // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
+        // List host framed: (re)fill its cells — but only when the width actually changed, so the
         // set_frame calls a populate itself makes (on row content) don't schedule another forever.
         let width_changed = LIST_STATE.with(|m| {
             m.borrow()
@@ -2849,7 +2849,7 @@ impl Toolkit for Qt {
                 .map(|st| st.last_width != frame.size.width.round() as c_int)
                 .unwrap_or(false)
         });
-        // A taller host shows MORE rows, and the ones it grew into are not built yet — so a
+        // A taller host shows more rows, and the ones it grew into are not built yet — so a
         // height change refills the window even though every built row is still valid. Width is
         // the one that invalidates content: each row is laid out to it.
         let framed_h = frame.size.height.round() as c_int;
@@ -3240,7 +3240,7 @@ impl Toolkit for Qt {
     }
 
     fn set_window_title(&mut self, host: &QtHandle, title: &str) {
-        // The primary is an ordinary window (docs/windows.md): `day::window_title` in the FIRST
+        // The primary is an ordinary window (docs/windows.md): `day::window_title` in the first
         // window's shell lands here with the primary's own root, and searching only the
         // secondary list would drop it.
         let win = match self.secondary.iter().find(|w| w.content == host.0) {

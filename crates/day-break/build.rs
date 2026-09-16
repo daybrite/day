@@ -6,7 +6,7 @@
 //! id/version/build without reading a platform manifest at runtime.
 //!
 //! `option_env!` alone would not rebuild when the value changes (env is not a source input), so we
-//! re-export each var through `cargo:rustc-env` and pair it with `cargo:rerun-if-env-changed` — a
+//! re-export each var through `cargo:rustc-env` and pair it with `cargo:rerun-if-env-changed`; a
 //! rustc-env change correctly invalidates the lib compile even in a shared target dir. A bare
 //! `cargo build` (no `day` CLI) sets nothing; the lib then falls back to a runtime `DAY_APP_*`
 //! lookup and finally to `"unknown"`.

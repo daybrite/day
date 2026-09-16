@@ -22,7 +22,7 @@ fn git(args: &[&str]) -> Option<String> {
     (!s.is_empty()).then_some(s)
 }
 
-/// The ref HEAD points at, ALWAYS ending in the commit: an exact tag or a named branch when there
+/// The ref HEAD points at, always ending in the commit: an exact tag or a named branch when there
 /// is one, and the short SHA either way.
 ///
 /// The name is a hint; the SHA is the fact. Two things made that distinction matter. A branch name
@@ -59,7 +59,7 @@ fn main() {
     // Windows/MSVC reserves a 1 MiB main-thread stack; Linux and macOS give 8 MiB. An
     // unoptimized build keeps every temporary of a large expression alive on the frame, and
     // `mcp::tool_list`'s single `json!` catalog literal needs more than 1 MiB built that way —
-    // so `day mcp-server` answered `tools/list` on every host EXCEPT a debug Windows/MSVC one,
+    // so `day mcp-server` answered `tools/list` on every host except a debug Windows/MSVC one,
     // where it died with "has overflowed its stack". The MCP tests spawn this binary and read
     // its stdout, so the crash reached them as "closed stdout without replying" with no hint of
     // a stack at all. Reserve the 8 MiB the other hosts already have so the binary behaves the

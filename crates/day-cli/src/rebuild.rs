@@ -211,7 +211,7 @@ fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, Str
 ///
 /// `hdiutil` is the only thing on a stock Mac that reads a modern (APFS) disk image, so opening one
 /// means attaching it. Exactly one failure is handled, because it has exactly one cause: `hdiutil`
-/// refuses an image that is ALREADY attached, and macOS records no payload digests to fall back on
+/// refuses an image that is already attached, and macOS records no payload digests to fall back on
 /// (`pack::payload_root`), so an attachment left behind by a killed run turns the payload verdict
 /// Unchecked and `--strict` then fails a build that was fine. That is what reddened macos-appkit.
 /// The second attempt is not a retry against flakiness — it removes that one cause and asks again.
@@ -680,7 +680,7 @@ fn compare(
         // The container could not be opened here — a `.flatpak` is an OSTree bundle whose import
         // wants privileges the runner does not have, and a `.msix` needs a working unzip. The
         // payload tier is still decidable: the original recorded the digest of every staged
-        // payload file, so hash what THIS build staged and compare that.
+        // payload file, so hash what this build staged and compare that.
         return (
             payload_by_digest(recorded_payload, project_dir, target, &why),
             container,
@@ -819,7 +819,7 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
         None => checkout(&prov.repository, &prov.commit, &src)?,
     }
 
-    // The app may live in a subdirectory of the repository, and a repository may hold SEVERAL
+    // The app may live in a subdirectory of the repository, and a repository may hold several
     // (day's own holds three apps plus the scaffold templates, which carry a Day.toml but no
     // Cargo.toml). Packing the wrong one produces a confusing failure deep inside cargo, so this
     // is resolved explicitly rather than by first-hit search.
@@ -1048,7 +1048,7 @@ fn zero_macho_uuid(buf: &mut [u8]) -> usize {
 /// promised to be byte-identical to the original artifact. It is promised to be identical after
 /// Whether `head` is a Mach-O — thin, or a fat/universal archive.
 ///
-/// The fat magic needs more than its four bytes, because `0xCAFEBABE` is ALSO the Java class-file
+/// The fat magic needs more than its four bytes, because `0xCAFEBABE` is also the Java class-file
 /// magic; Java chose it knowingly, and the two formats have collided ever since. An APK is full of
 /// class files, and `kotlinx-coroutines`' `DebugProbesKt.bin` is one of them under a `.bin` name —
 /// enough for the android scaffold check to take it for a universal binary, run `codesign` on it,
@@ -1098,7 +1098,7 @@ fn looks_macho(head: &[u8]) -> bool {
 ///
 /// What comes off, and why each is irrelevant to "is this the same code":
 ///
-/// * the code signature — computed OVER the bytes below, so it cannot survive their normalization,
+/// * the code signature — computed over the bytes below, so it cannot survive their normalization,
 ///   and identity/timestamp are the packager's, not the program's;
 /// * the Mach-O `LC_UUID` — a per-link build id, deliberately unique per link;
 /// * the debug map (`N_OSO` stabs) — absolute paths to the object files the linker consumed.
@@ -1257,7 +1257,7 @@ fn portable(p: &Path) -> String {
     }
 }
 
-/// Open a container so its members can be compared. `Err` carries WHY it could not be opened —
+/// Open a container so its members can be compared. `Err` carries why it could not be opened —
 /// "this host has no extractor for that format" and "the extractor ran and failed" send the reader
 /// to different places, and the payload tier quotes this reason when it has to shrug.
 fn unpack(container: &Path, dest: &Path) -> Result<(), String> {
@@ -1797,13 +1797,13 @@ image-type      : UDIF read-only [write once]
         assert_eq!(from_cdx.repository, "https://example.invalid/repo");
         assert_eq!(from_cdx.commit, "abc123");
         assert!(!from_cdx.dirty);
-        // The project path decides WHICH app in the repository gets rebuilt, so it has to survive
+        // The project path decides which app in the repository gets rebuilt, so it has to survive
         // both formats — SPDX has no property bag and carries it inside `sourceInfo`.
         assert_eq!(from_cdx.project.as_deref(), Some("apps/example"));
     }
 
     /// The bug this replaced: `find_project_dir` returned the first `Day.toml` a directory walk
-    /// tripped over, so rebuilding day's own showcase packed a DIFFERENT app on one runner and
+    /// tripped over, so rebuilding day's own showcase packed a different app on one runner and
     /// `crates/day-cli/templates/app` (a template with no Cargo.toml) on another.
     #[test]
     fn the_project_is_chosen_by_record_then_app_id_never_by_walk_order() {
@@ -1822,7 +1822,7 @@ image-type      : UDIF read-only [write once]
                     .expect("Cargo.toml");
             }
         };
-        // Sorts BEFORE the real app, which is what made first-hit search pick it.
+        // Sorts before the real app, which is what made first-hit search pick it.
         mk("apps/other-app", Some("dev.example.other"));
         mk("apps/example", Some("dev.daybrite.showcase"));
         // A scaffold template: Day.toml, no Cargo.toml. Never a rebuild candidate.

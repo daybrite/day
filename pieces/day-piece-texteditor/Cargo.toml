@@ -23,7 +23,7 @@ qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (Q
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]           # + [package.metadata.day.android] carries DayTextEditor.java
 # XAML: build.rs compiles src/lib-xaml-shim.cpp — a RichEditBox driven through its TOM
-# ITextDocument. Windows-only, built in CI, NOT verified locally.
+# ITextDocument. Windows-only, built in CI, not verified locally.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 # HarmonyOS: the ArkUI C node API has no rich editor, so the component is this crate's own ArkTS.
 arkui = ["dep:day-arkui"]

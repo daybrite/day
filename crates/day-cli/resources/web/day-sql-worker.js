@@ -4,7 +4,7 @@
 // The day-sql worker (docs/persistence.md, docs/web.md): SQLite over real OPFS, serving the
 // main thread synchronously.
 //
-// This is the SECOND instantiation of the app's own wasm module — the day-sqlite-worker crate
+// This is the second instantiation of the app's own wasm module — the day-sqlite-worker crate
 // linked into it exports `day_sql_exec`, and everything UI-shaped is stubbed out. OPFS sync
 // access handles exist only in workers like this one, so file I/O here is plain synchronous
 // JS (`day_sql_fs_*` below), and the main thread reaches the engine over a SharedArrayBuffer:
@@ -31,7 +31,7 @@ const wstr = (p, n) => utf8dec.decode(new Uint8Array(wasm.memory.buffer, p, n));
 // The OPFS pool
 // ---------------------------------------------------------------------------
 
-// Sized ONCE at boot: the serve loop below never returns to the worker's event loop (WebKit
+// Sized once at boot: the serve loop below never returns to the worker's event loop (WebKit
 // does not schedule worker tasks while the page's main thread blocks in a sql call), so the
 // pool cannot grow later — async handle acquisition would never resolve mid-serve. 64 entries
 // ≈ dozens of documents plus their transient journals; exhaustion errors loudly as CANTOPEN.
@@ -60,7 +60,7 @@ function persistMap() {
 }
 
 // WebKit materializes a handle's write path lazily, through brokering that stalls while the
-// page's main thread spins inside a sql call — so touch every handle NOW, off the hot path,
+// page's main thread spins inside a sql call — so touch every handle now, off the hot path,
 // preserving any existing content.
 function warm(h) {
   if (h.getSize() === 0) {
@@ -210,7 +210,7 @@ function callWasm(req) {
 // the SAB, the handles, the wasm instance — was acquired before it started.
 function serve() {
   for (;;) {
-    // QUIT arrives from the page's pagehide: close every handle NOW, so the next page load
+    // QUIT arrives from the page's pagehide: close every handle now, so the next page load
     // (a reload, a navigation back) can acquire them without waiting for the browser to reap
     // this thread — WebKit releases a parked worker's handles too slowly to rely on.
     if (waitFor(REQ, QUIT) === QUIT) {
@@ -257,7 +257,7 @@ function serve() {
       if (off >= reply.length) break;
       waitFor(REPLY_ACK);
     }
-    // The main thread stores IDLE and may store the NEXT request's REQ before this thread
+    // The main thread stores IDLE and may store the next request's REQ before this thread
     // observes either — accepting both closes the missed-transition window (REQ implies the
     // IDLE happened); the loop top then takes the request immediately.
     waitFor(IDLE, REQ);

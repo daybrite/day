@@ -417,7 +417,7 @@ fn shape_flex() -> Flex {
     }
 }
 
-/// Flatten many shape descriptions into ONE canvas leaf — one native view no matter how many
+/// Flatten many shape descriptions into one canvas leaf — one native view no matter how many
 /// shapes (docs/shapes.md §3.6). Shapes draw in order; reactive properties re-record the group.
 /// Child gestures are not wired inside a group — put `.on_tap` on the group via [`Decorate`].
 pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> impl Piece {
@@ -505,7 +505,7 @@ impl Piece for ShapePiece {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`ShapePiece`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`ShapePiece`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ShapePieceBuilder: Sized {
     fn fill<M>(self, p: impl IntoReactive<Color, M>) -> Self;

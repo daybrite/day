@@ -10,7 +10,7 @@
 // a `Decorate::tweak` on the wrapped scrollable (docs/tweaks.md); inert when the child's realized
 // view is not an NSScrollView.
 //
-// Safety: the observer does NOT run app logic directly — it routes a `pullrefresh:begin` Custom
+// Safety: the observer does not run app logic directly — it routes a `pullrefresh:begin` Custom
 // event through the backend's sink (`day_appkit::emit`), queued and pumped with the framework's
 // panic containment, exactly like a built-in control's event. The piece's `cx.on` wire on the host
 // node turns it into the begin.

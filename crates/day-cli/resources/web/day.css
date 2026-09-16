@@ -47,7 +47,7 @@ html, body {
 
 /* Type sizing (docs/web.md). Day's font ramp is the Apple text-style ratios with Body = 1, and
    `--day-text-scale` is the one number that turns a ramp step into a length: `size = step × scale ×
-   1rem`. day-dom emits `calc(<step>rem * var(--day-text-scale))`, so this declaration is the ONLY
+   1rem`. day-dom emits `calc(<step>rem * var(--day-text-scale))`, so this declaration is the only
    place the size is decided — there is no second copy in Rust to drift from.
 
    The scale is per form factor, because a "point" means different things on a desktop and a phone:
@@ -267,7 +267,7 @@ body.day-has-toolbar #day-root {
 .day-img { object-fit: contain; }
 .day-canvas { display: block; }
 /* A canvas carries a tab stop so the keys can reach what it draws (docs/menus.md), but it draws
-   no focus ring: it is the surface the app is FOR, usually focused from the moment it mounts,
+   no focus ring: it is the surface the app is for, usually focused from the moment it mounts,
    and a permanent box around the whole work area says nothing a user needs. The desktops show
    nothing there either. What has focus stays visible in the drawing itself — a selection. */
 .day-canvas:focus, .day-canvas:focus-visible { outline: none; }
@@ -327,7 +327,7 @@ body.day-has-toolbar #day-root {
 }
 .day-nav-title { font-weight: 600; font-size: calc(1rem * var(--day-text-scale)); }
 
-/* Tabs and rail: the rows become the chrome (docs/navigation.md). Both hold the SAME
+/* Tabs and rail: the rows become the chrome (docs/navigation.md). Both hold the same
    `.day-navmenu` the sidebar does, re-parented rather than rebuilt, so these rules only have to
    re-flow it — the row markup, its icons, badges and listeners are untouched. */
 .day-nav.tabs { display: flex; flex-direction: column; }

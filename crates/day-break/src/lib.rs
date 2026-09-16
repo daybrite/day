@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-break — consent-first crash reporting for Day apps (docs/break.md, DESIGN.md §8.5).
+//! day-break: consent-first crash reporting for Day apps (docs/break.md, DESIGN.md §8.5).
 //!
-//! An OPTIONAL crate. An app opts in with one call, as early as possible in startup:
+//! An optional crate. An app opts in with one call, as early as possible in startup:
 //!
 //! ```no_run
 //! day_break::Config::new().max_reports(5).init().ok();
@@ -11,8 +11,8 @@
 //! ```
 //!
 //! day-break then registers a chained panic hook and (on Unix) native signal handlers, writes a
-//! session sentinel, and on the NEXT launch reconciles any leftover artifacts into finalized JSON
-//! reports. It never uploads anything on its own — [`send`] (the only network path) is called by
+//! session sentinel, and on the next launch reconciles any leftover artifacts into finalized JSON
+//! reports. It never uploads anything on its own; [`send`] (the only network path) is called by
 //! the app, from a user action on a disclosure surface. See [`Config`], [`last_session`],
 //! [`report_paths`], and the `ui` feature's consent surface.
 
@@ -32,7 +32,7 @@ day_reactive::tls_root! {
 
 use day_reactive::Signal;
 
-// The panic hook records pending artifacts through the store — capture machinery that is never
+// The panic hook records pending artifacts through the store: capture machinery that is never
 // armed on wasm32 (`Config::init` is a graceful no-op there).
 #[cfg(not(target_arch = "wasm32"))]
 mod hook;
@@ -61,7 +61,7 @@ pub use transport::{EmailReporter, GithubIssueReporter, Reporter, RestReporter, 
 #[cfg(feature = "ui")]
 pub use ui::consent_banner;
 
-/// A pending crash report awaiting the user's decision — the display record the consent surface
+/// A pending crash report awaiting the user's decision: the display record the consent surface
 /// works with. Load the full text with [`report_text`]; send it with [`send`]; drop it with
 /// [`discard`].
 #[derive(Clone, PartialEq, Eq)]
@@ -179,7 +179,7 @@ impl Config {
         self.signals = yes;
         self
     }
-    /// Attempt an in-handler frame-pointer backtrace on a native fault (default false; reserved —
+    /// Attempt an in-handler frame-pointer backtrace on a native fault (default false; reserved,
     /// see docs/break.md). Off by default because release x86_64 may omit frame pointers.
     pub fn signal_backtrace(mut self, yes: bool) -> Config {
         self.signal_backtrace = yes;
@@ -191,7 +191,7 @@ impl Config {
         self.redact = Some(Box::new(f));
         self
     }
-    /// The upload transport used by [`send`] and the consent surface (default: none — [`send`]
+    /// The upload transport used by [`send`] and the consent surface (default: none, so [`send`]
     /// then errors). Choose a built-in ([`RestReporter`]/[`GithubIssueReporter`]/[`EmailReporter`])
     /// or your own [`Reporter`].
     pub fn reporter(mut self, r: impl Reporter + 'static) -> Config {
@@ -202,13 +202,14 @@ impl Config {
     /// Arm crash capture: resolve identity + directory, reconcile the previous session(s), write
     /// this session's sentinel, and install the panic hook (+ signal handlers, + the Android
     /// uncaught-exception handler). Idempotent-safe: a second call returns [`InitError::AlreadyInitialized`].
-    /// On wasm32 this is a graceful no-op — nothing is armed and every query reports the empty state.
+    /// On wasm32 this is a graceful no-op: nothing is armed and every query reports the empty
+    /// state.
     pub fn init(self) -> Result<(), InitError> {
         #[cfg(target_arch = "wasm32")]
         {
             // No crash capture on the web target: there are no signals or pids, and std's
-            // fs/temp-dir surfaces are unsupported there. Arm nothing — every query then reports
-            // the empty state — but keep the single-shot contract so call sites behave the same.
+            // fs/temp-dir surfaces are unsupported there. Arm nothing (every query then reports
+            // the empty state) but keep the single-shot contract so call sites behave the same.
             let _ = self;
             static ARMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
             if ARMED.swap(true, Ordering::SeqCst) {
@@ -220,7 +221,7 @@ impl Config {
         self.init_native()
     }
 
-    /// The native arm path — everything [`Config::init`]'s doc describes.
+    /// The native arm path: everything [`Config::init`]'s doc describes.
     #[cfg(not(target_arch = "wasm32"))]
     fn init_native(self) -> Result<(), InitError> {
         if STATE.get().is_some() {
@@ -241,10 +242,10 @@ impl Config {
 
         let pid = std::process::id();
         let started_at_ms = unix_millis();
-        // Session id: pid + start millis, hex — filesystem-safe, unique per launch.
+        // Session id: pid + start millis, hex. Filesystem-safe, unique per launch.
         let sid = format!("{pid:x}-{started_at_ms:x}");
 
-        // Reconcile prior sessions BEFORE writing our own sentinel (so our sid is excluded anyway,
+        // Reconcile prior sessions before writing our own sentinel (so our sid is excluded anyway,
         // but this also means last_session reflects only the past).
         let ctx = store::StaticCtx {
             app_id: app_id.clone(),
@@ -408,7 +409,7 @@ fn load_pending() -> Vec<ReportMeta> {
 day_reactive::tls_slots! {
     root;
     /// The pending-list signal. Held in a thread-local because a `Signal` is main-thread-affine
-    /// (`!Send`/`!Sync`) and cannot live in a `static` — the same reason day-l10n keeps its global
+    /// (`!Send`/`!Sync`) and cannot live in a `static`, the same reason day-l10n keeps its global
     /// locale signal thread-locally.
     static PENDING: std::cell::RefCell<Option<Signal<Vec<ReportMeta>>>> = const { std::cell::RefCell::new(None) };
 
@@ -436,15 +437,16 @@ pub fn refresh() {
     });
 }
 
-/// The configured reporter's one-line disclosure ([`Reporter::describe`]) — for an app building
-/// its own consent surface (like the showcase's Crash Reporting page). `None` if no reporter is set.
+/// The configured reporter's one-line disclosure ([`Reporter::describe`]), for an app building
+/// its own consent surface (like the showcase's Crash Reporting page). `None` if no reporter is
+/// set.
 pub fn reporter_description() -> Option<String> {
     STATE
         .get()
         .and_then(|s| s.reporter.as_ref().map(|r| r.describe()))
 }
 
-/// The full, human-readable text of a report — the disclosure surface's content. This is exactly
+/// The full, human-readable text of a report: the disclosure surface's content. This is exactly
 /// what a transport uploads (the JSON is a machine mirror of the same facts).
 pub fn report_text(meta: &ReportMeta) -> String {
     load_report(&meta.path)
@@ -462,7 +464,7 @@ pub fn latest_report_text() -> Option<String> {
     Some(report_text(&meta))
 }
 
-/// Upload a report through the configured [`Reporter`] — THE only network path, and only ever
+/// Upload a report through the configured [`Reporter`]: the only network path, and only ever
 /// called from app code (i.e. after the user has seen the report and chosen to send). `on_done`
 /// runs on the main thread with the outcome; on success the report file is deleted and [`pending`]
 /// refreshes. Errors [`SendError::Transport`] with "no reporter configured" if none was set.
@@ -486,7 +488,7 @@ pub fn send(meta: &ReportMeta, on_done: impl FnOnce(Result<(), SendError>) + Sen
     let path = meta.path.clone();
     // The transport may call `done` off-thread. Signals aren't `Send`, so the pending refresh rides
     // a `Setter` (day-reactive's cross-thread write path, which marshals to the main thread); the
-    // app's `on_done` is `Send` and may run on either thread — the consent UI keeps it Setter-based.
+    // app's `on_done` is `Send` and may run on either thread; the consent UI keeps it Setter-based.
     let pending_setter = PENDING.with(|p| p.borrow().map(|s| s.setter()));
     reporter.send(
         &report,
@@ -514,7 +516,7 @@ pub fn discard_path(path: &Path) {
     refresh();
 }
 
-/// Register a callback invoked at PANIC time (never in signal context — nothing is safe there;
+/// Register a callback invoked at panic time (never in signal context, where nothing is safe;
 /// signal crashes surface via [`last_session`]/[`report_paths`] on the next launch). Implements
 /// DESIGN.md §8.5's crash-reporter hook.
 pub fn on_crash(f: fn(&CrashInfo)) {
@@ -561,7 +563,7 @@ impl State {
 
 static STATE: OnceLock<State> = OnceLock::new();
 
-/// Read by the panic hook (not compiled on wasm32) and the `ui` feature's consent surface —
+/// Read by the panic hook (not compiled on wasm32) and the `ui` feature's consent surface;
 /// without `ui` there is no wasm32 caller, hence the targeted allow.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(crate) fn state() -> Option<&'static State> {
@@ -646,7 +648,7 @@ mod tests {
         // Sentinel exists.
         let s = STATE.get().unwrap();
         // `|| true` here made this assert nothing at all. The dir is wiped above, so a freshly
-        // armed store really does hold no reports — and the call proves it copes with an empty one.
+        // armed store holds no reports, and the call proves it copes with an empty one.
         assert!(store::report_paths(&s.dir).is_empty());
         // Second init is rejected.
         assert!(matches!(

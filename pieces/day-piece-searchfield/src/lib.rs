@@ -9,7 +9,7 @@
 //! It is bound **two-way** to a `Signal<String>` — the same pattern as day-piece-picker: a native
 //! edit dispatches an `Event::TextChanged` back to Rust which `set`s the signal, and an external
 //! signal change patches the control with `SearchPatch::SetText`. A per-build echo guard remembers
-//! the last value that arrived FROM the native control so its own change is not written straight
+//! the last value that arrived from the native control so its own change is not written straight
 //! back (which some toolkits would re-emit → a feedback loop). Like day-core's `text_field` it is a
 //! width-growing leaf (`grow_w = true`, natural height): a search field fills its row.
 //!
@@ -84,7 +84,7 @@ impl<S: Binding<String>> Piece for SearchField<S> {
             },
         );
         // Controlled input with origin tracking (§4.4): the echo guard remembers the last value that
-        // arrived FROM the native widget so bind_seeded does not patch that same value straight back.
+        // arrived from the native widget so bind_seeded does not patch that same value straight back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let g = guard.clone();
         let q = query.clone();
@@ -148,7 +148,7 @@ fn anchor_backend() {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`SearchField`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`SearchField`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait SearchFieldBuilder: Sized {
     fn placeholder<M>(self, t: impl IntoText<M>) -> Self;

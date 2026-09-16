@@ -8,7 +8,7 @@
 // foreign arm (docs/bridge.md). Written in Java rather than Kotlin so it compiles in any Android
 // project. The ACCESS_NETWORK_STATE permission stays a build-graph fact in Cargo.toml.
 //
-// Before daybridge the snapshot crossed as ONE packed `long` — `(online << 16) | (kind << 8) |
+// Before daybridge the snapshot crossed as one packed `long` — `(online << 16) | (kind << 8) |
 // expensiveByte`, with -1 and 255 sentinels — written in Java and unpacked in Rust. Three
 // declarations replace it, and every sentinel with it.
 

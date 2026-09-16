@@ -58,7 +58,7 @@ cc = "1"
 day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the SwipeRefreshLayout subclass ships
-# with THIS crate; the AndroidX artifact is added to the app's Gradle build by `day build` — no
+# with this crate; the AndroidX artifact is added to the app's Gradle build by `day build` — no
 # scaffold edits.
 [package.metadata.day.android]
 java = ["src/DayPullRefresh.java"]

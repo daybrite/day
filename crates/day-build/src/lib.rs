@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-build — resource-constant codegen for a Day app's `build.rs` (DESIGN.md §18.5).
+//! day-build: resource-constant codegen for a Day app's `build.rs` (DESIGN.md §18.5).
 //!
 //! An app's `build.rs` calls [`generate_resources`], which scans the project's
 //! `resource/{images,assets,fonts}` directories and writes typed symbolic constants to
@@ -21,7 +21,7 @@
 //! ```
 //!
 //! The app surfaces it once (`pub mod res { include!(concat!(env!("OUT_DIR"), "/day_resources.rs")); }`)
-//! and then writes `image(res::images::nav_system)` — a typo is a compile error and the resource is
+//! and then writes `image(res::images::nav_system)`; a typo is a compile error and the resource is
 //! guaranteed bundled. `cargo:rerun-if-changed` on each resource dir regenerates when a file is
 //! added or removed.
 //!
@@ -59,7 +59,7 @@ pub struct StrEntry {
 }
 
 /// One generated function parameter: the Fluent `$variable` name and whether it is used as a
-/// **number** (a plural/`select` selector or `NUMBER()` argument) — which types it as
+/// **number** (a plural/`select` selector or `NUMBER()` argument), which types it as
 /// `IntoNumberFArg` instead of `IntoFArg`, so a string can't be passed where a plural count is needed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StrParam {
@@ -80,10 +80,10 @@ pub struct LocaleEntry {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ResourcePlan {
     pub images: Vec<Entry>,
-    /// `resource/vectors/` — SVG glyphs (and `.symbolset` bundles), typed as `res::vectors::…`
+    /// `resource/vectors/`: SVG glyphs (and `.symbolset` bundles), typed as `res::vectors::…`
     /// `VectorName` constants (docs/vectors.md).
     pub vectors: Vec<Entry>,
-    /// `resource/assets/` — a TREE (§18.5): directories nest, rendered as nested modules with an
+    /// `resource/assets/`: a tree (§18.5). Directories nest, rendered as nested modules with an
     /// `AssetDir` const per folder and an `AssetName` const per file (values are `/`-relative
     /// paths). Top-level files keep the flat form older apps compiled against.
     pub assets: AssetNode,
@@ -97,7 +97,7 @@ pub struct ResourcePlan {
 
 /// The build-script entry point: scan `resource/{images,assets,fonts}` under `CARGO_MANIFEST_DIR`,
 /// emit `$OUT_DIR/day_resources.rs`, and register the resource dirs for `cargo:rerun-if-changed`.
-/// Returns `Err` (with a fix hint) on a name that is not portable or a symbol collision — the app
+/// Returns `Err` (with a fix hint) on a name that is not portable or a symbol collision; the app
 /// `build.rs` should `.expect(...)` this so the problem fails the build loudly.
 pub fn generate_resources() -> Result<(), String> {
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
@@ -107,9 +107,9 @@ pub fn generate_resources() -> Result<(), String> {
     std::fs::write(out.join("day_resources.rs"), code)
         .map_err(|e| format!("day-build: writing day_resources.rs: {e}"))?;
     // Regenerate when a resource is added/removed/renamed (a proc-macro could not do this reliably).
-    // Only buckets that exist: cargo treats a `rerun-if-changed` path that is MISSING as always
+    // Only buckets that exist: cargo treats a `rerun-if-changed` path that is missing as always
     // stale, so naming an absent `resource/assets` made every app's build script (and so the app
-    // crate) rebuild on every cargo run — including the no-op pass an Xcode phase makes after
+    // crate) rebuild on every cargo run, including the no-op pass an Xcode phase makes after
     // `day build` has already compiled. `resource/` itself is registered so a bucket created
     // later still triggers a rerun (creating a subdirectory changes the parent's mtime).
     let resource = root.join("resource");
@@ -122,7 +122,7 @@ pub fn generate_resources() -> Result<(), String> {
         }
     }
     // Typed constructors for the SwiftUI views exported by declared local SwiftPM packages
-    // (docs/swiftui.md) — always written, surfaced by an app that wants them via
+    // (docs/swiftui.md): always written, surfaced by an app that wants them via
     // `pub mod swiftui { include!(concat!(env!("OUT_DIR"), "/day_swiftui.rs")); }`.
     swiftui::generate_bindings(&root, &out)?;
     println!("cargo:rerun-if-changed=Cargo.toml");
@@ -166,13 +166,13 @@ fn list_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Images: the constant is keyed on the file **stem** (with any `@Nx` HiDPI suffix stripped), which
-/// is the name `image("…")` resolves by. The stem must be *portable* — identical after
-/// [`sanitize_ident`] — because Apple/GTK/Qt resolve it verbatim while Android/ArkUI re-sanitize it;
+/// is the name `image("…")` resolves by. The stem must be *portable* (identical after
+/// [`sanitize_ident`]) because Apple/GTK/Qt resolve it verbatim while Android/ArkUI re-sanitize it;
 /// a non-portable stem would silently resolve to two different names across toolkits, so it is a hard
 /// error with a rename hint. `foo.png` + `foo@2x.png` collapse to one constant; two *distinct* files
 /// claiming the same stem at the same scale collide.
 /// Vectors (docs/vectors.md): `resource/vectors/*.svg` files plus `*.symbolset` bundle
-/// directories, keyed on the stem. Same portability rule as images — every backend resolves the
+/// directories, keyed on the stem. Same portability rule as images: every backend resolves the
 /// stem, Android/HarmonyOS re-sanitize it.
 fn plan_vectors(dir: &Path) -> Result<Vec<Entry>, String> {
     let mut out: Vec<Entry> = Vec::new();
@@ -268,8 +268,8 @@ fn plan_images(dir: &Path) -> Result<Vec<Entry>, String> {
 }
 
 /// One directory level of the assets tree (§18.5). `path` is the folder's `/`-relative path under
-/// `resource/assets/` (`""` at the root); each child directory renders as an `AssetDir` const AND
-/// a nested module sharing its name, so `res::assets::web::minisite` names the folder and
+/// `resource/assets/` (`""` at the root); each child directory renders as both an `AssetDir` const
+/// and a nested module sharing its name, so `res::assets::web::minisite` names the folder and
 /// `res::assets::web::minisite::index_html` a file within it.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AssetNode {
@@ -279,8 +279,8 @@ pub struct AssetNode {
     pub dirs: Vec<(String, AssetNode)>,
 }
 
-/// Data assets: a recursive tree. Each file constant wraps the `/`-relative path — the exact
-/// string `resource("…")` resolves by — with the symbol sanitized from the file name alone
+/// Data assets: a recursive tree. Each file constant wraps the `/`-relative path (the exact
+/// string `resource("…")` resolves by) with the symbol sanitized from the file name alone
 /// (`numbers.bin` → `numbers_bin`); each directory yields an `AssetDir` const plus a nested
 /// module. File and directory symbols share one namespace per level (both are consts), so a
 /// collision at any level is a build error naming both sources.
@@ -336,7 +336,7 @@ fn plan_asset_dir(dir: &Path, rel: &str) -> Result<AssetNode, String> {
         };
         dirs.push((sanitize_ident(&dname), plan_asset_dir(&sub, &sub_rel)?));
     }
-    // Files and directories land in one const namespace per module — validate them jointly.
+    // Files and directories land in one const namespace per module, so validate them jointly.
     let mut probe = files.clone();
     for (sym, node) in &dirs {
         probe.push(Entry {
@@ -416,15 +416,15 @@ fn ftl_files(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// The message keys defined in a Fluent source (terms/comments ignored — and ATTRIBUTES too:
-/// a locale that omits `menu_group.key` deliberately inherits the default locale's shortcut,
-/// so the coverage lint must not demand attributes everywhere). Public so the CLI lint
+/// The message keys defined in a Fluent source (terms/comments ignored, and attributes too:
+/// a locale that omits `menu_group.key` inherits the default locale's shortcut, so the
+/// coverage lint must not demand attributes everywhere). Public so the CLI lint
 /// (`day lint` fluent coverage) shares this one `fluent-syntax` parser with the codegen and
 /// the runtime resolver, instead of a hand-rolled line scanner.
 /// The `res::str` function name a localization key generates.
 ///
-/// A Fluent ATTRIBUTE entry is `message.attr`, and its generated accessor flattens both halves into
-/// one identifier — `menu_group.key` is reached as `res::str::menu_group_key()`. Anything asking
+/// A Fluent attribute entry is `message.attr`, and its generated accessor flattens both halves into
+/// one identifier: `menu_group.key` is reached as `res::str::menu_group_key()`. Anything asking
 /// "is this key referenced?" has to know that, or a key used through its generated function looks
 /// unused and the reference looks like a key that does not exist.
 ///
@@ -435,7 +435,7 @@ pub fn res_str_ident(key: &str) -> String {
 }
 
 /// Message key → value text for every message in a Fluent resource (attributes excluded;
-/// placeables rendered as `{ $var }`) — for tooling that reads a catalog message as DATA rather
+/// placeables rendered as `{ $var }`), for tooling that reads a catalog message as data rather
 /// than as UI copy: the permission reasons `day build` writes into each platform's manifest
 /// (docs/permissions.md, "Localized reasons").
 pub fn message_texts(ftl_src: &str) -> Vec<(String, String)> {
@@ -454,12 +454,13 @@ pub fn message_keys(ftl_src: &str) -> Vec<String> {
         .collect()
 }
 
-/// Localization keys → parameter-typed `res::str` functions. Parses each `.ftl` with `fluent-syntax`
-/// (the same syntax `fluent-bundle` resolves at runtime), collects every message's `$variable` set
-/// (and which vars are numeric — plural/`select` selectors), unions keys across locales, and enforces
-/// two build-time rules: each key must be a valid Rust identifier (the kebab→snake forcing rule) and
-/// all locales must agree on a key's parameter names. A param is typed numeric if *any* locale uses it
-/// numerically; the generated doc shows the value from the reference locale (`en` if present).
+/// Localization keys → parameter-typed `res::str` functions. Parses each `.ftl` with
+/// `fluent-syntax` (the same syntax `fluent-bundle` resolves at runtime), collects every message's
+/// `$variable` set (and which vars are numeric: plural/`select` selectors), unions keys across
+/// locales, and enforces two build-time rules: each key must be a valid Rust identifier (the
+/// kebab→snake forcing rule) and all locales must agree on a key's parameter names. A param is
+/// typed numeric if *any* locale uses it numerically; the generated doc shows the value from the
+/// reference locale (`en` if present).
 fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
     // key -> (params: name -> numeric, the locale file that first defined it)
     let mut agreed: std::collections::BTreeMap<String, (Params, String)> = Default::default();
@@ -520,8 +521,8 @@ fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
             }
         }
     }
-    // An attribute's generated fn is `message_attr` — it must not collide with a real
-    // message of that name (or another attribute flattening to it).
+    // An attribute's generated fn is `message_attr`; it must not collide with a message
+    // of that name (or another attribute flattening to it).
     {
         let mut fn_names: std::collections::BTreeMap<String, &String> = Default::default();
         for key in agreed.keys() {
@@ -555,13 +556,13 @@ fn comma(names: &Vars) -> String {
     names.iter().cloned().collect::<Vec<_>>().join(", ")
 }
 
-/// Group `resource/locales/<locale>/**/*.ftl` by locale directory — the catalog `res::locales`
-/// renders. Discovery is the whole point: adding or deleting a locale directory is the entire
-/// act of adding or dropping a language, with no source list to keep in step (the
+/// Group `resource/locales/<locale>/**/*.ftl` by locale directory: the catalog `res::locales`
+/// renders. Locales are discovered, never listed: adding or deleting a locale directory is the
+/// entire act of adding or dropping a language, with no source list to keep in step (the
 /// `cargo:rerun-if-changed` on `resource/locales` in [`generate_resources`] is what makes the
 /// directory itself a build input).
 ///
-/// Not fallible: unlike [`plan_strings`] — which validates keys and parameters — a locale
+/// Not fallible: unlike [`plan_strings`], which validates keys and parameters, a locale
 /// directory carries no name rules of its own. A tag that Fluent can't parse degrades to `en`
 /// at runtime (`day_l10n::build_bundles`), which is the engine's call, not the build's.
 fn plan_locales(dir: &Path) -> Vec<LocaleEntry> {
@@ -569,7 +570,7 @@ fn plan_locales(dir: &Path) -> Vec<LocaleEntry> {
     for path in ftl_files(dir) {
         let locale = locale_of(&path);
         // A stray `.ftl` directly in `resource/locales/` has the bucket itself as its parent and
-        // names no locale — skip it rather than inventing a `locales` language.
+        // names no locale, so skip it rather than inventing a `locales` language.
         if locale.is_empty() || path.parent() == Some(dir) {
             continue;
         }
@@ -584,7 +585,7 @@ fn plan_locales(dir: &Path) -> Vec<LocaleEntry> {
 /// The fallback locale for the generated `install()`: `en` when the app ships it, else the first
 /// locale alphabetically (a single-locale app gets its own language; a multi-locale app without
 /// English gets a deterministic pick). Apps needing another default call
-/// `install_locales(other, res::locales::CATALOG)` — the catalog stays generated either way.
+/// `install_locales(other, res::locales::CATALOG)`; the catalog stays generated either way.
 fn default_locale(locales: &[LocaleEntry]) -> String {
     if locales.iter().any(|l| l.locale == "en") {
         return "en".to_string();
@@ -610,10 +611,10 @@ struct FtlMessage {
     value_text: String,
 }
 
-/// Parse a Fluent resource → one [`FtlMessage`] per message, PLUS one per message ATTRIBUTE
+/// Parse a Fluent resource → one [`FtlMessage`] per message, plus one per message attribute
 /// under the dotted key `message.attr` (how a localized keyboard-shortcut key rides beside
-/// its command's label — docs/localization.md; terms/comments/junk ignored; a parse error on
-/// an unrelated entry is tolerated — the partial resource is still walked).
+/// its command's label, docs/localization.md; terms/comments/junk ignored; a parse error on
+/// an unrelated entry is tolerated and the partial resource is still walked).
 fn ftl_messages(src: &str) -> Vec<FtlMessage> {
     use fluent_syntax::ast::Entry;
     let res = match fluent_syntax::parser::parse(src) {
@@ -654,7 +655,7 @@ fn ftl_messages(src: &str) -> Vec<FtlMessage> {
 mod span_tests {
     use super::*;
 
-    /// Offsets have to be REAL positions in the source, not a text search: a key named in a
+    /// Offsets have to be positions in the source, not a text search: a key named in a
     /// comment above the message would make a search land a line early, and an editor would then
     /// squiggle the comment.
     #[test]
@@ -688,8 +689,8 @@ mod span_tests {
         );
     }
 
-    /// A function call is reported where it is written — the whole point of carrying an offset
-    /// on `FtlCall` rather than anchoring every option finding to line 1.
+    /// A function call is reported where it is written, which is why `FtlCall` carries an
+    /// offset rather than anchoring every option finding to line 1.
     #[test]
     fn function_calls_carry_their_position() {
         let src = "count = You have { NUMBER($n, style: \"decimal\") } left\nother = plain\n";
@@ -707,7 +708,7 @@ mod span_tests {
         let src = "gruss = Grüße\nzweite = x\n";
         let at = src.find("zweite").expect("key");
         assert_eq!(line_col(src, at), (2, 1));
-        // A multi-byte char earlier on the SAME line must not inflate the column.
+        // A multi-byte char earlier on the same line must not inflate the column.
         let inner = src.find("ße").expect("inner");
         assert_eq!(line_col(src, inner).1, 12);
     }
@@ -754,7 +755,7 @@ fn collect_inline_vars(
         X::Placeable { expression } => collect_expr_vars(expression, out, numeric),
         X::FunctionReference { id, arguments } => {
             // The built-in `NUMBER(...)` forces its positional arg numeric; named options don't.
-            // `DATETIME(...)` deliberately does NOT: its argument is an ISO-8601 string (or an
+            // `DATETIME(...)` does not: its argument is an ISO-8601 string (or an
             // epoch number the app formats itself), so the generated `res::str` fn keeps the
             // general `IntoFArg` bound (docs/localization.md "Formatted values").
             let num = id.name.eq_ignore_ascii_case("NUMBER");
@@ -780,16 +781,16 @@ fn collect_inline_vars(
     }
 }
 
-/// One `FUNC(...)` call in a message value — `day lint` validates function names and option
+/// One `FUNC(...)` call in a message value; `day lint` validates function names and option
 /// values across every locale file with this (the shared fluent-syntax parse, like
 /// [`message_keys`]).
-/// Byte offset of `part` within `src`, when `part` is a SUBSLICE of it.
+/// Byte offset of `part` within `src`, when `part` is a subslice of it.
 ///
 /// `fluent_syntax::parser::parse` is generic over the slice type and, given a `&str`, hands back
-/// an AST whose identifiers and literals borrow straight from the source — so their addresses are
-/// positions in it. That is the whole span story: the 0.12 AST carries no explicit spans, and
-/// re-finding a key by text search would land on the first comment that mentions it.
-/// The byte offset of `part` within `src`, when `part` is a SUBSLICE of it.
+/// an AST whose identifiers and literals borrow straight from the source, so their addresses are
+/// positions in it. That is all the span information there is: the 0.12 AST carries no explicit
+/// spans, and re-finding a key by text search would land on the first comment that mentions it.
+/// The byte offset of `part` within `src`, when `part` is a subslice of it.
 ///
 /// Parsers here hand back `&str` views into the source rather than spans, so the only way to say
 /// where a fragment came from is to compare addresses. Returns `None` for a string that merely
@@ -808,7 +809,7 @@ pub fn line_col(src: &str, offset: usize) -> (usize, usize) {
     (line, col)
 }
 
-/// Every message key in a Fluent resource with the byte offset of its identifier — what turns a
+/// Every message key in a Fluent resource with the byte offset of its identifier, which turns a
 /// coverage finding into a diagnostic on the right line rather than on line 1.
 pub fn ftl_key_offsets(src: &str) -> Vec<(String, usize)> {
     use fluent_syntax::ast::Entry;
@@ -846,7 +847,7 @@ pub struct FtlCall {
     pub offset: usize,
 }
 
-/// Every function call in every message of a Fluent resource (parse errors tolerated — the
+/// Every function call in every message of a Fluent resource (parse errors tolerated; the
 /// partial resource is walked, matching [`message_keys`]).
 pub fn function_calls(src: &str) -> Vec<FtlCall> {
     use fluent_syntax::ast::Entry;
@@ -977,7 +978,7 @@ fn placeable_text(e: &fluent_syntax::ast::Expression<&str>) -> String {
 }
 
 /// A valid Rust identifier: leading `[A-Za-z_]`, remaining `[A-Za-z0-9_]`, and not the bare `_`.
-/// Keyword idents still count as valid — `ident_token` raw-escapes them at render time.
+/// Keyword idents still count as valid; `ident_token` raw-escapes them at render time.
 fn is_rust_ident(s: &str) -> bool {
     let mut chars = s.chars();
     let Some(first) = chars.next() else {
@@ -996,7 +997,7 @@ pub fn render(plan: &ResourcePlan) -> String {
     s.push_str("// @generated by day-build — do not edit.\n");
     s.push_str("// Regenerated on every build from resource/{images,assets,fonts,locales}.\n\n");
     // `locales::install()` names `day::install_locales`, so the generated file needs the umbrella
-    // crate in scope wherever it is included — the same assumption the other buckets make with
+    // crate in scope wherever it is included, the same assumption the other buckets make with
     // `day::ImageName`.
     render_bucket(&mut s, "images", "ImageName", &plan.images);
     render_bucket(&mut s, "vectors", "VectorName", &plan.vectors);
@@ -1008,13 +1009,13 @@ pub fn render(plan: &ResourcePlan) -> String {
 }
 
 /// Render the `locales` bucket: the app's whole Fluent catalog, embedded. `install()` is the
-/// one-liner an app's `root()` calls — the source list can't drift from the directory because
-/// it IS the directory.
+/// one-liner an app's `root()` calls; the source list can't drift from the directory because
+/// it is the directory.
 ///
 /// Paths are absolute because this file is `include!`d from `$OUT_DIR`, so a relative
 /// `include_str!` would resolve against `$OUT_DIR` rather than the crate. Several `.ftl` files
 /// in one locale directory `concat!` into a single source (Fluent bundles are per-locale, and
-/// `day_l10n::install` keys them by tag — two entries for one tag would shadow, not merge).
+/// `day_l10n::install` keys them by tag, so two entries for one tag would shadow, not merge).
 fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
     s.push_str("#[allow(dead_code)]\npub mod locales {\n");
     s.push_str(&format!(
@@ -1028,7 +1029,7 @@ fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
      \x20   pub const CATALOG: &[(&str, &str)] = &[\n",
     );
     for l in locales {
-        // The FULL path, not `display`'s three-component diagnostic form — and `{:?}` escapes it
+        // The full path, not `display`'s three-component diagnostic form; `{:?}` escapes it
         // into a valid Rust literal (Windows separators included).
         let sources: Vec<String> = l
             .sources
@@ -1068,7 +1069,7 @@ fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
 }
 
 /// A locale's self-name: the value of the `language_name` message in its catalog, read at
-/// build time. A line scan, not a Fluent parse — the convention is a single-line literal
+/// build time. A line scan, not a Fluent parse: the convention is a single-line literal
 /// message (`language_name = Français`), and anything fancier falls back to the tag.
 fn language_name(l: &LocaleEntry) -> Option<String> {
     for path in &l.sources {
@@ -1091,13 +1092,13 @@ fn language_name(l: &LocaleEntry) -> Option<String> {
 }
 
 /// Render the `str` bucket: one `pub fn` per localization key whose signature carries the message's
-/// parameters, so `res::str::greeting(name)` == `tr("greeting").arg("name", name)` — checked at
+/// parameters, so `res::str::greeting(name)` == `tr("greeting").arg("name", name)`, checked at
 /// compile time (a missing key or wrong arity is an error).
 fn render_strings(s: &mut String, entries: &[StrEntry]) {
     s.push_str("#[allow(dead_code, unused_imports, non_snake_case, clippy::too_many_arguments)]\n");
     s.push_str("pub mod str {\n");
     for e in entries {
-        // Each param is `impl day::IntoFArg<Mn>` — or `IntoNumberFArg` when the message uses it as a
+        // Each param is `impl day::IntoFArg<Mn>`, or `IntoNumberFArg` when the message uses it as a
         // plural/`select` selector (a distinct marker generic per arg). The Rust parameter ident is
         // sanitized while the `.arg("…")` string stays the exact Fluent variable.
         let generics: Vec<String> = (0..e.params.len()).map(|i| format!("M{i}")).collect();
@@ -1145,8 +1146,8 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
     s.push_str("}\n\n");
 }
 
-/// Render the assets TREE (§18.5): one module per directory, an `AssetDir` const beside each
-/// nested module (same name — consts and modules live in different namespaces), an `AssetName`
+/// Render the assets tree (§18.5): one module per directory, an `AssetDir` const beside each
+/// nested module (same name; consts and modules live in different namespaces), an `AssetName`
 /// const per file. The root module is `assets`, matching the flat form apps already compile
 /// against for top-level files.
 fn render_assets(s: &mut String, root: &AssetNode) {
@@ -1221,7 +1222,7 @@ fn parse_scale(stem: &str) -> (String, u32) {
 }
 
 /// Sanitize a name to the strictest platform identifier rules (Android `R` / ArkUI): lowercase, only
-/// `[a-z0-9_]`, forced leading letter. The canonical copy — the CLI stagers re-export this so the
+/// `[a-z0-9_]`, forced leading letter. The canonical copy: the CLI stagers re-export this so the
 /// staged native name and the generated constant string agree by construction.
 pub fn sanitize_ident(name: &str) -> String {
     let mut s: String = name
@@ -1243,7 +1244,7 @@ pub fn sanitize_ident(name: &str) -> String {
 
 /// A project-relative-ish display path for error messages / doc comments (`resource/images/x.png`).
 fn display(path: &Path) -> String {
-    // Keep the last three components (`resource/<bucket>/<file>`) when present — stable across
+    // Keep the last three components (`resource/<bucket>/<file>`) when present: stable across
     // machines and enough to locate the file.
     let comps: Vec<_> = path.components().collect();
     let n = comps.len();
@@ -1446,7 +1447,7 @@ mod tests {
     #[test]
     fn extracts_keys_params_numeric_and_doc() {
         let root = tmp("str-extract");
-        // `counter_value` uses $count in a plural select (multiline) — same variable SET as a flat
+        // `counter_value` uses $count in a plural select (multiline): same variable set as a flat
         // value, and numeric (a plural nav host); `greeting` has one non-numeric param; `nav_home`
         // has none. The doc captures the reference-locale value text (#5).
         ftl(
@@ -1470,7 +1471,7 @@ mod tests {
     #[test]
     fn string_select_selector_is_not_numeric() {
         let root = tmp("str-gender");
-        // A `select` on a string (gender) must NOT force its nav host numeric.
+        // A `select` on a string (gender) must not force its nav host numeric.
         ftl(
             &root,
             "en",
@@ -1493,7 +1494,7 @@ mod tests {
     fn numeric_is_ored_across_locales() {
         let root = tmp("str-numeric-or");
         // `en` uses $count as a plural nav host (numeric); `zh` uses it as a flat interpolation.
-        // The param must be numeric because SOME locale needs a number.
+        // The param must be numeric because some locale needs a number.
         ftl(
             &root,
             "en",
@@ -1581,8 +1582,8 @@ mod tests {
     fn message_attributes_generate_dotted_tr_accessors() {
         let root = tmp("attr-accessors");
         ftl(&root, "en", "menu_group = Group\n    .key = g\n");
-        // fr omits `.key` — the runtime falls back to the default locale's; the codegen
-        // still emits ONE accessor from the union.
+        // fr omits `.key`: the runtime falls back to the default locale's, and the codegen
+        // still emits one accessor from the union.
         ftl(&root, "fr", "menu_group = Grouper\n");
         let entries = plan_strings(&root.join("resource/locales")).expect("plan");
         let plan = ResourcePlan {
@@ -1674,14 +1675,14 @@ mod tests {
         let plan = plan_resources(&root).unwrap();
         assert_eq!(plan.locales.len(), 1, "one bundle per locale, not per file");
         assert_eq!(plan.locales[0].sources.len(), 2);
-        // Both keys are still generated, and the sources join into ONE catalog entry (a second
+        // Both keys are still generated, and the sources join into one catalog entry (a second
         // entry for the same tag would shadow the first in day_l10n's per-locale bundle map).
         let keys: Vec<_> = plan.strings.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, vec!["hello", "oops"]);
         let code = render(&plan);
         // The two files concatenate into a single `("en", concat!(…))` CATALOG entry. Match the
-        // concat!-tagged form specifically: the ALL language-picker array carries its own
-        // `("en", "en")` pair, so a bare `("en", ` count would see both.
+        // concat!-tagged form specifically: the `ALL` language-picker array carries a
+        // `("en", "en")` pair of its own, so a bare `("en", ` count would see both.
         assert_eq!(code.matches("(\"en\", concat!(").count(), 1);
         assert!(code.contains("concat!(include_str!("), "{code}");
         std::fs::remove_dir_all(&root).ok();
@@ -1725,7 +1726,7 @@ mod tests {
 
     #[test]
     fn stray_ftl_outside_a_locale_dir_is_ignored() {
-        // `resource/locales/loose.ftl` names no language — it must not become a `locales` locale.
+        // `resource/locales/loose.ftl` names no language; it must not become a `locales` locale.
         let root = tmp("locales-stray");
         ftl(&root, "en", "hello = Hello");
         std::fs::write(root.join("resource/locales/loose.ftl"), "stray = Stray").unwrap();

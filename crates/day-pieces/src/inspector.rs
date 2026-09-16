@@ -125,7 +125,7 @@ impl<V: Binding<bool>> Piece for Inspector<V> {
 }
 
 /// TRACKED: is this window compact? The un-reported case (`None` — a backend with no window
-/// geometry) reads as NOT compact: those are desktop-shaped surfaces, and a sheet that can
+/// geometry) reads as not compact: those are desktop-shaped surfaces, and a sheet that can
 /// never be resized away would strand the panel.
 fn compact(window: RNode) -> bool {
     day_core::window_size_class(window).is_some_and(|c| c.width == day_spec::WidthClass::Compact)
@@ -245,7 +245,7 @@ fn pane(
 // ---------------------------------------------------------------------------
 
 /// The sheet's open signal, derived rather than stored: the panel is "presented as a sheet"
-/// exactly while it is visible AND the window is compact, so a window resized across the
+/// exactly while it is visible and the window is compact, so a window resized across the
 /// breakpoint re-homes the panel with no extra state to reconcile. Dismissing the sheet
 /// (system back) writes straight through to the app's own signal.
 struct SheetOpen<V: Binding<bool>> {
@@ -374,7 +374,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
     } = inspector;
     let window = day_core::window_being_built();
     // A LEADING pane is a utility surface (a layer panel, docs/tree.md): it stays a side
-    // pane at EVERY width rather than re-homing into the compact sheet — a phone shows a
+    // pane at every width rather than re-homing into the compact sheet — a phone shows a
     // narrow canvas beside it, and everything stays mounted in the window (no modal to
     // juggle around focus or scripting).
     if inspector_edge == PaneEdge::Leading {

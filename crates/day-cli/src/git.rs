@@ -401,7 +401,7 @@ fn update(dest: &Path, spec: &Spec, ours: bool) -> Result<(), CliError> {
     // Local edits win. This checkout is somewhere a person may have started working, and a
     // `--git` launch that quietly discarded their changes would be the last time they trusted it.
     //
-    // `Cargo.lock` is the exception, and it has to be: building here is what `--git` DOES, and
+    // `Cargo.lock` is the exception, and it has to be: building here is what `--git` does, and
     // cargo rewrites the lock to record what it resolved. Counting day's own output as the user's
     // work in progress is how a checkout stops updating after its first build and then warns about
     // it on every run afterwards.

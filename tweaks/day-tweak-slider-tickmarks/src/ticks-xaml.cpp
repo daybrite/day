@@ -34,7 +34,7 @@ extern "C" void day_tweak_slider_ticks_xaml(void* abi, const char* cls, int coun
             case 2: s.TickPlacement(WUXCP::TickPlacement::Outside); break;
             default: s.TickPlacement(WUXCP::TickPlacement::BottomRight); break;
         }
-        // SliderSnapsTo lives in Controls.Primitives (like TickPlacement), NOT plain Controls.
+        // SliderSnapsTo lives in Controls.Primitives (like TickPlacement), not plain Controls.
         s.SnapsTo(snap ? WUXCP::SliderSnapsTo::Ticks : WUXCP::SliderSnapsTo::StepValues);
     } catch (...) {
         // Best-effort side effect on one element — a degraded element must not abort the app

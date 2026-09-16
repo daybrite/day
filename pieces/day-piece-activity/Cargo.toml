@@ -12,7 +12,7 @@ build = "build.rs"
 # A standalone Day Piece wrapping each toolkit's NATIVE indeterminate activity/loading spinner:
 # NSProgressIndicator (Spinning) on AppKit, UIActivityIndicatorView on UIKit, GtkSpinner on GTK, a
 # busy QProgressBar on Qt, android.widget.ProgressBar on Android, ProgressRing on XAML. Like
-# `day-piece-media`/`day-piece-picker`, it carries BOTH its cross-platform front-end (Rust) and its
+# `day-piece-media`/`day-piece-picker`, it carries both its cross-platform front-end (Rust) and its
 # per-toolkit backend (objc2 / gtk-rs / C++ shim / Android Java) without touching any core day
 # crate. See docs/extending.md + docs/activity.md.
 

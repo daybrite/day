@@ -80,7 +80,7 @@ pub fn dispatch_lifecycle(phase: Lifecycle) {
             }
         }
     });
-    // Reset the reactive runtime AFTER the batch closes — `recover_from_panic` rewrites the batch
+    // Reset the reactive runtime after the batch closes — `recover_from_panic` rewrites the batch
     // depth, so calling it mid-batch underflows the close.
     if any_panicked {
         day_reactive::recover_from_panic();
@@ -155,7 +155,7 @@ mod tests {
             static RAN: Cell<u32> = const { Cell::new(0) };
         }
         // A handler that panics (e.g. an `eprintln!` on a broken stderr pipe during teardown) must
-        // NOT propagate — dispatch runs inside a native trampoline that would abort on unwind.
+        // Not propagate — dispatch runs inside a native trampoline that would abort on unwind.
         on_lifecycle(Lifecycle::WillResignActive, || {
             panic!("boom in a lifecycle handler")
         });

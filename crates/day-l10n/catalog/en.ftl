@@ -1,5 +1,5 @@
 # Day core UI catalog — standard strings the framework itself needs (dialog buttons, standard menu
-# commands). Keys are namespaced `day-*` so an app's own catalog never clashes; an app CAN override
+# commands). Keys are namespaced `day-*` so an app's own catalog never clashes; an app can override
 # any of these by defining the same key in its own `.ftl`. English is the ultimate fallback.
 
 # Dialog buttons (docs/dialogs.md)

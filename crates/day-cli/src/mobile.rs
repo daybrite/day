@@ -79,7 +79,7 @@ pub(crate) fn run_logged_within(
 }
 
 /// Make a path absolute without requiring it to exist yet (build-output dirs often don't). Build-tool
-/// arguments such as xcodebuild's `SYMROOT` MUST be absolute — a relative one is resolved per-target
+/// arguments such as xcodebuild's `SYMROOT` must be absolute — a relative one is resolved per-target
 /// against each target's own working directory, so an app target and its SwiftPM package dependencies
 /// scatter their products into different trees.
 fn absolute(path: &Path) -> Result<PathBuf, String> {
@@ -151,7 +151,7 @@ fn diagnose_xcodebuild(out: &std::process::Output) -> String {
 /// `build/day/cargo/<target_dir_name>/<profile>/`, returning the per-arch archives in `triples`
 /// order. `run` executes each cargo command (the two callers want different stream handling).
 ///
-/// Runs twice per `day build`. The porcelain runs it BEFORE xcodebuild, with the output on its
+/// Runs twice per `day build`. The porcelain runs it before xcodebuild, with the output on its
 /// own terminal — xcodebuild holds a script phase's stdout and stderr until the phase ends
 /// (measured with and without `-verbose`: a 44-second compile surfaces as one burst), so a
 /// compile that only ever happened inside the phase read as a hung build from an editor. The
@@ -273,7 +273,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     };
     crate::icon::ensure(&project, &[host_target])
         .map_err(|e| CliError::build(format!("day xcode-backend: prepare: {e}")))?;
-    // Freshness (§17.5): Xcode resolved the generated xcconfig BEFORE this phase ran, so if
+    // Freshness (§17.5): Xcode resolved the generated xcconfig before this phase ran, so if
     // Day.toml changed since it was last written, the bundle this build is assembling
     // carries stale identity. Refresh the file and fail with the designed message — the
     // retry is clean. A missing file (first build after a clone) is not drift: Xcode used
@@ -501,7 +501,7 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 ///
 /// ld records an absolute path to every object file it consumed in the debug map — one `N_OSO`
 /// stabs entry per `.o` and per archive member, pointing into SYMROOT and into cargo's output.
-/// Those strings are the ONLY thing that differs when the same commit is linked from two
+/// Those strings are the only thing that differs when the same commit is linked from two
 /// directories, which is exactly what `day rebuild` compares: `build/.../Runner.build/.../main.o`
 /// under one root versus another. `-oso_prefix` strips the leading root, leaving project-relative
 /// paths that compare equal from anywhere. Stripping the binary would also remove them, but it
@@ -515,7 +515,7 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 ///
 /// This covers every object the FINAL link consumes, which is 12 of the 13 entries. The one it
 /// cannot reach is the SwiftPM package target: Xcode merges DayPieces' objects with `ld -r` into
-/// a relocatable `Release/DayPieces.o`, and THAT partial link writes the debug map naming
+/// a relocatable `Release/DayPieces.o`, and that partial link writes the debug map naming
 /// `_DayPieces.o`. The final link copies it through verbatim, so a flag given to the final link
 /// arrives too late. Command-line build settings do not reach that step either — `PRELINK_FLAGS`
 /// was measured and never appears on its command line — because a package target takes its link
@@ -609,7 +609,7 @@ fn bundle_id_of(app: &Path) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// Build macos-appkit through the Xcode host project — the ONLY macos-appkit build since the
+/// Build macos-appkit through the Xcode host project — the only macos-appkit build since the
 /// bare-cargo path retired (2026-08). Mirrors [`build_ios_for`]: stage the DayPieces package
 /// the pbxproj references (empty is fine — the reference must resolve), run xcodebuild with
 /// an absolute SYMROOT, and hand back the built `.app` bundle as the artifact (launch execs
@@ -679,7 +679,7 @@ pub fn build_macos_xcode(
         .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
         .args(["-configuration", configuration, "-sdk", "macosx"]);
     if universal {
-        // Universal (arm64 + x86_64): opt-in, because the cargo half needs BOTH Rust
+        // Universal (arm64 + x86_64): opt-in, because the cargo half needs both Rust
         // stdlibs installed (`rustup target add x86_64-apple-darwin` on Apple silicon) —
         // a requirement most dev machines and single-target CI legs don't meet.
     } else {
@@ -723,7 +723,7 @@ pub fn build_macos_xcode(
 /// Keep the app Info.plist's `UIAppFonts` array in sync with the project's `fonts/` directory
 /// (§18.4). iOS resolves the listed paths relative to the main bundle; the files themselves ride
 /// the DayPieces resource bundle (`DayPieces_DayPieces.bundle/fonts/…`, staged by
-/// `write_ios_pieces`), and day-uikit ALSO registers them with CoreText at launch, so a plist
+/// `write_ios_pieces`), and day-uikit also registers them with CoreText at launch, so a plist
 /// that iOS declines to honor still resolves. The managed key is rewritten (or removed) on every
 /// build — idempotent, so a committed plist only changes when `fonts/` changes.
 /// The committed iOS Info.plist — the scaffold's app target is Runner/ (older scaffolds used
@@ -1224,7 +1224,7 @@ pub fn build_ios_for(
         Profile::Release => "Release",
         Profile::Debug => "Debug",
     };
-    // SYMROOT MUST be absolute: xcodebuild resolves a relative build path against each target's own
+    // SYMROOT must be absolute: xcodebuild resolves a relative build path against each target's own
     // working directory, so the Runner app target and its SwiftPM package dependencies (e.g. Lottie,
     // whose resource bundle the app copies) would land their products in different trees and the copy
     // would fail with "no such file … .bundle". `project.root` is absolute (see meta::find_project),
@@ -1284,7 +1284,7 @@ pub fn build_ios_for(
             // Build UNSIGNED and sign the bundle ourselves below. Letting xcodebuild sign means
             // choosing between two failures: `Automatic` mints its own "iOS Team Provisioning
             // Profile: *" wildcard, which carries neither this app's certificate nor its push
-            // capability; `Manual` names our profile, but command-line settings reach EVERY
+            // capability; `Manual` names our profile, but command-line settings reach every
             // target, and the SwiftPM package targets (Lottie, DayPieces) refuse a profile at all
             // — "does not support provisioning profiles". Signing afterwards sidesteps both, and
             // takes the identity and entitlements from the profile itself, so the three can't
@@ -1699,7 +1699,7 @@ fn launch_ios_device(
 /// The argument vector for `xcrun devicectl device process launch`.
 ///
 /// Split out so the ORDER is testable: devicectl's grammar ends in a variadic
-/// `[<command-line-arguments> ...]`, so every option MUST precede the bundle id. Placing them
+/// `[<command-line-arguments> ...]`, so every option must precede the bundle id. Placing them
 /// after handed `--console` and the whole environment to the app as argv instead — which is why a
 /// device launch printed nothing while the same app on a simulator streamed its logs fine.
 fn devicectl_launch_args(udid: &str, bundle_id: &str, spec: &LaunchSpec) -> Vec<String> {
@@ -1715,7 +1715,7 @@ fn devicectl_launch_args(udid: &str, bundle_id: &str, spec: &LaunchSpec) -> Vec<
         // exactly this reason.
         args.push("--terminate-existing".into());
     }
-    // ONE dictionary, not one flag per pair: `--environment-variables` takes a single JSON object
+    // One dictionary, not one flag per pair: `--environment-variables` takes a single JSON object
     // and a repeated option keeps only the last, which would drop every variable but one. Built
     // through serde rather than formatted by hand, so a value containing a quote stays valid JSON.
     let mut env = serde_json::Map::new();
@@ -1823,12 +1823,12 @@ pub fn launch_ios(
     let multi = sims.len() > 1;
     let mut log_threads = Vec::new();
     for udid in &sims {
-        // Install ONCE per artifact per simulator for the life of this process. The capture
+        // Install once per artifact per simulator for the life of this process. The capture
         // matrix launches one build several times over, and `simctl install` of an app that is
         // already installed migrates its data container — which rereads NSUserDefaults from
         // DISK and drops whatever cfprefsd had not written out yet. `synchronize` does not make
         // the daemon write on the simulator (measured: three chip-mode writes in a scripted
-        // run, the plist held the first; a relaunch WITHOUT reinstall showed the last, and only
+        // run, the plist held the first; a relaunch without reinstall showed the last, and only
         // then did the plist follow). So a setting written late in one variant was gone by the
         // next — Day-Trader's iOS matrix, where the symbol one run removed was back for the
         // next. A plain terminate + launch keeps the container and the daemon's cache, and the
@@ -1960,7 +1960,7 @@ pub(crate) struct AndroidDevice {
     pub abi: String,
 }
 
-/// `adb` with an optional device nav host (`-s <serial>`). Multi-device installs/launches MUST
+/// `adb` with an optional device nav host (`-s <serial>`). Multi-device installs/launches must
 /// pin the serial, or adb errors ("more than one device/emulator").
 fn adb(serial: Option<&str>) -> Command {
     let mut c = Command::new(day_toolchain::adb_bin());
@@ -2138,7 +2138,7 @@ pub(crate) fn clear_system_dialogs(serial: &str) {
 /// when several are attached (the default remains all connected devices).
 pub(crate) fn android_devices() -> Vec<AndroidDevice> {
     // Narrowed to the device this run launched on, when it named one: the callers that take no
-    // argument are the ones that run AFTER the launch (dayscript forwarding, screenshots), and
+    // argument are the ones that run after the launch (dayscript forwarding, screenshots), and
     // an unnarrowed list there is how a forward reached a bystander phone.
     android_devices_for(crate::ops::selected_android_serial())
 }
@@ -2283,7 +2283,7 @@ fn build_android_so(
     }
     run_logged(&mut cmd, "cargo ndk")?;
 
-    // Drop any OTHER `lib*.so` left in the ABI directories. Gradle packages this tree whole, so
+    // Drop any other `lib*.so` left in the ABI directories. Gradle packages this tree whole, so
     // a library from a previous name — the app's, before a rename or before its `[lib] name` was
     // pinned to `dayapp` — would keep riding along in every APK, ten megabytes of a library
     // nothing loads. Only same-named files are replaced by the build; the rest need clearing.
@@ -2452,7 +2452,7 @@ pub fn launch_android(
     if let [only] = devices.as_slice() {
         crate::ops::remember_android_serial(only.serial.clone());
     }
-    // Install + launch on EVERY connected device; the one APK already carries each device's ABI.
+    // Install + launch on every connected device; the one APK already carries each device's ABI.
     let mut log_threads = Vec::new();
     for dev in &devices {
         // Before the install, the heaviest step a loaded emulator sees (quiet_system_dialogs).
@@ -2470,7 +2470,7 @@ pub fn launch_android(
         )?;
         // A still-running instance would just be foregrounded by `am start` — keeping the old
         // run's engine port, theme, and locale (its views were created under the previous
-        // configuration). Force-stop first so every launch is a fresh process reading THIS run's
+        // configuration). Force-stop first so every launch is a fresh process reading this run's
         // extras, mirroring the OHOS launcher.
         run_quiet(
             adb(Some(&dev.serial)).args(["shell", "am", "force-stop", &app_id]),
@@ -2480,7 +2480,7 @@ pub fn launch_android(
         // A dialog raised before those settings landed (during boot or the install) would
         // otherwise sit over the app for the whole run.
         clear_system_dialogs(&dev.serial);
-        // DAY_THEME must be in effect BEFORE the activity inflates: the manifest handles the
+        // DAY_THEME must be in effect before the activity inflates: the manifest handles the
         // uiMode config change itself (no recreation), so an in-app UiModeManager flip leaves the
         // already-resolved window theme in the old scheme. Setting the DEVICE night mode first —
         // exactly what the system dark-mode toggle does — lets Material DayNight resolve the whole
@@ -2499,7 +2499,7 @@ pub fn launch_android(
             if let Some(night) = night {
                 // Only set on an actual change, and give the system a moment to finish: the
                 // config-change ripple is asynchronous, so an immediate `am start` can still
-                // inflate the window under the OLD mode (views built moments later then resolve
+                // inflate the window under the old mode (views built moments later then resolve
                 // in the new one — a half-themed screen).
                 let cur = adb(Some(&dev.serial))
                     .args(["shell", "cmd", "uimode", "night"])
@@ -2517,7 +2517,7 @@ pub fn launch_android(
                 }
             }
         }
-        // adb shell joins args into ONE device-shell command line — extras must be shell-quoted.
+        // adb shell joins args into one device-shell command line — extras must be shell-quoted.
         let mut cmd = adb(Some(&dev.serial));
         cmd.args([
             "shell",

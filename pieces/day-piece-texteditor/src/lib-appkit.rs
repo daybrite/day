@@ -5,7 +5,7 @@
 // AppKit: a rich `NSTextView` in an `NSScrollView`, over the `NSTextStorage` TextKit already
 // gives it — the model every other arm here is compared against.
 //
-// Three things this arm does NOT do, each on purpose and each shared by every other arm:
+// Three things this arm does not do, each on purpose and each shared by every other arm:
 //
 // - **No font panel.** `setUsesFontPanel(false)` and no `NSFontManager` wiring, so ⌘B and the
 //   Format menu cannot change attributes behind Day's back. Attributes travel Day → native only
@@ -177,7 +177,7 @@ fn attributed(doc: &StyledText, base: Font, mtm: MainThreadMarker) -> Retained<N
             &run_font(day_spec::FontSpec::new(base), mtm),
             whole,
         );
-        // ALWAYS a foreground: an attributed range with no color draws black, unreadable in dark
+        // Always a foreground: an attributed range with no color draws black, unreadable in dark
         // mode. `labelColor` is the adaptive default the view would have picked itself.
         s.addAttribute_value_range(
             objc2_app_kit::NSForegroundColorAttributeName,

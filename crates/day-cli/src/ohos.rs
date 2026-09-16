@@ -397,7 +397,7 @@ fn ohos_arch_override(v: &str) -> (&'static str, &'static str) {
 /// The (triple, abi) set to build for: an explicit `DAY_OHOS_ARCH`, else the distinct arches of the
 /// connected targets, else the emulator default so `day build` still produces a hap.
 ///
-/// The override is checked FIRST, and that ordering is the point. Probing devices first meant a
+/// The override is checked first, and that ordering is the point. Probing devices first meant a
 /// distribution `day pack` changed shape depending on what happened to be plugged in — CI packs
 /// with `DAY_OHOS_ARCH=arm64` but boots an x86_64 emulator for the walkthrough first, so the hap
 /// shipped x86_64 and the same commit packed elsewhere shipped arm64. A pack must not be steered by
@@ -576,7 +576,7 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
     // in. Materializing it would rewrite a file the scaffold ships and the app has not touched,
     // which fails the pristine check every packing job runs — the artifact has to be rebuildable
     // from its commit, and a build that edits tracked files means it is not. An app that already
-    // HAS a region still falls through, so removing the last permission still empties it.
+    // Has a region still falls through, so removing the last permission still empties it.
     if entries.is_empty() && !before.contains("// day:permissions-begin") {
         return write_ohos_reason_strings(project, &plan);
     }
@@ -826,7 +826,7 @@ pub fn build_ohos(
     //    and a piece's Rust renderer is useless without its ArkTS half.
     crate::pieces::write_ohos_pieces(project, &harmony)?;
 
-    // 1) Cross-compile the app to a cdylib for EACH connected target's arch (an emulator is x86_64,
+    // 1) Cross-compile the app to a cdylib for each connected target's arch (an emulator is x86_64,
     //    a device arm64 — the hap carries both so it installs on either), staging each as
     //    entry/libs/<abi>/libentry.so — the .so the ArkTS host imports (its NAPI module is "entry").
     //    Uses the OHOS NDK cross-linker (OHOS_NDK_HOME) + a rustup toolchain (Homebrew rustc ships no
@@ -928,7 +928,7 @@ pub fn build_ohos(
         std::fs::copy(&so, libs.join("libentry.so"))
             .map_err(|e| format!("stage libentry.so: {e}"))?;
         // libentry.so links the NDK's SHARED libc++ (the day-arkui-sys C++ shim), which OpenHarmony
-        // does NOT provide on-device for apps — an unbundled hap dies at load with MUSL-LDSO's
+        // does not provide on-device for apps — an unbundled hap dies at load with MUSL-LDSO's
         // "Error loading shared library libc++_shared.so". Stage it next to libentry.so so hvigor
         // packs it into the hap (the exact analogue of the Android jniLibs bundling). The NDK's
         // per-arch lib dir uses the CLANG triple (`x86_64-linux-ohos`), not the Rust triple — drop
@@ -980,7 +980,7 @@ pub fn build_ohos(
 
     let mode = profile.as_str();
     // A missing hvigor otherwise surfaces as a bare spawn ENOENT — check up front and say what to
-    // install (it is NOT part of the public SDK; the `native` NDK alone only covers the Rust step).
+    // install (it is not part of the public SDK; the `native` NDK alone only covers the Rust step).
     let hvigor_on_path = std::env::var("PATH")
         .is_ok_and(|p| std::env::split_paths(&p).any(|d| d.join("hvigorw").is_file()));
     if !hvigor_on_path {
@@ -1119,7 +1119,7 @@ pub fn launch_ohos(
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let bundle = project.manifest.app.id.clone();
-    // Recorded BEFORE enumerating: `ohos_devices` narrows to it, and so do the dayscript forward
+    // Recorded before enumerating: `ohos_devices` narrows to it, and so do the dayscript forward
     // and capture steps that run later with no spec in hand.
     if let Some(key) = spec.ohos_device.as_deref() {
         crate::ops::remember_ohos_key(key);
@@ -1141,7 +1141,7 @@ pub fn launch_ohos(
     if let [only] = devices.as_slice() {
         crate::ops::remember_ohos_key(only.key.clone());
     }
-    // The dayscript runner drives ONE target over the hdc-forwarded port — the default key — so a
+    // The dayscript runner drives one target over the hdc-forwarded port — the default key — so a
     // scripted run stays deterministic even with several targets attached.
     let multi = devices.len() > 1;
     let mut log_threads = Vec::new();
@@ -1196,7 +1196,7 @@ fn install_and_start(
 
     // Install (reinstall over any existing copy), RETRYING: right after boot the bundle-manager
     // service may not accept installs yet, and `hdc install`'s exit code + its "error: failed to
-    // execute your command" message are BOTH unreliable on Oniro (the app often installs anyway).
+    // execute your command" message are both unreliable on Oniro (the app often installs anyway).
     // Gate on `bm dump -a` actually listing the bundle rather than on the install command's output.
     status("Installing", &format!("harmony-arkui ({bundle}) on {key}"));
     let mut install_log = String::new();
@@ -1249,7 +1249,7 @@ fn install_and_start(
 
     status("Launching", &format!("harmony-arkui ({bundle}) on {key}"));
     // Kill any RUNNING instance first: the ability is a singleton, so a bare `aa start` would
-    // just foreground it — with the OLD run's dayscript port/token, while this run's engine
+    // just foreground it — with the old run's dayscript port/token, while this run's engine
     // params ride the new want. A fresh process re-reads them in onCreate (docs/harmonyos.md).
     let _ = hdc_for(key)
         .args(["shell", "aa", "force-stop", bundle])
@@ -1259,7 +1259,7 @@ fn install_and_start(
     // sleeps; `aa start` is refused while it shows (Error 10106102: "developer mode … cannot be
     // unlocked automatically" — there is no hdc force-unlock). But the lock screen is
     // slide-to-unlock, so a synthetic swipe dismisses it (see `unlock_keyguard`). Retry,
-    // re-waking + re-swiping between tries. `aa start` also EXITS 0 EVEN WHEN REFUSED, so we
+    // re-waking + re-swiping between tries. `aa start` also EXITS 0 even WHEN REFUSED, so we
     // inspect its output for the failure markers.
     // 40 tries × 3s ≈ 2 min of retries: a FRESH userdata's first boot renders the keyguard
     // late on a slow TCG guest (CI), and `aa start` is refused until the swipe can land.

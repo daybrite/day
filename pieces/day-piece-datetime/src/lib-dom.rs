@@ -37,7 +37,7 @@ fn make_date(backend: &mut Dom, p: &DateProps, _id: NodeId) -> DomHandle {
     let h = backend.element("input");
     backend.set_attr(&h, "type", "date");
     backend.set_attr(&h, "value", &iso_date(p.date));
-    // `min`/`max` are the browser's own clamp — it refuses out-of-range values in the picker AND
+    // `min`/`max` are the browser's own clamp — it refuses out-of-range values in the picker and
     // on typed entry, which is the same guarantee `DayDate::clamped` gives the other arms.
     if let Some(min) = p.min {
         backend.set_attr(&h, "min", &iso_date(min));

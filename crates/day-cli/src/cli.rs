@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crate::meta;
 use crate::ops;
 
-/// Which failure a [`CliError`] reports — and the ONE place a kind maps to an exit code
+/// Which failure a [`CliError`] reports — and the one place a kind maps to an exit code
 /// (§16.2/§16.3). Everything [`run`] renders funnels through [`ErrKind::exit_code`]; command
 /// code that reports a verdict itself (lint findings, icon drift, script failures) quotes the
 /// same map instead of a literal, so no code is ever assigned twice.
@@ -193,7 +193,7 @@ enum Cmd {
         platforms: Vec<String>,
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
-        /// Build against a different `day` for THIS build only: a path to a day checkout, or a
+        /// Build against a different `day` for this build only: a path to a day checkout, or a
         /// git URL with an optional `@<REF>`. Nothing in the project is written — unlike
         /// `day patch`, which is a mode you stay in — so the next build without the flag resolves
         /// the app's declared dependency. Each day-src keeps its own build tree, so comparing two
@@ -248,7 +248,7 @@ enum Cmd {
         /// Where `--git` clones, instead of the cache. The path is printed either way.
         #[arg(long, requires = "git", value_name = "DIR")]
         dir: Option<PathBuf>,
-        /// Launch against a different `day` for THIS run only: a path to a day checkout, or a
+        /// Launch against a different `day` for this run only: a path to a day checkout, or a
         /// git URL with an optional `@<REF>` — how you put a PR branch of the framework under an
         /// app and look at it. Nothing in the project is written, unlike `day patch`. Each
         /// day-src keeps its own build tree and its own binary, so two of them can run at once
@@ -406,7 +406,7 @@ enum Cmd {
         /// asserts it works here, so a missing prerequisite becomes an error instead of a skip.
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// The profile BOTH the build and the pack use. `day pack` alone defaults to release;
+        /// The profile both the build and the pack use. `day pack` alone defaults to release;
         /// one profile here means one compile rather than two.
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
@@ -819,7 +819,7 @@ enum NewKind {
 pub enum AppCmd {
     /// Add target(s) to this app: appends to Day.toml `targets:` (comments/formatting
     /// preserved) and materializes any native host projects (platform/…) the targets need,
-    /// from the SAME template `day new app` used.
+    /// from the same template `day new app` used.
     #[command(name = "add-toolkit")]
     AddToolkit {
         /// Target(s) to add, e.g. `android-mdc` (repeatable / comma-separated)
@@ -966,7 +966,7 @@ pub fn run() -> i32 {
     let result = dispatch(cli);
     // Non-blocking: nudge only if the crates.io reply already arrived; never waits for it.
     crate::update::finish(update);
-    // The ONE render point: every command failure prints here, and the kind picks the code.
+    // The one render point: every command failure prints here, and the kind picks the code.
     match result {
         Ok(code) => code,
         Err(e) => {
@@ -1653,7 +1653,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             themes,
             day_src,
         } => {
-            // `--git` only decides WHERE the launch starts from. It clones (or updates) the
+            // `--git` only decides where the launch starts from. It clones (or updates) the
             // repository and hands back the Day project directory inside it, so `find_project`
             // and the whole launch body below see an ordinary checkout (crate::git).
             let start = match &git {
@@ -1701,7 +1701,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         .iter()
                         .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
                         .collect(),
-                    // Attachment follows `--detach` alone, NOT whether a script runs: a scripted
+                    // Attachment follows `--detach` alone, not whether a script runs: a scripted
                     // launch streams the app's console output the same as a plain launch. (A
                     // `--keep-alive` scripted run additionally keeps `day` in the foreground after the
                     // script so that output stays visible while the app lives — see below.)
@@ -1717,7 +1717,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 // and only shows them in a debug build.
                 //
                 // Under `--day-src` the version carries the day-src too (`0.1.0+main-2d77edbf`),
-                // which is the whole point of the flag: two builds of the SAME app, running at
+                // which is the whole point of the flag: two builds of the same app, running at
                 // once, are otherwise two identical title bars. It rides the version rather than a
                 // new variable deliberately — the framework version being compared may predate
                 // any variable added today, and every `day` already reads this one.
@@ -1781,7 +1781,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 let mut losses = 0usize;
                 for (ti, p) in platforms.iter().enumerate() {
                     let port = crate::script::pick_port(ti);
-                    // The dayscript engine rides EVERY launch (loopback, token-gated): scripted runs
+                    // The dayscript engine rides every launch (loopback, token-gated): scripted runs
                     // drive it immediately, and interactive launches stay drivable later via the
                     // session registry (`day drive` / `day relaunch` / agents — docs/agent.md).
                     spec.envs
@@ -1805,7 +1805,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     };
                     let outcome = built.map_err(CliError::build)?;
                     for (ri, capture) in matrix.iter().enumerate() {
-                        // Per-run spec: the matrix's locale and theme ride the SAME channels the
+                        // Per-run spec: the matrix's locale and theme ride the same channels the
                         // old YAML loops used (the --locale plumbing and the DAY_THEME env).
                         let mut run_spec = spec.clone();
                         if let Some(l) = &capture.locale {
@@ -1828,7 +1828,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 .map_err(CliError::failure)?;
                             // Kept beside the handle so a crash can be diagnosed when it is
                             // joined: a plain `day launch` has no script to lose its engine,
-                            // so the join is the ONLY place the app's death is observed.
+                            // so the join is the only place the app's death is observed.
                             launched.push((target, launched_at));
                             crate::sessions::record(
                                 &project.root,
@@ -1903,7 +1903,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 }
                                 // The iOS simulator's known app-death flake: the engine died with
                                 // ZERO failed steps. Retry the (idempotent) run once — the logic
-                                // both CI workflows used to grep logs for, now typed. A loss AFTER
+                                // both CI workflows used to grep logs for, now typed. A loss after
                                 // a failed step is a failing run that then died: report it.
                                 Err(crate::script::ScriptError::EngineLost {
                                     steps_failed: 0,
@@ -1922,13 +1922,13 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                          app-death) — retrying the script once"
                                         );
                                     }
-                                    // Say WHY it died before retrying: the retry usually passes, and
+                                    // Say why it died before retrying: the retry usually passes, and
                                     // then the only record of the flake is this one line.
                                     crate::diagnose::after_app_death(project, target, launched_at);
                                     attempt += 1;
                                 }
                                 // An engine loss that survived the retry policy: count it and
-                                // move to the NEXT matrix run instead of abandoning the rest —
+                                // move to the next matrix run instead of abandoning the rest —
                                 // the CI loops this replaced continued per variant (OHOS relies
                                 // on it under TCG), and the final exit code still reports failure.
                                 Err(crate::script::ScriptError::EngineLost {
@@ -1987,9 +1987,9 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         }
                     }
                 }
-                // A scripted run returns once its script(s) finish — EXCEPT an attached
+                // A scripted run returns once its script(s) finish — except an attached
                 // `--keep-alive` run, which stays in the foreground streaming the app's console
-                // output until the app exits or the run is stopped (so output is visible during AND
+                // output until the app exits or the run is stopped (so output is visible during and
                 // after the script, exactly like a plain attached launch). Detached scripted runs
                 // (agents) and non-keep-alive scripted runs (CI) return here without blocking on
                 // device log pumps that never EOF; attached runs already streamed logs live while
@@ -2087,7 +2087,7 @@ fn print_pack_json(outcomes: &[crate::pack::PackOutcome]) {
 /// The `build` result event.
 ///
 /// A desktop target also carries a `launch` object — the exact program, working directory, and
-/// environment `day launch` would spawn it with — so a caller that starts the binary ITSELF gets
+/// environment `day launch` would spawn it with — so a caller that starts the binary itself gets
 /// the same app Day would have started. That is what the VS Code extension hands to lldb when it
 /// delegates a debug session; without the environment the app comes up with no resources, no
 /// vectors, and no identity, and the difference is invisible until something is missing on screen.
@@ -2167,7 +2167,7 @@ pub(crate) fn split_list(raw: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Expand `--themes` × `--locales` into runs, preserving BOTH existing artifact conventions
+/// Expand `--themes` × `--locales` into runs, preserving both existing artifact conventions
 /// byte-for-byte (they predate this flag and live on in the gallery config and the app CIs):
 ///
 /// - locales alone → one run per locale, `--locale <l>` passed for every locale INCLUDING the

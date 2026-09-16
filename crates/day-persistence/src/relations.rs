@@ -4,7 +4,7 @@
 //! Relations (docs/persistence.md): `One<M>` foreign keys, `Many<M>` maintained inverses,
 //! delete rules, and the machinery that keeps them true.
 //!
-//! There is ONE source of truth per to-one relation — the foreign-key column on the child —
+//! There is one source of truth per to-one relation — the foreign-key column on the child —
 //! and the parent's `Many` side is a VIEW over it, answered from the engine's own foreign-key
 //! index and memoized per parent. Nothing is loaded at open: the first read of one parent's
 //! children is one indexed `SELECT`, remembered until a membership write invalidates it.
@@ -242,7 +242,7 @@ impl<M: Model> crate::Col<Option<One<M>>> {
     }
 }
 
-/// The to-many side: a marker field. It stores NOTHING — membership lives in the children's
+/// The to-many side: a marker field. It stores nothing — membership lives in the children's
 /// foreign keys (or the join table), and the field exists so the relation has an observable
 /// path of its own and a declared home for `#[model(relation(…))]`. Reads go through the
 /// generated accessor's [`RelationRef`].
@@ -407,7 +407,7 @@ impl ToOneRel {
     }
 
     /// Correct a freshly-selected child list against this turn's unflushed edits: dirty
-    /// resident children join or leave by their CURRENT foreign key, and dirty deletes leave.
+    /// resident children join or leave by their current foreign key, and dirty deletes leave.
     fn overlay_children(&self, parent: u64, ids: &mut Vec<u64>) {
         let Some(dirty) = self.with_container(|c| c.dirty_rows_of(self.child_store)) else {
             return;
@@ -535,7 +535,7 @@ impl ToOneRel {
     }
 
     /// The child's foreign key was rewritten: both parents' views move. The NEW parent is the
-    /// child's own field; the OLD one is the memo when a reader ever established it, the
+    /// child's own field; the old one is the memo when a reader ever established it, the
     /// FILE otherwise (the un-flushed value is exactly the pre-write one). A reader whose
     /// memo was current re-establishes it on its own re-read, so repeated reparents in one
     /// turn stay coherent for anything actually watching.
@@ -625,7 +625,7 @@ impl ToOneRel {
             }
             DeleteRule::Deny => {
                 // Too late to refuse — the row is gone from the store. The checked door
-                // (`ModelContainer::delete`) refuses BEFORE; a bypass surfaces here and at
+                // (`ModelContainer::delete`) refuses before; a bypass surfaces here and at
                 // the deferred SQL RESTRICT.
                 container.inner.error.set(Some(format!(
                     "deny: `{}` was deleted while `{}` rows still reference it — use \
@@ -812,7 +812,7 @@ impl ApplyField for JoinRow {
     }
 }
 
-/// A wired many-to-many — ONE per join table, whichever side (or both) declared it.
+/// A wired many-to-many — one per join table, whichever side (or both) declared it.
 ///
 /// Membership lives in the join table; both directions answer from its indexes, memoized per
 /// row. When both models declare the relation over the same `join = "…"` table, the second
@@ -937,7 +937,7 @@ impl JoinRel {
         }
     }
 
-    /// The rows on the OTHER side that hold `key` — the join's back-resolution.
+    /// The rows on the other side that hold `key` — the join's back-resolution.
     pub(crate) fn holders_of(&self, key: u64, forward: bool) -> Vec<u64> {
         // Looking back from a B row means asking the reverse direction, and vice versa.
         self.members_of(key, !forward)
@@ -995,7 +995,7 @@ impl JoinRel {
         .unwrap_or(false)
     }
 
-    /// Wake BOTH sides' readers: a membership change moves `a.field()` and `b.field()` alike.
+    /// Wake both sides' readers: a membership change moves `a.field()` and `b.field()` alike.
     fn announce_pair(&self, parent: u64, child: u64) {
         announce(
             &[self.a_store, parent, field_id(self.a_field)],
@@ -1070,7 +1070,7 @@ impl JoinRel {
             self.b_delete.get()
         };
         if rule == DeleteRule::Cascade {
-            // Cascade across a join takes the rows this one held — but only those no OTHER
+            // Cascade across a join takes the rows this one held — but only those no other
             // row still holds, or deleting one album would take a shared photo with it.
             // (`forward` here is the DELETED side's perspective: the counterpart's holders
             // are read from the opposite index.)
@@ -1409,7 +1409,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
 
     /// Take `child` into this relation — writing its foreign key (reparenting it away from
     /// any previous parent, whose readers wake too). On an ordered relation the child lands
-    /// LAST, its order field written past the current end. Returns false when the relation
+    /// Last, its order field written past the current end. Returns false when the relation
     /// is unwired or the child is gone.
     pub fn add(&self, child: impl Into<ModelId<T>>) -> bool {
         let h = child.into().handle();
@@ -1449,7 +1449,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
         }
     }
 
-    /// Ordered relations: place `child` at `index` among the current children — normally ONE
+    /// Ordered relations: place `child` at `index` among the current children — normally one
     /// write of the child's order field (fractional keying), plus the adopt when it was not
     /// yet this parent's. When the gap between neighbors has bisected away, the siblings
     /// rebalance to whole numbers first — O(n), rare, and every write still takes the front
@@ -1459,7 +1459,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
         let Some((wired, parent)) = self.resolve() else {
             return false;
         };
-        // Read the neighbors' order values, place between them, and write ONE row — whichever
+        // Read the neighbors' order values, place between them, and write one row — whichever
         // shape holds the order (the child's field, or the membership's position).
         let Placement {
             ordered,
@@ -1478,7 +1478,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
                     }),
                     is_member: r.parent_of(h) == Some(parent) && {
                         // `parent_of` answers from the file too; membership here means the
-                        // CURRENT truth, which children_of's overlay establishes.
+                        // Current truth, which children_of's overlay establishes.
                         r.children_of(parent).contains(&h)
                     },
                 }
@@ -1595,7 +1595,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
 
 impl ModelContainer {
     /// Route one announced change into relation maintenance. Called from the change sink,
-    /// AFTER dirty-marking and query staleness; the writes it makes (cascades, nullifies)
+    /// After dirty-marking and query staleness; the writes it makes (cascades, nullifies)
     /// nest through the same pipeline.
     pub(crate) fn relations_on_change(&self, change: &day_model::Change) {
         let Some(&store) = change.components.first() else {

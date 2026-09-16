@@ -4,9 +4,9 @@
 // ---------------------------------------------------------------------------
 // Android: AutoCompleteTextView — Android's real combo box (free-form text with a dropdown of
 // suggestions). The Java factory (`dev.daybrite.day.piece.combobox.DayCombo`) is bundled with
-// THIS crate in `src/DayCombo.java` and pulled into the app's Gradle build automatically via
+// This crate in `src/DayCombo.java` and pulled into the app's Gradle build automatically via
 // `[package.metadata.day.android]` — the piece carries its own backend Java without touching
-// day-android. Typing AND picking an item (the pick writes the text) report back through
+// day-android. Typing and picking an item (the pick writes the text) report back through
 // `DayBridge.nativeOnEvent` as K_TEXT_CHANGED, like a built-in text field. It is a growing
 // leaf: `measure` fills the proposed width with a natural single-line height; the Java setters
 // guard on equality so a programmatic sync never echoes.

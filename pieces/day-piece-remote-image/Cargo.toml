@@ -14,7 +14,7 @@ build = "build.rs"
 # fetches `mxc://` bytes off-thread via the SDK and pushes them into a `Signal<Option<Arc<Vec<u8>>>>`;
 # this piece renders bytes → native image (NSImage / UIImage / GdkTexture / QPixmap / Bitmap /
 # BitmapImage), with a placeholder rectangle while the source is `None` or a decode fails. Like the
-# other standalone pieces it carries BOTH its front-end (Rust) and its per-toolkit backend (objc2 /
+# other standalone pieces it carries both its front-end (Rust) and its per-toolkit backend (objc2 /
 # gtk-rs / C++ shim / Android Java) without touching any core day crate. See docs/extending.md.
 
 [features]
@@ -24,7 +24,7 @@ qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (Q
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayRemoteImage Java factory
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (an Image/Ellipse boxed via day-xaml-sys's
-# day_xaml_box seam, like the picker/media xaml pieces). Windows-only, built in CI, NOT verified
+# day_xaml_box seam, like the picker/media xaml pieces). Windows-only, built in CI, not verified
 # locally (see the caveat at the top of lib-xaml-shim.cpp). mock has no renderer — its feature
 # exists so apps can enable `day-piece-remote-image/mock` uniformly; the kind then falls back to
 # day's placeholder leaf.

@@ -3,7 +3,7 @@
 
 // Re-arms scheduled notifications after a reboot.
 //
-// WHY THIS EXISTS. A restart clears every AlarmManager alarm, so without this a notification
+// Why THIS EXISTS. A restart clears every AlarmManager alarm, so without this a notification
 // scheduled for tomorrow morning silently never fires if the phone is rebooted tonight — the
 // failure this crate persists its payloads to avoid. Declared through the crate's
 // platform/android/components.xml, and the RECEIVE_BOOT_COMPLETED permission it needs is contributed by the

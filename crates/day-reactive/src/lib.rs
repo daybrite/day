@@ -27,7 +27,7 @@
 // none, and traps with no message at all.
 //
 // This macro takes `thread_local!`'s syntax and gives back the same names with the same `.with`,
-// but backs all of them with ONE key: the slots become fields of a single per-module struct and
+// but backs all of them with one key: the slots become fields of a single per-module struct and
 // each name becomes a zero-sized handle that borrows its field. Call sites do not change.
 // Cell/RefCell conveniences (`set`/`get`/`replace`) are deliberately absent — go through `.with`,
 // which is what the field itself offers.
@@ -64,11 +64,11 @@ macro_rules! tls_group {
 }
 
 // ---------------------------------------------------------------------------------------------
-// `tls_root!` / `tls_slots!` — ONE pthread key for a whole crate.
+// `tls_root!` / `tls_slots!` — one pthread key for a whole crate.
 //
 // `tls_group!` above already collapses a module's statics to one key. These two go the last step:
 // each module declares its slots as a plain struct (`tls_slots!`) and the crate root gathers them
-// into a single thread-local (`tls_root!`). A crate then costs ONE key no matter how many modules
+// into a single thread-local (`tls_root!`). A crate then costs one key no matter how many modules
 // keep state, and the root is also the natural place to hang teardown.
 //
 // Call sites are unchanged — the names still answer `.with`. The cost is one line per module
@@ -162,7 +162,7 @@ type MemoEq = fn(&dyn Any, &dyn Any) -> bool;
 
 /// A node's stored value, shared so a reader can hold it while the runtime borrow is released.
 ///
-/// `with`/`try_with` must run the caller's closure WITHOUT holding the thread-local runtime
+/// `with`/`try_with` must run the caller's closure without holding the thread-local runtime
 /// borrow (the closure routinely reads other signals, which re-enters `with_rt`). This used to be
 /// done by taking the value out of the node and putting it back afterwards, which had two costs: a
 /// re-entrant read of the same signal found the hole and reported "disposed", and a panic inside
@@ -180,9 +180,9 @@ struct Node {
     /// Reaction closure (effect/bind/watch body).
     reaction: Option<Rc<dyn Fn()>>,
     sources: Vec<NodeKey>,
-    /// Callbacks an external dependency registry (day-model's trigger claims) hangs on THIS
+    /// Callbacks an external dependency registry (day-model's trigger claims) hangs on this
     /// computation's current run — drained when the run's sources clear (re-track or disposal),
-    /// mirroring the per-run lifetime of `sources` itself. Run OUTSIDE the runtime borrow.
+    /// mirroring the per-run lifetime of `sources` itself. Run outside the runtime borrow.
     run_cleanups: Vec<Box<dyn FnOnce()>>,
     observers: Vec<NodeKey>,
     #[allow(dead_code)] // ownership is tracked scope→nodes; kept for diagnostics
@@ -324,7 +324,7 @@ fn track_read(rt: &mut Runtime, source: NodeKey) {
     }
 }
 
-/// Unsubscribe `key` from its sources and hand back its run cleanups. The caller MUST run the
+/// Unsubscribe `key` from its sources and hand back its run cleanups. The caller must run the
 /// returned closures after releasing the runtime borrow: they call into consumers (day-model
 /// claim release disposes trigger scopes) that re-enter the runtime.
 #[must_use]
@@ -494,7 +494,7 @@ fn run_reaction(key: NodeKey) {
         }
         cleanups
     });
-    // Released claims must drop BEFORE the fresh run tracks — and outside the borrow.
+    // Released claims must drop before the fresh run tracks — and outside the borrow.
     for f in cleanups {
         f();
     }
@@ -519,7 +519,7 @@ fn run_reaction(key: NodeKey) {
 /// Drain the pending queue to fixpoint, then run turn-end callbacks (§3.3 steps 2–3) —
 /// REPEATING both until the turn is truly quiescent. A turn-end callback may schedule new
 /// reactive work (day-persistence's autosave flush re-derives live queries and diffs the
-/// answers into signals); that work belongs to THIS turn — §3.3 step 2's "writes made
+/// answers into signals); that work belongs to this turn — §3.3 step 2's "writes made
 /// during the drain extend the current drain", extended across the turn-end boundary.
 /// Left pending instead, every cross-row readout (a query-fed list, a derived bound)
 /// would render one turn stale. Round two drains the deltas and re-runs the hooks —
@@ -640,7 +640,7 @@ pub fn recover_from_panic() {
         rt.batch_depth = 0;
         rt.pending.clear();
         rt.observers.clear();
-        // The scope stack is unwound by `Scope::enter`'s guard, but a panic raised BETWEEN
+        // The scope stack is unwound by `Scope::enter`'s guard, but a panic raised between
         // scopes (or from a callsite that set `current_scope` directly) can still leave it on a
         // disposed scope, where every later `Signal::new` would be born dead. Re-root it.
         rt.current_scope = rt.root_scope;
@@ -696,7 +696,7 @@ fn signal_write_boxed(key: NodeKey, apply: impl FnOnce(&mut Box<dyn Any>) -> boo
 // ---------------------------------------------------------------------------
 
 /// Run `f` in a batch: writes coalesce; the synchronous fixpoint drain runs at batch close.
-/// Restores a piece of runtime state when it goes out of scope — on the normal path AND on an
+/// Restores a piece of runtime state when it goes out of scope — on the normal path and on an
 /// unwind. day-core deliberately CONTAINS panics at its trampoline boundaries (`pump_events`,
 /// posted tasks, lifecycle) so a panicking app callback degrades the UI instead of aborting the
 /// process; that guarantee is only worth anything if the reactive runtime is still coherent
@@ -793,7 +793,7 @@ pub type LocalBoxFuture = Pin<Box<dyn Future<Output = ()> + 'static>>;
 type Spawner = Rc<dyn Fn(LocalBoxFuture) -> Box<dyn FnOnce()>>;
 
 /// Install the async-spawn door: `spawn` runs a future on the app's main-loop executor and
-/// returns an ABORT closure (remove + drop the future). The abort MUST be a no-op once the
+/// returns an ABORT closure (remove + drop the future). The abort must be a no-op once the
 /// task has completed — [`Resource`] stores it after an eager first poll, so a synchronously
 /// ready future has already finished by then. day-core's `launch_with` wires this to
 /// `day::task` / `TaskHandle::abort`; call it once at startup (docs/async.md).
@@ -828,7 +828,7 @@ pub fn install_main_poster(post: impl Fn(Box<dyn FnOnce() + Send>) + Send + Sync
 }
 
 /// Whether a backend has installed the main poster yet — i.e. whether [`on_main`] would work
-/// rather than panic. Platform glue that can be called BEFORE launch (a notification tap that
+/// rather than panic. Platform glue that can be called before launch (a notification tap that
 /// cold-starts the process) probes this and buffers instead of posting. The poster is set once
 /// and never cleared, so a `false` can only become `true`: a caller that buffers on a false
 /// negative is still correct, provided something drains the buffer at launch.
@@ -1107,7 +1107,7 @@ impl<T: 'static> Signal<T> {
     pub fn try_with<R>(self, f: impl FnOnce(&T) -> R) -> Option<R> {
         // Clone the shared cell out so `f` runs with the runtime borrow released (it routinely
         // reads other signals). The value stays in the node throughout, so a re-entrant read of
-        // THIS signal inside `f` succeeds instead of reporting a disposed node, and a panic in
+        // This signal inside `f` succeeds instead of reporting a disposed node, and a panic in
         // `f` cannot strand it.
         let cell = with_rt(|rt| {
             track_read(rt, self.key);
@@ -1418,7 +1418,7 @@ pub fn bind<V: PartialEq + 'static>(
     );
 }
 
-/// `bind` pre-seeded with the value already applied at build time: the initial run does NOT
+/// `bind` pre-seeded with the value already applied at build time: the initial run does not
 /// re-apply (pieces pass initial values through realize props; §5.2's no-duplicate-op rule).
 #[track_caller]
 pub fn bind_seeded<V: PartialEq + 'static>(
@@ -1452,7 +1452,7 @@ pub fn bind_always<V: 'static>(compute: impl Fn() -> V + 'static, apply: impl Fn
 }
 
 /// Derive-state without effect-write loops (§4.2): `source` is tracked; `cb` runs untracked
-/// with (new, old). Does NOT fire for the initial value.
+/// with (new, old). Does not fire for the initial value.
 #[track_caller]
 pub fn watch<S: Clone + 'static>(
     source: impl Fn() -> S + 'static,
@@ -1593,8 +1593,8 @@ struct FetchState {
 }
 
 impl FetchState {
-    /// Invalidate the in-flight fetch: bump the generation FIRST (so a completion that cannot
-    /// be aborted still fails its check), then take-and-call the abort OUTSIDE the borrow
+    /// Invalidate the in-flight fetch: bump the generation first (so a completion that cannot
+    /// be aborted still fails its check), then take-and-call the abort outside the borrow
     /// (dropping a future can re-enter reactive state).
     fn supersede(&self) -> u64 {
         let next = self.generation.get() + 1;
@@ -1692,7 +1692,7 @@ impl<T: 'static> Resource<T> {
                         }
                     }));
                     // Eager-poll ordering: the spawner polls once before returning, so a
-                    // synchronously-ready fetcher has ALREADY completed here — storing its
+                    // synchronously-ready fetcher has already completed here — storing its
                     // abort is harmless only because the spawner contract makes aborting a
                     // finished task a no-op (this line is why that contract exists).
                     *fs.abort.borrow_mut() = Some(abort);
@@ -1922,7 +1922,7 @@ mod tests {
         assert_eq!(count.get(), 1);
         batch(|| s.set(1));
         // Owner ran first (created earlier, same depth? owner depth 0 < child depth 1) and
-        // disposed the child → child effect must NOT run again.
+        // disposed the child → child effect must not run again.
         assert_eq!(count.get(), 1);
     }
 
@@ -2004,7 +2004,7 @@ mod tests {
         let s = Signal::new(0);
         let order: Rc<RefCell<Vec<&'static str>>> = Rc::new(RefCell::new(Vec::new()));
         let o1 = order.clone();
-        // Plain effect created FIRST (lower seq) — priority must still put the bind first.
+        // Plain effect created first (lower seq) — priority must still put the bind first.
         Effect::new(move || {
             s.track();
             o1.borrow_mut().push("effect");
@@ -2025,7 +2025,7 @@ mod resource_tests {
     // ---- test executor: mirrors day::task's shape (eager first poll; abort = remove+drop;
     // pump() re-polls whatever is still pending). ABORTED records aborts of still-pending
     // tasks — the probe the latest-wins/disposal tests read. All thread-local: each #[test]
-    // thread gets a fresh Runtime AND a fresh executor.
+    // thread gets a fresh Runtime and a fresh executor.
 
     thread_local! {
         static TEST_TASKS: RefCell<Vec<(u64, Option<LocalBoxFuture>)>> =
@@ -2284,7 +2284,7 @@ mod resource_tests {
     #[test]
     #[should_panic(expected = "no spawner installed")]
     fn spawner_missing_panics() {
-        // Deliberately NOT installing the test spawner: this test thread's Runtime has none.
+        // Deliberately not installing the test spawner: this test thread's Runtime has none.
         let _r = Resource::new(|| (), |_| async { Ok::<_, std::convert::Infallible>(1) });
     }
 }

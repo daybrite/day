@@ -92,7 +92,7 @@ default-members = [
     "crates/day-vector",
 ]
 
-# crates.io publishing policy: for now ONLY `day-cli` and its leaf dependencies (`day-fonts`,
+# crates.io publishing policy: for now only `day-cli` and its leaf dependencies (`day-fonts`,
 # `day-toolchain`, and `day-build` — the resource-constant build helper an app's `build.rs` depends
 # on) are published, so `cargo install day-cli` and a scaffolded app's `[build-dependencies]` both
 # resolve while the rest of the crate names stay unclaimed and free to rename. Every other member
@@ -204,7 +204,7 @@ intl-memoizer = "0.5"
 # `fat` rather than `thin` for reproducibility (DESIGN.md §20.3). ThinLTO makes an internal symbol
 # external so it can be inlined across modules, renaming it with a `.llvm.<hash>` suffix to avoid
 # collisions. Measured here: that suffix was NOT stable across build directories, so the same commit
-# built twice on ONE machine produced binaries differing in exactly those symbol names, and
+# built twice on one machine produced binaries differing in exactly those symbol names, and
 # downstream in the GNU build-id and `.strtab` size. What feeds the hash is not established — the
 # upstream reports attribute it to different inputs in different cases — so this is a fix for the
 # observed symptom, not for a diagnosed root cause. Fat LTO merges everything into one module, so no

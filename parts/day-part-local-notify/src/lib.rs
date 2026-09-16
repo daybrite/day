@@ -197,7 +197,7 @@ impl Channel {
 
 /// A notification to post.
 ///
-/// Everything a scheduled notification renders is captured HERE, at post time — a `Trigger::In`
+/// Everything a scheduled notification renders is captured here, at post time — a `Trigger::In`
 /// notification may fire in a process that has no Day tree alive (the Android alarm receiver runs
 /// in a fresh process), so the content cannot be a signal or a closure. This is the one place Day's
 /// reactivity deliberately does not reach (docs/notify.md).
@@ -350,7 +350,7 @@ impl Notification {
 
     /// The absolute fire time in epoch milliseconds given the current wall clock, or `None` for an
     /// immediate post — the form the Android arm wants (`AlarmManager.RTC_WAKEUP` takes absolute
-    /// time, and the boot receiver has to know WHEN, not "how long from some forgotten start").
+    /// time, and the boot receiver has to know when, not "how long from some forgotten start").
     /// An [`Trigger::At`] instant in the past answers its real (past) millis; AlarmManager fires
     /// past alarms immediately, which is the alarm-clock semantic we want.
     #[allow(dead_code)]

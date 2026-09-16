@@ -12,7 +12,7 @@ build = "build.rs"
 # An EXTERNAL Day Piece (DESIGN.md §15): a NATIVE search input — NSSearchField / UISearchTextField /
 # GtkSearchEntry / a QLineEdit search shim / an EditText styled for search / a XAML AutoSuggestBox.
 # Bound TWO-WAY to a `Signal<String>` (native edits set the signal; a signal change patches the
-# control). Carries BOTH its cross-platform front-end (Rust) and its per-toolkit backend (objc2 /
+# control). Carries both its cross-platform front-end (Rust) and its per-toolkit backend (objc2 /
 # C++ shim / Android Java / gtk-rs) without touching any core day crate. See docs/searchfield.md.
 
 [features]

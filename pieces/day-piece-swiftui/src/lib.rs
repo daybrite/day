@@ -78,7 +78,7 @@ impl SwiftUi {
     /// Keep the hosted view's SwiftUI state across unmount/remount. Without a key, leaving the
     /// piece's branch (a tab switch, a `when()` going false, a page navigation) disposes the
     /// hosting view and its `@State` with it; with one, the native half retains the hosting view
-    /// under `key` and hands the SAME instance back on the next mount — sliders, scroll positions,
+    /// under `key` and hands the same instance back on the next mount — sliders, scroll positions,
     /// `@State`/`@StateObject` all survive, and the mount's current params are re-applied.
     ///
     /// The key pins one hosting view for the app's lifetime, so use it for the handful of views
@@ -243,7 +243,7 @@ day_pieces::glue_modules!(appkit, uikit);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`SwiftUi`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`SwiftUi`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait SwiftUiBuilder: Sized {
     fn params<M>(self, params: impl IntoReactive<String, M>) -> Self;

@@ -14,7 +14,7 @@ license.workspace = true
 # concern, not a widget-toolkit one), so there are no backend features:
 #   iOS/macOS — CoreLocation CLLocationManager + a delegate
 #   Android   — LocationManager.requestLocationUpdates via a Java shim staged through
-#               [package.metadata.day.android] (deliberately NOT FusedLocationProvider: that needs
+#               [package.metadata.day.android] (deliberately not FusedLocationProvider: that needs
 #               Play Services, which AOSP images and many emulators lack — and a Gradle dependency)
 #   Web       — navigator.geolocation.watchPosition through the day-dom shim
 #   HarmonyOS — unsupported: location is an ArkTS-only API with no NDK surface (docs/location.md)

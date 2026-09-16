@@ -71,7 +71,7 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
         }
         Err(e) => eprintln!("warning: external toolkit discovery failed: {e}"),
     }
-    // Per-target identity AFTER [app.<key>] overrides — what each target actually builds with.
+    // Per-target identity after [app.<key>] overrides — what each target actually builds with.
     let resolved: serde_json::Map<String, serde_json::Value> = m
         .app
         .targets
@@ -145,7 +145,7 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
 }
 
 /// The app's declared permissions, resolved from Day.toml alone — no `cargo metadata`, so
-/// `day metadata` stays as fast as it has always been. Library contributions are therefore NOT
+/// `day metadata` stays as fast as it has always been. Library contributions are therefore not
 /// included here; `day build` unions them at build time (docs/permissions.md).
 fn declared_permissions(project: &Project) -> Vec<serde_json::Value> {
     let catalog = crate::permissions::Catalog::load(&project.root);

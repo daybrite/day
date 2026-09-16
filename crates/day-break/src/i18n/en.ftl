@@ -1,4 +1,4 @@
-# day-break consent surface (en) — the source catalog.
+# day-break consent surface (en), the source catalog.
 crash-title = A previous run crashed
 crash-body = The app closed unexpectedly. You can review the report and choose whether to send it.
 crash-view = View report

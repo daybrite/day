@@ -161,7 +161,7 @@ fn text_content(text: &str) -> serde_json::Value {
 
 /// A one-line header naming the project every tool call acted on.
 ///
-/// The server is bound to ONE project at spawn (`--project`), and no tool's own output revealed
+/// The server is bound to one project at spawn (`--project`), and no tool's own output revealed
 /// which. An agent asked to work on a second app in the same window therefore got answers about
 /// the first with nothing to indicate it: `day_launch` builds the wrong app, and `day_running`
 /// reports "no sessions" about an app the user can plainly see running, because the session

@@ -31,7 +31,7 @@ COMBO="${2:-}"
     echo "no day binary at ${1:-$ROOT/target/release/day}" >&2
     exit 1
 }
-# Absolutize AFTER the existence check: the scaffold happens in a scratch dir outside the
+# Absolutize after the existence check: the scaffold happens in a scratch dir outside the
 # checkout, where a relative target/<triple>/release/day silently stops resolving — bash then
 # fails with 127 on Linux and "No such file or directory" (exit 1) on macOS's bash 3.2, which is
 # exactly how this bug shipped twice-disguised.
@@ -50,7 +50,7 @@ cd "$WORK"
 # check wants — the scaffold materializes every host project (Xcode, gradle, ohos, …) and any of
 # them can be the pack target below. Naming them here instead pinned the list at the eight that
 # existed when it was written, so the three added since went unexercised and the default itself
-# was never the thing under test. --local points the day deps at THIS checkout: the pack stage
+# was never the thing under test. --local points the day deps at this checkout: the pack stage
 # builds the app, and it has to build the framework under test, not git main.
 "$DAY" new app ci-sample --no-input --local "$ROOT" \
     --locales zh-Hans-CN,es-ES,pt-BR,fr-FR,de-DE,ja-JP,ko-KR,it-IT,ru-RU,ar-SA \

@@ -199,7 +199,7 @@ fn set_options(h: &Retained<NSView>, opts: &[String]) {
             seg.setSelectedSegment(want.min(opts.len() - 1) as isize);
         }
     } else if let Some(stack) = h.downcast_ref::<NSStackView>() {
-        // Inline: the radios ARE the options, so relabel in place and add/remove the tail.
+        // Inline: the radios are the options, so relabel in place and add/remove the tail.
         // Rebuilding every button would drop the group's shared target/action wiring.
         let subs = stack.arrangedSubviews();
         let existing: Vec<Retained<NSButton>> = subs

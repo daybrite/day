@@ -38,12 +38,12 @@ fn fold(locale: &str, s: &str) -> String {
 
 /// The byte offset at which each word of `text` begins.
 ///
-/// The segmenter reports boundaries with the type of the segment BEFORE each one, so a word's
+/// The segmenter reports boundaries with the type of the segment before each one, so a word's
 /// start is the previous boundary of any segment that is word-like. Segments that are only
 /// spaces or punctuation are skipped, so `&` in "Canvas & shapes" is not a place a search can
 /// start.
 ///
-/// Offset 0 is ALWAYS a start, whatever the segmenter says. Two reasons, one of which is a bug
+/// Offset 0 is always a start, whatever the segmenter says. Two reasons, one of which is a bug
 /// this closes: a query that is a prefix of the whole text should match it (that is what lets
 /// `canvas &` match "Canvas & shapes"), and under `WordBreakInvariantOptions` a run of Han
 /// ideographs comes back typed not-word-like — so `堆栈` had NO word starts at all and could not
@@ -90,7 +90,7 @@ pub fn matches_search_in(locale: &str, text: &str, query: &str) -> bool {
         .any(|start| fold(locale, &text[start..]).starts_with(&needle))
 }
 
-/// [`matches_search_in`] against the CURRENT locale. Reads the locale signal (tracked), so a
+/// [`matches_search_in`] against the current locale. Reads the locale signal (tracked), so a
 /// filtered list inside a reactive closure re-filters when the language changes — the same
 /// contract [`crate::compare`] has.
 pub fn matches_search(text: &str, query: &str) -> bool {
@@ -223,7 +223,7 @@ mod tests {
 mod self_match {
     use super::*;
 
-    /// A title must always match ITSELF, in every locale — that is what makes a localized title
+    /// A title must always match itself, in every locale — that is what makes a localized title
     /// usable as a locale-portable query (the showcase walkthrough types one to filter its
     /// sidebar). The CJK case is the one that broke: segmentation there is not space-driven.
     #[test]

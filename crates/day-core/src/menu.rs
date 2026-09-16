@@ -18,7 +18,7 @@ day_reactive::tls_slots! {
     /// matches against it, and late `register_preferences` re-forwards it.
     static APP_MENU_MODEL: RefCell<Vec<day_spec::MenuItem>> = const { RefCell::new(Vec::new()) };
     /// The action ids the current app menu registered, so replacing the menu (the reactive
-    /// re-lower on a locale change) can drop the stale closures WITHOUT touching context
+    /// re-lower on a locale change) can drop the stale closures without touching context
     /// menus, which share the `ACTIONS` map.
     static APP_MENU_IDS: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
 }
@@ -57,7 +57,7 @@ pub fn register_menu_action(f: Rc<dyn Fn()>) -> u64 {
     id
 }
 
-/// Register an app closure whose lifetime is tied to the CURRENT scope: the id is dropped
+/// Register an app closure whose lifetime is tied to the current scope: the id is dropped
 /// from the dispatch map when that scope is disposed. This is the registrar for closures
 /// owned by a piece build — context menus, nav-row menus, nav `bar_action` — which are
 /// re-registered on every rebuild; without the cleanup each remount leaks the previous
@@ -212,7 +212,7 @@ pub fn app_menu_installed() -> bool {
 }
 
 /// Re-forward the retained model through the injection pass — the self-heal for
-/// `register_preferences` running AFTER `app_menu` (docs/menus.md ordering note).
+/// `register_preferences` running after `app_menu` (docs/menus.md ordering note).
 /// Did the app install a menu model of its own (`app_menu`)? `false` means it is running on the
 /// backend's DEFAULT menu bar, which the backend builds before `root()` runs — so a backend that
 /// puts registration-dependent items there (Settings…, File ▸ New Window) has to rebuild it once
@@ -231,7 +231,7 @@ pub(crate) fn reinstall_app_menu() {
 /// Inject the auto Settings…/Preferences item (docs/windows.md): when a preferences piece
 /// is registered and the model carries an INERT `role(Preferences)` item (id 0), rewrite
 /// its id to the registered action; when the model has no Preferences item at all, append
-/// `separator + item` to the FIRST top-level submenu (the File menu by convention). An
+/// `separator + item` to the first top-level submenu (the File menu by convention). An
 /// app-supplied `.action` (nonzero id) always wins. Backends give the item its platform
 /// placement (macOS hoists it into the App menu) and label fallback.
 fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuItem> {
@@ -446,7 +446,7 @@ pub fn standard_menu_bar(
 /// The title fallback is what keeps a bar from showing the same menu twice. Tagging a submenu
 /// with a [`day_spec::MenuBarRole`] is how an app claims a slot, but an app that simply builds
 /// its own "Edit" — the natural thing to write, and what the showcase did — would otherwise get
-/// the stock Edit in the slot AND its own further along the bar. An untagged submenu whose title
+/// the stock Edit in the slot and its own further along the bar. An untagged submenu whose title
 /// is the stock menu's title is that menu, so it takes the slot instead of being appended.
 fn take_slot(
     role: day_spec::MenuBarRole,
@@ -558,7 +558,7 @@ mod tests {
     }
 
     /// An app that builds a standard menu by hand — an "Edit" submenu with no `bar_role` — gets
-    /// ONE Edit menu, in the Edit slot, not the stock one plus its own further along the bar.
+    /// One Edit menu, in the Edit slot, not the stock one plus its own further along the bar.
     /// This is the duplicate the showcase's macOS bar actually showed: Showcase, Edit, View,
     /// File, Edit, View, Window, Help.
     #[test]
@@ -592,7 +592,7 @@ mod tests {
         assert!(!menu_titles_match("Edit", "View"));
     }
 
-    /// A claimed slot replaces the stock menu in place — it does NOT also get the stock one,
+    /// A claimed slot replaces the stock menu in place — it does not also get the stock one,
     /// and it does not slide into the app-menu run.
     #[test]
     fn a_claimed_slot_replaces_the_stock_menu_in_place() {

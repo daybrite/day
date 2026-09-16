@@ -6,7 +6,7 @@
 // compiled by build.rs against OHOS_NDK_HOME — the pullrefresh pattern). Compact date =
 // ARKUI_NODE_CALENDAR_PICKER (entry → calendar popup); Inline date = ARKUI_NODE_DATE_PICKER
 // wheels (native START/END bounds); time = ARKUI_NODE_TIME_PICKER wheels for both styles (the
-// wheels ARE HarmonyOS's embedded time UI). A null node (SDK without picker nodes) falls back
+// wheels are HarmonyOS's embedded time UI). A null node (SDK without picker nodes) falls back
 // per docs. Measure rides day-arkui-sys's generic day_ark_measure, like the built-in leaves.
 // ---------------------------------------------------------------------------
 

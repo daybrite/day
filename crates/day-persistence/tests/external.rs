@@ -148,7 +148,7 @@ fn an_unchanged_file_and_our_own_writes_report_nothing() {
     // Nothing external happened.
     assert!(!container.check_external().expect("check_external"));
 
-    // Our own writes never trip the detector: data_version moves only for OTHER connections.
+    // Our own writes never trip the detector: data_version moves only for other connections.
     store.elem(1).title().write("mine".into());
     container.save().expect("save");
     assert!(!container.check_external().expect("check_external"));
@@ -164,7 +164,7 @@ fn an_unflushed_local_edit_survives_the_merge() {
     container.set_autosave(false);
     let store = container.cache::<Note>();
 
-    // A local edit still pending when the external write arrives on a DIFFERENT row.
+    // A local edit still pending when the external write arrives on a different row.
     store.elem(2).title().write("local, unflushed".into());
     {
         let mut other = second_connection(&path);

@@ -42,14 +42,14 @@ pub fn compare_in(locale: &str, a: &str, b: &str) -> Ordering {
     })
 }
 
-/// Compare two strings in the CURRENT locale's collation order. Reads the locale signal
+/// Compare two strings in the current locale's collation order. Reads the locale signal
 /// (tracked), so a sort inside a reactive closure re-runs when the locale switches.
 pub fn compare(a: &str, b: &str) -> Ordering {
     let locale = crate::locale().get();
     compare_in(&locale, a, b)
 }
 
-/// Sort a slice in place in the CURRENT locale's collation order (tracked, like [`compare`]).
+/// Sort a slice in place in the current locale's collation order (tracked, like [`compare`]).
 pub fn sort_localized<T: AsRef<str>>(items: &mut [T]) {
     let locale = crate::locale().get();
     with_collator(&locale, |c| match c {

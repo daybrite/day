@@ -1,6 +1,6 @@
-# CI (DESIGN.md §20.1) — per-OS jobs, patterns lifted from pane's per-OS matrix and hop's
+# CI (DESIGN.md §20.1): per-OS jobs, patterns lifted from pane's per-OS matrix and hop's
 # screenshot pipeline. Banked toolchain knowledge encoded here from day one: the Gradle/AGP
-# builds use the runner's DEFAULT preinstalled JDK (Day accepts 17+; Gradle 9.6 runs on 17…26 —
+# builds use the runner's default preinstalled JDK (Day accepts 17+; Gradle 9.6 runs on 17…26;
 # the old "pin 21, never newer" rule was an AGP-8-era jdk-image-transform quirk that no longer
 # holds), rustup toolchains for cross-std, GSK_RENDERER=cairo for headless GTK (set by `day
 # launch` itself), `--locked` everywhere, emulator boot handled by the runner action's polling.
@@ -10,12 +10,13 @@ on:
   push:
     branches: [main]
     # Semantic-release tags run a lean release lane: fmt/msrv → the 3×2 day-CLI release
-    # builds → the per-combo jobs in PACK-ONLY mode (tests, walkthroughs, and emulators are
-    # skipped — the tagged commit was already validated on main; the packaging steps run
+    # builds → the per-combo jobs in pack-only mode (tests, walkthroughs, and emulators are
+    # skipped because the tagged commit was already validated on main; the packaging steps run
     # release-signed when the DAY_* secrets are set) → the `release` job, which publishes the GitHub
     # release (CLI binaries, installers, app packages, attestations) → the `publish` job, which uploads
-    # the crates to crates.io via Trusted Publishing (OIDC — no API-key secret). The `release` job also
-    # runs on every push/PR — there it only verifies publishability with `cargo publish --dry-run`.
+    # the crates to crates.io via Trusted Publishing (OIDC, so no API-key secret). The `release` job
+    # also runs on every push/PR, where it only verifies publishability with
+    # `cargo publish --dry-run`.
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
   workflow_dispatch:
@@ -47,13 +48,13 @@ env:
   # The macOS runner images ship with third-party taps (aws/tap) that Homebrew's tap-trust
   # check warns about on every `brew install`. Runners are ephemeral, so trust checks buy
   # nothing here; this silences the warning in every job. NOTE the flag is deprecated
-  # upstream ("will be removed in a later release") — when it stops working, replace it
+  # upstream ("will be removed in a later release"); when it stops working, replace it
   # with a `brew untap aws/tap` step next to the brew installs.
   HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
-  # The walkthrough capture matrix — themes × locales, space-separated (the shell word-splits
-  # them). ONE place to grow: every screenshot leg (macOS, iOS, Linux, Android, HarmonyOS,
-  # Windows, web-dom) loops over these. Nothing downstream lists them a second time — the
-  # showcase's published gallery index carries each capture's own theme and locale, and
+  # The walkthrough capture matrix: themes × locales, space-separated (the shell word-splits
+  # them). One place to grow: every screenshot leg (macOS, iOS, Linux, Android, HarmonyOS,
+  # Windows, web-dom) loops over these. Nothing downstream lists them a second time; the
+  # showcase's published gallery index carries each capture's theme and locale, and
   # daybrite.dev builds its selectors from that.
   WALKTHROUGH_THEMES: light dark
   WALKTHROUGH_LOCALES: en fr ar zh-CN
@@ -91,10 +92,10 @@ jobs:
           cargo clippy --locked -p day-cli -p day-script -p day-pieces --features day-pieces/dyn-registry --all-targets
 
   # Spelling + the American-English rule (STYLE_GUIDE.md), enforced by `typos` over the whole
-  # tree — prose, doc comments, and code comments alike. It is a spelling gate and a dialect gate
+  # tree: prose, doc comments, and code comments alike. It is a spelling gate and a dialect gate
   # at once: typos.toml sets `locale = "en-us"`, which is what makes a British variant a finding
   # rather than a matter of taste. The mixed state this replaced had 355 of them, and the reason
-  # was drift rather than disagreement — nobody decides a dialect one comment at a time.
+  # was drift rather than disagreement; nobody decides a dialect one comment at a time.
   #
   # Every exception is a named entry in typos.toml with a reason beside it, so the allow-list
   # reads as decisions rather than as noise someone silenced. Run `typos` locally to reproduce
@@ -118,7 +119,7 @@ jobs:
         run: |
           scripts/ci/duty-matrix.sh
           git diff --exit-code docs/duty-matrix.md
-      # docs/coverage-matrix.md is the same contract for the piece VOCABULARY: which kinds each
+      # docs/coverage-matrix.md is the same contract for the piece vocabulary: which kinds each
       # backend realizes, which piece ships which arm, and what every Cap answers. Adding a
       # renderer without regenerating it is drift; the walkthrough's assert_no_placeholders
       # allow-lists are the runtime half of the same fact.
@@ -126,9 +127,9 @@ jobs:
         run: |
           scripts/ci/coverage-matrix.sh
           git diff --exit-code docs/coverage-matrix.md
-      # docs/recorder-matrix.md is the same contract for the dayscript RECORDER: what it writes for
+      # docs/recorder-matrix.md is the same contract for the dayscript recorder: what it writes for
       # every Event an app can receive. `event_to_step` ends in a catch-all, so an unmapped event
-      # is silent — a control that replays but never records — and this puts every new variant in a
+      # is silent (a control that replays but never records), and this puts every new variant in a
       # diff as "dropped", where someone has to agree with it (§14.6).
       - name: Recorder-matrix drift check
         run: |
@@ -136,41 +137,41 @@ jobs:
           git diff --exit-code docs/recorder-matrix.md
 
   # ===========================================================================
-  # Per-combo build+test+walkthrough jobs — one job per <platform>-<toolkit>.
+  # Per-combo build+test+walkthrough jobs: one job per <platform>-<toolkit>.
   # Each: installs the toolkit's deps, tests the host-portable crates, builds and
   # launches the showcase for the combo, drives the dayscript walkthrough, and
   # uploads that combo's screenshots (screenshots-<combo>). Gated on the fast
   # checks (fmt/msrv). Per-combo clippy runs inside the build jobs: each combo
-  # lints its own backend feature (a `--workspace` clippy cannot compile — feature
+  # lints its backend feature (a `--workspace` clippy cannot compile: feature
   # unification would enable several `day` backends at once and trip the
   # one-backend-per-binary compile_error! guard, §3); the toolkit-independent
   # lints run in the first-pass `clippy` job.
   # ===========================================================================
 
   # --- day CLI: release builds, shared as artifacts -------------------------
-  # Runs right after the fast checks (fmt/msrv). SIX parallel jobs — one per (OS, arch) — because
+  # Runs right after the fast checks (fmt/msrv). Six parallel jobs, one per (OS, arch), because
   # this is the first phase everything else waits on, and one runner per architecture halves its
   # wall-clock against building both in sequence on one runner. Linux and Windows legs each run
   # on hardware matching their arch (ubuntu-24.04-arm / windows-11-arm for aarch64); macOS
   # x86_64 is the one remaining cross build, since GitHub retired its Intel runners. Each leg
   # builds one target and uploads it as `day-<os>-<arch>` (e.g. day-macos-x86_64,
   # day-linux-aarch64). Three job IDs with a two-arch matrix each, so the `needs:` below still
-  # name day-cli-macos / -linux / -windows and wait on both of that OS's legs. (The job KEYS
+  # name day-cli-macos / -linux / -windows and wait on both of that OS's legs. (The job keys
   # keep the day-cli- prefix for those needs: edges; the displayed names are day-<os> because
-  # the legs test the framework, not just build the CLI.)
+  # the legs test the framework as well as building the CLI.)
   #
   # `fail-fast: false`: a broken build on one architecture should not cancel the other, whose
   # binary the per-platform jobs are waiting on.
   #
   # scripts/ci/scaffold-check.sh no longer runs here: it moved into the per-platform jobs below,
   # where each combo scaffolds, lints, packs, and rebuilds (`day rebuild --from-dir`) a fresh
-  # 21-locale project — and the desktop combos drive the rebuilt copy's demo dayscript too.
+  # 21-locale project, and the desktop combos drive the rebuilt copy's demo dayscript too.
   #
-  # The host-portable test run (scripts/ci/host-test.sh — the whole workspace minus the toolkit
-  # crates, NOT bare `cargo test`, whose default-members are the small quick-iteration set) rides
-  # every leg whose runner matches its arch — both Linux legs, both Windows legs, and macOS
-  # aarch64; the macOS x86_64 cross leg cannot run its own binaries. It runs BEFORE the release
-  # build, so a red test fails the leg — and skips every job downstream of its artifact —
+  # The host-portable test run (scripts/ci/host-test.sh: the whole workspace minus the toolkit
+  # crates, not bare `cargo test`, whose default-members are the small quick-iteration set) rides
+  # every leg whose runner matches its arch (both Linux legs, both Windows legs, and macOS
+  # aarch64; the macOS x86_64 cross leg cannot run the binaries it builds). It runs before the
+  # release build, so a red test fails the leg, and skips every job downstream of its artifact,
   # without paying for the build first. The tag lane skips the test step (the tagged commit was
   # already validated on main).
   day-cli-macos:
@@ -204,7 +205,7 @@ jobs:
   day-cli-linux:
     name: day-linux (${{ matrix.arch }})
     needs: [fmt, msrv]
-    runs-on: ${{ matrix.runner }} # each arch on matching hardware — both legs build AND test natively
+    runs-on: ${{ matrix.runner }} # each arch on matching hardware: both legs build and test natively
     strategy:
       fail-fast: false
       matrix:
@@ -234,7 +235,7 @@ jobs:
   day-cli-windows:
     name: day-windows (${{ matrix.arch }})
     needs: [fmt, msrv]
-    runs-on: ${{ matrix.runner }} # each arch on matching hardware — both legs build AND test natively
+    runs-on: ${{ matrix.runner }} # each arch on matching hardware: both legs build and test natively
     strategy:
       fail-fast: false
       matrix:
@@ -262,7 +263,7 @@ jobs:
           if-no-files-found: error
 
   # --- Release: verify publishability always; publish the GitHub release on a semantic tag ---------
-  # Runs on EVERY push / PR / tag. It ALWAYS runs `cargo publish --workspace --dry-run` to prove the
+  # Runs on every push / PR / tag. It always runs `cargo publish --workspace --dry-run` to prove the
   # whole workspace could be published (versions, MPL-2.0 license, metadata, packaging). On a
   # semantic-release tag (`vX.Y.Z`) it additionally: checks the tag matches the workspace version;
   # downloads the six day-<os>-<arch> CLI binaries from the 3×2 release builds; repackages them as
@@ -273,9 +274,9 @@ jobs:
   # release. The actual crates.io upload is the separate `publish` job (Trusted Publishing).
   # `!cancelled()`: the dry-run is independent of the matrix, so a flaky leg still lets the gate report.
   #
-  # The dry-run VERIFIES (it does not pass `--no-verify`): cargo unpacks each .crate and builds it,
+  # The dry-run verifies (it does not pass `--no-verify`): cargo unpacks each .crate and builds it,
   # which is the only check that catches a package that is not self-contained. `include_str!` reaching
-  # outside its package compiles in-tree and fails for every `cargo install day-cli` user — that
+  # outside its package compiles in-tree and fails for every `cargo install day-cli` user; that
   # shipped in 0.0.15 (the web-dom host trio). Verification is cheap here because all four publishable
   # crates (day-build, day-cli, day-fonts, day-toolchain) are host-only tooling; the per-platform
   # toolkit crates that can't share a runner are all publish=false and are never packaged.
@@ -289,7 +290,7 @@ jobs:
       id-token: write
       attestations: write
     env:
-      # A semantic-release tag (`vX.Y.Z…`) vs any other ref — the step-level `if:`s gate the tag-only
+      # A semantic-release tag (`vX.Y.Z…`) vs any other ref: the step-level `if:`s gate the tag-only
       # GitHub-release steps; the dry-run below runs on every ref.
       IS_TAG: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
@@ -297,7 +298,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      # Publishability gate — verify the workspace could publish on every push/PR/tag (a green gate on
+      # Publishability gate: verify the workspace could publish on every push/PR/tag (a green gate on
       # the tagged commit precedes the real upload in the `publish` job).
       - name: Verify publishability (cargo publish --workspace --dry-run)
         run: cargo publish --workspace --dry-run --locked
@@ -341,7 +342,7 @@ jobs:
           ruby -c dist/day.rb
       # No app packages here any more: the showcase is its own repository (daybrite/Day-Showcase)
       # and publishes its own releases, which is what the website's /showcase/ page reads. This
-      # release is the day CLI — six binaries, the installers, and the Homebrew formula.
+      # release is the day CLI: six binaries, the installers, and the Homebrew formula.
       - name: Checksums (one manifest for every release file)
         if: ${{ env.IS_TAG == 'true' }}
         working-directory: dist
@@ -350,8 +351,8 @@ jobs:
           rm -f day-SHA256SUMS.txt
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
-      # Build provenance for EVERY file attached to the release (archives, installers,
-      # formula, app packages, checksums) — verifiable with
+      # Build provenance for every file attached to the release (archives, installers,
+      # formula, app packages, checksums), verifiable with
       # `gh attestation verify <file> -R daybrite/day`.
       - name: Attest build provenance
         if: ${{ env.IS_TAG == 'true' }}
@@ -363,7 +364,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Create as a draft, attach every artifact, THEN un-draft — so the release is never
+          # Create as a draft, attach every artifact, then un-draft, so the release is never
           # publicly visible in a half-uploaded state. view-or-create + --clobber + --draft=false
           # keep re-runs idempotent (a re-run re-uploads and re-publishes without error).
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
@@ -375,22 +376,23 @@ jobs:
   # --- crates.io publish (semantic tags only) via Trusted Publishing --------------------------------
   # No API-key secret. crates.io Trusted Publishing exchanges this job's GitHub OIDC token (minted by
   # rust-lang/crates-io-auth-action) for a short-lived, publish-scoped token. The job runs in the
-  # `release` GitHub environment the crates.io Trusted Publisher config is bound to, so only this job —
-  # on a semantic tag — can mint that token. It publishes the four publishable crates in dependency
-  # order (day-fonts, day-toolchain → day-build → day-cli; every other member is publish=false);
-  # --no-verify because the `release` job's dry-run already unpacked and BUILT each package from this
+  # `release` GitHub environment the crates.io Trusted Publisher config is bound to, so only this
+  # job, on a semantic tag, can mint that token. It publishes the four publishable crates in
+  # dependency order (day-fonts, day-toolchain → day-build → day-cli; every other member is
+  # publish=false); --no-verify because the `release` job's dry-run already unpacked and built
+  # each package from this
   # same commit, and re-verifying mid-upload would risk failing with some crates already published.
   # `needs: [release]` orders it after the version-match check + GitHub release, and only runs if the
   # publishability dry-run passed.
   publish:
     name: publish (crates.io)
     needs: [release]
-    # `!cancelled()` is load-bearing, and the reason v0.1.5 and v0.2.0 never reached crates.io: a
-    # job whose `if` carries no status function gets an implicit `success()`, and that is false when
-    # ANY ancestor was skipped — `toolkit` skips itself on tags (the lean tag lane), so `publish`
-    # was skipped too, even though `release` ran and succeeded on its own `!cancelled()`. Overriding
-    # the propagation here means the real gate has to be spelled out: publish only when `release`
-    # actually succeeded, on a semantic tag.
+    # `!cancelled()` is required here, and its absence is why v0.1.5 and v0.2.0 never reached
+    # crates.io: a job whose `if` carries no status function gets an implicit `success()`, and that
+    # is false when any ancestor was skipped. `toolkit` skips itself on tags (the lean tag lane), so
+    # `publish` was skipped too, even though `release` ran and succeeded on its own `!cancelled()`.
+    # Overriding the propagation here means the gate has to be spelled out: publish only when
+    # `release` succeeded, on a semantic tag.
     if: ${{ !cancelled() && needs.release.result == 'success' && startsWith(github.ref, 'refs/tags/v') }}
     runs-on: ubuntu-24.04
     environment: release
@@ -410,23 +412,23 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --workspace --no-verify --locked
 
-  # --- Canary: the SAME reusable workflow the app repositories use ------------------------------
+  # --- Canary: the same reusable workflow the app repositories use ------------------------------
   # day's own CI and daybrite/actions' dayapp.yml are the same pipeline written twice, and
-  # this is the first half of collapsing them. It builds ONE target through the shared workflow,
+  # this is the first half of collapsing them. It builds one target through the shared workflow,
   # with `day-source: artifact` so the CLI under test is the one this run just built rather than a
-  # published release — the property day's inline jobs have and app repos previously could not get.
+  # published release, the property day's inline jobs have and app repos previously could not get.
   #
-  # The app it builds is a FRESH SCAFFOLD, not Day-Showcase. What a red check here means is that
-  # the shared workflow's contract with the CLI broke — that `day build` / `pack` / `launch
+  # The app it builds is a fresh scaffold, not Day-Showcase. What a red check here means is that
+  # the shared workflow's contract with the CLI broke (that `day build` / `pack` / `launch
   # --script` stopped answering to the flags, paths, and artifact names dayapp.yml passes
-  # them — and `day new app` exercises that contract as well as a real app does, without a second
+  # them), and `day new app` exercises that contract as well as a real app does, without a second
   # repository to clone, a second full Showcase build beside the inline `linux` job's, or a
   # 400-step walkthrough that job already runs across eight theme/locale variants. Showcase still
   # goes through this same workflow every night in its own CI, across eight targets.
   dayapp:
     # Named for the workflow under test, because that is what a red check here means: the shared
-    # pipeline broke, not this repository's own build. `(canary)` says the single target is
-    # deliberate — it is an early-warning signal, not the coverage build.
+    # pipeline broke, not this repository's build. `(canary)` says the single target is
+    # an early-warning signal, not the coverage build.
     name: dayapp (canary)
     needs: [day-cli-linux]
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -440,7 +442,7 @@ jobs:
       project-path: Day Project Root/canary-app
       # The project is generated rather than checked out, and `setup-command` is the shared
       # workflow's hook for exactly that (a reusable workflow only checks out the caller's
-      # repository). `day patch` then points the scaffold's day dependencies at THIS commit, so
+      # repository). `day patch` then points the scaffold's day dependencies at this commit, so
       # the canary builds the CLI and the crates from this run against each other.
       # (Setting it also skips the pristine assertion, which is right: the project is generated
       # here, and `day patch` writes a config file into it.)
@@ -462,14 +464,14 @@ jobs:
       validate-rebuild: false
 
   # --- Framework checks lifted out of the per-target jobs ---------------------------------------
-  # `toolkit` varies the BACKEND CRATE (§1: the crate implementing day-spec for one native
-  # toolkit), which is the axis a `--workspace` clippy cannot cover — feature unification would
+  # `toolkit` varies the backend crate (§1: the crate implementing day-spec for one native
+  # toolkit), which is the axis a `--workspace` clippy cannot cover: feature unification would
   # link several backends into one binary and trip the one-backend-per-binary guard. Each leg
   # lints the app against its backend feature and scaffolds a piece/part/app for it, so the
   # compile-level checks that must run once per backend sit in one job instead of riding six
-  # device-bound ones. These check the FRAMEWORK, not the app — inside the per-combo build jobs
+  # device-bound ones. These check the framework, not the app; inside the per-combo build jobs
   # they made every build job framework-shaped and unusable as the generic app pipeline
-  # (daybrite/actions' dayapp.yml). The OTHER framework check, the host-portable
+  # (daybrite/actions' dayapp.yml). The other framework check, the host-portable
   # test run (scripts/ci/host-test.sh), rides every arch-matching leg of the day-cli-<os>
   # jobs above, gating that OS's CLI artifacts and everything downstream of them.
   toolkit:
@@ -507,7 +509,7 @@ jobs:
             sudo apt-get install -y qt6-base-dev qt6-webengine-dev
           fi
       # The android backend links through the NDK, so the cross-clippy and the scaffold build need
-      # cargo-ndk — but not Gradle, which only the packaging step uses.
+      # cargo-ndk, but not Gradle, which only the packaging step uses.
       - uses: taiki-e/install-action@v2
         if: matrix.toolkit == 'mdc'
         with:
@@ -517,7 +519,7 @@ jobs:
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           # bundled SQLite (day-persistence, in the showcase's non-wasm graph) compiles C, and
-          # cc-rs never finds the NDK's API-suffixed clang on its own — the plain
+          # cc-rs never finds the NDK's API-suffixed clang on its own: the plain
           # `aarch64-linux-android-clang` name does not exist in modern NDKs. minSdk 24, the
           # scaffold's own floor (templates/app/platform/android/build.gradle.kts).
           NDK_BIN="$(echo "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin)"
@@ -534,9 +536,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
       # The app checkout the lint below and the scaffold test both need. `day patch` (inside the
-      # action) points its day dependencies at THIS commit, so clippy lints the framework under
+      # action) points its day dependencies at this commit, so clippy lints the framework under
       # test rather than a published release.
-      # `day new` + build, against THIS checkout (`--local`), so a template that stopped compiling
+      # `day new` + build, against this checkout (`--local`), so a template that stopped compiling
       # fails here rather than in a user's first five minutes.
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
@@ -550,7 +552,7 @@ jobs:
           set -euo pipefail
           TARGET=""
           if [ -n "${{ matrix.rust_target }}" ]; then TARGET="--target ${{ matrix.rust_target }}"; fi
-          # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
+          # shellcheck disable=SC2086 # $TARGET is a two-token flag or empty
           cargo clippy $TARGET ${{ matrix.clippy }} \
             --no-default-features --features ${{ matrix.toolkit }}
       # The Windows implementation of this part compiles only here, so its lint rides the xaml
@@ -579,7 +581,7 @@ jobs:
           "$DAY" new piece scratch-piece --toolkits ${{ matrix.toolkit }} --local "$GITHUB_WORKSPACE"
           "$DAY" new part  scratch-part  --local "$GITHUB_WORKSPACE"
           "$DAY" new app   scratch-app   --toolkit ${{ matrix.combo }} --appid com.example.scratchapp --local "$GITHUB_WORKSPACE"
-          # shellcheck disable=SC2086 # TARGET is an intentional two-token flag or empty
+          # shellcheck disable=SC2086 # $TARGET is a two-token flag or empty
           ( cd scratch-piece && cargo build --features ${{ matrix.toolkit }} $TARGET )
           # The piece's demo/ is an app, built the way scratch-app is below.
           # shellcheck disable=SC2086
@@ -588,13 +590,13 @@ jobs:
           ( cd scratch-part  && cargo build $TARGET )
           # `--no-default-features` is what `day build` passes for the app crate, and what an app
           # requires: the scaffold defaults to `mock` so a bare `cargo build` and rust-analyzer
-          # compile with no backend flag, and day accepts exactly ONE backend — so adding `appkit`
+          # compile with no backend flag, and day accepts exactly one backend, so adding `appkit`
           # on top of the default is two, and the `enable exactly one backend feature`
           # compile_error fires. Pieces and parts carry no default backend, so their builds above
           # take the plain additive form.
           # shellcheck disable=SC2086
           ( cd scratch-app   && cargo build $LIB --no-default-features --features ${{ matrix.toolkit }} $TARGET )
-          # Structural check of the DEFAULT (no --local) output: it must reference the remote git dep.
+          # Structural check of the default (no --local) output: it must reference the remote git dep.
           "$DAY" new app remote-check --toolkit ${{ matrix.combo }} --no-input >/dev/null
           grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
 
@@ -602,14 +604,14 @@ jobs:
   macos:
     name: day-${{ matrix.combo }}
     # xcode-27 is the floor for every macOS job in these repos, Apple Silicon with the newest
-    # Xcode. Not only for speed: `devicectl` can drive a SIMULATOR only from the CoreDevice
+    # Xcode. Not only for speed: `devicectl` can drive a simulator only from the CoreDevice
     # framework Xcode 27 installs (26.6 ships one that cannot see simulators at all), which is
     # what lets a walkthrough capture in a chosen orientation.
     runs-on: xcode-27
     needs: [day-cli-macos]
     strategy:
       fail-fast: false
-      # Tag pushes trim the matrix to appkit — the only leg that packs a release artifact
+      # Tag pushes trim the matrix to appkit, the only leg that packs a release artifact
       # (the .dmg); the qt/gtk legs exist for walkthrough coverage, which tag runs skip.
       matrix: >-
         ${{ startsWith(github.ref, 'refs/tags/')
@@ -617,8 +619,8 @@ jobs:
             || fromJSON('{"include":[{"combo":"macos-appkit","toolkit":"appkit"},{"combo":"macos-qt","toolkit":"qt"},{"combo":"macos-gtk","toolkit":"gtk"}]}') }}
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
-      # NO signing secrets reach this job on any ref (§20.2). It builds arbitrary repo code —
-      # cargo, every dependency's build.rs, dayscript walkthroughs — so it packs at the DEV tier
+      # No signing secrets reach this job on any ref (§20.2). It builds arbitrary repo code
+      # (cargo, every dependency's build.rs, dayscript walkthroughs), so it packs at the dev tier
       # (ad-hoc) even on tags, and the result JSON says so loudly. The Developer ID identity and
       # the notary key live in daybrite/actions' `sign-macos` job, which runs no repo code at all.
     steps:
@@ -628,8 +630,8 @@ jobs:
       - name: Install toolkit deps
         run: |
           case "${{ matrix.toolkit }}" in
-            # The full `qt` formula includes Qt WebEngine (the Qt web view). macos-gtk gets NO
-            # WebKitGTK — Homebrew's has no bottle and vends the GTK3 API, and WebKitGTK isn't viable
+            # The full `qt` formula includes Qt WebEngine (the Qt web view). macos-gtk gets no
+            # WebKitGTK: Homebrew's has no bottle and vends the GTK3 API, and WebKitGTK isn't viable
             # on macOS-quartz, so the GTK web view is Linux/Windows only (day-piece-webview).
             qt) brew install qt pkg-config ;;
             gtk) brew install gtk4 libadwaita pkg-config ;;
@@ -644,7 +646,7 @@ jobs:
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
           # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
-          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # temp dir, not the workspace: the workspace is the checkout, and an untracked directory in
           # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
           # which cygpath turns into one `find` can walk.
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
@@ -658,7 +660,7 @@ jobs:
       - name: Scaffold check (new + lint + pack + rebuild + launch)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" ${{ matrix.combo }}
-      # Validate this toolkit's build environment up front — fails the job with setup instructions
+      # Validate this toolkit's build environment up front; it fails the job with setup instructions
       # if a required tool/SDK is missing, rather than deep inside the build.
       - name: Check out the showcase app
         uses: ./.github/actions/showcase
@@ -667,14 +669,14 @@ jobs:
       - name: Doctor (${{ matrix.toolkit }})
         shell: bash
         run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
-      # Scaffold a piece + a part + a full app with `day new`, redirect their day deps to THIS
-      # checkout with --local, and build each for this combo — so `day new` output keeps compiling
+      # Scaffold a piece + a part + a full app with `day new`, redirect their day deps to this
+      # checkout with --local, and build each for this combo, so `day new` output keeps compiling
       # against the day tree under test (the desktop piece + app link the toolkit; the part is headless).
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: showcase-src
         # The theme × locale expansion, variant naming, and build-once-reuse live in the CLI now
-        # (`day launch --themes/--locales`) — one copy instead of a loop per job per workflow.
+        # (`day launch --themes/--locales`): one copy instead of a loop per job per workflow.
         run: |
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
@@ -691,25 +693,25 @@ jobs:
             $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/windows-theme.yaml --skip-build
           fi
       # Text to speech (docs/speech.md): the daybridge reference part, driven on every combo. The
-      # script asserts the section's own state rather than the audio — a v1 bridge call reports
-      # nothing about the engine after it accepts (docs/bridge.md) — so a CI box with no voice
+      # script asserts the section's state rather than the audio (a v1 bridge call reports
+      # nothing about the engine after it accepts, docs/bridge.md), so a CI box with no voice
       # installed still gates what it can: the arm is linked, the call runs, the UI survives it.
       - name: Speech (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: showcase-src
         run: $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/speech.yaml --skip-build
       # NSPasteboard is display-independent, so the real clipboard round-trip runs on every macOS
-      # combo (headless Linux has no system clipboard — see dayscript/clipboard-roundtrip.yaml).
+      # combo (headless Linux has no system clipboard; see dayscript/clipboard-roundtrip.yaml).
       - name: Clipboard round-trip (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: showcase-src
         run: $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/clipboard-roundtrip.yaml
-      # Crash reporting (day-break, docs/break.md): crash the app intentionally, then confirm the
-      # report shows on the NEXT launch. Two invocations against the SAME app-data dir — the crash
+      # Crash reporting (day-break, docs/break.md): trigger a crash in the app, then confirm the
+      # report shows on the next launch. Two invocations against the same app-data dir: the crash
       # run exits cleanly via `expect_exit`, the report run reads the persisted report and clears
       # it. macOS is the representative desktop leg (the signal handlers are exercised here; the
-      # showcase page's on-device paths — Android UEH, iOS/OHOS signals — run in those legs' manual
-      # trial run). Runs AFTER the walkthrough so the empty-state `crash` screenshot stays deterministic.
+      # showcase page's on-device paths, Android UEH and iOS/OHOS signals, run in those legs' manual
+      # trial run). Runs after the walkthrough so the empty-state `crash` screenshot stays deterministic.
       - name: Crash reporting round-trip (${{ matrix.combo }})
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: showcase-src
@@ -717,11 +719,11 @@ jobs:
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash.yaml
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/crash-report.yaml
       # Distribution packaging (§16.5): appkit → .dmg, at the dev tier (ad-hoc). Nothing here is
-      # ever distributed — this proves packing works. The signed, notarized .dmg is built by
+      # ever distributed; this proves packing works. The signed, notarized .dmg is built by
       # daybrite/Day-Showcase's own release, in a job that runs no repository code (§20.2,
       # daybrite/actions `sign-macos`).
       # The commit in the SBOM only describes the artifact if the tree it was built from
-      # matches that commit exactly — see the script.
+      # matches that commit exactly; see the script.
       - name: Assert the checkout is pristine
         run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (${{ matrix.combo }} → dmg)
@@ -750,14 +752,14 @@ jobs:
 
   ios-uikit:
     name: day-ios-uikit
-    # xcode-27: see the macos job note — also gives the walkthrough a current iOS Simulator
+    # xcode-27: see the macos job note. It also gives the walkthrough a current iOS Simulator
     # runtime, and the devicectl that can turn it.
     runs-on: xcode-27
     needs: [day-cli-macos]
     env:
       # Release signing (§20), active on tag pushes only: the distribution cert + App Store
       # Connect API key light up the device .ipa; without them (and on every branch/PR run)
-      # pack builds an UNSIGNED device .ipa instead (sideloadable via AltStore/SideStore,
+      # pack builds an unsigned device .ipa instead (sideloadable via AltStore/SideStore,
       # or signed by the developer). Empty secrets degrade to that same unsigned tier.
       DAY_APPLE_TEAM: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DAY_APPLE_TEAM || '' }}
       DAY_ASC_KEY_ID: ${{ startsWith(github.ref, 'refs/tags/') && secrets.DAY_ASC_KEY_ID || '' }}
@@ -782,7 +784,7 @@ jobs:
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
           # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
-          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # temp dir, not the workspace: the workspace is the checkout, and an untracked directory in
           # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
           # which cygpath turns into one `find` can walk.
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
@@ -803,13 +805,13 @@ jobs:
         shell: bash
         run: $DAY_BIN doctor --toolkit uikit
       # Scaffold a uikit piece + a part + a full app (deps redirected to this checkout) and
-      # cross-compile each for the iOS Simulator — a lib build, so no device/simulator needed here.
+      # cross-compile each for the iOS Simulator: a lib build, so no device/simulator needed here.
       # The app builds `--lib` (its `day::launch` desktop bin is not part of the iOS pipeline).
       - name: Boot an iOS Simulator
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           # The largest iPhone the image has (a Pro Max), newest first: its captures are the
-          # 6.9-inch size App Store Connect takes for iPhone screenshots — a plain "^iPhone"
+          # 6.9-inch size App Store Connect takes for iPhone screenshots; a plain "^iPhone"
           # landed on a 6.3-inch model.
           UDID=$(xcrun simctl list devices available --json \
             | jq -r '[.devices[] | .[] | select(.name | test("^iPhone .* Pro Max$"))]
@@ -821,7 +823,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         working-directory: showcase-src
         # The simulator's app-death flake ("engine connection lost" with zero failed steps) is
-        # retried ONCE inside the CLI now — the same signal this step used to grep logs for. One
+        # retried once inside the CLI now, the same signal this step used to grep logs for. One
         # xcodebuild for all eight variants: theme/locale are runtime inputs, so `--skip-build`
         # reuses the .app (xcodebuild's fixed overhead used to be paid per variant).
         run: |
@@ -843,7 +845,7 @@ jobs:
       # No iPad leg (2026-08). It was the same walkthrough on a booted iPad, and it had stopped
       # earning its ~19 minutes a run: the gallery dropped its column because the leg was
       # delivering no screenshots to put in it. Bring a tablet back as its own parallel job rather
-      # than as extra minutes on the phone job. Nothing else needs editing when it returns — a
+      # than as extra minutes on the phone job. Nothing else needs editing when it returns: a
       # `--device ipad` capture rides the showcase's published index, and daybrite.dev grows the
       # `ios-uikit-ipad` column from it.
       # Release-signing material, tag pushes only: distribution cert + ASC API key. Without
@@ -864,11 +866,11 @@ jobs:
             echo "DAY_ASC_KEY=$RUNNER_TEMP/asc.p8" >> "$GITHUB_ENV"
           fi
       # The commit in the SBOM only describes the artifact if the tree it was built from
-      # matches that commit exactly — see the script.
+      # matches that commit exactly; see the script.
       - name: Assert the checkout is pristine
         run: bash scripts/ci/assert-pristine.sh showcase-src
       # Distribution packaging (§16.5): without signing.ios (ASC API key) this is the zipped
-      # unsigned device .ipa — a SIGNED .ipa lights up when the ASC secrets are configured (§20).
+      # unsigned device .ipa; a signed .ipa lights up when the ASC secrets are configured (§20).
       - name: Pack (ios-uikit)
         working-directory: showcase-src
         run: $DAY_BIN pack -p ios-uikit --no-version-in-name --format json
@@ -889,7 +891,7 @@ jobs:
   # --- Linux desktop: qt / gtk ----------------------------------------------
   linux:
     name: day-${{ matrix.combo }}
-    # Runs on tag pushes too (pack-only mode) — both legs pack a release .flatpak.
+    # Runs on tag pushes too (pack-only mode): both legs pack a release .flatpak.
     runs-on: ubuntu-24.04
     needs: [day-cli-linux]
     strategy:
@@ -928,7 +930,7 @@ jobs:
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
           # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
-          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # temp dir, not the workspace: the workspace is the checkout, and an untracked directory in
           # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
           # which cygpath turns into one `find` can walk.
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
@@ -943,8 +945,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends flatpak flatpak-builder
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
       # linuxdeploy + its toolkit plugin build the .appimage (§16.5). They ship as downloaded
-      # AppImages, so they go to $RUNNER_TEMP — never the workspace, which IS the checkout the
-      # pristine assert covers — and are named through DAY_LINUXDEPLOY* rather than PATH.
+      # AppImages, so they go to $RUNNER_TEMP (never the workspace, which is the checkout the
+      # pristine assert covers) and are named through DAY_LINUXDEPLOY* rather than PATH.
       - name: Install linuxdeploy tooling
         env:
           TOOLKIT: ${{ matrix.toolkit }}
@@ -962,16 +964,16 @@ jobs:
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/linuxdeploy" \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
 
-          # The two plugins are NOT distributed the same way, which is what broke this step:
+          # The two plugins are not distributed the same way, which is what broke this step:
           #
           #   qt   ships an AppImage on a rolling `continuous` release.
-          #   gtk  has no releases at all — it is a shell script in its repository. The
+          #   gtk  has no releases at all; it is a shell script in its repository. The
           #        `continuous` download URL therefore 404s, and `curl -f` exits 22.
           #
           # linuxdeploy finds a plugin by globbing `linuxdeploy-plugin-<name>*` next to its own
           # binary and along PATH, so the `.sh` suffix is fine as long as both files land in the
           # same directory. day-cli only checks the file exists (pack/appimage.rs `tool()`), then
-          # passes `--plugin <name>`; linuxdeploy does the real lookup.
+          # passes `--plugin <name>`; linuxdeploy does the lookup.
           case "$TOOLKIT" in
             qt)
               PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-qt"
@@ -996,7 +998,7 @@ jobs:
           } >> "$GITHUB_ENV"
       # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy
       # (scripts/ci/scaffold-check.sh). No xvfb wrapper, same as the walkthrough below: the CLI
-      # supplies the headless plumbing itself (both toolkits under xvfb — qt on the xcb platform,
+      # supplies the headless plumbing itself (both toolkits under xvfb, qt on the xcb platform,
       # falling back to offscreen only where xvfb-run is missing).
       - name: Scaffold check (new + lint + pack + rebuild + launch)
         shell: bash
@@ -1016,7 +1018,7 @@ jobs:
         working-directory: showcase-src
         # Headless plumbing is the CLI's now: no DISPLAY on this runner, so both toolkits run
         # under an xvfb sized from Day.toml [window] (the root-capture fallback frames exactly
-        # the app) — linux-gtk with the WebKit flags, linux-qt on the xcb platform (a real
+        # the app): linux-gtk with the WebKit flags, linux-qt on the xcb platform (a real
         # display server, so the system clipboard works).
         run: |
           $DAY_BIN launch -p ${{ matrix.combo }} --script dayscript/walkthrough.yaml \
@@ -1026,16 +1028,16 @@ jobs:
       # app-only; the .appimage carries its toolkit inside, so it runs on a machine with nothing
       # installed. Both toolchains were installed above, before the scaffold check.
       # The commit in the SBOM only describes the artifact if the tree it was built from
-      # matches that commit exactly — see the script.
+      # matches that commit exactly; see the script.
       - name: Assert the checkout is pristine
         run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (${{ matrix.combo }} → flatpak + appimage)
         working-directory: showcase-src
         run: $DAY_BIN pack -p ${{ matrix.combo }} --no-version-in-name --format json
       # The pre-bundle payload, kept for manual diffoscope runs (§20.3). A `.flatpak` is an OSTree bundle that no
-      # ordinary archiver can open, so comparing the bundle alone could never say whether the CODE
-      # matched — and a check that cannot answer must not report success. flatpak.rs stages the
-      # real ELF at stage/bin/<name>-bin before bundling; that is what gets compared.
+      # ordinary archiver can open, so comparing the bundle alone could never say whether the code
+      # matched, and a check that cannot answer must not report success. flatpak.rs stages the
+      # ELF at stage/bin/<name>-bin before bundling; that is what gets compared.
       - name: Upload the staged payload (reproducibility)
         uses: actions/upload-artifact@v7
         with:
@@ -1049,7 +1051,7 @@ jobs:
           flatpak info dev.daybrite.showcase
       # The AppImage's claim is "runs where nothing is installed", and only running it checks that.
       # A missing GTK/Qt module the bundling failed to carry crashes on launch, so `timeout`
-      # having to kill a still-running app (124) is the PASS here.
+      # having to kill a still-running app (124) is the pass here.
       - name: Run the AppImage
         working-directory: showcase-src
         run: |
@@ -1098,7 +1100,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [day-cli-linux]
     # Best-effort on branch/PR runs while the postMain emulator flake is chased; on tag
-    # pushes the emulator never runs and the job gates the release HARD (a failed pack
+    # pushes the emulator never runs and the job gates the release hard (a failed pack
     # must block the release job, not silently ship without the Android packages).
     continue-on-error: ${{ !startsWith(github.ref, 'refs/tags/') }}
     env:
@@ -1111,7 +1113,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      # No setup-java — Gradle runs on the runner's default preinstalled JDK (Day accepts 17+;
+      # No setup-java: Gradle runs on the runner's default preinstalled JDK (Day accepts 17+;
       # Gradle 9.7 supports 17…26). setup-gradle pins the Gradle version; the JDK is the runner's.
       # Keep this in step with the scaffold's gradle-wrapper.properties (the template comment
       # names this pin) so a scaffolded app and the framework agree on one Gradle.
@@ -1144,7 +1146,7 @@ jobs:
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
           # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
-          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # temp dir, not the workspace: the workspace is the checkout, and an untracked directory in
           # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
           # which cygpath turns into one `find` can walk.
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
@@ -1165,7 +1167,7 @@ jobs:
         shell: bash
         run: $DAY_BIN doctor --toolkit android
       # Scaffold an mdc piece + a part + a full app (deps redirected to this checkout) and
-      # cross-compile each for Android — a lib build (rlib), so no NDK linker or emulator is needed
+      # cross-compile each for Android: a lib build (rlib), so no NDK linker or emulator is needed
       # here. The app builds `--lib` (its `day::launch` desktop bin is not part of the Android pipeline).
       - name: Materialize the upload keystore
         if: startsWith(github.ref, 'refs/tags/')
@@ -1176,14 +1178,14 @@ jobs:
             echo "$KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/upload.keystore"
             echo "DAY_ANDROID_KEYSTORE=$RUNNER_TEMP/upload.keystore" >> "$GITHUB_ENV"
           fi
-      # Distribution packaging (§16.5): release .apk + .aab carrying BOTH device (arm64-v8a) and
-      # emulator/desktop (x86_64) native libs — DAY_ANDROID_ABI takes a comma-separated ABI list,
+      # Distribution packaging (§16.5): release .apk + .aab carrying both device (arm64-v8a) and
+      # emulator/desktop (x86_64) native libs; DAY_ANDROID_ABI takes a comma-separated ABI list,
       # and both rustup targets are installed above. Without signing.android secrets the keystore
-      # is a CI-generated dev key — installable, marked dev-signed, never distributable (§20).
-      # apksigner verify runs inside pack. Runs BEFORE the emulator walkthrough so the dist
+      # is a CI-generated dev key: installable, marked dev-signed, never distributable (§20).
+      # apksigner verify runs inside pack. Runs before the emulator walkthrough so the dist
       # artifacts survive an emulator flake.
       # The commit in the SBOM only describes the artifact if the tree it was built from
-      # matches that commit exactly — see the script.
+      # matches that commit exactly; see the script.
       - name: Assert the checkout is pristine
         run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (android-mdc → apk + aab)
@@ -1205,7 +1207,7 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          # Without a profile avdmanager creates a legacy 320×640 device — every screenshot
+          # Without a profile avdmanager creates a legacy 320×640 device, and every screenshot
           # then reads comically oversized next to the ~400pt iPhone shots in the gallery.
           # pixel_5 is 393×851dp: the closest stock profile to the iOS simulator form factor.
           profile: pixel_5
@@ -1216,7 +1218,7 @@ jobs:
           script: cd showcase-src && $DAY_BIN launch -p android-mdc --script dayscript/walkthrough.yaml --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES" && $DAY_BIN launch -p android-mdc --script dayscript/clipboard-roundtrip.yaml && $DAY_BIN launch -p android-mdc --script dayscript/speech.yaml
       # No tablet leg (2026-08), for the iPad leg's reasons plus one of its own: a second emulator
       # boot per run, for screenshots the gallery has no column for, and the leg that wedges. A
-      # hung pixel_tablet emulator is what left this job sitting until the six-hour timeout — `day
+      # hung pixel_tablet emulator is what left this job sitting until the six-hour timeout; `day
       # launch` now gives up on a device that stopped answering, but the cheapest fix is not to
       # boot a second emulator for nothing. Same restoration path as iOS: its own parallel job,
       # whose `--device tablet` captures give daybrite.dev its `android-mdc-tablet` column
@@ -1232,21 +1234,21 @@ jobs:
   # --- HarmonyOS Next / OpenHarmony ArkUI emulator -------------------------
   # Brings harmony-arkui to parity with the other mobile targets: `day launch -p harmony-arkui --script …`
   # cross-compiles the app to libentry.so, packages + signs the .hap, then installs + launches + drives
-  # it on an emulator over hdc, capturing screenshots for the gallery — exactly the Android/iOS flow.
-  # The OpenHarmony SDK (NDK + hdc + RELEASE signing material) comes from openharmony-rs/setup-ohos-sdk;
+  # it on an emulator over hdc, capturing screenshots for the gallery, exactly the Android/iOS flow.
+  # The OpenHarmony SDK (NDK + hdc + release signing material) comes from openharmony-rs/setup-ohos-sdk;
   # the Oniro QEMU emulator boots via Day's own launcher; hvigor + ohpm (absent from the public SDK)
   # come from the command-line-tools, run under the runner's node.
   harmony-arkui:
-    # EXPERIMENTAL (continue-on-error at the JOB level): the whole HarmonyOS job runs on ONE
+    # Experimental (continue-on-error at the job level): the whole HarmonyOS job runs on one
     # x86_64 Linux runner so the x86_64 Oniro guest can run KVM-accelerated (same-arch guest +
-    # /dev/kvm) instead of TCG software emulation — the boot + 8-variant walkthrough was ~25 min
+    # /dev/kvm) instead of TCG software emulation; the boot + 8-variant walkthrough was ~25 min
     # under TCG on macOS. `day ohos emulator launch` auto-selects `-accel kvm` when /dev/kvm
-    # exists (else TCG). The job is marked experimental so a HarmonyOS regression — or an emulator
-    # that still won't boot under KVM — never blocks the release jobs that `need` it.
+    # exists (else TCG). The job is marked experimental so a HarmonyOS regression, or an emulator
+    # that still won't boot under KVM, never blocks the release jobs that `need` it.
     #
     # (History: this ran on macos-14 because under pure TCG only fast Apple-Silicon cores booted
-    # the guest reliably — ubuntu-under-TCG never rendered the first-boot keyguard. KVM removes the
-    # TCG bottleneck, so x86_64 Linux should now be both far faster AND reliable. If KVM turns out
+    # the guest reliably; ubuntu-under-TCG never rendered the first-boot keyguard. KVM removes the
+    # TCG bottleneck, so x86_64 Linux should now be both far faster and reliable. If KVM turns out
     # unavailable, set `DAY_OHOS_ACCEL=tcg,thread=multi` to force software emulation.)
     name: day-harmony-arkui
     runs-on: ubuntu-24.04
@@ -1254,10 +1256,10 @@ jobs:
     needs: [day-cli-linux]
     timeout-minutes: 90
     env:
-      # hvigor + ohpm are NOT in the public SDK; they come from the OpenHarmony
-      # command-line-tools. The bundle is Linux-packaged but hvigor/ohpm are pure JS — they run
-      # under the runner's node via two-line wrappers (docs/harmonyos.md), so the same cached
-      # zip serves both host OSes. RELEASE signing material ships in setup-ohos-sdk's
+      # hvigor + ohpm are not in the public SDK; they come from the OpenHarmony
+      # command-line-tools. The bundle is Linux-packaged but hvigor/ohpm are pure JS, so they run
+      # under the runner's node via two-line wrappers (docs/harmonyos.md), and the same cached
+      # zip serves both host OSes. Release signing material ships in setup-ohos-sdk's
       # toolchains/lib.
       CLT_VERSION: "5.1.0.840"
       CLT_URL: https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip
@@ -1280,10 +1282,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-      # The host OpenHarmony SDK (Linux, from setup-ohos-sdk) — the NDK for the Rust cross-compile,
-      # hdc for the emulator, AND the full component set (ets/js/toolchains/previewer) hvigor builds
+      # The host OpenHarmony SDK (Linux, from setup-ohos-sdk): the NDK for the Rust cross-compile,
+      # hdc for the emulator, and the full component set (ets/js/toolchains/previewer) hvigor builds
       # against. 5.1.0 is API 18, matching build-profile's compile/compatibleSdkVersion. hvigor
-      # spawns SDK tools (syscap_tool, restool, es2abc) directly, so they must be host-native — which
+      # spawns SDK tools (syscap_tool, restool, es2abc) directly, so they must be host-native, which
       # the Linux SDK provides natively (on the old macOS runner this had to be the darwin SDK to
       # avoid `spawn ENOEXEC`; on Linux the ELF tools run directly).
       - uses: openharmony-rs/setup-ohos-sdk@v1
@@ -1292,7 +1294,7 @@ jobs:
           version: "5.1.0"
       - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
         run: |
-          # setup-ohos-sdk's own OHOS_NDK_HOME is the per-OS SDK ROOT; the NDK (the llvm cross-compilers
+          # setup-ohos-sdk's OHOS_NDK_HOME is the per-OS SDK root; the NDK (the llvm cross-compilers
           # day-arkui-sys's build.rs and the cargo linkers need) is its `native` component, exposed as
           # the `ohos_sdk_native` output (…/native, a sibling of …/toolchains). Pin OHOS_NDK_HOME to it.
           NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
@@ -1301,7 +1303,7 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
           # cc-rs never finds the NDK's wrapper clang on its own (not on PATH; scripts/ci/lint.sh
-          # derives the same trio) — bundled SQLite (day-persistence) compiles C in the arkui
+          # derives the same trio); bundled SQLite (day-persistence) compiles C in the arkui
           # clippy graph.
           echo "CC_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
           echo "CXX_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang++" >> "$GITHUB_ENV"
@@ -1320,7 +1322,7 @@ jobs:
             curl -fSL -o clt.zip "$CLT_URL"
             unzip -q -o clt.zip && rm -f clt.zip
           fi
-          # hvigor/ohpm are pure JS — run them with the runner's own node (docs/harmonyos.md),
+          # hvigor/ohpm are pure JS; run them with the runner's node (docs/harmonyos.md),
           # which stays identical to the local macOS dev recipe and is host-OS-agnostic.
           mkdir -p "$HOME/ohos-bin"
           printf '#!/usr/bin/env bash\nexec node "%s/hvigor/bin/hvigorw.js" "$@"\n' "$C" > "$HOME/ohos-bin/hvigorw"
@@ -1332,7 +1334,7 @@ jobs:
         run: |
           set -euo pipefail
           # hvigor's OpenHarmony mode (runtimeOS: "OpenHarmony") reads OHOS_BASE_SDK_HOME and
-          # requires the NEW versioned layout (<base>/<api>/{ets,native,toolchains,…}). Build a
+          # requires the new versioned layout (<base>/<api>/{ets,native,toolchains,…}). Build a
           # versioned view over the host API-18 SDK from setup-ohos-sdk. Mirrors the validated
           # local setup (docs/harmonyos.md).
           OH="$(dirname "${{ steps.ohos-sdk.outputs.ohos_sdk_native }}")"
@@ -1342,7 +1344,7 @@ jobs:
           echo "OHOS_BASE_SDK_HOME=$BASE" >> "$GITHUB_ENV"
       # The one framework check still living in a target job: the arkui cross-clippy needs the whole
       # OpenHarmony SDK, already set up above. Lifting it into `toolkit` would mean a second copy of
-      # six setup steps — it belongs in a composite action, not in a duplicate.
+      # six setup steps; it belongs in a composite action, not in a duplicate.
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -1353,7 +1355,7 @@ jobs:
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
           # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
-          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # temp dir, not the workspace: the workspace is the checkout, and an untracked directory in
           # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
           # which cygpath turns into one `find` can walk.
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
@@ -1373,7 +1375,7 @@ jobs:
       - name: Clippy (arkui backend, cross-check)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         # `--lib` like the iOS/Android cross-checks: a mobile/embedded backend has no `day::launch`
-        # (that's desktop-only), so the app is a cdylib — the desktop `src/main.rs` bin isn't built.
+        # (that's desktop-only), so the app is a cdylib; the desktop `src/main.rs` bin isn't built.
         # `-A missing_const_for_thread_local`: clippy 1.97 false-positives it on this cross-target
         # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
         working-directory: showcase-src
@@ -1382,7 +1384,7 @@ jobs:
         shell: bash
         run: $DAY_BIN doctor --toolkit harmonyos
       # ---- Emulator screenshots (best-effort from here to the walkthrough): the TCG guest is
-      # slow and occasionally flaky, so these steps never fail the job — the build gates above
+      # slow and occasionally flaky, so these steps never fail the job; the build gates above
       # and the pack below stay hard. ----
       - name: Enable KVM group perms
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -1420,7 +1422,7 @@ jobs:
           echo "DAY_OHOS_EMULATOR=$IMAGES" >> "$GITHUB_ENV"
           DAY_OHOS_EMULATOR="$IMAGES" $DAY_BIN ohos emulator launch --headless
       # The same walkthrough as every other target (`day launch` force-stops the singleton app
-      # per cycle so each run's engine port takes effect — docs/harmonyos.md). Two variants
+      # per cycle so each run's engine port takes effect, docs/harmonyos.md). Two variants
       # (light/dark) rather than the full eight: each TCG pass is minutes long, and the
       # gallery's OHOS column falls back per shot for the locale variants.
       - name: Emulator walkthrough (harmony-arkui × light/dark × en/fr/ar/zh-CN)
@@ -1429,10 +1431,10 @@ jobs:
         working-directory: showcase-src
         # The same theme × locale matrix as the other walkthrough legs (the gallery's non-English
         # ohos tiles fell back to the English captures before these variants existed). Every
-        # variant is individually best-effort — one TCG flake must not skip the remaining runs.
+        # variant is individually best-effort; one TCG flake must not skip the remaining runs.
         env:
           # Per-screenshot compositor settle before capture (script.rs, default 4000 ms). The
-          # walkthrough takes ~29 shots × 8 variants, so this wait IS most of the step's time;
+          # walkthrough takes ~29 shots × 8 variants, so this wait is most of the step's time;
           # 2500 ms matches the measured 2-3 s TCG compositor lag, and the byte-identical
           # stale-frame retry (+3 s, up to 3 more attempts) still catches the stragglers.
           DAY_OHOS_SHOT_SETTLE_MS: 2500
@@ -1470,7 +1472,7 @@ jobs:
       # configured; the public-cert dev signature otherwise (emulator installs only, dev tier).
       # DAY_OHOS_ARCH pins the packaged .so to arm64 (devices); the emulator runs x86_64.
       # The commit in the SBOM only describes the artifact if the tree it was built from
-      # matches that commit exactly — see the script.
+      # matches that commit exactly; see the script.
       - name: Assert the checkout is pristine
         run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (harmony-arkui → hap)
@@ -1502,9 +1504,9 @@ jobs:
   # --- Windows desktop: xaml (MSVC) ----------------------------------------
   # xaml uses MSVC + the Windows SDK cppwinrt headers (on windows-11) and
   # captures via RenderTargetBitmap. It runs on the default `bash` shell. It is a
-  # SEPARATE job from windows-qt / windows-gtk because those need the msys2 shell:
+  # separate job from windows-qt / windows-gtk because those need the msys2 shell:
   # the `matrix` context is not available in a step's `shell:` field, so a single
-  # matrix cannot switch shells per combo — the toolchains are split into two jobs.
+  # matrix cannot switch shells per combo; the toolchains are split into two jobs.
   windows-xaml:
     name: day-windows-xaml
     runs-on: windows-2025
@@ -1529,7 +1531,7 @@ jobs:
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
           # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
-          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # temp dir, not the workspace: the workspace is the checkout, and an untracked directory in
           # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
           # which cygpath turns into one `find` can walk.
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
@@ -1543,7 +1545,7 @@ jobs:
         shell: pwsh
         run: |
           choco install nsis -y --no-progress
-          # `choco` edits the MACHINE PATH, which does not reach later steps: Actions hands every
+          # `choco` edits the machine PATH, which does not reach later steps: Actions hands every
           # step the environment captured when the job started. So locate makensis.exe now and hand
           # it to `day pack` explicitly. Doing it here also fails in seconds if the package moved,
           # instead of after the six-minute release build that packs the installer.
@@ -1577,7 +1579,7 @@ jobs:
       # signing.windows secrets) + NSIS -setup.exe (NSIS was installed above, before the scaffold
       # check).
       # The commit in the SBOM only describes the artifact if the tree it was built from
-      # matches that commit exactly — see the script.
+      # matches that commit exactly; see the script.
       - name: Assert the checkout is pristine
         run: bash scripts/ci/assert-pristine.sh showcase-src
       - name: Pack (windows-xaml → msix + setup.exe)
@@ -1592,7 +1594,7 @@ jobs:
       # The pre-container payload, kept for manual diffoscope runs (§20.3). The NSIS `-setup.exe` is a
       # self-extracting installer nothing in the check can open, so comparing containers alone
       # could only ever return "unverified". msix.rs stages the exe + assets here before either
-      # container is built, and both are built from it — so this is the thing worth comparing.
+      # container is built, and both are built from it, so this is the thing worth comparing.
       - name: Upload the staged payload (reproducibility)
         uses: actions/upload-artifact@v7
         with:
@@ -1610,7 +1612,7 @@ jobs:
   # --- Windows desktop: qt / gtk (gnu toolchain + MSYS2) --------------------
   # windows-qt / windows-gtk use the gnu toolchain + MSYS2's MINGW64 GTK4/Qt6 +
   # pkgconf, built and run inside the msys2 shell (so pkg-config and the runtime
-  # DLLs resolve). The whole job defaults to `msys2 {0}` — every `run:` step here is
+  # DLLs resolve). The whole job defaults to `msys2 {0}`: every `run:` step here is
   # a cargo build/test that must see MINGW64's pkgconf; the action-only setup steps
   # (checkout/toolchain/cache/setup-msys2) don't use the job shell, and setup-msys2
   # runs before the first `run:` step, so the shell exists when it's first needed.
@@ -1620,7 +1622,7 @@ jobs:
   # (continue-on-error) until a full CI walkthrough is green on a real Windows host.
   windows-msys2:
     name: day-${{ matrix.combo }}
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # experimental + packs no release artifact — skip on tags
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # experimental + packs no release artifact; skip on tags
     runs-on: windows-2025
     needs: [day-cli-windows]
     continue-on-error: true
@@ -1629,9 +1631,9 @@ jobs:
       matrix:
         include:
           # mingw-w64-x86_64-gcc provides the mingw gcc/g++ the pin step below points the linker
-          # (and the cc crate) at — the runner has no MSYS2 mingw compiler otherwise, only the libs.
+          # (and the cc crate) at; the runner has no MSYS2 mingw compiler otherwise, only the libs.
           # Neither web view has an MSYS2/MINGW64 package: no Qt6 WebEngine and no WebKitGTK 6 (both
-          # embed a browser engine — Chromium / WebKit — that won't build with MinGW GCC). So
+          # embed a browser engine, Chromium or WebKit, that won't build with MinGW GCC). So
           # day-piece-webview degrades on both: the Qt view to a URL label (build.rs probes pkg-config
           # for Qt6WebEngineWidgets), the GTK view to day's placeholder leaf (webkit6 is gated off
           # Windows in Cargo.toml, exactly like macOS).
@@ -1659,10 +1661,10 @@ jobs:
           path-type: inherit
           install: ${{ matrix.msys_pkgs }}
       # rustup's windows-gnu toolchain links via whatever `x86_64-w64-mingw32-gcc` is first on
-      # PATH — on the runner that resolves to a *different* mingw (C:\mingw64) which lacks the
+      # PATH; on the runner that resolves to a different mingw (C:\mingw64) which lacks the
       # MSYS2 Qt6/GTK4/glib import libs, so `-lQt6Widgets` / `-lglib-2.0` fail to link. Force
       # MSYS2's mingw to the front of PATH and pin the linker + the `cc` crate's compiler (for the
-      # C++ shims) to MSYS2's own gcc, so /mingw64/lib is searched. Forward-slash paths link cleanly.
+      # C++ shims) to MSYS2's gcc, so /mingw64/lib is searched. Forward-slash paths link cleanly.
       - name: Pin the MSYS2 mingw toolchain (finds MSYS2 Qt6/GTK4 libs)
         run: |
           cygpath -w "$MINGW_PREFIX/bin" >> "$GITHUB_PATH"
@@ -1684,7 +1686,7 @@ jobs:
         run: |
           # The artifact holds exactly the one binary (day / day.exe); take its absolute path so every
           # step can invoke it as $DAY_BIN regardless of working directory. It lives in the runner's
-          # temp dir, NOT the workspace: the workspace is the checkout, and an untracked directory in
+          # temp dir, not the workspace: the workspace is the checkout, and an untracked directory in
           # it makes `day pack` record a dirty tree (§20.3). On Windows $RUNNER_TEMP is a DOS path,
           # which cygpath turns into one `find` can walk.
           TMP="$(cygpath -u "$RUNNER_TEMP" 2>/dev/null || printf '%s' "$RUNNER_TEMP")"
@@ -1700,8 +1702,8 @@ jobs:
         shell: bash
         run: $DAY_BIN doctor --toolkit ${{ matrix.toolkit }}
       # WEBKIT_DISABLE_COMPOSITING_MODE is a harmless no-op on Windows now (neither combo has a real
-      # web engine — Qt degrades to a label, GTK to a placeholder); kept so the invocation matches the
-      # Linux GTK job, where the same var is load-bearing for the real WebKitGTK view.
+      # web engine: Qt degrades to a label, GTK to a placeholder); kept so the invocation matches the
+      # Linux GTK job, where the same var is required by the WebKitGTK view.
       - name: Walkthrough (${{ matrix.combo }} × light/dark/fr)
         working-directory: showcase-src
         run: |
@@ -1733,7 +1735,7 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # deny: dependency advisories + duplicate-version bans (§20.5). Runs as its own
-  # check; the build combos gate on [fmt, msrv] only — clippy and deny are
+  # check; the build combos gate on [fmt, msrv] only: clippy and deny are
   # independent required checks, so a lint error or a newly published RUSTSEC
   # advisory shouldn't suppress the platform matrix's build/test signal. Add
   # either to each combo's `needs:` to make it a hard gate.
@@ -1748,11 +1750,11 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # api-docs: generate the Rust API reference (rustdoc) for the public-facing Day crates. This is the
-  # DOES-RUSTDOC-STILL-BUILD check on every change to the crates — a broken doc link or an intra-doc
+  # does-rustdoc-still-build check on every change to the crates: a broken doc link or an intra-doc
   # path that stopped resolving fails here, on the change that caused it. The published bundle is
   # built again by website.yml, which is the workflow that deploys (Pages takes one artifact), and
-  # that workflow does not run on a crates-only change. The build is PORTABLE — the core crates need
-  # no features and the `day` umbrella uses its headless `mock` backend — so no native toolkit is
+  # that workflow does not run on a crates-only change. The build is portable (the core crates need
+  # no features and the `day` umbrella uses its headless `mock` backend), so no native toolkit is
   # installed and it runs on a stock runner. Crate list + `cargo doc` invocations live in
   # scripts/build-api-docs.sh, driven by website/src/data/api-crates.json (the same file /docs/api
   # reads).
@@ -1769,12 +1771,12 @@ jobs:
         run: scripts/build-api-docs.sh
 
   # ---------------------------------------------------------------------------
-  # web-dom: build the showcase for the web-dom backend (docs/web.md) — a wasm32 cdylib plus
+  # web-dom: build the showcase for the web-dom backend (docs/web.md), a wasm32 cdylib plus
   # the day-dom host page, assembled by `day build` into a fully static dist/. The dist is built
-  # here as the wasm build test and to drive the walkthrough, but it is NOT published: the app
-  # deploys its own web build to showcase.daybrite.dev/webapp from its own repository, and this
-  # site links there. Then the SAME walkthrough script the
-  # native combos run drives the page in headless CHROMIUM (day-cli's bundled page-driver,
+  # here as the wasm build test and to drive the walkthrough, but it is not published: the app
+  # deploys its web build to showcase.daybrite.dev/webapp from its own repository, and this
+  # site links there. Then the same walkthrough script the
+  # native combos run drives the page in headless Chromium (day-cli's bundled page-driver,
   # `day web driver`, is the DAY_WEB_DRIVER browser; the dayscript engine runs in the wasm over the launch server's
   # WebSocket bridge) and uploads gallery screenshots like every other combo. Chromium, not
   # WebKit, because Playwright's Linux WebKit (the WPE port) ships no OPFS and day-part-fs is
@@ -1821,7 +1823,7 @@ jobs:
         with:
           day-bin: ${{ env.DAY_BIN }}
       # The last backend without a showcase lint. Six run in `toolkit`, arkui runs in its own job
-      # (it needs the OpenHarmony SDK set up there) — web-dom only ever *built* the app, so a lint
+      # (it needs the OpenHarmony SDK set up there); web-dom only ever built the app, so a lint
       # clippy catches but rustc does not could reach main through this combo alone.
       - name: Clippy (dom backend)
         # `--lib` like the other non-desktop backends: wasm has no `day::launch` (desktop-only), so
@@ -1858,13 +1860,13 @@ jobs:
         env:
           DAY_WEB_DRIVER: node ${{ env.DAY_WEB_DRIVER_SCRIPT }}
           DAY_WEB_DRIVER_PLAYWRIGHT: ${{ runner.temp }}/webdriver
-          # Linux WebKit has no OPFS — the fs steps need Chromium (see the job comment).
+          # Linux WebKit has no OPFS; the fs steps need Chromium (see the job comment).
           DAY_WEB_DRIVER_BROWSER: chromium
         run: |
           $DAY_BIN launch -p web-dom --script dayscript/walkthrough.yaml \
             --themes "$WALKTHROUGH_THEMES" --locales "$WALKTHROUGH_LOCALES"
-      # Text to speech (docs/speech.md): the JavaScript arm, staged as this crate's own ES module
-      # and merged into the wasm import table — the leg that proves per-crate JS staging works.
+      # Text to speech (docs/speech.md): the JavaScript arm, staged as this crate's ES module
+      # and merged into the wasm import table; the leg that proves per-crate JS staging works.
       - name: Speech (web-dom)
         working-directory: showcase-src
         env:
@@ -1874,8 +1876,8 @@ jobs:
         run: $DAY_BIN launch -p web-dom --script dayscript/speech.yaml
       # Headless WebKit has no motion hardware, so the walkthrough above can only prove the
       # "unavailable" path. Serve the built page, dispatch a synthetic `devicemotion` with known
-      # values, and assert the CONVERTED numbers — the deg/s → rad/s conversion and the
-      # beta/gamma/alpha → x/y/z mapping are where a browser sensor arm actually goes wrong
+      # values, and assert the converted numbers: the deg/s → rad/s conversion and the
+      # beta/gamma/alpha → x/y/z mapping are where a browser sensor arm goes wrong
       # (docs/sensors.md).
       - name: Browser gestures and sensors
         working-directory: showcase-src
@@ -1905,7 +1907,7 @@ jobs:
           if-no-files-found: warn
 
   # ---------------------------------------------------------------------------
-  # The website is NOT built here. daybrite.dev has its own workflow (website.yml): the gallery is
+  # The website is not built here. daybrite.dev has its own workflow (website.yml): the gallery is
   # assembled from the index each Day app site publishes at `<host>/gallery/gallery.json`, so the
   # site no longer waits on this matrix for screenshot artifacts, and a docs change deploys in
   # minutes instead of behind an Android emulator. The `screenshots-<combo>` artifacts uploaded

@@ -9,7 +9,7 @@
 // native code with ZERO edits to day's toolkit crates. Bytes are decoded into a BitmapImage from an
 // InMemoryRandomAccessStream.
 //
-// WRITTEN BLIND (no Windows host here) and NOT verified — best-effort so the xaml build links in CI.
+// WRITTEN BLIND (no Windows host here) and not verified — best-effort so the xaml build links in CI.
 // Caveats: the byte→BitmapImage decode blocks on StoreAsync().get(), which on an STA UI thread can
 // stall; and clearing (None) on the Ellipse path drops the placeholder brush. Both are acceptable
 // for the CI-only xaml backend and are noted in the crate's caveats. Everything is wrapped in

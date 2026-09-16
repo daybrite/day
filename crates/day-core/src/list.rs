@@ -25,7 +25,7 @@ pub struct ListDriver {
     pub len: Box<dyn Fn() -> usize>,
     /// Stable identity token for row `index` (for native diffing).
     pub token_at: Box<dyn Fn(usize) -> u64>,
-    /// Build row `index` into `anchor`. Uses `BuildCx` internally, so it MUST be called with no
+    /// Build row `index` into `anchor`. Uses `BuildCx` internally, so it must be called with no
     /// `with_tree` borrow held. Returns the row's scope + a rebind writer.
     pub build: Box<dyn Fn(usize, RNode) -> BuiltRow>,
     /// Drag-to-reorder half, present when the piece is `.reorderable()` (docs/list.md).

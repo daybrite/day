@@ -629,7 +629,7 @@ impl Transform {
 
 /// Linear interpolation of animatable values (`t` in `0.0..1.0`). This drives the **canvas /
 /// self-driven** animation path (docs/shapes.md §5) and Qt's sampled spring; native-widget
-/// animation does NOT use it — the toolkit interpolates on its own compositor.
+/// animation does not use it — the toolkit interpolates on its own compositor.
 pub trait Animatable: Copy {
     fn lerp(self, to: Self, t: f64) -> Self;
 }

@@ -213,7 +213,7 @@ pub fn nav_link_to<M>(label: impl IntoText<M>, path: RoutePath) -> Button {
 
 // ---------------------------------------------------------------------------
 // Nested-nav merge (docs/navigation.md): a `nav_stack()` built inside a page of an enclosing NAV
-// host that presents as a push stack (mobile, `split == false`) pushes its pages onto THAT host
+// host that presents as a push stack (mobile, `split == false`) pushes its pages onto that host
 // instead of minting a second native container — one native nav chain, one back button. The
 // enclosing host is threaded to nested pieces at build time via a thread-local context stack;
 // `owners` is the per-host ordered stack of "what a back on the topmost page does".
@@ -457,7 +457,7 @@ pub enum NavStyle {
     /// rather than to a hole.
     #[default]
     Automatic,
-    /// Pinned: a tab bar at EVERY size, however wide the window gets. Reach for it when the
+    /// Pinned: a tab bar at every size, however wide the window gets. Reach for it when the
     /// content is genuinely peer sections that should never become a sidebar.
     Tabs,
     /// Pinned: a NavigationSplitView — a sidebar list + a detail. Wide windows show both panes
@@ -853,7 +853,7 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     /// the window's size class and re-resolved whenever it changes.
     presentation: Option<day_spec::props::NavPresentation>,
     /// The content-list pane builder ([`Nav::content_list`], docs/navigation.md) — the
-    /// Mail shape's middle column, built ONCE and resident for the host's life. `None` = the
+    /// Mail shape's middle column, built once and resident for the host's life. `None` = the
     /// classic two-pane nav.
     content_list: Option<Rc<dyn Fn() -> AnyPiece>>,
     /// Preferred width of the content-list pane in points.
@@ -890,7 +890,7 @@ impl SearchSpec {
     /// has one, and inline — attached to the navigation surface — where it does not, which is the
     /// phones. That second case needs no size class: "this toolkit has no toolbar at all" is a
     /// static fact about the backend, not a question about the window's width. Resolving a narrow
-    /// window on a toolkit that DOES have a toolbar is what waits on the size-class work.
+    /// window on a toolkit that does have a toolbar is what waits on the size-class work.
     ///
     /// Never returns `Automatic`: the props carry the decision, so a backend reads a placement it
     /// can act on rather than re-deriving the policy itself.
@@ -935,7 +935,7 @@ impl SearchSpec {
 
     /// Install the field and wire it, both directions (docs/search.md).
     ///
-    /// ONE model, ONE writer. `SearchProps` on the nav host is the source of truth for every
+    /// One model, one writer. `SearchProps` on the nav host is the source of truth for every
     /// placement; the toolbar item a desktop backend draws is a RENDERING of it, not a second
     /// representation with its own state. Both inbound transports — a toolbar value callback and
     /// `Event::SearchChanged` from an inline field — land on the same `apply` closure, and the
@@ -1098,7 +1098,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
         self.title = t.into_text();
         self
     }
-    /// Open a section: the NEXT item added (static or the first row of the next `.items` block)
+    /// Open a section: the next item added (static or the first row of the next `.items` block)
     /// carries this header. Backends without grouped rows ignore it and show one flat list, so
     /// a section is a grouping hint, never a source of items the user cannot otherwise reach.
     ///
@@ -1165,7 +1165,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
         self
     }
     /// A CONTENT-LIST pane between the sidebar and the detail — the Mail shape: mailboxes,
-    /// message list, message (docs/navigation.md). Built ONCE and resident for the host's
+    /// message list, message (docs/navigation.md). Built once and resident for the host's
     /// life; its content follows the app's own signals (the selection scoping it, the row
     /// chosen from it), never a rebuild.
     ///
@@ -1305,7 +1305,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     ) -> Self {
         // `items` is a TRACKED reader (a `Signal<Vec<T>>` via its `Fn()` deref, or a closure) —
         // reading it inside the derive effect subscribes the nav to changes.
-        // A pending `.section(…)` heads the block's FIRST row, wherever the data starts.
+        // A pending `.section(…)` heads the block's first row, wherever the data starts.
         let section = self.pending_section.take();
         self.sources.push(ItemSource::Dynamic(Box::new(move || {
             items()
@@ -1464,7 +1464,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
 
 impl<K: Route, S: Binding<K>> Piece for Nav<S, K> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        // ONE builder for all three styles. The styles differ only in which presentations the
+        // One builder for all three styles. The styles differ only in which presentations the
         // resolver may produce, and a presentation differs only in chrome and page residency —
         // so a tab bar is a `kinds::NAV` host wearing a different hat, not a second host kind
         // with its own props, patches, and nine backend implementations (docs/navigation.md).
@@ -1630,7 +1630,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
         // from the list (a category, then its items) pushes onto the tab's own navigation
         // controller, and the gated detail lands on top of whatever it pushed
         // (docs/navigation.md). Only the native resident pane is a barrier.
-        // This shape shows ONE layer at a time, so the list's commands leave once the detail is
+        // This shape shows one layer at a time, so the list's commands leave once the detail is
         // pushed over it — the same rule the native pane follows.
         let covered = list_layer_gate(None, Some(cfg.open), None);
         with_nav_host(Some(target.clone()), || {
@@ -1701,7 +1701,7 @@ fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
 
 /// Drive the detail layer from `detail_visible`, whichever host carries it: `true` pushes the
 /// destination's page onto `target`, `false` — and the native back, which writes it — pops.
-/// Registered in the CURRENT scope, so a section switch or a presentation morph tears the
+/// Registered in the current scope, so a section switch or a presentation morph tears the
 /// layer down with the shape that built it.
 fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
     use day_spec::props::{NavPageProps, NavPatch, Pane};
@@ -1751,13 +1751,13 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
                 },
                 &target.sizes,
             );
-            // BEFORE the content builds, so a stack that merges inside the detail lands its
+            // Before the content builds, so a stack that merges inside the detail lands its
             // owners on top of this one.
             target.owners.borrow_mut().push(owner.clone());
             let scope = owner_scope.enter(Scope::child);
             let tc = target.clone();
             scope.enter(|| {
-                // The app's builder runs INSIDE this page's scope, like the presentation site
+                // The app's builder runs inside this page's scope, like the presentation site
                 // further down: a page body runs app code — an ambient state read, a `Signal`,
                 // a registration — and all of it belongs to the page's lifetime rather than to
                 // whichever scope happened to be current when the push landed.
@@ -1791,7 +1791,7 @@ fn wire_gated_detail<K: Route>(cfg: &GatedDetail<K>, target: NavHostCx) {
             let Some(l) = taken else {
                 return;
             };
-            // Scope first: a merged inner stack's cleanup pops ITS pages (which sit on top
+            // Scope first: a merged inner stack's cleanup pops its pages (which sit on top
             // natively) before this pops the detail itself — top-down, the order native
             // stacks demand.
             l.scope.dispose();
@@ -1905,7 +1905,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     // to the app. Only `Unsupported` sends `Automatic` down the sidebar path.
     let can_tabs =
         with_tree(|t| t.capability(day_spec::Cap::NavTabs)) != day_spec::Support::Unsupported;
-    // A separate question from `can_tabs`: every desktop CAN draw a tab bar (an app may pin one)
+    // A separate question from `can_tabs`: every desktop can draw a tab bar (an app may pin one)
     // but none of them should GROW one as its window narrows. That is a statement about the
     // platform's idiom rather than its widget set, so it is the backend's to make.
     let adaptive_tabs = with_tree(|t| t.capability(day_spec::Cap::NavTabsAdaptive))
@@ -1923,7 +1923,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     let size_decides = we_drive || toolkit_drives;
     let requested = sel.presentation;
     // `Automatic` on a toolkit with no tab bar becomes `Sidebar` — the behavior every backend had
-    // before adaptive navigation existed. Degrading to the OLD shape rather than to a hole is what
+    // before adaptive navigation existed. Degrading to the old shape rather than to a hole is what
     // lets this land one backend at a time (docs/navigation.md).
     let style = match sel.style {
         NavStyle::Automatic if !can_tabs => NavStyle::Sidebar,
@@ -1993,22 +1993,22 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     };
     let presentation = resolve(day_core::window_size_class_untracked(window));
     // What the HOST PROPS carry is a different question from what this build currently shows.
-    // An Emulated toolkit's adaptive container collapses and expands ITSELF, so its host is
+    // An Emulated toolkit's adaptive container collapses and expands itself, so its host is
     // lowered as `Split` — "build the adaptive container" — even when the window is compact
-    // right now. `NavStack` in props is thereby reserved for hosts that are stacks at EVERY size
+    // right now. `NavStack` in props is thereby reserved for hosts that are stacks at every size
     // (a pinned request, a toolkit that cannot split, the `nav_stack()` piece), which a backend
     // may take literally and realize as a plain navigation container: nesting an adaptive
     // split container inside a pane is exactly what breaks (docs/size-classes.md).
-    // An Emulated toolkit's adaptive container collapses and expands ITSELF, so it is lowered the
+    // An Emulated toolkit's adaptive container collapses and expands itself, so it is lowered the
     // ROOMIEST presentation the app's style admits — "build the adaptive container" — even when
     // the window is compact right now. `NavStack` in props is thereby reserved for hosts that are
-    // stacks at EVERY size (a pinned request, a toolkit that cannot split, the `nav_stack()` piece),
+    // stacks at every size (a pinned request, a toolkit that cannot split, the `nav_stack()` piece),
     // which a backend may take literally: nesting an adaptive container inside a pane is exactly
     // what breaks (docs/size-classes.md). `adaptive` carries whether it may morph at all.
     let adaptive = requested.is_none();
     let lowered =
         if toolkit_drives && adaptive && can_tabs && adaptive_tabs && style != NavStyle::Sidebar {
-            // The toolkit has an adaptive container that wears BOTH chromes itself — iOS 18's
+            // The toolkit has an adaptive container that wears both chromes itself — iOS 18's
             // `UITabBarController` in `.tabSidebar` mode is the archetype: one controller that draws
             // a tab bar when compact and a sidebar when not, with its own animation and its own
             // user-facing toggle. Lowering `Tabs` says "build that", and the toolkit reports what it
@@ -2073,12 +2073,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     // presentation, where the tabs chrome draws none of its own (docs/navigation.md).
     let gated_toolbar = host_toolbar.clone();
     // Automatic resolves to a sidebar wherever the window is wide enough, so the affordance
-    // follows what the toolkit CAN present rather than what the app spelled out — an app that
+    // follows what the toolkit can present rather than what the app spelled out — an app that
     // never wrote `.style(Sidebar)` still gets the platform's own toggle on a desktop.
     let sidebar_toggle =
         sel.sidebar_toggle && matches!(sel.style, NavStyle::Sidebar | NavStyle::Automatic);
     let detail_title = sel.detail_title;
-    // Search over this surface (docs/search.md). Lowered to the host's props with its CURRENT
+    // Search over this surface (docs/search.md). Lowered to the host's props with its current
     // values; the live bindings below keep the field in step through targeted patches, so the
     // app writing the query never rebuilds (and refocuses) the field mid-word.
     let search_spec = sel.search;
@@ -2223,7 +2223,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             titles.clone(),
         );
         let (titles_init, icons_init) = (titles.borrow().clone(), icons0.clone());
-        // The selection the host is ALREADY on, not `None`. `sync_menu` pushes it a moment later
+        // The selection the host is already on, not `None`. `sync_menu` pushes it a moment later
         // as `NavMenuPatch::Selected`, and every backend that draws a resting highlight used to
         // depend on that patch landing after its view existed — which held on UIKit and did not
         // on Android, where the sidebar came up marking nothing at all. Seeding the props means
@@ -2294,14 +2294,14 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         });
     }
 
-    // The content-list page (docs/navigation.md): built ONCE, resident for the host's life —
+    // The content-list page (docs/navigation.md): built once, resident for the host's life —
     // its content follows the app's signals, so a selection change re-scopes it without a
     // rebuild. `with_nav_host(None)`: the pane is not a merge target — a stack inside the
     // list keeps its own container rather than pushing onto this host.
     let list_build = sel.content_list.clone();
     let list_pred = sel.content_list_pred.clone();
     let detail_visible = sel.detail_visible;
-    // Whether the content-list pane belongs to THIS destination (`content_list_for`), applied
+    // Whether the content-list pane belongs to this destination (`content_list_for`), applied
     // wherever the shown destination can change. It lives here, shared, because three paths
     // reach it: a fresh `show`, a `show` that finds its page already resident (a chrome
     // presentation has built them all), and a presentation change that rebuilds the shape
@@ -2346,7 +2346,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         let visible = Signal::new(initial_list_visible);
         list_visible_sig.set(Some(visible));
         // Two ways this pane stops being what the user is looking at: the destination collapses
-        // it (`content_list_for`), or — on a shape that shows ONE pane at a time — a detail is
+        // it (`content_list_for`), or — on a shape that shows one pane at a time — a detail is
         // pushed over it. Its Add and Filter act on a list that is then behind the editor, so
         // they leave the bar with it (docs/toolbars.md). Side by side, both panes are up and
         // both keep their commands.
@@ -2486,7 +2486,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     let resident: Rc<RefCell<Vec<ResidentPage>>> = Rc::default();
     let current: Rc<RefCell<Option<String>>> = Rc::default();
     let nav_scope = Scope::current();
-    // Shared: BOTH the selection bind and the row-derive effect drive the detail (see the
+    // Shared: Both the selection bind and the row-derive effect drive the detail (see the
     // derive effect for why the selection bind alone is not enough).
     let show = std::rc::Rc::new({
         let (items, resident, current, sizes, typed_s, titles_s) = (
@@ -2520,7 +2520,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             let gated =
                 merged_list && pres.get() == NavPresentation::Stack && detail_visible.is_some();
             if !chrome {
-                // Stacked or split: the outgoing page goes away. Dispose its scope FIRST — a
+                // Stacked or split: the outgoing page goes away. Dispose its scope first — a
                 // merged inner stack's cleanup pops its pages (which sit on top natively) before
                 // we pop the detail itself, so the native pop order stays top-down (iOS pops the
                 // topmost VC; Android's INCLUSIVE pop unwinds everything above an entry).
@@ -2553,7 +2553,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 return;
             };
             let typed_key_now = typed_s.borrow()[idx].clone();
-            // The pane's visibility is settled for EVERY destination change, including the
+            // The pane's visibility is settled for every destination change, including the
             // resident case below — a chrome presentation builds every destination, so the
             // last one built would otherwise be the one that had the final word.
             apply_list_visible_s(&typed_key_now);
@@ -2625,7 +2625,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             if !chrome {
                 // The detail page's back action: with the list interposed, back from the
                 // detail returns TO THE LIST (`detail_visible` := false); classically it
-                // deselects (returns to the sidebar rows). Pushed BEFORE the content builds,
+                // deselects (returns to the sidebar rows). Pushed before the content builds,
                 // so a merged inner stack's page owners stack on top of it. A chrome
                 // presentation has no back stack to own — a tab bar never pops.
                 let owner: PopOwner = if interposed && let Some(dv) = detail_visible {
@@ -2641,9 +2641,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     })
                 };
                 owners.borrow_mut().push(owner);
-                // Present the page BEFORE its content builds. Anything the content pushes
+                // Present the page before its content builds. Anything the content pushes
                 // onto this same host while building — a composed gated detail whose signal
-                // is already true, a merged stack's restored path — must land ABOVE this
+                // is already true, a merged stack's restored path — must land above this
                 // page, and a backend that presents pages in patch order (Android presents
                 // the most recently added) would otherwise show them inverted. `immersive_of`
                 // runs out here for the usual reason: it can run app code, which must not
@@ -2709,7 +2709,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             });
             let at = resident.borrow().len() - 1;
             // A stacked page was presented above, before its content; the resident case
-            // selects AFTER the build — the page must exist to be shown.
+            // selects after the build — the page must exist to be shown.
             if chrome {
                 with_tree(|t| t.patch(host, Box::new(NavPatch::Select(at)), false));
             }
@@ -2746,9 +2746,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     // A tab bar needs an ITEM PER DESTINATION up front — `UITabBarController` and Material's
     // navigation bar both build their chrome from the full set, so a page nobody has visited yet
     // is a tab that simply is not there. Lazy building is right for a split or a stack, where
-    // only the shown page is drawn; where the rows ARE the chrome, the rows have to be complete.
+    // only the shown page is drawn; where the rows are the chrome, the rows have to be complete.
     //
-    // This runs BEFORE the selection bind below, and that order is the whole contract with the
+    // This runs before the selection bind below, and that order is the whole contract with the
     // chrome backends: `NavPatch::Select` names a page by ATTACH order, while the chrome draws
     // the ROWS, so a suite can only pair the two when page i is row i. Letting the bind build the
     // SELECTED destination first breaks that — restoring a saved section (`.restore`, which
@@ -2929,7 +2929,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 sel_r.write(k);
             }
             // Content-list settlement (docs/navigation.md). The pane's own visibility comes
-            // first and applies to EVERY backend that places the pane itself: entering a chrome
+            // first and applies to every backend that places the pane itself: entering a chrome
             // presentation builds every destination, and a destination without a list collapses
             // the pane on its way past, so the shape that comes next has to state the selected
             // destination's answer again.
@@ -3163,8 +3163,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         );
                     });
                 }
-                // Drive the detail from HERE as well as from the selection bind. That bind is
-                // created FIRST, so when a query signal and the selection are written in one
+                // Drive the detail from here as well as from the selection bind. That bind is
+                // created first, so when a query signal and the selection are written in one
                 // batch it runs while `typed` still holds the pre-filter rows, finds no index
                 // for the key, and gives up — leaving a highlighted row over an empty pane with
                 // nothing left to re-trigger it. The fallback just above has the same problem in
@@ -3210,7 +3210,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         });
     }
 
-    // Registered AFTER the pages are built, deliberately: `register_nav` drains any PENDING
+    // Registered after the pages are built, deliberately: `register_nav` drains any PENDING
     // route as it registers, and a route arriving before this host has children attaches a
     // page to a parent that is not in the tree yet (an intermittent startup panic on AppKit).
     // Ordering here does not decide routing — `NavController::depth` does.
@@ -3436,7 +3436,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
         let title_s = title.initial();
 
         // Restore the saved path before the reconcile binding runs, so its pages build on first
-        // pass. A launch deep link wins (skip). The path is decoded from the SAME percent-encoded
+        // pass. A launch deep link wins (skip). The path is decoded from the same percent-encoded
         // wire format the rest of nav uses (`parse_route`), so a key that itself contains `/` (or
         // `?`, `%`) round-trips instead of splitting into two. The whole path is parsed via
         // `Route::from_key`; any segment that no longer parses discards the restore rather than
@@ -3590,7 +3590,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
         };
 
         // This stack's back owner (one Rc shared by all its pages): a native pop the toolkit
-        // ALREADY performed (an unguarded iOS swipe) is absorbed + synced without the guard; a
+        // Already performed (an unguarded iOS swipe) is absorbed + synced without the guard; a
         // back Day owns runs `run_back` so the guard decides.
         let stack_owner: PopOwner = {
             let (native_popped, raw_pop, run_back) =
@@ -3969,7 +3969,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     dispose_content();
                     closing.set(false);
                     let scope = owner_scope.enter(Scope::child);
-                    // Run the app's builder INSIDE the presentation scope: side effects it
+                    // Run the app's builder inside the presentation scope: side effects it
                     // performs eagerly (state restore, autosave/cleanup registration, signals)
                     // must belong to the presented content's lifetime, not the cover's.
                     scope.enter(|| {
@@ -4110,7 +4110,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Nav`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Nav`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait NavBuilder<K: Route>: Sized {
     fn style(self, style: NavStyle) -> Self;
@@ -4334,7 +4334,7 @@ impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> 
     }
 }
 
-/// [`NavStack`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`NavStack`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait NavStackBuilder<K: Route>: Sized {
     fn title<M>(self, t: impl IntoText<M>) -> Self;
@@ -4380,7 +4380,7 @@ impl<K: Route, Inner: NavStackBuilder<K> + Piece> NavStackBuilder<K> for Decorat
     }
 }
 
-/// [`Cover`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Cover`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait CoverBuilder: Sized {
     fn unrouted(self) -> Self;

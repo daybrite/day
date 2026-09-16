@@ -32,7 +32,7 @@ pub struct ScriptRun {
 #[derive(Debug)]
 pub enum ScriptError {
     /// The engine socket could not be reached, or died mid-run: the app process is gone (or
-    /// never came up). `steps_failed` counts failures seen BEFORE the loss — a loss with ZERO
+    /// never came up). `steps_failed` counts failures seen before the loss — a loss with ZERO
     /// failures on the iOS simulator is the known app-death flake, which the launch path
     /// retries once. Both CI workflows used to grep the log for exactly this distinction
     /// (`grep "engine connection lost" && ! grep ✗`); typing it here replaced those greps.
@@ -185,7 +185,7 @@ fn apply_resize(target: &crate::targets::Target, step: &serde_json::Value) -> Re
         }
         // No public API resizes a simulator scene, and Xcode 27's Device Hub drag is not
         // scriptable. iOS coverage for a width-class crossing comes from running the same
-        // walkthrough on an iPhone AND an iPad device instead (docs/size-classes.md).
+        // walkthrough on an iPhone and an iPad device instead (docs/size-classes.md).
         TargetKind::IosSim => Err(
             "ios-uikit cannot be resized from the host — no simctl or public API does it. \
              Run this walkthrough on an iPad device as well, or gate the step with \
@@ -522,10 +522,10 @@ pub(crate) fn device_screenshot_public(target: &Target, path: &Path) -> Result<(
 
 pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
     if kind == TargetKind::Android {
-        // The dayscript runner drives ONE device; with several attached, `adb forward` (no
+        // The dayscript runner drives one device; with several attached, `adb forward` (no
         // `-s`) errors ("more than one device"). ANDROID_SERIAL is the device-selection
         // contract everywhere else in the CLI (`--android-device` sets it), so honor it here
-        // too — pinning the FIRST enumerated device instead sent the forward to a bystander
+        // too — pinning the first enumerated device instead sent the forward to a bystander
         // phone while the app ran on the emulator.
         let serial = std::env::var("ANDROID_SERIAL").ok().or_else(|| {
             crate::mobile::android_devices()
@@ -575,13 +575,13 @@ pub fn run_scripts(
             .map_err(|e| ScriptError::Other(e.to_string()))?,
     );
 
-    // adb-forwarded ports accept host connections BEFORE the device listener exists; a
+    // adb-forwarded ports accept host connections before the device listener exists; a
     // request/reply that hits EOF reconnects and retries within a bounded window.
     //
     // `budget` is the step's own implicit-wait budget (§14.3). The engine polls a retryable step
     // on the main thread for that long before answering, so the runner must out-wait it: sizing
     // the socket read from `window_secs` alone made any step declaring a longer `timeout_secs`
-    // time out runner-side FIRST and report "engine connection lost" — a healthy, idle app
+    // time out runner-side first and report "engine connection lost" — a healthy, idle app
     // mislabeled as a dead one.
     let roundtrip = |stream: &mut TcpStream,
                      reader: &mut BufReader<TcpStream>,
@@ -653,13 +653,13 @@ pub fn run_scripts(
         let device_first = target.kind != TargetKind::Desktop;
         for (op, step) in steps {
             run.steps_total += 1;
-            // The target gates run BEFORE the runner-side steps below (`pause`, `expect_exit`):
+            // The target gates run before the runner-side steps below (`pause`, `expect_exit`):
             // those `continue` on their own, so evaluating them first made a gated `pause` sleep
             // on every target regardless of its `only_on`/`skip_on` — 10s a variant on Android
             // and 21s on HarmonyOS, spent waiting for blocks those targets never run.
             //
             // `skip_on:` — a per-step target filter: the step is dropped on the named targets
-            // or toolkits (`skip_on: [web-dom]`), so ONE walkthrough stays honest across
+            // or toolkits (`skip_on: [web-dom]`), so one walkthrough stays honest across
             // platforms with genuinely absent capabilities (docs/agent.md).
             if let Some(skips) = step.get("skip_on").and_then(|v| v.as_array()) {
                 let hit = skips
@@ -704,7 +704,7 @@ pub fn run_scripts(
                 eprintln!("  {SUCCESS}✓{SUCCESS:#} pause {secs}s");
                 continue;
             }
-            // `resize` is runner-side FIRST, then engine: a device's window belongs to the
+            // `resize` is runner-side first, then engine: a device's window belongs to the
             // system, so only the host can change it — and the engine half that follows is what
             // waits for the app to have seen the new geometry (docs/size-classes.md).
             if op == "resize"
@@ -1126,8 +1126,8 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
             // would otherwise terminate each other's apps.
             //
             // Getting this wrong is not a leaked process so much as a corrupted run: the
-            // survivor holds the dayscript engine's port, the NEXT launch cannot bind, and the
-            // runner then drives the OLD app — which shares the run's token and answers every
+            // survivor holds the dayscript engine's port, the next launch cannot bind, and the
+            // runner then drives the old app — which shares the run's token and answers every
             // step, so a locale sweep quietly re-photographs the first locale.
             let root = ere_escape(&project.root.to_string_lossy());
             let pattern = format!("^{root}/build/day/(cargo/)?{}/", target.name);
@@ -1143,7 +1143,7 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
             }
         }
         // The three device branches are bounded (`status_within`): each talks to a device over a
-        // tool that waits for an unresponsive one indefinitely, and this runs BETWEEN a matrix
+        // tool that waits for an unresponsive one indefinitely, and this runs between a matrix
         // run's variants — so a wedged emulator here stops the run rather than the app.
         TargetKind::IosSim => {
             let _ = crate::ops::status_within(
@@ -1220,7 +1220,7 @@ pub(crate) fn device_alive(target: &Target) -> bool {
 /// actually free — the arithmetic alone handed out ports something else already held. Falls
 /// back to the base when the whole range is busy (the old behavior: let the launch report it).
 ///
-/// The range is deliberately BELOW 32768, and that is the whole point of the constant. Linux's
+/// The range is deliberately below 32768, and that is the whole point of the constant. Linux's
 /// default ephemeral range is 32768–60999 (`net.ipv4.ip_local_port_range`), which Android inherits
 /// — so a port picked from inside it can already be the local end of some unrelated outbound
 /// connection, and `bind` fails with EADDRINUSE. The probe below cannot see that: it tests the

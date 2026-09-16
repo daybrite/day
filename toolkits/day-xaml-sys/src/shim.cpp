@@ -511,7 +511,7 @@ struct AppWindow {
     WUX::Application app{ nullptr }; // keeps Application::Current + WindowsXamlManager alive
     void* dqc{}; // DispatcherQueueController — kept alive, never released
     WUXC::Canvas root{ nullptr };
-    // Day's tree mounts into `content`, a child canvas offset BELOW any docked MenuBar —
+    // Day's tree mounts into `content`, a child canvas offset below any docked MenuBar —
     // both used to share `root` at (0,0), overlapping day's header with File/Edit/View.
     WUXC::Canvas content{ nullptr };
     WUXC::MenuBar menubar{ nullptr };
@@ -545,7 +545,7 @@ static int g_min_w = 0, g_min_h = 0;
 static void (*g_lifecycle_cb)(int) = nullptr;
 
 // Reserve the docked chrome's strips: size the MenuBar and the toolbar CommandBar to the window
-// width, stack them at the top, offset day's content canvas below BOTH, and report the REMAINING
+// width, stack them at the top, offset day's content canvas below both, and report the REMAINING
 // client size to day-core (XAML works in DIPs; the resize report and client rect are physical px
 // — convert via the window DPI). Either strip may be absent, and they are installed in either
 // order, so both offsets are recomputed here rather than where a bar is created.
@@ -595,7 +595,7 @@ static void day_xaml_relayout_chrome(AppWindow* app) {
     if (g_resize_cb) g_resize_cb(w, h);
 }
 
-/// Effective light/dark: a DAY_THEME force wins, else the system's CURRENT setting.
+/// Effective light/dark: a DAY_THEME force wins, else the system's current setting.
 ///
 /// Read from the registry rather than from `Application::RequestedTheme()`. That property is
 /// resolved when the XAML app object is constructed and does NOT track a later system flip under
@@ -768,7 +768,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_DESTROY:
         // NOT the end of the app any more (docs/windows.md close policy): this window is an
         // ordinary primary window, and day-core ends the process — through `day_xaml_quit` —
-        // when the LAST primary closes. Quitting here would take the other windows with it.
+        // when the last primary closes. Quitting here would take the other windows with it.
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
@@ -943,7 +943,7 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
                 color_argb(app_dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
     }
 
-    // Load the island NOW, before day builds the control tree. Controls added to a live,
+    // Load the island now, before day builds the control tree. Controls added to a live,
     // loaded tree get their default styles/templates applied immediately, so day's first
     // (synchronous) Measure returns real sizes. Without this, templated controls measure to 0
     // and lay out invisible. Pump until the root's Loaded event fires (bounded).
@@ -1014,7 +1014,7 @@ void* day_xaml_window_root(void* win) {
 void day_xaml_window_on_resize(void* win, void (*cb)(int, int)) {
     (void)win; // single window (v1)
     g_resize_cb = cb;
-    // Report the size that is ALREADY current, rather than waiting for the next WM_SIZE. day
+    // Report the size that is already current, rather than waiting for the next WM_SIZE. day
     // builds the app's root before it subscribes here, and building it installs the menu bar and
     // the toolbar — each of which reserves its strip and reports the client size that REMAINS
     // through this very callback, while it is still null. Those reports were dropped, nothing
@@ -1054,7 +1054,7 @@ struct SecWindow {
     HWND island{};
     WUXH::DesktopWindowXamlSource source{ nullptr };
     WUXC::Canvas root{ nullptr };
-    // Day's tree mounts into `content`, a child canvas offset BELOW the docked chrome — the
+    // Day's tree mounts into `content`, a child canvas offset below the docked chrome — the
     // primary window's arrangement, so a secondary window can carry a menu bar and a toolbar
     // instead of being a bare island (docs/windows.md).
     WUXC::Canvas content{ nullptr };
@@ -1076,7 +1076,7 @@ void day_xaml_set_window_events_cb(void (*resized)(unsigned long long, int, int)
 
 /// The host HWND of the window `e` is in, or null. Each window is its own XAML island with its
 /// own XamlRoot, which is what tells them apart — the same handle the sidebar toggle resolves by.
-/// Used for the menu commands that act on THEIR window rather than the app.
+/// Used for the menu commands that act on their window rather than the app.
 static HWND host_for_element(WUX::FrameworkElement const& e) try {
     if (!e) return nullptr;
     auto root = e.XamlRoot();
@@ -1275,7 +1275,7 @@ static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (sw && sw->island) {
             RECT rc; GetClientRect(hwnd, &rc);
             SetWindowPos(sw->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
-            // Reports the size BELOW the chrome, not the whole client, or day would lay its
+            // Reports the size below the chrome, not the whole client, or day would lay its
             // tree out under the menu bar.
             relayout_sec_chrome(sw);
         }
@@ -1324,7 +1324,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     // `fixed` is WindowKind::Preferences — a PANEL, not a second main window. docs/windows.md
     // has it "drop resize/minimize", and Windows' own settings dialogs add to that: owned by the
     // window they belong to, so they float above it and take no taskbar button of their own. An
-    // owner is passed as hWndParent WITHOUT WS_CHILD, which is what makes it owned rather than
+    // owner is passed as hWndParent without WS_CHILD, which is what makes it owned rather than
     // parented. A Normal window gets none of this — it is an independent main window.
     DWORD style = WS_OVERLAPPEDWINDOW;
     HWND owner = nullptr;
@@ -1368,7 +1368,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     UpdateWindow(host);
     // ACTIVATE it, which ShowWindow alone does not reliably do for a window created by a
     // background thread's request. Without this the new window appears while the window that
-    // opened it keeps focus — so the next menu command goes to the OLD window. `File ▸ New
+    // opened it keeps focus — so the next menu command goes to the old window. `File ▸ New
     // Window` then `File ▸ Close` read as "close the window I just opened" but closed the
     // PRIMARY, and closing the primary ends the app (above), taking the new window with it.
     SetForegroundWindow(host);
@@ -1430,10 +1430,10 @@ void day_xaml_window_destroy2(void* win) {
     // This window's toolbar items go with it, or the map grows by a full item set on every
     // open/close cycle and holds those elements alive for the process's life.
     g_toolbar_elems.erase(win);
-    // Close the island BEFORE the host window goes. The DesktopWindowXamlSource owns a child
+    // Close the island before the host window goes. The DesktopWindowXamlSource owns a child
     // HWND of `host`, so DestroyWindow takes that window out from under XAML and leaves the
     // source to tear down an island whose HWND no longer exists — Close() first is the order
-    // the API documents. This is the ONLY teardown that runs while the process keeps living:
+    // the API documents. This is the only teardown that runs while the process keeps living:
     // the primary reaches its own destroy on the way out, where nothing outlives the mistake.
     if (sw->source) {
         try {
@@ -1638,7 +1638,7 @@ static WUXC::Canvas canvas_of(void* h) {
     return nullptr;
 }
 
-// A function-try-block for the same reason `guard` exists: this repaints ONE canvas, a
+// A function-try-block for the same reason `guard` exists: this repaints one canvas, a
 // best-effort side effect, and it is reached from Rust's non-unwindable post-trampoline, so a
 // WinRT HRESULT escaping here would abort the app. Degrade to a partly-drawn canvas instead.
 void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) try {
@@ -1661,17 +1661,17 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
     std::vector<WUXM::Matrix> stack;
     WUXM::Matrix cur = mat_identity();
     const double DEG = 3.14159265358979323846 / 180.0;
-    // A decoded kind-14 record (set-gradient), consumed by the NEXT fill-shape record. XAML's
+    // A decoded kind-14 record (set-gradient), consumed by the next fill-shape record. XAML's
     // default MappingMode is RelativeToBoundingBox, so the encoded unit geometry maps onto each
     // shape's bounds with no extra math; make_radial_brush mirrors that with Stretch::Fill so both
     // gradient kinds turn naturally elliptical in non-square bounds, the shared rule.
     WUXM::Brush gradPending{ nullptr };
-    // A decoded kind-18 record (stroke style), applied to the NEXT stroke record only.
+    // A decoded kind-18 record (stroke style), applied to the next stroke record only.
     bool stylePending = false;
     int sCap = 0, sJoin = 0;
     double sMiter = 10.0, sPhase = 0.0;
     std::vector<double> sDash;
-    // A decoded kind-19 record (font), applied to the NEXT text record only (docs/fonts.md).
+    // A decoded kind-19 record (font), applied to the next text record only (docs/fonts.md).
     bool fontPending = false;
     int fWeight = 0;
     bool fItalic = false;
@@ -1729,7 +1729,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         return brush_bits(col);
     };
 
-    // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+    // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
     // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
     std::vector<std::pair<double, double>> stampAt;
     int stampN = 0;
@@ -1742,7 +1742,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         if (k == 20) { stampAt.clear(); stampN = (int)a; continue; }
         if (k == 21) {
             // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth point's
-            // y rides the slot other records use for their color. The LAST record of a run is
+            // y rides the slot other records use for their color. The last record of a run is
             // padded with zeros, so the header's count is what says where the real ones stop.
             const double xs[4] = { a, c, e, g };
             const double ys[4] = { b, d, f, nums[i + 8] };
@@ -1752,7 +1752,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         }
         // The template is replayed once per position under a translated CTM — this backend places
         // every shape through `cur`, so the translation is a matrix rather than a context call.
-        // `ti` is rewound each time so a template with a texts payload reads the SAME entry every
+        // `ti` is rewound each time so a template with a texts payload reads the same entry every
         // repetition and consumes it exactly once overall.
         const int reps = stampAt.empty() ? 1 : (int)stampAt.size();
         const size_t tiStart = ti;
@@ -1878,7 +1878,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             // Nothing is drawable at a non-positive size anyway, and the other backends render
             // an empty run rather than failing (Qt's setPointSizeF ignores it), so drop the
             // record and keep the same painted result. A canvas that sizes text off its OWN
-            // height — a Sudoku cell's `h * 0.55` — hits this on the FIRST replay, before
+            // height — a Sudoku cell's `h * 0.55` — hits this on the first replay, before
             // layout has given the canvas a height. The texts cursor is advanced above, so the
             // stream stays in sync with the records that follow.
             if (!(e > 0.0) || !std::isfinite(e)) break;
@@ -1917,7 +1917,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             canvas.Children().Append(tb);
             break;
         }
-        case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+        case 19: { // font for the next text: a weight (0 default), b italic; family on texts
             fFamily = ti < texts.size() ? texts[ti++] : std::string();
             fWeight = (int)a;
             fItalic = b > 0.5;
@@ -1992,7 +1992,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             clipActive = true;
             break;
         }
-        case 18: { // stroke style for the NEXT stroke: a cap, b join, c miter, d phase
+        case 18: { // stroke style for the next stroke: a cap, b join, c miter, d phase
             std::string t18 = ti < texts.size() ? texts[ti++] : std::string();
             sCap = static_cast<int>(a);
             sJoin = static_cast<int>(b);
@@ -2059,7 +2059,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         }
         case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
             auto it = xaml_bitmaps().find((uint64_t)e);
-            // A released bitmap draws NOTHING rather than a placeholder: the canvas re-records on
+            // A released bitmap draws nothing rather than a placeholder: the canvas re-records on
             // every tracked read, so a handle can be dropped between the record and this replay.
             if (it == xaml_bitmaps().end() || c <= 0 || d <= 0) break;
             auto bmp = bitmap_from_bytes(it->second.data(), (uint32_t)it->second.size());
@@ -2086,7 +2086,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         }
         } // the stamp repetition; its body keeps the switch's own indentation on purpose
         if (!stampAt.empty()) { cur = curSaved; stampAt.clear(); }
-        // A style record applies to ONE stroke; anything else clears it. A font record
+        // A style record applies to one stroke; anything else clears it. A font record
         // likewise applies to one text.
         if (k != 18) stylePending = false;
         if (k != 19) fontPending = false;
@@ -2124,7 +2124,7 @@ void day_xaml_list_viewport(void* sv, double* out_offset, double* out_height) {
     }
 }
 
-// Report scrolling, so rows coming INTO view get built before they are looked at. Fires for
+// Report scrolling, so rows coming into view get built before they are looked at. Fires for
 // intermediate (mid-inertia) states too, which is what keeps a flick from trailing empty rows;
 // Rust coalesces the run to one per loop turn.
 void day_xaml_list_on_scroll(void* sv, uint64_t node, void (*cb)(uint64_t)) {
@@ -2258,7 +2258,7 @@ void day_xaml_cell_set_selected(void* cell, int on) {
     if (!canvas) return;
     auto rect = ensure_bg_rect(canvas);
     if (!on) {
-        // Transparent, not null: the cell must stay hit-testable so the NEXT press still lands.
+        // Transparent, not null: the cell must stay hit-testable so the next press still lands.
         rect.Fill(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
         return;
     }
@@ -2362,12 +2362,12 @@ static constexpr double DAY_NAV_SIDEBAR_WIDTH = 240.0; // mirrors day_spec::NAV_
 //
 // A LIST, not the single global this started as: secondary windows (docs/windows.md) each build
 // their own split nav, and the last one created would otherwise own the toggle for every window
-// — so the primary window's toolbar button collapsed the SECOND window's sidebar and left its
+// — so the primary window's toolbar button collapsed the second window's sidebar and left its
 // own alone. Each window is its own XAML island with its own XamlRoot, which is what tells them
 // apart at click time.
 static std::vector<WUXC::NavigationView> g_navviews;
 
-// Show/hide one nav's pane. In PaneDisplayMode::Left the pane is ALWAYS expanded and IsPaneOpen
+// Show/hide one nav's pane. In PaneDisplayMode::Left the pane is always expanded and IsPaneOpen
 // is ignored, so hiding it means dropping to LeftMinimal — the mode whose pane is a hidden
 // overlay behind a hamburger, which is what a Windows app's collapsed nav looks like.
 static bool toggle_nav_pane(WUXC::NavigationView const& nv) {
@@ -2416,7 +2416,7 @@ static WUX::ElementTheme element_theme_now() {
     }
 }
 
-/// Re-theme EVERY window in place — the `set_appearance` duty (docs/appearance.md).
+/// Re-theme every window in place — the `set_appearance` duty (docs/appearance.md).
 ///
 /// Per-element rather than `Application::RequestedTheme`, which is unsupported under XAML Islands:
 /// ElementTheme on a root cascades to every descendant control and its {ThemeResource} lookups, so
@@ -2641,7 +2641,7 @@ void* day_xaml_inspector_new(unsigned long long id, double panel_width, int open
                              void (*size_cb)(unsigned long long, int, int, int),
                              void** out_content, void** out_panel) {
     WUXC::SplitView sv;
-    // `leading` puts the pane FIRST — a layer panel (docs/inspector.md `.edge`), the same
+    // `leading` puts the pane first — a layer panel (docs/inspector.md `.edge`), the same
     // arrangement Qt's splitter takes; Right stays the classic trailing inspector.
     sv.PanePlacement(leading ? WUXC::SplitViewPanePlacement::Left
                              : WUXC::SplitViewPanePlacement::Right);
@@ -2728,7 +2728,7 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
                 nv.MenuItems().Append(header);
             }
             WUXC::NavigationViewItem nvi;
-            // The trailing status glyph (docs/navigation.md). NavigationViewItem has ONE Icon
+            // The trailing status glyph (docs/navigation.md). NavigationViewItem has one Icon
             // slot and it is the leading one, so a badge has to ride the Content: a row with one
             // becomes [title][stretch][glyph] instead of a bare string. A row without one keeps
             // the plain boxed string, so nothing changes for the common case.
@@ -2866,7 +2866,7 @@ void day_xaml_nav_set_back_visible(void* navh, int visible) {
 
 // A container is a Canvas (day positions children by absolute frame). It has no rounded-corner clip
 // of its own — Windows.UI.Xaml's RectangleGeometry can't round, and UIElement.Clip is rectangular
-// only — so a background fill / rounded corner is drawn by a `Rectangle` SHAPE (which DOES carry
+// only — so a background fill / rounded corner is drawn by a `Rectangle` SHAPE (which does carry
 // RadiusX/RadiusY) kept as child[0], behind day's children, tracking the Canvas size via SizeChanged.
 static WUXSh::Rectangle ensure_bg_rect(WUXC::Canvas const& canvas) {
     auto kids = canvas.Children();
@@ -3070,7 +3070,7 @@ void day_xaml_container_set_card(void* h, double radius) {
     if (auto c = elem(h).try_as<WUXC::Canvas>()) {
         auto r = ensure_bg_rect(c);
         bool filled = false;
-        // The app-resource card brush resolves per the SYSTEM theme; only trust it when NOTHING
+        // The app-resource card brush resolves per the SYSTEM theme; only trust it when nothing
         // overrides that — a DAY_THEME force or the app's own Appearance pick both re-theme
         // per-element (`Application::RequestedTheme` is unsupported under Islands), so the app
         // resources still answer for the system scheme and would mis-color the chosen one. That is
@@ -3165,7 +3165,7 @@ typedef void (*DayLinkCb)(unsigned long long id, const char* url);
 /// The node a link run reports against, and the trampoline. Set by `day_xaml_label_runs_begin`
 /// so every Hyperlink appended after it knows where to send its Click (docs/text-runs.md).
 ///
-/// Declared HERE, above the first use: `runs_begin` below assigns `g_link_node`, and C++ resolves
+/// Declared here, above the first use: `runs_begin` below assigns `g_link_node`, and C++ resolves
 /// plain identifiers by declaration order, so defining these after it does not compile.
 static unsigned long long g_link_node = 0;
 static DayLinkCb g_link_cb = nullptr;
@@ -3211,7 +3211,7 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
         run.FontSize(tb.FontSize() * scale_permille / 1000.0);
     }
     if (link && link[0]) {
-        // A Hyperlink is an inline container: the run goes INSIDE it, so the link sits in the
+        // A Hyperlink is an inline container: the run goes inside it, so the link sits in the
         // same wrapping paragraph as its neighbors. Activation is Phase 4.
         WUXD::Hyperlink hl;
         hl.Inlines().Append(run);
@@ -4031,7 +4031,7 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
         auto& e = elem(h);
         // Measure with the explicit size back at Auto. Once day has framed an element,
         // `set_geometry` has stamped a Width/Height on it, and XAML derives `DesiredSize` from
-        // THOSE rather than from the content — so a re-measure after the content changed reports
+        // Those rather than from the content — so a re-measure after the content changed reports
         // the size the PREVIOUS content wanted. That is what leaves a recycled list cell showing
         // "Row" alone: the label was framed for "Row 4", the shuffle rebinds it to "Row 487", the
         // stale narrow frame comes back from measure, and TextWrapping::Wrap folds the number onto
@@ -4475,7 +4475,7 @@ static void build_menu_items(WF::Collections::IVector<WUXC::MenuFlyoutItemBase> 
                 // Role 11 = CloseWindow. It had NO handler at all: a live, enabled File ▸ Close
                 // that did nothing. That was survivable while only the primary window carried a
                 // menu; now every window does, and a dead Close sits directly above Quit — which
-                // DOES end the whole app — right where someone reaches to close one window.
+                // Does end the whole app — right where someone reaches to close one window.
                 closes_window = role == 11;
             }
             if (fire || closes_window) {
@@ -4528,7 +4528,7 @@ extern "C" void day_xaml_set_context_menu(void* h, const char* spec) try {
 /// Alt lights the KeyTips, Alt+<letter> opens that menu — and XAML drives all of it from
 /// `AccessKey`. Day's menu model carries no mnemonic (no `&File` convention), so derive one the
 /// way a Win32 app conventionally would: the title's first letter that is still free. Dedup
-/// matters more than the choice — two menus sharing a key leaves BOTH unreachable, and localized
+/// matters more than the choice — two menus sharing a key leaves both unreachable, and localized
 /// titles collide readily ("Affichage"/"Aide" both want A).
 static winrt::hstring pick_access_key(const std::string& label, std::vector<wchar_t>& taken) {
     std::wstring w{ hs(label.c_str()).c_str() };
@@ -4626,7 +4626,7 @@ extern "C" void day_xaml_window_set_menu2(void* win, const char* spec) try {
 // takes only ICommandBarElement — AppBarElementContainer, which would wrap an arbitrary control,
 // is WinUI's and not in Windows.UI.Xaml.
 //
-// The spec is ONE flat blob, like the menu spec above. One line per item:
+// The spec is one flat blob, like the menu spec above. One line per item:
 //   kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder
 // kinds: B button, T toggle, M menu, F search field, L label, `-` separator, `_` fixed space,
 // `>` flexible space (the Content/PrimaryCommands split). `on` seeds a toggle and `text` a search
@@ -4655,7 +4655,7 @@ static FrameworkElement find_toolbar_elem(void* win, const char* id) {
 
 // Completions for a search field (docs/search.md): AutoSuggestBox's own ItemsSource, so the popup,
 // the keyboard handling and the Fluent styling are the platform's. The list is unit-separated
-// (\x1f) because tabs and newlines are the spec's record separators. Defined ABOVE the toolbar
+// (\x1f) because tabs and newlines are the spec's record separators. Defined above the toolbar
 // install that seeds it — C++ resolves plain calls by declaration order, so a definition parked
 // down with the patch entry point below would not be visible there.
 static void day_xaml_fill_suggestions(WUXC::AutoSuggestBox const& box, std::string const& joined) {
@@ -4804,7 +4804,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, e);
     };
     // A leading AppBarButton is outside the bar's own collections, so DefaultLabelPosition does
-    // not reach it and it would draw its label UNDER the icon — two rows tall. Collapse the label
+    // not reach it and it would draw its label under the icon — two rows tall. Collapse the label
     // where there is an icon to show instead; without one the label is the only click target.
     auto compact = [&](WUXC::AppBarButton const& b, bool has_icon) {
         if (!trailing && has_icon) b.LabelPosition(WUXC::CommandBarLabelPosition::Collapsed);
@@ -4880,7 +4880,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             // Unconditional rather than "only when this window has a split nav": the toolbar can
             // be installed before the nav is realized, so the conditional would depend on order.
             // Nothing is lost by always dropping it — in a window with a split nav the built-in
-            // button does the job, and in a window WITHOUT one this button drove nothing anyway
+            // button does the job, and in a window without one this button drove nothing anyway
             // (`day_xaml_toggle_sidebar` no-ops on an empty `g_navviews`).
             //
             // Recognized by its RESERVED ID now that a sidebar host contributes an ordinary
@@ -4914,7 +4914,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         } else if (kind == "G") {
             // WinUI has no segmented control in the SDK day targets, so this is what a Fluent app
             // builds: a tight row of toggle buttons kept exclusive here. One AppBarElementContainer
-            // holds them, so the CommandBar still treats the group as ONE item.
+            // holds them, so the CommandBar still treats the group as one item.
             std::vector<std::tuple<std::string, std::string, std::string>> segs; // glyph, image, title
             size_t j = i + 1;
             for (; j < lines.size(); ++j) {
@@ -5365,7 +5365,7 @@ static void fill_segmented(WUXC::StackPanel const& row, std::vector<std::string>
         });
         tb.Unchecked([buttons, idx, guard](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
             if (*guard) return;
-            // The user pressed the ALREADY selected segment: keep it on rather than leaving
+            // The user pressed the already selected segment: keep it on rather than leaving
             // the group with nothing chosen.
             *guard = true;
             (*buttons)[idx].IsChecked(true);

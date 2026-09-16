@@ -8,7 +8,7 @@
 //! `MainThreadMarker`. The class is the realized view's runtime class (`object_getClass`), so a
 //! tweak can branch on it — this matters for a piece with a *conditional* backing: a plain
 //! `label` is a `UILabel`, but a `.selectable()` one is a read-only `UITextView` (docs/text.md).
-//! Chain the tweak AFTER `.selectable()` — it rebuilds the widget, and a tweak applied earlier
+//! Chain the tweak after `.selectable()` — it rebuilds the widget, and a tweak applied earlier
 //! runs against the discarded one (docs/tweaks.md). Downcast for widget-specific API:
 //!
 //! ```ignore

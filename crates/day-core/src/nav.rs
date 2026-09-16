@@ -10,7 +10,7 @@
 //!     outward — a tab key selects the tab, a key the tabs host doesn't know still resolves
 //!     against the enclosing surface.
 //!   * A `/`-separated path (`navigate("mail/inbox/msg-42")`) is ABSOLUTE: the first segment
-//!     anchors at the outermost surface that recognizes it, every surface INSIDE the anchor is
+//!     anchors at the outermost surface that recognizes it, every surface inside the anchor is
 //!     reset to its root, and the remaining segments are consumed inward — including by
 //!     surfaces that only mount as the outer switch takes effect (a pending queue hands each
 //!     newly registered surface the next segment).
@@ -23,7 +23,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// A mounted host's control surface. Closures run user code (route builders), so the registry
-/// NEVER holds a borrow across a call (§3.3 discipline: clone the `Rc` out, then call).
+/// Never holds a borrow across a call (§3.3 discipline: clone the `Rc` out, then call).
 pub struct NavController {
     /// Push (or, in split/tab presentation, select) a registered route. False = unknown route.
     pub push: Box<dyn Fn(&str) -> bool>,
@@ -133,7 +133,7 @@ pub fn clear_controllers() {
 /// may register/unregister hosts) never run while the stack is borrowed (§3.3).
 ///
 /// "Innermost" is decided by [`NavController::depth`], not by registration order — the mirror of
-/// [`nested_after`]'s outermost-first rule, and for the same reason: a host registers AFTER
+/// [`nested_after`]'s outermost-first rule, and for the same reason: a host registers after
 /// building its pages, so the registry places it after the surfaces those pages contain. Asked in
 /// reverse-registration order, a tab bar would answer a back before the stack pushed inside its
 /// page ever heard it (which is how a phone's `nav_back` cleared the tab selection and stranded
@@ -419,10 +419,10 @@ pub fn navigate(route: &str) -> bool {
     ok
 }
 
-/// The surfaces INSIDE `list[anchor]`, outermost first.
+/// The surfaces inside `list[anchor]`, outermost first.
 ///
 /// Ordered by [`NavController::depth`] rather than by registration, because a host that builds its
-/// pages before registering itself lands in the registry AFTER what those pages contain — so an
+/// pages before registering itself lands in the registry after what those pages contain — so an
 /// absolute `section/detail` would otherwise anchor on the section and find nothing beyond it.
 /// Depth only ORDERS here, never filters: a subtree rebuilt outside its original build scope (a
 /// `when` arm re-derived on a size-class change) registers with a depth of zero, and equal depths
@@ -438,7 +438,7 @@ fn nested_after(list: &[Rc<NavController>], anchor: usize) -> Vec<Rc<NavControll
 ///
 /// Signal writes may propagate SYNCHRONOUSLY (an un-batched set cascades immediately), so the
 /// surfaces an anchor switch mounts can register — and must find their segments waiting —
-/// before the anchoring `push` even returns. Hence: queue the tail FIRST, then anchor.
+/// before the anchoring `push` even returns. Hence: queue the tail first, then anchor.
 fn navigate_absolute(segments: &[String]) -> bool {
     let snapshot = || -> Vec<Rc<NavController>> {
         NAV_STACK.with(|s| s.borrow().iter().map(|(_, c)| c.clone()).collect())

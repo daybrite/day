@@ -15,7 +15,7 @@
 //! ))
 //! ```
 //!
-//! TWO pieces — [`date_picker`] and [`time_picker`] — rather than one combined date-time piece: a
+//! Two pieces — [`date_picker`] and [`time_picker`] — rather than one combined date-time piece: a
 //! single combined control exists on only 3 of the 7 toolkits (`NSDatePicker`,
 //! `UIDatePicker.dateAndTime`, `QDateTimeEdit`), while separate date and time controls realize
 //! natively on ALL of them. Each piece maps a small style intent ([`Style::Compact`] /
@@ -651,7 +651,7 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`DatePicker`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`DatePicker`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait DatePickerBuilder: Sized {
     fn compact(self) -> Self;
@@ -699,7 +699,7 @@ impl<Inner: DatePickerBuilder + day_pieces::prelude::Piece> DatePickerBuilder
     }
 }
 
-/// [`TimePicker`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`TimePicker`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait TimePickerBuilder: Sized {
     fn compact(self) -> Self;

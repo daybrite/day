@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# The host-portable test run: every workspace member's tests EXCEPT the toolkit backends, which
+# The host-portable test run: every workspace member's tests except the toolkit backends, which
 # need a platform SDK or a system toolkit the host may not have (and whose real coverage is the
 # per-combo build+walkthrough jobs — even day-appkit is excluded on macOS so all three OS legs
 # run the same set). This script is the one definition of that set; the day-cli-<os> native-arch

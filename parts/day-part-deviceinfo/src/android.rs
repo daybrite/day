@@ -8,7 +8,7 @@
 // point, so this is the crate's only foreign arm (docs/bridge.md). Written in Java rather than
 // Kotlin so it compiles in any Android project. No permission is needed.
 //
-// Before daybridge the four fields crossed as ONE string joined by U+001F, packed in Java and split
+// Before daybridge the four fields crossed as one string joined by U+001F, packed in Java and split
 // in Rust — a wire format written twice. Each field is now its own declaration, which is three JNI
 // calls instead of one against static data read once per launch.
 

@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // GTK: a GtkTextView inside a GtkScrolledWindow (vertical scrolling only), wrapped in a GtkOverlay that
 // carries a dim placeholder GtkLabel pinned top-left (GtkTextView has no native placeholder). The
-// buffer's "changed" signal fires on user input AND on programmatic set_text, so a per-node `suppress`
+// buffer's "changed" signal fires on user input and on programmatic set_text, so a per-node `suppress`
 // cell guards the programmatic sync in `update` from echoing back as an Event::TextChanged. `measure`
 // grows the editor's height with its content between `min_lines` and `max_lines`, then the scrolled
 // window scrolls.

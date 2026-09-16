@@ -21,12 +21,12 @@ public class DayCanvasView extends View {
     double[] nums = new double[0];
     String[] texts = new String[0];
     final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    // A decoded kind-18 record (stroke style), applied to the NEXT stroke record only.
+    // A decoded kind-18 record (stroke style), applied to the next stroke record only.
     private boolean stylePending = false;
     private int sCap = 0, sJoin = 0;
     private float sMiter = 10f, sPhase = 0f;
     private float[] sDash = null;
-    // A decoded kind-19 record (font), applied to the NEXT text record only (docs/fonts.md).
+    // A decoded kind-19 record (font), applied to the next text record only (docs/fonts.md).
     private boolean fontPending = false;
     private int fWeight = 0;
     private boolean fItalic = false;
@@ -159,7 +159,7 @@ public class DayCanvasView extends View {
     }
 
     // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
-    // parsed stops, applied as the paint's shader for the NEXT fill-shape record (resolved
+    // parsed stops, applied as the paint's shader for the next fill-shape record (resolved
     // against that shape's bounds).
     private boolean gradPending = false;
     private int gradType = 0;
@@ -197,7 +197,7 @@ public class DayCanvasView extends View {
         cv.scale(density, density);
         int ti = 0;
         gradPending = false;
-        // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+        // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
         // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
         java.util.ArrayList<float[]> stampAt = new java.util.ArrayList<float[]>();
         int stampN = 0;
@@ -225,7 +225,7 @@ public class DayCanvasView extends View {
             if (k == 20) { stampAt.clear(); stampN = (int) a; continue; }
             if (k == 21) {
                 // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth
-                // point's y rides the slot other records use for their color. The LAST record of a
+                // point's y rides the slot other records use for their color. The last record of a
                 // run is padded with zeros, so the header's count is what says where the real ones
                 // stop.
                 float[] xs = { a, c, e, g };
@@ -237,7 +237,7 @@ public class DayCanvasView extends View {
             }
             // The template is replayed once per position under a translated canvas. `ti` is
             // rewound each time so a template with a texts payload (a polygon, a path) reads the
-            // SAME entry every repetition and consumes it exactly once overall.
+            // Same entry every repetition and consumes it exactly once overall.
             int reps = stampAt.isEmpty() ? 1 : stampAt.size();
             int tiStart = ti;
             for (int rep = 0; rep < reps; rep++) {
@@ -294,7 +294,7 @@ public class DayCanvasView extends View {
                     paint.setTypeface(null);
                     break;
                 }
-                case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+                case 19: { // font for the next text: a weight (0 default), b italic; family on texts
                     fFamily = ti < texts.length ? texts[ti++] : "";
                     fWeight = (int) a;
                     fItalic = b > 0.5f;
@@ -371,11 +371,11 @@ public class DayCanvasView extends View {
                     cv.clipPath(clip);
                     break;
                 }
-                case 18: { // stroke style for the NEXT stroke: a cap, b join, c miter, d phase
+                case 18: { // stroke style for the next stroke: a cap, b join, c miter, d phase
                     String t = ti < texts.length ? texts[ti++] : "";
                     sCap = (int) a; sJoin = (int) b; sMiter = c; sPhase = d;
                     String[] parts = t.trim().isEmpty() ? new String[0] : t.split(" ");
-                    // DashPathEffect needs an EVEN count of at least two entries; an odd
+                    // DashPathEffect needs an even count of at least two entries; an odd
                     // pattern repeats to become even, which is what every other backend does.
                     float[] dash = null;
                     if (parts.length > 0) {
@@ -420,7 +420,7 @@ public class DayCanvasView extends View {
                 }
                 case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
                     android.graphics.Bitmap bmp = DayBridge.bitmapFor((long) e);
-                    // A released bitmap draws NOTHING rather than a placeholder: the canvas
+                    // A released bitmap draws nothing rather than a placeholder: the canvas
                     // re-records on every tracked read, so a handle can be dropped between the
                     // record and this replay.
                     if (bmp != null && c > 0 && d > 0) {
@@ -438,7 +438,7 @@ public class DayCanvasView extends View {
             if (!stampAt.isEmpty()) cv.restore();
             }
             stampAt.clear();
-            // A style record applies to ONE stroke, so anything else clears it; a font record
+            // A style record applies to one stroke, so anything else clears it; a font record
             // likewise applies to one text.
             if (k != 18) stylePending = false;
             if (k != 19) fontPending = false;

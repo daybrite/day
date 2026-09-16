@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! `day prepare` (docs/icons.md, DESIGN.md §16.5) — every platform's derived host files from
-//! ONE master, kept in sync and kept OUT of git.
+//! One master, kept in sync and kept OUT of git.
 //!
 //! Master discovery (first hit wins): an explicit path argument, else
 //! `resource/icons/icon.svg`, `resource/icons/day-icon.svg`, `resource/icons/icon.png`. A
@@ -1118,7 +1118,7 @@ fn generate(
 
 /// The HarmonyOS manifests that still name the flat `$media:startIcon` as an ability's `icon`,
 /// each with its text rewritten to the layered icon: `(path relative to the project, bytes)`.
-/// Empty once both manifests are current. Re-asserted on EVERY build, not only when the host
+/// Empty once both manifests are current. Re-asserted on every build, not only when the host
 /// set is rendered: a manifest entry added by hand after the first render (a second ability,
 /// say) would otherwise pass every local build, whose lock is current, and fail CI's pristine
 /// check, whose fresh checkout renders and rewrites it (Day-Games, 2026-09-11).

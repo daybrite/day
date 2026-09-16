@@ -319,7 +319,7 @@ pub const DEFAULT_ICONS: [(u32, &[u8]); 3] = [
 /// and images via the bundle file, so they need no pre-build staging here (handled at pack/launch).
 pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
     // Vectors first (docs/vectors.md): every glyph gets its raster-cache PNG, then the cache is
-    // filtered to what THIS toolkit actually needs one for — which `ResourceSet::scan` below
+    // filtered to what this toolkit actually needs one for — which `ResourceSet::scan` below
     // picks up for its image pipeline, and which `day launch`/`day pack` ship.
     let vectors = prepare_vectors(project)?;
     write_vector_fallbacks(project, target.toolkit, &vectors)?;
@@ -356,7 +356,7 @@ pub struct VectorAsset {
     pub vd: bool,
 }
 
-/// Where the build-time vector rasters live: EVERY glyph, always, as the build's own cache. This
+/// Where the build-time vector rasters live: Every glyph, always, as the build's own cache. This
 /// directory is an input, not a shipping form — what a target actually carries is
 /// [`vector_fallback_dir`], which holds only the glyphs that target cannot draw as a vector.
 pub fn vector_raster_dir(project: &Project) -> PathBuf {
@@ -456,7 +456,7 @@ pub fn vector_svg_dir(project: &Project) -> PathBuf {
 }
 
 /// Where the prepared XAML geometry lives (docs/vectors.md): day-xaml loads these as real
-/// `Path`/`PathIcon` geometry, which is what lets a Windows glyph stay vector at any size AND
+/// `Path`/`PathIcon` geometry, which is what lets a Windows glyph stay vector at any size and
 /// take its tint as a brush at runtime. Converted here, in the CLI, so the backend needs no SVG
 /// parser — the same split Android's VectorDrawable emission uses. A glyph outside the
 /// convertible subset simply has no file here and falls back to the raster cache.
@@ -515,7 +515,7 @@ pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
         };
         let text = std::fs::read_to_string(&svg_path).map_err(|e| format!("vector {name}: {e}"))?;
         // SF Symbol templates reduce to the canonical Regular variant, and their Light/Bold
-        // variants ALSO stage, under `__light`/`__bold` suffixed names — which is what the piece's
+        // variants also stage, under `__light`/`__bold` suffixed names — which is what the piece's
         // `.weight(…)` resolves (docs/vectors.md).
         //
         // A plain SVG has no weight axis, so it stages ONCE: `.weight(…)` on it resolves back to
@@ -605,7 +605,7 @@ mod vector_tests {
         ]
     }
 
-    /// The rule the bundle size depends on: a toolkit that draws vectors ships a raster ONLY
+    /// The rule the bundle size depends on: a toolkit that draws vectors ships a raster only
     /// for art its vector pipeline could not express. Shipping the rest would double every
     /// glyph and let a broken vector path hide behind a raster that still looks right.
     #[test]

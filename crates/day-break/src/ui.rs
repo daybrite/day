@@ -12,7 +12,7 @@ use crate::ReportMeta;
 use crate::i18n::t;
 
 /// Theme-neutral card surface (translucent mid-gray reads on both light and dark themes, so the
-/// default label colors stay legible — the showcase idiom; see day-ui-visual-checks).
+/// default label colors stay legible; the showcase idiom, see day-ui-visual-checks).
 const CARD: Color = Color::rgba(0.5, 0.5, 0.55, 0.16);
 
 fn card(content: AnyPiece) -> AnyPiece {
@@ -24,8 +24,8 @@ fn card(content: AnyPiece) -> AnyPiece {
 }
 
 /// A banner disclosing the newest pending crash report, with View / Send / Discard. Renders
-/// nothing when there is no pending report. Embed it near the top of a screen; it is reactive —
-/// it appears when a crash is pending and disappears once the user sends or discards it.
+/// nothing when there is no pending report. Embed it near the top of a screen; it is reactive,
+/// so it appears when a crash is pending and disappears once the user sends or discards it.
 pub fn consent_banner() -> AnyPiece {
     let pending = crate::pending();
     let expanded = Signal::new(false);
@@ -55,7 +55,7 @@ fn banner_body(
     let toggle = move || expanded.set(!expanded.get_untracked());
 
     let send_meta = meta.clone();
-    // Localize on the MAIN thread now (i18n reads a thread-local + the live locale signal, neither
+    // Localize on the main thread now (i18n reads a thread-local + the live locale signal, neither
     // valid on the transport's worker thread); the completion callback just picks a precomputed
     // string and writes it through a Setter (the cross-thread-safe signal write).
     let (sending, sent, failed) = (t("crash-sending"), t("crash-sent"), t("crash-failed"));

@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — Compact date =
 // CalendarDatePicker (button → calendar flyout), Inline date = CalendarView, time = TimePicker
-// flyout for BOTH styles (XAML has no inline clock — documented fallback). Boxed into Day handles
+// flyout for both styles (XAML has no inline clock — documented fallback). Boxed into Day handles
 // via the day_xaml_box/day_xaml_unbox seam day-xaml-sys exports, mirroring the picker piece.
 // Windows-only, built in CI, not verified locally.
 // ---------------------------------------------------------------------------

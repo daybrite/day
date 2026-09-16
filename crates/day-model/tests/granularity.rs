@@ -4,7 +4,7 @@
 //! The measurement: how far does one field write travel?
 //!
 //! Both halves build the SAME UI — 100 rows, each row a label reading one item's name — and count
-//! how many of those 100 closures re-run when ONE item's name changes.
+//! how many of those 100 closures re-run when one item's name changes.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -134,7 +134,7 @@ fn per_property_wakes_one_row() {
     assert_eq!(patches, 1);
 }
 
-/// A sibling field of the SAME element does not wake a reader of this one.
+/// A sibling field of the same element does not wake a reader of this one.
 #[test]
 fn a_sibling_field_does_not_wake_it() {
     let store = Store::new(seed());
@@ -232,7 +232,7 @@ fn unobserved_paths_have_no_cost() {
     });
     flush_sync();
     // One trigger for the observed field, one for its element, one for the store — the path and
-    // its ancestors, created on the way in. NOT 100 rows × 3 fields.
+    // its ancestors, created on the way in. Not 100 rows × 3 fields.
     assert!(
         day_model::observed_paths() <= 3,
         "created {} triggers",

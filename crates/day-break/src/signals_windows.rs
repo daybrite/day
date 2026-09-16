@@ -1,33 +1,33 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Native fault capture on Windows — the counterpart to [`crate::signals_unix`].
+//! Native fault capture on Windows, the counterpart to [`crate::signals_unix`].
 //!
-//! Without this, a native crash on Windows left NOTHING behind: the panic hook only sees Rust
+//! Without this, a native crash on Windows left nothing behind: the panic hook only sees Rust
 //! panics, so an access violation or an `abort()` produced a report carrying the session metadata
 //! written at startup (pid, app id, versions) and not one word about the crash. That is what a
-//! walkthrough failure looked like in CI — "the app crashed", a pid, and no reason.
+//! walkthrough failure looked like in CI: "the app crashed", a pid, and no reason.
 //!
 //! Two entry points, because Windows splits them:
 //!
-//! * `SetUnhandledExceptionFilter` — structured exceptions (access violation, illegal
+//! * `SetUnhandledExceptionFilter`: structured exceptions (access violation, illegal
 //!   instruction, divide-by-zero, stack overflow). The last filter standing before the OS's own
 //!   error reporting.
-//! * a `SIGABRT` handler — `abort()` unwinds through the CRT, not through SEH, so the filter above
+//! * a `SIGABRT` handler: `abort()` unwinds through the CRT, not through SEH, so the filter above
 //!   never sees it.
 //!
 //! Neither catches `__fastfail` (what `RaiseFailFastException` and Rust's own
 //! `core::intrinsics::abort` use): it is designed to bypass every user-mode hook and go straight
 //! to the kernel. A crash through that route still records nothing, by the platform's design.
 //!
-//! The record is the SAME `key=value` file the POSIX handler writes, and `sig=` carries the POSIX
-//! signal number the exception corresponds to — so `store::signal_name` and the whole report
+//! The record is the same `key=value` file the POSIX handler writes, and `sig=` carries the POSIX
+//! signal number the exception corresponds to, so `store::signal_name` and the whole report
 //! pipeline read a Windows crash with no changes. The raw `NTSTATUS` rides in `code=`, where the
 //! POSIX handler puts `si_code`, because on Windows that is the number worth reading.
 //!
 //! Handler discipline mirrors the POSIX one: everything that can allocate or take a lock happens
 //! at [`install`] time, and the handler only formats integers into a fixed stack buffer and writes
-//! them. That matters more here than usual — one of the exceptions we catch is a stack overflow,
+//! them. That matters more here than usual: one of the exceptions we catch is a stack overflow,
 //! where the faulting thread has a single guard page left to work with.
 
 #![cfg(windows)]
@@ -82,7 +82,7 @@ unsafe extern "system" {
     fn GetTickCount64() -> u64;
 }
 
-// The CRT's own signal seam: `abort()` raises SIGABRT rather than an SEH exception.
+// The CRT's signal path: `abort()` raises SIGABRT rather than an SEH exception.
 unsafe extern "C" {
     fn signal(sig: i32, handler: usize) -> usize;
     fn raise(sig: i32) -> i32;
@@ -93,11 +93,11 @@ const FILE_SHARE_READ: u32 = 0x0000_0001;
 const CREATE_ALWAYS: u32 = 2;
 const FILE_ATTRIBUTE_NORMAL: u32 = 0x0000_0080;
 const INVALID_HANDLE_VALUE: isize = -1;
-/// Let the OS carry on to its default handling (WER) — the chaining the POSIX handler does by
+/// Let the OS carry on to its default handling (WER), the chaining the POSIX handler does by
 /// restoring the previous disposition.
 const EXCEPTION_CONTINUE_SEARCH: i32 = 0;
 
-const SIGABRT: i32 = 22; // MSVC CRT's value, NOT POSIX 6
+const SIGABRT: i32 = 22; // MSVC CRT's value, not POSIX 6
 const SIG_DFL: usize = 0;
 
 // POSIX signal numbers, so the existing `store::signal_name` and report schema apply unchanged.
@@ -148,14 +148,14 @@ pub(crate) fn install(sig_file: &Path) {
             Ordering::Release,
         );
         SetUnhandledExceptionFilter(Some(seh_filter));
-        // Through a fn POINTER first: casting the zero-sized fn ITEM straight to an integer is a
+        // Through a fn pointer first: casting the zero-sized fn item straight to an integer is a
         // different (and lint-rejected) operation. Same dance as the POSIX handler's sa_sigaction.
         let h: extern "C" fn(i32) = abort_handler;
         signal(SIGABRT, h as usize);
     }
 }
 
-/// Structured exceptions. Returns CONTINUE_SEARCH so Windows Error Reporting still runs — the
+/// Structured exceptions. Returns CONTINUE_SEARCH so Windows Error Reporting still runs: the
 /// record is an addition to the platform's own handling, never a replacement for it.
 unsafe extern "system" fn seh_filter(info: *mut ExceptionPointers) -> i32 {
     if HANDLING.swap(true, Ordering::SeqCst) {
@@ -185,7 +185,7 @@ unsafe extern "system" fn seh_filter(info: *mut ExceptionPointers) -> i32 {
     EXCEPTION_CONTINUE_SEARCH
 }
 
-/// `abort()` — the CRT path, which never reaches the SEH filter above.
+/// `abort()`, the CRT path, which never reaches the SEH filter above.
 extern "C" fn abort_handler(_sig: i32) {
     if !HANDLING.swap(true, Ordering::SeqCst) {
         write_record(POSIX_SIGABRT, 0, 0, 0);
@@ -204,7 +204,7 @@ extern "C" fn abort_handler(_sig: i32) {
 fn posix_signo(code: u32) -> i64 {
     match code {
         0xC000_0005 => POSIX_SIGSEGV,              // ACCESS_VIOLATION
-        0xC000_00FD => POSIX_SIGSEGV,              // STACK_OVERFLOW — a fault on the guard page
+        0xC000_00FD => POSIX_SIGSEGV,              // STACK_OVERFLOW, a fault on the guard page
         0x8000_0002 => POSIX_SIGBUS,               // DATATYPE_MISALIGNMENT
         0xC000_001D => POSIX_SIGILL,               // ILLEGAL_INSTRUCTION
         0xC000_001E => POSIX_SIGILL,               // INVALID_DISPOSITION
@@ -255,7 +255,7 @@ fn write_record(signo: i64, code: i64, addr: usize, pc: usize) {
 // The POSIX file's `Buf`, kept here rather than shared: that one is `#![cfg(unix)]` and this must
 // not depend on it, and the type is 40 lines of pure byte pushing with no platform in it.
 
-/// A fixed stack buffer that only appends bytes and base-10 integers — no allocation, no locks.
+/// A fixed stack buffer that only appends bytes and base-10 integers, with no allocation or locks.
 struct Buf {
     data: [u8; 512],
     len: usize,

@@ -264,7 +264,7 @@ pub fn resolve_presentation(req: u64, result: PresentResult) {
 }
 
 /// Answer a still-open modal programmatically (dayscript). Resolves with the given result
-/// FIRST (removing the pending request), then dismisses the native control — so the native
+/// First (removing the pending request), then dismisses the native control — so the native
 /// dismissal's own completion event finds nothing pending and is a no-op. False = no such
 /// pending request.
 pub fn respond_presentation(req: u64, result: PresentResult) -> bool {
@@ -350,7 +350,7 @@ mod task_tests {
         assert!(h.is_finished());
     }
 
-    /// A task that aborts ITSELF from inside `poll`: the slot is already taken (`None`), abort
+    /// A task that aborts itself from inside `poll`: the slot is already taken (`None`), abort
     /// removes the map entry, and the `Pending` put-back finds nothing — the future must drop
     /// exactly once, after the poll returns, with no `RefCell` re-borrow.
     #[test]

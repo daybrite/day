@@ -303,7 +303,7 @@ fn apply_button_style(el: u32, style: ButtonStyleSpec) {
 /// Set a label's text, as styled spans when it has runs (docs/text-runs.md).
 ///
 /// Runs become `<span>` children (a link run an `<a>`), which is what lets the whole thing stay
-/// ONE wrapping paragraph — the browser wraps across the spans as if they were plain text. The
+/// One wrapping paragraph — the browser wraps across the spans as if they were plain text. The
 /// text goes through `textContent` per span rather than any HTML string, so a translated string
 /// containing `<` or `&` is inert.
 fn set_label_text(el: u32, s: &str, runs: &[day_spec::TextRun]) {
@@ -351,7 +351,7 @@ fn append_span(parent: u32, content: &str, run: Option<&day_spec::TextRun>) {
         if let Some(c) = r.background {
             s(el, "background-color", &color_css(c));
         }
-        // ONE `text-decoration`, because the shorthand replaces itself: a run that is both
+        // One `text-decoration`, because the shorthand replaces itself: a run that is both
         // underlined and struck through needs both words in one declaration, and setting the
         // property twice would keep only the second.
         let deco = decoration_css(r);
@@ -612,7 +612,7 @@ pub struct DomHandle(pub u32);
 struct NavState {
     presentation: NavPresentation,
     /// Detail pages. In `Stack` they are a push stack and the sidebar page is the root, so it
-    /// appears here FIRST; everywhere else they are the host's detail children in attach order
+    /// appears here first; everywhere else they are the host's detail children in attach order
     /// and the sidebar page lives in the chrome slot instead. A re-present moves it between the
     /// two (see `nav_present`).
     pages: Vec<u32>,
@@ -772,7 +772,7 @@ fn realize_placeholder(kind: PieceKind, id: NodeId) -> DomHandle {
 // ---------------------------------------------------------------------------
 // Fonts: FontSpec → a CSS font shorthand. The ramp is the Apple text-style ratios with Body = 1,
 // and a step becomes a length through day.css's `--day-text-scale`: `calc(<step>rem * var(…))`.
-// Naming the variable rather than baking a number in is what keeps ONE definition of the size —
+// Naming the variable rather than baking a number in is what keeps one definition of the size —
 // the stylesheet's — and lets it differ per form factor (docs/web.md): a desktop scale of 0.8125
 // puts Body on 13px, one CSS pixel per Apple point, while a touch browser anchors `html` to
 // `-apple-system-body` and takes a scale of 1, so every step lands on the iOS ramp and tracks the
@@ -1371,7 +1371,7 @@ impl Toolkit for Dom {
             // the browser exposes no metadata reader, and an empty struct would read as "this
             // file records nothing" rather than "nobody looked".
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
-            // The browser's file input and download ARE its file dialogs; bytes ride the
+            // The browser's file input and download are its file dialogs; bytes ride the
             // `web_files` store instead of a filesystem (docs/files.md).
             Cap::FileDialogs => Support::Native,
             // The browser's own clipboard events (⌘X/C/V) are the native edit route; the
@@ -1802,7 +1802,7 @@ impl Toolkit for Dom {
                                 apply_image_tint(el, &src, "contain", *c);
                             }
                         }
-                        // A source swap repaints the SAME element (docs/images.md), so an
+                        // A source swap repaints the same element (docs/images.md), so an
                         // `image()` bound to a signal shows new pixels without rebuilding its
                         // subtree. A tinted glyph keeps the mask it was realized with: recoloring
                         // bytes would need a URL this side never sees.
@@ -2529,7 +2529,7 @@ impl Toolkit for Dom {
                 return;
             }
         };
-        // Refuse a type THIS engine cannot write rather than let `toBlob` substitute PNG for it.
+        // Refuse a type this engine cannot write rather than let `toBlob` substitute PNG for it.
         // SAFETY: `mime` is a 'static str the shim reads and does not keep.
         if unsafe { day_dom_image_can_encode(mime.as_ptr(), mime.len()) } == 0 {
             refuse(day_spec::ImageError::Encode);
@@ -2999,7 +2999,7 @@ fn nav_present(el: u32, next: NavPresentation) {
     // is the whole of "re-present without rebuilding".
     //
     // Getting this from the page ORDER instead does not work when leaving a tab bar: the pieces
-    // layer keeps the selected page and disposes the rest, so a backend that showed the LAST
+    // layer keeps the selected page and disposes the rest, so a backend that showed the last
     // page would hide the one survivor and the detail pane would come up empty.
     //
     // Its index in the REARRANGED list. Falling back to the last page covers the one case where
@@ -3153,7 +3153,7 @@ fn list_fill_window(host: u32) {
         (source.bind_row)(i, cell as usize as day_spec::RawHandle);
     }
     s(content, "position", "relative");
-    // The extent is the WHOLE source, built or not: the scrollbar is how the user reaches rows
+    // The extent is the whole source, built or not: the scrollbar is how the user reaches rows
     // that do not exist yet, so it cannot be sized to what happens to be realized.
     s(content, "height", &format!("{}px", n as f64 * rowh));
     // Rows realized just now start unpainted, and a reload can move which rows are selected
@@ -3280,7 +3280,7 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
             let shift = mods as u8 & day_spec::KeyEvent::SHIFT != 0;
             if st.multi && shift {
                 // Shift extends from the anchor and leaves it where it was, moving only the
-                // lead — so a run of shifted arrows grows and shrinks ONE range instead of
+                // lead — so a run of shifted arrows grows and shrinks one range instead of
                 // starting a new one from wherever the last one ended.
                 let a = st.anchor.unwrap_or(row);
                 st.selected = (a.min(row)..=a.max(row)).collect();
@@ -4019,7 +4019,7 @@ pub extern "C" fn day_dom_edit(op: u32) {
     });
 }
 
-/// A non-text key pressed while THIS canvas has focus (docs/menus.md): `code` 0–5 is an arrow
+/// A non-text key pressed while this canvas has focus (docs/menus.md): `code` 0–5 is an arrow
 /// or a delete key, 10–19 a digit. Returns whether the app claimed it — a canvas nobody hung a
 /// key handler on keeps none of them, so the browser's own scrolling still works underneath it.
 #[unsafe(no_mangle)]
@@ -4054,7 +4054,7 @@ pub extern "C" fn day_dom_canvas_key(el: u32, code: u32, modifiers: u32) -> u32 
 
 /// The platform-standard undo shortcut (⌘Z / Ctrl+Z, shift or Ctrl+Y for redo) pressed with
 /// no editable element focused — the shim's keydown route (the browser has no document-level
-/// undo of its own to integrate with, so the standard keys ARE the platform affordance).
+/// undo of its own to integrate with, so the standard keys are the platform affordance).
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_undo(redo: u32) {
     day_spec::ffi_guard::contain((), || {
@@ -4193,7 +4193,7 @@ pub fn script_send(line: &str) {
     unsafe { day_dom_script_send(line.as_ptr(), line.len()) };
 }
 
-/// Reclaim a shim-written string (a `day_dom_alloc` buffer) — for exports OUTSIDE this crate
+/// Reclaim a shim-written string (a `day_dom_alloc` buffer) — for exports outside this crate
 /// (the `day` umbrella defines `day_dom_script_line`, which routes to day-script; a backend
 /// cannot depend on the engine).
 pub fn take_alloc_string(ptr: *mut u8, len: usize) -> String {

@@ -9,7 +9,7 @@
 //
 // Android's real combo box is AutoCompleteTextView: free-form text plus a dropdown of
 // suggestions — prefix-filtered while typing, and popped open on a plain tap or focus so the
-// list is reachable without typing (the combo half). Picking an item writes the text, so BOTH
+// list is reachable without typing (the combo half). Picking an item writes the text, so both
 // change paths report through the one TextWatcher as K_TEXT_CHANGED.
 package dev.daybrite.day.piece.combobox;
 

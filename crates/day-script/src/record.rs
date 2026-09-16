@@ -3,7 +3,7 @@
 
 //! The dayscript **recorder** (DESIGN.md §14.6): the inverse of playback. Where the engine turns a
 //! script into synthesized Day events, the recorder turns the events an app actually receives back
-//! into a script. It rides one seam — [`day_core::set_event_observer`], the single point EVERY
+//! into a script. It rides one seam — [`day_core::set_event_observer`], the single point every
 //! backend funnels its native events through ([`day_core::enqueue_events`]) — so it needs no
 //! per-toolkit code, and it emits an ordinary dayscript that replays cross-toolkit through the same
 //! executor as any hand-written one.
@@ -167,7 +167,7 @@ pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
 /// Map a native event to the dayscript step that reproduces it — **actions only, semantic only**.
 /// Returns `None` for everything the recorder drops.
 ///
-/// `Tap(Point)` records ONLY when the node carries an id, and then as an id-addressed `Tap` step —
+/// `Tap(Point)` records only when the node carries an id, and then as an id-addressed `Tap` step —
 /// the coordinate is discarded. It has to: a `Button::style(…)` is not a native button but a
 /// COMPOSED piece whose action rides `Decorate::on_tap`, so it delivers `Tap` and never `Pressed`
 /// (day-pieces `leaves.rs`/`decorators.rs`), as does every tappable shape or card. Dropping it
@@ -245,7 +245,7 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
 ///
 /// This table states the intended disposition of every event playback emits, and
 /// [`playback_and_recording_agree`] holds `event_to_step` to it. The rule that matters is
-/// [`Disposition::Records`]: EVERY event a recordable step emits must map back to that same step.
+/// [`Disposition::Records`]: Every event a recordable step emits must map back to that same step.
 /// One of them mapping is not enough — different piece kinds receive different ones, so an
 /// unmapped event means some class of control is silently unrecordable.
 ///
@@ -361,7 +361,7 @@ struct Recorder {
     exclude: String,
     /// The pump generation in which the last `Tap`/`Select` was recorded, or `None` if the last
     /// step is not a foldable input. A navigation folds that input into one portable `Navigate`
-    /// (a sidebar row, a stack push) when it happened in the SAME or the immediately following
+    /// (a sidebar row, a stack push) when it happened in the same or the immediately following
     /// pump — a signal-bound remount settles one pump late, so "same pump" alone would miss it,
     /// and "any time" would wrongly swallow an unrelated earlier tap. See `on_nav`.
     input_gen: Option<u64>,
@@ -543,7 +543,7 @@ fn on_event(node: NodeId, ev: &Event) {
     let label = day_core::label_of(node);
     REC.with(|r| {
         let mut rec = r.borrow_mut();
-        // The exclude prefix applies to BOTH modes: an app's own record/stop controls are noise in
+        // The exclude prefix applies to both modes: an app's own record/stop controls are noise in
         // a log for the same reason they are wrong in a recording.
         if is_excluded(id.as_deref(), &rec.exclude) {
             return;
@@ -763,7 +763,7 @@ pub fn exclude_prefix(prefix: &str) {
 // In-process playback
 // ---------------------------------------------------------------------------
 
-/// Play a dayscript in-process (§14.6): parse `yaml` and run each step through the SAME executor
+/// Play a dayscript in-process (§14.6): parse `yaml` and run each step through the same executor
 /// the socket runner uses ([`crate::run_step_with_wait`]), on a spawned thread that dispatches each
 /// step to the main thread and awaits its reply — mirroring the engine's connection loop. Returns
 /// as soon as the run is *dispatched* (the steps then run asynchronously against the live UI).
@@ -774,7 +774,7 @@ pub fn play(yaml: &str) -> Result<(), String> {
 }
 
 /// Play with an artificial pause (seconds) between each step — a slow-motion replay for watching a
-/// script drive the UI. Returns `Err` WITHOUT spawning when the script is empty or does not parse,
+/// script drive the UI. Returns `Err` without spawning when the script is empty or does not parse,
 /// so a UI can call it to validate (see [`is_playable`]) and to run from one path.
 ///
 /// A run can be suspended and resumed with [`pause_playback`] / [`resume_playback`], and abandoned
@@ -1026,7 +1026,7 @@ mod tests {
 
     #[test]
     fn accepts_cli_demo_template() {
-        // The recorder's parser MUST accept the exact file day-cli's `parse_flow` reads — string
+        // The recorder's parser must accept the exact file day-cli's `parse_flow` reads — string
         // `screenshot`, inline `{ id: … }` mappings, `skip_on:` lists and all. If this drifts, the
         // two parsers have diverged (see `steps_from_yaml`'s doc-comment).
         let demo = include_str!("../../day-cli/templates/app/dayscript/demo.yaml");
@@ -1064,7 +1064,7 @@ mod tests {
         // Navigation is NOT an event-to-step concern (the nav observer captures route changes) —
         // a RouteRequested must NOT also map to a Navigate here, or it would double-record.
         assert!(event_to_step(None, &Event::RouteRequested("home".into())).is_none());
-        // A gesture `Tap` on an ID'd node records like a press: that is the ONLY event a
+        // A gesture `Tap` on an ID'd node records like a press: that is the only event a
         // `Button::style(…)` or any other composed `.on_tap` piece ever delivers, so dropping it
         // left those controls out of every recording (see `event_to_step`'s doc).
         assert!(matches!(
@@ -1205,11 +1205,11 @@ mod tests {
         assert!(!is_press_twin(&press, &tap("inc"), None));
         assert!(is_press_twin(&gesture, &tap("inc"), Some("inc")));
 
-        // A composed `.on_tap` piece sends ONLY the gesture — nothing pressed before it, so it
+        // A composed `.on_tap` piece sends only the gesture — nothing pressed before it, so it
         // records. This is the case that was silently lost.
         assert!(!is_press_twin(&gesture, &tap("list-shuffle"), None));
 
-        // A gesture on a DIFFERENT node than the last press is its own tap, not a twin.
+        // A gesture on a different node than the last press is its own tap, not a twin.
         assert!(!is_press_twin(
             &gesture,
             &tap("list-reset"),

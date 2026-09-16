@@ -29,7 +29,7 @@
 //! `Composed` where it does not. Two toolkits have none at any layer: Android ships no color
 //! picker in the framework, in Material, or in AndroidX, and HarmonyOS has none in ArkTS or in the
 //! ArkUI NDK. Rather than each of those growing a hand-written dialog in its own language, they
-//! get the composed panel — which is also why an app that wants ONE picker everywhere can just ask
+//! get the composed panel — which is also why an app that wants one picker everywhere can just ask
 //! for it.
 //!
 //! The value is Day's ordinary [`Color`], so the same signal drives `.tint(…)`, `.background(…)`,
@@ -110,7 +110,7 @@ pub enum PickerIdiom {
 /// This does not report whether the picker works — there is no target where it does not — so an
 /// app showing a "not supported here" banner from this answer would be wrong. Use it to say
 /// *which* picker the user gets, or ignore it, unless the app pins [`PickerIdiom::Native`]:
-/// that realizes the leaf unconditionally and so DOES need this checked first.
+/// that realizes the leaf unconditionally and so does need this checked first.
 pub fn support() -> Support {
     if cfg!(any(
         all(feature = "appkit", target_os = "macos"),
@@ -305,7 +305,7 @@ fn build_native<C: Binding<Color>>(
 /// location become a value without the canvas having to report its own bounds first.
 const FIELD_W: f64 = 264.0;
 const FIELD_H: f64 = 160.0;
-/// The shade field's corner rounding. Drawn INSIDE the canvas rather than asked of the toolkit
+/// The shade field's corner rounding. Drawn inside the canvas rather than asked of the toolkit
 /// as a `corner_radius`, which is a view-level outline clip: on Android that is
 /// `setClipToOutline`, the one thing this panel does that nothing else in the app does, and a
 /// clip a canvas can apply to its own drawing costs the toolkit nothing on any target.
@@ -342,7 +342,7 @@ const WELL_H: f64 = 26.0;
 /// panel when pressed.
 ///
 /// Drawn rather than a `button(hex).tint(color)`, even though a tinted button is native and
-/// carries press feedback and focus for free. What the composed idiom promises is ONE picker,
+/// carries press feedback and focus for free. What the composed idiom promises is one picker,
 /// identical on every target — and a tinted button is the opposite of identical: AppKit
 /// composites the color through the bezel, Material draws a filled container with its own
 /// elevation, GTK and Qt apply it through their themes, and the web takes CSS. The color would
@@ -504,8 +504,8 @@ fn panel<C: Binding<Color>>(
     // Centered both ways: spacers above and below push it to the middle vertically, and the
     // column's own cross-axis alignment centers it horizontally.
     //
-    // NOT `row((spacer(), card, spacer()))` for the horizontal half, which is the obvious
-    // spelling and the wrong one: a cover lays its content out once BEFORE the backend reports
+    // Not `row((spacer(), card, spacer()))` for the horizontal half, which is the obvious
+    // spelling and the wrong one: a cover lays its content out once before the backend reports
     // the surface's size, so that row measures a 300pt card against a 0pt width and Day's
     // overflow diagnostic fires — naming this panel's ids on every single open. A cross-aligned
     // column has nothing to overflow.
@@ -687,7 +687,7 @@ fn marker(d: &mut Draw, at: Point, radius: f64) {
 /// either extreme; holding it whole reads better and asks the rasterizer for one shape fewer.
 fn slider_thumb(d: &mut Draw, t: f64, size: Size) {
     const W: f64 = 8.0;
-    // A cover lays its content out ONCE before the surface reports its size, so a strip is drawn
+    // A cover lays its content out once before the surface reports its size, so a strip is drawn
     // at zero width first (the same first pass `panel` centers its card around). The travel has
     // to collapse to the middle there rather than invert: `clamp` panics on crossed bounds, and
     // that panic is contained but leaves the whole panel half-built.
@@ -739,7 +739,7 @@ fn checkerboard(d: &mut Draw, size: Size) {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend, for the six toolkits that HAVE a color
+// Per-toolkit native renderers — one file per backend, for the six toolkits that have a color
 // chooser. Every module registers a `Renderer` into its backend's `RENDERERS` slice link-time;
 // `dom` registers at runtime from `color_picker`. android-mdc and harmony-arkui carry no arm at
 // all: the composed panel above is their picker.
@@ -749,7 +749,7 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, xaml, dom);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`ColorPicker`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`ColorPicker`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ColorPickerBuilder: Sized {
     fn alpha(self, on: bool) -> Self;

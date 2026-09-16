@@ -357,7 +357,7 @@ fn a_tool_call_reaches_the_cli_and_answers_about_this_project() {
         .expect("tools/call returns content blocks");
     assert_eq!(content[0]["type"], "text");
 
-    // Parsing the SECOND block proves the whole path: the server shelled into this binary with
+    // Parsing the second block proves the whole path: the server shelled into this binary with
     // `--project` pointing at the fixture, and relayed `metadata --json` intact. A tool that runs
     // but reports on the wrong directory is precisely the bug `--project` exists to prevent. It
     // has to stay a block of its own — an agent parses it, and a header merged into it would make

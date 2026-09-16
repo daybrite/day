@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The result-set differ, and the property that makes it trustworthy: a consumer applying
-//! the narrated deltas in order ALWAYS lands on the new set (`adopt` verifies by simulation
+//! the narrated deltas in order always lands on the new set (`adopt` verifies by simulation
 //! and reloads rather than mis-narrate). Ends with the end-to-end agreement test: a long
 //! random edit stream against a live container, mirrored purely from the delta feed.
 

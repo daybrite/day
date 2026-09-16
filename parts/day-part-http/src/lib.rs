@@ -237,7 +237,7 @@ impl Request {
     }
 
     /// How long the request may sit without progress. Default **30 s**. This bounds connecting,
-    /// awaiting the response head, and idle gaps in the body — NOT the total transfer time, so a
+    /// awaiting the response head, and idle gaps in the body — not the total transfer time, so a
     /// long download that keeps moving is never cut off (per-platform mapping: docs/http.md).
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = Some(d);
@@ -594,7 +594,7 @@ pub fn fetch_future(req: Request) -> FetchFuture {
 /// Shared state between a [`FetchFuture`] and its completion callback.
 ///
 /// Locking protocol (the mutex is a LEAF lock — no platform or user code runs under it):
-/// - `poll` checks `result` and stores the waker under ONE lock acquisition, closing the
+/// - `poll` checks `result` and stores the waker under one lock acquisition, closing the
 ///   lost-wakeup race (a completion between a check and a separate store would be missed).
 /// - the completion stores `result`, takes the waker, UNLOCKS, then wakes — an inline waker
 ///   (tests) re-polls synchronously, which re-takes the lock.

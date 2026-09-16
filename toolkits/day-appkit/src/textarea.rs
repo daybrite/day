@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // AppKit: an editable NSTextView inside an NSScrollView (the standard scrollable text editor). A
 // per-node delegate implements NSTextDelegate::textDidChange: and dispatches Event::TextChanged;
-// programmatic setString: does NOT fire that delegate, so no echo guard is needed on this backend
+// programmatic setString: does not fire that delegate, so no echo guard is needed on this backend
 // (update only writes when the value actually differs). NSTextView has no native placeholder, so an
 // empty-state prompt is approximated with a faint NSTextField label added as a subview of the text
 // view, toggled hidden whenever the text is non-empty. `measure` grows the editor's height with its

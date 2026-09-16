@@ -182,7 +182,7 @@ fn ids_are_typed_keys_with_their_own_display() {
 #[test]
 fn a_worker_thread_interns_the_same_handles() {
     // The interner is process-global, not thread-local: a background transaction's reindex
-    // mints the SAME handles the main thread resolves — the divergence bug the path system's
+    // mints the same handles the main thread resolves — the divergence bug the path system's
     // components seam guards against cannot recur here.
     let u = Uuid::now_v7();
     let store = Store::new(Keyed::new(vec![card(u, "before")]));

@@ -71,7 +71,7 @@ jobs:
 
       - name: Build the Rust API reference (dist/api)
         # /docs/api bridges into this bundle. Built here rather than handed over from ci.yml:
-        # GitHub Pages deploys ONE artifact, so the workflow that deploys has to assemble all of
+        # GitHub Pages deploys one artifact, so the workflow that deploys has to assemble all of
         # it. Every crate documents portably (headless `mock` backend, no toolkit, no
         # cross-compiler), which is what lets a stock Linux runner do it.
         run: scripts/build-api-docs.sh --out website/dist/api

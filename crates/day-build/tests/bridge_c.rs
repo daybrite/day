@@ -5,7 +5,7 @@
 //! and generated Rust out.
 //!
 //! The unit tests in `bridge.rs` cover parsing and rendering; this one runs the part that needs a
-//! real toolchain — `cc` compiling the generated translation unit — by claiming whichever platform
+//! real toolchain (`cc` compiling the generated translation unit) by claiming whichever platform
 //! the test host happens to be, so it exercises the same path on every CI runner.
 
 use std::path::Path;
@@ -90,9 +90,9 @@ fn with_build_env(out: &Path, platform: &str, f: impl FnOnce()) {
     }
 }
 
-/// The host's `target_env`. `cc` picks the compiler FAMILY from cargo's cfg environment, not from
+/// The host's `target_env`. `cc` picks the compiler family from cargo's cfg environment, not from
 /// the triple, so leaving this empty on a `windows-msvc` host reads as GNU and sends it looking
-/// for `gcc.exe` — which is not what builds this workspace, and is not installed on the runner.
+/// for `gcc.exe`, which is not what builds this workspace, and is not installed on the runner.
 fn target_env() -> &'static str {
     if cfg!(target_env = "msvc") {
         "msvc"

@@ -271,7 +271,7 @@ macro_rules! __renderer {
 /// day_pieces::glue_modules!(uikit, mdc, arkui);   // a piece with partial coverage
 /// ```
 ///
-/// Adding a toolkit to Day means one new arm HERE instead of an edit in every piece.
+/// Adding a toolkit to Day means one new arm here instead of an edit in every piece.
 #[macro_export]
 macro_rules! glue_modules {
     ($($tk:ident),+ $(,)?) => { $($crate::__glue_module!($tk);)+ };

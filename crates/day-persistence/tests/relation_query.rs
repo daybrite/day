@@ -245,7 +245,7 @@ fn a_to_one_reference_traverses_to_its_target() {
 
 #[test]
 fn a_related_column_the_predicate_never_reads_costs_nothing() {
-    // THE tier this feature exists to stay in. `notes` is a column of the related table that
+    // The tier this feature exists to stay in. `notes` is a column of the related table that
     // the predicate does not mention; editing it must re-run no SQL for this query.
     let (c, trace) = traced_travel();
     let q = c
@@ -349,7 +349,7 @@ fn inserting_and_deleting_a_related_row_moves_its_parent() {
     });
     assert!(q.ids().is_empty());
 
-    // …and comes back when it loses it. The deletion has to resolve to its parent BEFORE the
+    // …and comes back when it loses it. The deletion has to resolve to its parent before the
     // relation index forgets the row, which is the ordering hazard this pins.
     lodging.restructure("remove", Op::Delete, 31u32, |v| {
         v.remove(31);
@@ -607,7 +607,7 @@ fn nesting_compiles_to_nested_exists_and_stays_live() {
         "evaluation handles any depth"
     );
 
-    // …and the fetch names EVERY level it crosses, so a change at any depth marks it stale.
+    // …and the fetch names every level it crosses, so a change at any depth marks it stale.
     let deps = day_persistence::Fetch::new()
         .filter(Node::parent().any(Node::parent().any(Node::name().eq("root".to_string()))))
         .dependencies();

@@ -29,7 +29,7 @@ public class DayFixed extends ViewGroup {
     public void setChildFrame(View v, int x, int y, int w, int h) {
         // Day recomputes every rect on a relayout and hands back the ones that did not move, so
         // most calls here ask for the frame the child already has. Re-measuring and scheduling a
-        // pass for those is pure churn — and when the request arrives DURING a layout pass (day's
+        // pass for those is pure churn — and when the request arrives during a layout pass (day's
         // engine runs off onSizeChanged), a requestLayout() also makes Android run a whole second
         // pass and log "requestLayout() improperly called ... during layout".
         int[] prev = frames.get(v);

@@ -7,11 +7,11 @@
 #     scripts/ci/docs-symlinks.sh          # check (CI + the lint pre-flight)
 #     scripts/ci/docs-symlinks.sh --fix    # create what's missing, drop what's dangling
 #
-# The internal reference docs ARE the repo's top-level `docs/*.md`, symlinked into the website's
+# The internal reference docs are the repo's top-level `docs/*.md`, symlinked into the website's
 # content collection one file at a time (website/src/content.config.ts). Two ways that drifts, and
 # each fails somewhere far from the cause:
 #
-#   - A doc added WITHOUT its symlink never reaches the site, and linkcheck only notices when some
+#   - A doc added without its symlink never reaches the site, and linkcheck only notices when some
 #     other page happens to link to it — deep-links.md and recorder-matrix.md were both missing for
 #     a day before webview-eval.md finally produced a 404.
 #   - A doc DELETED without its symlink leaves the symlink dangling, which fails the Astro build.

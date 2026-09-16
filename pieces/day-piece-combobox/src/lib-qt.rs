@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // Qt: this crate's shim (src/lib-qt-shim.cpp) — an EDITABLE QComboBox, Qt's real combo box
 // (free text + a dropdown of items), behind a flat C ABI. editTextChanged is the single change
-// path (it fires on typing AND when picking an item) and dispatches Event::TextChanged;
+// path (it fires on typing and when picking an item) and dispatches Event::TextChanged;
 // programmatic setters are wrapped in blockSignals so they never echo back.
 // ---------------------------------------------------------------------------
 

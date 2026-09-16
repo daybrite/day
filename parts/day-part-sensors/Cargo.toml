@@ -46,7 +46,7 @@ windows = { version = "0.62", features = ["Devices_Sensors"] }
 day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
-# The SAME mechanism the UI pieces use — but this crate registers NO renderer. `day build` stages this
+# The same mechanism the UI pieces use — but this crate registers NO renderer. `day build` stages this
 # Java and adds it to the app's Gradle build, without touching any core day crate.
 [package.metadata.day.android]
 java = ["src/DaySensors.java"]

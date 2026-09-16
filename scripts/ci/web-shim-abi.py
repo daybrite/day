@@ -4,7 +4,7 @@
 
 # web-dom ABI lint (scripts/ci/lint.sh "web shim ABI" leg).
 #
-# The web backend and its host shim call each other across two SEPARATE name spaces, and nothing
+# The web backend and its host shim call each other across two separate name spaces, and nothing
 # in the build checks that either side is holding up its end:
 #
 #   IMPORTS  Rust declares in an `extern "C"` block and the shim provides on the `env` object.

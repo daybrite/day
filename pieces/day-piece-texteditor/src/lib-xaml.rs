@@ -6,7 +6,7 @@
 // its Text Object Model document. Positions are UTF-16 code units, so this arm shares the Apple
 // conversion; colors cross packed as 0xAARRGGBB, as they do to the Qt shim.
 //
-// Windows-only, built in CI, NOT verified locally. docs/texteditor.md lists what a check on
+// Windows-only, built in CI, not verified locally. docs/texteditor.md lists what a check on
 // Windows has to confirm.
 // ---------------------------------------------------------------------------
 

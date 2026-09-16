@@ -55,7 +55,7 @@ pub enum Pred {
     /// Case-sensitive substring on a TEXT column (SQL: `instr(col, ?) > 0`).
     Contains(&'static str, String),
     /// Case-insensitive substring — what a search field wants. Folds with full Unicode
-    /// lowercasing on BOTH paths: the driver registers `day_fold` (Rust's `to_lowercase` as a
+    /// lowercasing on both paths: the driver registers `day_fold` (Rust's `to_lowercase` as a
     /// SQL function), so the SQL form selects exactly the rows the in-memory form would.
     ContainsCi(&'static str, String),
     /// Case-sensitive prefix. Deliberately NOT `LIKE`, whose SQLite default is
@@ -158,7 +158,7 @@ impl Pred {
         }
     }
 
-    /// Collect what this predicate reads ACROSS relations, at EVERY depth — the tables whose
+    /// Collect what this predicate reads across relations, at every depth — the tables whose
     /// changes must mark a query stale. A nested crossing's `owner` is the enclosing target,
     /// recorded at construction, so each entry stands on its own.
     fn related_deps(&self, out: &mut Vec<RelatedDep>) {
@@ -396,7 +396,7 @@ pub(crate) trait SqlIndex {
 pub(crate) enum CompileErr {
     /// A case-insensitive text predicate on a driver without `day_fold`.
     NeedsFold,
-    /// A `ContainsCi`/`StartsWithCi` INSIDE a relation predicate on a driver without
+    /// A `ContainsCi`/`StartsWithCi` inside a relation predicate on a driver without
     /// `day_fold` — the fallback evaluator cannot traverse relations, so this combination
     /// needs the function.
     FoldInsideRelation,
@@ -884,7 +884,7 @@ fn pred_sql(
                         Quant::None => format!(
                             "NOT EXISTS (SELECT 1 FROM {from} WHERE {tie} AND ({inner_sql}))"
                         ),
-                        // Every related row DEFINITELY matches — `IS TRUE` keeps a related
+                        // Every related row definitely matches — `IS TRUE` keeps a related
                         // row whose inner is UNKNOWN failing the quantifier, the reading
                         // `All` documents.
                         Quant::All => format!(
@@ -922,7 +922,7 @@ fn text(v: Option<Value>) -> Option<String> {
     }
 }
 
-/// Membership in a sorted set, with the SAME equality `eq` uses: find the run that compares
+/// Membership in a sorted set, with the same equality `eq` uses: find the run that compares
 /// equal under [`compare_values`], then confirm exactly. A mixed `Int`/`Real` set therefore
 /// cannot make `is_in` and `eq` disagree with one another.
 fn in_set(set: &[Value], v: &Value) -> bool {
@@ -1398,7 +1398,7 @@ impl ResultSet {
     }
 
     /// Adopt a requery's answer, narrating the difference. Removals and insertions (in any
-    /// combination) come back as exact deltas, plus at most ONE reposition among the retained
+    /// combination) come back as exact deltas, plus at most one reposition among the retained
     /// rows; anything more tangled reloads. Every delta list is verified by simulation before
     /// it is returned, so a consumer applying the deltas in order always lands on the new set.
     pub fn adopt(&mut self, new: Vec<u64>) -> SetChange {

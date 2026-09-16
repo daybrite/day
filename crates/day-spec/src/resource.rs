@@ -25,7 +25,7 @@ use std::sync::OnceLock;
 // `image(...)`, `resource(...)`, and `Font::custom(...)` take these newtypes rather than a bare
 // `&str`. Every value is meant to come from a generated `res::images/assets/fonts::…` constant
 // (`day-build`), so referencing a resource that isn't bundled is a compile error and the available
-// names autocomplete. A string *literal* deliberately does NOT coerce — that is what turns "present"
+// names autocomplete. A string *literal* deliberately does not coerce — that is what turns "present"
 // from a convention into a guarantee; a name only known at runtime uses the explicit `::dynamic`
 // escape hatch (or, for images/assets, `From<String>`).
 // ---------------------------------------------------------------------------
@@ -321,7 +321,7 @@ pub const WEIGHT_SUFFIXES: [&str; 2] = ["__light", "__bold"];
 /// The base glyph a weight-suffixed name aliases, or `None` if the name carries no suffix.
 ///
 /// Only SF-template sources have true per-weight art, so only they stage `__light`/`__bold`
-/// assets. A plain SVG stages ONCE and every weight resolves back to it here — which is what
+/// assets. A plain SVG stages once and every weight resolves back to it here — which is what
 /// keeps `.weight(…)` from 404-ing on art that has no weight axis, without staging a byte-identical
 /// copy of every glyph per weight. (Before this, 38 of Day-Showcase's 39 sources were staged three
 /// times over as identical copies.)
@@ -509,7 +509,7 @@ mod tests {
         assert_eq!(resolve_image_file("logo.png"), Some(dir.join("logo.png")));
         assert_eq!(resolve_image_file("missing"), None);
 
-        // Weight aliasing (docs/vectors.md): a plain SVG stages ONE asset, so its `__light` /
+        // Weight aliasing (docs/vectors.md): a plain SVG stages one asset, so its `__light` /
         // `__bold` names must resolve back to it rather than miss. `logo` has no weight art of
         // its own, which is exactly the case every non-template glyph is in.
         assert_eq!(weight_alias("logo__bold"), Some("logo"));

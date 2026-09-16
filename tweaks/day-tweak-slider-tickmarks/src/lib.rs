@@ -117,7 +117,7 @@ fn apply(node: RNode, t: Tickmarks) {
     }
     #[cfg(all(feature = "mdc", target_os = "android"))]
     {
-        // Material Slider: a step size yields visible ticks AND snapping (Material always snaps
+        // Material Slider: a step size yields visible ticks and snapping (Material always snaps
         // when stepped — `snap: false` is not honorable here, per the table above).
         use day_android::DayEnv;
         use day_android::jni::objects::JValue;
@@ -132,9 +132,9 @@ fn apply(node: RNode, t: Tickmarks) {
                 .unwrap_or(1.0);
             let step = (hi - lo) / (t.count.saturating_sub(1).max(1)) as f32;
             let _ = env.dcall(view, "setStepSize", "(F)V", &[JValue::Float(step)]);
-            // A stepped Material slider requires EVERY value to sit on the step grid — it
+            // A stepped Material slider requires every value to sit on the step grid — it
             // hard-crashes at the next layout pass otherwise (BaseSlider.validateValues). Snap
-            // the current value now. NOTE: a programmatic setValue does NOT notify the bound
+            // the current value now. NOTE: a programmatic setValue does not notify the bound
             // Signal (fromUser=false), so an off-grid initial value diverges from the widget
             // until the next user interaction — start stepped sliders on a grid value.
             let value = env

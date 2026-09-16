@@ -99,7 +99,7 @@ fn with_animation_threads_into_background_color_patch() {
 #[test]
 fn implicit_animation_propagates_to_descendant_without_with_animation() {
     let c = Signal::new(Color::rgb(1.0, 0.0, 0.0));
-    // `.animation` sits ABOVE `.background`; the bg patch (on a descendant) must still animate.
+    // `.animation` sits above `.background`; the bg patch (on a descendant) must still animate.
     let probe = boot(move || {
         label("hi")
             .background(c)

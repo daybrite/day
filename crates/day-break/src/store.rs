@@ -15,13 +15,13 @@
 //! reports/report-<ms>.json finalized reports, rotated to `max_reports`
 //! ```
 //!
-//! A crash means WillTerminate never ran, so the sentinel survives — its presence alongside a
-//! handler-written artifact is what distinguishes a crash from a clean exit. A sentinel with NO
+//! A crash means WillTerminate never ran, so the sentinel survives; its presence alongside a
+//! handler-written artifact is what distinguishes a crash from a clean exit. A sentinel with no
 //! artifact means the session vanished without any handler firing (an OS kill / battery pull); that
 //! is reported as an *unknown* end, never a crash.
 
 // On wasm32 the capture machinery is never armed (`Config::init` is a graceful no-op there), so
-// only the report queries and `SessionEnd` stay reachable — the rest is intentionally uncalled.
+// only the report queries and `SessionEnd` stay reachable; nothing calls the rest there.
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
 use std::path::{Path, PathBuf};
@@ -56,7 +56,7 @@ pub fn store_dir(app_id: &str, override_dir: Option<&Path>) -> PathBuf {
         return PathBuf::from("/data/storage/el2/base/haps/entry/files/day-break");
     }
 
-    // Desktop (and iOS/macOS): namespace under the app id. Computed here, AFTER the mobile
+    // Desktop (and iOS/macOS): namespace under the app id. Computed here, after the mobile
     // early-returns, so it isn't a dead binding on the sandboxed targets (ohos returns above).
     #[allow(unreachable_code)]
     {
@@ -112,7 +112,7 @@ pub fn write_sentinel(dir: &Path, sid: &str, ctx: &[(&str, String)]) -> std::io:
     std::fs::write(sentinel_path(dir, sid), crate::report::write_kv(ctx))
 }
 
-/// Remove this session's sentinel + its empty raw-signal file (a clean exit — WillTerminate).
+/// Remove this session's sentinel + its empty raw-signal file (a clean exit, WillTerminate).
 pub fn clear_session(dir: &Path, sid: &str) {
     let _ = std::fs::remove_file(sentinel_path(dir, sid));
     // The sig file is only meaningful when non-empty; on a clean exit it never got written.
@@ -219,13 +219,13 @@ pub enum SessionEnd {
     Clean,
     /// The previous session crashed; a finalized report is available.
     Crashed { kind: Kind, message: String },
-    /// The previous session vanished with no handler firing — an OS kill / power loss. Not a crash.
+    /// The previous session vanished with no handler firing (an OS kill / power loss). Not a crash.
     Unknown,
 }
 
 /// Result of a reconcile pass.
 pub struct Reconciled {
-    /// Paths written this pass — asserted by the store tests; the runtime reads only `last_session`
+    /// Paths written this pass, asserted by the store tests; the runtime reads only `last_session`
     /// (finalized reports are enumerated later via [`report_paths`]).
     #[allow(dead_code)]
     pub finalized: Vec<PathBuf>,
@@ -287,7 +287,7 @@ pub fn reconcile(
             .and_then(|p| std::fs::read_to_string(p).ok())
             .map(|t| parse_kv(&t));
 
-        // A live concurrent instance owns this sentinel — leave it alone.
+        // A live concurrent instance owns this sentinel; leave it alone.
         if let Some(f) = &sentinel_fields
             && let Some(pid) = f.get("pid").and_then(|s| s.parse::<u32>().ok())
             && pid != own_pid
@@ -402,7 +402,7 @@ fn newest(paths: &[PathBuf]) -> Option<&PathBuf> {
 }
 
 /// Static context that a report falls back to when a stale sentinel is missing fields (e.g. a very
-/// old artifact). Mostly the CURRENT process's identity — good enough for the constant fields.
+/// old artifact). Mostly the current process's identity, good enough for the constant fields.
 pub struct StaticCtx {
     pub app_id: String,
     pub app_version: String,
@@ -504,7 +504,7 @@ fn write_report(dir: &Path, started_ms: u64, report: &Report) -> std::io::Result
         report.uptime_ms
     };
     let mut path = reports.join(format!("report-{stamp}.json"));
-    // Avoid clobbering if two sessions share a start ms (rare) — append the session id.
+    // Avoid clobbering if two sessions share a start ms (rare): append the session id.
     if path.exists() {
         path = reports.join(format!("report-{stamp}-{}.json", report.session_id));
     }
@@ -567,8 +567,8 @@ pub fn signal_name(signo: i32) -> String {
 mod tests {
     use super::*;
 
-    // A positive pid that is (almost certainly) not a running process. NOT u32::MAX — that casts to
-    // pid_t -1, and `kill(-1, 0)` targets every process and reports "alive".
+    // A positive pid that is (almost certainly) not a running process. Not u32::MAX, which casts
+    // to pid_t -1, and `kill(-1, 0)` targets every process and reports "alive".
     const DEAD_PID: u32 = 0x7FFF_FFFE;
 
     fn ctx() -> StaticCtx {
@@ -625,7 +625,7 @@ mod tests {
     fn sentinel_alone_is_unknown_not_a_crash() {
         let d = tempdir();
         // A dead pid (init is 1; use a very high pid unlikely to exist). Use pid 0 sentinel trick:
-        // pid_alive(0) — kill(0,..) targets our group, so use u32::MAX which is never a real pid.
+        // pid_alive(0): kill(0,..) targets our group, so use u32::MAX which is never a real pid.
         sentinel(&d, "dead-1", DEAD_PID, 1000);
         let r = reconcile(&d, "ownsid", std::process::id(), &ctx(), 5, true);
         assert_eq!(r.last_session, SessionEnd::Unknown);

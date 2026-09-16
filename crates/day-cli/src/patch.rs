@@ -17,12 +17,12 @@
 //!   from a checkout on disk: `day patch --local ../day --local ../day-piece-lottie`. The table is
 //!   machine-local and gitignored.
 //! * **Building against a fork.** Every day crate comes from another git repository:
-//!   `day patch --git https://github.com/acme/day.git@acme`. Cargo applies the table to the WHOLE
+//!   `day patch --git https://github.com/acme/day.git@acme`. Cargo applies the table to the whole
 //!   graph, so an external piece that depends on the canonical `daybrite/day` URL builds against
 //!   the fork too, unchanged. That table is meant to be committed.
 //!
 //! Writing either table by hand is the problem this command exists to remove: it is a list of
-//! entries that goes stale when a dependency is added, and a MISSING ENTRY DOES NOT FAIL. Cargo
+//! entries that goes stale when a dependency is added, and a MISSING ENTRY does NOT FAIL. Cargo
 //! simply resolves that crate from the git cache, and the build silently mixes a local (or forked)
 //! framework with a published one — green, and testing something other than what you think.
 //!
@@ -30,7 +30,7 @@
 //! path deps inside the same checkout, so they follow automatically; `--check` is what proves
 //! that, by asserting no package from a patched source still carries its git source.
 //!
-//! The one thing a `[patch]` cannot do is re-point a URL at ITSELF on another ref (cargo refuses:
+//! The one thing a `[patch]` cannot do is re-point a URL at itself on another ref (cargo refuses:
 //! "patches must point to different sources"). That is why external crates depend on the bare
 //! canonical URL and let the app's `Cargo.lock` pick the revision, and why `--day-src` clones a
 //! ref into a directory and patches to the PATH ([`resolve_day_src`]).
@@ -48,7 +48,7 @@ use crate::ops::status;
 /// `repository` says, so a fork checked out locally still patches the canonical name.
 pub(crate) const DAY_GIT: &str = "https://github.com/daybrite/day.git";
 
-/// One triple per platform Day targets. A day crate reaches an app THROUGH the umbrella and the
+/// One triple per platform Day targets. A day crate reaches an app through the umbrella and the
 /// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself — so the set to
 /// patch is the resolved graph of every platform, not the app's own manifest. Resolving for the
 /// host alone is what let `day-android` build from the git cache while a local checkout sat
@@ -168,7 +168,7 @@ fn package_source(
     checkouts: &[(String, PathBuf)],
 ) -> Option<String> {
     // The project's OWN packages are never crates to patch, whatever they are called. CI checks
-    // an app out INSIDE the day workspace (`day/showcase-src`), which puts the app's manifest
+    // an app out inside the day workspace (`day/showcase-src`), which puts the app's manifest
     // under the checkout root and made the checkout arm below claim it.
     if manifest_path.is_some_and(|m| within(Path::new(m), project_root)) {
         return None;
@@ -474,7 +474,7 @@ fn wanted_by_source(
 /// target, as TOML text — and the number of entries across them.
 ///
 /// One text, two lifetimes: `day patch` writes it to `.cargo/config.toml` and every later build
-/// picks it up, while `--day-src` writes it to a scratch file handed to ONE cargo invocation
+/// picks it up, while `--day-src` writes it to a scratch file handed to one cargo invocation
 /// through `--config`. The crate set, the missing-crate error, and the wording are therefore the
 /// same for both, which is the point of computing it here.
 ///
@@ -616,7 +616,7 @@ pub struct CheckReport {
 /// The check the whole command exists for. A direct dependency without a patch entry resolves from
 /// the git cache and builds green, so a build that believes it is testing this checkout may be
 /// testing a published crate for part of the graph. Resolution is asked of cargo rather than read
-/// out of `Cargo.lock`, so it is correct for a project that has not locked yet — and across EVERY
+/// out of `Cargo.lock`, so it is correct for a project that has not locked yet — and across every
 /// platform, not just the host's: a check that asks only the host says "all local" while the
 /// Android, Linux, Windows, web, and HarmonyOS builds quietly use the git cache.
 pub fn check(root: &Path) -> Result<CheckReport, String> {
@@ -782,7 +782,7 @@ pub fn run(
 
 // --- One copy of each day crate --------------------------------------------------------------
 
-/// Assert that the resolved graph carries exactly ONE copy of every day crate, and say which
+/// Assert that the resolved graph carries exactly one copy of every day crate, and say which
 /// consumers disagree when it does not.
 ///
 /// Cargo unifies a git dependency only when URL and ref both match, so an app on the bare
@@ -909,7 +909,7 @@ pub fn verify_graph(project: &Project) -> Result<(), String> {
 
 /// Where the day-src build tree lives, for the process that must find it without the flag.
 ///
-/// The Apple builds run cargo from `day xcode-backend build`, a SEPARATE process xcodebuild calls
+/// The Apple builds run cargo from `day xcode-backend build`, a separate process xcodebuild calls
 /// back into. It learns the day-src the way it already learns the day binary (`DAY_BIN`): one
 /// variable naming the directory, from which the cargo config and the build root both derive.
 pub const DAY_SRC_DIR_ENV: &str = "DAY_SRC_DIR";
@@ -1095,7 +1095,7 @@ pub fn day_src_setting() -> Option<String> {
 /// Point one cargo invocation at the day-src, if there is one.
 ///
 /// Every command that resolves or compiles the app's graph must carry this, compiles and
-/// `cargo metadata` alike: a metadata call that resolves WITHOUT the patch reports the wrong
+/// `cargo metadata` alike: a metadata call that resolves without the patch reports the wrong
 /// feature union, and the app renders `⟨kind⟩` placeholders for every optional piece.
 pub fn apply_day_src(cmd: &mut Command) {
     if let Some(dir) = day_src_dir() {
@@ -1190,7 +1190,7 @@ mod tests {
         root.to_path_buf()
     }
 
-    /// An external piece checkout: ONE package, identified by its `repository`.
+    /// An external piece checkout: One package, identified by its `repository`.
     fn piece_checkout(root: &Path, name: &str, repository: &str) -> PathBuf {
         std::fs::create_dir_all(root).expect("mkdir");
         std::fs::write(
@@ -1491,7 +1491,7 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
     }
 
     /// An app is named `day-<something>` too, so a name cannot tell one from a framework crate.
-    /// CI checks the showcase out INSIDE the day workspace, which put the app's own manifest
+    /// CI checks the showcase out inside the day workspace, which put the app's own manifest
     /// under the checkout root — and `day patch` then demanded `day-showcase` be one of day's
     /// crates and failed every toolkit job.
     #[test]

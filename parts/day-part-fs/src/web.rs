@@ -10,7 +10,7 @@
 // a persistent browser profile (day-cli's bundled webdom-driver.mjs) so CI exercises real OPFS.
 // The bridge is the day-part-http callback-id pattern: `day_dom_fs_start` carries the
 // operation out under a numeric id; the shim awaits the OPFS promises and re-enters wasm
-// EXACTLY once per id through the exports below. Blocking entry points cannot exist on the
+// Exactly once per id through the exports below. Blocking entry points cannot exist on the
 // single browser thread (main-thread OPFS is promise-only), so they return `Unsupported` —
 // the async twins and futures are the web surface. Like the other shim-bridged parts, using
 // this crate on wasm outside a day-dom host page fails at instantiation.
@@ -58,7 +58,7 @@ fn start(op: u32, path: &str, data: &[u8], on_done: Callback) {
         n.set(id.wrapping_add(1).max(1));
         id
     });
-    // Register BEFORE starting: the shim may fail synchronously (no OPFS) and the completion
+    // Register before starting: the shim may fail synchronously (no OPFS) and the completion
     // export re-borrows the registry.
     PENDING.with(|p| p.borrow_mut().insert(id, on_done));
     // SAFETY: the pointers reference live borrows for the duration of the call; the shim

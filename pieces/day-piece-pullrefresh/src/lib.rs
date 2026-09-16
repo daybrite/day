@@ -200,7 +200,7 @@ fn build_native<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
 // Emulated tier: pure composition — an overlay container whose first child is the scrollable
 // (optionally tweaked with per-backend overscroll observation) and whose second is a
 // `when(refreshing, spinner-chip)` overlay pinned top-center. No custom kind, no renderer: the
-// container is the same native panel as column/row, so this path works on EVERY backend
+// container is the same native panel as column/row, so this path works on every backend
 // (including mock) with zero native code.
 // ---------------------------------------------------------------------------
 
@@ -237,7 +237,7 @@ fn build_emulated<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
         // The scrollable (fills — it grows in both axes), with the backend's overscroll
         // observation attached where the toolkit exposes one (AppKit elastic scroll,
         // GTK edge-overshot). The tweak runs at mount with the realized scroll node. The glue
-        // does NOT call into the reactive runtime from inside native dispatch: it emits a
+        // does not call into the reactive runtime from inside native dispatch: it emits a
         // `pullrefresh:begin` Custom event on the host node through the backend's sink — queued,
         // pumped at a safe point, and panic-contained — which `wire` below turns into the begin.
         #[cfg(any(all(feature = "appkit", target_os = "macos"), feature = "gtk",))]
@@ -291,7 +291,7 @@ mod gtk_glue;
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`PullRefresh`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`PullRefresh`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait PullRefreshBuilder: Sized {
     fn on_refresh(self, f: impl Fn() + 'static) -> Self;

@@ -3,7 +3,7 @@
 
 // The datetime piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. Compact date =
 // CalendarDatePicker (button → calendar flyout); inline date = CalendarView; time = TimePicker
-// flyout for BOTH styles (XAML has no inline clock — documented fallback, docs/datepicker.md).
+// flyout for both styles (XAML has no inline clock — documented fallback, docs/datepicker.md).
 // Values cross the flat C ABI as epoch days / seconds-of-day; DateTime conversion pins to the
 // Windows 1601 epoch offset so civil dates never shift. Elements are boxed into Day handles via
 // the day_xaml_box/day_xaml_unbox seam day-xaml-sys exports — zero edits to day's toolkit

@@ -9,7 +9,7 @@
 // build` stages this file into the app's hvigor project through `[package.metadata.day.ohos]`.
 //
 // `RichEditorController` is the best-shaped controller of the eight: `updateSpanStyle` restyles a
-// range WITHOUT touching the characters (so the caret, the IME composition and the undo stack all
+// range without touching the characters (so the caret, the IME composition and the undo stack all
 // survive a syntax highlighter), `setTypingStyle` is native, and `setSelection`/`getSelection`
 // speak the same offsets the styles do.
 //
@@ -102,7 +102,7 @@ function currentText(controller: RichEditorController): string {
 const instances: Map<number, DayEditorInstance> = new Map();
 
 // `props` is `basePt<US>editable<US>spellcheck<US>minLines<US>maxLines<US>placeholder<US>text`,
-// with the TEXT LAST so a document containing the separator still arrives intact (everything
+// with the TEXT last so a document containing the separator still arrives intact (everything
 // after the sixth separator is text).
 function make(ui: UIContext, id: number, props: string): FrameNode | undefined {
   const parts: string[] = props.split(SEP);
@@ -172,7 +172,7 @@ function applyRuns(live: DayEditorInstance, arg: string): void {
     if ((flags & 32) !== 0) {
       style.textBackgroundStyle = { color: colorOf(Number(f[4])) };
     }
-    // ArkUI carries ONE decoration per span, so an underlined strikethrough keeps the
+    // ArkUI carries one decoration per span, so an underlined strikethrough keeps the
     // strikethrough (the rarer, more meaningful mark) — recorded in docs/texteditor.md.
     if ((flags & 8) !== 0) {
       style.decoration = { type: TextDecorationType.LineThrough };

@@ -17,7 +17,7 @@ use crate::meta::Project;
 use crate::ops::{BuildOutcome, LaunchSpec, apply_app_identity, feature_selection, status};
 use crate::targets::Target;
 
-// The host page trio, embedded so an installed CLI needs no source checkout. They live INSIDE
+// The host page trio, embedded so an installed CLI needs no source checkout. They live inside
 // this crate (not next to `toolkits/day-dom`, whose `extern "C"` block shim.js implements)
 // because `include_str!` may not reach outside the package: `cargo package` copies only this
 // directory, so a path into the workspace vanishes on crates.io and `cargo install day-cli`
@@ -261,7 +261,7 @@ pub fn build_web(
         std::fs::write(dir.join("fonts.json"), manifest).map_err(|e| format!("fonts.json: {e}"))?;
     }
 
-    // LAST, once every file is in place: the service worker's precache list is the dist's
+    // Last, once every file is in place: the service worker's precache list is the dist's
     // file list, and its cache version is a digest of their bytes, so a rebuild with any
     // change installs a fresh cache and drops the old one.
     let files = dist_files(&dist)?;
@@ -760,7 +760,7 @@ pub fn launch_web(
     // still WRITABLE — TCP buffers the first write after a peer close and errors only on the
     // next — so a stale PAGE_WS swallows the new run's first step whole: forwarded "successfully",
     // no reply ever, the runner burns its whole window and reports the engine lost. Cleared
-    // slots make forward_to_page genuinely wait for THIS page's registration instead.
+    // slots make forward_to_page genuinely wait for this page's registration instead.
     {
         *PAGE_WS.lock().expect("page slot") = None;
         *RUNNER.lock().expect("runner slot") = None;
@@ -793,7 +793,7 @@ fn open_page(url: &str) -> Result<(), String> {
         .port();
     let mut words = driver.split_whitespace();
     let program = words.next().ok_or("DAY_WEB_DRIVER is empty")?;
-    // A previous variant's browser (capture matrix) shows the OLD page — retire it first, or
+    // A previous variant's browser (capture matrix) shows the old page — retire it first, or
     // its control port would keep answering screenshot requests with stale pixels.
     stop_driver();
     let child = Command::new(program)
@@ -925,10 +925,10 @@ fn mime_of(p: &Path) -> &'static str {
 static PAGE_WS: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None);
 /// The runner half: the accepted DAYSCRIPT_PORT connection (write side, for replies).
 static RUNNER: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None);
-/// The `DAY_WEB_DRIVER` control port + child of the CURRENT launch. A `Mutex<Option<…>>`, not a
+/// The `DAY_WEB_DRIVER` control port + child of the current launch. A `Mutex<Option<…>>`, not a
 /// `OnceLock`: a capture-matrix launch (`--themes`/`--locales`) opens the page once per variant
 /// IN ONE PROCESS, and a once-only slot would leave every later screenshot request talking to
-/// the FIRST variant's browser — silently capturing the wrong theme and locale.
+/// the first variant's browser — silently capturing the wrong theme and locale.
 #[allow(clippy::type_complexity)]
 static DRIVER: std::sync::Mutex<Option<(u16, std::process::Child)>> = std::sync::Mutex::new(None);
 

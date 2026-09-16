@@ -3,7 +3,7 @@
 
 //! The realized tree: nodes own native handles (or are layout-only), a reactive scope, and
 //! layout state. One `Tree<B>` per process, installed thread-local; bindings and event
-//! handlers reach it through [`with_tree`] — and tree methods NEVER run user code, so the
+//! handlers reach it through [`with_tree`] — and tree methods never run user code, so the
 //! single-borrow discipline holds (§3.3, §8.3).
 
 use std::any::Any;
@@ -84,7 +84,7 @@ pub struct NodeData<H> {
     pub id: Option<String>,
     /// The id a recycled cell's node carried before [`clear_subtree_ids`] parked it
     /// (docs/list.md). A pooled row must stop answering lookups while it is hidden, but its
-    /// next bind may show the SAME row content again — a slot write of an unchanged value,
+    /// next bind may show the same row content again — a slot write of an unchanged value,
     /// which fires no reactive `id_of` and re-runs no static `.id()` — so the parked id is what
     /// `restore_subtree_ids` hands back on rebind.
     ///
@@ -362,7 +362,7 @@ impl<B: Toolkit> Tree<B> {
         };
         for &c in &anc.children {
             if c == target || self.subtree_contains(c, target) {
-                // Count native roots in this subtree BEFORE target.
+                // Count native roots in this subtree before target.
                 let mut cnt = count;
                 walk(self, c, target, &mut cnt);
                 return cnt;
@@ -474,7 +474,7 @@ impl<B: Toolkit> Tree<B> {
             if let Some(list) = self.lists.remove(&n) {
                 for (_, cell) in list.cells {
                     cell.scope.dispose();
-                    // The cell's day subtree lives OUTSIDE the node tree (anchored to a
+                    // The cell's day subtree lives outside the node tree (anchored to a
                     // native cell, not a LIST child): remove it with the list, or its nodes
                     // linger as zombies — stale element ids that hijack `find_by_id`, and
                     // handlers whose captured signals are disposed so every press no-ops.
@@ -629,7 +629,7 @@ impl<B: Toolkit> Tree<B> {
             crate::layout::measure_node(self, root, p);
             crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
         }
-        // Bound list cells live OUTSIDE the window trees: their anchors are parentless
+        // Bound list cells live outside the window trees: their anchors are parentless
         // boundaries, laid out at bind time. A patch inside one marks its anchor and stops
         // there, so the pass above never reaches it — sweep the bound cells and re-lay-out the
         // marked ones, or a row label that grew mid-edit keeps its stale frame and truncates
@@ -666,7 +666,7 @@ impl<B: Toolkit> Tree<B> {
         }
         let queue = std::mem::take(&mut self.release_queue);
         for (kind, h) in queue {
-            // The piece's own teardown runs FIRST, while the handle is still valid: it may read
+            // The piece's own teardown runs first, while the handle is still valid: it may read
             // the native view to unregister an observer. `release` then frees it (§15.2).
             self.toolkit.release_piece(kind, &h);
             self.toolkit.release(h);
@@ -1280,7 +1280,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(n) = self.nodes.get_mut(node) {
             n.probe.focused = focused;
         }
-        // Remember WHICH node has it, not just that each one does: keys follow focus
+        // Remember which node has it, not just that each one does: keys follow focus
         // (docs/menus.md), so dayscript's `key:` step needs the same answer the platform gives.
         // A loss only clears the record if this node is still the one holding it — gains land
         // before losses in the pump, so a hand-off has already named the new owner.
@@ -1415,7 +1415,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             use day_spec::props::*;
             if let Some(n) = self.nodes.get_mut(node) {
                 if let Some(p) = patch.downcast_ref::<LabelPatch>() {
-                    // BOTH text-carrying variants: a `.markdown()` label re-parses through
+                    // Both text-carrying variants: a `.markdown()` label re-parses through
                     // `Runs`, and a probe that only tracked `Text` would report the string the
                     // label was born with forever (docs/text-runs.md).
                     match p {
@@ -1786,7 +1786,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         // Any window may go, including the first one opened (docs/windows.md close policy) —
         // the app's life is the life of its primary windows, not of `windows[0]` specifically.
         //
-        // The LAST entry is kept, because `root()` has to answer for the whole tree and callers
+        // The last entry is kept, because `root()` has to answer for the whole tree and callers
         // are in no position to handle "no windows". Reaching that point means the last window
         // has closed, which is the app exiting: its content is already gone (teardown removes
         // the children first) and the empty shell outlives nothing.
@@ -2228,7 +2228,7 @@ day_reactive::tls_slots! {
     /// observer may re-enter Day — read the tree, or stop recording — safely).
     static EVENT_OBSERVER: RefCell<Option<Rc<EventObserver>>> = const { RefCell::new(None) };
     /// Monotonic pump counter — bumped once per [`pump_events_inner`]. The recorder ages its
-    /// coalescing candidate by it: a tap folds into a navigation caused in the SAME or the NEXT
+    /// coalescing candidate by it: a tap folds into a navigation caused in the same or the next
     /// pump (a signal-bound sidebar remount settles one pump late), but never a later, unrelated
     /// navigation.
     static PUMP_GEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
@@ -2394,14 +2394,14 @@ pub fn enqueue_event(id: NodeId, ev: Event) {
     enqueue_events([(id, ev)]);
 }
 
-/// Enqueue several events into ONE drain before dispatching. Backends that observe a focus
+/// Enqueue several events into one drain before dispatching. Backends that observe a focus
 /// move at a single point (Qt's `focusChanged(old, new)`, an AppKit first-responder change)
 /// deliver the loss+gain pair through this so the pump can dispatch the gain first and a
 /// shared group signal never passes through `None` (docs/focus.md).
 pub fn enqueue_events(evs: impl IntoIterator<Item = (NodeId, Event)>) {
     // Recording/telemetry seam (§14.6): when an observer is installed, let it see every event in
-    // the exact order — and the exact form — the app is about to receive, BEFORE it is dispatched,
-    // so it observes precisely what the app receives. This is the single point EVERY backend
+    // the exact order — and the exact form — the app is about to receive, before it is dispatched,
+    // so it observes precisely what the app receives. This is the single point every backend
     // funnels native events through, so the observer needs no per-toolkit code. The handle is
     // cloned out first (a cheap `Rc` bump) so NO thread-local borrow is held across the call: the
     // observer may re-enter Day — resolve an id via `id_of`, or even remove itself (stop
@@ -2432,8 +2432,8 @@ pub fn pump_generation() -> u64 {
 }
 
 /// Install (or clear, with `None`) an observer that sees every event day-core dispatches, in queue
-/// order, at the one point EVERY backend funnels native events through ([`enqueue_events`], §8.3) —
-/// BEFORE the event reaches the app, so it observes exactly what the app receives. This is the
+/// order, at the one point every backend funnels native events through ([`enqueue_events`], §8.3) —
+/// Before the event reaches the app, so it observes exactly what the app receives. This is the
 /// recording/telemetry seam behind [`day::record`](../day_script/record/index.html) (§14.6): a
 /// higher layer captures user actions into a replayable dayscript without touching any of the
 /// backends. Main-thread only; a `None` observer adds no cost to the event path. The boxed closure

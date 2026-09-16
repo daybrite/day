@@ -5,7 +5,7 @@
 //! `toolbar_segmented`, `toolbar_separator` — and [`Decorate::toolbar`], the one way to declare
 //! them (docs/toolbars.md).
 //!
-//! WHERE an item appears is decided by the piece that declares it, so an app never says it twice:
+//! Where an item appears is decided by the piece that declares it, so an app never says it twice:
 //! items declared on a destination page ride the detail chrome and leave when the page does,
 //! items on a `nav` ride its sidebar column, and items on a window's root piece ride every
 //! page of that window. [`day_spec::ToolbarPlacement`] then says where on that chrome the item
@@ -90,7 +90,7 @@ pub fn toolbar_button<M>(id: impl Into<String>, label: impl IntoText<M>) -> Tool
     }
 }
 
-/// A row of mutually exclusive choices as ONE native control (docs/toolbars.md): the platform's
+/// A row of mutually exclusive choices as one native control (docs/toolbars.md): the platform's
 /// segmented control, bound to `selected`.
 ///
 /// Reach for this instead of N toggles whenever exactly one choice is on at a time — a theme
@@ -312,7 +312,7 @@ pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     })
 }
 
-/// Register `content` against `chrome` for as long as the CURRENT reactive scope lives.
+/// Register `content` against `chrome` for as long as the current reactive scope lives.
 ///
 /// The one path every declaration takes: [`crate::Decorate::toolbar`] resolves the chrome from
 /// where the piece sits, and a `nav` names its own sidebar page explicitly. A fixed list
@@ -327,7 +327,7 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
     // Whether the page carrying these is ON SCREEN, from the page itself (docs/toolbars.md).
     let active = day_core::current_page_gate();
     let gate = active.clone();
-    // Captured HERE, at the declaration site: a derived list re-runs long after this build, when
+    // Captured here, at the declaration site: a derived list re-runs long after this build, when
     // no page is being built and the column would answer `Window` (docs/toolbars.md).
     let column = day_core::current_page_column();
     let token = match content {
@@ -484,7 +484,7 @@ fn lower(
             };
 
             // SEED the item from the predicate, rather than leaving the declared default and
-            // letting the binding correct it: the binding's first run happens HERE, inside
+            // letting the binding correct it: the binding's first run happens here, inside
             // `lower`, and the model it patches is only stored by the `set_window_toolbar` this
             // list is on its way to — so the correction landed on the previous bar (or nothing)
             // and the new one installed enabled. A command that starts out unavailable then

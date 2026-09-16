@@ -291,7 +291,7 @@ fn lower_menu_with(
 /// UIMenuBuilder main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(...)`s (the
 /// menu-bar menus). Call at startup or whenever the menu changes; it replaces any previous app menu.
 ///
-/// Labels resolve ONCE, in the install-time locale; an app whose language can change at
+/// Labels resolve once, in the install-time locale; an app whose language can change at
 /// runtime (a preferences language picker) should use [`app_menu_reactive`] instead.
 pub fn app_menu(menus: Vec<MenuEntry>) {
     day_core::set_app_menu(lower_menu(menus));

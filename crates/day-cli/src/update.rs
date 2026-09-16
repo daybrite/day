@@ -5,7 +5,7 @@
 //!
 //! [`spawn`] kicks off the crates.io query on a background thread the moment the CLI starts, so it
 //! runs concurrently with whatever command the user asked for. [`finish`] is called right before the
-//! process exits: it polls the result WITHOUT blocking — if the reply already landed (i.e. the command
+//! process exits: it polls the result without blocking — if the reply already landed (i.e. the command
 //! took long enough) and a newer stable release exists, it prints a one-line yellow nudge; if the reply
 //! isn't back yet it just returns, and the detached worker thread is torn down by process exit. So the
 //! check never delays the CLI: a slow command "pays" for it for free, a fast one simply skips it.

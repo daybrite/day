@@ -17,7 +17,7 @@ interface DayFontEntry {
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     // Deliver launcher-provided environment (the dayscript engine port + token, plus locale /
-    // autodrive) into the native process BEFORE the UI — and thus `day_script::init()` inside
+    // autodrive) into the native process before the UI — and thus `day_script::init()` inside
     // `start()` — runs. This is the HarmonyOS analogue of Android's intent-extra env delivery
     // (day/src/lib.rs): `day launch` passes them as `aa start --ps` string parameters.
     EntryAbility.applyLaunchEnv(want);
@@ -119,7 +119,7 @@ export default class EntryAbility extends UIAbility {
     set('day.locale', 'DAY_LOCALE');
     set('day.autodrive', 'DAY_AUTODRIVE');
     // A dayscript engine drives this session (docs/agent.md): the Index page reads this to
-    // push/pop WITHOUT transition animation — scripted bursts outrun an in-flight transition,
+    // push/pop without transition animation — scripted bursts outrun an in-flight transition,
     // and ArkUI Navigation drops operations issued across one (the stack wedges on a stale
     // destination). Human sessions keep the native transitions.
     AppStorage.setOrCreate('dayDriven', typeof params['day.dayscript.port'] === 'string');

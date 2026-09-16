@@ -305,7 +305,7 @@ impl Gtk {
                             b.connect_toggled(move |t| {
                                 ffi_guard::contain((), || {
                                     // Only the segment turning ON reports, and only when the
-                                    // change came from the user — a grouped set emits for BOTH
+                                    // change came from the user — a grouped set emits for both
                                     // the button going off and the one coming on.
                                     if suppress.get() || !t.is_active() {
                                         return;

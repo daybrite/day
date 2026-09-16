@@ -24,7 +24,7 @@ pub struct Target {
     pub toolkit: &'static str,
     pub kind: TargetKind,
     /// The platform key: the `platform/<os>/` scaffold dir, the `[app.<os>]` override table, and
-    /// the per-platform namespace generally. NOT derivable from `name` — `harmony-arkui`'s
+    /// the per-platform namespace generally. Not derivable from `name` — `harmony-arkui`'s
     /// platform key is `ohos` (the scaffold dir, signing table, and `day ohos` all predate the
     /// target's rename and keep the OS's own name). Deriving this by splitting the target name
     /// is what silently broke `day new`'s HarmonyOS scaffold when the target was renamed.
@@ -39,7 +39,7 @@ pub struct Target {
 
 // Ordered for presentation: the phone OSes first (iOS, Android, HarmonyOS), then the desktops
 // grouped by OS (macOS, Linux, Windows), then the web — this is the order the `day new`
-// interactive target menu shows AND the column order `day screenshot index` writes into a
+// interactive target menu shows and the column order `day screenshot index` writes into a
 // gallery, so a published site reads the same way the menu does. `find()` is by name and
 // `Day.toml` defaults are string literals, so the order is purely cosmetic elsewhere.
 pub const TARGETS: &[Target] = &[
@@ -295,7 +295,7 @@ mod tests {
         assert_eq!(suggested(&scaffold), host_default());
 
         // The host default is not declared, so fall to the first target this host can build —
-        // NOT to `ios-uikit` just because it is written first.
+        // Not to `ios-uikit` just because it is written first.
         let host = host_os();
         let elsewhere: Vec<String> = TARGETS
             .iter()

@@ -29,10 +29,10 @@ pub struct TreeDriver {
     pub child_token: Box<dyn Fn(Option<u64>, usize) -> u64>,
     /// Whether this token can hold children at all (draws or omits the disclosure).
     pub expandable: Box<dyn Fn(u64) -> bool>,
-    /// The piece's CURRENT desired expansion state for this token (untracked read of the
+    /// The piece's current desired expansion state for this token (untracked read of the
     /// app's expansion signal) — what the flattener descends into.
     pub expanded: Box<dyn Fn(u64) -> bool>,
-    /// Build the row for `token` into `anchor`. Uses `BuildCx` internally, so it MUST be
+    /// Build the row for `token` into `anchor`. Uses `BuildCx` internally, so it must be
     /// called with no `with_tree` borrow held. Returns the row's scope + a rebind writer.
     pub build: Box<dyn Fn(u64, RNode) -> TreeBuiltRow>,
     /// The row's type-ahead string (docs/tree.md) — native type-select answers from it.
@@ -58,7 +58,7 @@ pub type RowMenuFn = Box<dyn Fn(u64) -> Vec<day_spec::MenuItem>>;
 /// (the dayscript `tree_move:` step and the mock probe).
 pub struct TreeMovesDriver {
     /// Consult the guards (structural + the app's): may `token` land under `parent` at
-    /// `index`? `index: None` = dropped ONTO the parent (append).
+    /// `index`? `index: None` = dropped onto the parent (append).
     #[allow(clippy::type_complexity)]
     pub can_move: Box<dyn Fn(u64, Option<u64>, Option<usize>) -> MoveVerdict>,
     /// Commit an accepted move: defers the app's `on_move` through the event queue
@@ -131,7 +131,7 @@ pub fn tree_set_selected(node: RNode, tokens: Vec<u64>) {
 }
 
 /// Scroll this row into view, realizing it if needed. The piece expands the row's ancestors
-/// (through the app's expansion signal) BEFORE issuing this. Call with no borrow held.
+/// (through the app's expansion signal) before issuing this. Call with no borrow held.
 pub fn tree_reveal(node: RNode, token: u64) {
     with_tree(|t| t.tree_reveal(node, token));
 }

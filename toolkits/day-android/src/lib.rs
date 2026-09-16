@@ -90,7 +90,7 @@ mod bridge_kinds_parity {
 }
 
 /// The part↔Java payload convention (docs/extending.md, "The Android bridging contract"):
-/// ONE `byte[]` crosses JNI per call, laid out as
+/// One `byte[]` crosses JNI per call, laid out as
 /// `[0..4)` status `i32` BE · `[4..8)` meta-block length `i32` BE · meta `"k\nv\n…"` UTF-8 ·
 /// payload bytes. A NEGATIVE status is a transport-error sentinel and the meta block carries
 /// the error message instead of pairs (each part defines its own sentinel values; day-part-http
@@ -453,7 +453,7 @@ mod imp {
         /// otherwise leak one global ref per physical cell toward the JNI table limit. Within a
         /// list, cells key by `identityHashCode`, the only stable identity the wire carries
         /// (nativeListBind sends `(hostId, position, cell)` and nothing else). Collisions are
-        /// possible in principle; one would conflate two physical cells of the SAME list, and
+        /// possible in principle; one would conflate two physical cells of the same list, and
         /// carrying a bridge-assigned cell id would widen the wire for a case never observed.
         static LIST_SOURCES: std::cell::RefCell<std::collections::HashMap<i64, ListSource>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
@@ -547,7 +547,7 @@ mod imp {
 
     /// A holder left the visible set (RecyclerView's onViewRecycled): clear the cell
     /// subtree's dayscript ids so pooled rows stop answering lookups — day-core's
-    /// `list_recycle_cell`, keyed by the SAME per-cell GlobalRef `list_bind` binds with.
+    /// `list_recycle_cell`, keyed by the same per-cell GlobalRef `list_bind` binds with.
     /// A JNI up-call entry: contained.
     pub fn list_recycle(env: &mut Env, host_id: i64, cell: JObject) {
         day_spec::ffi_guard::contain((), || {
@@ -993,7 +993,7 @@ mod imp {
         {
             return;
         }
-        // Link targets ride ONE joined string, as the canvas op stream already does — a Java
+        // Link targets ride one joined string, as the canvas op stream already does — a Java
         // object array through JNI costs a class lookup and a per-element store for a payload
         // that is empty in almost every label.
         let joined = links
@@ -1623,7 +1623,7 @@ mod imp {
     /// a phone's bar and are left out: search rides the navigation list, and this backend has
     /// no pane the toggle could move (`toggle_sidebar` answers false).
     ///
-    /// The showing page's own commands are written FIRST, ahead of the window's chrome. A
+    /// The showing page's own commands are written first, ahead of the window's chrome. A
     /// Material app bar shows icon actions in order and folds the rest into its overflow, and
     /// the page's commands are what a person came to the page for; the window's New Window and
     /// appearance chooser are one tap further away, in the overflow, when the bar is that
@@ -1656,7 +1656,7 @@ mod imp {
                 }
                 K::Segmented { segments, selected } => {
                     // Each segment carries its title and its glyph (0x1C between them): the bar
-                    // shows the control as ONE icon button — the segment in force's glyph —
+                    // shows the control as one icon button — the segment in force's glyph —
                     // that opens the choices, so it needs every segment's art.
                     let mut e = selected.to_string();
                     for seg in segments {
@@ -1734,7 +1734,7 @@ mod imp {
         fn clean(s: &str) -> String {
             s.replace(['\t', '\n'], " ")
         }
-        // `kind \t action \t enabled \t checked \t label`. The label stays LAST so its own
+        // `kind \t action \t enabled \t checked \t label`. The label stays last so its own
         // spaces need no escaping, and every kind writes the full field count so the Java side
         // can index it — `checked` is -1 for a plain command, 0/1 for a checkable one.
         for item in items {
@@ -1842,7 +1842,7 @@ mod imp {
 
     /// Per-row nav context menus (docs/menus.md) as one string: each row's
     /// [`serialize_menu`] spec (empty = no menu), joined by U+001E — a separator the line
-    /// format itself never contains. Ridden best-effort AFTER makeNavMenu/updateNavMenu,
+    /// format itself never contains. Ridden best-effort after makeNavMenu/updateNavMenu,
     /// like the tints.
     /// Move the sidebar's active indicator to `sel`, or clear it (`NavMenuProps::selected`).
     ///
@@ -1880,7 +1880,7 @@ mod imp {
         ((ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)) as i32
     }
 
-    /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling
+    /// Warn once per kind that this backend has no registered renderer for `kind`, before falling
     /// back to a visible placeholder. A missing renderer usually means the piece's `mdc` feature
     /// wasn't enabled (Tier A.2 derives it automatically under `day build`). The message goes to both
     /// stderr (which `redirect_stdio_to_logcat` routes to logcat) and directly to logcat at ERROR, so
@@ -2060,7 +2060,7 @@ mod imp {
                 // a permanent NavigationView drawer over resident pages — Material's own
                 // destination chrome, in the form the width calls for (docs/navigation.md).
                 | Cap::NavTabs
-                // And Android SHOULD grow one as it narrows: a bottom bar is the idiomatic
+                // And Android should grow one as it narrows: a bottom bar is the idiomatic
                 // compact answer here, the way it is on iOS and unlike any desktop.
                 | Cap::NavTabsAdaptive => Support::Native,
                 // EMULATED: SlidingPaneLayout decides at MEASURE time whether both panes fit, so
@@ -2298,7 +2298,7 @@ mod imp {
                         );
                         return host;
                     }
-                    // `Stack` in props is literal — a host that is a stack at EVERY size (a
+                    // `Stack` in props is literal — a host that is a stack at every size (a
                     // nested `nav_stack()` under a split host, docs/size-classes.md) — so it gets a
                     // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
                     // nesting one inside a pane re-runs the whole tiling decision at pane width.
@@ -2718,7 +2718,7 @@ mod imp {
                                     );
                                 });
                             }
-                            // A source swap repaints the SAME view (docs/images.md), so an
+                            // A source swap repaints the same view (docs/images.md), so an
                             // `image()` bound to a signal shows new pixels without rebuilding
                             // its subtree.
                             day_spec::props::ImagePatch::Source(source) => {
@@ -2765,7 +2765,7 @@ mod imp {
                 kinds::NAV_MENU => {
                     match patch.downcast_ref::<NavMenuPatch>() {
                         // A data-driven `.items(signal, …)` block re-derived: rebuild the native
-                        // rows so each click listener reports its CURRENT index — stale rows
+                        // rows so each click listener reports its current index — stale rows
                         // shift every selection after a removed item by one and drop the last
                         // row's selection entirely.
                         Some(NavMenuPatch::Items {
@@ -2923,7 +2923,7 @@ mod imp {
                             NavPatch::Presentation(_) => {}
                             // The resident-page switch (docs/navigation.md): the app moved the
                             // selection, so the suite shows that page and syncs its chrome
-                            // WITHOUT reporting the move back as a tap.
+                            // Without reporting the move back as a tap.
                             NavPatch::Select(i) => {
                                 call_void(
                                     "setNavSuiteSelected",

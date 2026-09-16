@@ -86,7 +86,7 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
         };
         let node = cx.leaf(kinds::PICKER, &initial, Flex::default());
         // Data-driven labels: patch the native items whenever they change. Always a
-        // remeasure — the option strings ARE the control's intrinsic width, in every style.
+        // remeasure — the option strings are the control's intrinsic width, in every style.
         if let Some(f) = reactive_options {
             bind_seeded(
                 initial.options.clone(),
@@ -252,7 +252,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
                 submit_on_enter: on_submit.is_some(),
             },
             // A composer fills the available width; height is content-driven (the backend's
-            // measure grows it between min/max lines), so it is NOT a height-growing leaf.
+            // measure grows it between min/max lines), so it is not a height-growing leaf.
             Flex {
                 grow_w: true,
                 ..Default::default()
@@ -303,7 +303,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
             );
         }
         // Controlled input with origin tracking (§4.4): the echo guard remembers the last value
-        // that arrived FROM the native widget so bind_seeded does not patch it straight back.
+        // that arrived from the native widget so bind_seeded does not patch it straight back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let g = guard.clone();
         let tx = text.clone();
@@ -341,7 +341,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Picker`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Picker`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait PickerBuilder: Sized {
     fn menu(self) -> Self;
@@ -380,7 +380,7 @@ impl<Inner: PickerBuilder + Piece> PickerBuilder for Decorated<Inner> {
     }
 }
 
-/// [`TextArea`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`TextArea`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait TextAreaBuilder: Sized {
     fn placeholder<M>(self, t: impl IntoText<M>) -> Self;

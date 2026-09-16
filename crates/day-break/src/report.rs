@@ -5,7 +5,7 @@
 //!
 //! Crash artifacts are written in a line-oriented `key=value` **kv** format, never JSON: the signal
 //! handler ([`crate::signals_unix`]) can only emit ASCII from an async-signal-safe context, and the
-//! Android Java shim emits the same format trivially. On the NEXT launch, [`crate::store`] reads the
+//! Android Java shim emits the same format trivially. On the next launch, [`crate::store`] reads the
 //! kv artifacts plus the session sentinel and composes a [`Report`], which is written out as the
 //! stable, schema-versioned JSON a transport uploads. Nothing in the runtime path parses JSON.
 
@@ -21,11 +21,11 @@ pub const SCHEMA: u32 = 1;
 pub enum Kind {
     /// A Rust panic that reached the process boundary (the app died).
     Panic,
-    /// A POSIX signal (SIGSEGV/SIGABRT/…) — a native fault or abort.
+    /// A POSIX signal (SIGSEGV/SIGABRT/…): a native fault or abort.
     Signal,
     /// An uncaught Java/JVM exception on Android.
     Java,
-    /// A panic day-core CONTAINED at a trampoline boundary — the app kept running. Non-fatal;
+    /// A panic day-core contained at a trampoline boundary; the app kept running. Non-fatal;
     /// recorded for diagnostics, distinguished from a real crash.
     Contained,
 }
@@ -65,7 +65,7 @@ pub struct SignalInfo {
     pub slide: usize,
 }
 
-/// A finalized crash report — the unit the consent UI displays and a [`crate::Reporter`] uploads.
+/// A finalized crash report: the unit the consent UI displays and a [`crate::Reporter`] uploads.
 /// Every field is best-effort; unknowns are empty or `"unknown"`, never a failure.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Report {
@@ -98,7 +98,8 @@ impl Report {
     }
 
     /// The human-readable report text shown to the user on the disclosure surface. This is exactly
-    /// what an upload transmits (the JSON is a machine mirror of the same facts) — no hidden fields.
+    /// what an upload transmits (the JSON is a machine mirror of the same facts), with no hidden
+    /// fields.
     pub fn display_text(&self) -> String {
         let mut s = String::new();
         let _ = writeln!(s, "Day crash report");
@@ -210,8 +211,9 @@ impl Report {
     }
 }
 
-/// Reconstruct a [`Report`] from the JSON we wrote — so the consent UI and transports can display
-/// and re-serialize a finalized report without a sidecar. Returns `None` if the JSON is unparseable.
+/// Reconstruct a [`Report`] from the JSON we wrote, so the consent UI and transports can display
+/// and re-serialize a finalized report without a sidecar. Returns `None` if the JSON is
+/// unparseable.
 pub fn parse_json(s: &str) -> Option<Report> {
     let flat = json_flatten(s)?;
     let g = |k: &str| flat.get(k).cloned().unwrap_or_default();
@@ -258,7 +260,7 @@ pub fn parse_json(s: &str) -> Option<Report> {
 
 /// A minimal JSON object reader specialized to our own emitter's output: an object of scalars
 /// (string/number/bool) and one level of nested objects. Nested keys are flattened with a dot
-/// (`app.id`). Not a general JSON parser — it round-trips [`Report::to_json`] and nothing else.
+/// (`app.id`). Not a general JSON parser: it round-trips [`Report::to_json`] and nothing else.
 fn json_flatten(s: &str) -> Option<BTreeMap<String, String>> {
     let b = s.as_bytes();
     let mut i = 0usize;
@@ -350,7 +352,7 @@ fn read_string(b: &[u8], i: &mut usize) -> Option<String> {
                     b'r' => out.push(b'\r'),
                     b't' => out.push(b'\t'),
                     b'u' => {
-                        // \uXXXX — read 4 hex digits, encode the code point as UTF-8.
+                        // \uXXXX: read 4 hex digits, encode the code point as UTF-8.
                         let hex = std::str::from_utf8(b.get(*i..*i + 4)?).ok()?;
                         let cp = u32::from_str_radix(hex, 16).ok()?;
                         *i += 4;
@@ -579,7 +581,7 @@ mod tests {
             kind_str: "signal".into(),
             ..Default::default()
         };
-        // No signal BLOCK when `signal` is None (the "kind":"signal" value is a separate thing).
+        // No signal block when `signal` is None (the "kind":"signal" value is a separate thing).
         assert!(!r.to_json().contains("\"signal\":{"));
         r.signal = Some(SignalInfo {
             signo: 11,

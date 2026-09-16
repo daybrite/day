@@ -26,7 +26,7 @@ type ValueAction = Rc<dyn Fn(&ToolbarValue)>;
 /// Which chrome a contribution lands on.
 ///
 /// Not a placement — [`day_spec::ToolbarPlacement`] says where on a chrome an item sits. This
-/// says WHICH chrome, and it is never written by an app: it follows from the piece that declared
+/// says which chrome, and it is never written by an app: it follows from the piece that declared
 /// the items, which is the whole point of the design (docs/toolbars.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Chrome {
@@ -190,7 +190,7 @@ pub fn window_being_built() -> RNode {
 /// The chrome a contribution registered right now belongs to: the innermost navigation page
 /// being built, else the window being built, else the primary window.
 ///
-/// Captured ONCE, at registration. A derived contribution re-runs long after its build, when
+/// Captured once, at registration. A derived contribution re-runs long after its build, when
 /// neither stack says anything, so reading this later would send its items to the primary
 /// window's chrome.
 pub fn current_chrome() -> Chrome {
@@ -361,7 +361,7 @@ fn lower(chrome: Chrome) {
     }
 
     sweep_values(chrome, &items);
-    // ONE bar per window, whichever chrome changed: the toolkit is handed the window's items
+    // One bar per window, whichever chrome changed: the toolkit is handed the window's items
     // plus the pages showing, already merged, so it draws what it has always drawn and never has
     // to know that a page contributed any of it (docs/toolbars.md). There is deliberately no
     // per-chrome model — one authority, so a live patch and a re-compose cannot disagree.
@@ -522,8 +522,8 @@ pub fn toggle_sidebar(host: RNode) -> bool {
 
 /// Drop a closed window's contributions, chrome model and the value closures only they owned.
 ///
-/// Called BEFORE the window's scope is disposed. Disposal runs every contribution's cleanup,
-/// and each one re-composes the window it belonged to — a merge that asks the OTHER
+/// Called before the window's scope is disposed. Disposal runs every contribution's cleanup,
+/// and each one re-composes the window it belonged to — a merge that asks the other
 /// contributions' gates whether their page is showing, through signals the same disposal has
 /// already dropped. Withdrawing the whole window here first leaves those cleanups nothing to
 /// re-compose (a token that is already gone is a no-op), so a closed window never merges its

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# Regenerate docs/recorder-matrix.md — WHAT THE DAYSCRIPT RECORDER DOES with every `Event` variant
+# Regenerate docs/recorder-matrix.md — what THE DAYSCRIPT RECORDER does with every `Event` variant
 # the app can receive (§14.6). Third of the generated conformance tables, after duty-matrix.sh (the
 # Toolkit trait is implemented) and coverage-matrix.sh (the piece vocabulary is rendered); this one
 # proves the recorder has a decision about every event, rather than a default of silence.

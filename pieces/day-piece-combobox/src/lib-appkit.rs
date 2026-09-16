@@ -5,7 +5,7 @@
 // AppKit: NSComboBox — the platform's real combo box (a text field with a dropdown button and
 // item list). One delegate serves both halves: typing arrives per keystroke through
 // NSControlTextEditingDelegate::controlTextDidChange:, and picking an item posts
-// NSComboBoxDelegate::comboBoxSelectionDidChange:. The selection notification fires BEFORE the
+// NSComboBoxDelegate::comboBoxSelectionDidChange:. The selection notification fires before the
 // control writes the pick into its own stringValue, so that handler reads the SELECTED ITEM's
 // string and emits it. Programmatic setStringValue fires neither (no echo guard needed); an
 // Items patch's removeAllItems can fire a selection change with index -1, which is dropped.
@@ -103,7 +103,7 @@ fn make(backend: &mut AppKit, p: &ComboProps, id: NodeId) -> Retained<NSView> {
     combo.setStringValue(&NSString::from_str(&p.text));
     let target = ComboTarget::new(mtm, id);
     // One delegate registration covers both protocols: NSComboBox forwards the inherited
-    // NSTextField text-editing delegate AND watches it for the combo notifications.
+    // NSTextField text-editing delegate and watches it for the combo notifications.
     unsafe { combo.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
     let ns: Retained<NSView> = Retained::from(<NSComboBox as AsRef<NSView>>::as_ref(&combo));
     TARGETS.with(|m| {

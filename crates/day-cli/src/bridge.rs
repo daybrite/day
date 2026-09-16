@@ -359,7 +359,7 @@ pub fn kotlin_arm_crates(project: &Project) -> Vec<String> {
 /// output naming no crate at all, usually on a CI machine rather than the author's. Probing here
 /// turns that into a sentence.
 ///
-/// Only the arms claiming THIS host's platform are probed: a Windows arm's `ole32` says nothing
+/// Only the arms claiming this host's platform are probed: a Windows arm's `ole32` says nothing
 /// about a Linux box. If there is no C compiler to probe with, nothing is reported — a missing
 /// toolchain is a different problem with its own message.
 pub fn unresolved_link_libs(project: &Project) -> Vec<(String, String)> {

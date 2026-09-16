@@ -61,7 +61,7 @@ fn boot_titled(title: &str, root: impl FnOnce() -> AnyPiece + 'static) -> MockPr
     probe
 }
 
-/// Boot a mock that CAN present split panes, in a window of `size` — so the launch size class
+/// Boot a mock that can present split panes, in a window of `size` — so the launch size class
 /// decides the presentation exactly as it does on a real toolkit (docs/size-classes.md).
 fn boot_splittable(size: Size, root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -123,7 +123,7 @@ fn counter_updates_exactly_one_op_per_click() {
     probe.clear_log();
     probe.emit(btn, Event::Pressed);
 
-    // THE fine-grained guarantee: one native mutation for the click. "Count: 0"→"Count: 1"
+    // The fine-grained guarantee: one native mutation for the click. "Count: 0"→"Count: 1"
     // has identical metrics, so zero frame ops.
     let muts: Vec<String> = probe
         .mutations()
@@ -387,7 +387,7 @@ fn when_builds_and_disposes() {
     );
 }
 
-/// A multi-modifier chain stays ONE `Decorated<Label>` — it does not nest
+/// A multi-modifier chain stays one `Decorated<Label>` — it does not nest
 /// `Decorated<Decorated<…>>`, and the piece's own type survives to the end. This signature is the
 /// assertion; if the inherent shadows on `Decorated` were lost, it would stop compiling.
 fn typed_chain() -> Decorated<day_pieces::Label> {
@@ -457,7 +457,7 @@ fn typed_builders_reach_through_a_decoration() {
 
 #[test]
 fn either_builds_the_chosen_arm_without_erasing() {
-    // Both arms are DIFFERENT piece types, and neither is boxed — the branch is a plain `if`
+    // Both arms are different piece types, and neither is boxed — the branch is a plain `if`
     // resolved at build.
     fn pane(compact: bool) -> impl Piece {
         if compact {
@@ -1094,7 +1094,7 @@ fn nav_data_driven_items_reconcile() {
 #[test]
 fn nav_filtered_rows_keep_a_live_detail() {
     // A search-filtered sidebar (docs/navigation.md): the row set and the selection change in
-    // the SAME batch, which used to leave the detail pane empty for good — the selection bind
+    // the same batch, which used to leave the detail pane empty for good — the selection bind
     // is created before the derive effect, so it ran against the pre-filter rows, found no
     // index for the key, and gave up with nothing left to re-trigger it.
     let query = Signal::new(String::new());
@@ -1134,7 +1134,7 @@ fn nav_filtered_rows_keep_a_live_detail() {
     flush_sync();
     assert_eq!(probe.widget(menu).text, "sensors");
 
-    // THE HAZARD: widen the filter and select a row that reappears, in ONE batch. The selection
+    // THE HAZARD: widen the filter and select a row that reappears, in one batch. The selection
     // bind runs first, against the still-narrow row set, and finds no index for "canvas".
     batch(|| {
         query.set(String::new());
@@ -1443,7 +1443,7 @@ fn content_list_on_a_compact_tab_bar_is_the_tab_s_own_screen() {
     assert!(texts().iter().any(|s| s == "about-content"));
 }
 
-/// A backend that HAS a content-list pane, on a host lowered as adaptive tabs (UIKit's
+/// A backend that has a content-list pane, on a host lowered as adaptive tabs (UIKit's
 /// `.tabSidebar` shape): no native pane is created, and the list is composed instead.
 ///
 /// The pane would have nowhere to go. `.tabSidebar` builds a `UITabBarController` and never the
@@ -1483,7 +1483,7 @@ fn a_tabs_host_composes_its_content_list_instead_of_asking_for_a_pane() {
     );
 }
 
-/// The FIRST destination is excluded from the content list — the scaffold's own shape, where
+/// The first destination is excluded from the content list — the scaffold's own shape, where
 /// Welcome opens on launch and has no list.
 ///
 /// Every other test here starts on a destination that has one, so the pane's initial state was
@@ -1795,7 +1795,7 @@ fn composed_gated_detail_merges_onto_a_stacked_host() {
         "the next back deselects the section"
     );
 
-    // Reopening the section with the signal still true pushes the detail DURING the section
+    // Reopening the section with the signal still true pushes the detail during the section
     // page's own build. The section must be presented before its content builds — a backend
     // that presents pages in patch order would otherwise stack them inverted — which is what
     // show()'s early Pushed patch guarantees: push(section), realize(detail), push(detail).
@@ -1818,7 +1818,7 @@ fn composed_gated_detail_merges_onto_a_stacked_host() {
 fn nav_stack_on_back_guard_intercepts_and_defers() {
     use std::cell::Cell;
     use std::rc::Rc;
-    // The guard consumes back-like events (nav_back / native NavBack) but NEVER a programmatic
+    // The guard consumes back-like events (nav_back / native NavBack) but never a programmatic
     // path write, and BackRequest::proceed performs the deferred pop.
     let path = Signal::new(Vec::<String>::new());
     let held: Rc<RefCell<Option<BackRequest>>> = Rc::default();
@@ -1944,7 +1944,7 @@ fn nested_stack_in_selector_falls_through() {
             .any(|(_, w)| w.text == "drill:deep")
     );
 
-    // navigate a sibling section key: the stack doesn't own it, so it FALLS THROUGH to the
+    // navigate a sibling section key: the stack doesn't own it, so it FALLS through to the
     // enclosing nav — which switches sections (disposing the stack).
     assert!(navigate("plain"));
     flush_sync();
@@ -1963,7 +1963,7 @@ fn nested_stack_in_selector_falls_through() {
     );
 }
 
-/// An absolute route reaches a stack inside a destination that was ALREADY built.
+/// An absolute route reaches a stack inside a destination that was already built.
 ///
 /// The registry's order is how routing reads nesting: `navigate_absolute` anchors on the surface
 /// showing the first segment and offers the rest only to surfaces registered after it. A nav
@@ -2111,7 +2111,7 @@ fn nested_stack_merges_into_one_host() {
 
     assert!(navigate("drill"));
     flush_sync();
-    // ONE native nav host, not two — the whole point of the merge (would be 2 before the fix).
+    // One native nav host, not two — the whole point of the merge (would be 2 before the fix).
     assert_eq!(
         probe.find_by_kind("day.nav").len(),
         1,
@@ -2371,7 +2371,7 @@ fn alert_returns_typed_payload_and_sequences() {
                         .present()
                         .await;
                     if c == Some(Choice::Delete) {
-                        // a SECOND awaited modal in the same flow
+                        // a second awaited modal in the same flow
                         let name = prompt("Confirm name").await;
                         o2.borrow_mut().push(format!("deleted {name:?}"));
                     } else {
@@ -2466,7 +2466,7 @@ fn list_recycles_cells_with_a_slot_write_not_a_rebuild() {
 }
 
 // Teardown (docs/list.md): a list going away takes its bound rows with it — the row subtrees
-// hang off the cells, OUTSIDE the node tree, so nothing else would collect them. But the cells
+// hang off the cells, outside the node tree, so nothing else would collect them. But the cells
 // themselves are the native host's, only borrowed through `adopt` (§15.3): the host frees its own
 // pool, so day must NOT release them too. It did briefly, and the second delete corrupted the
 // heap on the raw-pointer backends — the xaml showcase walkthrough died leaving the list page.
@@ -3463,7 +3463,7 @@ fn zstack_alignment_pins_to_corner() {
 
 #[test]
 fn overlay_sizes_to_first_child() {
-    // Content "aa" = 16x16; annotation "wwwwwwww" = 64x16. Sizing to the FIRST child gives a
+    // Content "aa" = 16x16; annotation "wwwwwwww" = 64x16. Sizing to the first child gives a
     // 16x16 frame (a UNION would be 64x16) — the annotation does not grow the layout.
     let probe = boot(|| label("aa").overlay(label("wwwwwwww")).any());
     let overlay = container_of_labels(&probe);
@@ -3529,7 +3529,7 @@ fn a_tint_picks_a_readable_label_color() {
     }
 }
 
-/// The invariant: `button()` ALWAYS realizes a native button leaf. A tint changes its color and
+/// The invariant: `button()` Always realizes a native button leaf. A tint changes its color and
 /// nothing else — it must never be composed into a container with a tap handler, which would
 /// cost the platform's focus ring, its pressed rendering and its accessibility role.
 #[test]
@@ -3584,7 +3584,7 @@ fn with_environment_provides_to_descendants_only() {
                     label(format!("in={v}")).build(cx)
                 })
             }),
-            // A sibling OUTSIDE the environment scope must not see the value.
+            // A sibling outside the environment scope must not see the value.
             piece_fn(|cx| {
                 let v = environment::<Tint>().map(|t| t.0).unwrap_or(99);
                 label(format!("out={v}")).build(cx)
@@ -4256,7 +4256,7 @@ fn cover_cycle_root() -> AnyPiece {
         ))
         .any(),
         cover(open, |k: &String| {
-            // FIRST-touch a lazily-allocated process-global signal from INSIDE the
+            // FIRST-touch a lazily-allocated process-global signal from inside the
             // presentation scope — the day-lite regression: the global must be allocated
             // in the root scope, not inherit this cover's, or it dies on dismissal and
             // every later read panics (day-l10n's locale signal was the observed case).
@@ -4292,7 +4292,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     flush_sync();
     let (rev, _taps, open) = CYCLE.with(|c| *c.borrow()).expect("cycle state");
 
-    // Rebuild the rows once BEFORE any cover (the install-confirm shape).
+    // Rebuild the rows once before any cover (the install-confirm shape).
     rev.set(1.0);
     flush_sync();
     tap_button(&probe, "row-a:1");
@@ -4316,7 +4316,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     probe.emit(cover_id, Event::CoverHidden);
     flush_sync();
 
-    // 1) Siblings built BEFORE the cycle still respond.
+    // 1) Siblings built before the cycle still respond.
     tap_button(&probe, "row-a:1");
     assert_eq!(
         tap_count(&probe),
@@ -4324,7 +4324,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
         "pre-cycle sibling handler still fires after the cover cycle"
     );
 
-    // 2) Rows rebuilt AFTER the cycle respond.
+    // 2) Rows rebuilt after the cycle respond.
     rev.set(2.0);
     flush_sync();
     tap_button(&probe, "row-b:2");
@@ -4624,7 +4624,7 @@ fn nav_stack_restore_round_trips_a_key_containing_a_slash() {
             .any()
     });
     flush_sync();
-    // Push ONE key that contains '/'.
+    // Push one key that contains '/'.
     batch(|| path.set(vec!["a/b".to_string()]));
     flush_sync();
     let saved = store.0.borrow().get("np.stack").cloned().unwrap();
@@ -4633,7 +4633,7 @@ fn nav_stack_restore_round_trips_a_key_containing_a_slash() {
         "the slash must be percent-encoded, got {saved:?}"
     );
 
-    // A fresh launch restores the SAME single key — one pushed page, not two.
+    // A fresh launch restores the same single key — one pushed page, not two.
     let path2 = Signal::new(Vec::<String>::new());
     let probe2 = boot(move || {
         nav_stack(path2, label("home"))
@@ -4682,7 +4682,7 @@ fn restore_yields_to_launch_deeplink() {
 
 #[test]
 fn local_selector_stays_out_of_the_route() {
-    // Two one-of-N surfaces at the SAME level: the second is `.local()`, so only the first
+    // Two one-of-N surfaces at the same level: the second is `.local()`, so only the first
     // contributes to current_route() and `navigate` addresses the first. This is the fix for the
     // sibling collision the debug warning flags.
     let a = Signal::new("a1".to_string());
@@ -4714,7 +4714,7 @@ fn local_selector_stays_out_of_the_route() {
 
 #[test]
 fn two_routed_siblings_concatenate_into_the_route() {
-    // Documents WHY `.local()` exists: two routed one-of-N surfaces at one level both feed
+    // Documents why `.local()` exists: two routed one-of-N surfaces at one level both feed
     // current_route(), so you get a concatenated `a1/b1`. (In a debug build this also emits the
     // sibling warning; behavior is unchanged either way.)
     let a = Signal::new("a1".to_string());
@@ -4775,7 +4775,7 @@ fn open_window_builds_and_lays_out_at_its_own_size() {
         "open_window duty not called: {:?}",
         probe.log()
     );
-    // The window's content lays out at ITS size, not the primary's 400×600.
+    // The window's content lays out at its size, not the primary's 400×600.
     assert!(
         probe
             .find_by_kind("day.container")
@@ -4925,7 +4925,7 @@ fn native_close_tears_down_and_fires_on_close() {
 /// and a Settings window is independent of the documents — closing the last document there
 /// leaves Settings open, so this asserts that it survives.
 ///
-/// The INITIAL window closes FIRST here, and must be no different from any other window: it is
+/// The INITIAL window closes first here, and must be no different from any other window: it is
 /// an ordinary registry record, so the app carries on while another primary is open.
 #[test]
 fn last_primary_close_quits_even_with_a_secondary_window_open() {
@@ -4964,7 +4964,7 @@ fn last_primary_close_quits_even_with_a_secondary_window_open() {
     let mark = probe.log_len();
     probe.close_window_natively(day_core::windows::window_node_id(&extra));
     flush_sync();
-    // …but that WAS the last primary, so the app ends and the settings panel closes with it —
+    // …but that was the last primary, so the app ends and the settings panel closes with it —
     // everywhere the app actually ends. macOS keeps running, and keeps its Settings window.
     assert!(!extra.is_open());
     assert_eq!(
@@ -5146,7 +5146,7 @@ fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
     flush_sync();
     assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
 
-    // Close, then reopen BEFORE the hide transition confirms — the phone animates it, and a
+    // Close, then reopen before the hide transition confirms — the phone animates it, and a
     // walkthrough (or a user) reaches the Settings item again inside those milliseconds.
     handle.close();
     flush_sync();
@@ -5264,7 +5264,7 @@ fn pending_close_before_completion_cancels() {
 #[test]
 fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
     let probe = boot(|| label("main").any());
-    // App menu installed BEFORE registration — the retained-model re-forward self-heals.
+    // App menu installed before registration — the retained-model re-forward self-heals.
     app_menu(vec![sub_menu("File", vec![menu_item("Save").key("s")])]);
     day_core::register_preferences(|| label("prefs body").id("prefs-label").any());
     flush_sync();
@@ -5412,7 +5412,7 @@ fn list_delete_commits_shortens_and_defers_callback() {
     assert_eq!(probe.list_can_delete(host, 1), Some(true));
 
     assert!(probe.list_delete(host, 1));
-    // The snapshot is ALREADY shorter when the commit returns — that is the seam's contract, so
+    // The snapshot is already shorter when the commit returns — that is the seam's contract, so
     // a backend animating the removal reads the new length while the animation runs.
     assert_eq!(probe.list_len(host), 4);
     // The app's callback rides the event queue (never the swipe callback itself); the probe
@@ -5433,7 +5433,7 @@ fn list_delete_refused_by_guard_and_unsupported_without_optin() {
     let probe = boot(move || deletable_list(d, o, Some(|i: usize| i != 0)));
     let host = probe.find_by_kind("day.list")[0].0;
 
-    // The guard answers BEFORE the affordance is offered, so row 0 shows no action at all.
+    // The guard answers before the affordance is offered, so row 0 shows no action at all.
     assert_eq!(probe.list_can_delete(host, 0), Some(false));
     assert!(!probe.list_delete(host, 0));
     assert!(deletes.borrow().is_empty());
@@ -5512,7 +5512,7 @@ fn list_swipe_offer_is_pulled_live_and_activation_defers_the_handler() {
     let probe = boot(move || swipe_list(read, h));
     let host = probe.find_by_kind("day.list")[0].0;
 
-    // The trailing offer speaks the row's CURRENT state, styling included.
+    // The trailing offer speaks the row's current state, styling included.
     let offer = probe
         .list_swipe_actions(host, 1, SwipeEdge::Trailing)
         .expect("swipe seam installed");
@@ -5527,7 +5527,7 @@ fn list_swipe_offer_is_pulled_live_and_activation_defers_the_handler() {
     assert!(probe.list_swipe(host, 1, SwipeEdge::Trailing, 0));
     assert_eq!(hits.borrow().as_slice(), ["read:1"]);
 
-    // The state flipped, so the NEXT pull offers the opposite label — the whole point of
+    // The state flipped, so the next pull offers the opposite label — the whole point of
     // resolving the offer at gesture time.
     let offer = probe
         .list_swipe_actions(host, 1, SwipeEdge::Trailing)
@@ -5560,7 +5560,7 @@ fn list_swipe_unsupported_without_optin_and_bounded_by_the_offer() {
     assert_eq!(probe.list_swipe_actions(host, 0, SwipeEdge::Trailing), None);
     assert!(!probe.list_swipe(host, 0, SwipeEdge::Trailing, 0));
 
-    // Opted into ONE edge only: the other edge answers an empty offer (no affordance),
+    // Opted into one edge only: the other edge answers an empty offer (no affordance),
     // and an action index past the offer refuses rather than guessing.
     let read = Signal::new(vec![false; 5]);
     let hits = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -5901,7 +5901,7 @@ fn a_pinned_presentation_outranks_the_window_and_falls_back_when_undrawable() {
     flush_sync();
     assert_eq!(presentation_of(&probe), Some(NP::Split), "and it stays put");
 
-    // A pinned tab bar on a toolkit with none falls back to what it CAN draw.
+    // A pinned tab bar on a toolkit with none falls back to what it can draw.
     let sel2 = Signal::new("one".to_string());
     let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     day_core::uninstall_tree();
@@ -6512,12 +6512,12 @@ impl Ambient for Scene {
     }
 }
 
-/// One shell, used for BOTH windows — the `register_new_window` shape. Nothing about it names
+/// One shell, used for both windows — the `register_new_window` shape. Nothing about it names
 /// a window, and that is the point: `scoped` gives whichever window builds it its own `Scene`.
 fn scene_shell() -> AnyPiece {
     Scene::scoped(|scene| {
         // Resolved through the ENVIRONMENT rather than the value `scoped` handed us, so this
-        // asserts the lookup lands on THIS window's instance — and at build time, which is
+        // asserts the lookup lands on this window's instance — and at build time, which is
         // where `ambient()` is defined to work.
         let looked_up = Scene::ambient();
         column((
@@ -6549,7 +6549,7 @@ fn scoped_ambient_gives_each_window_its_own_state() {
     };
     assert_eq!(texts(&probe), ["fresh", "fresh", "fresh", "fresh"]);
 
-    // Writing the SECOND window's scene must not move the first window's labels.
+    // Writing the second window's scene must not move the first window's labels.
     probe.emit(probe.windows()[0].node, Event::WindowFocused(true));
     flush_sync();
     let second = day_core::focused_scope().expect("a focused window");
@@ -6569,7 +6569,7 @@ fn scoped_ambient_gives_each_window_its_own_state() {
 fn ambient_resolves_inside_a_nav_destination() {
     // The scaffold's load-bearing case: `.destination(…)` and `.item_icon(…, page)` take bare
     // `fn() -> impl Piece`, so those page functions can only reach window state through
-    // `ambient()`. That works only if the nav builds its destinations INSIDE the providing
+    // `ambient()`. That works only if the nav builds its destinations inside the providing
     // scope — assert it rather than assume it.
     day_pieces::routes! { enum Sec { One => "one", Two => "two" } }
     fn page() -> AnyPiece {
@@ -6672,7 +6672,7 @@ fn app_ambient_is_one_instance_everywhere() {
     }
     let probe = boot(|| label(move || Prefs::app().n.read().to_string()).any());
     flush_sync();
-    // Asked for again from OUTSIDE any window — a menu action's position — and it is the same
+    // Asked for again from outside any window — a menu action's position — and it is the same
     // instance, so the write lands on the label the first call created.
     Prefs::app().n.set(7);
     flush_sync();
@@ -6729,7 +6729,7 @@ fn focused_ambient_follows_the_key_window_and_falls_back_to_the_primary() {
     flush_sync();
     let second_node = probe.windows()[0].node;
 
-    // The secondary reports focus, so an app-wide command resolves to ITS scene.
+    // The secondary reports focus, so an app-wide command resolves to its scene.
     probe.emit(second_node, Event::WindowFocused(true));
     flush_sync();
     Scene::focused()
@@ -6832,7 +6832,7 @@ fn window_title_names_the_window_it_is_built_into() {
 // ---------------------------------------------------------------------------------------------
 // Resizable windows (docs/size-classes.md). Every mobile platform now resizes app windows freely,
 // so the geometry a window reports is live data rather than a launch constant — and the two
-// things that can go wrong with it are invisible to a screenshot: a window reading ANOTHER
+// things that can go wrong with it are invisible to a screenshot: a window reading another
 // window's size, and a re-present that rebuilds pages instead of re-homing them.
 // ---------------------------------------------------------------------------------------------
 
@@ -6880,7 +6880,7 @@ fn two_windows_hold_two_size_classes_at_once() {
 
 #[test]
 fn resizing_one_window_leaves_the_others_class_alone() {
-    // What `DayHolderView` got wrong on ios-uikit: it reported EVERY scene's geometry against the
+    // What `DayHolderView` got wrong on ios-uikit: it reported every scene's geometry against the
     // primary window's node and re-framed the primary's root view, so dragging a secondary
     // window's edge re-bucketed the wrong window. Both windows still look plausible afterwards,
     // which is why this is a test rather than a screenshot.
@@ -7375,7 +7375,7 @@ fn decoding_bytes_answers_with_what_the_image_is_and_releases_on_drop() {
     assert_eq!(day_core::with_tree(|t| t.image_info(id)), None);
 }
 
-/// The last handle can die INSIDE the tree's own borrow — a removed node's handler may own it —
+/// The last handle can die inside the tree's own borrow — a removed node's handler may own it —
 /// and the release must wait for the borrow to end rather than panic on a re-borrow.
 #[test]
 fn a_bitmap_dropped_inside_the_tree_borrow_releases_once_the_borrow_ends() {

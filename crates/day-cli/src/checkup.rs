@@ -42,7 +42,7 @@ const GIT_URL: &str = "https://github.com/daybrite/day.git";
 pub struct Options {
     /// Combos to check (repeatable / comma-separated). Empty = every combo this host can build.
     pub platforms: Vec<String>,
-    /// The profile BOTH the build and the pack use — one compile, not two.
+    /// The profile both the build and the pack use — one compile, not two.
     pub profile: Profile,
     /// Stop after the build (what the install workflow did before packaging joined the check).
     pub no_pack: bool,
@@ -258,7 +258,7 @@ fn prepare(spec: Option<&str>, root: &Path, opts: &Options) -> Result<Under, Cli
             "--day-version names a published day; --local builds against a checkout. Pass one.",
         ));
     }
-    // `latest` is resolved HERE, once: the child is handed the concrete version, so a release
+    // `latest` is resolved here, once: the child is handed the concrete version, so a release
     // published mid-run cannot leave the CLI and the scaffold on different days.
     let source = DaySource::parse(spec).map_err(CliError::usage)?;
 

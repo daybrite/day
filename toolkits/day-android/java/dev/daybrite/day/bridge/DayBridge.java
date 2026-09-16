@@ -123,7 +123,7 @@ public final class DayBridge {
 
     // --- event kinds -----------------------------------------------------------
     // Mirror of day_spec::bridge::BridgeKind (the shared wire table). day-android's
-    // bridge_kinds_parity test reads THIS block and asserts each value against the Rust enum —
+    // bridge_kinds_parity test reads this block and asserts each value against the Rust enum —
     // edit both together. Public so piece-owned Java (the K_CUSTOM channel) can use them.
     public static final int K_PRESSED = 0;
     public static final int K_TEXT_CHANGED = 1;
@@ -511,7 +511,7 @@ public final class DayBridge {
             }
         });
         if (reorderable || deletable) {
-            // One ItemTouchHelper drives BOTH gestures — the platform arbitrates between a
+            // One ItemTouchHelper drives both gestures — the platform arbitrates between a
             // long-press drag and a swipe itself, which is why they share a callback rather
             // than fighting over the same touch stream (docs/list.md).
             final android.graphics.Paint swipePaint = new android.graphics.Paint();
@@ -767,7 +767,7 @@ public final class DayBridge {
      * converts from its byte offsets), and flags[i] packs bold/italic/mono/strike/hasColor with
      * colors[i] holding the ARGB when the flag says so. `links[i]` is null for a plain run.
      *
-     * The spans are Android's own, so the text stays ONE TextView: it wraps, selects and is read
+     * The spans are Android's own, so the text stays one TextView: it wraps, selects and is read
      * by TalkBack as a single paragraph, which is the entire point of runs.
      */
     public static void setLabelRuns(
@@ -795,7 +795,7 @@ public final class DayBridge {
             if ((f & 8) != 0) s.setSpan(new android.text.style.StrikethroughSpan(), a, b, EXCL);
             if ((f & 16) != 0) s.setSpan(new android.text.style.ForegroundColorSpan(colors[i]), a, b, EXCL);
             if ((f & 32) != 0) s.setSpan(new android.text.style.BackgroundColorSpan(backgrounds[i]), a, b, EXCL);
-            // Android has ONE underline span: a dotted or wavy request draws a plain line
+            // Android has one underline span: a dotted or wavy request draws a plain line
             // (docs/text-runs.md records which toolkits distinguish them).
             if ((f & 64) != 0) s.setSpan(new android.text.style.UnderlineSpan(), a, b, EXCL);
             // Relative size (FontSpec::scale) as a RelativeSizeSpan, which is exactly its shape —
@@ -819,7 +819,7 @@ public final class DayBridge {
             }
         }
         tv.setText(s);
-        // Clicks on spans need a movement method. It is set ONLY when a link is present: it
+        // Clicks on spans need a movement method. It is set only when a link is present: it
         // replaces the selection movement method, so a selectable label without links keeps
         // its selection behavior intact (docs/text-runs.md).
         if (anyLink) {
@@ -1193,7 +1193,7 @@ public final class DayBridge {
         Slider s = (Slider) v;
         float f = (float) Math.max(s.getValueFrom(), Math.min(s.getValueTo(), value));
         // A stepped slider (e.g. day-tweak-slider-tickmarks) hard-crashes at the next layout pass
-        // unless EVERY value is valueFrom + n*stepSize (BaseSlider.validateValues throws) — snap
+        // unless every value is valueFrom + n*stepSize (BaseSlider.validateValues throws) — snap
         // programmatic writes onto the step grid defensively.
         float step = s.getStepSize();
         if (step > 0f) {
@@ -1341,7 +1341,7 @@ public final class DayBridge {
     // --- navigation (docs/navigation.md) ---
     public static View makeNavHost(long id, String title, boolean adaptive, float tileMinDp) {
         DayNavHost host = new DayNavHost(ctx, id, title, adaptive, tileMinDp);
-        // The window toolbar is usually set BEFORE the nav host exists (an app installs its
+        // The window toolbar is usually set before the nav host exists (an app installs its
         // bar as the first thing the window body does), so a host born after the spec arrived
         // takes it now. Best-effort, like the bar actions below.
         //
@@ -1477,7 +1477,7 @@ public final class DayBridge {
     }
 
     /**
-     * Inline search on the navigation list (docs/search.md). Applied AFTER the host is built and
+     * Inline search on the navigation list (docs/search.md). Applied after the host is built and
      * wrapped, for the same reason `setNavMenu` above is: a throw on `makeNavHost`'s own path
      * aborts the native tree build and leaves the app blank, so decoration never rides it.
      *
@@ -1679,7 +1679,7 @@ public final class DayBridge {
     // --- navigation suite (docs/navigation.md) ---
     // The NAV host in its `Tabs` presentation: the same container, reached from the nav path.
 
-    /** Pages whose rows ARE the chrome — marked before insertion, consumed by `addChild`. */
+    /** Pages whose rows are the chrome — marked before insertion, consumed by `addChild`. */
     private static final java.util.Set<View> navChromePages =
             java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
 
@@ -1760,7 +1760,7 @@ public final class DayBridge {
     }
 
     /** The item set changed (day's NavMenuPatch::Items — a data-driven `nav().items(…)`
-     *  block re-derived): rebuild the menu so every item's id carries its CURRENT index.
+     *  block re-derived): rebuild the menu so every item's id carries its current index.
      *  Reusing stale rows after a removal shifts every later selection by one. */
     public static void updateNavMenu(View v, String joinedItems, String joinedIcons,
             String joinedSections) {
@@ -1771,11 +1771,11 @@ public final class DayBridge {
     /** Where a sidebar row's menu-item id starts.
      *
      *  A menu id is not a view id — except that `NavigationMenuItemView` copies its item's id onto
-     *  ITSELF, which drops both into the one namespace `findViewById` searches. Day's own
+     *  Itself, which drops both into the one namespace `findViewById` searches. Day's own
      *  containers take `View.generateViewId()`, which counts up from 1, so a row keyed by its bare
      *  index collided with them immediately: `containerId` was 1, the Controls row (index 1) became
      *  a view with id 1, it sits earlier in the traversal than the detail container, and
-     *  `FragmentTransaction.replace(containerId, …)` therefore built every detail page INSIDE that
+     *  `FragmentTransaction.replace(containerId, …)` therefore built every detail page inside that
      *  sidebar row — the detail pane stayed empty and the page's first line drew inside the
      *  selected row's indicator.
      *
@@ -1789,7 +1789,7 @@ public final class DayBridge {
     private static void fillNavMenu(NavigationView nav, String joinedItems, String joinedIcons,
             String joinedSections) {
         Menu menu = nav.getMenu();
-        // What is checked NOW, so a rebuild comes back marking the same row. A data-driven
+        // What is checked now, so a rebuild comes back marking the same row. A data-driven
         // `.items(…)` block re-derives on its own schedule — the showcase's does it once as the
         // sidebar first paints — and `menu.clear()` takes the indicator with it. day re-applies
         // the selection it knows about afterwards, but only if the patch that rebuilt the menu
@@ -1837,7 +1837,7 @@ public final class DayBridge {
 
     /** Move the active indicator to `index`, or clear it (day's `NavMenuProps::selected`).
      *
-     *  Applied WITHOUT re-emitting: `setCheckedItem` does not run the selection listener, so
+     *  Applied without re-emitting: `setCheckedItem` does not run the selection listener, so
      *  there is no echo to suppress. Best-effort like the other follow-ups. */
     public static void setNavMenuSelected(View navMenu, int index) {
         try {
@@ -1873,7 +1873,7 @@ public final class DayBridge {
     }
 
     /** Per-row nav icon tints (docs/vectors.md), index-aligned ARGB ints ("0" = untinted —
-     *  the row keeps its text-color template tint). Best-effort by design: called AFTER
+     *  the row keeps its text-color template tint). Best-effort by design: called after
      *  makeNavMenu/updateNavMenu so a failure here can never abort the native tree build. */
     public static void setNavMenuTints(View navMenu, String joinedTints) {
         try {
@@ -1897,7 +1897,7 @@ public final class DayBridge {
      *  tint). The glyph goes in the compound drawable's END slot, so the row needs no new layout
      *  and the label still ellipsizes into what is left.
      *
-     *  Best-effort and called AFTER makeNavMenu/updateNavMenu, exactly like setNavMenuTints: a
+     *  Best-effort and called after makeNavMenu/updateNavMenu, exactly like setNavMenuTints: a
      *  throw on the nav host's own build path takes the whole tree down with it, and a decoration
      *  is never worth that. */
     public static void setNavMenuBadges(View navMenu, String joinedIcons, String joinedTints) {
@@ -2219,7 +2219,7 @@ public final class DayBridge {
                   View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         return v.getMeasuredHeight();
     }
-    /** Height-for-width (§7.2): AT_MOST width probe, never EXACTLY (child-chooses). */
+    /** Height-for-width (§7.2): AT_MOST width probe, never exactly (child-chooses). */
     public static int measureHeightForWidth(View v, int wPx) {
         v.measure(View.MeasureSpec.makeMeasureSpec(wPx, View.MeasureSpec.AT_MOST),
                   View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
@@ -2422,7 +2422,7 @@ public final class DayBridge {
                 mode == 2 ? android.widget.ImageView.ScaleType.FIT_XY
                         : mode == 1 ? android.widget.ImageView.ScaleType.CENTER_CROP
                                 : android.widget.ImageView.ScaleType.FIT_CENTER);
-        // Resolution goes through drawableByName, which is ALSO where the weight-alias fallback
+        // Resolution goes through drawableByName, which is also where the weight-alias fallback
         // lives (docs/vectors.md): a plain SVG stages one asset, so `<glyph>__light`/`__bold` must
         // land back on `<glyph>` rather than draw nothing. This path used to do its own
         // getIdentifier + assets lookup and skip that fallback, which is why every
@@ -2530,7 +2530,7 @@ public final class DayBridge {
 
     /** Per-row nav context menus (docs/menus.md): one {@link #setContextMenu} spec per row,
      *  joined by U+001E (empty entry = no menu for that row). Best-effort by design — called
-     *  AFTER makeNavMenu/updateNavMenu, like setNavMenuTints, so a failure here can never
+     *  After makeNavMenu/updateNavMenu, like setNavMenuTints, so a failure here can never
      *  abort the native tree build. */
     public static void setNavRowMenus(View navMenu, String joinedSpecs) {
         try {
@@ -2542,7 +2542,7 @@ public final class DayBridge {
             // Rows are RECYCLED now, so a menu cannot be attached once and left: a cell is bound
             // to a different row every time it scrolls back into view. Attach on the one event
             // that fires for each binding — the child joining the RecyclerView — and read the row
-            // it is CURRENTLY showing from its own menu item rather than from its position, which
+            // it is currently showing from its own menu item rather than from its position, which
             // headings and dividers shift.
             android.view.ViewGroup list = navRecycler(nav);
             if (list == null) return;
@@ -2609,7 +2609,7 @@ public final class DayBridge {
      * click listener, which is what performs selection, never runs.
      *
      * Resolved at tap time rather than at attach time: Day builds a row's content and configures
-     * its menu BEFORE binding it into a cell, so the parent chain does not exist yet when the
+     * its menu before binding it into a cell, so the parent chain does not exist yet when the
      * menu goes on.
      */
     private static void forwardClickToRow(View child) {

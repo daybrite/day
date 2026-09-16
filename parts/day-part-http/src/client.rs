@@ -2806,7 +2806,7 @@ fn decode_cookie_line(line: &str) -> Option<Cookie> {
 
 // The transport contract beneath [`crate::Client`] (docs/http.md "Transports").
 //
-// A transport performs ONE exchange: it sends a prepared request and reports what the platform
+// A transport performs one exchange: it sends a prepared request and reports what the platform
 // stack saw, as [`Event`]s, in order. Policy (following a redirect, retrying a challenge,
 // attaching cookies, deciding trust) belongs to the client above it, so every backend applies the
 // same rules. Where a stack insists on deciding something itself (URLSession asks its delegate

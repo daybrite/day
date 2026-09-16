@@ -9,7 +9,8 @@ repository.workspace = true
 license.workspace = true
 
 # The std-only async support parts (docs/async.md "day-async"): a oneshot future any executor can
-# await, and the token registry a platform completion resolves through. No runtime, no reactor,
-# no thread pool — the pieces every part and the bridge's callback tier hand-rolled before.
+# await, and the token registry a platform completion resolves through. It brings in no runtime,
+# reactor, or thread pool: just the pieces every part and the bridge's callback tier hand-rolled
+# before.
 
 [dependencies]

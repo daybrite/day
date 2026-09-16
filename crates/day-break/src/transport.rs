@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Pluggable upload transports (docs/break.md). A [`Reporter`] is the ONLY path a report takes off
-//! the device, and it is always driven by app code from a user action — day-break never uploads on
+//! Pluggable upload transports (docs/break.md). A [`Reporter`] is the only path a report takes off
+//! the device, and it is always driven by app code from a user action; day-break never uploads on
 //! its own. Three built-ins cover the common shapes; an app can implement its own.
 
 use crate::report::Report;
@@ -15,7 +15,7 @@ pub enum SendError {
     /// The server accepted the request but answered with a non-success status.
     Rejected { status: u16 },
     /// The transport handed the report to the platform (browser / mail client) and cannot confirm
-    /// delivery — the user completes it. Not really an error; reported so the UI can say so.
+    /// delivery; the user completes it. Not really an error; reported so the UI can say so.
     HandedOff,
 }
 

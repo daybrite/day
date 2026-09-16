@@ -3,7 +3,7 @@
 
 //! Compile the C++/WinRT XAML-Islands shim with `cc` (MSVC) and link the WinRT umbrella
 //! library. The Windows SDK ships the cppwinrt projection headers under
-//! `Include\<ver>\cppwinrt`, which is NOT on the default INCLUDE path — we locate the newest
+//! `Include\<ver>\cppwinrt`, which is not on the default INCLUDE path — we locate the newest
 //! one and add it. Everything else (um/shared/ucrt/winrt) comes from `cc`'s MSVC environment.
 
 fn main() {
@@ -26,7 +26,7 @@ fn main() {
         // <experimental/coroutine> a hard error (STL1011).
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
-        // ONE translation unit. The picker and textarea shims (moved in from their satellite
+        // One translation unit. The picker and textarea shims (moved in from their satellite
         // crates in 2026-07) were separate files until they were folded into shim.cpp: `cc`
         // recompiles every source whenever this script re-runs, so the split gave no incremental
         // win — editing the 177-line picker cost the same full rebuild as editing shim.cpp — while

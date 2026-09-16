@@ -14,7 +14,7 @@
 // command-line-tools) writes "HarmonyOS" into module.json, forcing enforcement — so we rewrite it.
 //
 // The app/profile signature (hapVerify) still runs, so we sign with the SDK's release material (which
-// the emulator DOES accept — installs got past hapVerify to the code-sign stage before).
+// the emulator does accept — installs got past hapVerify to the code-sign stage before).
 //
 //   usage: node sign-hap.mjs <unsigned.hap> <signed.hap>   (cwd = the platform/harmony/ project root)
 import * as fs from 'node:fs';

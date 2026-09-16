@@ -319,7 +319,7 @@ fn tool_table(toolkit: &str) -> Vec<(&'static str, &'static str, &'static str)> 
 
 /// This machine's version of a tool, by the key `tool_table` names it under.
 ///
-/// ONE function for both sides: `day pack` records what it returns, `day rebuild` compares against
+/// One function for both sides: `day pack` records what it returns, `day rebuild` compares against
 /// what it returns. They used to be separate probes in separate files, and a key present in one but
 /// not the other could never match — `ndk` and `ohos-sdk` were both recorded and then unverifiable
 /// on every machine, including the one that had just built the artifact.
@@ -333,7 +333,7 @@ pub fn tool_version(key: &str) -> Option<String> {
         "day" => Some(env!("DAY_VERSION_LONG").to_string()),
         "xcode" => probe("xcodebuild", &["-version"]),
         "clang" => probe("clang", &["--version"]),
-        // PATH's gradle, which is what `day build` runs UNLESS the app carries a `./gradlew`
+        // PATH's gradle, which is what `day build` runs unless the app carries a `./gradlew`
         // (`pack::android::gradle_program`). This function is keyed only by tool name and is shared
         // by `day pack` (record) and `day rebuild` (verify), so both sides probe the same thing and
         // verification stays consistent — but for a project with a wrapper, the version recorded

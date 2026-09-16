@@ -201,7 +201,7 @@ mod any_piece_tests {
         (&*p.0 as *const dyn FnOnce(&mut BuildCx) -> RNode).cast::<()>()
     }
 
-    /// `.any()` on an already-erased piece hands the SAME allocation back. Guards the inherent
+    /// `.any()` on an already-erased piece hands the same allocation back. Guards the inherent
     /// method against being deleted as "redundant with `Decorate::any`" — it is what stops a
     /// second box, and method resolution silently falls back to the blanket trait without it.
     #[test]
@@ -218,7 +218,7 @@ mod any_piece_tests {
 // ---------------------------------------------------------------------------
 
 /// Children of a container: a tuple of pieces (the floem `ViewTuple` pattern — implemented
-/// ONLY for tuples, `()`, and [`PieceVec`], never via a blanket, to stay coherent).
+/// Only for tuples, `()`, and [`PieceVec`], never via a blanket, to stay coherent).
 pub trait PieceSeq: 'static {
     fn build_each(self, cx: &mut BuildCx);
 }

@@ -4,7 +4,7 @@
 //! Android: `LocationManager.requestLocationUpdates` through this crate's Java shim
 //! (`src/DayLocation.java`), staged into the app's Gradle build by `day build`.
 //!
-//! Deliberately NOT `FusedLocationProviderClient`: that lives in Google Play services, which AOSP
+//! Deliberately not `FusedLocationProviderClient`: that lives in Google Play services, which AOSP
 //! images and many emulators lack, and it would add a Gradle coordinate to every app linking this
 //! part. The platform `LocationManager` is always there.
 //!

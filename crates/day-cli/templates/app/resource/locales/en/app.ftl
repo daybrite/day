@@ -2,7 +2,7 @@
 # sibling folder (e.g. locales/fr/app.ftl) and translating — the generated
 # res::locales::install() in src/lib.rs picks up every locale directory by itself.
 #
-# The appearance and language rows on the Settings page label THEMSELVES from Day's own catalog,
+# The appearance and language rows on the Settings page label themselves from Day's own catalog,
 # so there are no keys for them here.
 
 app_title = {{title}}
@@ -13,7 +13,7 @@ nav_settings = Settings
 
 # The Welcome page. `welcome_body` is rendered as markdown, so the emphasis lives here rather
 # than in the layout — a translation is free to stress a different word.
-# Each paragraph is ONE line: Fluent keeps the line breaks you write, so a value wrapped for the
+# Each paragraph is one line: Fluent keeps the line breaks you write, so a value wrapped for the
 # editor's margin would be wrapped that way on screen too, mid-sentence.
 welcome_title = Welcome to Day
 welcome_body =

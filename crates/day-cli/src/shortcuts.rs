@@ -165,7 +165,7 @@ fn android_values_dir(locale: &str) -> String {
 }
 
 /// Stage `xml/day_shortcuts.xml` + per-locale string resources into
-/// `build/day/android/res`. Runs AFTER `resources::android::stage`, which wipes that tree on
+/// `build/day/android/res`. Runs after `resources::android::stage`, which wipes that tree on
 /// builds that have resources to stage — and clears its own files first because builds with
 /// no resources don't.
 pub fn sync_android(project: &Project) -> Result<(), String> {
@@ -499,7 +499,7 @@ pub fn harmony_shortcuts_config(
         };
         // Keys in ALPHABETICAL order, deliberately: serde_json's map is a BTreeMap (sorts) or,
         // when any dependency enables `preserve_order`, an IndexMap (keeps insertion order) —
-        // and cargo feature unification flips that from OUTSIDE this crate (handlebars 6.4
+        // and cargo feature unification flips that from outside this crate (handlebars 6.4
         // turned it on and reordered this file under every app's pristine check). Alphabetical
         // insertion serializes identically under both, so the emitted profile cannot drift
         // with the dependency tree. The pin test below holds the exact bytes.
@@ -597,7 +597,7 @@ mod tests {
     // The exact bytes, key order included. The profile is written into the app's CHECKED-IN
     // harmony project and drift-guarded there by CI's pristine check — an output reorder
     // (serde_json's `preserve_order` flipping via feature unification, see the emitter's
-    // comment) must fail HERE, not in every app repository's next build.
+    // comment) must fail here, not in every app repository's next build.
     #[test]
     fn harmony_config_bytes_are_pinned() {
         let sc = Resolved {

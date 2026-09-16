@@ -33,7 +33,7 @@ use objc2_user_notifications::{
 use crate::{Capabilities, Channel, Importance, NotifId, Notification, NotifyError};
 
 pub(crate) fn capabilities() -> Capabilities {
-    // No center (an unbundled macOS binary) means NOTHING works, so every capability must read
+    // No center (an unbundled macOS binary) means nothing works, so every capability must read
     // false — reporting `badge: true` beside `post: false` would have a UI offer a control that
     // cannot fire.
     if center().is_none() {
@@ -77,7 +77,7 @@ pub(crate) fn register_channel(channel: &Channel) {
 
 define_class!(
     // The delegate decides what a notification does while the app is running. Without one, iOS
-    // treats a foreground notification as already-seen and shows NOTHING — which is why tapping
+    // treats a foreground notification as already-seen and shows nothing — which is why tapping
     // "Post" in the open app appeared to do nothing at all.
     #[unsafe(super(NSObject))]
     // Creatable from any thread: the first `post` may run wherever the app called it.

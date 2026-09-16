@@ -128,7 +128,7 @@ impl TextBuilder {
             ..day_spec::TextRun::default()
         })
     }
-    /// Highlighted — a color painted BEHIND the glyphs, for a search hit or a review mark.
+    /// Highlighted — a color painted behind the glyphs, for a search hit or a review mark.
     ///
     /// Sets the foreground too, through the same readable-on-a-fill rule `Button::tint` uses: a
     /// highlight is usually a pale wash, and the label's own text color is chosen for the window's
@@ -272,7 +272,7 @@ impl Label {
         self.monospace = true;
         self
     }
-    /// Style spans WITHIN this label's text (docs/text-runs.md): one wrapping paragraph with
+    /// Style spans within this label's text (docs/text-runs.md): one wrapping paragraph with
     /// emphasis, color, code or a link inside it, rather than several labels in a row.
     ///
     /// Ranges are byte offsets into the label's text, ascending and non-overlapping; text not
@@ -285,7 +285,7 @@ impl Label {
         self.runs = runs;
         self
     }
-    /// Take BOTH the text and its runs from a [`TextBuilder`], replacing whatever text the label
+    /// Take both the text and its runs from a [`TextBuilder`], replacing whatever text the label
     /// was built with. This is the intended entry point — the builder guarantees the ranges match
     /// the string, which is the invariant hand-written runs get wrong.
     pub fn runs_from(mut self, b: TextBuilder) -> Self {
@@ -309,7 +309,7 @@ impl Label {
     /// ```
     ///
     /// Unrecognized markup stays literal, so a half-typed `**` reads as two asterisks rather than
-    /// flickering. Block constructs (headings, lists, quotes) are NOT parsed: they are layout,
+    /// flickering. Block constructs (headings, lists, quotes) are not parsed: they are layout,
     /// which is `column`/`form`/`list`.
     /// Center (or trail) this label's lines within its own width — for the short wrapped block
     /// a welcome screen or an empty state uses. Only observable on a label that wraps, since a
@@ -341,7 +341,7 @@ impl Label {
     }
 }
 
-/// [`Label`]'s own builders, reachable THROUGH a decoration (§5.2).
+/// [`Label`]'s own builders, reachable through a decoration (§5.2).
 ///
 /// `label(…).padding(8.0).font(Font::Caption)` resolves because [`Decorated`] forwards this trait
 /// to the label it wraps, so generic modifiers and typed ones may be chained in any order. The
@@ -449,7 +449,7 @@ impl Piece for Label {
         } else {
             (self.text.initial(), self.runs.clone())
         };
-        // Validate ONCE here rather than in eight backends: an overlapping or mid-character
+        // Validate once here rather than in eight backends: an overlapping or mid-character
         // range renders differently wrong on each, and panics on the ones that slice `str`.
         let runs = match day_spec::runs_are_valid(&initial, &runs) {
             Ok(()) => runs,
@@ -495,7 +495,7 @@ impl Piece for Label {
                 }
             });
         }
-        // A reactive markdown label re-parses on every change and patches text AND runs together,
+        // A reactive markdown label re-parses on every change and patches text and runs together,
         // since the ranges only mean anything against the string they were parsed from.
         let font = self.font;
         let md = self.markdown;
@@ -687,7 +687,7 @@ impl Button {
     }
 }
 
-/// [`Button`]'s own builders, reachable THROUGH a decoration — the [`LabelBuilder`] pattern, for
+/// [`Button`]'s own builders, reachable through a decoration — the [`LabelBuilder`] pattern, for
 /// buttons: `button(…).padding(8.0).prominent()` resolves.
 pub trait ButtonBuilder: Sized {
     fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self;
@@ -970,7 +970,7 @@ impl<S: Binding<f64>> Piece for Slider<S> {
         let v = self.value;
         let (step, min, max) = (self.step, self.min, self.max);
         cx.on(node, move |ev| {
-            // Honor `.step(_)` at the framework layer so EVERY backend produces stepped values —
+            // Honor `.step(_)` at the framework layer so every backend produces stepped values —
             // several native sliders (e.g. iOS `UISlider`) have no native step and emit a
             // continuous stream while dragging. Snapping here keeps the bound signal (and the
             // thumb, via `bind_seeded` above) on the step grid, and stops a `.step`-bound consumer
@@ -983,7 +983,7 @@ impl<S: Binding<f64>> Piece for Slider<S> {
                 // The live half of the pair: readers follow the thumb; nothing durable keys
                 // off it (a day-model field opens a preview session here).
                 Event::ValueChanged(val) => v.write_preview(snap(*val)),
-                // The settled value: ONE record for the whole drag. A backend that cannot
+                // The settled value: One record for the whole drag. A backend that cannot
                 // tell the two apart never sends this, and the preview default (a plain
                 // write) keeps it correct — chattier, never wrong.
                 Event::ValueCommitted(val) => v.write_commit(snap(*val)),
@@ -1043,7 +1043,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
             },
         );
         // Controlled input with origin-tagged writes (§4.4): the echo guard remembers the
-        // last value that came FROM the native widget so its own change is not written back.
+        // last value that came from the native widget so its own change is not written back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let v = self.value.clone();
         let g = guard.clone();
@@ -1191,7 +1191,7 @@ impl Piece for Spacer {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Link`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Link`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait LinkBuilder: Sized {
     fn font(self, f: Font) -> Self;
@@ -1223,7 +1223,7 @@ impl<Inner: LinkBuilder + Piece> LinkBuilder for Decorated<Inner> {
     }
 }
 
-/// [`Toggle`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Toggle`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ToggleBuilder: Sized {
     fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
@@ -1241,7 +1241,7 @@ impl<Inner: ToggleBuilder + Piece> ToggleBuilder for Decorated<Inner> {
     }
 }
 
-/// [`Slider`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Slider`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait SliderBuilder: Sized {
     fn range(self, r: std::ops::RangeInclusive<f64>) -> Self;
@@ -1266,7 +1266,7 @@ impl<Inner: SliderBuilder + Piece> SliderBuilder for Decorated<Inner> {
     }
 }
 
-/// [`TextField`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`TextField`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait TextFieldBuilder: Sized {
     fn placeholder<M>(self, t: impl IntoText<M>) -> Self;

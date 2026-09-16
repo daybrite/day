@@ -7,7 +7,7 @@
 // IS the pull gesture. Applied as a `Decorate::tweak` on the wrapped scrollable; inert when the
 // child's realized widget is not a GtkScrolledWindow.
 //
-// Safety: the handler must NOT run app logic synchronously inside GTK's scroll dispatch (a signal
+// Safety: the handler must not run app logic synchronously inside GTK's scroll dispatch (a signal
 // trampoline aborts the process if a panic unwinds through it, and mutating the widget tree
 // mid-dispatch is reentrancy-hazardous). So the overshoot only posts an idle that routes a
 // `pullrefresh:begin` Custom event through the backend's sink — queued, pumped at a safe point,

@@ -81,7 +81,7 @@ unsafe extern "C" {
         italic: c_int,
         tabular: c_int,
     );
-    /// The label's unwrapped single-line natural width (font metrics — NOT the sizeHint
+    /// The label's unwrapped single-line natural width (font metrics — not the sizeHint
     /// heuristic, which suggests a narrow "readable" column for word-wrapped labels).
     pub fn day_qt_label_natural_width(w: *mut c_void) -> c_int;
     /// Text color via the label palette (`on == 0` restores the theme default).
@@ -344,7 +344,7 @@ unsafe extern "C" {
     ) -> *mut c_void;
     /// Give one pane a width, taking the difference from the last pane.
     pub fn day_qt_splitter_set_pane_width(w: *mut c_void, index: c_int, width: c_double);
-    /// `leading` nonzero puts the panel pane FIRST (docs/inspector.md `.edge`).
+    /// `leading` nonzero puts the panel pane first (docs/inspector.md `.edge`).
     pub fn day_qt_inspector_new(panel_width: c_double, leading: c_int) -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
     pub fn day_qt_splitter_on_moved(w: *mut c_void, cb: extern "C" fn(*mut c_void));

@@ -57,7 +57,7 @@ mod imp {
         static NAV_HOST: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
         static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
-        /// Keys whose NavDestination ALREADY disappeared (`day_arkui_nav_popped`) while the
+        /// Keys whose NavDestination already disappeared (`day_arkui_nav_popped`) while the
         /// page is still mounted — its Remove must not touch the torn-down ArkTS content.
         static NAV_POPPED_KEYS: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
@@ -68,7 +68,7 @@ mod imp {
         static NAV_EXPECT_POP: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
         /// Rust's own order of pushed page keys — what a `NavPatch::Popped` pops, so the pop
-        /// handler knows WHICH key it retired (ArkTS only reports keys on disappear).
+        /// handler knows which key it retired (ArkTS only reports keys on disappear).
         static NAV_STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
         /// NAV_PAGE node ptr → day NodeId (recorded at realize; consumed by insert/push).
         static NAV_PAGE_IDS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
@@ -119,7 +119,7 @@ mod imp {
         /// Programmatic-set echo cells (§4.4): ArkUI fires onChange for PROGRAMMATIC sets
         /// too, so a value day just wrote comes straight back as a change event — and a
         /// two-way binding then re-writes the app state (on Day-Sketch, phantom "style"
-        /// undo units on every selection change). The cell holds the LAST programmatic
+        /// undo units on every selection change). The cell holds the last programmatic
         /// value; a matching event is the echo and is swallowed, a differing one is the
         /// user and clears the cell.
         static TEXT_ECHO: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
@@ -137,7 +137,7 @@ mod imp {
         /// Fullscreen covers (docs/cover.md): handle ptr → day NodeId. A cover's frame is
         /// native-owned (full window while presented), so `set_frame` skips these.
         static COVER_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
-        /// A cover's CURRENT native parent (the tree slot it was parked in, or the window
+        /// A cover's current native parent (the tree slot it was parked in, or the window
         /// root while presented) — presenting re-homes it, so removals must target this.
         static COVER_PARENTS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
         /// Covers currently PRESENTED (topped on the window root). Separate from
@@ -203,7 +203,7 @@ mod imp {
     /// component, and the NDK exposes a swiper at most — so the bar is composed from the same
     /// primitives every other Day piece is built from (docs/navigation.md). One implementation,
     /// the platform's own metrics, and the rows keep their meaning: a bar item reports through
-    /// the SAME synthetic-click table a sidebar row uses, so a tap is one event either way.
+    /// the same synthetic-click table a sidebar row uses, so a tap is one event either way.
     struct NavSuite {
         host: usize,
         pages: AHandle,
@@ -561,7 +561,7 @@ mod imp {
         }
     }
 
-    /// Emit `ev` on the next loop turn — for events produced INSIDE a toolkit duty (which runs
+    /// Emit `ev` on the next loop turn — for events produced inside a toolkit duty (which runs
     /// under the tree borrow, so a synchronous emit would re-enter it).
     fn post_emit(id: NodeId, ev: Event) {
         struct Payload(NodeId, Event);
@@ -940,7 +940,7 @@ mod imp {
     }
 
     /// A secondary DayWindowAbility's page connected (the shim's `windowStart` export):
-    /// mount a Stack into ITS NodeContent and complete the pending open (docs/windows.md).
+    /// mount a Stack into its NodeContent and complete the pending open (docs/windows.md).
     /// 0 = closed before connecting — the ability terminates itself.
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `content` is the ability page's NodeContent
@@ -1209,7 +1209,7 @@ mod imp {
 
     /// A pooled cell left the adapter's visible set: clear the cell subtree's dayscript ids
     /// so hidden rows stop answering lookups (day-core's `list_recycle_cell`) — keyed by the
-    /// SAME inner-Stack pointer `day_arkui_list_bind` binds with.
+    /// Same inner-Stack pointer `day_arkui_list_bind` binds with.
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `cell` is the adapter's live inner Stack
     pub extern "C" fn day_arkui_list_recycle(host_id: u64, cell: *mut c_void) {
@@ -1360,7 +1360,7 @@ mod imp {
     }
 
     /// A destination's content area changed (vp): relayout that page in its real bounds. The
-    /// FIRST report for a key is also the push-landed signal `ui_idle` waits on.
+    /// First report for a key is also the push-landed signal `ui_idle` waits on.
     #[unsafe(no_mangle)]
     pub extern "C" fn day_arkui_nav_area(key: u64, w: f64, h: f64) {
         day_spec::ffi_guard::contain((), || {
@@ -1482,7 +1482,7 @@ mod imp {
         }
     }
 
-    /// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling
+    /// Warn once per kind that this backend has no registered renderer for `kind`, before falling
     /// back to a placeholder (an empty stack node). A missing renderer usually means the piece's
     /// `arkui` feature wasn't enabled. Deduped per kind so it doesn't spam the log.
     fn warn_missing_renderer(kind: PieceKind) {
@@ -1499,7 +1499,7 @@ mod imp {
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         unsafe {
                             if p.role == Some(day_spec::SurfaceRole::SectionCard) {
-                                // A translucent neutral fill reads as a subtle card on BOTH the
+                                // A translucent neutral fill reads as a subtle card on both the
                                 // light and dark ArkUI themes (no public semantic-fill API).
                                 ffi::day_ark_set_bg_color(
                                     n.0,
@@ -1703,7 +1703,7 @@ mod imp {
                     }
                 }
                 // Navigation host + pages (docs/navigation.md): the host Stack shows the ROOT
-                // page; every LATER page is re-homed into an ArkTS `NavDestination` (HarmonyOS's
+                // page; every later page is re-homed into an ArkTS `NavDestination` (HarmonyOS's
                 // own Navigation/NavPathStack) when its NavPatch::Pushed arrives — native push
                 // transition, title bar, and system back gesture included. Pages carry an opaque
                 // background so transitions don't bleed.
@@ -1776,7 +1776,7 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "arkui", props) else {
                         return new_node(K_STACK);
                     };
-                    // Inside a suite the rows ARE the bar. The list is still built — it lives in
+                    // Inside a suite the rows are the bar. The list is still built — it lives in
                     // the sidebar page, which the suite keeps but never shows — so nothing else
                     // has to know which presentation it is in.
                     suite_fill_bar(id, &p.items, &p.icons, 0);
@@ -1853,7 +1853,7 @@ mod imp {
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {
                             NavPatch::Pushed { title, .. } => {
-                                // The just-attached LAST page child becomes a NavDestination:
+                                // The just-attached last page child becomes a NavDestination:
                                 // detach it from the host Stack and mount it into the fresh
                                 // NodeContent the ArkTS push callback returns.
                                 // CONSUME the entry: a second Pushed must never re-detach
@@ -2001,7 +2001,7 @@ mod imp {
                                     ffi::day_ark_set_bg_color(h.0, bg);
                                     // Detach from the tree slot it was parked in, then top the
                                     // window root at full bounds. The cover-fallback tier
-                                    // (docs/windows.md) parks covers directly UNDER the root —
+                                    // (docs/windows.md) parks covers directly under the root —
                                     // a same-parent re-add is rejected by ArkUI, so detach from
                                     // the root too (a no-op when parked elsewhere).
                                     match prev {
@@ -2013,7 +2013,7 @@ mod imp {
                                 }
                                 COVER_PARENTS.with(|m| m.borrow_mut().insert(key, root));
                                 COVER_PRESENTED.with(|s| s.borrow_mut().insert(key));
-                                // Report the content size OUTSIDE this tree borrow.
+                                // Report the content size outside this tree borrow.
                                 post_emit(node, Event::FrameChanged(Size::new(w, hgt)));
                             }
                             // No interactive dismissal on this backend — nothing to disable.
@@ -2046,7 +2046,7 @@ mod imp {
                                 ffi::day_ark_set_image_fill(h.0, argb(*c))
                             },
                             day_spec::props::ImagePatch::Tint(None) => {}
-                            // A source swap repaints the SAME node (docs/images.md).
+                            // A source swap repaints the same node (docs/images.md).
                             day_spec::props::ImagePatch::Source(source) => {
                                 arkui_apply_image_source(h.0, source, None);
                             }
@@ -2226,7 +2226,7 @@ mod imp {
                 TEXT_ECHO.with(|m| m.borrow_mut().remove(&nid));
                 SLIDER_ECHO.with(|m| m.borrow_mut().remove(&nid));
             }
-            // A pushed page released WITHOUT a Remove patch (whole-host teardown) must not
+            // A pushed page released without a Remove patch (whole-host teardown) must not
             // leave its re-home bookkeeping behind: a recycled node address would alias it.
             // The ArkTS side still holds the destination slot's keep-alive ref — drop that
             // too (nav_forget touches only the bookkeeping, never the content tree).
@@ -2340,7 +2340,7 @@ mod imp {
             let native_parent = SCROLL_CONTENT
                 .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
                 .unwrap_or(parent.0 as usize);
-            // A cover's CURRENT parent starts as its tree slot (Present re-homes it).
+            // A cover's current parent starts as its tree slot (Present re-homes it).
             if COVER_NODES.with(|m| m.borrow().contains_key(&(child.0 as usize))) {
                 COVER_PARENTS.with(|m| m.borrow_mut().insert(child.0 as usize, native_parent));
             }
@@ -2357,7 +2357,7 @@ mod imp {
             }
             if let Some(key) = NAV_PUSHED.with(|m| m.borrow_mut().remove(&cp)) {
                 // The page lives in an ArkTS NodeContent (NavDestination), not under the host.
-                // Detach it ONLY while that destination is still alive (a Day-initiated pop:
+                // Detach it only while that destination is still alive (a Day-initiated pop:
                 // the Remove patch lands before the pop transition finishes). Once the ArkTS
                 // side reported the disappearance (native back — the destination and its
                 // content tree are already torn down), touching the slot would walk freed
@@ -2476,7 +2476,7 @@ mod imp {
         fn set_scroll_content(&mut self, h: &AHandle, content: Size) {
             // Size the shim-owned container (see [`SCROLL_CONTENT`]) so ArkUI's Scroll
             // measures the real extent — that extent is what makes touch and programmatic
-            // offsets take effect. Size WITHOUT position: `NODE_POSITION` removes a child
+            // offsets take effect. Size without position: `NODE_POSITION` removes a child
             // from layout flow, and the Scroll's measure ignores positioned children.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
                 unsafe { ffi::day_ark_set_size(stack as *mut _, content.width, content.height) };
@@ -2750,7 +2750,7 @@ mod imp {
                 Cap::FontList => Support::Native,
                 // `OH_ImageSourceNative` decodes every container the platform reads, and the
                 // image packer writes back PNG and JPEG (docs/images.md). `Cap::ImageProperties`
-                // is deliberately NOT here: the platform DOES expose
+                // is deliberately NOT here: the platform does expose
                 // `OH_ImageSourceNative_GetImageProperty`, but nothing reads it yet, and an empty
                 // struct would read as "this file records nothing" rather than "nobody looked".
                 Cap::ImageDecode | Cap::ImageEncode => Support::Native,
@@ -2768,7 +2768,7 @@ mod imp {
                 // The composed bottom bar (see NavSuite): ArkUI's native node set has no tab
                 // container, so this one is built from Day's own primitives — Emulated says so.
                 Cap::NavTabs => Support::Emulated,
-                // And HarmonyOS SHOULD grow one as it narrows: a bottom bar is the phone idiom
+                // And HarmonyOS should grow one as it narrows: a bottom bar is the phone idiom
                 // here as it is on iOS and Android (docs/navigation.md).
                 Cap::NavTabsAdaptive => Support::Emulated,
                 // ArkUI's own drag pipeline (SetNodeDraggable + NODE_ON_DROP): long-press lift

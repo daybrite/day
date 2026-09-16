@@ -76,7 +76,7 @@ impl Parser<'_> {
     /// Parse until `close` is found (or the end of input when it is `None`), emitting runs for
     /// everything under the current style set. Returns whether `close` was actually reached.
     fn inline(&mut self, styles: Styles, link: Option<&String>, close: Option<&[u8]>) -> bool {
-        // Text accumulated under THIS style set, flushed as one run whenever a marker interrupts.
+        // Text accumulated under this style set, flushed as one run whenever a marker interrupts.
         let mut start = self.out.len();
         let mut closed = false;
         while self.at < self.src.len() {

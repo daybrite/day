@@ -169,7 +169,7 @@ pub enum SbomFormat {
 }
 
 impl SbomFormat {
-    /// The name the document carries INSIDE an app bundle (`sbom = "embed …"`), and in the
+    /// The name the document carries inside an app bundle (`sbom = "embed …"`), and in the
     /// generator's own staging directory. Fixed, because an embedded document is looked up by
     /// name at runtime and by `day rebuild` inside a downloaded container.
     pub fn file_name(self) -> &'static str {
@@ -514,7 +514,7 @@ pub struct OhosSigning {
     pub profile: String,
 }
 
-/// `[app]`: the Day-specific app identity. `name`/`version` are FILLED FROM Cargo.toml after
+/// `[app]`: the Day-specific app identity. `name`/`version` are FILLED from Cargo.toml after
 /// parsing (never written in Day.toml). Every other property can be overridden per platform /
 /// toolkit / target via `[app.<key>]` tables collected in `overrides`.
 #[derive(Debug, Deserialize)]
@@ -833,7 +833,7 @@ fn strip_verbatim(p: PathBuf) -> PathBuf {
 
 /// Check `[permissions]` against the declaration table, with messages a human can act on.
 ///
-/// This runs over the raw TOML BEFORE the typed parse on purpose. `Declaration` is an untagged
+/// This runs over the raw TOML before the typed parse on purpose. `Declaration` is an untagged
 /// enum, so serde reports any malformed entry as "data did not match any variant of untagged enum
 /// Declaration" — which names neither the permission nor the key at fault. Both mistakes it catches
 /// are the same class: a permission that silently fails to be declared is a crash on iOS.
@@ -1001,7 +1001,7 @@ pub fn day_toml_app_id(day_toml: &Path) -> Option<String> {
 }
 
 /// Every Day project in a checkout, deepest-last and sorted, so the answer never depends on
-/// filesystem order. A directory qualifies only with BOTH manifests: `crates/day-cli/templates/app`
+/// filesystem order. A directory qualifies only with both manifests: `crates/day-cli/templates/app`
 /// has a `Day.toml` and no `Cargo.toml`, and packing it fails with a missing-manifest error that
 /// says nothing about the real problem.
 ///
@@ -1358,7 +1358,7 @@ mod lib_name_tests {
         assert_eq!(numeric.manifest.resolve("macos-appkit").scheme(), "dayapp");
     }
 
-    /// A `name` in a LATER table is not the lib's — the scan stops at the next header.
+    /// A `name` in a later table is not the lib's — the scan stops at the next header.
     #[test]
     fn a_name_in_a_following_table_is_not_read() {
         let p = project_with(

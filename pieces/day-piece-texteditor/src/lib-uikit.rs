@@ -182,7 +182,7 @@ fn attributed(doc: &StyledText, base: Font) -> Retained<NSAttributedString> {
             &run_font(day_spec::FontSpec::new(base)),
             whole,
         );
-        // ALWAYS a foreground: an attributed run with none draws black, which is unreadable in
+        // Always a foreground: an attributed run with none draws black, which is unreadable in
         // dark mode. `labelColor` is the adaptive default the view would have used.
         s.addAttribute_value_range(
             objc2_ui_kit::NSForegroundColorAttributeName,

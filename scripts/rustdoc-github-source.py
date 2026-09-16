@@ -62,7 +62,7 @@ def main():
         frag = f"#L{start}" + (f"-L{end}" if end else "")
         return f"{base}/{src_dir}/{path}{frag}"
 
-    # Rewrite .html AND .js: rustdoc's trait.impl/ & type.impl/ .js carry pre-rendered impl blocks that
+    # Rewrite .html and .js: rustdoc's trait.impl/ & type.impl/ .js carry pre-rendered impl blocks that
     # can hold source links too. Absolute std links (https://doc.rust-lang.org/.../src/…) lack the
     # leading ../ so the regex never touches them; only relative Day-crate links match.
     files, links = 0, 0

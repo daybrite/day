@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // Android: AndroidX SwipeRefreshLayout — the real thing. The Java factory
-// (`dev.daybrite.day.piece.pullrefresh.DayPullRefresh`) is bundled with THIS crate in
+// (`dev.daybrite.day.piece.pullrefresh.DayPullRefresh`) is bundled with this crate in
 // `src/DayPullRefresh.java` and pulled into the app's Gradle build via `[package.metadata.day.android]`,
 // which also contributes the `androidx.swiperefreshlayout` dependency. The realized node IS the
 // SwipeRefreshLayout (a ViewGroup): day-core's generic `addChild` mounts the wrapped scrollable

@@ -8,12 +8,12 @@
 # yanked release, a dependency that stopped compiling, a scaffold that drifted from the API, and
 # OS-specific regressions — before users hit them.
 #
-# TWO axes, crossed: 11 combos × 2 day versions.
+# Two axes, crossed: 11 combos × 2 day versions.
 #   main    — checkup installs day-cli from the git remote's main branch and scaffolds against it.
 #             A regression is reported the day it lands, not at the next release.
 #   latest  — the newest day-cli published to crates.io: what a user who installs today gets. The
 #             CLI installed above IS that version, so checkup skips the second install and runs it.
-# The day under test decides BOTH halves — the CLI that scaffolds/builds/packs, and the `day`
+# The day under test decides both halves — the CLI that scaffolds/builds/packs, and the `day`
 # dependency the scaffold carries — so a job can never test one against the other.
 #
 # `--strict` is why a broken prerequisite still fails the job: without it, checkup would SKIP the
@@ -62,7 +62,7 @@ jobs:
         # Two axes, crossed: every combo is checked against every day under test. `main` catches a
         # regression the day it lands; `latest` catches one a user would hit today, on the newest
         # published release. `include` rows carry no `day-version`, so each one attaches its os +
-        # toolkit to BOTH of its combo's jobs rather than adding jobs of its own.
+        # toolkit to both of its combo's jobs rather than adding jobs of its own.
         day-version: [main, latest]
         combo:
           - macos-appkit
@@ -91,7 +91,7 @@ jobs:
           - { combo: windows-qt,    os: windows-latest }
           - { combo: windows-gtk,   os: windows-latest }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90 # a cell now builds AND packages; the slowest (ios, linux flatpak) run long
+    timeout-minutes: 90 # a cell now builds and packages; the slowest (ios, linux flatpak) run long
     defaults:
       run:
         shell: bash
@@ -121,7 +121,7 @@ jobs:
           java: false
 
       # --- the check: doctor → new → build → pack, for this combo --------------------------
-      # `--day-version` decides BOTH halves of what is under test: checkup installs that day-cli
+      # `--day-version` decides both halves of what is under test: checkup installs that day-cli
       # (skipping the install when the CLI above is already that version — the `latest` cells) and
       # pins the app it scaffolds to the same day. The scaffold goes under `--dir`, a directory in
       # the runner's temp dir whose name holds a space, so new → build → pack (and the CLI install

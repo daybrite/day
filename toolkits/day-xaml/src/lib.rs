@@ -144,7 +144,7 @@ struct SplitNav {
     /// coincide when the pages are resident.
     resident: bool,
     /// The row of `detail_pages` the app has selected — the one resident page that must be
-    /// visible. Kept here because the pages arrive AFTER the selection is known: a destination set
+    /// visible. Kept here because the pages arrive after the selection is known: a destination set
     /// realizes its menu first (carrying `NavMenuProps.selected`) and its pages one at a time
     /// after, each landing on top of the last. Without re-applying the selection on every insert,
     /// what showed was whichever page happened to be added last.
@@ -284,7 +284,7 @@ fn stack_sync(host: *mut c_void) {
 /// and remove as well, because a set of resident pages is built one page at a time and each new
 /// one covers the rest until something says which is current.
 fn select_sync(host: *mut c_void) {
-    // The pages are copied out and the borrow dropped BEFORE any FFI: `set_visible` lets XAML lay
+    // The pages are copied out and the borrow dropped before any FFI: `set_visible` lets XAML lay
     // out, which raises SizeChanged, which day turns into a FrameChanged patch that comes straight
     // back through this map and takes it mutably. Holding the borrow across the call is a
     // RefCell double-borrow panic — and one that only shows on a layout that actually reflows,
@@ -646,7 +646,7 @@ fn list_fill_window(host_key: usize) {
             w.round() as c_int
         };
         if width <= 0 {
-            // No usable width yet. Bail WITHOUT recording `last_width`, so the host's next
+            // No usable width yet. Bail without recording `last_width`, so the host's next
             // `set_frame` still reads as a width change and schedules the real populate.
             return None;
         }
@@ -709,7 +709,7 @@ fn list_fill_window(host_key: usize) {
         }
         (source.bind_row)(i, cell);
     }
-    // The extent is the WHOLE source, built or not: the scrollbar is how the user reaches rows
+    // The extent is the whole source, built or not: the scrollbar is how the user reaches rows
     // that do not exist yet, so it cannot be sized to what happens to be realized.
     unsafe { ffi::day_xaml_list_set_content_size(content, width, (n as f64 * rowh) as c_int) };
     // Cells just added to the pool start unpainted, and a reload can move which rows are selected
@@ -1392,12 +1392,12 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
                     (None, Some(r)) => win_role_keymods(*r),
                     (None, None) => (0, 0),
                 };
-                // A nonzero id ALWAYS wins (the appkit precedence, docs/menus.md): the item
+                // A nonzero id always wins (the appkit precedence, docs/menus.md): the item
                 // dispatches the day action and the role only decorates it. day-core's auto
                 // Preferences item and `MenuRole::NewWindow` arrive exactly this way — routing
                 // them through the role-only path dropped the id, leaving visible-but-DEAD
                 // menu items (the same bug macos-qt had).
-                // An 8th field carries the item's glyph (docs/menus.md). Appended AFTER the
+                // An 8th field carries the item's glyph (docs/menus.md). Appended after the
                 // label, so a shim reading only the first seven fields is unaffected — the
                 // parser indexes, and the label's own tabs are already cleaned away. Only
                 // SYMBOLS cross: a MenuFlyoutItem takes a Segoe Fluent glyph, where a bundled
@@ -1435,7 +1435,7 @@ fn serialize_menu_xaml(items: &[day_spec::MenuItem], out: &mut String) {
     }
 }
 
-/// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling back to
+/// Warn once per kind that this backend has no registered renderer for `kind`, before falling back to
 /// a visible placeholder. A missing renderer usually means the piece's `xaml` feature wasn't enabled
 /// (Tier A.2 derives it automatically under `day build`). Deduped per kind so a placeholder rendered
 /// every frame doesn't spam the log.
@@ -1520,7 +1520,7 @@ impl Toolkit for Xaml {
             // A SplitView with PanePlacement=Right — the XAML trailing-pane container
             // (docs/inspector.md).
             Cap::Inspector => Support::Native,
-            // The SAME NavigationView with a different pane: `Top` is WinUI's tab bar and
+            // The same NavigationView with a different pane: `Top` is WinUI's tab bar and
             // `LeftCompact` a real icon rail (docs/navigation.md).
             //
             // `Cap::NavTabsAdaptive` is deliberately not here: a Windows app may PIN a tab bar,
@@ -1598,7 +1598,7 @@ impl Toolkit for Xaml {
                     let is_stack =
                         matches!(p.presentation, day_spec::props::NavPresentation::Stack);
                     let mut content: *mut c_void = std::ptr::null_mut();
-                    // Where the rows are the CHROME the SAME NavigationView wears a different
+                    // Where the rows are the CHROME the same NavigationView wears a different
                     // pane: `Top` is WinUI's tab bar and `LeftCompact` a real icon rail, so a
                     // rail lands on a rail here rather than rounding to a sidebar the way it must
                     // on macOS (docs/navigation.md). Pages stay resident and `Select` switches
@@ -1923,7 +1923,7 @@ impl Toolkit for Xaml {
                         ContentMode::Stretch => 2,
                     };
                     // A `vector(…)` glyph draws as real geometry (docs/vectors.md) — vector at
-                    // any size, and its tint composed as a brush at realize time. Tried FIRST,
+                    // any size, and its tint composed as a brush at realize time. Tried first,
                     // tinted or not; `vector_geometry` is None for a raster `image(…)` name and
                     // for art the CLI could not convert, which is what falls through below.
                     // Bytes and shared decodes arrive through `decode_image` (docs/images.md);
@@ -2006,7 +2006,7 @@ impl Toolkit for Xaml {
                     if let Some(day_spec::props::ImagePatch::Source(source)) =
                         patch.downcast_ref::<day_spec::props::ImagePatch>()
                     {
-                        // A source swap repaints the SAME element (docs/images.md), and one
+                        // A source swap repaints the same element (docs/images.md), and one
                         // that will not load leaves it showing what it was. Only the raster
                         // `Image` swaps: a vector glyph is `Path` geometry, not an `Image`.
                         match source {
@@ -2345,7 +2345,7 @@ impl Toolkit for Xaml {
         }
     }
     fn release(&mut self, h: WinHandle) {
-        // A released window content = that window is gone (docs/windows.md teardown): NOW
+        // A released window content = that window is gone (docs/windows.md teardown): Now
         // destroy the whole secondary window, never before (child releases come first).
         self.secondary.retain(|w| {
             if w.content == h.0 {
@@ -2403,7 +2403,7 @@ impl Toolkit for Xaml {
         COVER_IDS.with(|m| {
             m.borrow_mut().remove(&key);
         });
-        // ONE sweep drops this handle from EVERY SideTable registered on this thread — the
+        // One sweep drops this handle from every SideTable registered on this thread — the
         // textarea line bands today, and any table added later — so an element recycling the
         // freed address can't inherit the dead element's entries. (The explicit purges above
         // stay: they key by node id / value pairs, not this address.)
@@ -2708,7 +2708,7 @@ impl Toolkit for Xaml {
             )
         };
         // (Nav hosts are NavigationViews — they reflow their own regions, which report FrameChanged.)
-        // List host framed: (re)fill its cells — but ONLY when the width actually changed, so the
+        // List host framed: (re)fill its cells — but only when the width actually changed, so the
         // set_frames a populate itself makes (on row content) don't schedule another forever.
         let framed = frame.size.width.round() as c_int;
         let width_changed = LIST_STATE.with(|m| {
@@ -2721,7 +2721,7 @@ impl Toolkit for Xaml {
             st.frame_width = framed;
             st.last_width != framed
         });
-        // A taller host shows MORE rows, and the ones it grew into are not built yet — so a
+        // A taller host shows more rows, and the ones it grew into are not built yet — so a
         // height change refills the window even though every built row is still valid. Width is
         // the one that invalidates content: each row is laid out to it.
         let framed_h = frame.size.height.round() as c_int;
@@ -2843,7 +2843,7 @@ impl Toolkit for Xaml {
         );
         let mut spec = String::new();
         serialize_menu_xaml(&items, &mut spec);
-        // Kept, because day's app menu is installed ONCE but Windows draws it per window: a
+        // Kept, because day's app menu is installed once but Windows draws it per window: a
         // window opened later has to be given the menu that was set before it existed
         // (see `open_window`). Re-set on a locale change, so the stored spec stays current.
         self.menu_spec = spec.clone();
@@ -2990,7 +2990,7 @@ impl Toolkit for Xaml {
 
     fn set_window_title(&mut self, host: &WinHandle, title: &str) {
         // `window_token` covers the primary too — it is an ordinary window (docs/windows.md),
-        // and `day::window_title` in the FIRST window's shell arrives here like any other.
+        // and `day::window_title` in the first window's shell arrives here like any other.
         if let Some(win) = self.window_token(host) {
             unsafe { ffi::day_xaml_window_set_title2(win, cstr(title).as_ptr()) };
         }

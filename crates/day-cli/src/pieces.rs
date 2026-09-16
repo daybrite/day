@@ -4,7 +4,7 @@
 //! Standalone-piece backend discovery (docs/extending.md). External piece crates (e.g.
 //! `day-piece-searchfield`) declare their per-toolkit backend contributions in `Cargo.toml` under
 //! `[package.metadata.day.<toolkit>]`; the Day CLI reads them from `cargo metadata` and folds them
-//! into the native build — so a piece carries BOTH its front-end (Rust) and its backend (Java /
+//! into the native build — so a piece carries both its front-end (Rust) and its backend (Java /
 //! Gradle deps / …) without touching the core Day crates.
 //!
 //! Android contract (`[package.metadata.day.android]`):
@@ -43,7 +43,7 @@
 //! ```toml
 //! ets = ["platform/harmony/ets"]                    # dirs (rel. to the crate) of ArkTS sources
 //! ```
-//! For components that exist ONLY in ArkTS — the ArkUI C node API cannot construct a `Web` at all.
+//! For components that exist only in ArkTS — the ArkUI C node API cannot construct a `Web` at all.
 //! Hvigor compiles ArkTS only from inside the module, so these stage into the project itself
 //! (`entry/src/main/ets/daypieces/<crate>/`, gitignored) beside a generated `DayPieces.ets` whose
 //! `registerDayPieces(uiContext)` the checked-in host page calls once — so adding an ArkTS piece is
@@ -168,7 +168,7 @@ struct AndroidMeta {
     #[serde(default)]
     proguard: StringOrVec,
     /// Manifest fragments (relative to the crate) holding the `<receiver>`/`<service>`/`<activity>`
-    /// elements the crate's own Java classes need declared. Each file holds ONLY the elements —
+    /// elements the crate's own Java classes need declared. Each file holds only the elements —
     /// no `<manifest>` or `<application>` wrapper, which the CLI adds — and must name its classes
     /// fully-qualified, since the overlay merges into an app whose package it cannot know.
     #[serde(default, rename = "manifest-components")]
@@ -212,7 +212,7 @@ struct PieceMeta {
 /// per match (deduped, sorted). This lets the app depend on a piece with a plain `{ workspace = true }`
 /// and no per-backend feature fan-out — the CLI derives them here.
 ///
-/// Robustness: only pieces that ACTUALLY declare `backend` contribute (so `cargo`'s "feature does not
+/// Robustness: only pieces that actually declare `backend` contribute (so `cargo`'s "feature does not
 /// exist" / "not a direct dependency" errors can't fire), and a metadata failure degrades to an empty
 /// list (warn, don't fail) so the app still builds with whatever features it lists itself. Because the
 /// union is additive, an app that still lists the per-piece features stays correct (dupes are fine).
@@ -290,7 +290,7 @@ fn cargo_metadata_inner(
     // `day` invoked from outside the project resolves the graph without the patch table — a crate
     // that exists only in the local checkout fails resolution, and every metadata consumer
     // (feature union, piece staging) silently degrades to "no contributions".
-    // The feature union must be resolved against the SAME day the build links. Resolving without
+    // The feature union must be resolved against the same day the build links. Resolving without
     // the `--day-src` patch reports the piece features of whatever day the manifest names, and a
     // piece whose renderer feature goes missing renders as a `⟨kind⟩` placeholder — the exact
     // silent degradation the paragraph above describes, from a different cause.
@@ -696,7 +696,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     let dir = project.root.join("build/day/android");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    // Day.toml's [permissions] joins the pieces' raw contributions here, so BOTH reach the overlay
+    // Day.toml's [permissions] joins the pieces' raw contributions here, so both reach the overlay
     // through one path. `pieces.permissions` must carry every name: scaffolds generated before
     // manifest components existed gate the overlay on that list being non-empty.
     let contributed = contributed_permissions(project, &["mdc"]);
@@ -740,7 +740,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
         stage_gradle_plugin(src, &dir.join("gradle-plugin"))?;
     }
 
-    // day-pieces.json is written AFTER the merge so Gradle sees the full list.
+    // day-pieces.json is written after the merge so Gradle sees the full list.
     let json = serde_json::to_string_pretty(&pieces).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("day-pieces.json"), json).map_err(|e| e.to_string())?;
 
@@ -763,7 +763,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
         let _ = std::fs::remove_file(&overlay);
     } else {
         // A scaffold generated before manifest-components existed gates the overlay on the
-        // permission list being non-empty, so a crate contributing ONLY components would have its
+        // permission list being non-empty, so a crate contributing only components would have its
         // receivers silently dropped. Say so, with the one-line fix, rather than shipping an APK
         // that installs and never delivers.
         if entries.is_empty() {
@@ -892,7 +892,7 @@ fn read_manifest_components(paths: &[String]) -> Result<Vec<String>, String> {
         if trimmed.is_empty() {
             return Err(format!("manifest-components {path}: file is empty"));
         }
-        // Look for a wrapper only OUTSIDE comments: a fragment's header comment routinely
+        // Look for a wrapper only outside comments: a fragment's header comment routinely
         // mentions `<application>` while explaining that it must not contain one, and matching
         // that would reject a correct file (it rejected this crate's own reference fragment).
         let code = strip_xml_comments(trimmed);

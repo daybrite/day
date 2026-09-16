@@ -23,7 +23,7 @@ import UIKit
 open class DaySwiftUIProvider: NSObject {
     public required override init() {}
 
-    /// Called once to create the view and again on every params change. Return the SAME underlying
+    /// Called once to create the view and again on every params change. Return the same underlying
     /// view type from every call so SwiftUI diffing preserves `@State` across updates.
     open func body(_ params: String?) -> AnyView {
         AnyView(EmptyView())
@@ -94,7 +94,7 @@ public func day_swiftui_make(
     let params = paramsPtr.map { String(cString: $0) }
     let stateKey = stateKeyPtr.map { String(cString: $0) }
 
-    // A retained view from a prior mount: hand back the SAME instance — its SwiftUI state graph is
+    // A retained view from a prior mount: hand back the same instance — its SwiftUI state graph is
     // intact — with this mount's params applied through its provider (locale switches and other
     // data changes that happened while unmounted land here). Defensively unparent it: Day removed
     // it on release, but a stale superview (or a misuse mounting one key twice) must not wedge the

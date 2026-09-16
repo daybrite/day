@@ -3,7 +3,7 @@
 
 //! The Rust panic hook and the day-core contained-panic observer.
 //!
-//! The hook fires for EVERY panic — including one day-core will contain at a trampoline boundary
+//! The hook fires for every panic, including one day-core will contain at a trampoline boundary
 //! and one a third-party `catch_unwind` will swallow. So it only *records* a pending artifact
 //! (never aborts), and correlation is resolved afterward:
 //!
@@ -34,7 +34,7 @@ pub(crate) fn install() {
     }
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        // Never let the reporter's own failure mask the panic — record best-effort, then chain.
+        // Never let the reporter's own failure mask the panic: record best-effort, then chain.
         record(info);
         prev(info);
     }));
@@ -75,7 +75,7 @@ fn record(info: &std::panic::PanicHookInfo<'_>) {
         LAST_PENDING.with(|p| *p.borrow_mut() = Some(path));
     }
 
-    // §8.5 reporter hook — panic context is ordinary code; callbacks may allocate.
+    // §8.5 reporter hook. Panic context is ordinary code; callbacks may allocate.
     let info = crate::CrashInfo {
         message,
         location,
@@ -88,7 +88,7 @@ fn record(info: &std::panic::PanicHookInfo<'_>) {
 
 /// Registered with day-core via [`day_core::set_contained_panic_observer`]; runs on the panicking
 /// thread after day-core catches and resets. Downgrades this thread's pending panic to a
-/// non-fatal `contained` record — the app is still alive.
+/// non-fatal `contained` record; the app is still alive.
 pub(crate) fn observe_contained() {
     LAST_PENDING.with(|p| {
         if let Some(path) = p.borrow_mut().take() {

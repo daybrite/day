@@ -223,7 +223,7 @@ function navChrome(nav, id, mode) {
   }
   const side = div(name === 'split' ? 'day-nav-sidebar' : name === 'tabs' ? 'day-nav-tabbar' : 'day-nav-rail');
   const detail = div('day-nav-detail');
-  // A tab bar sits BELOW the content, the way every phone puts it; a sidebar and a rail lead it.
+  // A tab bar sits below the content, the way every phone puts it; a sidebar and a rail lead it.
   if (name === 'tabs') nav.append(detail, side); else nav.append(side, detail);
   nav.__side = side; nav.__detail = detail;
 }
@@ -460,7 +460,7 @@ const env = {
   // visible height. The list positions every row itself, so this is the only way it can know
   // which handful of a ten-thousand-row source needs building.
   day_dom_list_viewport(id, out) { const el = E(id); f64(out, 2).set([el.scrollTop, el.clientHeight]); },
-  // Report scrolling, so rows coming INTO view get built before they are looked at. Passive:
+  // Report scrolling, so rows coming into view get built before they are looked at. Passive:
   // this never calls preventDefault, and saying so keeps the scroll off the main thread's
   // critical path.
   day_dom_list_on_scroll(id) {
@@ -1039,7 +1039,7 @@ const env = {
     const nav = document.querySelector('.day-nav.split');
     if (!nav) return 0;
     nav.classList.toggle('day-sidebar-hidden');
-    // Day frames the panes itself — the CSS only decides how much room the detail HAS, not how
+    // Day frames the panes itself — the CSS only decides how much room the detail has, not how
     // wide its page was told to be. Report the detail's new size or the page keeps the width it
     // was given and the hidden sidebar leaves a gap. A frame later, so the class has taken
     // effect and the rect is the one the browser settled on.
@@ -1072,7 +1072,7 @@ const env = {
 
   // Motion sensors (docs/sensors.md): the browser arm of day-part-sensors, over `devicemotion`.
   //
-  // ONE listener feeds both kinds — the event carries acceleration and rotation together. The
+  // One listener feeds both kinds — the event carries acceleration and rotation together. The
   // magnetometer has no cross-browser API at all (Chromium's Generic Sensor `Magnetometer` is
   // flag-gated and absent from Safari and Firefox), so kind 2 is always unavailable.
   //
@@ -1186,7 +1186,7 @@ const env = {
   // App-local files (docs/fs.md): the browser arm of day-part-fs, stored in the Origin
   // Private File System — a real origin-scoped file hierarchy.
   // One operation per request id (op: 0 read, 1 write, 2 remove, 3 list); the completion
-  // re-enters wasm EXACTLY once: day_fs_done (bytes; list joins names with \u001f,
+  // re-enters wasm exactly once: day_fs_done (bytes; list joins names with \u001f,
   // directories carrying a trailing slash) or day_fs_failed (kind 1 NotFound, 2 no OPFS in
   // this context — pre-OPFS browsers and private-browsing/ephemeral sessions, which WebKit
   // gives no storage backing — 0 everything else). Request buffers are COPIED out before the
@@ -1400,7 +1400,7 @@ function mods(e) { return (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0
 // drag-and-drop and the accessibility tree all come with it, and none of them can be rebuilt in a
 // canvas. What it does NOT give is a stable document model: pressing Enter inserts a <div> in one
 // browser and a <p> in another, and a paste brings whatever markup it came with. So Day reads the
-// DOM through ONE flattening (dayEditorText) and writes it back in ONE canonical shape (spans
+// DOM through one flattening (dayEditorText) and writes it back in one canonical shape (spans
 // inside <p> blocks), and every offset it exchanges with Rust is a UTF-8 BYTE offset, because
 // that is what a Rust `String` indexes by.
 // ---------------------------------------------------------------------------
@@ -1415,7 +1415,7 @@ function dayFillerBr(node) {
   return node.nodeName === 'BR' && node.nextSibling === null;
 }
 
-// The DOM ⇄ flat-text mapping, and the ONE traversal all of it goes through.
+// The DOM ⇄ flat-text mapping, and the one traversal all of it goes through.
 //
 // Day's serializer writes ONE BLOCK PER LINE of the document, so read backwards the text is the
 // blocks' text JOINED with "\n" — an empty block is an empty line and still contributes its
@@ -1757,7 +1757,7 @@ function listen(id, mask) {
     host.addEventListener('pointerleave', (e) => {
       if (e.pointerType === 'touch') return;
       // The leave's own coordinates are outside the element; the contract is the last point seen
-      // INSIDE, so that is what goes out.
+      // Inside, so that is what goes out.
       wasm.day_dom_event(id, 19, last[0], last[1], 0, 0);
     });
   }
@@ -1845,7 +1845,7 @@ function rgba(packed) {
   return `rgba(${(v >>> 24) & 255},${(v >>> 16) & 255},${(v >>> 8) & 255},${(v & 255) / 255})`;
 }
 
-// The region a stroke of the CURRENT lineWidth covers, as a clip path. Canvas2D exposes no
+// The region a stroke of the current lineWidth covers, as a clip path. Canvas2D exposes no
 // "convert stroke to path", so this is the honest approximation available to it: clip to the
 // path's own outline. A gradient stroke therefore paints the gradient across the whole path
 // interior on web, which reads correctly for thin lines and diverges for very thick ones.
@@ -2002,7 +2002,7 @@ function replay(canvas, ops, strs, w, h) {
       const at = new Float64Array(n * 2);
       for (let k = 0; k < n * 2; k++) at[k] = next();
       const paint = readPaint(); const p = path();
-      // ONE Path2D holding every copy, then one fill or stroke: the whole batch enters the
+      // One Path2D holding every copy, then one fill or stroke: the whole batch enters the
       // rasterizer once, however many positions it has (docs/canvas.md "Stamping").
       const batch = new Path2D();
       const m = new DOMMatrix();
@@ -2046,7 +2046,7 @@ function replay(canvas, ops, strs, w, h) {
       const [asc, desc] = fontBox(ctx, text, size);
       ctx.textBaseline = 'alphabetic';
       // Horizontal alignment is the canvas's own; vertical is an offset from the line box, which
-      // is what `textBaseline: top/middle/bottom` would give but computed from the SAME ascent
+      // is what `textBaseline: top/middle/bottom` would give but computed from the same ascent
       // day_dom_measure_text reports, so the drawn box and the measured one agree exactly.
       const h = Math.floor(anchor / 4), v = anchor % 4;
       ctx.textAlign = h === 1 ? 'center' : h === 2 ? 'right' : 'left';
@@ -2056,11 +2056,11 @@ function replay(canvas, ops, strs, w, h) {
     else if (op === 4) ctx.restore();
     else if (op === 5) { const a = next(), b = next(), c = next(), d = next(), e = next(), f = next(); ctx.transform(a, b, c, d, e, f); }
     else if (op === 8) { // image: id, x, y, w, h, opacity (docs/images.md)
-      // Every slot is read BEFORE the bitmap is looked up: this stream is variable-length, so a
+      // Every slot is read before the bitmap is looked up: this stream is variable-length, so a
       // branch that consumed fewer slots would desync every record after it.
       const id = next(), x = next(), y = next(), w = next(), h = next(), alpha = next();
       const b = bitmaps.get(id);
-      // A released bitmap draws NOTHING rather than a placeholder: a canvas re-records on every
+      // A released bitmap draws nothing rather than a placeholder: a canvas re-records on every
       // tracked read, so a handle can be dropped between the record and this replay.
       if (b && b.bitmap && w > 0 && h > 0) {
         const was = ctx.globalAlpha;
@@ -2114,7 +2114,7 @@ async function startSqlWorker(module) {
       sqlB = new Uint8Array(sab, SQL_DATA_OFF);
       sqlCap = sqlB.length;
       // On the way out (reload, navigation), tell the worker to close its OPFS handles so
-      // the NEXT page load can acquire them immediately (state 9 = quit).
+      // the next page load can acquire them immediately (state 9 = quit).
       addEventListener('pagehide', () => {
         Atomics.store(sqlI, SQL_STATE, 9);
         Atomics.notify(sqlI, SQL_STATE);
@@ -2232,7 +2232,7 @@ function present(req, spec) {
 }
 
 // The save flow: wrap the staged bytes in a Blob, click a download link — the browser's own
-// "save file" surface. The answer is deferred a tick: this runs synchronously INSIDE the wasm
+// "save file" surface. The answer is deferred a tick: this runs synchronously inside the wasm
 // present call, and answering re-enters wasm while the presenting frame is still live.
 function presentSave(req, spec, bytes) {
   const name = spec.name || 'download';
@@ -2330,7 +2330,7 @@ async function boot(wasmUrl) {
     }
   }
 
-  // ONE compile serves both instantiations: the compiled module is structured-cloneable, so
+  // One compile serves both instantiations: the compiled module is structured-cloneable, so
   // the day-sql worker gets it over postMessage instead of compiling the bytes again. The
   // worker is kicked first and awaited just before day_dom_main: by the time app code can
   // open a database, the channel is either up or definitively absent. No async seam in Rust.

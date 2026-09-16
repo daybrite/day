@@ -195,7 +195,7 @@ fn grid_each_rows_reflow() {
     let xs: Vec<f64> = label_frames(&probe).iter().map(|f| f.origin.x).collect();
     assert_eq!(xs, vec![0.0, 26.0, 0.0, 26.0], "{xs:?}");
 
-    // A wider appended row renegotiates col0 for EVERY row (cross-row reflow).
+    // A wider appended row renegotiates col0 for every row (cross-row reflow).
     batch(|| items.update(|v| v.push("cccc".to_string())));
     flush_sync();
     let f = label_frames(&probe);
@@ -264,7 +264,7 @@ fn grid_measure_calls_bounded() {
         .any()
     });
     let cells = ROWS * COLS;
-    // THE performance contract (docs/grid.md): two proposals per cell — unconstrained (pass A)
+    // The performance contract (docs/grid.md): two proposals per cell — unconstrained (pass A)
     // and at the final column width (pass B). `place` re-runs the same proposals from cache.
     assert!(
         probe.measure_calls() <= 2 * cells + 60,

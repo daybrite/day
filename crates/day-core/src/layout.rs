@@ -47,15 +47,15 @@ pub trait LayoutOps {
     }
     fn flex_of(&self, child: RNode) -> Flex;
     fn children_of(&self, node: RNode) -> Vec<RNode>;
-    /// Native intrinsic measurement of the CURRENT node (leaves).
+    /// Native intrinsic measurement of the current node (leaves).
     fn measure_leaf(&mut self, p: Proposal) -> Size;
     /// A child's first text baseline at `size`, from the top of its box (docs/baseline.md):
     /// the toolkit answers for a native leaf, the child's own [`Layout::baseline`] for a
     /// container. `None` ⇒ no baseline to align to.
     fn baseline_of(&mut self, child: RNode, size: Size) -> Option<f64>;
-    /// Report scroll content size for the CURRENT node (§7.6).
+    /// Report scroll content size for the current node (§7.6).
     fn set_scroll_content(&mut self, content: Size);
-    /// Report that the CURRENT node's children outgrew the bounds its `place()` was given
+    /// Report that the current node's children outgrew the bounds its `place()` was given
     /// (`needed` vs `available` main-axis points). A diagnostic seam, not a layout input:
     /// the engine logs it once per node in debug builds and ignores it in release, and
     /// placement proceeds unchanged either way. Scroll containers never report — content
@@ -67,7 +67,7 @@ pub struct EngineCx<'a, B: Toolkit> {
     pub(crate) tree: &'a mut Tree<B>,
     pub(crate) offset: Point,
     pub(crate) current: RNode,
-    /// The bounds the CURRENT node's `place()` was given — the mirroring axis for RTL.
+    /// The bounds the current node's `place()` was given — the mirroring axis for RTL.
     pub(crate) parent_size: Size,
 }
 
@@ -301,7 +301,7 @@ pub(crate) fn place_node<B: Toolkit>(
     } else {
         abs.origin
     };
-    // A LIST whose width changes re-lays its bound cells in THIS pass: the native table
+    // A LIST whose width changes re-lays its bound cells in this pass: the native table
     // resizes the physical cell views, but each cell's day content keeps the old width's
     // placement until laid out again (a trailing control would sit clipped after a
     // narrowing). Synchronous on purpose — interactive live-resize runs inside a native
@@ -656,7 +656,7 @@ impl Layout for StackLayout {
         let sizes = self.negotiate(cx, &kids, p);
         let spacing_total = self.spacing * (kids.len() - 1) as f64;
         let has_flex = kids.iter().any(|&k| self.grows_main(cx.flex_of(k)));
-        // A stack with a stretching child fills what it is offered — but never reports LESS
+        // A stack with a stretching child fills what it is offered — but never reports less
         // than its children need together (a `.min_width`, fixed-size pairs), so an overflow
         // is visible to the parent (a `labeled` row stacks) instead of being clipped.
         let needed = sizes.iter().map(|&s| self.main(s)).sum::<f64>() + spacing_total;
@@ -1317,7 +1317,7 @@ impl Alignment {
 
 /// Z-layering (§overlay): children share the container bounds, stacked back-to-front in child
 /// order (first child = bottom of the z-order), each positioned by a single [`Alignment`].
-/// `size_to_first` reports only the FIRST child's natural size — the badge/annotation sizing of
+/// `size_to_first` reports only the first child's natural size — the badge/annotation sizing of
 /// [`overlay`](crate) (the annotation does not grow the frame); otherwise the layout reports the
 /// UNION (max) of all children's natural sizes — the ZStack sizing of `zstack`. No native work:
 /// the container is the same panel as `column`/`row`, so backends stack children by attach order.
@@ -1415,7 +1415,7 @@ impl Layout for PaddingLayout {
 /// The `aspect_ratio` decorator (§5.2): the largest `width / height == ratio` box that fits what
 /// the parent proposes, with the child given that whole box.
 ///
-/// With ONE axis proposed it derives the other, which is what makes `.grow_w().aspect_ratio(r)`
+/// With one axis proposed it derives the other, which is what makes `.grow_w().aspect_ratio(r)`
 /// take the width a container offers and compute the height from it — a canvas that keeps its
 /// proportions as the window resizes.
 pub struct AspectRatioLayout {
@@ -1462,7 +1462,7 @@ impl Layout for GrowLayout {
             Some(&c) => cx.measure_child(c, p),
             None => Size::ZERO,
         };
-        // A grown axis fills what is offered — but never reports LESS than the child needs, so
+        // A grown axis fills what is offered — but never reports less than the child needs, so
         // a child that cannot shrink to the offer (a `.min_width`, a fixed-size pair) overflows
         // visibly and its row can respond (a `labeled` row stacks) instead of clipping it.
         Size::new(
@@ -1720,7 +1720,7 @@ impl Layout for NavLayout {
         let split = pres.is_split();
         let sidebar = self.sidebar.get();
         let list = self.list.get();
-        // The list pane narrows the detail's fallback only while it has its own pane AND it
+        // The list pane narrows the detail's fallback only while it has its own pane and it
         // is showing — a collapsed pane gives the detail its width back at once.
         let list_w = if split && list.is_some() && self.list_visible.get() {
             self.list_width

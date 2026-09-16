@@ -459,7 +459,7 @@ fn ordered_children_read_in_order_and_a_move_writes_one_row() {
     assert_eq!(lists.elem(1).tracks().ids(), [10, 11, 12]);
     c.save().expect("seed");
 
-    // Moving the closer to the front is ONE update of ONE row's position.
+    // Moving the closer to the front is one update of one row's position.
     let sql = c
         .record_sql(|| {
             assert!(lists.elem(1).tracks().move_to(12u32, 0));
@@ -910,7 +910,7 @@ fn the_engines_own_cascade_re_logs_the_parent_statement() {
         .cloned()
         .collect();
 
-    // The FOLD writes ONE statement for the whole subtree — no row is written twice.
+    // The FOLD writes one statement for the whole subtree — no row is written twice.
     assert_eq!(folded.len(), 1, "{folded:?}");
 
     // The TRACE shows more, because SQLite re-enters the trace for each sub-program its own
@@ -946,7 +946,7 @@ fn hex(bytes: &[u8]) -> String {
 #[test]
 fn identical_updates_across_rows_flush_as_one_statement() {
     // What a multi-selection edit produces: the same column set to the same value on many
-    // rows. They merge; rows written DIFFERENT values keep their own statement, because a
+    // rows. They merge; rows written different values keep their own statement, because a
     // single `SET … WHERE id IN (…)` can only carry one value.
     let c = travel();
     let lodging = c.cache::<Lodging>();

@@ -28,7 +28,7 @@ public class DayCover extends FrameLayout {
     /** A modal surface must own touches its descendants do not handle (labels, spacers,
      *  padding and safe-area margins). An opaque FrameLayout alone is not a touch barrier:
      *  returning false on DOWN lets the activity root try the sibling underneath the cover.
-     *  Consume here, AFTER normal child dispatch, so buttons, scrolling and canvas gestures
+     *  Consume here, after normal child dispatch, so buttons, scrolling and canvas gestures
      *  keep their streams. Do not intercept children or make the shell a clickable a11y node. */
     @Override public boolean onTouchEvent(MotionEvent event) {
         return true;
@@ -153,7 +153,7 @@ public class DayCover extends FrameLayout {
 
     /** The one slide driver. A dedicated ValueAnimator (never the view's shared
      *  ViewPropertyAnimator, which any other animate() user can cancel) with the end
-     *  callback in onAnimationEnd — invoked on BOTH natural end and cancellation, so the
+     *  callback in onAnimationEnd — invoked on both natural end and cancellation, so the
      *  terminal state (hidden + K_COVER_HIDDEN, or settled at 0) can never be lost. */
     private android.animation.ValueAnimator slideAnim;
     /** Cover slides in flight, all shells — dayscript's ui_idle gate (DayBridge.uiIdle). */

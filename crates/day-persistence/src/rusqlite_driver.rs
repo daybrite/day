@@ -212,7 +212,7 @@ impl SqliteDriver for Sqlite {
             ));
         }
 
-        // Trace AFTER the key PRAGMA above (a cipher key must never reach the sink) and
+        // Trace after the key PRAGMA above (a cipher key must never reach the sink) and
         // before everything else, so the remaining setup PRAGMAs log too.
         let trace = self
             .trace
@@ -220,7 +220,7 @@ impl SqliteDriver for Sqlite {
             .map(|f| install_sql_trace(&conn, f.clone()));
 
         // `day_fold`: Rust's full-Unicode `to_lowercase` as a scalar SQL function, so
-        // case-insensitive predicates compile to SQL that selects EXACTLY the rows the
+        // case-insensitive predicates compile to SQL that selects exactly the rows the
         // in-memory fold would (SQLite's own `lower()` folds ASCII only). Deterministic, so
         // the planner may hoist and index it.
         {

@@ -202,7 +202,7 @@ fn start_feed(kind: SensorKind, running: std::sync::Arc<std::sync::atomic::Atomi
     });
 }
 
-/// The browser has ONE thread — `std::thread::spawn` PANICS on wasm32 — so the feed is driven by a
+/// The browser has one thread — `std::thread::spawn` PANICS on wasm32 — so the feed is driven by a
 /// timer inside the day-dom shim, which calls back into [`day_sensors_tick`].
 #[cfg(target_arch = "wasm32")]
 fn start_feed(kind: SensorKind, _running: std::sync::Arc<std::sync::atomic::AtomicBool>) {
@@ -334,7 +334,7 @@ mod tests {
     }
 
     /// Subscribing and dropping must work on a host with no sensors at all: the thread starts,
-    /// finds nothing to deliver, and exits when the last watcher goes. Any sample that DOES arrive
+    /// finds nothing to deliver, and exits when the last watcher goes. Any sample that does arrive
     /// must be finite.
     #[test]
     fn watch_starts_and_stops_cleanly() {

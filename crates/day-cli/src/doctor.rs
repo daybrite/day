@@ -129,13 +129,13 @@ fn have_rust_target(triple: &str) -> Option<String> {
 }
 
 /// The first of `triples` whose std is installed. Android/OHOS builds pick an arch by device vs
-/// emulator, so having EITHER arch installed is enough to prove the toolchain is set up.
+/// emulator, so having either arch installed is enough to prove the toolchain is set up.
 fn have_any_rust_target(triples: &[&str]) -> Option<String> {
     triples.iter().find_map(|t| have_rust_target(t))
 }
 
 /// The JDK the Gradle build will use, if it's a version AGP accepts (17 or newer — AGP 9's
-/// minimum). Resolves via `day_toolchain::jdk_home()` — the SAME `$JAVA_HOME`-first resolution the
+/// minimum). Resolves via `day_toolchain::jdk_home()` — the same `$JAVA_HOME`-first resolution the
 /// gradle builds use, so doctor diagnoses what the build will actually run. Because the build
 /// TRUSTS `$JAVA_HOME`, a `$JAVA_HOME` pointing at a too-old JDK is a real miss even when a newer
 /// one is installed elsewhere. The major version is parsed from `java -version` (which prints
@@ -157,7 +157,7 @@ fn have_jdk() -> Option<String> {
 }
 
 /// The C compiler the web build's SQLite compile will use — [`day_toolchain::wasm_cc`], the
-/// SAME resolution `day build -p web-dom` applies, so doctor reports what the build will run.
+/// Same resolution `day build -p web-dom` applies, so doctor reports what the build will run.
 /// A set cc-rs variable is the one case that still gets probed here: the build honors it
 /// blindly, and doctor's job is to say whether that program can actually emit wasm.
 fn have_wasm_cc() -> Option<String> {
@@ -418,7 +418,7 @@ fn gtk_group() -> Group {
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
             )
             .need(Need::Pack),
-            // The OTHER half of `day pack -p linux-gtk`: the .appimage (§16.5). Without the gtk
+            // The other half of `day pack -p linux-gtk`: the .appimage (§16.5). Without the gtk
             // plugin an AppImage still builds, but carries no GdkPixbuf loaders or GSettings
             // schemas — so both are probed, and the plugin is the optional one.
             Probe::new(
@@ -482,7 +482,7 @@ fn qt_group() -> Group {
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
             )
             .need(Need::Pack),
-            // The OTHER half of `day pack -p linux-qt`: the .appimage (§16.5). Without the qt
+            // The other half of `day pack -p linux-qt`: the .appimage (§16.5). Without the qt
             // plugin the image carries no platform plugin, so it cannot open a window on a machine
             // without Qt — hence probing the plugin, not just the tool.
             Probe::new(
@@ -543,7 +543,7 @@ fn xaml_group() -> Group {
             .need(Need::Pack),
             Probe::new(
                 "makensis",
-                // The SAME lookup `day pack` uses (DAY_MAKENSIS → PATH → %ProgramFiles%\NSIS →
+                // The same lookup `day pack` uses (DAY_MAKENSIS → PATH → %ProgramFiles%\NSIS →
                 // chocolatey), not a PATH-only `which`: a bare `which` reports missing for the
                 // usual `choco install nsis`, whose shim directory a running process's PATH does
                 // not pick up — so doctor would contradict the pack that then succeeds, or miss
@@ -764,7 +764,7 @@ pub struct Readiness {
 
 impl Readiness {
     /// Whether every prerequisite for compiling this toolkit is present. (Packaging asks about
-    /// `missing_pack` directly — it reports WHICH tool is absent rather than just whether one is.)
+    /// `missing_pack` directly — it reports which tool is absent rather than just whether one is.)
     pub fn can_build(&self) -> bool {
         self.missing_build.is_empty()
     }
@@ -773,7 +773,7 @@ impl Readiness {
 /// Run one toolkit group's probes and report what is missing, by stage. `None` for an id that is
 /// not a builtin group (an externally declared toolkit — day has no house knowledge of it).
 ///
-/// This runs the SAME probes `day doctor` prints, so a checkup's skip reason is doctor's own
+/// This runs the same probes `day doctor` prints, so a checkup's skip reason is doctor's own
 /// diagnosis rather than a second, drifting copy of it.
 pub fn readiness(group: &str) -> Option<Readiness> {
     let g = all_groups().into_iter().find(|g| g.id == group)?;

@@ -9,7 +9,7 @@
 //! and the [`Ambient`] trait over them that carries per-window and app-wide state.
 //!
 //! They sit together because they answer the same question from opposite ends, and because the
-//! app half belongs BELOW day-pieces: an app's `*-core` crate holds its view-model and has to be
+//! app half belongs below day-pieces: an app's `*-core` crate holds its view-model and has to be
 //! able to `impl Ambient` for it, which the orphan rule forbids when the trait lives one crate
 //! further up.
 //!
@@ -138,8 +138,8 @@ pub fn set_size_class(class: SizeClass) {
 
 /// Force a class the window is not actually at — dayscript's `size_class:` step and tests.
 ///
-/// Deliberately does NOT touch the reported class: this is a claim ABOUT the window, not a report
-/// FROM it, so [`restore_reported_size_class`] can still put back what the backend last said.
+/// Deliberately does not touch the reported class: this is a claim about the window, not a report
+/// From it, so [`restore_reported_size_class`] can still put back what the backend last said.
 pub fn override_size_class(class: SizeClass) {
     let root = primary_root();
     let signal = ambient_of(root).size_class;
@@ -211,7 +211,7 @@ pub fn reset_ambient() {
 // @Environment — ambient values over day-reactive's scope context (§4.3). No backend work.
 // ---------------------------------------------------------------------------
 
-/// Provide an ambient value `T` to `content` and its ENTIRE descendant subtree (the SwiftUI
+/// Provide an ambient value `T` to `content` and its entire descendant subtree (the SwiftUI
 /// `@Environment`/`.environment(_)` analog, layered over day-reactive's scope context). `content`
 /// — and any piece built within it — reads it back with [`environment`]. A thin, non-reactive
 /// wrapper: `T` is a snapshot captured here; for a value that must react, provide a `Signal<T>`
@@ -227,7 +227,7 @@ pub fn with_environment<T: Clone + 'static, P: Piece>(
     content: impl FnOnce() -> P + 'static,
 ) -> impl Piece {
     piece_fn(move |cx| {
-        // A child scope carrying `T`, entered for the whole of `content`'s construction AND build,
+        // A child scope carrying `T`, entered for the whole of `content`'s construction and build,
         // so both `content`'s own body and every descendant piece's build resolve it via
         // `use_context` (which walks scope → ancestors). Owned by the current build scope, so it is
         // disposed with the enclosing subtree (e.g. a `when` arm) exactly like `when`/`each` scopes.
@@ -313,7 +313,7 @@ pub trait Ambient: Clone + 'static {
     /// (`day_core::launch_with` for the primary, `open_window` for the rest). Creating the state
     /// eagerly would hand every window the first one's.
     ///
-    /// It provides on the CURRENT scope rather than a fresh child, and at a window's root that
+    /// It provides on the current scope rather than a fresh child, and at a window's root that
     /// scope is the window's own. That is what lets [`Ambient::focused`] find it: a context
     /// lookup walks ancestors, so a value tucked into a child of the window scope would be
     /// invisible to anything resolving from the window down — including every app-wide menu

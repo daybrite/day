@@ -3,7 +3,7 @@
 
 //! Live launch sessions (`build/day/sessions.json`): target → dayscript-engine coordinates.
 //!
-//! Every `day launch` records where the app's engine listens (loopback port + token), so a LATER
+//! Every `day launch` records where the app's engine listens (loopback port + token), so a later
 //! process — `day drive`, `day stop`, `day relaunch --all-running`, `day mcp-server`, and through
 //! it any coding agent — can attach to an app the developer already has open. Best-effort JSON:
 //! entries are upserted per target on launch, dropped on stop, and replaced wholesale by a new

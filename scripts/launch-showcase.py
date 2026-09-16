@@ -50,7 +50,7 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-# Flags `day launch` takes a SEPARATE value for. Their value is not itself a target, so it has to
+# Flags `day launch` takes a separate value for. Their value is not itself a target, so it has to
 # travel with the flag into the passthrough list rather than being classified on its own (the
 # `--env DAY_DEMO_ROUTE=canvas` above is the case that makes this visible).
 VALUE_FLAGS = {

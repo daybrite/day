@@ -192,7 +192,7 @@ fn solid(paint: &usvg::Paint, opacity: f32) -> Result<String, Unsupported> {
 /// Serialize a (transformed) tiny-skia path as XAML's geometry mini-language.
 ///
 /// Only `M`/`L`/`C`/`Z` are emitted. The grammar is SVG's, but not every SVG command survives
-/// XAML's parser, and a command it rejects fails the WHOLE geometry — the glyph then silently
+/// XAML's parser, and a command it rejects fails the whole geometry — the glyph then silently
 /// falls back to the raster, which is the least debuggable outcome available. Quadratics are the
 /// case that matters (Material's glyphs are full of them), so they are ELEVATED to cubics rather
 /// than emitted as `Q`: exact, not an approximation, since a quadratic is the cubic with

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! `day localize` — one locale set, every surface (DESIGN.md §16.5). A conventional Day project
-//! spells its locales in FOUR places: `resource/locales/<tag>/` (the app's own Fluent
+//! spells its locales in four places: `resource/locales/<tag>/` (the app's own Fluent
 //! translations), `store/<tag>/` (the listing text, docs/store.md), the Xcode project's
 //! `knownRegions` list, and `website/site.toml`'s `locales` array. Added by hand in one place,
 //! a locale silently drifts out of the other three — so [`add`]/[`remove`] edit every surface
@@ -24,7 +24,7 @@ use anstream::eprintln;
 /// Xcode's spelling of a Day locale tag.
 ///
 /// Xcode speaks script-subtag Chinese (`zh-Hans` / `zh-Hant`) where Day keys by region
-/// (`zh-CN` / `zh-TW`); every other tag passes through. This covers ONLY the `knownRegions`
+/// (`zh-CN` / `zh-TW`); every other tag passes through. This covers only the `knownRegions`
 /// namespace: the stores' spellings (Apple's `zh-Hans`, Play's legacy `iw-IL`) are converted
 /// at fastlane emission by store.rs, and Android's resource qualifiers (`values-iw`,
 /// `values-in`) are yet another namespace, converted where android resources are emitted —
@@ -482,7 +482,7 @@ fn copy_locale_files(
     Ok(copied)
 }
 
-/// Add `tag` to every surface the project HAS, idempotently: a surface that already lists the
+/// Add `tag` to every surface the project has, idempotently: a surface that already lists the
 /// tag is left alone, so re-running an interrupted add completes it. Returns one line per
 /// change made, for the CLI to narrate.
 pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
@@ -961,7 +961,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Only the surfaces a project HAS are touched: no store/, no iOS host, no website ⇒ none
+    /// Only the surfaces a project has are touched: no store/, no iOS host, no website ⇒ none
     /// invented.
     #[test]
     fn add_touches_only_present_surfaces() {

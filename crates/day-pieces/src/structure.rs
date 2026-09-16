@@ -32,7 +32,7 @@ use day_spec::{Event, Proposal, Rect, Size, kinds};
 /// ```
 ///
 /// Prefer a binding to a flip when both arms are the same widget with different content —
-/// `label(move || if ok.get() { "Saved" } else { "Failed" })` keeps ONE native label alive and
+/// `label(move || if ok.get() { "Saved" } else { "Failed" })` keeps one native label alive and
 /// costs one setter call, where a `when` swap destroys and recreates native widgets.
 pub fn when<P: Piece>(
     cond: impl Fn() -> bool + 'static,
@@ -96,7 +96,7 @@ impl Piece for When {
                     return;
                 }
                 // Unmount whatever is up before building the incoming arm: with two arms, every
-                // flip is a swap, and the outgoing scope must be disposed BEFORE its replacement
+                // flip is a swap, and the outgoing scope must be disposed before its replacement
                 // builds so a rebuilt arm never observes the old arm's still-live bindings.
                 if let Some(scope) = state.borrow_mut().take() {
                     scope.dispose();
@@ -222,7 +222,7 @@ pub trait RowConn: 'static {
     /// own per-field notifications), which lets `list` skip the native reload entirely when
     /// the row SET is unchanged.
     fn values_flow_by_reload(&self) -> bool;
-    /// What changed since the last refresh, if the source can say PRECISELY — sequential
+    /// What changed since the last refresh, if the source can say precisely — sequential
     /// row deltas a host can animate. `None` means unknown: the list reloads, which is
     /// always honest. Only sources that maintain their set incrementally (a live query)
     /// answer `Some`.
@@ -630,7 +630,7 @@ impl<S: RowSource + 'static> List<S> {
         self.selected_rows = Some(Rc::new(rows));
         self
     }
-    /// Scroll the list so its LAST row is fully visible whenever `trigger` fires — e.g. a chat
+    /// Scroll the list so its last row is fully visible whenever `trigger` fires — e.g. a chat
     /// timeline sticking to the newest message. Fire it with [`day_reactive::Trigger::notify`]
     /// after appending. No-op while the list is empty. The scroll targets the native list
     /// (`NSTableView`/`UITableView`/`GtkListView`/`QListView`/`RecyclerView`), so it respects the
@@ -732,7 +732,7 @@ impl<S: RowSource + 'static> List<S> {
     /// with the row index, so the offer can reflect the row's current state ("Mark as Read"
     /// vs "Mark as Unread"). Keep it pure and fast — it runs inside the platform's swipe
     /// callback; the actions' handlers run later, at the event drain. A full swipe across
-    /// activates the edge's FIRST action.
+    /// activates the edge's first action.
     pub fn swipe_leading(mut self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
         self.swipe_leading = Some(Rc::new(provider));
         self
@@ -860,7 +860,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
         // `SwipeAction`s the provider builds fresh per gesture, so RE-PULL the offer here to
         // find the one the user pressed — the provider is the single source of both the offer
         // and its handlers, and a state change between reveal and activation resolves to the
-        // action the row NOW offers at that position.
+        // action the row now offers at that position.
         if self.swipe_leading.is_some() || self.swipe_trailing.is_some() {
             let (leading, trailing) = (self.swipe_leading.clone(), self.swipe_trailing.clone());
             cx.on(node, move |ev| {
@@ -919,7 +919,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     let guard = self.delete_guard.clone();
                     Box::new(move |i| guard.as_ref().is_none_or(|g| g(i)))
                 },
-                // Commit: drop the row from the snapshot NOW (subsequent len/token_at/bind_row
+                // Commit: drop the row from the snapshot now (subsequent len/token_at/bind_row
                 // serve the shorter list while the native removal animates), arm the echo skip,
                 // and defer the app's callback.
                 deleted: {
@@ -944,7 +944,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
                         Some(Reorder::Retarget(i)) => i as i64,
                     })
                 },
-                // Commit: rotate the snapshot NOW (subsequent len/token_at/bind_row serve the
+                // Commit: rotate the snapshot now (subsequent len/token_at/bind_row serve the
                 // new order while the native move animates), arm the echo skip, and defer the
                 // app's callback through the event queue.
                 moved: {
@@ -1285,7 +1285,7 @@ mod model_rows {
 
     /// A hierarchy over a store: `store.tree(children_of)` (docs/tree.md). The projection
     /// maps a parent KEY (`None` = the root) to its ordered child keys — a TRACKED read, so
-    /// re-parenting or re-ordering writes re-run it; tokens ARE the store's keys.
+    /// re-parenting or re-ordering writes re-run it; tokens are the store's keys.
     pub struct StoreTree<T: 'static> {
         store: Store<Keyed<T>>,
         children: Rc<dyn Fn(Option<u64>) -> Vec<u64>>,
@@ -1409,7 +1409,7 @@ pub use model_rows::{ModelSlot, Rows, StoreRows, StoreTree, StoreTreeConn, Store
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`When`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`When`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait WhenBuilder: Sized {
     fn otherwise<P: Piece>(self, build_arm: impl Fn() -> P + 'static) -> Self;
@@ -1427,7 +1427,7 @@ impl<Inner: WhenBuilder + Piece> WhenBuilder for Decorated<Inner> {
     }
 }
 
-/// [`List`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`List`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ListBuilder<S: RowSource + 'static>: Sized {
     fn row_height(self, h: RowHeight) -> Self;
@@ -1885,7 +1885,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self
     }
     /// A committed move: `key` now sits under `parent` (`None` = the root) at `index`
-    /// (`None` = dropped ONTO the parent — append). Apply the same re-parent to the backing
+    /// (`None` = dropped onto the parent — append). Apply the same re-parent to the backing
     /// data; its refresh reloads the tree. Runs at the next event drain, never inside the
     /// native drop callback.
     pub fn on_move(mut self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
@@ -2286,7 +2286,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
 }
 
 /// The composed tree row's indentation (docs/tree.md M2): offsets its single child by the
-/// row's CURRENT depth × step. Depth lives in a `Cell` the rebind watch writes before the
+/// row's current depth × step. Depth lives in a `Cell` the rebind watch writes before the
 /// cell's relayout, so a recycled row re-indents without rebuilding.
 struct TreeIndent {
     depth: Rc<std::cell::Cell<f64>>,
@@ -2748,7 +2748,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
     }
 }
 
-/// [`TreePiece`]'s own builders, reachable THROUGH a decoration (§5.2), like [`ListBuilder`].
+/// [`TreePiece`]'s own builders, reachable through a decoration (§5.2), like [`ListBuilder`].
 pub trait TreeBuilder<S: NodeSource + 'static>: Sized {
     fn row_height(self, h: RowHeight) -> Self;
     fn indent(self, pts: f64) -> Self;

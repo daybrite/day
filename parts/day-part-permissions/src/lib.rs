@@ -48,7 +48,7 @@
 //! `onRequestPermissionsResult`, the browser's only thread) — so deliver results with a
 //! `day_reactive::Setter`, the way `day-part-http` does. There is no blocking `request`: the OS
 //! prompt is drawn by the very thread a blocking call would park, so it would deadlock by
-//! construction. And dropping a [`StatusFuture`] does NOT take the prompt off the screen — no
+//! construction. And dropping a [`StatusFuture`] does not take the prompt off the screen — no
 //! platform can do that. See [`StatusFuture`].
 
 use std::collections::HashMap;
@@ -92,7 +92,7 @@ pub enum Permission {
     /// through a picker that needs no permission ([`Gate::Ungated`]), and the web has no library
     /// concept at all ([`Gate::Absent`]) — use a file picker.
     Photos,
-    /// Motion and fitness activity. This is NOT raw accelerometer/gyroscope access, which needs no
+    /// Motion and fitness activity. This is not raw accelerometer/gyroscope access, which needs no
     /// permission on iOS or Android (docs/sensors.md) — it gates step counts and activity
     /// classification. iOS `CMMotionActivityManager` (`NSMotionUsageDescription`); Android
     /// `ACTIVITY_RECOGNITION` on API 29+; HarmonyOS `ACTIVITY_MOTION`. On the web this is the one
@@ -168,7 +168,7 @@ impl std::fmt::Display for Gate {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
-    /// Go ahead. NOT a promise that the hardware exists — a laptop with no camera still answers
+    /// Go ahead. Not a promise that the hardware exists — a laptop with no camera still answers
     /// `Granted`, because no permission stands in the way. Ask the capability's own part (e.g.
     /// `day_part_sensors::is_available`) about hardware.
     Granted,
@@ -240,7 +240,7 @@ pub fn status(perm: Permission) -> Status {
 /// [`status`], but always authoritative — it waits for the platform's own answer where that is
 /// asynchronous, so it never yields [`Status::Unknown`].
 ///
-/// `on_done` may run BEFORE this returns: on the platforms with a synchronous answer there is
+/// `on_done` may run before this returns: on the platforms with a synchronous answer there is
 /// nothing to wait for, and the web has no other thread to defer to.
 pub fn status_async(perm: Permission, on_done: impl FnOnce(Status) + Send + 'static) {
     imp::status_async(perm, Box::new(on_done));
@@ -265,7 +265,7 @@ pub fn can_prompt(perm: Permission) -> bool {
     imp::can_prompt(perm)
 }
 
-/// Whether the user has already refused once AND a further prompt is still possible — the
+/// Whether the user has already refused once and a further prompt is still possible — the
 /// platform's signal that an explanation should come first. This is Android's
 /// `shouldShowRequestPermissionRationale`; every other platform answers `false`, because Apple
 /// never re-prompts and the web has no equivalent.
@@ -309,7 +309,7 @@ pub fn request_future(perm: Permission) -> StatusFuture {
     }
 }
 
-/// Ask for several permissions in ONE prompt sequence where the platform batches them (Android
+/// Ask for several permissions in one prompt sequence where the platform batches them (Android
 /// submits a single array; elsewhere they are chained). Answers are positional — `out[i]` is the
 /// status of `perms[i]`.
 pub fn request_many(perms: &[Permission], on_done: impl FnOnce(Vec<Status>) + Send + 'static) {
@@ -435,7 +435,7 @@ fn resolve(perm: Permission, s: Status) {
 /// Shared state between a future and the completion that resolves it.
 ///
 /// Locking protocol (the mutex is a LEAF lock — no platform or user code runs under it):
-/// - `poll` checks the answer and stores the waker under ONE acquisition, closing the lost-wakeup
+/// - `poll` checks the answer and stores the waker under one acquisition, closing the lost-wakeup
 ///   race a check-then-store would open.
 /// - the completion stores the answer, takes the waker, UNLOCKS, then wakes — an inline waker
 ///   (as in tests) re-polls synchronously, which re-takes the lock.
@@ -479,7 +479,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// A pending permission answer, from [`status_future`] or [`request_future`].
 ///
-/// Dropping one stops you listening. It does NOT dismiss a prompt that is already on screen — no
+/// Dropping one stops you listening. It does not dismiss a prompt that is already on screen — no
 /// platform offers that — so the user's answer is still recorded and the next [`status`] reflects
 /// it. Aborting a `day::task` that awaits one therefore leaves the dialog up.
 pub struct StatusFuture {
@@ -546,7 +546,7 @@ impl Drop for StatusesFuture {
 }
 
 // ---------------------------------------------------------------------------
-// Shared logic — compiled on EVERY target and unit-tested on any host, so the decisions most
+// Shared logic — compiled on every target and unit-tested on any host, so the decisions most
 // likely to be wrong are covered even though parts are not in the workspace's default-members.
 //
 // `allow(dead_code)`: each helper is called by one platform's arm (`classify_android` by Android,

@@ -96,7 +96,7 @@ extern "C" {
 
 static int s_argc = 1;
 // argv[0] doubles as the macOS app-menu name (Qt captures it at QApplication construction, so it
-// must be set BEFORE `day_qt_app_new`). day-qt fills it with the app's display name.
+// must be set before `day_qt_app_new`). day-qt fills it with the app's display name.
 static char s_arg0[256] = "day";
 static char *s_argv[] = {s_arg0, nullptr};
 
@@ -196,7 +196,7 @@ void day_qt_set_window_events_cb(void (*resized)(unsigned long long, int, int),
 }
 
 // Resizable top-level that reports size changes back to day (docs §7.7). Day's tree mounts
-// into the inner `content` widget, NOT the window itself: on platforms where the QMenuBar is
+// into the inner `content` widget, not the window itself: on platforms where the QMenuBar is
 // an in-window bar (Linux/Windows — macOS uses the global bar), the bar owns a strip at the
 // top and `content` sits below it, so Day's absolute frames can never overlap the menus.
 class DayWindow : public QWidget {
@@ -318,12 +318,12 @@ void day_qt_open_url(const char *url) {
 // SurfaceRole::SectionCard: the grouped-card background. A translucent neutral over the window
 // color stays subtle in every palette (it lightens dark themes and darkens light ones) — Qt has
 // no grouped-card palette role, and the concrete roles (alternate-base) vary wildly per style.
-// The unique object-name selector scopes the rule to THIS widget — a bare `background-color` on
+// The unique object-name selector scopes the rule to this widget — a bare `background-color` on
 // a parent QWidget cascades into every descendant and replaces their native drawing (flat buttons).
 // A QWidget has neither an opacity of its own nor a 2-D transform, so both ride a single custom
 // QGraphicsEffect (§8.4). The effect grabs the widget (and its children) as a pixmap and re-draws
 // it through a transformed painter — rotate/scale/translate about the center — with a padded
-// bounding rect so the result can spill OUTSIDE the widget's own 112px frame (into the parent, like
+// bounding rect so the result can spill outside the widget's own 112px frame (into the parent, like
 // a drop shadow) instead of clipping to the widget rect. A rounded clip (matching the surface's
 // corner radius) is re-applied here because the grabbed pixmap has square corners. No Q_OBJECT/moc:
 // the overrides are plain virtuals and the tweens are QVariantAnimations driving a lambda.
@@ -345,7 +345,7 @@ public:
             return;
         }
         // The pixmap is padded to boundingRectFor (so a transform can spill beyond the frame), so it
-        // is NOT the widget's size. sourceBoundingRect() is the widget's real rect — use it for the
+        // is not the widget's size. sourceBoundingRect() is the widget's real rect — use it for the
         // pivot and the rounded clip; the widget content sits centered within the padded pixmap.
         QRectF src = sourceBoundingRect();
         QPointF c = src.center();
@@ -408,7 +408,7 @@ void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, 
         vp->setAutoFillBackground(a > 0.0);
         return;
     }
-    // A unique object name scopes the stylesheet to THIS widget (`#name { ... }`) so the fill does
+    // A unique object name scopes the stylesheet to this widget (`#name { ... }`) so the fill does
     // not bleed into child widgets the way a bare `background-color` on a parent QWidget would.
     static unsigned long counter = 0;
     if (widget->objectName().isEmpty())
@@ -584,7 +584,7 @@ void day_qt_widget_set_cursor(void *w, int shape) {
 int day_qt_register_font(const char *path) {
     return QFontDatabase::addApplicationFont(QString::fromUtf8(path));
 }
-// The label's UNWRAPPED natural width. QLabel::sizeHint() with wordWrap on is NOT that: Qt
+// The label's UNWRAPPED natural width. QLabel::sizeHint() with wordWrap on is not that: Qt
 // applies a "readable column" heuristic and suggests a narrow wrapped block — day's measure
 // contract wants the real single-line width, then asks heightForWidth at the width day grants.
 // Toggle wordWrap off around the query so QLabel's own text engine answers (shaping, margins,
@@ -621,7 +621,7 @@ void day_qt_button_set_title(void *w, const char *title) {
     static_cast<QPushButton *>(w)->setText(QString::fromUtf8(title));
 }
 
-/// Style a button WITHOUT replacing it: `kind` 0 automatic, 1 bordered, 2 prominent, 3 tinted.
+/// Style a button without replacing it: `kind` 0 automatic, 1 bordered, 2 prominent, 3 tinted.
 ///
 /// A tint is a stylesheet on the QPushButton itself, so it stays a real button — focus, keyboard
 /// activation (Space/Enter) and the accessibility role are the widget's, not ours. The stylesheet
@@ -667,7 +667,7 @@ void day_qt_checkbox_set(void *w, int on) {
 // `cb(id, value, committed)`: `committed != 0` marks the value the user settled on, as against
 // the stream a drag produces (day-spec `Event::ValueCommitted`). Qt tells the two apart exactly:
 // while the thumb is held, `isSliderDown()` is true and only `sliderReleased` ends it; a keyboard
-// step, a wheel notch, or a click on the groove moves the value with the thumb NOT down, and is
+// step, a wheel notch, or a click on the groove moves the value with the thumb not down, and is
 // therefore already settled when `valueChanged` fires.
 namespace {
 // `valueChanged` fires for PROGRAMMATIC setValue too, and with `isSliderDown()` false it
@@ -761,12 +761,12 @@ void *day_qt_scroll_new(int horizontal) {
     else
         sa->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     // Transparent like AppKit's `setDrawsBackground(false)` scroll (and GTK's day-scroll CSS):
-    // content layered BEHIND the scroll (e.g. a gradient backdrop in a zstack) must show
+    // content layered behind the scroll (e.g. a gradient backdrop in a zstack) must show
     // through. Through the widget flags, never a stylesheet: a stylesheet on the scroll area
     // reaches its scroll bars, and a scroll bar under one is drawn by QStyleSheetStyle itself
     // (arrow buttons, an opaque track) and answers `SH_ScrollBar_Transient` with 0 — which is
     // how the macOS overlay bar became a Windows-looking one that also ate viewport width.
-    // The flag that matters is the CONTENT widget's, and it goes AFTER `setWidget`, which
+    // The flag that matters is the CONTENT widget's, and it goes after `setWidget`, which
     // turns autoFillBackground back on (that erase, with the Window brush, is what the old
     // stylesheet's `QScrollArea > QWidget > QWidget` rule was undoing).
     sa->viewport()->setAutoFillBackground(false);
@@ -943,7 +943,7 @@ void *day_qt_inspector_new(double panel_width, int leading) {
     return s;
 }
 /// Reports a splitter's pane geometry every time Qt lays the panes out. Day measures the panes
-/// the moment content is inserted, which is BEFORE the window has laid the splitter out at all —
+/// the moment content is inserted, which is before the window has laid the splitter out at all —
 /// so what it reads then is the constructor's placeholder geometry (an unshown QWidget answers
 /// 640x480, and `setSizes` divides that rather than the real width). Without this the panes keep
 /// those numbers until something else happens to resize the host, and the content sits in a pane
@@ -951,7 +951,7 @@ void *day_qt_inspector_new(double panel_width, int leading) {
 ///
 /// The filter goes on the PANES, not on the splitter. A filter sees an event before its target
 /// handles it, and a QSplitter gives its children their geometry inside its own resize handler —
-/// so filtering the splitter reports the panes' OLD sizes, right only by the next resize. A
+/// so filtering the splitter reports the panes' old sizes, right only by the next resize. A
 /// pane's own resize event arrives with its geometry already updated, which is the moment worth
 /// reporting.
 class DayPaneResizeFilter : public QObject {
@@ -963,7 +963,7 @@ public:
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override {
         // Qt sends Resize only when the size actually changed, so this settles rather than
-        // feeding itself: the report re-lays what is INSIDE the pane, which does not resize
+        // feeding itself: the report re-lays what is inside the pane, which does not resize
         // the pane that reported it.
         if (ev->type() == QEvent::Resize)
             cb(static_cast<void *>(host));
@@ -1253,7 +1253,7 @@ static QIcon day_qt_fit_glyph(const QPixmap &big, const QColor &color, int px, q
     return QIcon(day_qt_tint_glyph(pm, color));
 }
 
-// A nav row's trailing status glyph (docs/navigation.md). QListWidgetItem carries ONE icon, and
+// A nav row's trailing status glyph (docs/navigation.md). QListWidgetItem carries one icon, and
 // that slot is the row's leading icon — so the badge rides a custom data role and a delegate
 // paints it at the trailing edge after the stock item. Painting it rather than embedding a widget
 // keeps the list's native row rendering, selection highlight and keyboard handling untouched.
@@ -1284,7 +1284,7 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
                               const char *badge_tints, const char *sections) {
     auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
     if (!l) return;
-    // Split titles WITHOUT SkipEmptyParts so the icon list stays row-aligned; the icon
+    // Split titles without SkipEmptyParts so the icon list stays row-aligned; the icon
     // and tint lists are likewise split keep-empty (empty entry = no icon / no tint).
     const QStringList titles =
         QString::fromUtf8(joined).split(QChar(0x1f), Qt::KeepEmptyParts);
@@ -1620,7 +1620,7 @@ extern "C" {
 // ---- canvas fonts (docs/fonts.md) ---------------------------------------------------------
 
 /// The QFont canvas text draws and measures with: the requested family (else `base`, the
-/// painter's — i.e. the application — font), a CSS weight (Qt 6 weights ARE 100 … 900), a
+/// painter's — i.e. the application — font), a CSS weight (Qt 6 weights are 100 … 900), a
 /// slant, and an absolute point size.
 /// Decoded bitmaps (docs/images.md), keyed by the id day-core minted.
 ///
@@ -1718,19 +1718,19 @@ protected:
         p.setRenderHint(QPainter::Antialiasing, true);
         int ti = 0;
         // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
-        // stops, applied as the brush of the NEXT fill-shape record (resolved against that
+        // stops, applied as the brush of the next fill-shape record (resolved against that
         // shape's bounding rect).
         bool gradPending = false;
         int gradType = 0;
         double gsx = 0, gsy = 0, gex = 0, gey = 0;
         QGradientStops gstops;
-        // A decoded kind-18 record (stroke style), applied to the NEXT stroke record only.
+        // A decoded kind-18 record (stroke style), applied to the next stroke record only.
         bool stylePending = false;
         int sCap = 0, sJoin = 0; double sMiter = 10.0, sPhase = 0.0;
         QVector<qreal> sDash;
-        // A decoded kind-19 record (font), applied to the NEXT text record only.
+        // A decoded kind-19 record (font), applied to the next text record only.
         bool fontPending = false;
-        // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+        // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
         // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
         QVector<QPointF> stampAt;
         int stampN = 0;
@@ -1824,7 +1824,7 @@ protected:
             if (k == 20) { stampAt.clear(); stampN = (int)a; continue; }
             if (k == 21) {
                 // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth
-                // point's y rides the slot other records use for their color. The LAST record of
+                // point's y rides the slot other records use for their color. The last record of
                 // a run is padded with zeros, so the header's count is what says where the real
                 // ones stop.
                 const double xs[4] = { a, c, e, g };
@@ -1835,7 +1835,7 @@ protected:
             }
             // The template is replayed once per position under a translated transform. `ti` is
             // rewound each time so a template with a texts payload (a polygon, a path) reads the
-            // SAME entry every repetition and consumes it exactly once overall.
+            // Same entry every repetition and consumes it exactly once overall.
             const int reps = stampAt.isEmpty() ? 1 : stampAt.size();
             const int tiStart = ti;
             for (int rep = 0; rep < reps; ++rep) {
@@ -1878,7 +1878,7 @@ protected:
                     p.drawText(QPointF(a + dx, b + dy + fm.ascent()), t);
                     break;
                 }
-                case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+                case 19: { // font for the next text: a weight (0 default), b italic; family on texts
                     fFamily = ti < texts.size() ? texts[ti++] : QString();
                     fWeight = (int)a; fItalic = b > 0.5;
                     fontPending = true;
@@ -1935,7 +1935,7 @@ protected:
                     p.setClipPath(clip, Qt::IntersectClip);
                     break;
                 }
-                case 18: { // stroke style for the NEXT stroke: a cap, b join, c miter, d phase
+                case 18: { // stroke style for the next stroke: a cap, b join, c miter, d phase
                     QString t = ti < texts.size() ? texts[ti++] : QString();
                     sCap = (int)a; sJoin = (int)b; sMiter = c; sPhase = d;
                     sDash.clear();
@@ -1961,7 +1961,7 @@ protected:
                 }
                 case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
                     auto it = day_qt_bitmaps().constFind((quint64)e);
-                    // A released bitmap draws NOTHING rather than a placeholder: a canvas
+                    // A released bitmap draws nothing rather than a placeholder: a canvas
                     // re-records on every tracked read, so a handle can be dropped between the
                     // record and this replay.
                     if (it == day_qt_bitmaps().constEnd()) break;
@@ -1975,7 +1975,7 @@ protected:
             if (!stampAt.isEmpty()) p.restore();
             }
             stampAt.clear();
-            // A style record applies to ONE stroke; anything else that consumed the pen clears it
+            // A style record applies to one stroke; anything else that consumed the pen clears it
             // too, so it can never leak into a later record. Same for a font and its text.
             if (k != 18) stylePending = false;
             if (k != 19) fontPending = false;
@@ -2393,7 +2393,7 @@ public:
     }
 
     // A selected row's cell reads in the highlighted text color: the delegate paints the
-    // highlight BEHIND the cell, and the cell's own labels would otherwise keep the plain
+    // highlight behind the cell, and the cell's own labels would otherwise keep the plain
     // text color over it (black on blue in light mode).
     void paintSelection() {
         for (int i = 0; i < count(); ++i) {
@@ -2845,7 +2845,7 @@ static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap, int px)
             return themed;
         }
     }
-    // Day's own drawing BEFORE QStyle's standard set. A themed icon above is the desktop's real
+    // Day's own drawing before QStyle's standard set. A themed icon above is the desktop's real
     // answer and wins outright; QStyle's is a small dialog-oriented set whose semantics often
     // miss — `SP_DialogApplyButton` stands in for a checkmark and draws nothing like one. The
     // outline at least has the right shape, and it is the shape every other backend falls back to.
@@ -3056,7 +3056,7 @@ void day_qt_toolbar_set_suggestions(const char *id, const char *joined) {
     QString all = QString::fromUtf8(joined);
     QStringList items = all.isEmpty() ? QStringList{} : all.split(QLatin1Char('\n'));
 
-    // ONE completer and ONE model per field, for the life of the field: only the string list is
+    // One completer and one model per field, for the life of the field: only the string list is
     // replaced. The previous version built a new QCompleter on every keystroke and `deleteLater`d
     // the one the QLineEdit was still wired to — and clearing the query took that branch while the
     // very same edit was being torn down, because emptying the search also un-filters the sidebar,
@@ -3321,7 +3321,7 @@ void day_qt_menu_add_action(void *menu, const char *label, uint64_t id,
 // Layered because each Qt-side answer goes stale in a state the macOS global menu bar can
 // reach: focusWidget() is null whenever no child widget holds keyboard focus, and after a
 // secondary window closes (hides) and the app is re-activated from outside, activeWindow()
-// AND focusWidget() are BOTH null while AppKit considers the primary key. So: Qt's answer
+// And focusWidget() are both null while AppKit considers the primary key. So: Qt's answer
 // if it names a visible window, else the platform's key window mapped back to its widget,
 // else — when exactly one candidate remains — that window. Never a hidden one: close() on
 // an already-hidden window is a silent no-op, which is how "File ▸ Close does nothing"
@@ -3432,7 +3432,7 @@ void day_qt_navlist_set_row_menus(void *w, void *const *menus, int32_t n) {
     QObject::connect(l, &QObject::destroyed, [rows]() { delete rows; });
 }
 
-/// The modifier keys held RIGHT NOW (docs/menus.md): shift 1, primary 2, alt 4 — the
+/// The modifier keys held RIGHT now (docs/menus.md): shift 1, primary 2, alt 4 — the
 /// `KeyEvent::SHIFT`/`PRIMARY`/`ALT` bits. Qt::ControlModifier is the platform's command key
 /// (⌘ on macOS, where Qt swaps it with Meta; Ctrl elsewhere), which is what "primary" means.
 /// queryKeyboardModifiers() asks the window system rather than reading the last event's

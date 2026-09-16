@@ -7,7 +7,7 @@
 // setString:forType:NSPasteboardTypeString pair; read is stringForType:, which also serves rich
 // clipboard contents that carry a plain-text representation.
 //
-// NSPasteboard is NOT thread-safe: two threads touching the general pasteboard concurrently can
+// NSPasteboard is not thread-safe: two threads touching the general pasteboard concurrently can
 // segfault inside AppKit (observed with parallel `cargo test` threads). A process-wide mutex
 // serializes this crate's accesses; the calls themselves work fine off the main thread.
 

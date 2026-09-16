@@ -107,7 +107,7 @@ fn the_index_follows_edits_through_the_triggers() {
     c.save().expect("flush");
     assert_eq!(q.ids_untracked(), [1]);
 
-    // …and a column OUTSIDE the indexed set never re-queries at all (deps-filtered).
+    // …and a column outside the indexed set never re-queries at all (deps-filtered).
     let before = q.ids_untracked();
     store.elem(1).lat().write(36.0);
     c.save().expect("flush");

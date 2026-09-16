@@ -47,7 +47,7 @@ if (!browserType) {
 // A THROWAWAY persistent profile, not the default ephemeral context: WebKit gives an
 // ephemeral (private-browsing-style) session no OPFS backing, so every day-part-fs operation
 // fails with a generic UnknownError (playwright#18235). A fresh temp profile per run keeps
-// the isolation ephemeral contexts were giving us AND real storage; removed again on /quit.
+// the isolation ephemeral contexts were giving us and real storage; removed again on /quit.
 const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'day-webdom-profile-'));
 const dropProfile = () => {
   try {

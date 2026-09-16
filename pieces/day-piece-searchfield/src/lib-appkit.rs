@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // AppKit: NSSearchField (a rounded search NSTextField with a magnifier + clear button for free). A
 // per-node delegate implements NSControlTextEditingDelegate::controlTextDidChange: and dispatches
-// Event::TextChanged; programmatic setStringValue does NOT fire that delegate, so no echo guard is
+// Event::TextChanged; programmatic setStringValue does not fire that delegate, so no echo guard is
 // needed on this backend (update only writes when the value actually differs).
 // ---------------------------------------------------------------------------
 

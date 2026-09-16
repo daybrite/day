@@ -341,7 +341,7 @@ fn find_native_target_id(pbxproj: &str) -> Option<String> {
 /// exported frames.
 /// The second half is the ObjC nav host stubs, and it fixes a different failure. Xcode 14 added a
 /// size optimization where the compiler emits `_objc_msgSend$<nav host>` references and the LINKER
-/// synthesizes an `__objc_stubs` section for them. That leaves the binary with TWO `__got` slots for
+/// synthesizes an `__objc_stubs` section for them. That leaves the binary with two `__got` slots for
 /// `_objc_msgSend` — one for the classic `__stubs` path, one for `__objc_stubs` — and which
 /// consumer gets which slot is not stable: two CI builds of the same commit differed in exactly
 /// those 404 bytes, every `__objc_stubs` entry pointing at slot 1528 in one and 1536 in the other,
@@ -421,7 +421,7 @@ fn unsigned_ipa(
     )
     .map_err(PackError::Other)?;
     // The `unsigned` token survives into the release name; release CI strips it so the
-    // published asset keeps ONE name whether or not the run had signing material.
+    // published asset keeps one name whether or not the run had signing material.
     let out = dist.join(super::naming::artifact_file(
         project,
         target,

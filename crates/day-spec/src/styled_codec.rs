@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// A document's base style — the font a run says nothing about, and the size everything else is
-/// relative to. Import needs it to place headings and code; export needs it to know what NOT to
+/// relative to. Import needs it to place headings and code; export needs it to know what not to
 /// write.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DocStyle {
@@ -117,7 +117,7 @@ pub fn markdown_to_styled(md: &str, style: DocStyle) -> StyledText {
         };
 
         let (text, mut runs) = crate::markdown::parse(body, style.base);
-        // A heading scales and bolds the WHOLE line, under whatever inline styling it carries.
+        // A heading scales and bolds the whole line, under whatever inline styling it carries.
         if let Some(level) = heading {
             let scale = heading_scale(level);
             for r in &mut runs {
@@ -1164,7 +1164,7 @@ impl RtfParser<'_> {
         }
         self.pending_utf16.push(unit);
         let decoded: String = String::from_utf16_lossy(&self.pending_utf16);
-        // A lone high surrogate decodes lossily, so hold it for its partner — but only for ONE
+        // A lone high surrogate decodes lossily, so hold it for its partner — but only for one
         // more unit, or an unpaired surrogate would swallow the rest of the document.
         if !decoded.contains('\u{fffd}') || self.pending_utf16.len() >= 2 {
             self.doc.text.push_str(&decoded);
@@ -1447,7 +1447,7 @@ impl RtfParser<'_> {
         }
     }
 
-    /// `{\f1 Courier New;}` entries — only WHICH indices are monospaced, which is all the model
+    /// `{\f1 Courier New;}` entries — only which indices are monospaced, which is all the model
     /// can carry. Reads to the end of the enclosing group without consuming its closing brace;
     /// `skip_group` does that.
     fn read_font_table(&mut self) {

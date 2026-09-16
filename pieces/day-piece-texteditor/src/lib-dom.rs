@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Web (web-dom): a `contenteditable` element — NOT a `<textarea>`, which is plain text by
+// Web (web-dom): a `contenteditable` element — not a `<textarea>`, which is plain text by
 // definition. Contenteditable is the browser's own rich text editing, and it is what every web
 // editor is built on: IME composition, the undo stack, spell-check, drag-and-drop, dictation and
 // a full accessibility tree all come with it.
@@ -10,7 +10,7 @@
 // What it does not come with is a document model. Enter inserts a `<div>` in one browser and a
 // `<p>` in another; a paste arrives as whatever markup it was copied from. So this arm never reads
 // the DOM's shape as meaning: the shim flattens it to text under one set of rules
-// (`dayEditorText`), and Day writes it back in ONE canonical form — the same
+// (`dayEditorText`), and Day writes it back in one canonical form — the same
 // `day_spec::styled_to_html` an export produces, so what the editor holds and what "Export HTML"
 // writes are the same markup.
 //

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! day lint v0 (DESIGN.md §16.5): fluent coverage (missing/unused/unknown keys), duplicate
-//! element ids, unknown navigation routes, Day.toml schema (validated by parsing). Fast —
+//! element ids, unknown navigation routes, Day.toml schema (validated by parsing). Fast:
 //! sources + locales + scripts only.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,7 +13,7 @@ use crate::ops::{gha_escape, github_actions};
 use crate::term::{DIM, ERROR, SUCCESS, WARN};
 use anstream::eprintln;
 
-/// How much a finding matters. A property of the RULE, not of the instance — see
+/// How much a finding matters. A property of the rule, not of the instance; see
 /// [`severity_of`], which is the single place the policy lives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Severity {
@@ -32,7 +32,7 @@ impl Severity {
     }
 }
 
-/// Where a finding is, when the rule can say. Project-RELATIVE path, 1-based line and column —
+/// Where a finding is, when the rule can say. Project-relative path, 1-based line and column:
 /// the shape an editor wants and the shape a human reads in a terminal.
 #[derive(Debug, Clone, Default)]
 pub struct Location {
@@ -43,12 +43,12 @@ pub struct Location {
 
 /// A repair a rule can describe precisely enough to apply unattended.
 ///
-/// Only rules whose remedy is both SAFE (reversible, no content invented) and UNAMBIGUOUS (exactly
-/// one right answer) carry one — `day lint --fix` applies these without asking, so a fix that
+/// Only rules whose remedy is both safe (reversible, no content invented) and unambiguous (exactly
+/// one right answer) carry one. `day lint --fix` applies these without asking, so a fix that
 /// needed a human decision would be a way to lose work rather than a convenience.
 #[derive(Debug, Clone)]
 pub struct Fix {
-    /// What the fix does, in the imperative — shown by `--fix` and used as the editor's lightbulb
+    /// What the fix does, in the imperative. Shown by `--fix` and used as the editor's lightbulb
     /// title.
     pub title: String,
     /// Project-relative file to rewrite.
@@ -62,7 +62,7 @@ pub struct Fix {
 pub struct Finding {
     pub code: &'static str,
     pub message: String,
-    /// Where it is, for rules that know. `None` for findings about something ABSENT — a missing
+    /// Where it is, for rules that know. `None` for findings about something absent: a missing
     /// directory, a locale that exists on no surface, a package missing from the host.
     pub location: Option<Location>,
     /// A safe, unambiguous repair, for the few rules that have one.
@@ -75,8 +75,8 @@ impl Finding {
         self
     }
 
-    /// Attach a place only when the caller has one — the shape most checks are in, where a
-    /// position exists for a key that was FOUND and not for one that was missing.
+    /// Attach a place only when the caller has one, which is the shape most checks are in: a
+    /// position exists for a key that was found and not for one that was missing.
     pub fn maybe_located(mut self, at: Option<Location>) -> Self {
         self.location = at;
         self
@@ -88,8 +88,8 @@ impl Finding {
 }
 
 impl Location {
-    /// A place inside a file whose text we have, from a byte offset into it — how the Fluent
-    /// parser and the source scanners both report a match.
+    /// A place inside a file whose text we have, from a byte offset into it, which is how the
+    /// Fluent parser and the source scanners both report a match.
     pub fn in_file(file: impl Into<String>, src: &str, offset: usize) -> Location {
         let (line, column) = day_build::line_col(src, offset);
         Location {
@@ -99,7 +99,7 @@ impl Location {
         }
     }
 
-    /// The top of a file, for a finding that is ABOUT the file rather than about a line in it.
+    /// The top of a file, for a finding that is about the file rather than about a line in it.
     pub fn head(file: impl Into<String>) -> Location {
         Location {
             file: file.into(),
@@ -111,18 +111,18 @@ impl Location {
 
 /// Which rules are errors rather than warnings.
 ///
-/// The test is whether the finding names something that DOES NOT EXIST, or that will misbehave at
+/// The test is whether the finding names something that does not exist, or that will misbehave at
 /// runtime: a route nothing declares navigates nowhere, an unknown target or manifest override is
-/// simply not read. Everything else — coverage gaps, store text, style — stays a warning.
+/// not read. Everything else (coverage gaps, store text, style) stays a warning.
 ///
-/// `unknown-key` passes that test and is still a WARNING, because of how it is detected. Its
+/// `unknown-key` passes that test and is still a warning, because of how it is detected. Its
 /// evidence is the literal after `tr("`, and `tr(` is a two-character name: it occurs inside
 /// other identifiers (`push_str("` cost us every SVG tag in a file), and the literal after it is
-/// not always a key at all. The longer patterns behind the other codes — `navigate("`, `.id("`,
-/// `Permission::` — do not collide that way, and the manifest and Fluent rules come from a parse
+/// not always a key at all. The longer patterns behind the other codes (`navigate("`, `.id("`,
+/// `Permission::`) do not collide that way, and the manifest and Fluent rules come from a parse
 /// rather than a scan. An error is a claim worth holding to the standard of the evidence for it.
 ///
-/// Presentational only: `--strict` still fails on ANY active finding, error or warning, so this
+/// Presentational only: `--strict` still fails on any active finding, error or warning, so this
 /// changes what a reader sees and what an editor squiggles red, never whether existing CI passes.
 pub fn severity_of(code: &str) -> Severity {
     const ERRORS: &[&str] = &[
@@ -147,8 +147,8 @@ pub fn severity_of(code: &str) -> Severity {
 
 /// Collect keys referenced via the generated `res::str::<key>(…)` functions (§18.5). Unlike
 /// `tr("key")` these aren't quote-delimited: after `res::str::` (possibly through a `crate::`/module
-/// path) read the Rust identifier, stripping a `r#` raw prefix — that identifier is the Fluent key.
-/// A literal (or identifier) found in source, with WHERE it was found — so a finding about it can
+/// path) read the Rust identifier, stripping a `r#` raw prefix; that identifier is the Fluent key.
+/// A literal (or identifier) found in source, with where it was found, so a finding about it can
 /// point at the line rather than at the project as a whole.
 #[derive(Debug, Clone)]
 struct Hit {
@@ -160,7 +160,7 @@ struct Hit {
 
 impl Hit {
     /// Record `text`, whose position is taken from where it sits inside `src`. `text` must be a
-    /// subslice of `src` — every scan below carves it out of the file it just read.
+    /// subslice of `src`; every scan below carves it out of the file it just read.
     fn found(file: &Path, src: &str, text: &str) -> Hit {
         let (line, column) = day_build::line_col(src, day_build::offset_in(src, text).unwrap_or(0));
         Hit {
@@ -180,7 +180,7 @@ impl Hit {
     }
 }
 
-/// A path as a finding reports it: relative to the project, forward slashes on every platform —
+/// A path as a finding reports it: relative to the project, forward slashes on every platform,
 /// which is what an editor resolves against the workspace folder.
 fn rel(root: &Path, file: &Path) -> String {
     file.strip_prefix(root)
@@ -216,12 +216,12 @@ fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// Does a match at `at` begin in the MIDDLE of a longer identifier?
+/// Does a match at `at` begin in the middle of a longer identifier?
 ///
 /// `tr("` also occurs inside `push_str("`, and matching there reported every SVG tag in a file as
 /// a missing message. A call cannot start mid-identifier, so when the pattern itself begins with
 /// an identifier character, a match preceded by one is part of a longer name. Patterns that begin
-/// with punctuation (`.item("`) are exempt — there the preceding character is the receiver.
+/// with punctuation (`.item("`) are exempt: there the preceding character is the receiver.
 fn mid_identifier(src: &str, at: usize, pat: &str) -> bool {
     pat.chars().next().is_some_and(is_ident_char)
         && src[..at].chars().next_back().is_some_and(is_ident_char)
@@ -242,8 +242,8 @@ fn matches_of<'a>(src: &'a str, pat: &'a str) -> impl Iterator<Item = usize> + '
     })
 }
 
-/// Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5) — the
-/// symbol IS the key, so a call counts as a reference exactly like `tr("key")`.
+/// Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5): the
+/// symbol is the key, so a call counts as a reference exactly like `tr("key")`.
 fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
         const PAT: &str = "res::str::";
@@ -263,7 +263,7 @@ fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
 /// Collect portable permissions referenced in code as `Permission::<Variant>` (docs/permissions.md).
 ///
 /// Reads an identifier rather than a quoted literal. The contract with `day-part-permissions` is
-/// that its enum is called `Permission` and its variants are the table's `variant` spellings —
+/// that its enum is called `Permission` and its variants are the table's `variant` spellings,
 /// pinned by `tests/permissions_parity.rs`.
 fn scan_permission_uses(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
@@ -280,9 +280,9 @@ fn scan_permission_uses(dir: &Path, out: &mut Vec<Hit>) {
     });
 }
 
-/// Every Rust source root the lint scans: the project package's `src/` plus each WORKSPACE
-/// MEMBER crate's `src/` inside the project directory (a multi-crate app keeps its
-/// `tr("key")` / `.id("…")` literals in member crates too — Day-Games' games live in
+/// Every Rust source root the lint scans: the project package's `src/` plus each workspace
+/// member crate's `src/` inside the project directory (a multi-crate app keeps its
+/// `tr("key")` / `.id("…")` literals in member crates too; Day-Games' games live in
 /// `games/<name>/src`). A member is any `src/` directory beside a `Cargo.toml`, found by a
 /// shallow walk that skips build products and the native host projects.
 fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
@@ -318,14 +318,14 @@ fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
     roots
 }
 
-/// Every quoted string in the app's Rust sources that could BE a key.
+/// Every quoted string in the app's Rust sources that could be a key.
 ///
 /// A key is not always reached through `tr("…")` or `res::str::…`: naming a set of them in a const
 /// array and resolving with `tr(*k)` is how an app enumerates options, and the scaffold's own
 /// `KINDS` does exactly that. Those keys are used, and the two scans above cannot see it.
 ///
-/// Consulted ONLY by the unused-key check. It must not feed `unknown-key`, which asks the opposite
-/// question — every literal in the program is not a claim that a message exists.
+/// Consulted only by the unused-key check. It must not feed `unknown-key`, which asks the opposite
+/// question: every literal in the program is not a claim that a message exists.
 fn scan_key_like_literals(dir: &Path, out: &mut BTreeSet<String>) {
     for_each_rs(dir, &mut |_, src| {
         for lit in src.split('"').skip(1).step_by(2) {
@@ -342,7 +342,7 @@ fn scan_key_like_literals(dir: &Path, out: &mut BTreeSet<String>) {
     });
 }
 
-/// Every literal that follows `pat` up to the closing quote — `tr("`, `.id("`, `navigate("`.
+/// Every literal that follows `pat` up to the closing quote (`tr("`, `.id("`, `navigate("`).
 fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
         for at in matches_of(src, pat) {
@@ -354,14 +354,14 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
     });
 }
 
-/// The first path segment of a route string (`"a/b?x=1"` → `"a"`) — the part a lint can check
+/// The first path segment of a route string (`"a/b?x=1"` → `"a"`), the part a lint can check
 /// against declared nav host/tabs item keys. Deeper segments are open-ended (stack destination
 /// builders accept any key), so only the first is validated.
 fn route_first_segment(route: &str) -> &str {
     route.split(['/', '?']).next().unwrap_or("")
 }
 
-/// Collect the `Variant => "key"` literals declared inside `routes! { … }` blocks — typed
+/// Collect the `Variant => "key"` literals declared inside `routes! { … }` blocks; typed
 /// nav hosts declare their keys there instead of at `.item("key", …)` call sites.
 fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
@@ -405,10 +405,10 @@ fn scan_routes_macro_keys(dir: &Path, out: &mut Vec<Hit>) {
 ///
 /// `screenLayout` and `smallestScreenSize` are the two that matter and the two that were missing:
 /// entering split-screen or dragging a desktop-windowing edge across a size bucket changes both,
-/// and an activity that has not claimed them is DESTROYED and recreated. day-android does not
+/// and an activity that has not claimed them is destroyed and recreated. day-android does not
 /// survive a second `nativeStart` in one process, so what the user sees is an app that comes back
 /// without whatever it installed once at startup. The rest are here because a resizable window
-/// crosses them too — a window dragged to another display changes `density`, an accessibility
+/// crosses them too: a window dragged to another display changes `density`, an accessibility
 /// text-size change `fontScale`.
 const ANDROID_CONFIG_CHANGES: &[&str] = &[
     "screenSize",
@@ -416,9 +416,9 @@ const ANDROID_CONFIG_CHANGES: &[&str] = &[
     "smallestScreenSize",
     "orientation",
     "keyboardHidden",
-    // Claimed, even though a light/dark switch DOES need the activity recreated: an app-level
+    // Claimed, even though a light/dark switch does need the activity recreated: an app-level
     // `setApplicationNightMode` does not make the platform recreate it, so day-android performs
-    // that recreation itself (docs/appearance.md). Unclaiming this was tried and measured — the
+    // that recreation itself (docs/appearance.md). Unclaiming this was tried and measured: the
     // theme change then did nothing at all.
     "uiMode",
     "density",
@@ -430,7 +430,7 @@ const ANDROID_CONFIG_CHANGES: &[&str] = &[
 /// Every Day activity in the app's manifest claims the config changes a resize delivers, and
 /// declares a `<layout>` minimum (docs/size-classes.md).
 ///
-/// This is a per-app checked-in file that nothing else validates — `day build` cannot fix it,
+/// This is a per-app checked-in file that nothing else validates. `day build` cannot fix it,
 /// because an app may legitimately add activities of its own, and the Gradle manifest merger has
 /// no opinion about which config changes an activity ought to claim. Android 16 ignores
 /// `resizeableActivity` on any display 600dp or wider, so "the window will never be resized" has
@@ -545,7 +545,7 @@ fn check_screenshot_locales(
                 let Some(text) = text else { continue };
                 let keys = text.locales();
                 if keys.is_empty() {
-                    continue; // a plain string localizes nothing — nothing to check
+                    continue; // a plain string localizes nothing, so there is nothing to check
                 }
                 for l in app_locales {
                     if !keys.iter().any(|k| lang(k) == lang(l)) {
@@ -583,8 +583,8 @@ fn check_screenshot_locales(
     }
 }
 
-/// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps — and the
-/// route inside every `deep_link:` step's `url:` (docs/deep-links.md) — in
+/// Collect `route:` values from dayscript `navigate:` / `assert_route:` steps, and the
+/// route inside every `deep_link:` step's `url:` (docs/deep-links.md), in
 /// `dayscript/*.yaml`: the same route namespace `navigate()` uses (docs/navigation.md).
 fn scan_script_routes(dir: &Path, out: &mut Vec<Hit>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -611,7 +611,7 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<Hit>) {
                             .trim()
                             .trim_matches(['"', '\'']);
                         if !v.is_empty() {
-                            // The route half only — the lint checks route keys, not schemes;
+                            // The route half only: the lint checks route keys, not schemes;
                             // params are the destination's concern. Mirrors
                             // `day_spec::route_of_url` (day-cli doesn't link day-spec).
                             let route = v.split_once("://").map(|(_, r)| r).unwrap_or(v);
@@ -624,7 +624,8 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<Hit>) {
                 if !(l.starts_with("- navigate:") || l.starts_with("- assert_route:")) {
                     continue;
                 }
-                // rfind: `assert_route:` itself contains "route:" — the value's key is last.
+                // rfind, because `assert_route:` itself contains "route:" and the value's key
+                // is last.
                 if let Some(i) = l.rfind("route:") {
                     // The value ends at the next key in the inline map, not at the end of the
                     // line: `{ route: webview, skip_on: [harmony-arkui] }` is a route of
@@ -650,16 +651,16 @@ fn scan_script_routes(dir: &Path, out: &mut Vec<Hit>) {
 
 /// Every spelling a catalog key can be referenced by.
 ///
-/// A Fluent ATTRIBUTE entry is `menu_group.key` in the `.ftl`, but its generated accessor flattens
-/// to `res::str::menu_group_key()` — so the source says one thing, the catalog says another, and
-/// comparing the two literally reports the key as unknown AND unused at the same time. The
+/// A Fluent attribute entry is `menu_group.key` in the `.ftl`, but its generated accessor flattens
+/// to `res::str::menu_group_key()`, so the source says one thing, the catalog says another, and
+/// comparing the two literally reports the key as unknown and unused at the same time. The
 /// flattening comes from day-build rather than being restated here, so the two cannot drift.
 fn spellings<'a>(keys: impl Iterator<Item = &'a String>) -> BTreeSet<String> {
     keys.flat_map(|k| [k.clone(), day_build::res_str_ident(k)])
         .collect()
 }
 
-/// Is this catalog key referenced by the app, under EITHER spelling?
+/// Is this catalog key referenced by the app, under either spelling?
 fn is_referenced(key: &str, used: &BTreeSet<String>, literals: &BTreeSet<String>) -> bool {
     let ident = day_build::res_str_ident(key);
     used.contains(key)
@@ -670,7 +671,7 @@ fn is_referenced(key: &str, used: &BTreeSet<String>, literals: &BTreeSet<String>
 
 /// Where `needle` first appears in a file's text, as a place a finding can point at.
 ///
-/// For the checks whose subject came out of a PARSER that kept no spans — the manifest, chiefly.
+/// For the checks whose subject came out of a parser that kept no spans, chiefly the manifest.
 /// Searching the source for the value is approximate (a string that occurs twice reports the
 /// first), and better than sending the reader to line 1.
 fn locate_in(file: &str, src: &str, needle: &str) -> Option<Location> {
@@ -697,8 +698,8 @@ pub fn run(project: &Project, strict: bool, allow: &[String], json: bool, fix: b
         {
             eprintln!("{DIM}--fix{DIM:#} no finding proposes a fix that can be applied unattended");
         }
-        // Two rules can propose a repair for the SAME file — a keyword list with both stray
-        // spaces and trailing whitespace — and each was computed against the text as it was, so
+        // Two rules can propose a repair for the same file (a keyword list with both stray
+        // spaces and trailing whitespace), and each was computed against the text as it was, so
         // only one of them can be applied per pass. Re-check and go again until nothing is left.
         for _ in 0..8 {
             if apply_fixes(project, &findings, allow) == 0 {
@@ -715,7 +716,7 @@ pub fn run(project: &Project, strict: bool, allow: &[String], json: bool, fix: b
 
 /// Write every safe fix that is not waived, one file at a time, saying what happened to each.
 ///
-/// Waived codes are skipped on purpose: `--allow` says a finding may stand, and rewriting the file
+/// Waived codes are skipped: `--allow` says a finding may stand, and rewriting the file
 /// it named would be the opposite of letting it stand.
 fn apply_fixes(project: &Project, findings: &[Finding], allow: &[String]) -> usize {
     let mut applied = 0;
@@ -740,11 +741,11 @@ fn apply_fixes(project: &Project, findings: &[Finding], allow: &[String]) -> usi
     applied
 }
 
-/// Everything the rules found, in no particular order — the reporting below decides what to do
+/// Everything the rules found, in no particular order; the reporting below decides what to do
 /// with them. Split out so `--fix` can re-check after writing without re-entering the report.
 fn collect(project: &Project) -> Vec<Finding> {
     let mut findings: Vec<Finding> = Vec::new();
-    // The manifest as TEXT. It parsed to reach here, but the parsed form keeps no spans, so the
+    // The manifest as text. It parsed to reach here, but the parsed form keeps no spans, so the
     // checks below find their own value in the source to report a line.
     let manifest_src = std::fs::read_to_string(project.root.join("Day.toml")).ok();
 
@@ -752,7 +753,7 @@ fn collect(project: &Project) -> Vec<Finding> {
     // Parse every vector source and surface the problems a device test would otherwise find
     // first: unparseable art, glyph-embedded <text> (shaping is not compiled in), a template
     // without its canonical Regular variant, and art outside the VectorDrawable subset (which
-    // ships as a raster fallback on Android — worth knowing, not an error).
+    // ships as a raster fallback on Android: worth knowing, not an error).
     lint_vectors(project, &mut findings);
 
     // --- daybridge (docs/bridge.md) ---
@@ -776,7 +777,7 @@ fn collect(project: &Project) -> Vec<Finding> {
         }
     }
 
-    // A bridged C/C++ arm's `link = [...]` needs the library's dev package on THIS machine, and
+    // A bridged C/C++ arm's `link = [...]` needs the library's dev package on this machine, and
     // the failure without it is a linker wall naming no crate (docs/bridge.md "Linking").
     let missing = crate::bridge::unresolved_link_libs(project);
     if !missing.is_empty() {
@@ -815,9 +816,9 @@ fn collect(project: &Project) -> Vec<Finding> {
         for t in crate::targets::TARGETS {
             known.insert(t.name); // "macos-appkit"
             known.insert(t.toolkit); // "appkit"
-            known.insert(t.os); // "macos" — and "harmony" for harmony-arkui
+            known.insert(t.os); // "macos", and "harmony" for harmony-arkui
         }
-        // The pre-rename spelling of the harmony platform key — still honored by the
+        // The pre-rename spelling of the harmony platform key, still honored by the
         // override resolution (meta.rs), so it isn't an unknown table.
         known.insert("ohos");
         for key in project.manifest.app.overrides.keys() {
@@ -847,7 +848,7 @@ fn collect(project: &Project) -> Vec<Finding> {
     match crate::store::read(project) {
         Ok(listing) => {
             for p in crate::store::lint(project, &listing) {
-                // A listing field is one value in one small file, so the head of that file IS the
+                // A listing field is one value in one small file, so the head of that file is the
                 // finding's place; the rules that carry a repair rewrite the file whole.
                 findings.push(Finding {
                     code: p.code,
@@ -883,7 +884,7 @@ fn collect(project: &Project) -> Vec<Finding> {
         // index (`day screenshot index`), so its locale keys must track the app's translation
         // locales: an app locale the map lacks silently ships the English title on that
         // locale's gallery page, and a key naming a locale the app does not have is dead
-        // weight — usually a typo. Comparison is by primary language (`fr` covers `fr-FR`),
+        // weight, usually a typo. Comparison is by primary language (`fr` covers `fr-FR`),
         // the same rule the gallery's own resolution uses. A plain-string title is fine: an
         // app that does not localize its gallery has nothing to keep in sync.
         if !survey.fluent.is_empty() {
@@ -901,14 +902,14 @@ fn collect(project: &Project) -> Vec<Finding> {
 
     // --- Permission declarations (docs/permissions.md) ---
     // The backstop for the whole declaration pipeline: an undeclared permission reports Restricted
-    // on Android and TERMINATES the app on iOS the first time it touches the API. Catching it here
+    // on Android and terminates the app on iOS the first time it touches the API. Catching it here
     // turns a crash on a device into a lint failure.
     {
         let mut used = Vec::new();
         for root in source_roots(&project.root) {
             scan_permission_uses(&root, &mut used);
         }
-        // One finding per VARIANT, reported at its first use: a permission requested from six
+        // One finding per variant, reported at its first use: a permission requested from six
         // call sites is still one missing declaration.
         let mut seen_variants = BTreeSet::new();
         used.retain(|h| seen_variants.insert(h.text.clone()));
@@ -971,13 +972,13 @@ fn collect(project: &Project) -> Vec<Finding> {
 
         // Has a build actually written the declarations into the checked-in iOS manifest? The
         // Android overlay is gitignored and regenerated every build, so there is nothing stale to
-        // find there — checking it would only produce false alarms on a fresh clone.
+        // find there; checking it would only produce false alarms on a fresh clone.
         if let Some(plist) = crate::mobile::app_info_plist(project)
             && let Ok(text) = std::fs::read_to_string(&plist)
             && let Ok(plan) = crate::permissions::resolve_project(project, "ios", &[])
         {
             let have = crate::plist::read_string_keys(&text);
-            // Permission usage descriptions only. Day.toml `[window]`'s minimum is NOT checked
+            // Permission usage descriptions only. Day.toml `[window]`'s minimum is not checked
             // here: the plist carries `$(DAY_WINDOW_MIN_WIDTH)`, a reference Xcode resolves at
             // build time, so there is no value to go stale and nothing for a build to rewrite.
             let want = crate::permissions::apple_keys(&plan, false);
@@ -1027,10 +1028,10 @@ fn collect(project: &Project) -> Vec<Finding> {
 
     // --- Fluent coverage ---
     let locales_dir = project.root.join("resource/locales");
-    // locale → message key → where that key is DEFINED. Carrying the definition site is what lets
+    // locale → message key → where that key is defined. Carrying the definition site is what lets
     // a finding about a key open the .ftl at its line instead of at the directory.
     let mut locales: BTreeMap<String, BTreeMap<String, Location>> = BTreeMap::new();
-    // locale → one .ftl to blame for a key the catalog is MISSING, which has no line of its own.
+    // locale → one .ftl to blame for a key the catalog is missing, which has no line of its own.
     let mut locale_files: BTreeMap<String, String> = BTreeMap::new();
     if let Ok(entries) = std::fs::read_dir(&locales_dir) {
         for e in entries.flatten() {
@@ -1064,8 +1065,8 @@ fn collect(project: &Project) -> Vec<Finding> {
     let mut used_keys = Vec::new();
     for r in &roots {
         scan_sources(r, "tr(\"", &mut used_keys);
-        // Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5) —
-        // the symbol IS the key (snake_case), so they count as used like a `tr("key")` literal.
+        // Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5):
+        // the symbol is the key (snake_case), so they count as used like a `tr("key")` literal.
         scan_res_str(r, &mut used_keys);
     }
     let used = texts(&used_keys);
@@ -1108,7 +1109,7 @@ fn collect(project: &Project) -> Vec<Finding> {
         for (k, at) in &default_keys {
             // Convention keys the framework consumes at build time, not from app source:
             // `language_name` is read by day-build's generated `res::locales::ALL` (each catalog
-            // naming its own language for pickers — docs/localization.md), so no `res::str::` or
+            // naming its own language for pickers, docs/localization.md), so no `res::str::` or
             // `tr("…")` reference exists for the scan to find.
             if k == "language_name" {
                 continue;
@@ -1136,11 +1137,10 @@ fn collect(project: &Project) -> Vec<Finding> {
                 continue;
             }
             for k in default_keys.keys() {
-                // An ATTRIBUTE is deliberately not demanded of every locale. A locale that omits
-                // `.key` inherits the default's through the ordinary fallback chain, which is the
-                // point — a shortcut stays stable across languages unless a locale overrides it
-                // on purpose (docs/localization.md, "Shortcut keys"). Only messages must be
-                // translated everywhere.
+                // An attribute is not demanded of every locale. A locale that omits `.key`
+                // inherits the default's through the ordinary fallback chain, so a shortcut stays
+                // stable across languages unless a locale overrides it (docs/localization.md,
+                // "Shortcut keys"). Only messages must be translated everywhere.
                 if k.contains('.') {
                     continue;
                 }
@@ -1151,7 +1151,7 @@ fn collect(project: &Project) -> Vec<Finding> {
                             message: format!("resource/locales/{name}: missing {k}"),
                             ..Default::default()
                         }
-                        // The key is ABSENT, so there is no line to point at — the catalog that
+                        // The key is absent, so there is no line to point at; the catalog that
                         // should have it is as close as this gets.
                         .maybe_located(locale_files.get(name).map(Location::head)),
                     );
@@ -1161,9 +1161,9 @@ fn collect(project: &Project) -> Vec<Finding> {
     }
 
     // --- Fluent formatting functions (docs/localization.md "Formatted values") ---
-    // day-l10n registers exactly NUMBER and DATETIME on every bundle; anything else renders as an
-    // error marker at runtime, and a misspelled option silently falls back to defaults — both are
-    // author mistakes worth catching per locale file here.
+    // day-l10n registers exactly `NUMBER()` and `DATETIME()` on every bundle; anything else
+    // renders as an error marker at runtime, and a misspelled option silently falls back to
+    // defaults. Both are author mistakes worth catching per locale file here.
     if let Ok(entries) = std::fs::read_dir(&locales_dir) {
         for e in entries.flatten() {
             if !e.path().is_dir() {
@@ -1189,8 +1189,8 @@ fn collect(project: &Project) -> Vec<Finding> {
     }
 
     // --- Unknown routes (docs/navigation.md) ---
-    // Literal `navigate("…")` calls and dayscript navigate / assert_route steps must START
-    // with a declared item key — `.item("key", …)` for string-keyed apps, `routes! { X =>
+    // Literal `navigate("…")` calls and dayscript navigate / assert_route steps must start
+    // with a declared item key: `.item("key", …)` for string-keyed apps, `routes! { X =>
     // "key" }` for typed ones (typed `.item(Section::X, …)` call sites are already
     // compile-checked; this covers the scripts and raw strings). Skipped when the app
     // declares no keys either way (a pure-stack app's routes are open-ended).
@@ -1216,7 +1216,7 @@ fn collect(project: &Project) -> Vec<Finding> {
             let at = h.location(&project.root);
             ("dayscript".to_string(), h.text, Some(at))
         }));
-        // [[shortcuts]] routes are saved deep links (docs/deep-links.md) — same check,
+        // [[shortcuts]] routes are saved deep links (docs/deep-links.md): same check,
         // query params stripped the way the route parser will strip them.
         used_routes.extend(project.manifest.shortcuts.iter().map(|s| {
             let route = s.route.split('?').next().unwrap_or(&s.route).to_string();
@@ -1244,7 +1244,7 @@ fn collect(project: &Project) -> Vec<Finding> {
     }
 
     // --- Shortcut labels (docs/deep-links.md) ---
-    // Every [[shortcuts]] label must be a single-line static message present in EVERY locale:
+    // Every [[shortcuts]] label must be a single-line static message present in every locale:
     // the native launcher renders the conveyed string with no formatter behind it. `day build`
     // enforces the same rules; lint catches them without needing a platform build.
     if !project.manifest.shortcuts.is_empty() {
@@ -1326,8 +1326,8 @@ fn report(findings: &[Finding], allow: &[String], strict: bool) -> i32 {
             }
         }
         if gha {
-            // GitHub reads workflow commands off STDOUT (the human report above is stderr, which
-            // never becomes an annotation). With a file and line the annotation lands ON the
+            // GitHub reads workflow commands off stdout (the human report above is stderr, which
+            // never becomes an annotation). With a file and line the annotation lands on the
             // offending line in the PR diff; without one it stays a job-level note. Newlines must
             // be %0A-escaped per the docs.
             let place = match &f.location {
@@ -1356,13 +1356,13 @@ fn report(findings: &[Finding], allow: &[String], strict: bool) -> i32 {
 /// The editor envelope: every finding with its place, its severity and its repair, so a tool can
 /// draw squiggles and offer a lightbulb without re-deriving any of it.
 ///
-/// Waived findings are INCLUDED, flagged rather than dropped — an editor showing them greyed is a
+/// Waived findings are included, flagged rather than dropped: an editor showing them greyed is a
 /// better way to notice a stale `--allow` than their silent absence. `schema` is grow-only: fields
 /// get added, never removed or repurposed.
 fn report_json(project: &Project, findings: &[Finding], allow: &[String], strict: bool) -> i32 {
     println!("{}", envelope(&project.root, findings, allow));
     let waived = findings.iter().filter(|f| allowed(f.code, allow)).count();
-    // Same exit contract as the human report — a tool reading JSON still gets to fail a job.
+    // Same exit contract as the human report: a tool reading JSON still gets to fail a job.
     if findings.len() > waived && strict {
         crate::cli::ErrKind::Lint.exit_code()
     } else {
@@ -1423,7 +1423,7 @@ fn envelope(root: &Path, findings: &[Finding], allow: &[String]) -> serde_json::
 /// Three GitHub files look alike and do different things: `$GITHUB_OUTPUT` carries `name=value`
 /// step outputs (annotation syntax written there is silently ignored), `$GITHUB_STEP_SUMMARY` is
 /// the markdown the run page renders, and annotations come from `::warning::` commands on stdout
-/// (above). Findings therefore go to the latter two — stdout for the highlighted PR/file
+/// (above). Findings therefore go to the latter two: stdout for the highlighted PR/file
 /// annotations, the summary file for the run page.
 fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)>) {
     let Ok(path) = std::env::var("GITHUB_STEP_SUMMARY") else {
@@ -1449,7 +1449,7 @@ fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)
         let _ = writeln!(md, "\n_{n} `{code}` finding(s) waived by `--allow`_");
     }
     md.push('\n');
-    // Appending, not truncating: earlier steps' summaries are theirs to keep. Best-effort — a
+    // Appending, not truncating: earlier steps' summaries are theirs to keep. Best-effort, so a
     // failed summary write must never fail the lint.
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .append(true)
@@ -1493,7 +1493,7 @@ fn lint_ftl_call(locale: &str, file: &str, src: &str, call: &day_build::FtlCall)
                             out.push(bad("useGrouping", val, "\"true\" or \"false\""));
                         }
                     }
-                    // Plural-category selection type — handled by fluent-bundle itself.
+                    // Plural-category selection type, handled by fluent-bundle itself.
                     "type" => {}
                     "currency" | "currencyDisplay" => out.push(Finding {
                         code: "day::lint::unsupported-format-option",
@@ -1663,8 +1663,8 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
 /// Every declared permission that prompts must have its reason text, in every locale the app
 /// ships (docs/permissions.md, "Localized reasons"): the catalog's `permission_<id>` message,
 /// or Day.toml's inline text for a single-locale app. Reported per declaration and per locale,
-/// so a translator sees exactly which catalog is short, and a text given twice — inline and in
-/// the default catalog — is named too, since only the catalog's copy reaches the phone.
+/// so a translator sees exactly which catalog is short, and a text given twice (inline and in
+/// the default catalog) is named too, since only the catalog's copy reaches the phone.
 fn check_permission_reasons(
     project: &crate::meta::Project,
     catalog: &crate::permissions::Catalog,
@@ -1801,7 +1801,7 @@ e = { PLATFORM() }
             ],
             "{findings:?}"
         );
-        // Each finding points at the LINE its call is on, not at the top of the catalog: the
+        // Each finding points at the line its call is on, not at the top of the catalog: the
         // source above starts with a newline, so `b` is line 3 and `e` is line 6.
         let lines: Vec<usize> = findings
             .iter()
@@ -1844,7 +1844,7 @@ e = { PLATFORM() }
         let doc = envelope(Path::new("/app"), &findings, &allow);
         let rows = doc["findings"].as_array().expect("findings is an array");
 
-        // An unknown target is an ERROR and points at the line the parser could not report.
+        // An unknown target is an error and points at the line the parser could not report.
         assert_eq!(rows[0]["severity"], "error");
         assert_eq!(rows[0]["line"], 3);
         assert_eq!(rows[0]["column"], 1);
@@ -1855,7 +1855,7 @@ e = { PLATFORM() }
         assert_eq!(rows[1]["fix"]["contents"], "Name\n");
         assert_eq!(rows[1]["severity"], "warning");
 
-        // A waived finding is REPORTED and flagged, not dropped: a stale `--allow` is easier to
+        // A waived finding is reported and flagged, not dropped: a stale `--allow` is easier to
         // notice as a greyed row than as an absence.
         assert_eq!(rows[2]["waived"], true);
         assert!(rows[2].get("file").is_none(), "nothing to point at");
@@ -1869,7 +1869,7 @@ e = { PLATFORM() }
     #[test]
     fn a_waived_finding_is_never_rewritten() {
         // `--allow` says the finding may stand. Applying its fix anyway would be the opposite of
-        // standing, and would edit a file the author deliberately left alone.
+        // standing, and would edit a file the author chose to leave alone.
         let f = Finding {
             code: "day::lint::store-whitespace",
             message: "trailing space".into(),
@@ -1909,8 +1909,8 @@ e = { PLATFORM() }
     #[test]
     fn an_attribute_is_the_same_key_under_either_spelling() {
         // `menu_group.key` in the catalog is reached as `res::str::menu_group_key()` in Rust.
-        // Comparing the two literally reported it as unknown AND unused at once, on Day-Sketch's
-        // whole menu — every shortcut key it defines.
+        // Comparing the two literally reported it as unknown and unused at once, on Day-Sketch's
+        // whole menu, every shortcut key it defines.
         let catalog: Vec<String> = ["menu_group".into(), "menu_group.key".into()].into();
         let spelled = spellings(catalog.iter());
         assert!(
@@ -1933,7 +1933,7 @@ e = { PLATFORM() }
         // `tr("menu_group.key")` is the other way to reach it, and counts just as much.
         let dotted: BTreeSet<String> = ["menu_group.key".to_string()].into_iter().collect();
         assert!(is_referenced("menu_group.key", &dotted, &none));
-        // A key resolved indirectly is seen only as a bare literal — still a reference.
+        // A key resolved indirectly is seen only as a bare literal, and is still a reference.
         assert!(is_referenced("menu_group.key", &none, &used));
     }
 
@@ -1965,13 +1965,13 @@ e = { PLATFORM() }
             ["home"],
             "`renavigate(` is a different function"
         );
-        // A pattern starting with punctuation must NOT be guarded — the character before `.item("`
+        // A pattern starting with punctuation must not be guarded: the character before `.item("`
         // is the receiver, and skipping on it would find nothing at all.
         let dotted = r#"sidebar.item("home", …).item("stack", …)"#;
         assert_eq!(matches_of(dotted, ".item(\"").count(), 2);
     }
 
-    /// A throwaway project on disk, so the coverage checks can be exercised end to end — the
+    /// A throwaway project on disk, so the coverage checks can be exercised end to end; the
     /// catalog/source interplay is the whole behavior and it lives inside `collect`.
     fn app(name: &str, files: &[(&str, &str)]) -> (std::path::PathBuf, Project) {
         let dir = std::env::temp_dir().join(format!("day-lint-{name}-{}", std::process::id()));
@@ -2005,7 +2005,7 @@ e = { PLATFORM() }
     #[test]
     fn a_shortcut_attribute_is_neither_unknown_nor_unused_nor_demanded_of_every_locale() {
         // Day-Sketch's whole menu: `menu_group.key` in the catalog, `res::str::menu_group_key()`
-        // in Rust. Comparing the spellings literally reported each shortcut as an unknown key AND
+        // in Rust. Comparing the spellings literally reported each shortcut as an unknown key and
         // an unused one at the same time.
         let (dir, project) = app(
             "attr",
@@ -2014,8 +2014,8 @@ e = { PLATFORM() }
                     "resource/locales/en/app.ftl",
                     "menu_group = Group\n    .key = g\nmenu_solo = Solo\n",
                 ),
-                // fr omits `.key` on purpose — it inherits en's through the fallback chain, and
-                // the coverage lint must not demand it (docs/localization.md).
+                // fr omits `.key` and inherits en's through the fallback chain; the coverage
+                // lint must not demand it (docs/localization.md).
                 (
                     "resource/locales/fr/app.ftl",
                     "menu_group = Grouper\nmenu_solo = Solo\n",
@@ -2033,7 +2033,7 @@ e = { PLATFORM() }
             "nothing is wrong with this app"
         );
 
-        // The exemption is for attributes only — a missing MESSAGE is still a finding.
+        // The exemption is for attributes only; a missing message is still a finding.
         std::fs::write(
             dir.join("resource/locales/fr/app.ftl"),
             "menu_group = Grouper\n",
@@ -2113,7 +2113,7 @@ e = { PLATFORM() }
         let mut routes: Vec<String> = out.iter().map(|h| h.text.clone()).collect();
         routes.sort();
         assert_eq!(routes, ["controls", "stack/1", "tabs"]);
-        // The steps are on lines 2, 3 and 5 of the script — a finding about one of them opens
+        // The steps are on lines 2, 3 and 5 of the script, so a finding about one of them opens
         // the file there rather than at the top.
         let mut lines: Vec<usize> = out.iter().map(|h| h.line).collect();
         lines.sort();

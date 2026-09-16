@@ -326,7 +326,7 @@ fn three_key_shapes_coexist_in_one_container() {
 #[test]
 fn two_default_uuid_rows_coalesce_to_one_stored_row() {
     // The nil-uuid Default is the documented edge: two un-idified rows share a key, the
-    // index resolves to the last, and the fold's upsert writes ONE row. Apps mint ids
+    // index resolves to the last, and the fold's upsert writes one row. Apps mint ids
     // (`Uuid::now_v7()`) before insert; this pins what happens when one forgets.
     let path = temp_db("nil");
     {

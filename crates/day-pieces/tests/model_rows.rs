@@ -146,7 +146,7 @@ fn an_order_edit_reloads_and_a_value_edit_does_not() {
     );
 }
 
-/// The massive-list claim: ONE physical cell recycled across the whole collection. The slot's
+/// The massive-list claim: One physical cell recycled across the whole collection. The slot's
 /// bindings re-track per rebind, and day-model's run-keyed claims release as they go — so the
 /// observation tables end where they began, not 200 rows deep.
 #[test]
@@ -183,7 +183,7 @@ fn recycling_a_cell_across_the_collection_leaves_no_claims() {
     );
 }
 
-/// Correctness of following: after a rebind, the OLD row's writes no longer reach the cell and
+/// Correctness of following: after a rebind, the old row's writes no longer reach the cell and
 /// the NEW row's do — including through a two-way control bound once at build.
 #[test]
 fn slot_bindings_follow_the_recycled_row() {
@@ -198,7 +198,7 @@ fn slot_bindings_follow_the_recycled_row() {
                     r.set(r.get() + 1);
                     slot.name().read()
                 }),
-                // A control bound ONCE at build: must follow the slot across recycles.
+                // A control bound once at build: must follow the slot across recycles.
                 text_field(slot.name()),
             ))
         })
@@ -217,7 +217,7 @@ fn slot_bindings_follow_the_recycled_row() {
     assert!(runs.get() > base, "the rebind woke the row's bindings");
     let after_rebind = runs.get();
 
-    // The OLD row is somebody else's now.
+    // The old row is somebody else's now.
     store.elem(0).name().write("old row".into());
     flush_sync();
     assert_eq!(

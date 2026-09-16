@@ -1,13 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! daybridge runtime (docs/bridge.md, DESIGN.md §15.6) — foreign-language implementations of a
+//! daybridge runtime (docs/bridge.md, DESIGN.md §15.6): foreign-language implementations of a
 //! Rust API.
 //!
 //! A crate declares one API and supplies implementations per platform; `day build` generates the
 //! adapters and the glue. This crate is the small runtime half: the [`bridge!`] macro, the
-//! [`Error`] that crosses every boundary, the [`Support`] an arm reports, and the callback tier —
-//! [`Done`], [`Registry`] and [`Completion`] — that lets an arm answer after it has returned.
+//! [`Error`] that crosses every boundary, the [`Support`] an arm reports, and the callback tier
+//! ([`Done`], [`Registry`] and [`Completion`]) that lets an arm answer after it has returned.
 //!
 //! ```ignore
 //! day_bridge::bridge! {
@@ -39,14 +39,14 @@ pub use day_spec::Support;
 /// The single error type crossing a bridge boundary (docs/bridge.md "Errors").
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
-    /// No arm claims this target — what the `other` fallback returns.
+    /// No arm claims this target: what the `other` fallback returns.
     Unsupported,
     /// The arm failed: a Swift `throws`, a Kotlin exception, a thrown JS error, a nonzero C status.
     /// The string is the platform's own message, which is the only detail that survives.
     Foreign(String),
     /// An argument or result was not valid UTF-8.
     Encoding,
-    /// The platform runtime was unavailable — no JVM, no `Context`, COM init refused — or a
+    /// The platform runtime was unavailable (no JVM, no `Context`, COM init refused), or a
     /// completion never came because the call never went out.
     Runtime,
 }
@@ -82,7 +82,7 @@ impl<T: Send + 'static> Default for Registry<T> {
 }
 
 impl<T: Send + 'static> Registry<T> {
-    /// An empty registry — `const`, so a generated `static` can own it.
+    /// An empty registry. `const`, so a generated `static` can own it.
     pub const fn new() -> Self {
         Self {
             inner: day_async::TokenRegistry::new(),
@@ -90,7 +90,7 @@ impl<T: Send + 'static> Registry<T> {
     }
 
     /// Resolve `token` with `value`. `false` when nothing waits under it: already completed,
-    /// cancelled, or never issued — every one of which is a no-op by contract.
+    /// cancelled, or never issued, every one of which is a no-op by contract.
     pub fn complete(&self, token: u64, value: Result<T, Error>) -> bool {
         self.inner.complete(token, value)
     }
@@ -100,7 +100,7 @@ impl<T: Send + 'static> Registry<T> {
         self.inner.contains(token)
     }
 
-    /// Forget `token` without resolving it — the future that waited was dropped.
+    /// Forget `token` without resolving it: the future that waited was dropped.
     fn cancel(&self, token: u64) -> bool {
         self.inner.remove(token)
     }
@@ -148,8 +148,8 @@ impl<T: Send + 'static> Done<T> {
 /// The awaitable form of a `Done` declaration: what a generated `<fn>_future` returns.
 ///
 /// Resolves with the arm's answer, or with [`Error::Runtime`] when the arm returned without
-/// ever completing (the call never went out). Dropping it cancels the wait — a late completion
-/// then finds nothing — and runs the cancel hook the generated code attached, when the
+/// ever completing (the call never went out). Dropping it cancels the wait (a late completion
+/// then finds nothing) and runs the cancel hook the generated code attached, when the
 /// declaration named a cancel arm.
 pub struct Completion<T: Send + 'static> {
     rx: day_async::Oneshot<Result<T, Error>>,
@@ -159,7 +159,7 @@ pub struct Completion<T: Send + 'static> {
 }
 
 impl<T: Send + 'static> Completion<T> {
-    /// Run `f` when this future is dropped before completing — the generated cancel arm.
+    /// Run `f` when this future is dropped before completing: the generated cancel arm.
     pub fn on_cancel(mut self, f: impl FnOnce() + Send + 'static) -> Self {
         self.on_drop = Some(Box::new(f));
         self
@@ -170,7 +170,7 @@ impl<T: Send + 'static> Completion<T> {
         self.rx.is_ready()
     }
 
-    /// The token the arm was handed — what a declared cancel arm takes.
+    /// The token the arm was handed: what a declared cancel arm takes.
     pub fn token(&self) -> u64 {
         self.token
     }
@@ -198,11 +198,11 @@ impl<T: Send + 'static> Drop for Completion<T> {
     }
 }
 
-/// Start a `Done` call in callback form — what a generated `<fn>_async` does.
+/// Start a `Done` call in callback form: what a generated `<fn>_async` does.
 ///
 /// `call` receives the handle and runs the arm. The callback fires exactly once: with the arm's
-/// answer when it completes, or with the arm's error when it fails to start — the same error
-/// this returns — so a caller may rely on either channel alone. `Ok` carries the token, which
+/// answer when it completes, or with the arm's error when it fails to start (the same error
+/// this returns), so a caller may rely on either channel alone. `Ok` carries the token, which
 /// is what a declared cancel arm takes to find the request it started.
 pub fn start_async<T: Send + 'static>(
     registry: &'static Registry<T>,
@@ -220,7 +220,7 @@ pub fn start_async<T: Send + 'static>(
     }
 }
 
-/// Start a `Done` call in future form — what a generated `<fn>_future` does.
+/// Start a `Done` call in future form: what a generated `<fn>_future` does.
 pub fn start_future<T: Send + 'static>(
     registry: &'static Registry<T>,
     call: impl FnOnce(Done<T>) -> Result<(), Error>,
@@ -230,7 +230,7 @@ pub fn start_future<T: Send + 'static>(
     let token = done.token();
     if let Err(e) = call(done) {
         // Registered before the call, so the slot is still there unless the arm completed it
-        // on its way out — in which case this finds nothing, and the arm's answer stands.
+        // on its way out, in which case this finds nothing, and the arm's answer stands.
         registry.complete(token, Err(e));
     }
     Completion {
@@ -275,7 +275,7 @@ fn lock_ignoring_poison<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_,
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// The consumers of one `Emit<T>` declaration's streams, keyed by token — the stream
+/// The consumers of one `Emit<T>` declaration's streams, keyed by token: the stream
 /// counterpart of [`Registry`]. The generator emits one `static` per declaration.
 ///
 /// Delivery rules that make a token safe to hand to a platform thread:
@@ -298,7 +298,7 @@ impl<T: Send + 'static> Default for Streams<T> {
 }
 
 impl<T: Send + 'static> Streams<T> {
-    /// An empty set of streams — `const`, so a generated `static` can own it.
+    /// An empty set of streams. `const`, so a generated `static` can own it.
     pub const fn new() -> Self {
         Self {
             slots: std::sync::Mutex::new(std::collections::BTreeMap::new()),
@@ -484,7 +484,7 @@ impl<T: Send + 'static> Emit<T> {
     }
 }
 
-/// Start an `Emit` call — what a generated `<fn>_stream` does. `cb` receives every item, in
+/// Start an `Emit` call: what a generated `<fn>_stream` does. `cb` receives every item, in
 /// order, from whichever thread the platform delivers on. When the arm fails to start, `cb`
 /// receives that failure (once) and this returns it. `Ok` carries the token a stop call takes.
 pub fn start_stream<T: Send + 'static>(
@@ -509,7 +509,7 @@ pub fn guard(f: impl FnOnce()) {
     day_spec::ffi_guard::contain((), f);
 }
 
-/// Take ownership of a buffer the web shim allocated with `day_dom_alloc(len)` and filled — the
+/// Take ownership of a buffer the web shim allocated with `day_dom_alloc(len)` and filled: the
 /// (ptr, len) a JavaScript completion passes a string or bytes through (docs/web.md).
 ///
 /// # Safety
@@ -528,7 +528,7 @@ pub unsafe fn __take_wasm(ptr: *mut u8, len: usize) -> Vec<u8> {
 /// The HarmonyOS side of the callback tier: how generated Rust reaches an ArkTS arm, and how a
 /// completion comes back (docs/bridge.md "Callbacks"). Every ArkTS arm runs on the JS thread; the
 /// ArkUI shim owns that dispatch, and this module finds the shim's entry at run time so a bridged
-/// crate keeps no link-time dependency on the toolkit — the same `dlsym` idiom
+/// crate keeps no link-time dependency on the toolkit, the same `dlsym` idiom
 /// day-part-permissions uses.
 #[cfg(all(target_os = "linux", target_env = "ohos"))]
 pub mod arkts {
@@ -630,7 +630,7 @@ pub mod arkts {
         }
     }
 
-    /// Whether the caller is on the JS thread — the UI thread of a Day app on HarmonyOS, where
+    /// Whether the caller is on the JS thread: the UI thread of a Day app on HarmonyOS, where
     /// a blocking wait for an ArkTS answer would deadlock. `false` when no host is running.
     pub fn on_js_thread() -> bool {
         let entry = lookup(c"day_arkui_bridge_on_js_thread");
@@ -661,12 +661,12 @@ pub mod arkts {
 ///
 /// **The body is discarded.** This macro expands to nothing but an `include!` of the code
 /// day-build generated from the same source text, which is what lets an arm contain Swift, Kotlin,
-/// ArkTS, JavaScript, C, or C++ — the tokens are never resolved by rustc, only lexed. It is also
+/// ArkTS, JavaScript, C, or C++; the tokens are never resolved by rustc, only lexed. It is also
 /// why daybridge needs no procedural macro, and why DESIGN.md §5.1's "no required macro anywhere in
 /// the framework" still holds: this is opt-in sugar that lowers to plain generated Rust.
 ///
 /// Foreign code inside an arm must nevertheless *lex* as Rust tokens, which idiomatic JavaScript and
-/// ArkTS do not — a backtick is not a Rust token, and `'zh-CN'` lexes as a malformed lifetime. That
+/// ArkTS do not: a backtick is not a Rust token, and `'zh-CN'` lexes as a malformed lifetime. That
 /// is why inline arms carry their body in a raw string.
 #[macro_export]
 macro_rules! bridge {

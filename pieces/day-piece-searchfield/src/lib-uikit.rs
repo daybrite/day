@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // UIKit: UISearchTextField (iOS 13+) — a UITextField subclass with the search field's rounded
 // background + magnifier + clear button. A per-node target fires on UIControlEvents::EditingChanged
-// and dispatches Event::TextChanged; programmatic setText does NOT fire EditingChanged, so no echo
+// and dispatches Event::TextChanged; programmatic setText does not fire EditingChanged, so no echo
 // guard is needed here (update only writes when the value actually differs).
 // ---------------------------------------------------------------------------
 

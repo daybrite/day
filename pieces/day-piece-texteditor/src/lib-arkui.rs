@@ -140,7 +140,7 @@ fn text_of(h: &AHandle) -> String {
 }
 
 fn make(_backend: &mut ArkUi, p: &EditorProps, id: NodeId) -> AHandle {
-    // TEXT LAST, so a document containing the separator still arrives intact: the ArkTS side
+    // TEXT last, so a document containing the separator still arrives intact: the ArkTS side
     // rejoins everything after the sixth field.
     let props = format!(
         "{base}{SEP}{editable}{SEP}{spell}{SEP}{min}{SEP}{max}{SEP}{placeholder}{SEP}{text}",
@@ -169,7 +169,7 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
         }
         EditorPatch::SetAttributes(attrs) => {
             // The patch carries the text, so a keystroke's re-highlight encodes its ranges
-            // against the string the editor holds RIGHT NOW rather than the one before it.
+            // against the string the editor holds RIGHT now rather than the one before it.
             TEXT.with(|t| t.with(key(h), |s| *s = attrs.text.clone()));
             push_attributes(h, &attrs.text, &attrs.runs, &attrs.paragraphs);
         }

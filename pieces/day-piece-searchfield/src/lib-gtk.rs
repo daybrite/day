@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // GTK: GtkSearchEntry — a native search entry (magnifier + clear icon). Its "search-changed" signal
-// fires on user input AND on programmatic set_text, so a per-node `suppress` cell guards the
+// fires on user input and on programmatic set_text, so a per-node `suppress` cell guards the
 // programmatic sync in `update` from echoing back as an Event::TextChanged.
 // ---------------------------------------------------------------------------
 

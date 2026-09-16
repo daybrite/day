@@ -3,15 +3,16 @@
 
 //! POSIX signal handlers for native faults (SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT/SIGTRAP).
 //!
-//! A signal handler runs in an async-signal-safe context: no allocation, no locks, no `libc`
-//! calls beyond the async-signal-safe set (`write`, `fsync`, `clock_gettime`, `sigaction`,
-//! `raise`). So EVERYTHING risky is done at [`install`] time (normal context): the report file is
-//! opened, the alternate stack is allocated, the ASLR slide and monotonic epoch are captured, and
-//! previous dispositions are saved. The [`handler`] only formats integers into a fixed stack
-//! buffer and `write(2)`s them, then **chains**: it restores the previous handler and either
-//! re-raises (abort/trap) or returns so the faulting instruction re-executes and the kernel
-//! redelivers to the restored handler (the Breakpad protocol) — preserving ART's libsigchain on
-//! Android and HiviewDFX's FaultLoggerd on OHOS so their tombstones/faultlogs still generate.
+//! A signal handler runs in an async-signal-safe context: it may not allocate or take locks, and
+//! its `libc` calls are limited to the async-signal-safe set (`write`, `fsync`, `clock_gettime`,
+//! `sigaction`, `raise`). So everything risky is done at [`install`] time (normal context): the
+//! report file is opened, the alternate stack is allocated, the ASLR slide and monotonic epoch
+//! are captured, and previous dispositions are saved. The [`handler`] only formats integers into
+//! a fixed stack buffer and `write(2)`s them, then **chains**: it restores the previous handler
+//! and either re-raises (abort/trap) or returns so the faulting instruction re-executes and the
+//! kernel redelivers to the restored handler (the Breakpad protocol), preserving ART's
+//! libsigchain on Android and HiviewDFX's FaultLoggerd on OHOS so their tombstones/faultlogs
+//! still generate.
 
 #![cfg(unix)]
 
@@ -95,7 +96,7 @@ pub(crate) fn install(sig_file: &Path) {
         }
 
         let mut sa: libc::sigaction = std::mem::zeroed();
-        // Cast through a fn POINTER first (not the zero-sized fn item) before the integer cast.
+        // Cast through a fn pointer first (not the zero-sized fn item) before the integer cast.
         let h: extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void) = handler;
         sa.sa_sigaction = h as usize;
         sa.sa_flags = libc::SA_SIGINFO | libc::SA_ONSTACK;
@@ -110,7 +111,7 @@ pub(crate) fn install(sig_file: &Path) {
 }
 
 extern "C" fn handler(sig: libc::c_int, info: *mut libc::siginfo_t, _uc: *mut libc::c_void) {
-    // A nested fault while we're mid-record: don't touch the file again — restore and re-raise.
+    // A nested fault while we're mid-record: don't touch the file again; restore and re-raise.
     if HANDLING.swap(true, Ordering::SeqCst) {
         unsafe { chain(sig) };
         return;
@@ -142,13 +143,13 @@ extern "C" fn handler(sig: libc::c_int, info: *mut libc::siginfo_t, _uc: *mut li
 
 /// Restore the previous disposition and continue the crash: re-raise for non-restarting signals,
 /// return for faults (the instruction re-executes and the kernel redelivers to the restored
-/// handler — the system crash reporter then runs).
+/// handler; the system crash reporter then runs).
 unsafe fn chain(sig: libc::c_int) {
     if let Some(idx) = SIGS.iter().position(|&s| s == sig) {
         let prev = unsafe { (*PREV.0[idx].get()).assume_init_ref() };
         unsafe { libc::sigaction(sig, prev, null_mut()) };
     } else {
-        // Unknown signal — fall back to default.
+        // Unknown signal: fall back to default.
         let mut dfl: libc::sigaction = unsafe { std::mem::zeroed() };
         dfl.sa_sigaction = libc::SIG_DFL;
         unsafe { libc::sigaction(sig, &dfl, null_mut()) };
@@ -171,7 +172,7 @@ unsafe fn chain(sig: libc::c_int) {
 
 // ---- async-signal-safe formatting ----------------------------------------------------------
 
-/// A fixed stack buffer that only appends bytes and base-10 integers — pure memory ops, no alloc.
+/// A fixed stack buffer that only appends bytes and base-10 integers: pure memory ops, no alloc.
 struct Buf {
     data: [u8; 512],
     len: usize,

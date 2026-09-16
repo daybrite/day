@@ -88,7 +88,7 @@ extern "C" void day_arkui_on_event(uint64_t id, int32_t kind, double num, const 
 extern "C" int32_t day_arkui_node_handles_keys(uint64_t id);
 
 // Event kinds — mirror of day_spec::bridge::BridgeKind (the shared wire table; same numbers as
-// the Android bridge). day-arkui-sys's bridge_kinds_parity test reads THIS block and asserts
+// the Android bridge). day-arkui-sys's bridge_kinds_parity test reads this block and asserts
 // each value against the Rust enum — edit both together.
 #define DAY_K_PRESSED 0
 #define DAY_K_TEXT_CHANGED 1
@@ -147,7 +147,7 @@ static napi_ref g_nav_title = nullptr; // (title: string) => void — retitle th
 static napi_ref g_nav_set_guard = nullptr; // (on: boolean) => void — arm the top-page back guard
 static napi_ref g_nav_menu = nullptr; // (icon: string, label: string, action: number) => void —
                                       // set the trailing title-bar action (NavProps::bar_action)
-// A pushed page's slot: the NodeContent handle PLUS a strong napi_ref on the JS object. The
+// A pushed page's slot: the NodeContent handle plus a strong napi_ref on the JS object. The
 // ArkTS side drops its own reference when the NavDestination disappears (onDisAppear), so
 // without the ref the content is GC'd while Rust may still detach the page from it — the
 // RemoveNode-after-pop then walks freed FrameNodes (SIGSEGV in ViewModel::RemoveChild).
@@ -163,7 +163,7 @@ extern "C" void day_arkui_nav_menu_action(uint64_t action);
 extern "C" void day_arkui_resized(double w, double h);
 
 // ---- ArkTS-built piece components (docs/extending.md) -----------------------
-// Some native components exist ONLY in ArkTS: the declarative `Web` has no ArkUI C-API node kind
+// Some native components exist only in ArkTS: the declarative `Web` has no ArkUI C-API node kind
 // (native_node.h stops at the container types), and neither does `Map`. A piece that wraps one
 // ships its own .ets (staged into the hvigor project by `day build`) and registers a factory here.
 // `make` builds the component in a BuilderNode and returns its FrameNode, which
@@ -394,7 +394,7 @@ void* day_ark_node_new(int32_t kind) {
 }
 void day_ark_node_dispose(void* n) {
     if (!n) return;
-    // Erase per-node side state BEFORE the node dies (see the forward declarations above).
+    // Erase per-node side state before the node dies (see the forward declarations above).
     day_canvas_forget(n);
     day_list_forget(n);
     if (g_api) g_api->disposeNode((ArkUI_NodeHandle)n);
@@ -503,7 +503,7 @@ void day_ark_label_runs_add(void* n, const char* text, int flags, uint32_t argb,
         g_api->setAttribute(span, NODE_FONT_STYLE, &it);
     }
     if (flags & 4) set_str(span, NODE_FONT_FAMILY, "HarmonyOS Sans Mono, monospace");
-    // ArkUI has ONE decoration attribute per span, so a run that is both underlined and struck
+    // ArkUI has one decoration attribute per span, so a run that is both underlined and struck
     // through can only have one line. Strikethrough wins: it is the one that changes what the
     // text MEANS, and an underline that goes missing is cosmetic (docs/text-runs.md).
     if (flags & (8 | 64)) {
@@ -1027,7 +1027,7 @@ void day_ark_nav_remove(uint64_t key, void* page) {
     }
 }
 
-// Release a slot whose NavDestination ALREADY disappeared (native back / reported pop): the
+// Release a slot whose NavDestination already disappeared (native back / reported pop): the
 // destination tore its content down, so touching the nodes again would use freed memory —
 // just drop the bookkeeping and the keep-alive ref. JS thread only.
 void day_ark_nav_forget(uint64_t key) {
@@ -1199,7 +1199,7 @@ static OH_Drawing_Font* make_canvas_font(float size, const PendingFont& req,
 // mounted node into an OH_PixelmapNative, and the image kit's native packer encodes the PNG in
 // place. The ArkTS route was the obvious one and is the wrong one — @ohos.multimedia.image has no
 // synchronous packer at all (packToData/packing are Promise/callback only), so bridging through
-// the host would have forced `day::window_image()` to be async on EVERY backend to satisfy this
+// the host would have forced `day::window_image()` to be async on every backend to satisfy this
 // one. The equivalent native calls have no such limitation.
 //
 // Returns 1 with a malloc'd PNG in *out_data (release with day_ark_snapshot_free), else 0.
@@ -1412,9 +1412,9 @@ static std::vector<std::string> split_texts(const std::string& joined) {
 }
 
 // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry + stops,
-// applied as the brush's shader effect for the NEXT fill-shape record (resolved against that
+// applied as the brush's shader effect for the next fill-shape record (resolved against that
 // shape's bounds).
-/// A decoded kind-18 record (stroke style), applied to the NEXT stroke record only.
+/// A decoded kind-18 record (stroke style), applied to the next stroke record only.
 struct PendingStroke {
     bool active = false;
     int cap = 0;
@@ -1466,7 +1466,7 @@ static void apply_dash(OH_Drawing_Pen* pen, const PendingStroke& style,
         OH_Drawing_PenSetPathEffect(pen, nullptr);
         return;
     }
-    // OH_Drawing wants an EVEN count; an odd pattern repeats to become even, matching the
+    // OH_Drawing wants an even count; an odd pattern repeats to become even, matching the
     // other backends.
     std::vector<float> d = style.dash;
     if (d.size() % 2 == 1) d.insert(d.end(), style.dash.begin(), style.dash.end());
@@ -1619,7 +1619,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     PendingFont fontp;
     // Dash effects created during this replay, destroyed once the last op has been drawn.
     std::vector<OH_Drawing_PathEffect*> dash_effects;
-    // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+    // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
     // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
     std::vector<std::pair<float, float>> stampAt;
     int stampN = 0;
@@ -1633,7 +1633,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         OH_Drawing_BrushSetColor(brush, col);
         bool stroke = (kind == 1 || kind == 4 || kind == 5 || kind == 6 || kind == 12 ||
                        kind == 13 || kind == 16);
-        // A kind-18 record styles the NEXT stroke only; otherwise Day's defaults apply.
+        // A kind-18 record styles the next stroke only; otherwise Day's defaults apply.
         if (stroke) {
             if (style.active) {
                 OH_Drawing_PenSetCap(pen, style.cap == 1   ? LINE_ROUND_CAP
@@ -1669,7 +1669,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         if (kind == 20) { stampAt.clear(); stampN = (int)a; continue; }
         if (kind == 21) {
             // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth point's
-            // y rides the slot other records use for their color. The LAST record of a run is
+            // y rides the slot other records use for their color. The last record of a run is
             // padded with zeros, so the header's count is what says where the real ones stop.
             const float xs[4] = { a, c, e, g };
             const float ys[4] = { b, dd, f, (float)n[i + 8] };
@@ -1678,7 +1678,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
             continue;
         }
         // The template is replayed once per position under a translated canvas. `text_i` is
-        // rewound each time so a template with a texts payload reads the SAME entry every
+        // rewound each time so a template with a texts payload reads the same entry every
         // repetition and consumes it exactly once overall.
         const int reps = stampAt.empty() ? 1 : (int)stampAt.size();
         const size_t tiStart = text_i;
@@ -1759,7 +1759,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                 if (tf) OH_Drawing_TypefaceDestroy(tf);
                 break;
             }
-            case 19: { // font for the NEXT text: a weight (0 default), b italic; family on texts
+            case 19: { // font for the next text: a weight (0 default), b italic; family on texts
                 fontp.family = text_i < texts.size() ? texts[text_i++] : std::string();
                 fontp.weight = (int)a;
                 fontp.italic = b > 0.5f;
@@ -1866,7 +1866,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                 }
                 break;
             }
-            case 18: { // stroke style for the NEXT stroke: a cap, b join, c miter, dd phase
+            case 18: { // stroke style for the next stroke: a cap, b join, c miter, dd phase
                 std::string dashes = text_i < texts.size() ? texts[text_i++] : std::string();
                 style.cap = (int)a;
                 style.join = (int)b;
@@ -1907,7 +1907,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
             }
             case 22: { // image: a,b origin · c,dd size · e the BitmapId · f opacity (docs/images.md)
                 OH_PixelmapNative* pm = ark_bitmap_for((uint64_t)e);
-                // A released bitmap draws NOTHING rather than a placeholder: the canvas re-records
+                // A released bitmap draws nothing rather than a placeholder: the canvas re-records
                 // on every tracked read, so a handle can be dropped between record and replay.
                 if (!pm || c <= 0 || dd <= 0) break;
                 OH_Drawing_PixelMap* dpm = OH_Drawing_PixelMapGetFromOhPixelMapNative(pm);
@@ -1958,7 +1958,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
         stampAt.clear();
         if (stroke) OH_Drawing_CanvasDetachPen(cv);
         else OH_Drawing_CanvasDetachBrush(cv);
-        // A style record applies to ONE stroke; anything else clears it.
+        // A style record applies to one stroke; anything else clears it.
         if (kind != 18) style.active = false;
         if (kind != 19) fontp.active = false;
     }
@@ -2033,7 +2033,7 @@ int32_t day_ark_image_decode(uint64_t id, const uint8_t* bytes, uint32_t len, do
 /// (-1 = the format's default). Returns a malloc'd buffer of `*out_len` bytes to release with
 /// `day_ark_bytes_free`, or null.
 ///
-/// `EncodeSpec::fit` is NOT honored here (docs/images.md): `OH_PixelmapNative_Scale` rescales in
+/// `EncodeSpec::fit` is not honored here (docs/images.md): `OH_PixelmapNative_Scale` rescales in
 /// place, so fitting would resize the very bitmap every later draw shares.
 uint8_t* day_ark_image_encode(uint64_t id, const char* mime, int32_t quality, uint32_t* out_len) {
     if (out_len) *out_len = 0;
@@ -2190,7 +2190,7 @@ struct DayList {
 static std::map<void*, DayList*> g_lists; // list node → its adapter binding
 static void day_list_paint_cell(DayList* dl, ArkUI_NodeHandle cell, int row);
 
-/// Userdata for a cell's swipe action. The row is NOT captured here: cells recycle, so the
+/// Userdata for a cell's swipe action. The row is not captured here: cells recycle, so the
 /// bound row is read from `dl->rows` when the action actually fires.
 struct DaySwipeCell {
     DayList* dl;
@@ -2406,7 +2406,7 @@ static void day_list_forget(void* n) {
     }
     for (auto& sw : dl->swipe_opts) OH_ArkUI_ListItemSwipeActionOption_Dispose(sw.second);
     OH_ArkUI_NodeAdapter_Dispose(dl->adapter);
-    // The per-cell swipe userdata records ("owned; freed with the list") for THIS list.
+    // The per-cell swipe userdata records ("owned; freed with the list") for this list.
     for (auto sit = g_swipe_cells.begin(); sit != g_swipe_cells.end();) {
         if ((*sit)->dl == dl) {
             delete *sit;
@@ -2754,7 +2754,7 @@ extern "C" int32_t day_ark_bridge_on_js_thread(void) {
     return g_js_thread_set && pthread_equal(pthread_self(), g_js_thread) ? 1 : 0;
 }
 
-// A symbol of THIS library (the app's cdylib, libentry.so): the module is loaded RTLD_LOCAL by
+// A symbol of this library (the app's cdylib, libentry.so): the module is loaded RTLD_LOCAL by
 // the ArkTS runtime, so the process-wide default scope may not see it; a handle to our own file
 // always does.
 static void* day_bridge_self_symbol(const char* name) {
@@ -3326,7 +3326,7 @@ static napi_value RegisterPiece(napi_env env, napi_callback_info info) {
 }
 
 // An ArkTS-built component reports back to its piece: `pieceEvent(id, text, num?)`. Rides the
-// SAME Custom channel the Android bridge uses (BridgeKind::Custom) — the payload is the whole
+// Same Custom channel the Android bridge uses (BridgeKind::Custom) — the payload is the whole
 // event, and the optional `num` is the piece's own discriminator (the web view's link reports
 // use -1, its URL reports omit it — day-piece-webview's docs/webview.md). JS thread only.
 static napi_value PieceEvent(napi_env env, napi_callback_info info) {
@@ -3528,7 +3528,7 @@ static napi_value NavPageArea(napi_env env, napi_callback_info info) {
 
 // Set a process environment variable from ArkTS: `setEnv(key, value)`. The launcher (`day launch`
 // / hdc `aa start --ps`) hands the app its dayscript engine port + token (and locale / autodrive)
-// this way, and the ArkTS EntryAbility applies them BEFORE `start()` runs `day_script::init()`.
+// this way, and the ArkTS EntryAbility applies them before `start()` runs `day_script::init()`.
 // This is the HarmonyOS analogue of Android's intent-extra → setenv env delivery (day/src/lib.rs).
 // `setenv` mutates the same `environ` Rust's `std::env::var` reads, so no Rust round-trip is needed.
 static napi_value SetEnv(napi_env env, napi_callback_info info) {

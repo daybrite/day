@@ -7,7 +7,7 @@
 //! generators) is one big annotated SVG: a `#Notes` group of documentation, a `#Guides` group
 //! of caplines/baselines/margins, and a `#Symbols` group holding one child group per
 //! `Weight-Scale` variant (`Ultralight-S` … `Black-L`). Day's canonical glyph for non-Apple
-//! targets is ONE variant (Regular-M by default — the plan's "Regular only" decision), cut out
+//! targets is one variant (Regular-M by default — the plan's "Regular only" decision), cut out
 //! textually: usvg normalizes document structure away, so the variant's markup is sliced from
 //! the original XML by byte range and re-wrapped with a tight, squared viewBox measured by a
 //! probe parse. Textual slicing keeps whatever the variant contains (paths, primitives,

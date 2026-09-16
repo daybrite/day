@@ -33,7 +33,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
         // DAY_THEME forcing is the LAUNCHER's job (day-cli sets the device night mode over adb
         // before `am start`), not this activity's: UiModeManager.setApplicationNightMode
-        // persists per-app across restarts, so a forced run would poison the NEXT run's window
+        // persists per-app across restarts, so a forced run would poison the next run's window
         // inflation with the old scheme — and since the manifest handles the uiMode config
         // change itself (no recreation), the already-inflated window could never re-theme.
         // With no app-level override the theme simply follows the system, coherently, from the
@@ -42,7 +42,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         DayBridge.ctx = this;
         lastNightMode = DayBridge.isDarkMode();
         // Navigation state saved before this process was reclaimed (DayBridge.navState). Restored
-        // BEFORE native starts, so the first build of a `.restore(key)` surface reads it. A cold
+        // Before native starts, so the first build of a `.restore(key)` surface reads it. A cold
         // launch has no saved state and the map stays empty, which is how a fresh start stays
         // fresh.
         if (savedInstanceState != null) {
@@ -164,7 +164,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 return androidx.core.view.WindowInsetsCompat.CONSUMED;
             }
         });
-        // Size-driven start + resize: the root's FIRST laid-out size starts native (posted, so
+        // Size-driven start + resize: the root's first laid-out size starts native (posted, so
         // the traversal has finished and getWidth/Height are settled); every later size change —
         // a second inset pass shrinking the root into the safe area, rotation, bar changes —
         // flows to native as a window-resize event and Day relayouts. Native never needs to know
@@ -172,7 +172,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // of a launch-time snapshot.
         final Runnable start = new Runnable() {
             public void run() {
-                // Composed HERE, not in onCreate: by the first laid-out size the inset pass has
+                // Composed here, not in onCreate: by the first laid-out size the inset pass has
                 // run, so the seed (DAY_SAFE_AREA_TOP, points) carries the real status-bar
                 // height plus the standard app-bar height. Live K_SAFE_AREA reports keep the
                 // value exact afterwards.

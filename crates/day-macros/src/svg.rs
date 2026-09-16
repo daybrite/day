@@ -433,7 +433,7 @@ mod tests {
             }
             other => panic!("expected a cubic, got {other:?}"),
         }
-        // The sweep passes BELOW the axis for sweep-flag 1 in SVG's y-down space.
+        // The sweep passes below the axis for sweep-flag 1 in SVG's y-down space.
         let mid = match segs[1] {
             Seg::Cubic(_, y1, _, _, _, _) => y1,
             _ => unreachable!(),

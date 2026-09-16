@@ -7,7 +7,7 @@
 // exports, so this piece carries its own XAML native code with ZERO edits to day's toolkit
 // crates.
 //
-// Change paths back to Rust (each reports the CURRENT text as UTF-8, valid only during the
+// Change paths back to Rust (each reports the current text as UTF-8, valid only during the
 // callback; Rust copies it):
 //   - SelectionChanged → the picked item's string (immediate);
 //   - TextSubmitted (Enter) and LostFocus → the free-form text. XAML's ComboBox exposes no

@@ -167,7 +167,7 @@ public final class DayTextEditor {
             if ((f & 32) != 0) {
                 buf.setSpan(new BackgroundColorSpan(backgrounds[i]), a, b, EXCL);
             }
-            // Android has ONE underline span, so dotted and wavy both draw a plain rule.
+            // Android has one underline span, so dotted and wavy both draw a plain rule.
             if ((f & 64) != 0) {
                 buf.setSpan(new UnderlineSpan(), a, b, EXCL);
             }

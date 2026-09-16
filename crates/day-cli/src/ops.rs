@@ -80,7 +80,7 @@ pub fn gha_escape(msg: &str) -> String {
         .replace('\n', "%0A")
 }
 
-/// Run `cmd` to completion, capturing its stdout and stderr. Under [`verbose`] each stream is ALSO
+/// Run `cmd` to completion, capturing its stdout and stderr. Under [`verbose`] each stream is also
 /// forwarded — verbatim — to day's own logging stream (**stderr**) as it arrives, so a
 /// sub-command's raw output streams live while the captured copy still feeds day's own failure
 /// diagnostics (the `run_quiet`/`run_tool`/gradle/xcodebuild error text). Forwarding goes to stderr
@@ -350,7 +350,7 @@ pub fn app_identity_env(project: &Project) -> BTreeMap<String, OsString> {
 /// `ZERO_AR_DATE` zeroes both. It is set here rather than in CI so local packs are deterministic
 /// too — reproducibility that only holds on the build farm is not worth much.
 ///
-/// Scope: archive and debug-map timestamps only. It does NOT touch `__DATE__`/`__TIME__` (Day uses
+/// Scope: archive and debug-map timestamps only. It does not touch `__DATE__`/`__TIME__` (Day uses
 /// neither), and it is inert on non-Apple hosts.
 /// Build settings every `xcodebuild` invocation carries, whatever it is building.
 ///
@@ -400,7 +400,7 @@ pub fn feature_selection(project: &Project, backend: &str) -> String {
 /// Where [`build`] records the last successful artifact path for a (target, profile) — the
 /// `--skip-build` reuse stamp. One line, the absolute artifact path.
 fn artifact_stamp(project: &Project, target: &Target, profile: Profile) -> PathBuf {
-    // Under the day-src root, so `--skip-build` reuses the binary built against THAT day rather
+    // Under the day-src root, so `--skip-build` reuses the binary built against that day rather
     // than whichever one wrote the stamp last.
     build_root(project)
         .join("artifacts")
@@ -479,11 +479,11 @@ pub fn build(
     // needs the toolkit's native resource compiler (rcc / glib-compile-resources / …), which isn't
     // always on PATH (e.g. MSYS2 windows-qt/windows-gtk ship no rcc/glib-compile-resources). When
     // it's missing the resource blob is simply skipped — day loads assets from the filesystem roots
-    // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON — so a missing tool must NOT fail the build.
+    // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON — so a missing tool must not fail the build.
     if let Err(e) = crate::resources::stage(project, target) {
         status("Warning", &format!("resource staging skipped ({e})"));
     }
-    // Day.toml [[shortcuts]] → staged Android shortcut resources, AFTER the image stage that
+    // Day.toml [[shortcuts]] → staged Android shortcut resources, after the image stage that
     // wipes the res tree (docs/deep-links.md "Shortcuts are saved deep links"). Unlike the
     // best-effort staging above, a failure here is a config error (a missing translation, a
     // manifest with no scheme), so it fails the build.
@@ -690,7 +690,7 @@ impl LaunchSpec {
     }
 }
 
-/// What this run actually launched onto, remembered for the steps that come AFTER the launch.
+/// What this run actually launched onto, remembered for the steps that come after the launch.
 ///
 /// A dayscript run forwards a port and takes screenshots long after `LaunchSpec` is out of scope,
 /// and those paths used to pin whichever device enumerated first — so a `--android-device` run
@@ -743,10 +743,10 @@ pub fn selected_ohos_key() -> Option<&'static str> {
 ///
 /// `launch` spawns exactly this, and `day build --format json` reports it verbatim — which is what
 /// lets an outside debugger (the VS Code extension delegating to lldb) start the app the way Day
-/// would. Having ONE producer is the point: an env var added for a launch but not mirrored here
+/// would. Having one producer is the point: an env var added for a launch but not mirrored here
 /// would leave the app resource-less under the debugger, and only there.
 pub struct DesktopLaunchPlan {
-    /// The executable to start. For a macOS `.app` bundle this is the binary INSIDE it — a
+    /// The executable to start. For a macOS `.app` bundle this is the binary inside it — a
     /// debugger needs a Mach-O to load, and macOS reads the adjacent Info.plist either way.
     pub program: PathBuf,
     pub args: Vec<String>,
@@ -777,7 +777,7 @@ pub fn desktop_launch_plan(
     // render displayless (QT_QPA_PLATFORM=offscreen, the previous plumbing), but X selections
     // need a display server to broker them, so the system clipboard (day-part-clipboard's xclip)
     // was a silent no-op there and every copy/paste walkthrough step failed empty-handed. This
-    // knowledge lived in TWO workflow files (day's ci.yml and dayapp.yml) and drifted
+    // knowledge lived in two workflow files (day's ci.yml and dayapp.yml) and drifted
     // between them; the CLI knows the target and the window, so it decides.
     let wrap = headless_wrap(
         target.toolkit,
@@ -797,7 +797,7 @@ pub fn desktop_launch_plan(
                 // yields NULL and GTK carries on with it, which shows up as
                 //   g_dbus_connection_send_message_with_reply_finish:
                 //     assertion 'G_IS_DBUS_CONNECTION (connection)' failed
-                // and then SIGSEGV on the NEXT dialog. `dbus-run-session` starts a private bus for
+                // and then SIGSEGV on the next dialog. `dbus-run-session` starts a private bus for
                 // the app's lifetime and tears it down after, so the portal call gets a real
                 // connection — and fails cleanly (no portal service answers) instead of
                 // dereferencing nothing.

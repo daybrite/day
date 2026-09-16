@@ -52,7 +52,7 @@ pub struct MockWidget {
     /// A label's resolved font spec (probe-visible so tests can assert e.g. `Font::Custom` flow).
     pub font: Option<day_spec::FontSpec>,
     /// A label's styled spans (docs/text-runs.md). Probe-visible so a test can assert that the
-    /// SECOND word is bold — which no screenshot comparison can state and no `assert_text` can
+    /// Second word is bold — which no screenshot comparison can state and no `assert_text` can
     /// see, since the plain text is identical either way.
     pub runs: Vec<day_spec::TextRun>,
     /// Last focus state driven through the `focus` duty (docs/focus.md) — probe-visible.
@@ -65,7 +65,7 @@ pub struct MockWidget {
     /// `set_opacity`/`set_transform`). Lets tests assert `with_animation` threaded the intent.
     pub last_anim: Option<AnimSpec>,
     /// A NAV host's current presentation (docs/size-classes.md) — probe-visible so a test can
-    /// assert WHICH of the four a morph landed on. `flag` carries only split-ness, which cannot
+    /// assert which of the four a morph landed on. `flag` carries only split-ness, which cannot
     /// tell `Tabs` from `Rail` from `Stack`; both are kept because the older tests read `flag`.
     pub presentation: Option<day_spec::props::NavPresentation>,
     /// The resident detail page index a `NavPatch::Select` last chose (docs/navigation.md).
@@ -829,7 +829,7 @@ impl Toolkit for MockToolkit {
                 );
             }
         } else if let Some(p) = props.downcast_ref::<ImageProps>() {
-            // The probe records WHICH pixels were asked for, so a test can assert that a name
+            // The probe records which pixels were asked for, so a test can assert that a name
             // resolved, that bytes arrived, or that two nodes share one decode (docs/images.md).
             w.text = describe_image_source(&p.source);
             detail = format!(" source={}", w.text);
@@ -901,7 +901,7 @@ impl Toolkit for MockToolkit {
             detail = if let Some(p) = patch.downcast_ref::<ImagePatch>() {
                 match p {
                     // The probe's `text` is which pixels the view draws, so a test can assert a
-                    // source swap landed in the SAME view (docs/images.md).
+                    // source swap landed in the same view (docs/images.md).
                     ImagePatch::Source(s) => {
                         w.text = describe_image_source(s);
                         format!("source={}", w.text)

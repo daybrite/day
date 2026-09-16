@@ -80,7 +80,7 @@ res = ["platform/android/res"]
 # SCHEDULE_EXACT_ALARM makes `Trigger::In`/`Trigger::At` fire on time on Android 12+: auto-granted
 # (revocable) on 12–13, off by default on 14+ where the user flips it in settings. Without the
 # declaration `canScheduleExactAlarms()` is always false and every schedule silently degrades to
-# an inexact alarm. Clock/alarm apps should ALSO declare `android.permission.USE_EXACT_ALARM` in
+# an inexact alarm. Clock/alarm apps should also declare `android.permission.USE_EXACT_ALARM` in
 # their own [package.metadata.day.android] for the install-time grant (API 33+) — that one is
 # Play-restricted to alarm and calendar apps, so the crate must not impose it on every consumer
 # (docs/notify.md).

@@ -112,7 +112,7 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
         if (node != 0) {
             ACTIVE.remove(node);
             // A real close (back gesture, recents swipe): confirm to day, which tears the
-            // subtree down. A config-change recreation is NOT a close, and a closeWindow
+            // subtree down. A config-change recreation is not a close, and a closeWindow
             // already confirmed its own.
             if (isFinishing() && DayBridge.started && !closeReported) {
                 DayBridge.nativeOnEvent(node, DayBridge.K_WINDOW_CLOSED, 0, null);

@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // Android: android.widget.ProgressBar — the default style is a circular indeterminate spinner, so
 // this piece adds ZERO Gradle dependencies and no permissions. The Java factory
-// (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with THIS crate in `src/DayActivity.java`
+// (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with this crate in `src/DayActivity.java`
 // and pulled into the app's Gradle build via `[package.metadata.day.android]`, using only
 // day-android's PUBLIC Java surface (DayBridge.ctx). See docs/extending.md.
 // ---------------------------------------------------------------------------

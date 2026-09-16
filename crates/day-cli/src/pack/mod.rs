@@ -134,7 +134,7 @@ pub fn run(
     let dist = project.root.join("build/day/dist");
     std::fs::create_dir_all(&dist).map_err(|e| PackError::Other(e.to_string()))?;
 
-    // Provenance (§20.4). The SBOM is written BEFORE the build so it can be staged into the
+    // Provenance (§20.4). The SBOM is written before the build so it can be staged into the
     // bundle as a resource; it derives only from source, so it is identical on every machine and
     // does not make the artifact environment-specific.
     let sbom_cfg = project.manifest.sbom.clone();
@@ -224,7 +224,7 @@ pub fn run(
         }
     }
 
-    // The buildinfo sidecar records the machine, so it is deliberately NOT embedded: doing so
+    // The buildinfo sidecar records the machine, so it is deliberately not embedded: doing so
     // would make the artifact differ whenever a tool version differs (§20.3).
     let mut info = crate::provenance::collect_buildinfo(target, opts.profile.as_str());
     info.inputs = build_inputs(target);
@@ -270,7 +270,7 @@ pub fn run(
     }
 
     // Provenance sidecars are named after the artifact they describe, extension included
-    // (`day-showcase-macos-appkit.dmg.buildinfo.json`) — one set PER artifact, because a release
+    // (`day-showcase-macos-appkit.dmg.buildinfo.json`) — one set per artifact, because a release
     // directory merges every target's and a bare `day-sbom.cdx.json` there says nothing about
     // which download it belongs to (§20.4). A pack that produced both an .apk and an .aab
     // therefore writes both sets, with identical content.
@@ -352,7 +352,7 @@ pub(crate) fn windows_kit_tool_probe(tool: &str) -> Option<String> {
     msix::windows_kit_tool(tool).map(|p| p.display().to_string())
 }
 
-/// Doctor probe: locate an AppImage tool the SAME way [`appimage`] does — `DAY_<TOOL>` first, then
+/// Doctor probe: locate an AppImage tool the same way [`appimage`] does — `DAY_<TOOL>` first, then
 /// PATH. A bare PATH lookup would report `linuxdeploy` missing on the machines that set the
 /// override (CI downloads the AppImage into a scratch dir), contradicting the pack that succeeds.
 pub(crate) fn appimage_tool_probe(tool: &str) -> Option<String> {

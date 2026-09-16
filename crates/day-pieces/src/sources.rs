@@ -105,7 +105,7 @@ impl<K: Copy + PartialEq + 'static> IntoFocusBinding<FocusGroupMark> for (Signal
                 if f {
                     sig.set(Some(key));
                 } else if sig.get_untracked() == Some(key) {
-                    // Only clear if the signal still names THIS control — when focus moved to a
+                    // Only clear if the signal still names this control — when focus moved to a
                     // sibling, the paired gain (dispatched first, docs/focus.md) already wrote
                     // the new value and the group signal never passes through `None`.
                     sig.set(None);

@@ -25,9 +25,9 @@ fn boot() {
     );
 }
 
-/// An app's OWN Copy ▸ Paste round-trips even when the platform hands the payload back.
+/// An app's Copy ▸ Paste round-trips even when the platform hands the payload back.
 /// Reading the clipboard is a privilege Android grants only to the app holding input focus
-/// (docs/clipboard.md), and writing to it raises a system overlay that can take that focus —
+/// (docs/clipboard.md), and writing to it raises a system overlay that can take that focus,
 /// so a Paste moments after a Copy can be refused the very payload the app just wrote. An
 /// emptied clipboard is what that refusal looks like from here: `get_text` answers `None`
 /// either way.

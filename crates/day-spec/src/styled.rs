@@ -51,7 +51,7 @@ impl Underline {
 }
 
 /// A [`TextRun`]'s attributes with no range attached: what a toolbar toggles, what an editor
-/// applies to a selection, and what it styles the NEXT typed character with.
+/// applies to a selection, and what it styles the next typed character with.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct RunStyle {
     pub font: FontSpec,
@@ -129,7 +129,7 @@ pub struct ParagraphStyle {
 
 /// One styled paragraph.
 ///
-/// A SECOND range vector alongside [`TextRun`] rather than more fields on one, because these
+/// A second range vector alongside [`TextRun`] rather than more fields on one, because these
 /// attributes apply to whole paragraphs: folding alignment into a character run would let a
 /// program say "center these three words", which no text system can honor and every one of them
 /// would resolve differently.
@@ -428,7 +428,7 @@ impl StyledText {
     /// range the edit emptied is dropped — the rule every attributed-string implementation uses,
     /// exact, and O(runs) rather than O(document).
     ///
-    /// `self.text` must ALREADY be the new text; this only moves ranges.
+    /// `self.text` must already be the new text; this only moves ranges.
     pub fn reflow(&mut self, offset: usize, removed: usize, inserted: usize) {
         let shift = |p: usize| -> usize {
             if p <= offset {
@@ -445,7 +445,7 @@ impl StyledText {
         for p in &mut self.paragraphs {
             p.range = shift(p.range.start)..shift(p.range.end);
         }
-        // A run the edit ended INSIDE grows over the insertion, so typing at the end of a bold
+        // A run the edit ended inside grows over the insertion, so typing at the end of a bold
         // word stays bold. Applied after the shift so the comparison is in new coordinates.
         if inserted > 0 {
             for r in &mut self.runs {

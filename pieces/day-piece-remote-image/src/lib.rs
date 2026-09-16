@@ -39,7 +39,7 @@ pub enum ContentMode {
     Fit,
 }
 
-/// How the piece (image AND placeholder) is clipped to its frame.
+/// How the piece (image and placeholder) is clipped to its frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Clip {
     /// No clipping — a plain rectangle (the default).
@@ -237,7 +237,7 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`RemoteImage`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`RemoteImage`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait RemoteImageBuilder: Sized {
     fn circle(self) -> Self;

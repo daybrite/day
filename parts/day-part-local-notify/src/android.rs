@@ -118,7 +118,7 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
 
         let code = if let Some(at_ms) = fire_at {
             // Absolute wall-clock time, because AlarmManager.RTC_WAKEUP takes one — and because
-            // the boot receiver has to know WHEN, not "how long from some forgotten start".
+            // the boot receiver has to know when, not "how long from some forgotten start".
             env.dcall_static(
                 CLASS,
                 "schedule",

@@ -93,7 +93,7 @@ pub fn pack(
     let env: Vec<_> = defaults.into_iter().map(|d| (d.name, d.value)).collect();
 
     // `$0` is AppRun itself, and `readlink -f` resolves the symlink the host may have made — so
-    // HERE is the AppDir root wherever the image mounted this run.
+    // Here is the AppDir root wherever the image mounted this run.
     let apprun = appdir.join("AppRun");
     std::fs::write(
         &apprun,

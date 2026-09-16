@@ -8,7 +8,7 @@
 //
 // Runs cross as flat parallel int arrays, the shape day-android's own `setLabelRuns` uses: one JNI
 // call per patch rather than one per run, on a path a syntax highlighter runs on every keystroke.
-// The flag bits are deliberately the SAME ones the label path defines, so Android has one span
+// The flag bits are deliberately the same ones the label path defines, so Android has one span
 // vocabulary rather than two.
 //
 // Offsets are Java `char`s — UTF-16 code units — so this arm shares the Apple conversion.

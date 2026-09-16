@@ -3,7 +3,7 @@
 
 //! day-piece-rating — flagship COMPOSE pieces (DESIGN §8, the composition-first tier).
 //!
-//! Everything here is built PURELY from Day's core primitives ([`row`], [`canvas`], the
+//! Everything here is built purely from Day's core primitives ([`row`], [`canvas`], the
 //! [`Decorate`] modifiers, [`with_environment`], …). There is **no** per-backend/native code and
 //! **no** cargo features: these widgets work on every backend — the flagship demonstration
 //! that native pieces are the exception, not the rule. Drop the crate in as a plain dependency and
@@ -81,7 +81,7 @@ impl<S: Binding<usize>> Rating<S> {
 
     /// Assign a dayscript/a11y id scheme so the widget is scriptable. Because a rating is a
     /// COMPOSITE of individually tappable stars (not one node), an inherent `id` sets the row's id
-    /// to `prefix` AND each star's id to `prefix:N` (1-based) — so a walkthrough can `tap` a
+    /// to `prefix` and each star's id to `prefix:N` (1-based) — so a walkthrough can `tap` a
     /// specific star (`prefix:4` sets the value to 4). Shadows [`Decorate::id`], which would only
     /// tag the row (leaving the stars unaddressable).
     pub fn id(mut self, prefix: impl Into<String>) -> Self {
@@ -137,7 +137,7 @@ fn star<S: Binding<usize>>(
             d.stroke(Shape::Polygon(pts), color, width);
         }
     });
-    // The id AND the `.on_tap` MUST be applied to the canvas LEAF, BEFORE `.frame`. `.frame` wraps
+    // The id and the `.on_tap` must be applied to the canvas LEAF, before `.frame`. `.frame` wraps
     // its content in a layout-only sizing node with no native view — a gesture (or a dayscript tap
     // addressed by id) attached to *that* wrapper never fires, because the click lands on the real
     // canvas view underneath and the tap handler lives on the canvas node. So tag + wire the canvas,
@@ -225,7 +225,7 @@ pub fn badge(count: i64, over: AnyPiece) -> AnyPiece {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Rating`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`Rating`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait RatingBuilder: Sized {
     fn max(self, max: u32) -> Self;

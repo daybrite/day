@@ -5,7 +5,7 @@
 //!
 //! What these pin is the CONTRACT every native arm is written against, on the one backend where it
 //! can be driven without a window: a character edit reported as plain text is diffed and reflowed
-//! rather than re-sent, an attribute change patches WITHOUT replacing the text (so the caret and
+//! rather than re-sent, an attribute change patches without replacing the text (so the caret and
 //! the undo stack survive a live syntax highlighter), a selection report reaches the bound signal,
 //! and a patch Day itself sent does not echo back into the document.
 

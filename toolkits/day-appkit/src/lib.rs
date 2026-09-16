@@ -1018,7 +1018,7 @@ define_class!(
 
         /// A summon-time context menu (docs/menus.md): built when the right-click lands,
         /// from the provider `set_context_menu_fn` registered — so a canvas can select what
-        /// is under the pointer and offer commands for THAT selection.
+        /// is under the pointer and offer commands for that selection.
         #[unsafe(method_id(menuForEvent:))]
         fn menu_for_event(
             &self,
@@ -1079,7 +1079,7 @@ define_class!(
             true
         }
 
-        /// The arrows, delivered to THIS canvas because it is the first responder. Anything
+        /// The arrows, delivered to this canvas because it is the first responder. Anything
         /// else — and every arrow when the app registered no handler for this node — goes to
         /// `super`, which walks the responder chain exactly as it would have without us.
         #[unsafe(method(keyDown:))]
@@ -1352,7 +1352,7 @@ const NAV_TABVIEW_INSET_TOP: f64 = 8.0;
 /// The `NavPresentation::Tabs` container: a real `NSTabView` — the Mac's own tab control, top
 /// tabs on a bezel — whose items own the detail pages. The page frames stay native-owned
 /// exactly as in a split: the tab view frames the selected item's view, and the page's
-/// `setFrameSize:` reports it. The labels come from the NAV_MENU's rows, which arrive AFTER
+/// `setFrameSize:` reports it. The labels come from the NAV_MENU's rows, which arrive after
 /// the pages' host (day-core mounts top-down: the rows page joins the host before its menu is
 /// built), so `adopt_menu_for_tabs` runs when the menu is inserted and whenever its rows are
 /// rebuilt.
@@ -1460,7 +1460,7 @@ struct NavState {
     /// sidebar and keeps the list, exactly as a narrow Mail.app does.
     list_wrap: Option<Retained<NSView>>,
     list_item: Option<Retained<objc2_app_kit::NSSplitViewItem>>,
-    /// The app's requested content-list width (`NavProps::list_width`) — applied ONCE, at the
+    /// The app's requested content-list width (`NavProps::list_width`) — applied once, at the
     /// first frame pass, by placing divider 1 (see `set_frame`).
     list_width: Option<f64>,
     /// Whether the content-list pane is showing (`NavProps::list_visible`, then
@@ -1633,7 +1633,7 @@ fn apply_sidebar_item(item: &objc2_app_kit::NSSplitViewItem, pres: NavPresentati
                 item.setMinimumThickness(NAV_SIDEBAR_MIN_W);
                 item.setMaximumThickness(NAV_SIDEBAR_MAX_W);
             }
-            // Zero the thickness bounds BEFORE collapsing takes effect, or the pane keeps a
+            // Zero the thickness bounds before collapsing takes effect, or the pane keeps a
             // minimum width and the detail never reaches the window edge.
             NavPresentation::Stack | NavPresentation::Tabs => {
                 item.setMinimumThickness(0.0);
@@ -1646,7 +1646,7 @@ fn apply_sidebar_item(item: &objc2_app_kit::NSSplitViewItem, pres: NavPresentati
 /// Show/hide the stack-nav back header for the given page stack and re-frame the pages under
 /// it. The header shows exactly while a pushed page (depth ≥ 1 above the root) is on top; each
 /// page's `DayNavPage::setFrameSize` reports the new size so Day re-lays its content.
-/// The split view of the navigation host in `window` that HAS a content-list pane, for the
+/// The split view of the navigation host in `window` that has a content-list pane, for the
 /// tracking separator pinned to its second divider (docs/toolbars.md).
 pub(crate) fn list_split_view(window: usize) -> Option<Retained<objc2_app_kit::NSSplitView>> {
     NAV_STATE.with(|m| {
@@ -1714,7 +1714,7 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
         return;
     }
     apply_sidebar_item(&sidebar_item, next);
-    // Settle the split NOW rather than at the next natural layout pass. `setCollapsed` marks the
+    // Settle the split now rather than at the next natural layout pass. `setCollapsed` marks the
     // split view as needing layout; without this the pane keeps its old width for one more frame,
     // which the dayscript screenshot seam captures (it renders the window offscreen the instant
     // the patch returns) and which a user crossing a breakpoint sees as a stutter.
@@ -1916,7 +1916,7 @@ define_class!(
 
     impl DayNavRowView {
         /// Always report the emphasized (key-window) state, so the selected sidebar row draws
-        /// the accent pill with auto-whitened label/icon in BOTH themes. Without this, a run
+        /// the accent pill with auto-whitened label/icon in both themes. Without this, a run
         /// whose window never becomes key (scripted screenshot captures) falls back to the
         /// unemphasized selection fill, which under a forced appearance rendered as a
         /// near-black pill that swallowed the row's label.
@@ -1937,7 +1937,7 @@ define_class!(
 
     impl DayNavOutlineView {
         /// The clicked row's context menu (docs/menus.md): NSTableView-family views consume
-        /// right-clicks themselves, so per-row menus are served HERE — resolve the row under
+        /// right-clicks themselves, so per-row menus are served here — resolve the row under
         /// the click, then build the same NSMenu the piece decorator would.
         #[unsafe(method_id(menuForEvent:))]
         fn menu_for_event(
@@ -2327,7 +2327,7 @@ impl DayNavMenuData {
     }
 
     /// Data-driven rows changed (`NavMenuPatch::Items`): swap the stored decorations in place.
-    // The parameters ARE the patch's payload: index-aligned per-row decoration arrays, each
+    // The parameters are the patch's payload: index-aligned per-row decoration arrays, each
     // landing in its own ivar. Bundling them would just move the same eight fields.
     #[allow(clippy::too_many_arguments)]
     fn set_items(
@@ -2413,7 +2413,7 @@ fn ns_badges(badges: &[Option<String>]) -> Vec<Option<Retained<NSString>>> {
 }
 
 // ---------------------------------------------------------------------------
-/// Force the table's visible rows to exist on the NEXT main-loop turn — outside any `with_tree`
+/// Force the table's visible rows to exist on the next main-loop turn — outside any `with_tree`
 /// borrow, so `bind_row` may build them. `layoutSubtreeIfNeeded` is not enough: an occluded
 /// window's table skips row tiling entirely, so `viewAtColumn:row:makeIfNecessary:` is the only
 /// reliable way to realize rows without a draw pass (§10; see the Reload patch for why).
@@ -2569,7 +2569,7 @@ define_class!(
                 let Some((from, len)) = self.drag_context(tv, info) else {
                     return objc2_app_kit::NSDragOperation::None;
                 };
-                // Normalize to an ABOVE insertion point (the gap style's semantics), convert to
+                // Normalize to an above insertion point (the gap style's semantics), convert to
                 // the post-removal target index, and ask the guard.
                 let ins = row.clamp(0, len as isize) as usize;
                 let to = insertion_to_target(from, ins, len);
@@ -2714,7 +2714,7 @@ define_class!(
 
         // --- swipe actions (docs/list.md): NSTableView's row-action pipeline. AppKit calls
         // this as the two-finger swipe starts, so the offer reflects the row's state at
-        // GESTURE time; a full swipe across activates the FIRST action (AppKit's own
+        // GESTURE time; a full swipe across activates the first action (AppKit's own
         // full-slide behavior). The handler commits through the seam, which defers the app's
         // callback to the event drain.
         #[unsafe(method_id(tableView:rowActionsForRow:edge:))]
@@ -2814,7 +2814,7 @@ impl DayListData {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// If this Reload is the SAME row set in a new order, the incremental `moveRowAtIndex`
+    /// If this Reload is the same row set in a new order, the incremental `moveRowAtIndex`
     /// steps (each `(from, to)` interpreted against the already-moved rows, NSTableView's
     /// semantics) that transform the displayed order into the new one — and `None` for
     /// anything else (insert/remove/content change/no change), which reloads flat. Always
@@ -2936,7 +2936,7 @@ struct TreeIvars {
     suppress: std::cell::Cell<bool>,
     /// token → its interned NSNumber. NSOutlineView tracks items (selection, expansion,
     /// rowForItem) by object identity/equality, so every query for a token must answer with
-    /// the SAME object — which is also what preserves expansion across reloadData.
+    /// the same object — which is also what preserves expansion across reloadData.
     items: RefCell<HashMap<u64, Retained<NSNumber>>>,
 }
 
@@ -3227,7 +3227,7 @@ define_class!(
                     unsafe { Retained::into_raw(Retained::retain(cell as *mut NSView).unwrap()) }
                         as usize;
                 <AppKit as Platform>::post(Box::new(move || {
-                    // Reclaim the +1 FIRST, unconditionally — every early return below must
+                    // Reclaim the +1 first, unconditionally — every early return below must
                     // still balance the retain.
                     let cell_view: Retained<NSView> =
                         match unsafe { Retained::from_raw(retained as *mut NSView) } {
@@ -3274,7 +3274,7 @@ impl DayTreeData {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// The SAME NSNumber for a token, every time — NSOutlineView's item identity.
+    /// The same NSNumber for a token, every time — NSOutlineView's item identity.
     fn intern(&self, token: u64) -> Retained<NSNumber> {
         self.ivars()
             .items
@@ -3561,7 +3561,7 @@ fn ns_rect(r: day_spec::Rect) -> NSRect {
 fn draw_op(op: &DrawOp) {
     unsafe {
         match op {
-            // ONE path for the whole batch, then one fill or stroke: the template is appended
+            // One path for the whole batch, then one fill or stroke: the template is appended
             // once per position, so the rasterizer is entered once however many copies there are
             // (docs/canvas.md "Stamping"). A gradient resolves against the batch's own bounds,
             // which is what makes a stamped scatter shade across the group rather than repeating
@@ -3696,7 +3696,7 @@ fn draw_op(op: &DrawOp) {
                 }
                 let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
             }
-            // A released bitmap draws NOTHING rather than a placeholder: the canvas re-records
+            // A released bitmap draws nothing rather than a placeholder: the canvas re-records
             // on every tracked read, so a handle can be dropped between the record and the
             // replay, and a frame that flashes a grey box is worse than one that omits the image.
             DrawOp::Image {
@@ -4146,7 +4146,7 @@ define_class!(
 
     unsafe impl NSObjectProtocol for DayWinDelegate {}
 
-    /// The responder chain's LAST stop for the standard edit nav hosts: a focused text view
+    /// The responder chain's last stop for the standard edit nav hosts: a focused text view
     /// answered `cut:`/`copy:`/`paste:` long before the window asked its delegate, so what
     /// arrives here is the app's to handle — the same precedence the undo manager route uses.
     impl DayWinDelegate {
@@ -4202,7 +4202,7 @@ define_class!(
             ffi_guard::contain(false, || {
                 let state = EDIT_STATE.with(|s| s.get());
                 match unsafe { item.action() } {
-                    // The undo pair enables from the acting manager and takes ITS titles
+                    // The undo pair enables from the acting manager and takes its titles
                     // ("Undo Move Shape"), exactly as AppKit's own windows do.
                     Some(a) if a == sel!(undo:) => match self.acting_undo_manager() {
                         Some(m) => {
@@ -4409,7 +4409,7 @@ pub struct AppKit {
     content: Option<Handle>,
     secondary: Vec<SecondaryWin>,
     app_name: String,
-    /// Where the NEXT secondary window's top-left goes (docs/windows.md). macOS staggers new
+    /// Where the next secondary window's top-left goes (docs/windows.md). macOS staggers new
     /// windows rather than stacking them: `cascadeTopLeftFromPoint:` places the window and
     /// answers the point after it, so threading that answer through here is the whole
     /// mechanism. `None` until the primary exists — the cascade starts from its corner.
@@ -4723,7 +4723,7 @@ fn nsfont(spec: day_spec::FontSpec) -> Retained<NSFont> {
     } else {
         base
     };
-    // Relative size (`FontSpec::scale`). Applied LAST, over whatever face the traits above
+    // Relative size (`FontSpec::scale`). Applied last, over whatever face the traits above
     // settled on, and through `convertFont_toSize` so a bundled family keeps its typeface —
     // re-picking the system font here would undo the Custom/monospace/tabular work above.
     let base = if spec.scale != 1.0 {
@@ -4790,7 +4790,7 @@ fn attributed_label(
     let whole = NSRange::new(0, ns.length());
     unsafe {
         s.addAttribute_value_range(objc2_app_kit::NSFontAttributeName, base_font, whole);
-        // ALWAYS a foreground: an attributed range with no color attribute draws in black,
+        // Always a foreground: an attributed range with no color attribute draws in black,
         // which is unreadable in dark mode. `labelColor` is the adaptive default the field
         // would have used on its own.
         // An explicit color wins; otherwise the ROLE picks which adaptive system color to use.
@@ -4981,7 +4981,7 @@ fn appkit_timing(a: &AnimSpec) -> (f64, Retained<CAMediaTimingFunction>) {
     }
 }
 
-/// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling back to
+/// Warn once per kind that this backend has no registered renderer for `kind`, before falling back to
 /// a visible placeholder. A missing renderer usually means the piece's `appkit` feature wasn't enabled
 /// (Tier A.2 derives it automatically under `day build`; a bare `cargo` build may miss it). Deduped
 /// per kind so a placeholder rendered every frame doesn't spam the log.
@@ -5197,7 +5197,7 @@ impl Toolkit for AppKit {
                             .insert(ptr_of(&view_of(tf.clone())), delegate)
                     });
                 }
-                // Alignment goes on LAST and, for a runs label, has to reach inside the
+                // Alignment goes on last and, for a runs label, has to reach inside the
                 // attributed string. `setAlignment:` writes the cell's paragraph style, which an
                 // attributed string then overrides wholesale with its own — so a markdown label
                 // set only through the cell comes out leading-aligned no matter what was asked.
@@ -5340,7 +5340,7 @@ impl Toolkit for AppKit {
                 panel_flipped.set_pane_backdrop();
                 let panel_wrap = view_of(panel_flipped);
                 let split_vc = unsafe { objc2_app_kit::NSSplitViewController::new(mtm) };
-                // Force loadView BEFORE the items go in — the same lifecycle rule the nav
+                // Force loadView before the items go in — the same lifecycle rule the nav
                 // host below documents.
                 let _ = unsafe { split_vc.view() };
                 let content_vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
@@ -5364,7 +5364,7 @@ impl Toolkit for AppKit {
                     }
                 };
                 unsafe {
-                    // Day's signal is the ONLY visibility driver: with the pinned width the
+                    // Day's signal is the only visibility driver: with the pinned width the
                     // divider has nothing to drag and the pane cannot be user-collapsed, so
                     // there is no native-initiated change to report back.
                     panel_item.setCanCollapse(false);
@@ -5385,7 +5385,7 @@ impl Toolkit for AppKit {
                     split.setVertical(true);
                     split.setDividerStyle(objc2_app_kit::NSSplitViewDividerStyle::Thin);
                     // The same Auto Layout hand-back as the nav host below: Day owns this
-                    // view's frame OUTSIDE the split; the controller's own constraints keep
+                    // view's frame outside the split; the controller's own constraints keep
                     // doing the pane sizing inside it.
                     split.setTranslatesAutoresizingMaskIntoConstraints(true);
                 }
@@ -5433,7 +5433,7 @@ impl Toolkit for AppKit {
                 let sidebar_wrap = view_of(DayFlipped::new(mtm));
                 let detail_wrap = view_of(DayFlipped::new(mtm));
                 let split_vc = unsafe { objc2_app_kit::NSSplitViewController::new(mtm) };
-                // Force loadView/viewDidLoad BEFORE the items go in. NSSplitViewController
+                // Force loadView/viewDidLoad before the items go in. NSSplitViewController
                 // installs an item's view into the split as the item is added, which it can
                 // only do once its own view exists — and reading `splitView` does not trigger
                 // the lifecycle the way reading `view` does. Skipping this leaves a split view
@@ -5459,7 +5459,7 @@ impl Toolkit for AppKit {
                 // as the sidebar page fills its own wrap, and the pane persists through every
                 // presentation (only `NavPatch::ListVisible` collapses it).
                 let list_width = props.downcast_ref::<NavProps>().and_then(|p| p.list_width);
-                // Set BEFORE the item joins the split, exactly as the sidebar's is below. A
+                // Set before the item joins the split, exactly as the sidebar's is below. A
                 // collapsed state applied afterwards — by `NavPatch::ListVisible`, on a window
                 // that has not been displayed — reports as collapsed and is then laid back out
                 // from the item's holding priorities, which is how an app whose first
@@ -5517,7 +5517,7 @@ impl Toolkit for AppKit {
                 unsafe {
                     let after = split.nextResponder();
                     split.setNextResponder(Some(&split_vc));
-                    // The controller must never end up aiming at ITSELF or at its OWN view,
+                    // The controller must never end up aiming at itself or at its OWN view,
                     // or its dealloc aborts the process: `-[NSViewController dealloc]`
                     // splices itself out with `view.nextResponder = self.nextResponder`, and
                     // if that lands the view on itself AppKit raises "The next responder
@@ -5548,7 +5548,7 @@ impl Toolkit for AppKit {
                     // NSSplitViewController arrives switched over to Auto Layout, which
                     // ignores that frame and lays the split out at zero — a window with
                     // chrome and nothing under it. Hand it back to autoresizing translation
-                    // so Day stays the layout owner OUTSIDE the split; the constraints the
+                    // so Day stays the layout owner outside the split; the constraints the
                     // controller installs BETWEEN the split and its panes are untouched and
                     // keep doing the pane sizing.
                     split.setTranslatesAutoresizingMaskIntoConstraints(true);
@@ -5677,7 +5677,7 @@ impl Toolkit for AppKit {
                     // lives inside a sidebar NSSplitViewItem, so AppKit supplies the backing
                     // material and the vibrancy the source-list selection composites through.
                     // This was Inset until 2026-08 because the earlier hand-rolled
-                    // NSVisualEffectView blended BEHIND the window, and an offscreen capture
+                    // NSVisualEffectView blended behind the window, and an offscreen capture
                     // (`cacheDisplayInRect`) has no backdrop to sample — the selection came out
                     // a black pill that swallowed the row label. The material is AppKit's own
                     // now, and captures go through the window server (`snapshot_view`), which
@@ -5698,7 +5698,7 @@ impl Toolkit for AppKit {
                 unsafe {
                     scroll.setDrawsBackground(false);
                     scroll.setHasVerticalScroller(true);
-                    // Overlay scrollers ALWAYS — a legacy scroller would reserve ~15pt and
+                    // Overlay scrollers always — a legacy scroller would reserve ~15pt and
                     // clip the trailing edge of rows laid out at the full frame width (see
                     // the SCROLL realize).
                     scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
@@ -5822,7 +5822,7 @@ impl Toolkit for AppKit {
                 unsafe {
                     scroll.setDrawsBackground(false);
                     scroll.setHasVerticalScroller(true);
-                    // Overlay scrollers ALWAYS — a legacy scroller would reserve ~15pt and
+                    // Overlay scrollers always — a legacy scroller would reserve ~15pt and
                     // clip the trailing edge of rows laid out at the full frame width (see
                     // the SCROLL realize).
                     scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
@@ -5975,7 +5975,7 @@ impl Toolkit for AppKit {
                                 unsafe { iv.setContentTintColor(c.map(nscolor).as_deref()) };
                             }
                         }
-                        // A source swap repaints the SAME view (docs/images.md), so an `image()`
+                        // A source swap repaints the same view (docs/images.md), so an `image()`
                         // bound to a signal shows new pixels without rebuilding its subtree —
                         // which is what makes a decode-then-show flow a patch and not a rebuild.
                         day_spec::props::ImagePatch::Source(source) => {
@@ -6017,7 +6017,7 @@ impl Toolkit for AppKit {
                         },
                         LabelPatch::Font(f) => unsafe { tf.setFont(Some(&nsfont(*f))) },
                         LabelPatch::Runs(text, runs) => {
-                            // The field's CURRENT font is the base the runs sit on — taken as the
+                            // The field's current font is the base the runs sit on — taken as the
                             // live object rather than rebuilt from a `FontSpec`, which would lose
                             // the semantic style behind the resolved size.
                             let base = unsafe { tf.font() };
@@ -6285,7 +6285,7 @@ impl Toolkit for AppKit {
                             }
                             // Per-destination pane visibility (docs/navigation.md). Directly,
                             // not through the animator proxy: a screenshot must not catch a
-                            // mid-animation pane (the sidebar-toggle rule) — and settled NOW,
+                            // mid-animation pane (the sidebar-toggle rule) — and settled now,
                             // like a re-present, so the detail's frame is right the instant
                             // the patch returns rather than one layout pass later.
                             NavPatch::ListVisible(v) => {
@@ -6457,7 +6457,7 @@ impl Toolkit for AppKit {
                 }
                 Some(ListPatch::Reload) => {
                     if let Some((table, data)) = list_entry(ptr_of(h)) {
-                        // A reload whose rows are the SAME set in a new order (a shuffle,
+                        // A reload whose rows are the same set in a new order (a shuffle,
                         // a programmatic sort) animates as native row moves instead of a
                         // blink — `moveRowAtIndex` batch, the same animation a drag commit
                         // gets. Anything else (insert/remove/content change) reloads flat.
@@ -6657,7 +6657,7 @@ impl Toolkit for AppKit {
         });
         NAV_STATE.with(|m| {
             if let Some(nav) = m.borrow_mut().remove(&ptr_of(&h)) {
-                // Unhook the split view controller from the responder chain BEFORE the drop
+                // Unhook the split view controller from the responder chain before the drop
                 // deallocs it. AppKit rewires these pointers behind day's back (mounting the
                 // split resets its next to the superview; the controller's own view keeps
                 // aiming at the controller), and a controller whose next responder is its own
@@ -6711,7 +6711,7 @@ impl Toolkit for AppKit {
         LINK_DELEGATES.with(|m| {
             m.borrow_mut().remove(&ptr_of(&h));
         });
-        // One call reclaims this handle's entry from EVERY SideTable on this thread — canvas
+        // One call reclaims this handle's entry from every SideTable on this thread — canvas
         // OPS, PAGE_PANE, the picker/textarea state, and whatever lands later — running each
         // table's teardown hook (day-spec sidetable). The explicit removals above are the
         // older per-map checklist; new per-view maps should be SideTables so this sweep covers
@@ -6722,7 +6722,7 @@ impl Toolkit for AppKit {
 
     fn insert(&mut self, parent: &Handle, child: &Handle, _index: usize) {
         // A nav menu that has just gained ancestors: if one of them is a tabs host, its rows
-        // ARE that host's tab labels (`adopt_menu_for_tabs`). The menu is built after its rows
+        // Are that host's tab labels (`adopt_menu_for_tabs`). The menu is built after its rows
         // page joined the host, so this is the first moment the host can see its rows.
         if NAV_MENUS.with(|m| m.borrow().contains_key(&ptr_of(child))) {
             unsafe { content_of(parent).addSubview(child) };
@@ -7094,7 +7094,7 @@ impl Toolkit for AppKit {
         );
         // Nav host: the sidebar HOLDS its width when the window resizes and the detail pane
         // absorbs the change. That is now the sidebar NSSplitViewItem's own behavior, so the
-        // only thing left to do here is give the split its frame and place the divider ONCE —
+        // only thing left to do here is give the split its frame and place the divider once —
         // re-placing it on every resize would fight the item and undo a user's drag.
         if let Some(split) = h.downcast_ref::<objc2_app_kit::NSSplitView>() {
             let first = NAV_STATE.with(|m| {
@@ -7119,7 +7119,7 @@ impl Toolkit for AppKit {
                 if first.0 {
                     split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH, 0);
                 }
-                // A triple split has a SECOND divider, and nothing else places it: left alone,
+                // A triple split has a second divider, and nothing else places it: left alone,
                 // the controller's initial constraint pass lands it wherever the solver liked, so
                 // the content list opens at an arbitrary width and the detail pane gets the
                 // leftovers until the first manual drag re-settles them.
@@ -7216,7 +7216,7 @@ impl Toolkit for AppKit {
             // Initial fill: numberOfRows reads the snapshot only; viewForRow is deferred.
             unsafe { table.reloadData() };
         }
-        // Force the table to realize its visible row views on the NEXT main-loop turn — OUTSIDE
+        // Force the table to realize its visible row views on the next main-loop turn — outside
         // any `with_tree` borrow — so `viewForRow`/`bind_row` build the cells then. Otherwise a
         // headless CI window never lays the table out until a snapshot's `cacheDisplayInRect`
         // forces it *inside* the snapshot borrow, where `bind_row` must skip (blank rows).
@@ -7234,7 +7234,7 @@ impl Toolkit for AppKit {
             // Initial fill: child counts read the snapshot only; viewForItem is deferred.
             unsafe { outline.reloadData() };
         }
-        // Realize visible rows on the NEXT main-loop turn, outside any borrow (the
+        // Realize visible rows on the next main-loop turn, outside any borrow (the
         // attach_list comment has the occluded-window story).
         <AppKit as Platform>::post(Box::new(move || {
             if let Some((outline, _)) = tree_entry(key) {
@@ -7314,7 +7314,7 @@ impl Toolkit for AppKit {
                 day_spec::MenuItem::Submenu { label, items, role } => {
                     let sub = build_ns_menu(mtm, label, items);
                     let it = NSMenuItem::new(mtm);
-                    // Help is held back: the Window menu is installed natively AFTER this loop
+                    // Help is held back: the Window menu is installed natively after this loop
                     // (AppKit owns it so it can append the live window list), and Help sits
                     // last on every Mac menu bar.
                     if *role == Some(day_spec::MenuBarRole::Help)
@@ -7396,7 +7396,7 @@ impl Toolkit for AppKit {
         // which only `DayCanvas` overrides — a hover enabled on another view emits nothing, the
         // same limitation Pan has.
         if kind == day_spec::GestureKind::Hover {
-            // Idempotent, and it has to be checked HERE rather than falling through to the
+            // Idempotent, and it has to be checked here rather than falling through to the
             // recognizer guard below: day-core re-enables a gesture on rebuild, and a second
             // tracking area on the same view means a second copy of every hover event.
             let first = HOVER_NODES.with(|t| t.get(key)).is_none();
@@ -7511,7 +7511,7 @@ impl Toolkit for AppKit {
                 return false;
             }
             let item = &st.sidebar_item;
-            // Set DIRECTLY, not through the `animator` proxy. The proxy defers the change to
+            // Set directly, not through the `animator` proxy. The proxy defers the change to
             // an animation the dayscript screenshot step does not wait on, so a scripted
             // toggle captured a sidebar that had not moved yet. AppKit's own
             // NSToolbarToggleSidebarItem still animates — it runs `toggleSidebar:` on the
@@ -8096,7 +8096,7 @@ impl Platform for AppKit {
             .app_name
             .clone()
             .unwrap_or_else(|| options.title.clone());
-        // The bold App-menu title, the About panel and Quit all show the app's NAME. ALWAYS set
+        // The bold App-menu title, the About panel and Quit all show the app's NAME. Always set
         // it, not just when `app_name` was given explicitly — an app that only set `title` was
         // showing its kebab-case cargo target ("day-sheets") where its name belongs.
         //
@@ -8123,7 +8123,7 @@ impl Platform for AppKit {
         }
         // RTL locales (docs/localization): AppleTextDirection flips AppKit's app-wide
         // userInterfaceLayoutDirection (label alignment, slider fill, control mirroring) —
-        // read at NSApplication init, so register BEFORE sharedApplication. Registration
+        // read at NSApplication init, so register before sharedApplication. Registration
         // domain only: volatile, never persisted to the app's defaults.
         if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
             unsafe {
@@ -8305,7 +8305,7 @@ unsafe extern "C" {
     ) -> *mut objc2_core_graphics::CGImage;
 }
 
-/// kCGWindowListOptionIncludingWindow — composite ONLY this window, so whatever is stacked over
+/// kCGWindowListOptionIncludingWindow — composite only this window, so whatever is stacked over
 /// it (another app, a CI runner's stray window) cannot appear in the capture.
 const CG_WINDOW_LIST_INCLUDING_WINDOW: u32 = 1 << 3;
 /// kCGWindowImageBoundsIgnoreFraming — the window's own frame, without its drop shadow, which
@@ -8906,7 +8906,7 @@ pub(crate) fn build_ns_menu(
                 }
                 // Custom action (nonzero id) overrides any role nav host and targets our
                 // trampoline — except the responder-routed set (undo pair, clipboard trio),
-                // whose nonzero ids are only the OTHER platforms' fallback dispatchers: here
+                // whose nonzero ids are only the other platforms' fallback dispatchers: here
                 // the nil-target nav hosts must stay, so the responder chain resolves the
                 // acting object (a focused text field before the app's bridge).
                 let responder_role = matches!(

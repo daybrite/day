@@ -169,7 +169,7 @@ fn a_structural_change_wakes_the_list_but_not_a_field_reader() {
     flush_sync();
     let (bl, bf) = (list_runs.get(), field_runs.get());
 
-    // A field write does NOT re-run the list.
+    // A field write does not re-run the list.
     store.elem(1).name().write("renamed".into());
     flush_sync();
     assert_eq!(list_runs.get(), bl, "the list's shape did not change");

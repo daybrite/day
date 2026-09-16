@@ -165,7 +165,7 @@ fn sign_app(project: &Project, app: &Path) -> Result<SignTier, String> {
     }
 
     let mut nested = nested_signables(app);
-    nested.push(app.to_path_buf()); // the bundle itself is signed LAST
+    nested.push(app.to_path_buf()); // the bundle itself is signed last
 
     match &identity {
         Some(id) => {

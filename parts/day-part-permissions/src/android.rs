@@ -5,7 +5,7 @@
 //! shim (`src/DayPermissions.java`) — staged into the app's Gradle build by `day build`
 //! through `[package.metadata.day.android]`, exactly like the UI pieces but registering no renderer.
 //!
-//! One portable permission can map to SEVERAL native ids (location is fine + coarse; photos on API
+//! One portable permission can map to several native ids (location is fine + coarse; photos on API
 //! 33+ is images + video), so every query folds the per-id answers with [`crate::merge`] and every
 //! request submits the whole set in one array — which is also what makes Android show its
 //! precise/approximate location dialog.
@@ -50,7 +50,7 @@ fn sdk_int() -> i32 {
     })
 }
 
-/// The native permission ids a portable permission maps to on THIS device's API level.
+/// The native permission ids a portable permission maps to on this device's API level.
 ///
 /// An empty list means "nothing to ask for here" — the capability is either ungated (motion below
 /// API 29) or handled by a non-permission API (notifications below API 33).
@@ -149,7 +149,7 @@ fn notifications_enabled() -> bool {
     })
 }
 
-/// The status of ONE native id, from the three probes [`classify_android`] folds.
+/// The status of one native id, from the three probes [`classify_android`] folds.
 fn id_status(id: &str) -> Status {
     classify_android(
         is_granted(id),

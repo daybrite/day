@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 build = "build.rs"
 
-# Standalone date & time pickers (docs/datepicker.md): TWO pieces — `date_picker(Signal<DayDate>)`
+# Standalone date & time pickers (docs/datepicker.md): Two pieces — `date_picker(Signal<DayDate>)`
 # and `time_picker(Signal<DayTime>)` — each realized as the platform's closest idiomatic control
 # per style intent (`Compact` = field/button that summons a transient chooser; `Inline` = embedded
 # calendar/clock/wheels). Two pieces rather than one combined date-time piece: a single combined
@@ -67,7 +67,7 @@ cc = "1"
 day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the Material dialog launcher + inline
-# widget factory ship with THIS crate. Material is already in the app template, but the piece
+# widget factory ship with this crate. Material is already in the app template, but the piece
 # declares its own dependency so a standalone app that trims the template still builds.
 [package.metadata.day.android]
 java = ["src/DayDateTime.java"]

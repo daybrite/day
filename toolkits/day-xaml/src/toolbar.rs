@@ -9,7 +9,7 @@
 // model's flexible space IS that split: items before it become leading `Content`, items after it
 // become primary commands — the same rule the GTK backend applies with pack_start/pack_end.
 //
-// The whole model crosses the FFI as ONE tab-separated blob, exactly like the menu spec next
+// The whole model crosses the FFI as one tab-separated blob, exactly like the menu spec next
 // door: `serialize_toolbar` writes it, the shim's `day_xaml_set_toolbar` parses it, and a menu
 // item's own spec nests inside it (see the format comment on `serialize_toolbar`).
 // ---------------------------------------------------------------------------
@@ -174,7 +174,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
         // a vector-only icon had nothing to draw at all — the raster is deliberately not staged
         // for a toolkit that renders vectors (docs/vectors.md), so the slot came out empty.
         //
-        // BOTH of this line format's separators have to be escaped, because a `.xamlgeom` spec
+        // Both of this line format's separators have to be escaped, because a `.xamlgeom` spec
         // contains both: newlines between shapes, and a TAB between a shape's paint attributes
         // and its path data. Passing it through `clean` instead (which turns them into spaces)
         // silently destroys the path data and the geometry parses to nothing at all — a blank

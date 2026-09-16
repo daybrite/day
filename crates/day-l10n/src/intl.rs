@@ -97,7 +97,7 @@ fn format_number(n: &FluentNumber, intls: &IntlLangMemoizer) -> String {
 
     let o = &n.options;
     if o.style == FluentNumberStyle::Percent {
-        // Scale FIRST so the fraction-digit handling below applies to the percentage value
+        // Scale first so the fraction-digit handling below applies to the percentage value
         // (72.34% — ECMA-402 percent defaults to 0 fraction digits, see `max` below).
         d.multiply_pow10(2);
         d.trim_start(); // drop the integer-zero placeholder 0.x carries across the shift

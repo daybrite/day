@@ -76,7 +76,7 @@ fn build_bundles(locales: &[(&str, &str)]) -> HashMap<String, FluentBundle<Fluen
         // icu4x-backed NUMBER()/DATETIME() + the bundle-wide number formatter (src/intl.rs).
         intl::register(&mut bundle);
         // Overriding the same key across resources (app > core when merged) is expected — Fluent
-        // errors on duplicate adds, so we keep app and core in SEPARATE bundles and pick at lookup.
+        // errors on duplicate adds, so we keep app and core in separate bundles and pick at lookup.
         match FluentResource::try_new((*src).to_string()) {
             Ok(res) => {
                 let _ = bundle.add_resource(res);
@@ -107,7 +107,7 @@ fn ensure_state() {
             core: build_bundles(CORE_CATALOG),
             default: "en".to_string(),
             // ROOT-scoped: this is a process-global signal, but `ensure_state` runs on the
-            // FIRST touch of any l10n API, which can be inside a transient scope (a cover's
+            // First touch of any l10n API, which can be inside a transient scope (a cover's
             // presented content calling `t()` was the first observed case — the signal then
             // died with that cover and every later read panicked). Globals must never
             // inherit a caller's scope.
@@ -122,7 +122,7 @@ pub fn set_launch_locale(locale: &str) {
     set_launch_locales(&[locale.to_string()]);
 }
 
-/// Append the host's ordered preference AFTER anything already recorded.
+/// Append the host's ordered preference after anything already recorded.
 ///
 /// The two sources arrive in that order and both matter: a host override (web-dom's `?locale=`,
 /// set by the page glue) is a deliberate choice and stays first; the OS preference the backend
@@ -352,7 +352,7 @@ pub fn format_in(locale_name: &str, key: &str, args: &[(String, FArg)]) -> Strin
     })
 }
 
-/// Resolve `key` in the CURRENT locale (no args) — the one-shot form the framework's own strings use
+/// Resolve `key` in the current locale (no args) — the one-shot form the framework's own strings use
 /// (dialog buttons, menu-role labels), which are resolved once at present/build time.
 pub fn t(key: &str) -> String {
     format_in(&locale().get(), key, &[])

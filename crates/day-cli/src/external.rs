@@ -3,7 +3,7 @@
 
 //! External platform-toolkit discovery (docs/extending.md "External toolkits").
 //!
-//! A toolkit implemented OUTSIDE this repository registers its platform-toolkit pair by declaring
+//! A toolkit implemented outside this repository registers its platform-toolkit pair by declaring
 //! it in the toolkit crate's `Cargo.toml`:
 //!
 //! ```toml
@@ -21,7 +21,7 @@
 //! logs, dayscript. That single supported shape is deliberate (Stage 0): a new platform KIND
 //! (another mobile OS) means new build/launch/pack code, which cannot come from a crate.
 //!
-//! What external targets do NOT get: `day pack` (guarded with a clear error), `day new`
+//! What external targets do not get: `day pack` (guarded with a clear error), `day new`
 //! scaffolding, and the in-repo pieces' native renderers (their kinds draw placeholders unless the
 //! external ecosystem ships renderer crates). The toolkit SPI itself — day-spec's `Toolkit` and
 //! `Platform`, `Event`, `Cap`, the props structs — is UNSTABLE and unpublished: an external
@@ -69,7 +69,7 @@ pub struct ExternalToolkit {
 
 /// Resolved catalogs by project root. Keyed (not a bare `OnceLock`) so tests — and any future
 /// multi-project invocation — never see another project's toolkits. Successes are cached and
-/// leaked ('static borrows out of a static map); failures are NOT cached, so a fixed Cargo.toml
+/// leaked ('static borrows out of a static map); failures are not cached, so a fixed Cargo.toml
 /// is picked up by the next call without restarting anything.
 fn cache() -> &'static Mutex<HashMap<PathBuf, &'static [ExternalToolkit]>> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, &'static [ExternalToolkit]>>> = OnceLock::new();

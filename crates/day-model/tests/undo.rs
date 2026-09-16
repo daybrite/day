@@ -331,7 +331,7 @@ fn transient_context_rides_the_history() {
     assert_eq!(*selection.borrow(), vec![2]);
     assert_eq!(store.elem(2).count().peek(), 22);
 
-    // Transient means transient: a selection change AFTER the last unit is not history —
+    // Transient means transient: a selection change after the last unit is not history —
     // the sealed snapshot wins on the next undo.
     *selection.borrow_mut() = vec![1, 2];
     assert!(stack.undo());

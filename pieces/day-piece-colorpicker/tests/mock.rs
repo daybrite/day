@@ -222,7 +222,7 @@ fn cancel_restores_the_color_the_panel_opened_on() {
 
     // Press the top-leading corner of the shade field: saturation 0, brightness 1 — white,
     // whatever the hue is. That is a change no rounding can mistake for the starting color, and
-    // it only lands because `on_tap_at` reports WHERE the press was. The field is the SECOND
+    // it only lands because `on_tap_at` reports where the press was. The field is the second
     // canvas; the first is the well itself.
     let shade = probe.find_by_kind("day.canvas")[1].1.node;
     probe.emit(NodeId(shade), Event::Tap(Point::new(0.0, 0.0)));

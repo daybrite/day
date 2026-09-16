@@ -242,7 +242,7 @@ pub fn apply_string_keys(
 
 /// Set (or remove, with `None`) a top-level array of strings — `UIAppFonts`.
 ///
-/// This exists so that `UIAppFonts` and the permission keys go through ONE writer. When
+/// This exists so that `UIAppFonts` and the permission keys go through one writer. When
 /// `sync_uiappfonts` still used `plutil -replace`, every build moved that key to the end of the
 /// file while this editor kept the permission keys in place, so the two writers swapped their
 /// relative order on every run and the checked-in plist churned forever.
@@ -390,7 +390,7 @@ fn skip_to_next_line(text: &str, from: usize) -> usize {
     }
 }
 
-/// XML-escape a value. A permission reason is prose: it WILL contain an ampersand or an apostrophe
+/// XML-escape a value. A permission reason is prose: it will contain an ampersand or an apostrophe
 /// sooner or later, and an unescaped one makes the plist unparseable.
 fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -446,7 +446,7 @@ mod tests {
             keys.get("CFBundlePackageType").map(String::as_str),
             Some("APPL")
         );
-        // Nested inside CFBundleURLTypes' array-of-dict — must NOT be seen as top-level.
+        // Nested inside CFBundleURLTypes' array-of-dict — must not be seen as top-level.
         assert!(!keys.contains_key("CFBundleURLName"));
         assert!(!keys.contains_key("CFBundleURLSchemes"));
         // Non-string values are not managed.

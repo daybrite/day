@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! daybridge codegen (docs/bridge.md, DESIGN.md §15.6) — the Rust half.
+//! daybridge codegen (docs/bridge.md, DESIGN.md §15.6): the Rust half.
 //!
 //! Called from a bridged crate's `build.rs`:
 //!
@@ -12,9 +12,9 @@
 //! It reads the crate's own `src/**/*.rs`, finds every `day_bridge::bridge! { … }` block, and
 //! writes two things into `$OUT_DIR/day-bridge/`:
 //!
-//! - `mod.rs` — the Rust side: each declared function, cfg-gated per target, plus a
+//! - `mod.rs`, the Rust side: each declared function, cfg-gated per target, plus a
 //!   `<fn>_support()` reporting what this target's arm promises. The `bridge!` macro `include!`s it.
-//! - `manifest.json` — every foreign arm, for `day build` to emit adapters from (docs/bridge.md
+//! - `manifest.json`, every foreign arm, for `day build` to emit adapters from (docs/bridge.md
 //!   "What the build does"). Written even when empty so a stale one never lingers.
 //!
 //! Parsing is a text scan, not a syntax tree, for the same reason `swiftui.rs` scans Swift: the
@@ -117,9 +117,9 @@ pub struct Decl {
 impl Decl {
     /// The callback handle this function carries, when its last argument is
     /// `day_bridge::Done<T>` or `day_bridge::Emit<T>`: `(argument name, T)`. A function with one is
-    /// asynchronous — it returns once the platform ACCEPTED the request and answers later through
-    /// the token: once for a `Done` (docs/bridge.md "Callbacks"), any number of times and then an
-    /// end for an `Emit` ("Streams"). [`Decl::is_stream`] tells the two apart.
+    /// asynchronous: it returns once the platform has accepted the request and answers later
+    /// through the token: once for a `Done` (docs/bridge.md "Callbacks"), any number of times and
+    /// then an end for an `Emit` ("Streams"). [`Decl::is_stream`] tells the two apart.
     pub fn done(&self) -> Option<(&str, String)> {
         let (name, ty) = self.args.last()?;
         let ty = ty.trim().trim_start_matches("day_bridge::");
@@ -156,8 +156,8 @@ pub struct Arm {
     pub platforms: Vec<String>,
     /// Inline body (the raw string's contents), or `None` when the arm names a file.
     pub body: Option<String>,
-    /// The arm's file-level preamble — imports only, and only where the language needs them
-    /// outside the body (a JVM arm's body sits inside the generated class). Per ARM, not per
+    /// The arm's file-level preamble: imports only, and only where the language needs them
+    /// outside the body (a JVM arm's body sits inside the generated class). Per arm, not per
     /// language: imports are usually platform-specific, and two arms of one language claiming
     /// different platforms must not receive each other's.
     pub prelude: Option<String>,
@@ -167,9 +167,9 @@ pub struct Arm {
     pub options: BTreeMap<String, String>,
     /// The crate-relative `.rs` this arm was written in, for `#line` and diagnostics.
     pub source: Option<String>,
-    /// The line the attribute sits on — what an error message names.
+    /// The line the attribute sits on, which is what an error message names.
     pub line: usize,
-    /// The line the arm's first line of foreign code sits on — what `#line` maps to, so a
+    /// The line the arm's first line of foreign code sits on, which is what `#line` maps to, so a
     /// compiler diagnostic lands on the code rather than on the marker above it.
     pub body_line: usize,
 }
@@ -192,8 +192,8 @@ pub fn generate() -> Result<(), String> {
     generate_in(Path::new(&root), Path::new(&out), &crate_name)
 }
 
-/// Parse one crate's `bridge!` blocks — the entry point `day build` uses to generate the foreign
-/// half. The CLI reads crate SOURCES rather than build-script output, so staging never depends on
+/// Parse one crate's `bridge!` blocks: the entry point `day build` uses to generate the foreign
+/// half. The CLI reads crate sources rather than build-script output, so staging never depends on
 /// cargo having run first (docs/bridge.md "What the build does").
 pub fn parse_crate(root: &Path) -> Result<Bridge, String> {
     let bridge = scan(root)?;
@@ -201,7 +201,7 @@ pub fn parse_crate(root: &Path) -> Result<Bridge, String> {
     Ok(bridge)
 }
 
-/// Whether a crate declares any bridge at all — cheap enough to run over a whole dependency graph.
+/// Whether a crate declares any bridge at all; cheap enough to run over a whole dependency graph.
 pub fn is_bridged(root: &Path) -> bool {
     let mut sources: Vec<PathBuf> = Vec::new();
     collect_rs(&root.join("src"), &mut sources);
@@ -220,7 +220,7 @@ pub fn swift_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     render_swift(bridge, arm, crate_name)
 }
 
-/// The generated JVM adapter for `arm` — Kotlin or Java — ready to stage into a Gradle source
+/// The generated JVM adapter for `arm` (Kotlin or Java), ready to stage into a Gradle source
 /// directory. The language decides only the file extension and whether the project needs the
 /// Kotlin plugin (see the check in `day lint` and the error in `day build`).
 pub fn jvm_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
@@ -240,7 +240,7 @@ pub fn arkts_adapter(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     render_arkts(bridge, arm, crate_name)
 }
 
-/// The Java package a crate's Kotlin adapter declares — the directory Gradle expects it under.
+/// The Java package a crate's Kotlin adapter declares, the directory Gradle expects it under.
 pub fn kotlin_package_of(crate_name: &str) -> String {
     kotlin_package(crate_name)
 }
@@ -266,8 +266,8 @@ fn scan(root: &Path) -> Result<Bridge, String> {
             .unwrap_or(path)
             .display()
             .to_string();
-        // Forward slashes always. This string is baked into every generated artifact — the C
-        // `#line`, Swift's `#sourceLocation`, the Kotlin header, the `@generated` banner — so a
+        // Forward slashes always. This string is baked into every generated artifact (the C
+        // `#line`, Swift's `#sourceLocation`, the Kotlin header, the `@generated` banner), so a
         // host separator would make the generated files differ byte-for-byte between Windows and
         // everywhere else, against the determinism this module already sorts its inputs for.
         // Windows-only: a backslash is a legal character in a POSIX filename.
@@ -280,8 +280,8 @@ fn scan(root: &Path) -> Result<Bridge, String> {
 
 /// The testable core of [`generate`]: the Rust side, plus the C/C++ arms cargo itself compiles.
 pub fn generate_in(root: &Path, out_dir: &Path, crate_name: &str) -> Result<(), String> {
-    // Only a build script may print cargo directives — `parse_crate` is also called by `day build`,
-    // where a stray `cargo:` line would land in the CLI's own output (and, once, inside a
+    // Only a build script may print cargo directives: `parse_crate` is also called by `day build`,
+    // where a stray `cargo:` line would land in the CLI's output (and, once, inside a
     // generated ES module).
     let mut sources: Vec<PathBuf> = Vec::new();
     collect_rs(&root.join("src"), &mut sources);
@@ -299,7 +299,7 @@ pub fn generate_in(root: &Path, out_dir: &Path, crate_name: &str) -> Result<(), 
     Ok(())
 }
 
-/// The platform this build is for, from cargo's own cfg environment — the same distinction the
+/// The platform this build is for, from cargo's own cfg environment: the same distinction the
 /// generated `cfg`s make, so exactly one arm is ever active.
 fn active_platform() -> Option<String> {
     let os = std::env::var("CARGO_CFG_TARGET_OS").ok()?;
@@ -321,7 +321,7 @@ fn active_platform() -> Option<String> {
 }
 
 /// Write every C/C++ arm's translation unit, and compile the one this target selects. Swift,
-/// Kotlin, ArkTS and JavaScript adapters are NOT written here — `day build` renders those from the
+/// Kotlin, ArkTS and JavaScript adapters are not written here; `day build` renders those from the
 /// crate's source when it stages them, so each artifact has exactly one producer.
 ///
 /// Sources for inactive arms are written too: they cost nothing, they keep the generated tree
@@ -460,7 +460,7 @@ fn parse_body(body: &str, base_line: usize, bridge: &mut Bridge) -> Result<(), S
             .ok_or_else(|| "unterminated bridge attribute".to_string())?;
         let attr = &body[start + 2..close];
         // `line_of` is 1-based within the body, and the body starts on the same line as the
-        // opening brace — so the two overlap by one line.
+        // opening brace, so the two overlap by one line.
         let line = base_line + line_of(body, start) - 1;
         let rest = &body[close + 1..];
 
@@ -495,7 +495,7 @@ fn parse_declare(rest: &str, line: usize, bridge: &mut Bridge) -> Result<usize, 
         .ok_or_else(|| format!("line {line}: `declare` needs an `extern \"day\" {{ … }}` block"))?;
     let close = match_delim(rest, open, b'{', b'}')
         .ok_or_else(|| format!("line {line}: unterminated `extern \"day\"` block"))?;
-    // Comments come out BEFORE the split: a `;` inside a doc comment would otherwise end the
+    // Comments come out before the split: a `;` inside a doc comment would otherwise end the
     // declaration early and leave prose where the next `fn` should be.
     let block = strip_comments(&rest[open + 1..close]);
     for raw in block.split(';') {
@@ -680,8 +680,8 @@ struct MacroCall {
 /// ```
 ///
 /// Any hash count is accepted for each raw string, because one is not always enough: an arm
-/// containing the two characters `"#` — `document.querySelector("#speech")` is the everyday
-/// example — ends an `r#"…"#` string early and takes the rest of the file with it. Writing that
+/// containing the two characters `"#` (`document.querySelector("#speech")` is the everyday
+/// example) ends an `r#"…"#` string early and takes the rest of the file with it. Writing that
 /// arm as `r##"…"##` is the fix, and it only works if the parser counts hashes as rustc does.
 fn macro_call_after(rest: &str, line: usize) -> Result<MacroCall, String> {
     let open = rest.find('(').ok_or_else(|| {
@@ -769,7 +769,7 @@ fn rust_item_after(rest: &str, line: usize) -> Result<(String, usize), String> {
 // ---------------------------------------------------------------------------
 
 /// Index of the delimiter closing the one at `from`, skipping strings, raw strings, chars and
-/// comments — the whole reason this is hand-written rather than a `find`.
+/// comments, which is why this is hand-written rather than a `find`.
 fn match_delim(text: &str, from: usize, open: u8, close: u8) -> Option<usize> {
     let b = text.as_bytes();
     let mut depth = 0usize;
@@ -1004,8 +1004,8 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
         }
     }
 
-    // The v1 type table is the DESIGN surface; `implemented` is the built one. A gap between them
-    // must fail here rather than emit an adapter that cannot compile — or, worse, one that
+    // The v1 type table is the design surface; `implemented` is the built one. A gap between them
+    // must fail here rather than emit an adapter that cannot compile or, worse, one that
     // compiles and marshals the wrong bytes.
     for arm in &bridge.arms {
         for decl in &bridge.decls {
@@ -1047,9 +1047,9 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
         }
     }
 
-    // One LANGUAGE per target, and a fallback for everything else. Several arms may share a
-    // language and a platform — that is how the rust arm implements one `fn` per item, and how a
-    // Kotlin arm can be split — but two languages claiming one target would leave the generator
+    // One language per target, and a fallback for everything else. Several arms may share a
+    // language and a platform (that is how the rust arm implements one `fn` per item, and how a
+    // Kotlin arm can be split), but two languages claiming one target would leave the generator
     // with no answer for which adapter to emit.
     let mut claimed: BTreeMap<&str, (Lang, usize)> = BTreeMap::new();
     for arm in &bridge.arms {
@@ -1099,8 +1099,8 @@ fn validate(bridge: &Bridge) -> Result<(), String> {
 }
 
 /// Whether `lang`'s generator marshals `ty` today, as an argument or as the value of a
-/// `Result<T, Error>` return. Narrower than [`check_type`] on purpose: that one polices the v1
-/// design surface, this one polices what is actually built (docs/bridge.md "Types").
+/// `Result<T, Error>` return. Narrower than [`check_type`]: that one polices the v1
+/// design surface, this one polices what is built (docs/bridge.md "Types").
 fn implemented(lang: Lang, ty: &str, argument: bool) -> bool {
     let ty = ty.trim();
     if lang == Lang::Rust {
@@ -1397,7 +1397,7 @@ fn render_c(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 
 /// The Swift adapter for one arm: the crate's Swift prelude, a `#sourceLocation` back to the
 /// `.rs`, the arm itself, and one `@_cdecl` export per declared function. The arm writes ordinary
-/// Swift — `func speakNative(text: String) throws` — and never sees the C ABI.
+/// Swift (`func speakNative(text: String) throws`) and never sees the C ABI.
 fn render_swift(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     let source = arm.source.as_deref().unwrap_or("src/lib.rs");
     let mut out = String::new();
@@ -1823,7 +1823,7 @@ fn render_arkts(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     out
 }
 
-/// The symbol an ArkTS completion resolves — separate from the C-family one because it carries
+/// The symbol an ArkTS completion resolves, separate from the C-family one because it carries
 /// one uniform shape for every value type (the shim marshals a JS value into it).
 fn arkts_complete_symbol(crate_name: &str, decl: &Decl) -> String {
     format!(
@@ -1953,7 +1953,7 @@ fn render_arkts_rust(bridge: &Bridge, crate_name: &str) -> String {
 }
 
 /// The Rust half of a JavaScript arm: wasm imports, with `&str` crossing as `(ptr, len)` into the
-/// module's own linear memory — no CString, no allocation, nothing to free.
+/// module's own linear memory, with nothing allocated and nothing to free.
 fn render_js_rust(bridge: &Bridge, crate_name: &str) -> String {
     let mut out = String::new();
     // Without this the linker treats the imports as symbols it must resolve and fails with
@@ -2096,10 +2096,10 @@ fn render_js_rust(bridge: &Bridge, crate_name: &str) -> String {
 }
 
 /// The generated Kotlin object for one arm: the crate's Kotlin prelude, the arm itself, and a
-/// `@JvmStatic` entry per declared function for JNI to call. The arm writes ordinary Kotlin —
-/// `fun speak_native(text: String)` — and never sees JNI.
+/// `@JvmStatic` entry per declared function for JNI to call. The arm writes ordinary Kotlin
+/// (`fun speak_native(text: String)`) and never sees JNI.
 ///
-/// The name is the DECLARED one, unchanged: a bridged function is called `speak_native` in Rust,
+/// The name is the declared one, unchanged: a bridged function is called `speak_native` in Rust,
 /// Kotlin, Swift, ArkTS, JavaScript and C alike, so one grep finds the declaration and every arm.
 /// It costs the JVM and Swift naming conventions; it buys never having to map a name in your head
 /// or in a stack trace (docs/bridge.md "Names").
@@ -2188,8 +2188,8 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
             decl.name,
             named.join(", ")
         );
-        // No try/catch: on the JVM an exception IS the error channel, and JNI reports it to
-        // the caller — so a Kotlin arm's failure becomes `Error::Foreign` on the Rust side with
+        // No try/catch: on the JVM an exception is the error channel, and JNI reports it to
+        // the caller, so a Kotlin arm's failure becomes `Error::Foreign` on the Rust side with
         // no status code. C and Swift, having no such channel, use one.
         let value = result_value(&decl.ret);
         let ret = match value.as_deref() {
@@ -2209,7 +2209,7 @@ fn render_kotlin(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     out
 }
 
-/// The generated Java class for one arm — the same shape the Kotlin emitter produces, for a
+/// The generated Java class for one arm: the same shape the Kotlin emitter produces, for a
 /// project whose Gradle build has no Kotlin plugin. Java needs none: `com.android.application`
 /// compiles `.java` out of any `srcDir`, which is what makes this the arm that always works.
 fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
@@ -2273,7 +2273,7 @@ fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
         let _ = writeln!(out);
     }
     // The arm becomes the body of the class, so it writes ordinary `public static` methods and
-    // never sees JNI — the same contract the Kotlin arm has.
+    // never sees JNI, the same contract the Kotlin arm has.
     for line in arm.body.as_deref().unwrap_or("").lines() {
         if line.trim().is_empty() {
             let _ = writeln!(out);
@@ -2286,7 +2286,7 @@ fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
 }
 
 /// The Rust half of a Kotlin arm: a JNI static call per function, through day-android's cached JVM
-/// and its `dcall_static` helper — the same path day-part-battery's hand-written arm takes today.
+/// and its `dcall_static` helper, the same path day-part-battery's hand-written arm takes today.
 fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
     let class = kotlin_package(crate_name).replace('.', "/") + "/" + &kotlin_object(crate_name);
     let mut out = String::new();
@@ -2300,7 +2300,7 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         let _ = writeln!(out, "fn {}({}){ret} {{", decl.name, args.join(", "));
         let _ = writeln!(out, "    use day_android::{{DayEnv, with_env}};");
         // A headless part is ordinary Rust anyone may call, including before (or without) a Day
-        // app's init — where `with_env` would panic on the missing JVM. Asking first makes that
+        // app's init, where `with_env` would panic on the missing JVM. Asking first makes that
         // an ordinary `Runtime` error.
         let _ = writeln!(out, "    if !day_android::vm_ready() {{");
         let _ = writeln!(
@@ -2354,7 +2354,7 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
             quote(&jni_signature(decl)),
             jvalues.join(", ")
         );
-        // A throwing arm leaves the exception PENDING on this thread. `with_env`'s attach guard
+        // A throwing arm leaves the exception pending on this thread. `with_env`'s attach guard
         // treats a pending exception as fatal and panics, which would turn the contract's
         // "an exception becomes Error::Foreign" into a contained panic that leaves the UI's
         // reactive state suspect. Logging and clearing it here is what keeps it an ordinary error.
@@ -2573,7 +2573,7 @@ fn jvalue_accessor(ty: &str) -> &'static str {
     }
 }
 
-/// `(Ljava/lang/String;)I` — the descriptor `dcall_static` needs for one declaration.
+/// `(Ljava/lang/String;)I`: the descriptor `dcall_static` needs for one declaration.
 fn jni_signature(decl: &Decl) -> String {
     let mut args: String = decl
         .plain_args()
@@ -2828,7 +2828,7 @@ fn arm_cfg(arm: &Arm, bridge: &Bridge) -> String {
     }
 }
 
-/// The cfg for a staged arm's platforms when the staged half is NOT in the link — a plain
+/// The cfg for a staged arm's platforms when the staged half is not in the link: a plain
 /// `cargo build`, or a `day build` for a target this arm does not claim. The crate keeps
 /// compiling and reports `Unsupported`, rather than failing to link a symbol nobody produced.
 fn unstaged_cfg(arm: &Arm) -> String {
@@ -2843,7 +2843,7 @@ fn unstaged_cfg(arm: &Arm) -> String {
     format!("all({platform}, not({STAGED_CFG}))")
 }
 
-/// `#[cfg(…)]` for a predicate, or `None` when it is always true — which is what the `other` arm's
+/// `#[cfg(…)]` for a predicate, or `None` when it is always true, which is what the `other` arm's
 /// predicate collapses to in a crate whose only arm is the fallback.
 fn cfg_attr(pred: &str) -> Option<String> {
     (pred != "not(any())").then(|| format!("#[cfg({pred})]"))
@@ -2957,7 +2957,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         let _ = writeln!(out, "{}\n", arm.body.as_deref().unwrap_or(""));
     }
 
-    // Where a staged arm's foreign half is absent, the fallback stands in — same bodies as the
+    // Where a staged arm's foreign half is absent, the fallback stands in: same bodies as the
     // `other` arm, under the staged arm's platforms.
     let fallback: Vec<&Arm> = bridge
         .arms
@@ -2998,8 +2998,8 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         }
     }
 
-    // A Kotlin arm is called the other way round — Rust into the JVM — so it gets its own
-    // wrappers rather than an extern block.
+    // A Kotlin arm is called the other way round (Rust into the JVM), so it gets wrappers
+    // of its own rather than an extern block.
     for arm in bridge
         .arms
         .iter()
@@ -3016,8 +3016,8 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         }
     }
 
-    // A C, C++ or Swift arm reaches Rust through the C ABI — Swift's `@_cdecl` exports exactly the
-    // symbol C would — so one emitter covers all three. The extern block and the safe wrappers are
+    // A C, C++ or Swift arm reaches Rust through the C ABI (Swift's `@_cdecl` exports exactly the
+    // symbol C would), so one emitter covers all three. The extern block and the safe wrappers are
     // cfg-gated exactly like the rust arm, so the call site never changes.
     for arm in bridge
         .arms
@@ -3042,9 +3042,9 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         }
     }
 
-    // `<fn>_support()`: what this target promises. One definition per distinct cfg, NOT per arm —
-    // several arms share a cfg whenever a language needs one item per function (the rust arm
-    // always does), and two definitions under one cfg would collide.
+    // `<fn>_support()`: what this target promises. One definition per distinct cfg, not per arm,
+    // because several arms share a cfg whenever a language needs one item per function (the rust
+    // arm always does), and two definitions under one cfg would collide.
     let mut levels: Vec<(String, &'static str)> = Vec::new();
     for arm in &bridge.arms {
         let support = if arm.lang == Lang::Rust && arm.platforms.iter().any(|p| p == "other") {
@@ -3329,7 +3329,7 @@ day_bridge::bridge! {
     }
 
     /// `"#` is ordinary in JavaScript, CSS selectors and C format strings, and it ends an `r#"…"#`
-    /// body early — silently, taking the rest of the arm with it. More hashes is the author's fix,
+    /// body early, silently, taking the rest of the arm with it. More hashes is the author's fix,
     /// so the parser counts them the way rustc does.
     #[test]
     fn a_body_containing_a_quote_hash_needs_more_hashes() {
@@ -3417,8 +3417,8 @@ day_bridge::bridge! {
         assert!(err.contains("belongs to the generator"), "{err}");
     }
 
-    /// The prelude is per ARM, so two arms of one language claiming different platforms cannot
-    /// receive each other's imports — the bug the old per-language prelude had by construction.
+    /// The prelude is per arm, so two arms of one language claiming different platforms cannot
+    /// receive each other's imports, the bug the old per-language prelude had by construction.
     #[test]
     fn a_prelude_reaches_only_its_own_arm() {
         let b = parse(
@@ -3523,7 +3523,7 @@ day_bridge::bridge! {
     #[test]
     fn renders_the_java_adapter_the_jvm_side_shares() {
         // Java and Kotlin arms produce the same class, the same method names, and the same JNI
-        // descriptors — only the syntax and the file name differ (docs/bridge.md "Android").
+        // descriptors; only the syntax and the file name differ (docs/bridge.md "Android").
         let b = parse(&SPEECH.replace("kotlin", "java"));
         let arm = b.arms.iter().find(|a| a.lang == Lang::Java).unwrap();
         let java = render_java(&b, arm, "day-part-speech");
@@ -3560,7 +3560,7 @@ day_bridge::bridge! {
         );
     }
 
-    /// A C++ arm's exported adapters must not be mangled — Rust links the plain symbol — and a
+    /// A C++ arm's exported adapters must not be mangled (Rust links the plain symbol), and a
     /// UTF-16 arm must be handed `char16_t*` with the conversion happening on the Rust side.
     #[test]
     fn a_cpp_arm_exports_unmangled_utf16_adapters() {

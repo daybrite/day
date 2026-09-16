@@ -16,10 +16,10 @@
 //!     depending on whether the pick is a simulator or a physical phone, and keeping that mapping
 //!     here rather than in every editor means a new device class costs no editor release. The
 //!     `bootable` half carries it too, for the same reason and one more: an editor that shows a
-//!     row for a device WHILE it boots has to record how that device will be selected before it
+//!     row for a device while it boots has to record how that device will be selected before it
 //!     exists, and deriving it from the target there would put the mapping back in the editor.
 //!   * a target that cannot be enumerated reports `available: false` with a `note` rather than an
-//!     empty list, so a caller can say WHY there is nothing to choose. One missing toolchain must
+//!     empty list, so a caller can say why there is nothing to choose. One missing toolchain must
 //!     never blank out the other two — the same reason `day metadata` degrades instead of failing.
 //!
 //! Enumerating Android starts an `adb` server daemon that outlives the command; that is adb's
@@ -289,7 +289,7 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
         if attempt == 8 {
             // An iPHONE's SpringBoard does not rotate, so its home screen captures portrait however
             // the device is turned — the pixels can never agree there, and devicectl's own answer
-            // is the only one available. Taken only after the retries, so a display that WAS going
+            // is the only one available. Taken only after the retries, so a display that was going
             // to catch up has had its chance.
             if device_orientation(udid).as_deref() == Some(want) {
                 return Ok(());
@@ -406,7 +406,7 @@ type Sim = (String, String, String);
 /// its schema (a plain "26.5" for the OS, `hardware.reality` to tell a simulator from a phone), but
 /// it is not a list of what the machine HAS: it names the simulators CoreDevice has already been
 /// introduced to — ones that booted, or that xcodebuild targeted — and nothing else. Measured on
-/// the `xcode-27` runner image, which installs eleven iOS 27 simulators: devicectl reported ONE,
+/// the `xcode-27` runner image, which installs eleven iOS 27 simulators: devicectl reported one,
 /// the iPhone the build step had just used, so `--device "iPad Pro 13-inch"` failed with "This
 /// machine has: iPhone 17 Pro" while the iPad sat one `simctl list` away. A developer Mac showed
 /// the same shape at a larger scale, 77 devices against simctl's 217. simctl reads CoreSimulator's
@@ -611,7 +611,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     return Err(CliError::failure(format!("{name} never finished booting")));
                 }
             }
-            // Turning happens AFTER the boot, and it is never gated on devicectl agreeing that
+            // Turning happens after the boot, and it is never gated on devicectl agreeing that
             // the simulator exists. Asking first looked like a cheap way to fail fast, and it cost
             // the whole feature: a CI runner whose CoreDevice lists no simulators skipped the
             // rotation entirely and published portrait captures under a landscape profile, which
@@ -673,7 +673,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             size_display(&avd, spec.headless);
             // Already running? Then this command means "make sure it is up and facing this way",
             // not "start another one". Without this, a re-run — a retried CI step, a developer
-            // running the same line twice — starts a SECOND emulator on the next free port, and
+            // running the same line twice — starts a second emulator on the next free port, and
             // the two then fight over the app, the screenshots and the adb default device.
             // Held only for the wait below: dropping it does not stop the emulator.
             let mut started: Option<std::process::Child> = None;
@@ -964,7 +964,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
 
     // avdmanager takes its SDK root from where the TOOL lives (`-Dcom.android.sdkmanager.toolsdir`
     // in its launcher), not from `ANDROID_HOME` and with no flag to override it. So a copy found on
-    // PATH — a Homebrew install outside the SDK — creates AVDs against ITS root, referencing images
+    // PATH — a Homebrew install outside the SDK — creates AVDs against its root, referencing images
     // the emulator in `android_sdk_dir()` cannot resolve. Installing the SDK's own cmdline-tools
     // makes the two agree, which is the layout a CI image already has, so this is a no-op there.
     let sdk = day_toolchain::android_sdk_dir();
@@ -2077,7 +2077,7 @@ fn avds(running: &[String]) -> Vec<Value> {
 /// that had installed the emulator moments earlier it returned nothing. The directory scan is the
 /// backstop for a machine whose cmdline-tools are missing or broken.
 ///
-/// The directory has to be SEARCHED FOR as well as read: the SDK tools keep `.android` wherever
+/// The directory has to be SEARCHED for as well as read: the SDK tools keep `.android` wherever
 /// `ANDROID_USER_HOME` (or the older `ANDROID_SDK_HOME`) points, and a CI image sets one of those
 /// away from `$HOME`. Scanning `~/.android/avd` alone was measured finding nothing on a runner
 /// that had just created an AVD successfully, which turned into "no AVD named …" listing nothing

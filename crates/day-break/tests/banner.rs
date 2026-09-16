@@ -89,7 +89,7 @@ fn banner_discloses_a_pending_report_and_discard_clears_it() {
         "report body missing after View: {shown:?}"
     );
 
-    // Discard removes it — the whole banner (title included) unmounts.
+    // Discard removes it: the whole banner (title included) unmounts.
     tap_button(&probe, "Discard");
     let shown = labels(&probe);
     assert!(

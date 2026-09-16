@@ -6,7 +6,7 @@
 // to day-android; it registers no view. The Android twin of parts/day-part-location/src/*.rs's
 // other per-OS impls.
 //
-// WHY LocationManager AND NOT FusedLocationProviderClient. The fused provider is the usual Android
+// Why LocationManager and not FusedLocationProviderClient. The fused provider is the usual Android
 // recommendation, and it is the wrong dependency here: it ships in Google Play services, which AOSP
 // images and many emulators do not have, and it would add a Gradle coordinate to every Day app that
 // links this part. The platform LocationManager is always present.

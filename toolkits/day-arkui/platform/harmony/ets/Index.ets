@@ -45,7 +45,7 @@ struct Index {
   @State navRootTitle: string = '';
   private navKeys: number[] = [];
 
-  // Scripted sessions (dayscript, docs/agent.md) push/pop WITHOUT transition animation: a
+  // Scripted sessions (dayscript, docs/agent.md) push/pop without transition animation: a
   // pop issued while a push transition is in flight is DROPPED by ArkUI Navigation and the
   // stack wedges on a stale destination — the same transactional hazard the UIKit backend
   // queues around for modals (docs/dialogs.md). Human sessions keep the native transition.
@@ -59,7 +59,7 @@ struct Index {
     }
     this.started = true;
 
-    // Wire the Navigation bridge BEFORE start(): a deep link (docs/deep-links.md) can push during
+    // Wire the Navigation bridge before start(): a deep link (docs/deep-links.md) can push during
     // the initial tree build.
     nativeEntry.registerNav(
       (key: number, title: string): NodeContent => {
@@ -69,7 +69,7 @@ struct Index {
         this.navKeys.push(key);
         // The name is UNIQUE per page: ArkUI Navigation diffs the old and new stacks by
         // destination name, so a same-turn pop+push of two 'day-page' entries would collapse
-        // into "page is not change — don't transition", leaving the OLD (already-detached,
+        // into "page is not change — don't transition", leaving the old (already-detached,
         // empty) destination on screen forever. The generic `.navDestination` builder
         // dispatches every name, so the suffix costs nothing.
         this.pathStack.pushPathByName('day-page-' + key, key, this.animated());

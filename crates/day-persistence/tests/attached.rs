@@ -11,7 +11,7 @@ use day_persistence::{
 };
 use day_reactive::Binding;
 
-/// A row of the catalog SOMEONE ELSE built: keyed by a BLOB uuid, addressed here through its
+/// A row of the catalog someone ELSE built: keyed by a BLOB uuid, addressed here through its
 /// implicit rowid, with a contentless FTS5 index that keeps the catalog's own shape.
 #[derive(Model, Clone, Default, PartialEq, Debug)]
 #[model(table = "stations", external = "catalog", fts("name"))]

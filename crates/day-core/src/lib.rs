@@ -177,7 +177,7 @@ use day_spec::{Platform, WindowOptions};
 
 // ---- crash observation (§8.5) --------------------------------------------------------------
 
-/// Observer called AFTER day-core contains a panic at one of its trampoline boundaries
+/// Observer called after day-core contains a panic at one of its trampoline boundaries
 /// (`contain_posted_panic` here, `tree::pump_events`) — on the panicking thread, after the
 /// reactive-runtime reset. A crash reporter (day-break, docs/break.md) registers one to
 /// downgrade the report its panic hook just wrote: the panic was caught, the process is not
@@ -505,7 +505,7 @@ fn dispatch_undo_invoke(redo: bool) {
     let _ = invoke_undo(redo);
 }
 
-/// Invoke the installed undo bridge — the SAME handler a native front (⌘Z, the Edit menu,
+/// Invoke the installed undo bridge — the same handler a native front (⌘Z, the Edit menu,
 /// a three-finger swipe) reaches — returning whether one is installed. The dayscript
 /// `undo:`/`redo:` steps drive history through this, so a walkthrough needs no app-provided
 /// undo button on any target.
@@ -561,7 +561,7 @@ fn dispatch_edit_invoke(op: day_spec::EditOp) {
     let _ = invoke_edit(op);
 }
 
-/// Invoke the installed edit bridge — the SAME handler the platform's own Cut/Copy/Paste
+/// Invoke the installed edit bridge — the same handler the platform's own Cut/Copy/Paste
 /// route reaches (clipboard transport included) — returning whether one is installed. An
 /// app's own affordances (a context menu's Cut/Copy) call this rather than duplicating the
 /// clipboard plumbing (docs/menus.md).
@@ -579,7 +579,7 @@ pub fn invoke_edit(op: day_spec::EditOp) -> bool {
 /// The standing dispatch id behind a `MenuRole::Undo`/`Redo` item on a toolkit with no native
 /// undo responder (docs/menus.md): activating the item comes back as a plain menu action, and
 /// this id's closure invokes the installed undo bridge. Registered once and durable across
-/// menu installs, like the preferences id. Toolkits WITH a native undo system (appkit) keep
+/// menu installs, like the preferences id. Toolkits with a native undo system (appkit) keep
 /// their responder-chain selector instead, so a focused text field's own undo stays ahead of
 /// the app stack there.
 pub fn undo_action_id(redo: bool) -> u64 {
@@ -687,7 +687,7 @@ pub fn launch_with<P: Platform>(
             tree::install_tree(Box::new(tree));
 
             // Seed the window's size class from the size the backend just reported
-            // (docs/size-classes.md), BEFORE the root piece builds below — a nav host resolving
+            // (docs/size-classes.md), before the root piece builds below — a nav host resolving
             // an automatic presentation reads it during its own build. Backends push later
             // changes themselves; one that never does simply keeps this launch value.
             ambient::set_window_size_class(
@@ -711,7 +711,7 @@ pub fn launch_with<P: Platform>(
                         day_spec::Event::WindowResized(size) => {
                             let s = *size;
                             with_tree(|t| t.set_window_size(s));
-                            // Re-bucket the window (docs/size-classes.md). Derived HERE, from the
+                            // Re-bucket the window (docs/size-classes.md). Derived here, from the
                             // geometry every backend already reports, so there is one breakpoint
                             // table rather than one per toolkit — and only a class CHANGE
                             // notifies, so dragging an edge within a bucket costs nothing.
@@ -763,7 +763,7 @@ pub fn launch_with<P: Platform>(
             // `set_launch_deeplink`. Deferred one turn so the first frame mounts before the
             // destination pushes. The turn-end ROUTE SYNC (`Toolkit::set_route` on change —
             // web-dom mirrors it into the URL hash) installs in the same deferred closure,
-            // AFTER the deep link resolves, so the launch route is never clobbered by a sync
+            // After the deep link resolves, so the launch route is never clobbered by a sync
             // of the pre-navigation state.
             day_reactive::on_main(move || {
                 if let Some(route) = nav::launch_deeplink()

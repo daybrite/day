@@ -60,7 +60,7 @@ public class DayNavHost extends LinearLayout {
         DayNavHost h = active;
         if (h == null || !DayActivity.edgeToEdge) return 0;
         // The app bar's height already includes its status-inset padding — report only the
-        // chrome BELOW the status bar, which the activity adds separately.
+        // chrome below the status bar, which the activity adds separately.
         return Math.max(0, h.appBar.getHeight() - DayActivity.statusInsetPx);
     }
 
@@ -98,7 +98,7 @@ public class DayNavHost extends LinearLayout {
     /// exactly what a re-presentation must not do. NULL alongside `split`.
     final FrameLayout listPane;
     /// The list pane's column: the inline search field over {@link #listPane}. It is the pane the
-    /// SlidingPaneLayout sizes and slides, so the field travels WITH the list it filters instead
+    /// SlidingPaneLayout sizes and slides, so the field travels with the list it filters instead
     /// of spanning the whole host — tiled, a full-width field above both panes reads as searching
     /// the detail page. NULL alongside `split`, where the list is the whole width anyway.
     final LinearLayout listColumn;
@@ -119,10 +119,10 @@ public class DayNavHost extends LinearLayout {
     private int knownEntries;
     /** Pops the native side already performed — absorb the answering Popped patch. */
     private int nativePops;
-    /** Back guard (docs/navigation.md): while armed, a native back must NOT pop — it emits
+    /** Back guard (docs/navigation.md): while armed, a native back must not pop — it emits
      *  NavBack{already_popped=0} so Rust's guard decides. */
     private boolean guarded;
-    /** Added LAZILY on the first arm so it lands AFTER the FragmentManager's own back callback
+    /** Added LAZILY on the first arm so it lands after the FragmentManager's own back callback
      *  (OnBackPressedDispatcher is LIFO), giving ours priority while enabled. */
     private OnBackPressedCallback guardCallback;
     /** Pops we initiated via popBackStack — the listener must not re-report them. */
@@ -158,11 +158,11 @@ public class DayNavHost extends LinearLayout {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         // LIFT ON SCROLL (docs/toolbars.md) — Material 3's answer to the same question iOS
         // answers with a bar that blends into the content until you scroll: at rest the bar is
-        // `colorSurface`, the SAME tone as the panes below it, so there is no band across the
+        // `colorSurface`, the same tone as the panes below it, so there is no band across the
         // window; once a scrolling child passes beneath it, `AppBarLayout` raises it to
         // `colorSurfaceContainer` and the separation appears exactly when it means something.
         //
-        // It matters most on a tablet. A full-width bar in a DIFFERENT color above two tiled
+        // It matters most on a tablet. A full-width bar in a different color above two tiled
         // panes reads as a stripe between the content and the status bar rather than as chrome
         // belonging to either pane; toned with the panes, it reads as their shared header.
         appBar.setLiftOnScroll(true);
@@ -175,7 +175,7 @@ public class DayNavHost extends LinearLayout {
         if (adaptive) {
             listPane = new FrameLayout(ctx);
             listPane.setId(listContainerId);
-            // The pane is a column so an inline search field can sit above the list INSIDE it
+            // The pane is a column so an inline search field can sit above the list inside it
             // (see setSearch); the list itself takes the remaining height.
             listColumn = new LinearLayout(ctx);
             listColumn.setOrientation(VERTICAL);
@@ -193,7 +193,7 @@ public class DayNavHost extends LinearLayout {
             split.addView(listColumn, lp);
             // The detail pane carries a REAL width, not `0dp + weight`. SlidingPaneLayout
             // decides whether it can tile by measuring children at their LayoutParams width
-            // BEFORE weights are distributed, so a zero-width detail always "fits" — a portrait
+            // Before weights are distributed, so a zero-width detail always "fits" — a portrait
             // handset tiled a 280dp list beside a sliver of detail instead of stacking.
             // (`setMinimumWidth` does not help either; the layout reads the params, not the
             // view's minimum.) The weight still does its job once tiling is chosen, expanding
@@ -255,7 +255,7 @@ public class DayNavHost extends LinearLayout {
         fm = ((FragmentActivity) ctx).getSupportFragmentManager();
         fm.addOnBackStackChangedListener(new FragmentManager.OnBackStackChangedListener() {
             // Predictive-gesture pops commit on their own schedule, so reconcile from every
-            // hook AND once more next tick — resync() is idempotent (knownEntries guard).
+            // hook and once more next tick — resync() is idempotent (knownEntries guard).
             @Override public void onBackStackChanged() {
                 resync();
                 pages.post(resyncRunnable);
@@ -287,7 +287,7 @@ public class DayNavHost extends LinearLayout {
     };
 
     /** Reconcile bookkeeping with the back stack. Pops the native container performed
-     *  (gesture, back button, up arrow) are reported to Rust on the NEXT main-loop tick:
+     *  (gesture, back button, up arrow) are reported to Rust on the next main-loop tick:
      *  this can run while the FragmentManager is still executing, and Rust's reaction
      *  (removing the page subtree) lands back in fragment transactions — re-entrant
      *  execution is an IllegalStateException. */
@@ -386,7 +386,7 @@ public class DayNavHost extends LinearLayout {
         guardCallback.setEnabled(on);
     }
 
-    /** Live retitle of the CURRENT top (`NavPatch::Title`): the root title when nothing is
+    /** Live retitle of the current top (`NavPatch::Title`): the root title when nothing is
      *  pushed, else the top entry — then re-sync the toolbar. */
     void retitle(String title) {
         if (titles.isEmpty()) {
@@ -401,7 +401,7 @@ public class DayNavHost extends LinearLayout {
      * Install the inline search field directly under the app bar, above the navigation list
      * (docs/search.md).
      *
-     * A Material `TextInputLayout` with a search icon and a clear button, NOT the Material
+     * A Material `TextInputLayout` with a search icon and a clear button, not the Material
      * `SearchBar`/`SearchView` pair: `SearchBar` is a launcher for a full-screen `SearchView`
      * overlay that shows its OWN results list, and on a searchable navigation surface the list
      * underneath already is the result set. An editable filter-in-place field is the control this
@@ -484,7 +484,7 @@ public class DayNavHost extends LinearLayout {
 
     /** Paint the app bar's menu: the window toolbar's items, then the page's own bar actions.
      *
-     *  ONE bar per window, the app bar, at every width — the same place day-uikit puts it
+     *  One bar per window, the app bar, at every width — the same place day-uikit puts it
      *  (docs/toolbars.md). Day used to dock a second MaterialToolbar under the pages, which read
      *  as a phone's bottom bar and, tiled on a tablet, as a strip of icons stranded below both
      *  panes with the titled bar above them empty. An action belongs in the top app bar on
@@ -638,7 +638,7 @@ public class DayNavHost extends LinearLayout {
                     final ArrayList<MenuItem> segments = new ArrayList<>();
                     // A segmented control carries no label of its own — it is a row of choices, and
                     // the platforms that draw one draw the choices (day-pieces `toolbar_segmented`).
-                    // Folded into a menu there is no row to draw them on, and a submenu MUST be
+                    // Folded into a menu there is no row to draw them on, and a submenu must be
                     // named or Android renders an empty line with an arrow. The choice in force is
                     // the name: "Dark >" opening Light/System/Dark reads as the setting it is.
                     int group = groupSeq++;
@@ -860,7 +860,7 @@ public class DayNavHost extends LinearLayout {
         }
 
         /** Every docked bar down at once: a navigation host has been built, and the items ride
-         *  its app bar from here on. The app installs its toolbar BEFORE it builds the window's
+         *  its app bar from here on. The app installs its toolbar before it builds the window's
          *  body, so the first placement is always the docked one. */
         static void undockAll() {
             for (View root : new ArrayList<View>(DOCKED.keySet())) {
@@ -874,7 +874,7 @@ public class DayNavHost extends LinearLayout {
             if (bar != null) bar.update(id, op, num);
         }
 
-        /** Place the docked bar inside the CURRENT safe area and answer the height the day root
+        /** Place the docked bar inside the current safe area and answer the height the day root
          *  owes it — 0 when this window has no bar of its own. Called from the activities' inset
          *  listeners, which own the root's margins, so the bar and the root are placed together. */
         static int layoutDocked(View root, int left, int top, int right) {
@@ -921,7 +921,7 @@ public class DayNavHost extends LinearLayout {
     }
 
     /** Re-tint every glyph on the app bar — the window toolbar's and the page's own — to the bar's
-     *  CURRENT color, and hide the list-only actions off the list.
+     *  Current color, and hide the list-only actions off the list.
      *  Driven from {@link #syncChrome}, which already runs on every push, pop and re-present —
      *  the three moments that change what is behind these glyphs or which page they are on. */
     private void syncBarActions() {
@@ -931,7 +931,7 @@ public class DayNavHost extends LinearLayout {
         windowBar.tint(barGlyphColor());
     }
 
-    /** The color the bar's own glyphs take, derived from what is actually BEHIND them.
+    /** The color the bar's own glyphs take, derived from what is actually behind them.
      *
      *  Not a constant, and not "white when edge-to-edge": the app bar is `colorPrimary` under
      *  edge-to-edge, a dark scrim over an immersive page, and the theme's surface otherwise — and
@@ -1023,7 +1023,7 @@ public class DayNavHost extends LinearLayout {
                 appBar.setLiftOnScroll(true);
             }
         }
-        // AFTER the background above: the glyph color is derived from it, and the list-only items
+        // After the background above: the glyph color is derived from it, and the list-only items
         // depend on the depth this method just re-read.
         syncBarActions();
     }
@@ -1040,7 +1040,7 @@ public class DayNavHost extends LinearLayout {
         pageHosts.put(page, this);
         if (frags.size() == 1) {
             // The first page. Adaptive host: the Pane::Sidebar page, the list pane's permanent
-            // occupant in BOTH presentations. Plain stack host: its root page, which lives in
+            // occupant in both presentations. Plain stack host: its root page, which lives in
             // the pages container — there is no list pane at all.
             int container = split != null ? listContainerId : containerId;
             fm.beginTransaction().setReorderingAllowed(true)
@@ -1074,7 +1074,7 @@ public class DayNavHost extends LinearLayout {
                 .replace(containerId, top)
                 .addToBackStack(prefix + titles.size())
                 .commitAllowingStateLoss();
-        // Execute NOW (commitNow can't take a back stack): the entry must be registered
+        // Execute now (commitNow can't take a back stack): the entry must be registered
         // before the next resync(), or the count mismatch reads as a phantom pop.
         fm.executePendingTransactions();
         // Bring the detail forward. Tiled, this is a no-op — both panes are already visible.
@@ -1142,7 +1142,7 @@ public class DayNavHost extends LinearLayout {
     }
 
     /** A fragment that retains and re-serves its Rust-owned page view (the
-     *  react-native-screens pattern) — the FragmentManager owns WHEN it shows, Day owns WHAT
+     *  react-native-screens pattern) — the FragmentManager owns when it shows, Day owns what
      *  it shows. Public with a no-arg constructor per the Fragment contract: the framework
      *  re-instantiates these on an activity recreation (the theme switch, docs/appearance.md)
      *  with no content, and `DayBridge.beginMount` removes those restored shells before the

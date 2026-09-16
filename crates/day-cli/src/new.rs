@@ -1,23 +1,23 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day new` — scaffold Day extension crates and apps (DESIGN.md §8/§15). Three shapes:
+//! `day new`: scaffold Day extension crates and apps (DESIGN.md §8/§15). Three shapes:
 //!
-//! * `day new piece <name>` — a COMPOSITE piece (pure composition, every backend without any
+//! * `day new piece <name>`: a composite piece (pure composition, every backend without any
 //!   per-backend code).
-//! * `day new piece <name> --toolkits <csv>` — a NATIVE piece (a distinct native control per toolkit,
+//! * `day new piece <name> --toolkits <csv>`: a native piece (a distinct native control per toolkit,
 //!   registered link-time with `renderer!`).
-//! * `day new part <name> [--platforms <csv>]` — a headless PART (a cross-platform capability with no
+//! * `day new part <name> [--platforms <csv>]`: a headless part (a cross-platform capability with no
 //!   UI, dispatched by `#[cfg(target_os)]`).
 //!
-//! Every scaffold is its OWN cargo workspace, carries a README + .gitignore, and BUILDS out of the box.
-//! A piece also gets `demo/`: the app template, written by the same code as `day new app` and cut to
-//! one page that shows the piece (`--no-demo` skips it).
+//! Every scaffold is its own cargo workspace, carries a README + .gitignore, and builds out of the
+//! box. A piece also gets `demo/`: the app template, written by the same code as `day new app` and
+//! cut to one page that shows the piece (`--no-demo` skips it).
 //!
 //! Dependencies default to the **`day` git remote**, because the framework crates are not published to
 //! crates.io yet; `--registry` writes **versioned crates.io** deps pinned to this CLI's own version
 //! (`day-cli x.y.z` scaffolds against `day x.y.z`) for when they are, and the hidden `--local <path>` flag
-//! (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local `day` checkout — what CI uses to build
+//! (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local `day` checkout, which CI uses to build
 //! a freshly-scaffolded crate against the day tree under test. `--day-version <spec>` pins whichever of
 //! those applies to one day: a `vX.Y.Z` tag, a branch, a commit, or (with `--registry`) a crates.io
 //! version. `day checkup` drives that flag to check several days from one CLI.
@@ -32,24 +32,24 @@ use crate::targets;
 /// The `day` git remote, used for scaffold deps under `--git`.
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
 
-/// The toolkits a NATIVE piece can carry a backend renderer for.
+/// The toolkits a native piece can carry a backend renderer for.
 const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "mdc", "xaml"];
-/// The platforms a PART can carry a native impl for.
+/// The platforms a part can carry a native impl for.
 const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 
 // ---------------------------------------------------------------------------
 // Dependency source: versioned crates.io (default), git remote (--git), or a local path (--local / CI).
 // ---------------------------------------------------------------------------
 
-/// Which `day` a scaffold builds against, from `--day-version` — a released version, a branch, or
+/// Which `day` a scaffold builds against, from `--day-version`: a released version, a branch, or
 /// a commit. `latest` resolves to the newest day-cli published on crates.io ([`DaySource::parse`]).
 ///
-/// This is the scaffold half of the answer; `day checkup` uses the SAME spec to decide which
+/// This is the scaffold half of the answer; `day checkup` uses the same spec to decide which
 /// day-cli binary to run, so the tool and the framework it scaffolds against stay in step.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DaySource {
     /// A published release, `x.y.z`. The framework crates are not on crates.io yet, so a scaffold
-    /// takes the matching `vX.Y.Z` git TAG; `--registry` asks for the crates.io version instead.
+    /// takes the matching `vX.Y.Z` git tag; `--registry` asks for the crates.io version instead.
     Release(String),
     Branch(String),
     Rev(String),
@@ -58,12 +58,12 @@ pub enum DaySource {
 impl DaySource {
     /// Parse a `--day-version` spec:
     ///
-    /// * `latest` — ask crates.io for the newest published day-cli (the only form that needs the
+    /// * `latest`: ask crates.io for the newest published day-cli (the only form that needs the
     ///   network; a lookup failure is an error rather than a silent fallback, because every other
     ///   answer would build against something the caller did not ask for)
-    /// * `0.2.0` / `v0.2.0` — that release
-    /// * 7–40 hex characters — that commit
-    /// * anything else — a branch name (`main`, `my/feature`)
+    /// * `0.2.0` / `v0.2.0`: that release
+    /// * 7–40 hex characters: that commit
+    /// * anything else: a branch name (`main`, `my/feature`)
     pub fn parse(spec: &str) -> Result<Self, String> {
         let spec = spec.trim();
         if spec.is_empty() {
@@ -95,7 +95,7 @@ impl DaySource {
         }
     }
 
-    /// The spec to hand a child `day new`, with `latest` already resolved — the caller and the
+    /// The spec to hand a child `day new`, with `latest` already resolved: the caller and the
     /// child must agree on one concrete version, not each resolve `latest` at its own moment.
     pub fn spec(&self) -> String {
         match self {
@@ -115,7 +115,7 @@ impl DaySource {
     }
 }
 
-/// `x.y.z`, all numeric — the shape crates.io publishes and the release tags carry.
+/// `x.y.z`, all numeric: the shape crates.io publishes and the release tags carry.
 fn is_release(s: &str) -> bool {
     let parts: Vec<&str> = s.split('.').collect();
     parts.len() == 3
@@ -127,24 +127,24 @@ fn is_release(s: &str) -> bool {
 #[derive(Debug)]
 enum Deps {
     /// Versioned crates.io deps (`--registry`), pinned to this CLI's version or to
-    /// `--day-version <x.y.z>` — `day = { version = "x.y.z" }`. Becomes the default once the day
+    /// `--day-version <x.y.z>`: `day = { version = "x.y.z" }`. Becomes the default once the day
     /// framework crates are published to crates.io.
     Version(String),
-    /// The `day` git remote (the CURRENT default — the framework crates are not yet on
-    /// crates.io) — `day = { git = "https://github.com/daybrite/day.git" }`, with the
+    /// The `day` git remote (the current default, because the framework crates are not yet on
+    /// crates.io): `day = { git = "https://github.com/daybrite/day.git" }`, with the
     /// `--day-version` pin (tag/branch/rev) when one was given, and the remote's default branch
     /// when none was.
     Git(Option<DaySource>),
-    /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`) — `day = { path = "<root>/<sub>" }`. A
+    /// A local `day` checkout (`--local <path>` / `DAY_LOCAL`): `day = { path = "<root>/<sub>" }`. A
     /// normalized, forward-slash, TOML-safe absolute path. Used by CI and framework development.
     Local(String),
 }
 
 impl Deps {
     /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then
-    /// `--registry` (versioned crates.io deps — `--day-version x.y.z` if given, else this CLI's
+    /// `--registry` (versioned crates.io deps: `--day-version x.y.z` if given, else this CLI's
     /// own version, so a `day-cli x.y.z` binary scaffolds an app depending on `day x.y.z`),
-    /// otherwise the default — the git remote, because the day framework crates are NOT yet
+    /// otherwise the default, the git remote, because the day framework crates are not yet
     /// published to crates.io. Flip the default back to Version (and retire `--git`) when they are.
     ///
     /// The combinations that name two different days are refused rather than silently ranked.
@@ -223,15 +223,15 @@ fn subpath(crate_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 struct Repl {
-    crate_name: String, // the CARGO PACKAGE name, lowercase kebab (e.g. `day-piece-foo`)
-    /// The REPOSITORY name — what the user typed, case intact. The scaffold directory and the
+    crate_name: String, // the Cargo package name, lowercase kebab (e.g. `day-piece-foo`)
+    /// The repository name: what the user typed, case intact. The scaffold directory and the
     /// GitHub Pages path in website/site.toml, whose repository segment is case-sensitive.
     /// Defaults to the crate name; `day new app` overrides it with the typed spelling.
     repo: String,
     crate_ident: String, // the crate's Rust extern name (hyphens → underscores)
     snake: String,       // a snake_case identifier stem (e.g. `foo`)
     pascal: String,      // PascalCase (e.g. `Foo`) for types + the `Day<Name>` factory class
-    id: String,          // reverse-DNS id, also the piece KIND + the Java package
+    id: String,          // reverse-DNS id, also the piece kind + the Java package
     pkg_slash: String,   // id with `.` → `/` (Java source dir)
     class_slash: String, // `<pkg_slash>/Day<Pascal>` (the JNI class path)
 }
@@ -302,28 +302,28 @@ pub(crate) fn pascalize(snake: &str) -> String {
 // ---------------------------------------------------------------------------
 // Public entry points (called from cli.rs) + the flag↔dialog resolvers.
 //
-// FORMAL LINK between the command-line flags and the `day new` interactive dialog: every field has
-// exactly ONE resolver (`resolve_name` / `resolve_id` / the per-kind target/toolkit/platform blocks
-// below). Each takes the value parsed from the flags and, when it is absent AND a terminal is
+// The link between the command-line flags and the `day new` interactive dialog: every field has
+// exactly one resolver (`resolve_name` / `resolve_id` / the per-kind target/toolkit/platform blocks
+// below). Each takes the value parsed from the flags and, when it is absent and a terminal is
 // present, asks the corresponding question. There is no separate wizard; the dialog is the fallback
 // branch of the flags. `day new` with no subcommand ([`interactive`]) calls a resolver with every
-// value unset, so the whole dialog runs — and any flag the user *did* pass simply skips its question.
+// value unset, so the whole dialog runs, and any flag the user did pass skips its question.
 // ---------------------------------------------------------------------------
 
 /// `day new` with no subcommand: ask what to build, then run that kind's resolver with no flags set.
 /// The questions a GUI must ask to scaffold something, as a versioned JSON document.
 ///
-/// `day new`'s interactive path is a terminal conversation, and an editor cannot join it — so it
+/// `day new`'s interactive path is a terminal conversation, and an editor cannot join it, so it
 /// used to hand-copy the question set, which is how day-vscode came to offer a `windows-winui`
 /// target that does not exist. This is the same set, described once, generated from the same
 /// constants the prompts read (so the two cannot disagree) and from the same target catalog
-/// `day metadata` publishes — which that command cannot serve here, because it needs a Day.toml
+/// `day metadata` publishes, which that command cannot serve here, because it needs a Day.toml
 /// and this is the one moment before there is one.
 ///
 /// Every field names the flag it fills, so a caller composes an ordinary
 /// `day new <kind> <name> --flag …` and gets exactly what the prompts would have produced. A field
-/// left blank is simply omitted, and the CLI applies the default it would have applied anyway —
-/// which is why nothing here has to recompute `dev.example.<name>` or a title-cased name.
+/// left blank is omitted, and the CLI applies the default it would have applied anyway, which
+/// is why nothing here has to recompute `dev.example.<name>` or a title-cased name.
 ///
 /// Grow-only, like the other envelopes: fields get added, never removed or repurposed.
 pub fn describe() -> serde_json::Value {
@@ -337,8 +337,8 @@ pub fn describe() -> serde_json::Value {
             "type": "text",
             "positional": true,
             "required": true,
-            // What `kebab_name` accepts without changing it. A name outside this still works —
-            // it is normalized — but a caller can offer the normalized form before committing.
+            // What `kebab_name` accepts without changing it. A name outside this still works (it
+            // is normalized), but a caller can offer the normalized form before committing.
             "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
             "placeholder": "my-thing",
         })
@@ -380,8 +380,8 @@ pub fn describe() -> serde_json::Value {
         "schema": 1,
         "host": {
             "os": targets::host_os(),
-            // The target this machine should be told to run — on a Linux desktop that follows the
-            // desktop's own toolkit, so a caller never needs to detect GNOME or KDE itself.
+            // The target this machine should be told to run. On a Linux desktop it follows the
+            // desktop's toolkit, so a caller never needs to detect GNOME or KDE itself.
             "default_target": targets::host_default(),
         },
         "kinds": [
@@ -526,8 +526,8 @@ pub fn interactive() -> Result<(), CliError> {
             false,
             None, // the dialog scaffolds against the day this CLI ships with (--day-version's job)
             false,
-            false, // interactive scaffolds keep the website — opting out is the flag's job
-            &[],   // extra locales are the flag's job too — the scaffold's own default is en
+            false, // interactive scaffolds keep the website; opting out is the flag's job
+            &[],   // extra locales are the flag's job too; the scaffold's default is en
             None,  // icon seed defaults to the app id (docs/icons.md#generate)
         ),
         // Interactive scaffolds keep a piece's demo and the Java in src/; opting out is the flags' job.
@@ -549,7 +549,7 @@ fn resolve_name(p: &Prompt, name: Option<&str>) -> Result<String, CliError> {
     if p.enabled() {
         let n = p.line("Project name", None);
         if n.is_empty() {
-            // Empty here means EOF (Ctrl-D) at the prompt — report it like the non-interactive path.
+            // Empty here means EOF (Ctrl-D) at the prompt; report it like the non-interactive path.
             Err(CliError::usage("a <name> is required."))
         } else {
             Ok(n)
@@ -563,18 +563,18 @@ fn resolve_name(p: &Prompt, name: Option<&str>) -> Result<String, CliError> {
 
 /// The crate name for whatever the user typed: lowercase kebab-case, the Cargo convention.
 ///
-/// The name becomes the PACKAGE name, and a package name with a capital in it makes a crate
+/// The name becomes the package name, and a package name with a capital in it makes a crate
 /// ident with one (`Day-Rise` ⇒ `Day_Rise`), which trips `non_snake_case`. That lint fires on
-/// the crate ROOT, so the only place to silence it is a crate-level `allow` — and a crate-level
-/// allow covers every function, variable and module in the app, not just its name. Normalizing
+/// the crate root, so the only place to silence it is a crate-level `allow`, and a crate-level
+/// allow covers every function, variable and module in the app as well as its name. Normalizing
 /// here is what keeps a scaffolded app from being born with its naming lints switched off.
 ///
 /// Renaming the lib target instead is not open to us: `day build` derives the iOS staticlib and
-/// Android cdylib file names from the PACKAGE name (mobile.rs), so a differently-named lib would
+/// Android cdylib file names from the package name (mobile.rs), so a differently-named lib would
 /// not be found.
 ///
 /// `Day-Rise` ⇒ `day-rise`, `MyApp` ⇒ `my-app`, `my_app` ⇒ `my-app`, `day-rise` ⇒ unchanged. The
-/// display title is derived from the RESULT (`day-rise` ⇒ "Day Rise"), so the capitalization the
+/// display title is derived from the result (`day-rise` ⇒ "Day Rise"), so the capitalization the
 /// user typed still reaches the window title even though the crate name is lowered.
 fn kebab_name(name: &str) -> String {
     let mut out = String::new();
@@ -583,7 +583,7 @@ fn kebab_name(name: &str) -> String {
         if ch.is_ascii_alphanumeric() {
             // A capital after a lowercase or a digit starts a new word: `MyApp` ⇒ `my-app`,
             // `Day2App` ⇒ `day2-app`. A run of capitals (`HTTPServer`) does not split on every
-            // letter — only where the run ends, which `prev_lower_or_digit` already encodes.
+            // letter, only where the run ends, which `prev_lower_or_digit` already encodes.
             if ch.is_ascii_uppercase() && prev_lower_or_digit {
                 out.push('-');
             }
@@ -642,7 +642,7 @@ fn default_id(name: &str) -> String {
     format!("dev.example.{}", bundle_segment(name))
 }
 
-/// Parse + validate a comma-separated toolkit list for a NATIVE piece.
+/// Parse + validate a comma-separated toolkit list for a native piece.
 fn parse_toolkits(csv: &str) -> Result<Vec<String>, CliError> {
     let mut v = Vec::new();
     for t in csv.split(',') {
@@ -709,7 +709,8 @@ fn platform_label(pl: &str) -> String {
     format!("{human}  ({pl})")
 }
 
-/// The TOOLKITS index of the host's own desktop toolkit — the sensible preselection for a native piece.
+/// The `TOOLKITS` index of the host's desktop toolkit: the sensible preselection for a native
+/// piece.
 ///
 /// Taken from the host default rather than matched by OS a second time: this used to answer `gtk`
 /// for every Linux host, which preselected the wrong toolkit for anyone on a Qt desktop.
@@ -744,7 +745,7 @@ fn resolve_deps(
     Deps::resolve(local, git, registry, day).map_err(CliError::usage)
 }
 
-/// Scaffold a piece. No `--toolkits` (and not interactively chosen native) ⇒ a COMPOSITE piece.
+/// Scaffold a piece. No `--toolkits` (and not interactively chosen native) ⇒ a composite piece.
 /// Unless `no_demo`, `demo/` beside the crate is a one-page app that shows it ([`PieceDemo`]).
 /// A native piece's Android Java goes to `src/Day<Name>.java` unless `java_in_src` is
 /// `Some(false)`, which keeps a `platform/android/java/` tree.
@@ -771,7 +772,7 @@ pub fn piece(
     let deps = resolve_deps(local, git, registry, day_version)?;
 
     // Toolkits: an explicit --toolkits list wins; --composite forces empty; otherwise ask (or, when
-    // non-interactive, default to a composite piece — the zero-config choice).
+    // non-interactive, default to a composite piece, the zero-config choice).
     let toolkits: Vec<String> = if composite {
         Vec::new()
     } else if let Some(csv) = toolkits_csv {
@@ -806,7 +807,7 @@ pub fn piece(
     };
 
     // Only the Android backend has Java to place. Naming the flag without `mdc` is a mistake; the
-    // default simply has nothing to move.
+    // default has nothing to move.
     if java_in_src == Some(true) && !toolkits.iter().any(|t| t == "mdc") {
         return Err(CliError::usage(
             "--java-in-src places a native piece's Android Java; add mdc to --toolkits.",
@@ -898,7 +899,7 @@ pub fn part(
     };
 
     // Only the Android platform has Java to place. Naming the flag without it is a mistake; the
-    // default simply has nothing to move.
+    // default has nothing to move.
     if java_in_src == Some(true) && !platforms.iter().any(|pl| pl == "android") {
         return Err(CliError::usage(
             "--java-in-src places a part's Android Java; add android to --platforms.",
@@ -943,14 +944,14 @@ pub fn app(
     let p = Prompt::new(no_input);
     // Two names, because an app has two identities and they follow different conventions.
     //
-    // `repo` is what the user typed, case intact: the DIRECTORY this scaffolds into, and the
+    // `repo` is what the user typed, case intact: the directory this scaffolds into, and the
     // GitHub Pages path in website/site.toml. A Pages URL is case-sensitive in its repository
-    // segment, so `daybrite.github.io/Day-Rise` and `.../day-rise` are not the same site —
+    // segment, so `daybrite.github.io/Day-Rise` and `.../day-rise` are not the same site;
     // lowering it would point a scaffolded app's canonical URL at a 404.
     //
-    // `name` is the Cargo PACKAGE name, always lowercase kebab (see `kebab_name`), which is
+    // `name` is the Cargo package name, always lowercase kebab (see `kebab_name`), which is
     // what every derived identifier hangs off. `day new app Day-Rise` therefore produces a
-    // `Day-Rise/` directory holding a `day-rise` package — exactly the shape the Day apps have.
+    // `Day-Rise/` directory holding a `day-rise` package, exactly the shape the Day apps have.
     let repo = resolve_name(&p, name)?;
     let name = kebab_name(&repo);
     let dir = PathBuf::from(&repo);
@@ -959,7 +960,7 @@ pub fn app(
     }
     let deps = resolve_deps(local, git, registry, day_version)?;
 
-    // --locales, comma/space-splittable like --toolkit. Validated BEFORE anything is written,
+    // --locales, comma/space-splittable like --toolkit. Validated before anything is written,
     // so a bad tag is a clean error rather than a half-localized scaffold.
     let mut wanted_locales: Vec<String> = Vec::new();
     for t in crate::cli::split_list(locales) {
@@ -971,7 +972,7 @@ pub fn app(
         }
     }
 
-    // --appid / --bundleid / --id all name the same reverse-DNS id; reject a genuine conflict.
+    // --appid / --bundleid / --id all name the same reverse-DNS id; reject a conflict between them.
     let flag_id = match (appid.map(str::trim), bundleid.map(str::trim)) {
         (Some(a), Some(b)) if !a.is_empty() && !b.is_empty() && a != b => {
             return Err(CliError::usage(format!(
@@ -1053,7 +1054,7 @@ pub fn app(
     let mut repl = Repl::new(&name, Some(rid.as_str()));
     repl.repo = repo.clone();
     // Computed here rather than taken from the template context: this is advice for the person
-    // standing at THIS terminal, and nothing rendered into the project may depend on the host.
+    // standing at this terminal, and nothing rendered into the project may depend on the host.
     let run_target = targets::suggested(&targets).to_string();
     let spec = AppSpec {
         repl,
@@ -1066,7 +1067,7 @@ pub fn app(
         icon_seed,
     };
     write_app(&dir, &name, &spec, None)?;
-    // The suggested target is what THIS machine can run, not the first one declared — see
+    // The suggested target is what this machine can run, not the first one declared; see
     // `targets::suggested`. `day doctor` stays unscoped: the app declares several targets and a
     // first run is the moment to learn which of them this machine is missing tools for.
     eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {run_target}\n");
@@ -1101,7 +1102,7 @@ fn write_app(
     write_all_bytes(dir, &rendered, label)?;
     // The scaffold itself ships `en`; each further locale is exactly a `day localize add` on
     // the fresh project, so the flag and the command can never disagree about what adding a
-    // locale means (fluent copies, store copies, knownRegions, site.toml — localize.rs).
+    // locale means (fluent copies, store copies, knownRegions, site.toml; see localize.rs).
     for tag in app.locales.iter().filter(|t| t.as_str() != "en") {
         let lines = crate::localize::add(dir, tag)
             .map_err(|e| CliError::failure(format!("--locales {tag}: {e}")))?;
@@ -1110,7 +1111,7 @@ fn write_app(
         }
     }
     // A unique generated icon per app (docs/icons.md#generate), seeded by the app id by
-    // default — the same id always scaffolds the same icon; `--icon-seed` overrides. The
+    // default, so the same id always scaffolds the same icon; `--icon-seed` overrides. The
     // template's placeholder master is replaced, then every platform output is rendered from
     // it. Best-effort: a fresh scaffold without its icon set regenerated is still a valid
     // project (`day icon` finishes the job), so failures warn rather than abort.
@@ -1122,11 +1123,11 @@ fn write_app(
         Ok(project) => match crate::icon::generate_master(&project, seed, true) {
             Ok(master) => {
                 ops::status("Icon", &format!("generated (seed {seed})"));
-                // The same mark, staged as a VECTOR so the Welcome page can draw it through
+                // The same mark, staged as a vector so the Welcome page can draw it through
                 // `res::vectors::app_mark` (docs/vectors.md). Copied rather than referenced:
-                // `resource/icons/` is the icon PIPELINE's input and is not a resource bucket,
+                // `resource/icons/` is the icon pipeline's input and is not a resource bucket,
                 // and an app that later redraws its welcome art should not thereby change every
-                // platform's launcher icon. Scaffold-time only — `day icon` never rewrites it.
+                // platform's launcher icon. Scaffold-time only; `day icon` never rewrites it.
                 let mark = project.root.join("resource/vectors/app_mark.svg");
                 let staged = mark
                     .parent()
@@ -1162,12 +1163,12 @@ fn render_app(
         demo.adjust_context(&mut ctx, app.deps);
     }
     let files = load_template(app.template)?;
-    // Only the host projects the chosen targets need — `day app add-toolkit` materializes the
+    // Only the host projects the chosen targets need; `day app add-toolkit` materializes the
     // rest from the same template later.
     let mut files = crate::template::filter_for_targets(files, &app.targets);
     // website/ ships by default: two small files that make the shared CI workflow build and
     // deploy a project site (daysite). Opting out is one flag, and adding it back later is
-    // copying those two files — nothing else references them.
+    // copying those two files; nothing else references them.
     if app.no_website {
         files.retain(|f| !f.path.starts_with("website/"));
     }
@@ -1322,7 +1323,7 @@ fn demo_gitignore(bytes: &[u8]) -> Vec<u8> {
     out.into_bytes()
 }
 
-/// The template context (docs/cli.md): every {{placeholder}} a template may use — built ONCE
+/// The template context (docs/cli.md): every {{placeholder}} a template may use, built once
 /// here so `day new app` and `day app add-toolkit` render the same template identically.
 fn template_context(
     repl: &Repl,
@@ -1338,7 +1339,7 @@ fn template_context(
     ctx.insert("pascal", repl.pascal.clone());
     ctx.insert("title", title);
     ctx.insert("id", repl.id.clone());
-    // The ORGANIZATION segment of the app id — `dev.acme.thing` ⇒ `acme` — which is the GitHub
+    // The organization segment of the app id (`dev.acme.thing` ⇒ `acme`), which is the GitHub
     // owner for the overwhelming majority of projects, and so the Pages host the generated
     // website should claim. The default id is `dev.example.<name>`, so an app scaffolded without
     // `--appid` still gets the `example.github.io` placeholder it had before.
@@ -1368,12 +1369,12 @@ fn template_context(
     // `model`: the per-property observable store the starter's editor binds through
     // (src/model.rs, docs/model.md).
     ctx.insert("day_dep", deps.dep("day", ", features = [\"model\"]"));
-    // The resource-constant codegen helper the app's build.rs calls (§18.5) — same source (git /
-    // version / local path) as the `day` dep so it resolves identically.
+    // The resource-constant codegen helper the app's build.rs calls (§18.5), from the same source
+    // (git / version / local path) as the `day` dep so it resolves identically.
     ctx.insert("day_build_dep", deps.dep("day-build", ""));
     // The external pieces the starter's item editor and settings are built from. Each registers
     // its renderers link-time into whichever backend the app selects, so a dependency line is the
-    // whole integration — there is nothing to call at startup ([§15](../../DESIGN.md)).
+    // whole integration; there is nothing to call at startup ([§15](../../DESIGN.md)).
     ctx.insert("day_piece_deps", {
         let mut s = String::new();
         for p in [
@@ -1395,7 +1396,7 @@ fn template_context(
             .collect::<Vec<_>>()
             .join(", "),
     );
-    // Deliberately NOT the host's own target (`targets::suggested`): a template renders into
+    // Not the host's target (`targets::suggested`): a template renders into
     // files that get committed and read on other machines, and the scaffold is diffed against a
     // fresh `day new` on a Linux runner. A placeholder whose value depended on the desktop that
     // generated it would report drift forever. Host-specific advice belongs on the terminal,
@@ -1419,9 +1420,9 @@ fn load_template(source: Option<&str>) -> Result<Vec<crate::template::TemplateFi
     }
 }
 
-/// `day app add-toolkit <target>…` — add targets to an EXISTING app: append them to
-/// Day.toml's `targets:` (textually, preserving comments and formatting) and materialize any
-/// native host projects they need from the SAME template `day new app` scaffolds from.
+/// `day app add-toolkit <target>…` adds targets to an existing app: it appends them to
+/// Day.toml's `targets:` (textually, preserving comments and formatting) and materializes any
+/// native host projects they need from the same template `day new app` scaffolds from.
 pub fn add_toolkit(
     project: &crate::meta::Project,
     requested: &[String],
@@ -1460,17 +1461,17 @@ pub fn add_toolkit(
         .filter(|t| !existing.contains(t))
         .cloned()
         .collect();
-    // Already-declared targets still MATERIALIZE below (never overwriting): that is how an
-    // app adopts a host project the scaffold gained after it was created — e.g. running
+    // Already-declared targets still materialize below (never overwriting): that is how an
+    // app adopts a host project the scaffold gained after it was created, e.g. running
     // `day app add-toolkit macos-appkit` on an app that predates platform/macos/.
     for already in wanted.iter().filter(|t| existing.contains(t)) {
         eprintln!("day: {already} is already in Day.toml — materializing any missing files");
     }
 
-    // The SAME context `day new app` renders with, rebuilt from the app's own Day.toml.
+    // The same context `day new app` renders with, rebuilt from the app's own Day.toml.
     let app = &project.manifest.app;
     let mut repl = Repl::new(&app.name, Some(app.id.as_str()));
-    // The checkout's own directory name is the repository this app lives in — the same
+    // The checkout's directory name is the repository this app lives in, the same
     // spelling `day new app` recorded when it scaffolded the tree.
     if let Some(dir) = project.root.file_name().and_then(|d| d.to_str()) {
         repl.repo = dir.to_string();
@@ -1480,7 +1481,7 @@ pub fn add_toolkit(
         .clone()
         .unwrap_or_else(|| default_title(&app.name));
     // `add-toolkit` only materializes host projects into an app that already declares its own day
-    // dependency, so there is no version to pick here — the plain remote form is never written.
+    // dependency, so there is no version to pick here; the plain remote form is never written.
     let deps = Deps::resolve(None, false, false, None).unwrap_or(Deps::Git(None));
     let all_targets: Vec<String> = existing.iter().chain(new_targets.iter()).cloned().collect();
     let ctx = template_context(&repl, title, &deps, &all_targets);
@@ -1506,7 +1507,7 @@ pub fn add_toolkit(
         written += 1;
     }
 
-    // Day.toml: append to `[app] targets` via toml_edit — comments and formatting survive.
+    // Day.toml: append to `[app] targets` via toml_edit, so comments and formatting survive.
     // Nothing to append when every requested target was already declared (a pure
     // materialization run).
     if !new_targets.is_empty() {
@@ -1544,9 +1545,9 @@ pub fn add_toolkit(
     Ok(())
 }
 
-/// Append targets to Day.toml's `[app] targets` array via `toml_edit` — the format- and
+/// Append targets to Day.toml's `[app] targets` array via `toml_edit`, the format- and
 /// comment-preserving TOML layer cargo itself uses, so the rest of the file (and the array's
-/// own style) comes back byte-identical. Creates the array (or the [app] table) if absent.
+/// style) comes back byte-identical. Creates the array (or the [app] table) if absent.
 fn add_targets_to_day_toml(text: &str, new_targets: &[&str]) -> Result<String, String> {
     let mut doc: toml_edit::DocumentMut = text.parse().map_err(|e| format!("Day.toml: {e}"))?;
     let app = doc
@@ -1607,7 +1608,7 @@ fn write_all(dir: &Path, files: &[(String, String)], name: &str) -> Result<(), C
 }
 
 // ---------------------------------------------------------------------------
-// COMPOSITE piece — pure composition, no features, works on every backend.
+// Composite piece: pure composition, no features, works on every backend.
 // ---------------------------------------------------------------------------
 
 fn composite_piece_files(r: &Repl, deps: &Deps) -> Vec<(String, String)> {
@@ -1643,7 +1644,7 @@ edition = "2024"
 }
 
 // ---------------------------------------------------------------------------
-// NATIVE piece — a distinct native control per toolkit, two-way bound to a Signal<String>.
+// Native piece: a distinct native control per toolkit, two-way bound to a Signal<String>.
 // ---------------------------------------------------------------------------
 
 fn native_piece_files(
@@ -1779,7 +1780,7 @@ fn native_piece_files(
     };
     let build_deps = if needs_build_rs {
         // day-toolchain: shared SDK discovery (cppwinrt headers etc.) with env overrides
-        // (docs/environment.md) — same remote/local source as the other day deps.
+        // (docs/environment.md), from the same remote/local source as the other day deps.
         format!(
             "\n[build-dependencies]\ncc = \"1\"\n{}\n",
             deps.dep("day-toolchain", "")
@@ -1873,7 +1874,7 @@ linkme = "0.3"
 }
 
 // ---------------------------------------------------------------------------
-// PART — a headless cross-platform capability.
+// Part: a headless cross-platform capability.
 // ---------------------------------------------------------------------------
 
 fn part_files(
@@ -1922,7 +1923,7 @@ fn part_files(
         push_mod("target_os = \"android\"", "android.rs");
     }
 
-    // The MANDATORY catch-all fallback: every target NOT covered above returns None.
+    // The mandatory catch-all fallback: every target not covered above returns None.
     let os_terms: Vec<String> = platforms
         .iter()
         .map(|p| format!("target_os = \"{p}\""))
@@ -2019,7 +2020,7 @@ edition = "2024"
 /// A per-OS stub returning a sample value (replace the body with the real native reading).
 fn part_stub(os: &str) -> String {
     format!(
-        "// {os}: TODO — read your capability via the platform's native API. This stub returns a sample.\n\n\
+        "// {os}: TODO: read your capability via the platform's native API. This stub returns a sample.\n\n\
          pub fn status() -> Option<super::Sample> {{\n    \
          Some(super::Sample {{ value: 42 }})\n}}\n"
     )
@@ -2036,20 +2037,21 @@ const COMPOSITE_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build      
 const NATIVE_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build --features <toolkit>   # e.g. appkit / gtk / qt\n    # wire it into an app: add __CRATE__ as a dependency and call __CRATE_IDENT__::__SNAKE__(signal)\n";
 const PART_NEXT: &str = "\n  next:\n    cd __CRATE__\n    cargo build            # host platform\n    cargo run --example __SNAKE__\n";
 
-// --- COMPOSITE piece --------------------------------------------------------
+// --- Composite piece --------------------------------------------------------
 
-const COMPOSITE_LIB: &str = r#"//! __CRATE__ — a COMPOSITE Day piece (built PURELY from Day's core primitives).
+const COMPOSITE_LIB: &str = r#"//! __CRATE__: a composite Day piece (built purely from Day's core primitives).
 //!
 //! There is no per-backend/native code and no cargo features here: this widget works on every backend
-//! for free. Drop the crate in as a plain dependency and call [`__SNAKE__`] from `use day::prelude::*`
-//! code. This sample is a rounded "chip" badge — replace it with your own composition.
+//! with no extra work. Drop the crate in as a plain dependency and call [`__SNAKE__`] from
+//! `use day::prelude::*` code. This sample is a rounded "chip" badge; replace it with your own
+//! composition.
 
 use day_pieces::prelude::*;
 
 /// The chip's fill (iOS system blue). Swap for your own palette.
 const CHIP_BG: Color = Color::hex(0x0A_84_FF);
 
-/// A small rounded, padded, colored label — the "hello world" of composite pieces. Pure composition
+/// A small rounded, padded, colored label, the "hello world" of composite pieces. Pure composition
 /// over [`label`] + the [`Decorate`] modifiers, so it renders natively on every backend.
 ///
 /// ```ignore
@@ -2108,15 +2110,15 @@ against the day git remote with `--git`, or against a local day checkout with `D
 - Bind reactive attributes to a `Signal<_>` for live updates.
 "#;
 
-// --- NATIVE piece -----------------------------------------------------------
+// --- Native piece -----------------------------------------------------------
 
-const NATIVE_LIB: &str = r#"//! __CRATE__ — a NATIVE Day piece: a two-way text input realized as a DISTINCT native control per
+const NATIVE_LIB: &str = r#"//! __CRATE__, a native Day piece: a two-way text input realized as a distinct native control per
 //! toolkit (NSTextField / GtkEntry / a QLineEdit shim / UITextField / an Android EditText / a XAML
 //! TextBox), registered link-time into each backend's renderer slice without touching day.
 //!
 //! It is bound **two-way** to a `Signal<String>`: a native edit dispatches `Event::TextChanged` back
 //! to Rust which `set`s the signal, and an external signal change patches the control via
-//! [`__PASCAL__Patch::SetText`]. A per-build echo guard remembers the last value that arrived FROM the
+//! [`__PASCAL__Patch::SetText`]. A per-build echo guard remembers the last value that arrived from the
 //! native control so its own change is not written straight back (a feedback loop).
 //!
 //! ```ignore
@@ -2153,7 +2155,7 @@ pub struct __PASCAL__ {
     placeholder: Option<TextSource>,
 }
 
-/// `__SNAKE__(value)` — a native text input whose text mirrors `value` in both directions.
+/// `__SNAKE__(value)`: a native text input whose text mirrors `value` in both directions.
 pub fn __SNAKE__(value: Signal<String>) -> __PASCAL__ {
     __PASCAL__ {
         value,
@@ -2187,7 +2189,7 @@ impl Piece for __PASCAL__ {
             },
         );
         // Controlled input with origin tracking: the echo guard remembers the last value that arrived
-        // FROM the native widget so bind_seeded does not patch that same value straight back.
+        // from the native widget so bind_seeded does not patch that same value straight back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let g = guard.clone();
         bind_seeded(
@@ -2213,7 +2215,7 @@ impl Piece for __PASCAL__ {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend, each registering a `Renderer` link-time into
+// Per-toolkit native renderers: one file per backend, each registering a `Renderer` link-time into
 // its backend's `RENDERERS` slice. `#[cfg]` gates each to its feature + target; `#[path]` keeps the
 // files grouped next to lib.rs.
 // ---------------------------------------------------------------------------
@@ -2222,8 +2224,8 @@ __MOD_DECLS__
 "#;
 
 const APPKIT_IMPL: &str = r#"// AppKit: an editable NSTextField. A per-node delegate implements controlTextDidChange: and dispatches
-// Event::TextChanged; programmatic setStringValue does NOT fire the delegate (no echo guard needed on
-// this backend — update only writes when the value actually differs).
+// Event::TextChanged; programmatic setStringValue does not fire the delegate (no echo guard needed on
+// this backend; update only writes when the value differs).
 
 use super::*;
 use std::cell::RefCell;
@@ -2314,7 +2316,7 @@ day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
     make: make, update: update, measure: measure);
 "#;
 
-const GTK_IMPL: &str = r#"// GTK: a GtkEntry. Its "changed" signal fires on user input AND on programmatic set_text, so a
+const GTK_IMPL: &str = r#"// GTK: a GtkEntry. Its "changed" signal fires on user input and on programmatic set_text, so a
 // per-node `suppress` cell guards the programmatic sync in `update` from echoing back.
 
 use super::*;
@@ -2390,7 +2392,7 @@ day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
     make: make, update: update, measure: measure);
 "#;
 
-const QT_IMPL: &str = r#"// Qt: this crate's shim (src/lib-qt-shim.cpp) — a QLineEdit behind a flat C ABI. textChanged
+const QT_IMPL: &str = r#"// Qt: this crate's shim (src/lib-qt-shim.cpp), a QLineEdit behind a flat C ABI. textChanged
 // dispatches Event::TextChanged; programmatic setText is wrapped in blockSignals so it never echoes.
 
 use super::*;
@@ -2456,7 +2458,7 @@ day_pieces::renderer!(day_qt::RENDERERS, Qt,
     make: make, update: update, measure: measure);
 "#;
 
-const QT_SHIM: &str = r#"// This piece's OWN Qt shim behind a flat C ABI: a QLineEdit. textChanged reports edits back to Rust as
+const QT_SHIM: &str = r#"// This piece's Qt shim behind a flat C ABI: a QLineEdit. textChanged reports edits back to Rust as
 // a UTF-8 C string (valid only during the callback; Rust copies it); programmatic setText is wrapped in
 // blockSignals so it never echoes back as a change. Qt libs are already linked by day-qt-sys.
 
@@ -2499,7 +2501,7 @@ void day___SNAKE___set_text(void *w, const char *text) {
 "#;
 
 const UIKIT_IMPL: &str = r#"// UIKit: a UITextField. A per-node target fires on UIControlEvents::EditingChanged and dispatches
-// Event::TextChanged; programmatic setText does NOT fire EditingChanged (no echo guard needed here).
+// Event::TextChanged; programmatic setText does not fire EditingChanged (no echo guard needed here).
 
 use super::*;
 use std::cell::RefCell;
@@ -2596,8 +2598,9 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
 "#;
 
 const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's Java factory (Day__PASCAL__), declared by `java` in
-// [package.metadata.day.android], is pulled into the app's Gradle build — no edits to day-android. A
-// TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …) (kind 1 = TextChanged).
+// [package.metadata.day.android], is pulled into the app's Gradle build without any edits to
+// day-android. A TextWatcher dispatches edits back to Rust via DayBridge.nativeOnEvent(id, 1, …)
+// (kind 1 = TextChanged).
 
 use super::*;
 use day_android::jni::objects::JValue;
@@ -2651,8 +2654,8 @@ day_pieces::renderer!(day_android::RENDERERS, Android,
     make: make, update: update, measure: measure);
 "#;
 
-const ANDROID_JAVA: &str = r#"// This piece's OWN Android factory — bundled with the crate and pulled into the app's Gradle build
-// via [package.metadata.day.android], without touching day-android. It uses only day-android's PUBLIC
+const ANDROID_JAVA: &str = r#"// This piece's Android factory, bundled with the crate and pulled into the app's Gradle build
+// via [package.metadata.day.android], without touching day-android. It uses only day-android's public
 // Java surface: DayBridge.ctx (the Android Context) and DayBridge.nativeOnEvent (the event trampoline).
 package __PKG_DOTS__;
 
@@ -2696,9 +2699,9 @@ public final class Day__PASCAL__ {
 }
 "#;
 
-const XAML_IMPL: &str = r#"// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — a TextBox boxed into a Day handle
-// via the day_xaml_box/unbox seam that day-xaml-sys exports. Windows-only; built in CI, not verified
-// on non-Windows hosts.
+const XAML_IMPL: &str = r#"// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp), a TextBox boxed into a Day handle
+// via the day_xaml_box/unbox functions that day-xaml-sys exports. Windows-only; built in CI, not
+// verified on non-Windows hosts.
 
 use super::*;
 use std::ffi::{CStr, CString};
@@ -2769,9 +2772,10 @@ day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
     make: make, update: update, measure: measure);
 "#;
 
-const XAML_SHIM: &str = r#"// This piece's OWN C++/WinRT shim — a TextBox boxed into a Day handle via the day_xaml_box/unbox seam
-// that day-xaml-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string; programmatic
-// Text(...) is guarded so it only re-writes on a real change. Windows-only; compiled by build.rs.
+const XAML_SHIM: &str = r#"// This piece's C++/WinRT shim: a TextBox boxed into a Day handle via the day_xaml_box/unbox
+// functions that day-xaml-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string;
+// programmatic Text(...) is guarded so it only re-writes when the value differs. Windows-only;
+// compiled by build.rs.
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.UI.Xaml.h>
@@ -2786,7 +2790,7 @@ using namespace winrt;
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 
-// The boxing seam, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 
@@ -2820,7 +2824,7 @@ void *day___SNAKE___xaml_new(const char *placeholder, const char *initial, uint6
     box.PlaceholderText(hs(placeholder));
     if (initial && *initial)
         box.Text(hs(initial));
-    // The TextChanged delegate's sender is IInspectable (NOT DependencyObject) — cppwinrt
+    // The TextChanged delegate's sender is IInspectable (not DependencyObject): cppwinrt
     // reconstructs it as such and can't downcast to a narrower type, so declaring anything else
     // fails the delegate's noexcept Invoke to compile. Query the TextBox back out of it.
     box.TextChanged([id, cb](winrt::Windows::Foundation::IInspectable const &s,
@@ -2846,7 +2850,7 @@ void day___SNAKE___xaml_set_text(void *handle, const char *text) {
 } // extern "C"
 "#;
 
-const BUILD_RS: &str = r#"//! Compiles this piece's OWN native shims when their feature is on — a native Day piece carrying C++
+const BUILD_RS: &str = r#"//! Compiles this piece's native shims when their feature is on: a native Day piece carrying C++
 //! without touching Day's toolkit crates. Qt uses `cc` + pkg-config; XAML uses `cc` (MSVC) + the
 //! Windows SDK cppwinrt projection, mirroring day-xaml-sys.
 
@@ -2880,7 +2884,7 @@ fn build_qt() {
 }
 
 fn build_xaml() {
-    // Shared, env-overridable lookup (DAY_CPPWINRT / DAY_WINDOWS_KITS_ROOT / WindowsSdkDir —
+    // Shared, env-overridable lookup (DAY_CPPWINRT / DAY_WINDOWS_KITS_ROOT / WindowsSdkDir, see
     // docs/environment.md); also emits the matching rerun-if-env-changed lines.
     let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
         "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
@@ -2898,7 +2902,7 @@ fn build_xaml() {
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
     build.compile("day__SNAKE__xamlshim");
-    // WindowsApp.lib + the day_xaml_box/unbox seam are already linked by day-xaml-sys.
+    // WindowsApp.lib + the day_xaml_box/unbox functions are already linked by day-xaml-sys.
 }
 
 "#;
@@ -2942,8 +2946,8 @@ cargo build --features appkit    # or gtk / qt / uikit / mdc / xaml
 - Drop any backends you don't need from `[features]` and `[package.metadata.day.piece]`.
 "#;
 
-// --- piece DEMO -------------------------------------------------------------
-// Written into `demo/` over the rendered app template (`PieceDemo::cut`), expanded with the PIECE's
+// --- Piece demo -------------------------------------------------------------
+// Written into `demo/` over the rendered app template (`PieceDemo::cut`), expanded with the piece's
 // names. `__TITLE__` is the demo's title and `__FIRST_TARGET__` the first target its Day.toml lists.
 
 /// Appended to the piece's own README when `demo/` is scaffolded.
@@ -3082,10 +3086,10 @@ flow:
   - screenshot: demo
 "#;
 
-// --- PART -------------------------------------------------------------------
+// --- Part -------------------------------------------------------------------
 
-const PART_LIB: &str = r#"//! __CRATE__ — a HEADLESS Day part: a cross-platform capability with no UI. Any Rust code can depend on
-//! this crate and call [`status`] to read a snapshot through the platform's NATIVE API.
+const PART_LIB: &str = r#"//! __CRATE__, a headless Day part: a cross-platform capability with no UI. Any Rust code can depend
+//! on this crate and call [`status`] to read a snapshot through the platform's native API.
 //!
 //! ```no_run
 //! if let Some(s) = __CRATE_IDENT__::status() {
@@ -3094,8 +3098,8 @@ const PART_LIB: &str = r#"//! __CRATE__ — a HEADLESS Day part: a cross-platfor
 //! ```
 //!
 //! Platform selection is purely `#[cfg(target_os)]` (a capability is an OS concern, not a widget-toolkit
-//! one), so there are no backend features — it "just works" per target. Platforms without an impl return
-//! `None`.
+//! one), so there are no backend features; it "just works" per target. Platforms without an impl
+//! return `None`.
 
 /// A sample snapshot. Replace `value` with your capability's real fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3115,7 +3119,7 @@ pub fn status() -> Option<Sample> {
 
 __CFG_MODS__
 
-// Any other platform: no native API. (MANDATORY catch-all — keeps the crate building everywhere.)
+// Any other platform: no native API. (The mandatory catch-all, which keeps the crate building everywhere.)
 #[cfg(not(any(
     __NOT_ANY__
 )))]
@@ -3136,10 +3140,9 @@ mod tests {
 "#;
 
 const PART_ANDROID: &str = r#"// Android: read through this crate's Java shim (Day__PASCAL__.java, declared by `java` in
-// [package.metadata.day.android]) — staged into the app's Gradle build by `day build`, without
-// touching day-android
-// (it registers no renderer). The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it
-// through day-android's re-exported `jni`.
+// [package.metadata.day.android]), staged into the app's Gradle build by `day build` without
+// touching day-android (it registers no renderer). The Java uses day-android's cached Context
+// (DayBridge.ctx); Rust calls it through day-android's re-exported `jni`.
 
 use day_android::{DayEnv, with_env};
 
@@ -3158,7 +3161,7 @@ pub fn status() -> Option<super::Sample> {
 }
 "#;
 
-const PART_ANDROID_JAVA: &str = r#"// __CRATE__'s OWN Android backend — a headless capability shim (no UI), bundled with this crate and
+const PART_ANDROID_JAVA: &str = r#"// __CRATE__'s Android backend: a headless capability shim (no UI), bundled with this crate and
 // folded into the app's Gradle build via [package.metadata.day.android], without touching day-android.
 package __PKG_DOTS__;
 
@@ -3166,7 +3169,7 @@ public final class Day__PASCAL__ {
     private Day__PASCAL__() {}
 
     /**
-     * Returns a sample reading, or -1 when unavailable. Replace the body with a real native reading —
+     * Returns a sample reading, or -1 when unavailable. Replace the body with a real native reading;
      * the Android Context is available as dev.daybrite.day.bridge.DayBridge.ctx.
      */
     public static long read() {
@@ -3257,7 +3260,7 @@ mod tests {
                         "`day new {id}` has no {flag} (field {fid}); it has {flags:?}",
                     ),
                     // A field with no flag is either the positional name or a nav host between
-                    // two code paths — both must say so rather than just omitting `flag`.
+                    // two code paths; both must say so rather than just omitting `flag`.
                     None => assert!(
                         field["positional"].as_bool().unwrap_or(false) || fid == "native",
                         "field {id}.{fid} names no flag and is not positional",
@@ -3303,7 +3306,7 @@ mod tests {
         assert_eq!(values(&field("piece", "toolkits")), TOOLKITS);
         assert_eq!(values(&field("part", "platforms")), PLATFORMS);
 
-        // The default target is the host's own, so a caller never re-derives it — that detection
+        // The default target is the host's own, so a caller never re-derives it; that detection
         // is `targets::host_default()`'s, including which toolkit a Linux desktop prefers.
         assert_eq!(
             doc["host"]["default_target"],
@@ -3353,9 +3356,9 @@ mod tests {
         assert_eq!(default_title(&kebab_name("MyApp")), "My App");
     }
 
-    /// An app has TWO names and they are spelled differently on purpose: the Cargo package is
+    /// An app has two names and they are spelled differently: the Cargo package is
     /// lowered, the repository keeps what was typed. website/site.toml's Pages host uses the
-    /// repository one, because a GitHub Pages URL is case-sensitive in that segment — lowering
+    /// repository one, because a GitHub Pages URL is case-sensitive in that segment; lowering
     /// it would point a scaffolded app's canonical URL at a 404.
     #[test]
     fn the_repository_name_keeps_its_case() {
@@ -3429,7 +3432,7 @@ mod day_version_tests {
             DaySource::parse("a1b2c3d").unwrap(),
             DaySource::Rev("a1b2c3d".into())
         );
-        // Hex-looking but too short to be a commit — a branch may well be called `abc`.
+        // Hex-looking but too short to be a commit; a branch may well be called `abc`.
         assert_eq!(
             DaySource::parse("abc").unwrap(),
             DaySource::Branch("abc".into())
@@ -3517,7 +3520,7 @@ mod scaffold_tests {
 
     /// The `day new app` render path minus the disk writes: the builtin template, filtered
     /// for one target, rendered with the real context. Proves the manifest and the key files
-    /// come out with the name/id substituted — the headless stand-in for scaffolding into a
+    /// come out with the name/id substituted: the headless stand-in for scaffolding into a
     /// tempdir, which would also change the process CWD and run the icon pipeline.
     #[test]
     fn builtin_app_template_renders_the_key_files() {

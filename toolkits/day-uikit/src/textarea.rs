@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // UIKit: an editable UITextView (which is itself a scroll view). A per-node delegate implements
 // UITextViewDelegate::textViewDidChange: and dispatches Event::TextChanged; programmatic setText does
-// NOT fire that delegate, so no echo guard is needed here (update only writes when the value actually
+// Not fire that delegate, so no echo guard is needed here (update only writes when the value actually
 // differs). UITextView has no native placeholder, so an empty-state prompt is approximated with a faint
 // UILabel added as a subview and toggled hidden while the editor has text. `measure` grows the editor's
 // height with its content (via sizeThatFits) between `min_lines` and `max_lines`, then it scrolls.

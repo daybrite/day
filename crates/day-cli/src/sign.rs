@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! `day sign` v0 (DESIGN.md §16.5): `--check` validates the presence and resolvability of the
-//! Day.toml `signing:` configuration (env vars set, referenced files exist) WITHOUT ever printing
+//! Day.toml `signing:` configuration (env vars set, referenced files exist) without ever printing
 //! a secret value; `--notarize-status <id>` polls an async notarytool submission. Actual signing
 //! runs inside `day pack` (the per-format modules in pack/).
 

@@ -64,7 +64,7 @@ pub fn write_generated(project: &Project, platform: &str) -> Result<(), String> 
     // always used. day-uikit reads the resolved numbers back out of the built bundle and applies
     // them to `UIWindowScene.sizeRestrictions` (docs/screenshots.md, docs/size-classes.md).
     //
-    // Not written INTO the plist, which is where this started. That file is tracked, so a build
+    // Not written into the plist, which is where this started. That file is tracked, so a build
     // that rewrites it leaves the working tree dirty and CI refuses to pack from it — and every
     // later edit to `[window]` would dirty it again. `INFOPLIST_KEY_*` is not the alternative
     // either: those apply only when Xcode GENERATES the plist, and the scaffold ships a real one

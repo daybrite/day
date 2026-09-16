@@ -22,7 +22,7 @@ pub fn pack(
     dist: &Path,
 ) -> Result<Artifact, PackError> {
     // Build assembles + dev-signs (build_ohos). The unsigned hap stays behind in entry/build —
-    // release signing re-signs THAT, never the dev-signed one.
+    // release signing re-signs that, never the dev-signed one.
     let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
     let out = dist.join(super::naming::artifact_file(
         project,
@@ -54,7 +54,7 @@ pub fn pack(
             std::fs::create_dir_all(signed.parent().unwrap())
                 .map_err(|e| PackError::Other(e.to_string()))?;
             // hvigor emits this zip itself, so there is no staging tree to stamp — patch the
-            // archive's timestamps instead, BEFORE signing so the signature covers final bytes.
+            // archive's timestamps instead, before signing so the signature covers final bytes.
             super::normalize_zip_mtimes(&unsigned).map_err(PackError::Other)?;
             release_sign(&m, &unsigned, &signed).map_err(PackError::Sign)?;
             std::fs::copy(&signed, &out).map_err(|e| PackError::Other(e.to_string()))?;
@@ -67,9 +67,9 @@ pub fn pack(
                     "no signing.ohos config — packing the dev-signed hap (emulator installs only)",
                 );
             }
-            // NOT normalized: hvigor has already dev-signed this one, and a hap signature covers
+            // Not normalized: hvigor has already dev-signed this one, and a hap signature covers
             // the local headers, so rewriting their timestamps would invalidate it. The release
-            // path above normalizes BEFORE signing, which is the only safe ordering.
+            // path above normalizes before signing, which is the only safe ordering.
             std::fs::copy(&outcome.artifact, &out).map_err(|e| PackError::Other(e.to_string()))?;
             SignTier::DevSigned
         }

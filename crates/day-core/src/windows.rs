@@ -5,11 +5,11 @@
 //! registry, and the fallback that presents window content as a fullscreen cover where the
 //! toolkit cannot open windows (`Cap::MultiWindow` = `Unsupported`).
 //!
-//! Windows live in the ONE thread-local tree as additional boundary roots (the same
+//! Windows live in the one thread-local tree as additional boundary roots (the same
 //! "wrap an externally-owned handle" record as the primary root and the list cell
 //! anchors), so bindings, `find_by_id`, and dayscript work across windows unchanged.
 //! Close is asynchronous everywhere: the platform (or the cover's hide transition)
-//! confirms, and teardown runs THEN — one path for native and programmatic closes.
+//! confirms, and teardown runs then — one path for native and programmatic closes.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -227,7 +227,7 @@ pub fn open_window<P: Piece>(
             wire_window_events(root);
             scope.enter(|| {
                 // Name this window for the duration of its build, so a `toolbar(...)` inside a
-                // shared window builder installs on THIS window (docs/toolbars.md).
+                // shared window builder installs on this window (docs/toolbars.md).
                 crate::toolbar::with_window(root, || {
                     let piece = build();
                     let mut cx = BuildCx::new(root);
@@ -239,7 +239,7 @@ pub fn open_window<P: Piece>(
                 t.layout_if_needed();
             });
             if options.size_to_fit {
-                // Measured AFTER the first layout, because that is the only point where the
+                // Measured after the first layout, because that is the only point where the
                 // content's real height is known — it depends on the user's text size, their
                 // language, and which rows the app decided to show.
                 //
@@ -430,7 +430,7 @@ fn wire_window_events(root: RNode) {
                 Event::WindowResized(size) => {
                     let s = *size;
                     with_tree(|t| t.set_root_size(root, s));
-                    // …and re-bucket THIS window (docs/size-classes.md). The primary's rail does
+                    // …and re-bucket this window (docs/size-classes.md). The primary's rail does
                     // the same in `launch_with`; without it here a secondary window relayouts at
                     // its new size but keeps the class it opened at, so dragging the second
                     // window from narrow to wide never re-presented its navigation. Invisible
@@ -556,7 +556,7 @@ fn teardown(root: RNode) {
 
 /// Reverse a cover dismissal that has not yet been confirmed. Close is asynchronous on this
 /// tier — the hide transition runs for a quarter second, and the record stays registered until
-/// `CoverHidden` comes back — so a keyed window reopened inside that window is the SAME window
+/// `CoverHidden` comes back — so a keyed window reopened inside that window is the same window
 /// arriving again, not a second one. Without this the reopen returns a handle to content the
 /// pending confirmation is about to dispose, and the surface the caller asked for goes blank
 /// (docs/windows.md). Clearing `closing` is also what makes that confirmation a no-op when it
@@ -727,7 +727,7 @@ pub fn register_preferences_with<P: Piece>(
             })))
         });
     }
-    // Self-heal for registration AFTER `app_menu`: re-forward the retained model so the
+    // Self-heal for registration after `app_menu`: re-forward the retained model so the
     // injection pass sees the now-registered action.
     crate::menu::reinstall_app_menu();
 }
@@ -768,13 +768,13 @@ pub fn register_new_window<P: Piece>(build: impl Fn() -> P + 'static) {
 /// File ▸ New Window path). `None` = no builder registered.
 pub fn open_new_window() -> Option<WindowHandle> {
     let build = NEW_WINDOW.with(|p| p.borrow().clone())?;
-    // Another window of THIS app, so it describes itself the way the app described its first
+    // Another window of this app, so it describes itself the way the app described its first
     // one: same title, same minimum size, same display name. A window with no title is missing
     // from the macOS Window menu and shows a blank tab, so inheriting is what makes File ▸ New
     // Window produce something the platform can manage (docs/windows.md). Content that wants a
     // title of its own says so with `window_title` from inside the window.
     let launch = LAUNCH_OPTIONS.with(|o| o.borrow().clone());
-    // Size mirrors the primary's CURRENT content size so a "duplicate window" lands familiar.
+    // Size mirrors the primary's current content size so a "duplicate window" lands familiar.
     let size = with_tree(|t| {
         let root = t.root_node();
         t.node_frame(root).map(|f| f.size)
@@ -799,7 +799,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
     ))
 }
 
-/// Bind the title of the window this piece is BUILDING INTO to a reactive closure
+/// Bind the title of the window this piece is BUILDING into to a reactive closure
 /// (docs/windows.md) — how a window comes to be named after what it shows.
 ///
 /// The window-level counterpart to a navigation title. It matters more than it looks: the macOS
@@ -816,7 +816,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
 /// ```
 ///
 /// Reactive like any binding: the title follows what the closure reads. Which window it targets
-/// is resolved ONCE, here, for the same reason `toolbar_reactive` captures it — the binding
+/// is resolved once, here, for the same reason `toolbar_reactive` captures it — the binding
 /// re-runs long after this build, when "the window being built" is no longer this one.
 pub fn window_title(f: impl Fn() -> String + 'static) {
     let root = crate::toolbar::window_being_built();
@@ -855,7 +855,7 @@ pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
 
 /// Reset the registry + registrations (tests — pairs with `uninstall_tree`).
 pub fn reset_windows() {
-    // Deliberately does NOT dispose each record's content scope, which is a change that was
+    // Deliberately does not dispose each record's content scope, which is a change that was
     // made and then REVERTED after it broke navigation (docs/appearance.md "What was tried").
     //
     // Disposing looks right — the reactive graph a window built otherwise outlives it, and on an
@@ -877,7 +877,7 @@ pub fn reset_windows() {
     // re-registration reuses them.
 }
 
-/// Adopt the app's FIRST window into the registry, so it is an ordinary primary window rather
+/// Adopt the app's first window into the registry, so it is an ordinary primary window rather
 /// than a privileged one (docs/windows.md close policy).
 ///
 /// Called once at boot with the root container the backend handed back. `scope` owns the root

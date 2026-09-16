@@ -1,15 +1,15 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-break's OWN Android crash layer — a headless shim (no UI), bundled with the crate and folded
-// into the app's Gradle build via [package.metadata.day.android], with ZERO edits to day-android.
+// day-break's Android crash layer: a headless shim (no UI), bundled with the crate and folded
+// into the app's Gradle build via [package.metadata.day.android], with no edits to day-android.
 // It installs a default uncaught-exception handler that writes a `java-<sid>.kv` artifact directly
-// to day-break's report dir — the SAME line-oriented key=value format the Rust reconciler reads
-// (crates/day-break/src/report.rs) — then chains to the previous handler so the system still shows
+// to day-break's report dir (the same line-oriented key=value format the Rust reconciler reads,
+// crates/day-break/src/report.rs), then chains to the previous handler so the system still shows
 // its dialog and kills the process. Writing the file from Java (not through JNI) keeps the crash
 // path off a second failure surface: the JVM is wounded but a file write is simple and local.
 //
-// NOTE the package is `.crash`, not `.break` — `break` is a Java keyword.
+// NOTE the package is `.crash`, not `.break`, because `break` is a Java keyword.
 package dev.daybrite.day.crash;
 
 import java.io.File;

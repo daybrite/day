@@ -11,11 +11,11 @@
 //! - `day build` (day-cli) runs the same scan and emits the Swift provider glue that wraps each
 //!   view in a hosting view (staged into the generated `DayPieces` module).
 //!
-//! The scan is a **text parse of a documented subset** — deliberately not a Swift compiler:
+//! The scan is a **text parse of a documented subset**, not a Swift compiler:
 //! it must run on any host, with no Swift toolchain, from a plain `cargo build` (DESIGN §17.5).
 //! A view is exported when it is a **top-level, non-generic `public struct` whose declaration
 //! names `View` in its inheritance clause**, and its **first `public init`** has only supported
-//! parameter types (`String`, `Int`, `Double`, `Bool`; no defaults, no attributes, no variadics).
+//! parameter types (`String`, `Int`, `Double`, `Bool`; without defaults, attributes or variadics).
 //! Anything else is skipped with a reason. A mis-parse cannot ship silently: the generated Swift
 //! glue calls the real initializer, so the Swift compiler validates every signature this parser
 //! extracted.
@@ -84,7 +84,7 @@ impl SwiftType {
 /// `DayView_<module>_<name>` on the Swift side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SwiftView {
-    /// The SwiftPM target (module) name — the `Sources/<Module>` directory.
+    /// The SwiftPM target (module) name: the `Sources/<Module>` directory.
     pub module: String,
     /// The struct name.
     pub name: String,
@@ -110,7 +110,7 @@ impl SwiftView {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct SwiftScan {
     pub views: Vec<SwiftView>,
-    /// `(Module.Name, reason)` — public `View` structs the subset could not export.
+    /// `(Module.Name, reason)`: public `View` structs the subset could not export.
     pub skipped: Vec<(String, String)>,
 }
 
@@ -162,8 +162,8 @@ pub fn scan_package(pkg_dir: &Path) -> Result<SwiftScan, String> {
         .sort_by(|a, b| (&a.module, &a.name).cmp(&(&b.module, &b.name)));
     scan.skipped.sort();
 
-    // Duplicate simple names would collide in the flat `crate::swiftui` module — fail loudly with
-    // the fix (rename one view) rather than silently shadowing.
+    // Duplicate simple names would collide in the flat `crate::swiftui` module, so fail loudly
+    // with the fix (rename one view) rather than silently shadowing.
     for pair in scan.views.windows(2) {
         if pair[0].name == pair[1].name {
             return Err(format!(
@@ -391,7 +391,7 @@ fn matching_paren(text: &str, open: usize) -> Option<usize> {
 /// Blank out comments and string-literal contents (keeping newlines) so declaration scanning
 /// can't be fooled by braces or keywords inside them. Handles `//`, nested `/* */`, `"…"` with
 /// escapes, and `"""` multiline strings; interpolation contents are blanked with the string
-/// (a nested quote inside `\(…)` is outside the subset — the glue compile catches any fallout).
+/// (a nested quote inside `\(…)` is outside the subset; the glue compile catches any fallout).
 fn strip_comments_and_strings(src: &str) -> String {
     #[derive(PartialEq)]
     enum State {
@@ -473,7 +473,7 @@ fn strip_comments_and_strings(src: &str) -> String {
                     out.push('"');
                 }
                 ('\n', _) => {
-                    // Unterminated line — bail back to code so one bad literal can't eat the file.
+                    // Unterminated line: bail back to code so one bad literal can't eat the file.
                     state = State::Code;
                     out.push('\n');
                 }
@@ -495,7 +495,7 @@ fn strip_comments_and_strings(src: &str) -> String {
 }
 
 // ===========================================================================
-// build.rs entry — derive the package list from Cargo.toml, scan, emit the bindings
+// build.rs entry: derive the package list from Cargo.toml, scan, emit the bindings
 // ===========================================================================
 
 /// The build-script half (called from [`crate::generate_resources`]): read the crate's own
@@ -514,7 +514,7 @@ pub(crate) fn generate_bindings(root: &Path, out: &Path) -> Result<(), String> {
              // [package.metadata.day.ios/macos] swift-packages (docs/swiftui.md).\n",
         )
     } else if !has_piece_dep {
-        // The bindings call day_piece_swiftui::* — without the dependency they cannot compile,
+        // The bindings call day_piece_swiftui::*; without the dependency they cannot compile,
         // so skip them loudly rather than failing the build with a confusing resolver error.
         println!(
             "cargo:warning=day-build: local Swift packages are declared but day-piece-swiftui \
@@ -589,10 +589,10 @@ fn local_packages_from_manifest(manifest: &str) -> Result<(Vec<String>, bool), S
 }
 
 // ===========================================================================
-// Codegen — the Rust bindings (build.rs) and the Swift provider glue (day-cli)
+// Codegen: the Rust bindings (build.rs) and the Swift provider glue (day-cli)
 // ===========================================================================
 
-/// Render `$OUT_DIR/day_swiftui.rs` — one typed constructor per exported view, mirroring the Swift
+/// Render `$OUT_DIR/day_swiftui.rs`: one typed constructor per exported view, mirroring the Swift
 /// identity verbatim (`crate::swiftui::MyView(…)`). `packages` pairs each package's display path
 /// (for doc comments) with its scan. Always renders a valid module, empty when nothing is exported.
 pub fn render_bindings(packages: &[(String, SwiftScan)]) -> String {
@@ -848,8 +848,8 @@ mod tests {
                  public init(title: String) {}\n\
              }\n",
         );
-        // The FIRST public init is unsupported, so the view is skipped — a documented rule, so a
-        // reordered overload can't silently switch which constructor the binding calls.
+        // The first public init is unsupported, so the view is skipped. That is a documented
+        // rule, so a reordered overload can't silently switch which constructor the binding calls.
         assert_eq!(s.views, vec![]);
         assert!(s.skipped[0].1.contains("Thing"));
     }

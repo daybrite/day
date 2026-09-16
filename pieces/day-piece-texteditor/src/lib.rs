@@ -95,7 +95,7 @@ pub enum EditorPatch {
     /// Replace the text AND its attributes. Moves the caret, so it is sent only when the text
     /// itself changed under the app's hand.
     SetDocument(StyledText),
-    /// Restyle text the native view ALREADY holds, preserving the selection and the undo stack.
+    /// Restyle text the native view already holds, preserving the selection and the undo stack.
     ///
     /// The patch a live syntax highlighter sends on every keystroke: re-tokenizing produces fresh
     /// runs for the same characters, and pushing them as a document would move the caret back to
@@ -175,7 +175,7 @@ impl TextEditor {
         self.selection = Some(sel);
         self
     }
-    /// Bind what the NEXT typed character will be styled with.
+    /// Bind what the next typed character will be styled with.
     ///
     /// The one piece of editor state an app cannot derive from the document and the selection:
     /// with a collapsed caret there is no text to read a style off, and "what happens if I type
@@ -377,7 +377,7 @@ impl Piece for TextEditor {
                     style.set_if_changed(doc.with_untracked(|d| d.style_of(range.clone(), base)));
                 }
                 if let Some(sel) = selection {
-                    // Recorded BEFORE the write, so the bind above sees it as an echo and sends
+                    // Recorded before the write, so the bind above sees it as an echo and sends
                     // no patch back to the view the report came from.
                     *native_sel.borrow_mut() = Some(range.clone());
                     sel.set_if_changed(range);
@@ -492,7 +492,7 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`TextEditor`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`TextEditor`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait TextEditorBuilder: Sized {
     fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self;

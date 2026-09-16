@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // Android: an ImageView decoding the pushed bytes via BitmapFactory. The Java factory
-// (`dev.daybrite.day.piece.remoteimage.DayRemoteImage`) is bundled with THIS crate in
+// (`dev.daybrite.day.piece.remoteimage.DayRemoteImage`) is bundled with this crate in
 // `src/DayRemoteImage.java` and pulled into the app's Gradle build automatically via
 // `[package.metadata.day.android]` — so the piece carries its own backend Java without touching
 // day-android. The circle / rounded clip is a ViewOutlineProvider + clipToOutline (resize-correct),

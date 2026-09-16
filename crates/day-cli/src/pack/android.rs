@@ -23,7 +23,7 @@ const DEV_KEYSTORE_PASS: &str = "day-dev-only"; // dev keystore: local installs 
 ///
 /// A wrapper pins the Gradle version inside the project (`gradle/wrapper/gradle-wrapper.properties`),
 /// and that pin is what an IDE already obeys. Preferring the wrapper here is what makes `day build`
-/// and Android Studio compile the app with the SAME Gradle, instead of each using whichever one it
+/// and Android Studio compile the app with the same Gradle, instead of each using whichever one it
 /// happens to find — a difference that shows up as a build that works in one and not the other.
 ///
 /// Returned as an ABSOLUTE path on purpose. `Command`'s program lookup is not consistently relative
@@ -93,7 +93,7 @@ pub fn pack(
 ) -> Result<Vec<Artifact>, PackError> {
     write_app_properties(project).map_err(PackError::Other)?;
 
-    // Resolve (or generate) the signing keystore BEFORE gradle runs — the scaffold's release
+    // Resolve (or generate) the signing keystore before gradle runs — the scaffold's release
     // signingConfig reads the generated properties file at configuration time.
     let signing_props = project
         .root
@@ -182,7 +182,7 @@ fn write_signing_properties(project: &Project, path: &Path) -> Result<SignTier, 
         .signing
         .as_ref()
         .and_then(|s| s.android.as_ref());
-    // Any unresolved secret degrades the WHOLE section to the dev keystore (§20) — a half-resolved
+    // Any unresolved secret degrades the whole section to the dev keystore (§20) — a half-resolved
     // signing config must never sign with mixed material.
     let release = match android {
         Some(a) => {
@@ -416,7 +416,7 @@ mod gradle_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The OTHER platform's wrapper name is not this platform's launcher: a `gradlew.bat` beside a
+    /// The other platform's wrapper name is not this platform's launcher: a `gradlew.bat` beside a
     /// Unix build is not runnable there, and vice versa.
     #[test]
     fn the_other_platforms_wrapper_is_ignored() {

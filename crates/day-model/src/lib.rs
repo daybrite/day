@@ -296,7 +296,7 @@ pub struct ChangeSinkId(u64);
 /// Install a STANDING consumer of every announced change (main thread). Where
 /// [`record_changes`] is a scoped test seam, a sink lives until removed — it is how a
 /// persistence container watches the stores it loaded. Sinks receive the same [`Change`] the
-/// recorder would. A sink MAY write stores re-entrantly — the pipeline nests: a write made
+/// recorder would. A sink may write stores re-entrantly — the pipeline nests: a write made
 /// from inside a sink completes its own announcement (sinks included) before the outer one
 /// resumes, which is how relation maintenance cascades a delete — but a sink that writes owns
 /// its own termination: nothing here bounds the recursion.
@@ -969,7 +969,7 @@ impl<T: Send + Sync + 'static> Drop for Tx<T> {
 // ---------------------------------------------------------------------------
 
 /// The floor of the interned-handle space. Plain `u64` keys pass through as their own handle
-/// and stay BELOW it — the top bit is what lets [`Key::of_handle`] tell an identity handle
+/// and stay below it — the top bit is what lets [`Key::of_handle`] tell an identity handle
 /// from an interned one without any lookup. Integer `#[obs(key)]` fields assert the bound in
 /// debug builds rather than silently colliding.
 const WIDE_BASE: u64 = 1 << 63;
@@ -1521,7 +1521,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         );
     }
 
-    /// Feed one row's new value from OUTSIDE the app's own editing — another connection's
+    /// Feed one row's new value from outside the app's own editing — another connection's
     /// committed write arriving through a persistence container, an import — replacing the
     /// stored value and announcing each label in `changed` as that field's `Set`. Precise on
     /// purpose: readers of the named fields wake, along with everything coarser, where a
@@ -1558,7 +1558,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         true
     }
 
-    /// Write ONE field by label — front-door semantics (announced at the field's own path,
+    /// Write one field by label — front-door semantics (announced at the field's own path,
     /// prior/new values captured while a consumer wants them, undoable, persisted) without
     /// the generated accessor in scope. The relation machinery writes foreign keys and order
     /// values through this; it is public because any framework-level maintenance faces the
@@ -1606,10 +1606,10 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         true
     }
 
-    /// Insert-or-replace rows WITHOUT announcing — the persistence layer faulting stored rows
+    /// Insert-or-replace rows without announcing — the persistence layer faulting stored rows
     /// into its cache. No change record is born (sinks, undo and autosave all stay quiet: the
     /// rows are the database's own contents arriving, not edits), and no trigger wakes: a
-    /// faulting read populates BEFORE anything binds, so there is nobody to wake yet. The
+    /// faulting read populates before anything binds, so there is nobody to wake yet. The
     /// version still bumps, so version-watching tests see the population.
     pub fn populate(self, rows: Vec<T>) {
         {
@@ -1625,7 +1625,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         self.inner.version.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Remove one row WITHOUT announcing — the persistence layer evicting a clean cached row.
+    /// Remove one row without announcing — the persistence layer evicting a clean cached row.
     /// The row is not deleted anywhere; it simply stops being resident, and a later fault
     /// brings it back. Callers guard with [`Store::is_observed`]: evicting a row something is
     /// bound to would flip that binding to its `Default` with no wakeup to correct it.
@@ -1641,7 +1641,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         removed
     }
 
-    /// [`Store::depopulate`], batched: ONE retain and one reindex for the whole set, where
+    /// [`Store::depopulate`], batched: One retain and one reindex for the whole set, where
     /// per-key removal would rebuild the key map per row — the difference between an eviction
     /// pass costing O(cache) and O(cache × evicted). Returns how many rows left.
     pub fn depopulate_many(self, keys: &[u64]) -> usize {
@@ -1802,7 +1802,7 @@ impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
         }
     }
 
-    /// Tracked read of THIS field only.
+    /// Tracked read of this field only.
     pub fn with<R>(self, f: impl FnOnce(Option<&V>) -> R) -> R {
         self.src.track_extra();
         track(self.live_path());
@@ -1878,7 +1878,7 @@ impl<S: Source<T>, T: 'static, V: 'static> Source<V> for Field<S, T, V> {
     fn path(self) -> Path {
         self.live_path()
     }
-    /// Interning happens HERE and only here: when a field is used as a parent, which is what
+    /// Interning happens here and only here: when a field is used as a parent, which is what
     /// nesting one struct inside another means.
     fn node(self) -> NodeId {
         intern(self.live_path())
@@ -2088,7 +2088,7 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
     /// A LIVE write: the value lands and this field's readers wake — a label tracking a
     /// dragged slider follows — but no change record is born, so autosave, the undo stack and
     /// every sink stay quiet. The first preview since the last commit captures the
-    /// pre-session value; [`Field::write_commit`] turns the whole gesture into ONE record.
+    /// pre-session value; [`Field::write_commit`] turns the whole gesture into one record.
     pub fn write_preview(self, v: V) {
         let mut parts = Vec::new();
         Source::<V>::components(self, &mut parts);
@@ -2102,7 +2102,7 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
         PREVIEW_WRITE.with(|f| f.set(false));
     }
 
-    /// The settled value that ends a preview sequence: applies `v`, then announces ONE change
+    /// The settled value that ends a preview sequence: applies `v`, then announces one change
     /// whose prior is the pre-session value — sixty thumb positions become one record, one
     /// undo unit, one UPDATE. Without an open session this is a plain [`Binding::write`].
     pub fn write_commit(self, v: V) {
@@ -2153,7 +2153,7 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> FieldSession<S, T, 
     pub fn preview(self, v: V) {
         self.field.write_preview(v);
     }
-    /// Seal the session at the CURRENT value.
+    /// Seal the session at the current value.
     pub fn commit(self) {
         let v = self
             .field
@@ -2219,7 +2219,7 @@ type ContextRestore = Rc<dyn Fn(&dyn Any)>;
 struct ContextHook {
     capture: Rc<dyn Fn() -> Rc<dyn Any>>,
     restore: ContextRestore,
-    /// The state BEFORE any unit — what undoing the whole history restores.
+    /// The state before any unit — what undoing the whole history restores.
     base: Rc<dyn Any>,
 }
 
@@ -2416,7 +2416,7 @@ impl UndoStack {
         self.refresh();
     }
 
-    /// Everything `f` changes lands as ONE unit named `label` — a multi-field commit, an
+    /// Everything `f` changes lands as one unit named `label` — a multi-field commit, an
     /// inspector applying twelve properties.
     pub fn grouped(&self, label: &'static str, f: impl FnOnce()) {
         self.seal();

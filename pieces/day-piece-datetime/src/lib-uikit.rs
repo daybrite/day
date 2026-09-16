@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // UIKit: UIDatePicker for both pieces — Compact → .compact (field → calendar popover / time
 // keypad, the modern iOS idiom), Inline → .inline for dates (embedded calendar) and .wheels for
-// times (iOS has no inline clock face; wheels ARE its embedded time UI). Calendar/timeZone pinned
+// times (iOS has no inline clock face; wheels are its embedded time UI). Calendar/timeZone pinned
 // to proleptic-Gregorian GMT (locale stays the user's) so civil values map 1:1 onto NSDate epoch
 // seconds. iOS 15 floor ⊇ every style used here.
 // ---------------------------------------------------------------------------

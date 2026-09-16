@@ -3,7 +3,7 @@
 
 //! Android-only glue: the persistent files dir (for the store root) and the uncaught-exception
 //! handler install. The handler itself lives in Java (`platform/android/java/.../crash/DayBreak.java`) so
-//! that no JNI transition happens during a crash — it writes a `java-<sid>.kv` artifact directly,
+//! that no JNI transition happens during a crash; it writes a `java-<sid>.kv` artifact directly,
 //! in the same kv format [`crate::store`] reconciles.
 
 use day_android::jni::objects::JValue;

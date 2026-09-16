@@ -353,7 +353,7 @@ fn is_null_stays_definite_about_null() {
 fn case_insensitive_predicates_fold_full_unicode_in_sql() {
     // The divergence day_fold exists to close: Rust's `to_lowercase` is full Unicode,
     // SQLite's own `lower()` is ASCII only, so `École` folds one way and not the other.
-    // The driver registers Rust's fold as a SQL function, and these run THROUGH the engine.
+    // The driver registers Rust's fold as a SQL function, and these run through the engine.
     let c = papers();
     assert_eq!(matching(&c, Paper::title().contains_ci("ÉCOLE")), [5]);
     assert_eq!(matching(&c, Paper::title().starts_with_ci("école")), [5]);

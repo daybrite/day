@@ -8,7 +8,7 @@
 //! completion that arrives as an [`Event`] the backend raises. It is request-shaped rather than
 //! blocking because one backend can never answer synchronously — a browser decodes through
 //! `createImageBitmap`, which is a promise — and one async-shaped API everywhere beats a
-//! synchronous one that is a lie on the web (docs/async.md rule 3: a callback AND a future,
+//! synchronous one that is a lie on the web (docs/async.md rule 3: a callback and a future,
 //! never a runtime).
 //!
 //! Everything here is thread-local and `!Send`, like the rest of day-core: Day has one UI thread.
@@ -37,7 +37,7 @@ day_reactive::tls_slots! {
     /// inside `collect_and_release` — drained at the top of the next pump, once the borrow ends.
     static DEFERRED_RELEASE: RefCell<Vec<BitmapId>> = RefCell::new(Vec::new());
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
-    /// Ids are minted HERE, not by the backends: day-core hands the id to the backend with the
+    /// Ids are minted here, not by the backends: day-core hands the id to the backend with the
     /// bytes, so the backend's side table is keyed by something the app can name afterwards.
     /// Never reused, so a completion arriving after a release finds nothing and does nothing.
     static NEXT_BITMAP: Cell<u64> = const { Cell::new(1) };
@@ -114,7 +114,7 @@ impl Drop for BitmapInner {
 
 /// Release a toolkit image now if the tree is free, and at the next pump if it is not.
 ///
-/// A handle can die INSIDE the tree's own borrow: `collect_and_release` drops a removed node's
+/// A handle can die inside the tree's own borrow: `collect_and_release` drops a removed node's
 /// handlers, and a handler may own the last clone. A plain `with_tree` there would panic on the
 /// re-borrow, so the id is queued and [`flush_deferred_releases`] runs it once the borrow has
 /// ended. The tree being absent — teardown, or a test that never mounted one — is the other way

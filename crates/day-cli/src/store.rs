@@ -5,7 +5,7 @@
 //! Connect and Google Play expect.
 //!
 //! An app's listing text is localized user-facing copy, so it lives beside the app's other
-//! localized copy — as plain text a translator can edit, under `store/<locale>/`, keyed by the SAME
+//! localized copy — as plain text a translator can edit, under `store/<locale>/`, keyed by the same
 //! locale tags `resource/locales/` uses. The stores disagree about almost everything else: what the
 //! fields are called, how long they may be, and how a locale is spelled (`zh-CN` here is `zh-Hans`
 //! to Apple and `zh-CN` to Google; Hebrew is `he` to Apple and the legacy `iw-IL` to Google). All of
@@ -645,7 +645,7 @@ pub struct Problem {
 /// Apple's 100-character budget.
 ///
 /// Splitting and rejoining rather than replacing `", "` with `","`, so that two spaces, or a space
-/// BEFORE a comma, reach the same normal form: `day lint --fix` re-checks after writing, and a
+/// Before a comma, reach the same normal form: `day lint --fix` re-checks after writing, and a
 /// repair that left work behind would report the same finding forever.
 fn tidy_keywords(text: &str) -> String {
     format!(
@@ -1005,7 +1005,7 @@ mod tests {
     fn tidying_keywords_reaches_a_fixed_point() {
         use super::tidy_keywords;
         assert_eq!(tidy_keywords("a, b, c"), "a,b,c\n");
-        // Whatever the spacing, ONE pass is enough — `day lint --fix` re-checks after writing,
+        // Whatever the spacing, one pass is enough — `day lint --fix` re-checks after writing,
         // and a repair that left work behind would report its finding on every run.
         for messy in ["a,  b ,c", "a , b,  c", "a,b,c"] {
             assert_eq!(tidy_keywords(messy), "a,b,c\n", "{messy:?}");

@@ -10,7 +10,7 @@ export const deepLink: (uri: string) => void;
 /** Root-area change after start (keyboard RESIZE avoidance, rotation), in vp. */
 export const resized: (widthVp: number, heightVp: number) => void;
 
-// Set a process environment variable BEFORE `start()`. The launcher (`day launch` → hdc
+// Set a process environment variable before `start()`. The launcher (`day launch` → hdc
 // `aa start --ps`) hands the app its dayscript engine port + token (and locale / autodrive) this
 // way, and the EntryAbility applies them so the walkthrough runner can drive the running app —
 // the HarmonyOS analogue of Android's intent-extra env delivery.
@@ -63,7 +63,7 @@ export const registerResourceManager: (resourceManager: Object) => void;
 export const registerOpenUrl: (callback: (url: string) => void) => void;
 
 // --- Navigation bridge (docs/navigation.md) ---------------------------------
-// Day drives HarmonyOS's own Navigation/NavPathStack. `registerNav` wires the ArkTS side BEFORE
+// Day drives HarmonyOS's own Navigation/NavPathStack. `registerNav` wires the ArkTS side before
 // `start()`: `push` must create a fresh NodeContent, push a NavDestination for it, and return
 // the content (Day mounts the page's native node into it); `pop` pops the top destination;
 // `setTitle` retitles it. The ArkTS side reports every destination disappearance (`navPopped`)

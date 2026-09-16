@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! day-piece-map — an EXTERNAL Day Piece (DESIGN.md §15) wrapping the platform's NATIVE map view,
-//! **APPLE PLATFORMS ONLY**. It is the reference for a piece that deliberately does NOT support every
+//! **APPLE PLATFORMS only**. It is the reference for a piece that deliberately does not support every
 //! backend: AppKit and UIKit render a real `MKMapView`; on GTK/Qt/Android/XAML the `map` kind falls
 //! back to day's placeholder leaf (those features exist but register no renderer). One Rust API,
 //! registered link-time into each Apple backend's renderer slice without touching day.
@@ -169,7 +169,7 @@ day_pieces::glue_modules!(appkit, uikit);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Map`]'s own builders, reachable THROUGH a decoration (§5.2): `day_pieces::Decorated` forwards them
+/// [`Map`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait MapBuilder: Sized {
     fn center(self, lat: f64, lon: f64) -> Self;

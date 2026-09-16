@@ -3,7 +3,7 @@
 
 //! What a packaged artifact is called (§16.5, §20.4).
 //!
-//! Every format lands on ONE pattern:
+//! Every format lands on one pattern:
 //!
 //! ```text
 //! <stem>[-<version>]-<target>[-<extra>…].<ext>
@@ -16,7 +16,7 @@
 //! The target combo is part of the name the CLI writes, not something release CI splices in
 //! afterwards. That matters three ways: `build/day/dist/` holds several targets at once and their
 //! names have to be distinct; `day rebuild <downloaded-asset>` looks for a rebuilt file of the
-//! SAME name, so the local name must be the published one; and the provenance sidecars are named
+//! Same name, so the local name must be the published one; and the provenance sidecars are named
 //! after the artifact they describe, which is only possible once the artifact's final name is
 //! known here.
 //!

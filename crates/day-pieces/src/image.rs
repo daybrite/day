@@ -291,7 +291,7 @@ impl Piece for Vector {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Image`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Image`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ImageBuilder: Sized {
     fn content_mode(self, m: ContentMode) -> Self;
@@ -337,7 +337,7 @@ impl<Inner: ImageBuilder + Piece> ImageBuilder for Decorated<Inner> {
     }
 }
 
-/// [`Vector`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Vector`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait VectorBuilder: Sized {
     fn tint<M>(self, color: impl crate::IntoReactive<day_spec::Color, M>) -> Self;

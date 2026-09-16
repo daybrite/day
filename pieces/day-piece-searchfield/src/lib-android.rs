@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // Android: an EditText styled for search (single line, IME_ACTION_SEARCH). The Java factory
-// (`dev.daybrite.day.piece.searchfield.DaySearch`) is bundled with THIS crate in `src/DaySearch.java`
+// (`dev.daybrite.day.piece.searchfield.DaySearch`) is bundled with this crate in `src/DaySearch.java`
 // and pulled into the app's Gradle build automatically via `[package.metadata.day.android]` — so the
 // piece carries its own backend Java without touching day-android. A TextWatcher dispatches edits
 // back to Rust via `DayBridge.nativeOnEvent(id, 1, …)` (kind 1 = TextChanged). It is a growing leaf:

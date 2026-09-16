@@ -67,7 +67,7 @@ impl<C: PieceSeq> Column<C> {
     }
 }
 
-/// [`Column`]'s own builders, reachable THROUGH a decoration (§5.2) — see [`LabelBuilder`] for the
+/// [`Column`]'s own builders, reachable through a decoration (§5.2) — see [`LabelBuilder`] for the
 /// pattern. `column(…).padding(8.0).spacing(4.0)` resolves.
 pub trait ColumnBuilder: Sized {
     fn spacing(self, s: f64) -> Self;
@@ -205,7 +205,7 @@ impl<C: PieceSeq> Row<C> {
     }
 }
 
-/// [`Row`]'s own builders, reachable THROUGH a decoration (§5.2) — see [`LabelBuilder`] for the
+/// [`Row`]'s own builders, reachable through a decoration (§5.2) — see [`LabelBuilder`] for the
 /// pattern.
 pub trait RowBuilder: Sized {
     fn spacing(self, s: f64) -> Self;
@@ -390,7 +390,7 @@ impl<C: PieceSeq> GridRow<C> {
 
 impl<C: PieceSeq> Piece for GridRow<C> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        // A layout-only node whose StackLayout only runs when the row is NOT inside a grid
+        // A layout-only node whose StackLayout only runs when the row is not inside a grid
         // (the graceful-degrade path) — a grid introspects the cells and places them itself.
         let node = cx.layout_only(
             Rc::new(StackLayout {
@@ -479,7 +479,7 @@ impl<P: Piece> Piece for Scroll<P> {
                 move |now, _| {
                     if let Some(t) = now.clone() {
                         // Deferred one main-loop turn: this watch runs inside the reactive
-                        // flush, BEFORE the turn-end layout that resizes the scroll content —
+                        // flush, before the turn-end layout that resizes the scroll content —
                         // an edge target (Bottom/Trailing) computed now would land on the
                         // stale content size.
                         day_reactive::on_main(move || {
@@ -541,7 +541,7 @@ impl<C: PieceSeq> Piece for ZStack<C> {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Grid`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Grid`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait GridBuilder: Sized {
     fn spacing(self, s: f64) -> Self;
@@ -580,7 +580,7 @@ impl<Inner: GridBuilder + Piece> GridBuilder for Decorated<Inner> {
     }
 }
 
-/// [`GridRow`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`GridRow`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait GridRowBuilder: Sized {
     fn align(self, a: VAlign) -> Self;
@@ -598,7 +598,7 @@ impl<Inner: GridRowBuilder + Piece> GridRowBuilder for Decorated<Inner> {
     }
 }
 
-/// [`Scroll`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`Scroll`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ScrollBuilder: Sized {
     fn horizontal(self) -> Self;
@@ -630,7 +630,7 @@ impl<Inner: ScrollBuilder + Piece> ScrollBuilder for Decorated<Inner> {
     }
 }
 
-/// [`ZStack`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`ZStack`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait ZStackBuilder: Sized {
     fn align(self, a: Alignment) -> Self;

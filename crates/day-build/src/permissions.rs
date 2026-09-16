@@ -14,8 +14,8 @@
 //! resource name → identifier table), for the same reason: a generated declaration must never drift
 //! from the constant the app's code names.
 //!
-//! Two rows break any naive version of this table, so they are worth stating up front:
-//! **notifications** needs an Android permission but NO iOS/macOS plist key and no HarmonyOS entry,
+//! Two rows do not follow the pattern of the rest of the table, so they are worth stating up front:
+//! **notifications** needs an Android permission but no iOS/macOS plist key and no HarmonyOS entry,
 //! and **photos** needs three Android permissions, one of them version-capped.
 
 /// An Android permission id, plus the API level after which it must not be requested.
@@ -111,7 +111,7 @@ pub const ALL: &[PermissionSpec] = &[
             android("android.permission.ACCESS_COARSE_LOCATION"),
             android("android.permission.ACCESS_BACKGROUND_LOCATION"),
         ],
-        // Apple requires BOTH keys: a plist carrying only the Always key suppresses the prompt.
+        // Apple requires both keys: a plist carrying only the Always key suppresses the prompt.
         ios: &[
             "NSLocationAlwaysAndWhenInUseUsageDescription",
             "NSLocationWhenInUseUsageDescription",
@@ -181,7 +181,7 @@ pub const ALL: &[PermissionSpec] = &[
         ios: &["NSPhotoLibraryUsageDescription"],
         macos: &["NSPhotoLibraryUsageDescription"],
         // NOTE: `READ_IMAGEVIDEO` is `system_basic` apl, which an app signed at `normal` cannot
-        // hold — see OHOS_PHOTOS_APL_NOTE. The picker needs no permission at all.
+        // hold; see OHOS_PHOTOS_APL_NOTE. The picker needs no permission at all.
         ohos: &[ohos("ohos.permission.READ_IMAGEVIDEO")],
         needs_reason: true,
     },
@@ -240,7 +240,7 @@ mod tests {
         assert!(find("nonsense").is_none());
     }
 
-    /// A plist carrying only `NSLocationAlwaysAndWhenInUseUsageDescription` suppresses the prompt —
+    /// A plist carrying only `NSLocationAlwaysAndWhenInUseUsageDescription` suppresses the prompt;
     /// Apple requires the when-in-use key alongside it.
     #[test]
     fn location_always_also_declares_when_in_use() {
@@ -249,7 +249,7 @@ mod tests {
         assert!(spec.macos.contains(&"NSLocationWhenInUseUsageDescription"));
     }
 
-    /// The row a naive table gets wrong in the other direction: an Android permission, but nothing
+    /// The row that breaks the pattern in the other direction: an Android permission, but nothing
     /// to declare on Apple or HarmonyOS, and no reason anywhere.
     #[test]
     fn notifications_declares_android_only() {
@@ -269,7 +269,7 @@ mod tests {
             .find(|p| p.name.ends_with("READ_EXTERNAL_STORAGE"))
             .expect("legacy storage permission");
         assert_eq!(legacy.max_sdk, Some(32));
-        // The granular replacements must NOT be capped.
+        // The granular replacements must not be capped.
         for p in spec
             .android
             .iter()

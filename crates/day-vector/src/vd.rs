@@ -6,7 +6,7 @@
 //! The usvg tree after normalization — paths with absolute transforms, resolved paints — maps
 //! almost 1:1 onto VectorDrawable's model, which is why this is a small emitter and not a
 //! project. The supported subset: solid fills and strokes, both fill rules, nested plain groups,
-//! and linear/radial gradients on fill AND stroke. Anything VD cannot express faithfully (clips,
+//! and linear/radial gradients on fill and stroke. Anything VD cannot express faithfully (clips,
 //! masks, filters, embedded rasters, partial group opacity) returns [`Unsupported`] and the
 //! caller stages a rasterized PNG ladder instead — a *loud* fallback, never wrong art.
 //!
@@ -470,7 +470,7 @@ mod tests {
         assert!(xml.contains("android:color=\"#FFB7410E\""));
         assert!(xml.contains("android:color=\"#FFEFA94A\""));
         assert!(xml.contains("android:tileMode=\"clamp\""));
-        // A gradient path carries children, so it must NOT self-close.
+        // A gradient path carries children, so it must not self-close.
         assert!(xml.contains("</path>"));
         roxmltree::Document::parse(&xml).unwrap();
     }

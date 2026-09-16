@@ -1,15 +1,16 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Subprocess crash harness: the real end-to-end path. A real crash needs a real process — you
-//! cannot segfault the test runner and survive — so each crash runs in a CHILD spawned as
+//! Subprocess crash harness: the real end-to-end path. A real crash needs a real process (you
+//! cannot segfault the test runner and survive), so each crash runs in a child spawned as
 //! `current_exe()` filtered to the single [`child_entry`] test. The child reads `DAY_BREAK_TEST_MODE`,
 //! arms day-break at `DAY_BREAK_TEST_DIR`, and crashes (or reconciles + prints). The parent asserts
 //! the child died the expected way, then runs a `reconcile` child and asserts the finalized report.
 //!
 //! Note on the panic case: libtest wraps each test in `catch_unwind`, so a child `panic!` is caught
-//! and the child exits 101 — but our panic HOOK still runs first and writes the pending artifact,
-//! and the sentinel is never cleared (no lifecycle in a test), so reconcile still sees a fatal panic.
+//! and the child exits 101, but our panic hook still runs first and writes the pending artifact,
+//! and the sentinel is never cleared (no lifecycle in a test), so reconcile still sees a fatal
+//! panic.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -73,8 +74,8 @@ fn run_child(mode: &str, dir: &Path) -> Output {
 fn reconcile(dir: &Path) -> (String, String) {
     let out = run_child("reconcile", dir);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // libtest's `--nocapture` streams the test's println AFTER "test child_entry ... " on the same
-    // line (no newline), so the marker lands mid-line — match it anywhere, not just at line start.
+    // libtest's `--nocapture` streams the test's println after "test child_entry ... " on the same
+    // line (no newline), so the marker lands mid-line; match it anywhere in the line.
     let after = |marker: &str| -> String {
         stdout
             .lines()

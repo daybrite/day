@@ -28,11 +28,11 @@ struct FormLabelColumn(Rc<Cell<f64>>);
 
 const SECTION_RADIUS: f64 = 10.0;
 const LABELED_GAP: f64 = 12.0;
-/// The gap between a label and the control UNDER it, once a row has stacked.
+/// The gap between a label and the control under it, once a row has stacked.
 const STACKED_GAP: f64 = 6.0;
 
 /// A settings-style form: a vertical run of [`section`]s whose [`labeled`] rows share one
-/// label column across the WHOLE form.
+/// label column across the whole form.
 ///
 /// ```ignore
 /// form((
@@ -56,7 +56,7 @@ pub struct Form<C: PieceSeq> {
 
 impl<C: PieceSeq + 'static> Piece for Form<C> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        // The shared column is created HERE, per form, so two forms on one page align
+        // The shared column is created here, per form, so two forms on one page align
         // independently and a form rebuilt by a `when` arm starts from a fresh column.
         with_environment(FormLabelColumn(Rc::new(Cell::new(0.0))), move || {
             column(self.sections).spacing(16.0).align(HAlign::Leading)
@@ -237,7 +237,7 @@ impl LabeledLayout {
 }
 
 impl LabeledLayout {
-    /// How far to push each of the two children down so their text sits on ONE line
+    /// How far to push each of the two children down so their text sits on one line
     /// (docs/baseline.md), plus the height the row needs to hold them once pushed.
     ///
     /// `None` when either side has no baseline to offer — a toolkit that does not report them,
@@ -261,7 +261,7 @@ impl LabeledLayout {
 }
 
 impl LabeledLayout {
-    /// Whether the control has to go UNDER the label: offered the width left beside THIS
+    /// Whether the control has to go under the label: offered the width left beside this
     /// row's own label, it still measures wider (a two-button stepper in a 280 dp inspector;
     /// a fixed-width field). A narrow pane then reads as the settings idiom — label above,
     /// control full-width — instead of clipping the control at the pane's edge.
@@ -391,7 +391,7 @@ impl day_core::Layout for LabeledLayout {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`FormSection`]'s own builders, reachable THROUGH a decoration (§5.2): `Decorated` forwards them
+/// [`FormSection`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait FormSectionBuilder: Sized {
     fn title<M>(self, t: impl IntoText<M>) -> Self;

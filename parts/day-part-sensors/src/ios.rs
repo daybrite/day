@@ -4,7 +4,7 @@
 // iOS: CoreMotion's CMMotionManager is natively poll-friendly — start updates once, then read the
 // `accelerometerData`/`gyroData`/`magnetometerData` properties (None until the first sample). Apple
 // recommends a single CMMotionManager per app, so one is kept in a static for the process lifetime.
-// Unlike UIDevice (battery), CMMotionManager is NOT MainThreadOnly, so no main-thread gate is needed;
+// Unlike UIDevice (battery), CMMotionManager is not MainThreadOnly, so no main-thread gate is needed;
 // a Mutex serializes access instead. Raw CMMotionManager needs no Info.plist usage key (that gates
 // the Motion & Fitness APIs, not these). The Simulator has no sensors → unavailable → None.
 // Accelerometer values arrive in g and are normalized to m/s² to match the other platforms.

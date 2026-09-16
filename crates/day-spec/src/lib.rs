@@ -3,7 +3,7 @@
 
 //! day-spec — the toolkit specification (DESIGN.md §8).
 //!
-//! Backends depend ONLY on this crate (never on day-core). One backend is linked per binary;
+//! Backends depend only on this crate (never on day-core). One backend is linked per binary;
 //! `day-core` is monomorphized over the concrete [`Toolkit`].
 
 use std::any::Any;
@@ -254,7 +254,7 @@ pub fn props_of<'a, T: 'static>(
 /// checklist that drifted repeatedly (missed entries have produced both leaks and
 /// stale-pointer CI segfaults, since a freed address gets recycled). A [`SideTable`]
 /// registers itself with a per-thread sweeper list at construction, so a backend's
-/// `release()` calls [`sweep`] ONCE and every table — present and future — drops its
+/// `release()` calls [`sweep`] once and every table — present and future — drops its
 /// entry for that handle, running its teardown hook if one was given.
 pub mod sidetable {
     use std::cell::RefCell;
@@ -298,7 +298,7 @@ pub mod sidetable {
             let (m, t) = (map.clone(), teardown.clone());
             SWEEPERS.with(|s| {
                 s.borrow_mut().push(Rc::new(move |key| {
-                    // Remove under the borrow, tear down OUTSIDE it: hooks may re-enter
+                    // Remove under the borrow, tear down outside it: hooks may re-enter
                     // toolkit code that reads other tables.
                     let v = m.borrow_mut().remove(&key);
                     if let (Some(v), Some(t)) = (v, &t) {
@@ -326,7 +326,7 @@ pub mod sidetable {
             }
         }
 
-        /// Remove WITHOUT running the teardown hook (the caller takes ownership).
+        /// Remove without running the teardown hook (the caller takes ownership).
         pub fn take(&self, key: usize) -> Option<V> {
             self.map.borrow_mut().remove(&key)
         }
@@ -355,7 +355,7 @@ pub mod sidetable {
         }
     }
 
-    /// Remove `key` from EVERY table registered on this thread, running teardowns.
+    /// Remove `key` from every table registered on this thread, running teardowns.
     /// Call once from a backend's `release()` (and once per auxiliary native object a
     /// release frees, e.g. an owned content container).
     pub fn sweep(key: usize) {
@@ -449,7 +449,7 @@ pub const WINDOW_NODE: NodeId = NodeId(u64::MAX);
 /// whether the app wants it before swallowing it. An unclaimed arrow has to keep traveling, or
 /// a canvas inside a scroll view would silently eat the keys that scroll it.
 ///
-/// It lives HERE, at the seam, rather than in day-core: `day-dom` deliberately depends on
+/// It lives here, at the seam, rather than in day-core: `day-dom` deliberately depends on
 /// day-spec alone, and this is a fact about a node that both sides need.
 pub mod keys {
     use super::NodeId;
@@ -478,7 +478,7 @@ pub type RawHandle = *mut std::ffi::c_void;
 // Events (§8.3)
 // ---------------------------------------------------------------------------
 
-/// The wire table for backends whose native side reaches Rust through ONE numeric-kind
+/// The wire table for backends whose native side reaches Rust through one numeric-kind
 /// trampoline (Android's JNI `nativeOnEvent`, ArkUI's `day_arkui_on_event`). This enum is the
 /// single source of truth for those kind numbers; the Java and C++ sides carry mirrored
 /// constants that parity tests check against these discriminants (so a collision or drift
@@ -719,7 +719,7 @@ pub enum Event {
         scale: f64,
         location: Point,
     },
-    /// A viewport pan over the node (docs/shapes.md): `delta` is the movement SINCE THE
+    /// A viewport pan over the node (docs/shapes.md): `delta` is the movement since the
     /// PREVIOUS event — incremental, not cumulative, because desktop wheels have no gesture
     /// session to accumulate over (a discrete wheel tick arrives as a lone `Changed`).
     /// Two-finger touch pans bracket theirs with `Began`/`Ended`. Distinct from
@@ -746,7 +746,7 @@ pub enum Event {
     FrameChanged(Size),
     /// Native back navigation (iOS back button/swipe, Android system back or toolbar up).
     /// `already_popped` = the toolkit already performed the pop natively (iOS); the nav
-    /// host then syncs its stack WITHOUT re-issuing `NavPatch::Popped`.
+    /// host then syncs its stack without re-issuing `NavPatch::Popped`.
     NavBack {
         already_popped: bool,
     },
@@ -827,7 +827,7 @@ pub enum Event {
     SearchChanged(String),
     /// The user picked a different scope. Carries the index into `SearchProps::scopes`.
     SearchScopeChanged(usize),
-    /// The user chose one of `SearchProps::suggestions`, by index. The toolkit has ALREADY put
+    /// The user chose one of `SearchProps::suggestions`, by index. The toolkit has already put
     /// that completion in the field and emitted [`Event::SearchChanged`] for it; this says which
     /// one, for an app that wants to act on the choice itself.
     SearchSuggestionChosen(usize),
@@ -887,7 +887,7 @@ pub enum Event {
         expanded: bool,
     },
     /// A native tree committed a drag move (docs/tree.md): `token` now sits under `parent`
-    /// (`None` = the root) at `index` (`None` = dropped ONTO the parent — append). Deferred
+    /// (`None` = the root) at `index` (`None` = dropped onto the parent — append). Deferred
     /// through the event queue exactly as [`Event::ListReorder`] is; the app's `on_move`
     /// writes its own data, whose refresh reloads the tree.
     TreeMove {
@@ -963,7 +963,7 @@ impl Lifecycle {
         Lifecycle::WillTerminate,
     ];
 
-    /// True for phases EVERY backend delivers (launch, activation, termination). The remaining
+    /// True for phases every backend delivers (launch, activation, termination). The remaining
     /// phases (`WillEnterForeground`, `DidEnterBackground`, `DidReceiveMemoryWarning`) are genuine
     /// mobile concepts and are only delivered by the mobile backends. `const` so it composes into a
     /// backend's `const fn lifecycle_supported` and thus into compile-time guards.
@@ -1008,7 +1008,7 @@ pub enum GestureKind {
     Tap,
     LongPress,
     Drag,
-    /// The pointer moving OVER the node without pressing (docs/canvas.md "Interaction"), and
+    /// The pointer moving over the node without pressing (docs/canvas.md "Interaction"), and
     /// leaving it. Delivered only where a pointer exists: every desktop, an iPad with a trackpad
     /// or pencil, an Android device with a mouse or stylus. A touch-only device reports none —
     /// which is the honest answer, not a gap, so anything reachable by hover must also be
@@ -1395,7 +1395,7 @@ pub enum ToolbarItemKind {
         /// where it has one (`AutoSuggestBox`, `QCompleter`, `<datalist>`). Empty = none.
         suggestions: Vec<String>,
     },
-    /// A row of mutually exclusive choices drawn as ONE control — the native segmented control
+    /// A row of mutually exclusive choices drawn as one control — the native segmented control
     /// (`NSSegmentedControl`, a linked GTK/Qt button box, a XAML toggle strip, `.day-segmented`
     /// on the web).
     ///
@@ -1450,7 +1450,7 @@ pub struct ToolbarItem {
     /// (0 = no command), so a toolbar button and its menu twin can share one closure.
     pub action: u64,
     /// This item's role on the chrome carrying it (docs/toolbars.md). It never names a surface:
-    /// WHICH chrome an item rides is decided by where the app declared it, so this says only
+    /// Which chrome an item rides is decided by where the app declared it, so this says only
     /// where on that chrome it belongs.
     pub placement: ToolbarPlacement,
     /// Whether the item draws its title, its icon, or both, where the platform can do more than
@@ -1689,7 +1689,7 @@ pub struct ListReorder {
     /// drop, or `-1` to deny.
     pub can_move: std::rc::Rc<dyn Fn(usize, usize) -> i64>,
     /// Commit: row `from` dropped at row `to` (an index `can_move` accepted). Rotates Day's row
-    /// snapshot BEFORE returning — so `len`/`token_at`/`bind_row` reflect the new order while the
+    /// snapshot before returning — so `len`/`token_at`/`bind_row` reflect the new order while the
     /// native move animates — and defers the app's own callback to the next event drain.
     pub move_row: std::rc::Rc<dyn Fn(usize, usize)>,
 }
@@ -1706,7 +1706,7 @@ pub struct ListDelete {
     /// May row `index` be deleted? Called before the affordance is offered, so a row the app
     /// protects shows no delete action at all rather than one that fails on use.
     pub can_delete: std::rc::Rc<dyn Fn(usize) -> bool>,
-    /// Commit: delete row `index`. Removes it from Day's row snapshot BEFORE returning — so
+    /// Commit: delete row `index`. Removes it from Day's row snapshot before returning — so
     /// `len`/`token_at`/`bind_row` already reflect the shorter list while the native row-removal
     /// animates — and defers the app's own callback to the next event drain.
     pub delete_row: std::rc::Rc<dyn Fn(usize)>,
@@ -1743,7 +1743,7 @@ pub struct ListSwipeAction {
 #[derive(Clone)]
 pub struct ListSwipe {
     /// The OFFER: the actions for row `index` on `edge`, called inside the platform's swipe
-    /// callback — keep it pure. Empty = no affordance for that row and edge. The FIRST action
+    /// callback — keep it pure. Empty = no affordance for that row and edge. The first action
     /// is the full-swipe action where the platform activates one at the far edge.
     pub actions_at: std::rc::Rc<dyn Fn(usize, SwipeEdge) -> Vec<ListSwipeAction>>,
     /// The COMMIT: the user activated action `action` (an index into the offer) on row
@@ -1793,7 +1793,7 @@ pub struct TreeSource {
 #[derive(Clone)]
 pub struct TreeMoves {
     /// The live verdict, consulted while the drag is over a target: may `token` land under
-    /// `parent` at `index`? `index: None` means "dropped ONTO the parent" (append). Pure —
+    /// `parent` at `index`? `index: None` means "dropped onto the parent" (append). Pure —
     /// it runs inside the platform's drag-validate callback.
     #[allow(clippy::type_complexity)]
     pub can_move: std::rc::Rc<dyn Fn(u64, Option<u64>, Option<usize>) -> MoveVerdict>,
@@ -1840,7 +1840,7 @@ pub enum Subcontrol {
 /// decorates the application itself and is drawn by the shell, not by Day.
 ///
 /// What each payload needs is asked separately — `Cap::AppBadgeCount`, `AppBadgeText`,
-/// `AppBadgeDot` — because the platforms differ in WHAT they accept more than in whether they have
+/// `AppBadgeDot` — because the platforms differ in what they accept more than in whether they have
 /// a badge at all: macOS takes arbitrary text, iOS and the web take a number, Android takes nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub enum AppBadge {
@@ -1946,7 +1946,7 @@ pub enum Cap {
     /// needs mirroring (docs/model.md).
     UndoBridge,
     /// The toolkit routes the platform's standard Cut/Copy/Paste to the app's edit bridge
-    /// ([`Toolkit::set_edit_state`] + `Event::Edit`): the SAME menu items, shortcuts, and
+    /// ([`Toolkit::set_edit_state`] + `Event::Edit`): the same menu items, shortcuts, and
     /// responder precedence the platform's text editing uses — a focused text widget keeps
     /// its own clipboard behavior, everything else reaches the app (docs/menus.md).
     /// `Native` where a system route exists (the responder chain, the browser's clipboard
@@ -2005,13 +2005,13 @@ pub enum Cap {
     /// shipped with it. Probe it before offering a "save a screenshot" affordance, rather than
     /// offering one that fails when pressed.
     Snapshot,
-    /// The toolkit CAN present `nav()` as sidebar+detail split panes — a statement about the
+    /// The toolkit can present `nav()` as sidebar+detail split panes — a statement about the
     /// toolkit, not about the window it is currently drawing. Whether a given host is split right
     /// now follows from its [`SizeClass`]: the pieces layer resolves an automatic
     /// [`props::NavPresentation`] against both, and re-resolves on every class change. A backend
     /// with no split container answers `Unsupported` and stays stacked at every size.
     NavSplit,
-    /// The toolkit CAN draw a navigation host's rows as its own chrome — a tab bar
+    /// The toolkit can draw a navigation host's rows as its own chrome — a tab bar
     /// ([`props::NavPresentation::Tabs`]) and, where it has one, a rail
     /// ([`props::NavPresentation::Rail`]). Like [`Self::NavSplit`] this is a statement about the
     /// toolkit, not about the window it is drawing right now.
@@ -2070,7 +2070,7 @@ pub enum Cap {
     /// message (docs/navigation.md). The three answers differ on what happens when the host
     /// leaves the split:
     ///
-    /// - `Native` — the pane exists at EVERY presentation. A narrow window collapses the
+    /// - `Native` — the pane exists at every presentation. A narrow window collapses the
     ///   sidebar but keeps the list beside the detail, exactly as a narrow Mail.app does
     ///   (macos-appkit: a `contentList` `NSSplitViewItem`).
     /// - `Emulated` — the pane exists while split and MERGES into the navigation stack when
@@ -3358,7 +3358,7 @@ impl RadialGradient {
 /// A scatter plot is the case this exists for. Drawn as individual ops, fifty thousand points are
 /// fifty thousand `DrawOp`s — rebuilt, compared and cloned on every frame that re-records, before
 /// a backend draws anything. As one `Stamp` they are one op and a flat array of coordinates, and
-/// a backend can put every copy into ONE path and hand the rasterizer a single fill.
+/// a backend can put every copy into one path and hand the rasterizer a single fill.
 ///
 /// Every copy shares the shape, the size and the paint. Varying any of those means more than one
 /// stamp — group by what varies, which for a chart is usually the series color.
@@ -3432,7 +3432,7 @@ pub enum TextVAlign {
 /// this type's only variants.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct TextAnchor {
-    /// The horizontal placement — the SAME three-way leading/center/trailing a wrapped label's
+    /// The horizontal placement — the same three-way leading/center/trailing a wrapped label's
     /// lines take ([`props::TextAlign`]), because it is the same question with the same RTL rule.
     /// `Trailing` is what an axis label right-aligned against its axis wants, and the reason the
     /// horizontal axis is settable at all: emulating it in app code costs a
@@ -3523,7 +3523,7 @@ pub enum DrawOp {
         anchor: TextAnchor,
         font: CanvasFont,
     },
-    /// Draw ONE shape at MANY positions — the batched form of [`DrawOp::Fill`]/[`DrawOp::Stroke`]
+    /// Draw one shape at many positions — the batched form of [`DrawOp::Fill`]/[`DrawOp::Stroke`]
     /// (docs/canvas.md "Stamping").
     ///
     /// Boxed because the payload is wider than the largest other op, and a bigger `DrawOp` would
@@ -3817,7 +3817,7 @@ impl TextMetrics {
     }
 }
 
-/// What canvas text is drawn WITH beyond its size (docs/canvas.md "Text"): a family, a weight and
+/// What canvas text is drawn with beyond its size (docs/canvas.md "Text"): a family, a weight and
 /// a slant. The default is the platform's own UI face, regular, upright — which is what every
 /// backend drew before the field existed, so a default font encodes to nothing on the wire.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -4094,7 +4094,7 @@ pub fn runs_to_markup(
     let mut out = String::with_capacity(text.len() + runs.len() * 24);
     let mut at = 0usize;
     for r in runs {
-        // Skip a run whose range does not address this string, WITHOUT advancing `at`: dropping
+        // Skip a run whose range does not address this string, without advancing `at`: dropping
         // the run loses styling, but advancing past it would drop the rest of the sentence.
         // `runs_are_valid` rejects these upstream; this keeps the failure cheap if one slips by.
         let Some(styled) = text.get(r.range.clone()) else {
@@ -4119,7 +4119,7 @@ pub fn runs_to_markup(
 impl Symbol {
     /// A 24×24 outline path for this symbol — Day's own drawing of it.
     ///
-    /// The platform's icon comes FIRST on every backend that has one (SF Symbols, the freedesktop
+    /// The platform's icon comes first on every backend that has one (SF Symbols, the freedesktop
     /// icon theme, Fluent's glyph font). This is the fallback for when that lookup finds nothing,
     /// which is not an edge case: `view-filter-symbolic` exists on a GNOME desktop and nowhere
     /// else, so a GTK or Qt app run off that desktop drew a toolbar item with no icon at all.
@@ -4129,7 +4129,7 @@ impl Symbol {
     /// degrades to a label rather than failing to compile.
     pub fn outline_path(self) -> Option<&'static str> {
         use Symbol as S;
-        // The wildcard is unreachable TODAY — every variant is drawn below — and it is here for
+        // The wildcard is unreachable today — every variant is drawn below — and it is here for
         // the next one, which should degrade to a label rather than fail to compile.
         #[allow(unreachable_patterns)]
         Some(match self {
@@ -4467,7 +4467,7 @@ pub mod props {
         /// Semantic the way [`crate::Font`] is semantic: an app says "this is secondary text"
         /// and each platform answers with its own answer — `secondaryLabelColor` on Apple,
         /// `?android:textColorSecondary`, GTK's `dim-label`. That is the only way a de-emphasized
-        /// label stays correct in BOTH appearances, since a literal grey that reads well on white
+        /// label stays correct in both appearances, since a literal grey that reads well on white
         /// is wrong on black. An explicit [`Self::color`] still wins; a backend that has no such
         /// color renders primary, which is legible and correct — just not dimmed.
         pub role: TextRole,
@@ -4838,7 +4838,7 @@ pub mod props {
         /// The rows drawn as a TAB BAR, one page's content beside it, no back stack — what a
         /// phone-shaped window wants from a one-of-N surface (`UITabBarController`, a Material
         /// `NavigationBarView`, `NavigationView.PaneDisplayMode = Top`). The `Pane::Sidebar` page
-        /// is not drawn at all: its rows ARE the chrome.
+        /// is not drawn at all: its rows are the chrome.
         Tabs,
         /// The rows drawn as a narrow icon strip beside the content — the `Medium`-width answer
         /// between [`Self::Tabs`] and [`Self::Split`] (a Material `NavigationRailView`,
@@ -4902,7 +4902,7 @@ pub mod props {
         /// Whether that pane is SHOWING for the destination the host opens on
         /// (`Nav::content_list_for`). Read at realize, like `list_width`, and for a
         /// related reason: a backend whose pane is a real split item can only honor a
-        /// collapsed state reliably by setting it BEFORE the item joins the split. Told
+        /// collapsed state reliably by setting it before the item joins the split. Told
         /// afterwards — by `NavPatch::ListVisible`, on a window that has not been displayed
         /// yet — AppKit reports the item collapsed and then lays it back out from its holding
         /// priorities, and the app opens with a list beside a page that does not own one.
@@ -4948,7 +4948,7 @@ pub mod props {
         pub scopes: Vec<String>,
         /// Index into `scopes`; meaningless when `scopes` is empty.
         pub scope: usize,
-        /// Completions offered for the current text. On a navigation surface these COMPLETE THE
+        /// Completions offered for the current text. On a navigation surface these COMPLETE the
         /// FIELD rather than replacing the list: the list is already the result set, so an
         /// overlay of results would cover the thing it is filtering.
         pub suggestions: Vec<String>,
@@ -4997,7 +4997,7 @@ pub mod props {
         /// ([`NavPresentation::rows_are_chrome`]): a tab bar switches between pages that all stay
         /// alive, so there is nothing to push and nothing to pop.
         ///
-        /// Applied WITHOUT re-emitting [`crate::Event::SelectionChanged`], per the from-native
+        /// Applied without re-emitting [`crate::Event::SelectionChanged`], per the from-native
         /// echo rule — this is the programmatic-sync direction.
         ///
         /// A backend drawing a stacked presentation never receives it; the pieces layer sends
@@ -5155,11 +5155,11 @@ pub mod props {
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum NavMenuPatch {
-        /// Programmatic highlight sync — toolkits apply WITHOUT re-emitting
+        /// Programmatic highlight sync — toolkits apply without re-emitting
         /// SelectionChanged (the TextField from_native echo rule).
         Selected(Option<usize>),
         /// The item set changed (data-driven `nav().items(signal, …)`): rebuild the rows
-        /// from these labels/icons, then apply `selected` (docs/navigation.md). Applied WITHOUT
+        /// from these labels/icons, then apply `selected` (docs/navigation.md). Applied without
         /// re-emitting SelectionChanged.
         Items {
             items: Vec<String>,
@@ -5263,10 +5263,10 @@ pub mod props {
         /// The node set changed (count/order/parentage/content): the host re-queries its
         /// `TreeSource`. Expansion and selection survive by token (docs/tree.md).
         Reload,
-        /// Programmatically disclose (`true`) or collapse (`false`) one row. Applied WITHOUT
+        /// Programmatically disclose (`true`) or collapse (`false`) one row. Applied without
         /// re-emitting [`crate::Event::TreeExpanded`] (the from-native echo rule).
         Expand(u64, bool),
-        /// Programmatic selection sync (tokens; empty = clear) — applied WITHOUT re-emitting
+        /// Programmatic selection sync (tokens; empty = clear) — applied without re-emitting
         /// [`crate::Event::TreeSelection`].
         Selected(Vec<u64>),
         /// Scroll this row into view, realizing it if needed. The piece has already expanded
@@ -5284,13 +5284,13 @@ pub mod props {
         Splice(Vec<RowDelta>),
         /// An `Automatic`-height row's content size changed; the host re-measures just that row.
         RowSizeInvalidated(usize),
-        /// Imperatively scroll the native list so its LAST row is fully visible (a chat timeline
+        /// Imperatively scroll the native list so its last row is fully visible (a chat timeline
         /// sticking to the newest message). No-op when the list is empty (docs/list.md).
         ScrollToEnd,
         /// Imperatively scroll the native list so this row is visible, realizing it if needed
         /// (docs/list.md). Clamped to the row count; no-op when the list is empty.
         ScrollToRow(usize),
-        /// Programmatic selection sync (row indices; empty = clear) — toolkits apply WITHOUT
+        /// Programmatic selection sync (row indices; empty = clear) — toolkits apply without
         /// re-emitting a selection event, like every other programmatic sync.
         Selected(Vec<usize>),
     }
@@ -5599,7 +5599,7 @@ pub trait Toolkit: Sized + 'static {
 
     // geometry (§7): frames are in the nearest realized native ancestor's space, in points.
     fn measure(&mut self, h: &Self::Handle, kind: PieceKind, p: Proposal) -> Size;
-    /// Distance from the top of the widget's frame to its FIRST text baseline, in points, when
+    /// Distance from the top of the widget's frame to its first text baseline, in points, when
     /// the widget is `size` (docs/baseline.md). `None` ⇒ it has no text baseline — an image, a
     /// slider, a bare container — and a baseline-aligned row falls back to box alignment for it.
     ///
@@ -5693,7 +5693,7 @@ pub trait Toolkit: Sized + 'static {
     // renders nothing (`Cap::Tree` answers `Unsupported`, and apps gate on that).
     fn attach_tree(&mut self, _host: &Self::Handle, _source: TreeSource) {}
 
-    // routes (docs/navigation.md): day-core reports the app's CURRENT route path here whenever
+    // routes (docs/navigation.md): day-core reports the app's current route path here whenever
     // it changes ("" = everything at its root), so a backend with a native notion of location
     // can mirror it — web-dom writes the URL hash (`#controls`), and browser back/forward or a
     // hand-edited hash comes back as `Event::RouteRequested`. Default no-op: most toolkits
@@ -5714,7 +5714,7 @@ pub trait Toolkit: Sized + 'static {
     // a native edit-command route answers `Cap::EditBridge` accordingly.
     fn set_edit_state(&mut self, _state: &EditState) {}
 
-    // ambient modifiers (docs/menus.md): the keyboard modifiers held RIGHT NOW, for
+    // ambient modifiers (docs/menus.md): the keyboard modifiers held RIGHT now, for
     // interactions whose meaning they change (shift-click multi-select). Pull-based — the
     // platforms expose exactly this query (NSEvent.modifierFlags, the shim's tracked mask).
     // Touch-only backends keep the all-false default.
@@ -5755,7 +5755,7 @@ pub trait Toolkit: Sized + 'static {
 
     // lifecycle (docs/lifecycle.md): does this backend deliver `phase`? The default answers "yes" for
     // the universal phases (launch/activation/termination) and "no" for the mobile-only ones. Backends
-    // that wire up more (the mobile ones) override this; it MUST agree with the crate's
+    // that wire up more (the mobile ones) override this; it must agree with the crate's
     // `const fn lifecycle_supported`, which drives compile-time guards in `day::require_lifecycle!`.
     fn supports_lifecycle(&self, phase: Lifecycle) -> bool {
         phase.is_universal()
@@ -5779,7 +5779,7 @@ pub trait Toolkit: Sized + 'static {
         Vec::new()
     }
 
-    /// Measure one line of canvas text at `size` points in `font`, in the SAME engine
+    /// Measure one line of canvas text at `size` points in `font`, in the same engine
     /// [`Toolkit::replay`] draws [`DrawOp::Text`] with, so a `TextAnchor::LEADING` anchor plus
     /// the returned `ascent` lands on the drawn baseline. `None` = cannot measure; the facade
     /// then answers [`TextMetrics::approximate`].
@@ -5800,7 +5800,7 @@ pub trait Toolkit: Sized + 'static {
     /// The id in that event is minted by the CALLER (day-core), not the backend: the backend
     /// keeps its own side table from that id to whatever it decoded.
     ///
-    /// The default does NOTHING, and deliberately: a default body cannot reach the event sink
+    /// The default does nothing, and deliberately: a default body cannot reach the event sink
     /// (it is installed per backend by [`Toolkit::set_event_sink`], not reachable through this
     /// trait), so there is no way for it to answer. day-core asks [`Cap::ImageDecode`] first and
     /// resolves the request as [`ImageError::Unsupported`] itself, which is why a backend with
@@ -5843,7 +5843,7 @@ pub trait Toolkit: Sized + 'static {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
-    /// The same capture WITH the window's own chrome — title bar, toolbar, whatever the platform
+    /// The same capture with the window's own chrome — title bar, toolbar, whatever the platform
     /// draws around the content (docs/window-image.md).
     ///
     /// Defaulted to [`Self::snapshot_window`] on purpose: a backend that cannot separate the two
@@ -5942,7 +5942,7 @@ pub trait Toolkit: Sized + 'static {
 
     // secondary windows (docs/windows.md)
 
-    /// Open a native OS window per `options` + `kind`: create and show the window, wire ITS
+    /// Open a native OS window per `options` + `kind`: create and show the window, wire its
     /// events to `id` — `WindowResized` (content size, points), `WindowClosed` (after the
     /// native close), `WindowFocused` (key/active changes) — and answer with its CONTENT
     /// container handle, the same contract as the `ready` root container. Backends whose
@@ -6085,7 +6085,7 @@ pub struct WindowOptions {
     /// The app's locale catalog, installed by `day::launch` (docs/localization.md).
     ///
     /// The ORDER is why this is the framework's job: the OS's languages reach day-l10n from the
-    /// live backend, and the catalog has to be registered AFTER that hint and BEFORE the first
+    /// live backend, and the catalog has to be registered after that hint and before the first
     /// localized string is read. An app that installs it itself — before `launch`, where there
     /// is no backend yet — registers against an empty hint list and resolves to `DEFAULT`, so a
     /// French device opens an English window.
@@ -6298,7 +6298,7 @@ pub enum OpCode {
     StrokePolygon = 12,
     /// Stroke a rounded rect (e=radius, g=width).
     StrokeRrect = 13,
-    /// Set a gradient for the NEXT shape record (f=type: 0 linear with a,b=start / c,d=end
+    /// Set a gradient for the next shape record (f=type: 0 linear with a,b=start / c,d=end
     /// unit points; 1 radial with a,b=center unit point, c=unit radius; e=stop count).
     /// Stops ride the texts channel as "offset,aarrggbb offset,aarrggbb …". Unit geometry
     /// resolves against the shape's bounding box.
@@ -6321,16 +6321,16 @@ pub enum OpCode {
     /// carries the [`geometry_key`] instead and b..d stay 0. The other three kinds put real
     /// geometry in a..d and have nothing to cache.
     Clip = 17,
-    /// Stroke style for the NEXT stroke record (a=cap, b=join, c=miter limit, d=dash
+    /// Stroke style for the next stroke record (a=cap, b=join, c=miter limit, d=dash
     /// phase, e=dash count; the dash array rides the texts channel).
     StrokeStyle = 18,
-    /// Font for the NEXT text record (a=CSS weight 100 … 900, 0 = default; b=italic 0/1); the
+    /// Font for the next text record (a=CSS weight 100 … 900, 0 = default; b=italic 0/1); the
     /// family name rides the texts channel, `""` = the platform's default face. Like
     /// [`OpCode::SetGradient`] and [`OpCode::StrokeStyle`] it is consumed by the record that
     /// follows and then cleared; a default [`CanvasFont`] emits no record at all, so a drawing
     /// without fonts encodes exactly as it did before this op existed.
     SetFont = 19,
-    /// The NEXT shape record is a TEMPLATE, drawn once per stamped position rather than once
+    /// The next shape record is a TEMPLATE, drawn once per stamped position rather than once
     /// (docs/canvas.md "Stamping"). `a` = how many positions follow. Like [`OpCode::SetGradient`],
     /// [`OpCode::StrokeStyle`] and [`OpCode::SetFont`] it is a prefix, consumed by the record it
     /// applies to and then cleared.
@@ -6339,7 +6339,7 @@ pub enum OpCode {
     /// carrying the coordinates. A drawing with no stamps encodes exactly as it did before.
     Stamp = 20,
     /// Four stamped positions, filling the record edge to edge: `[op, x0, y0, x1, y1, x2, y2,
-    /// x3, y3]` — the ONE record that uses its last slot for geometry instead of a color, because
+    /// x3, y3]` — the one record that uses its last slot for geometry instead of a color, because
     /// it carries no color of its own. The final record of a run is padded; the count in the
     /// [`OpCode::Stamp`] header says how many of the pairs are real.
     StampPoints = 21,
@@ -6526,7 +6526,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
     ) {
         nums.extend_from_slice(&[k as i32 as f64, a, b, c, d, e, f, g, color_bits(col)]);
     }
-    /// The kind-18 prefix a non-plain stroke style emits, applying to the NEXT stroke record —
+    /// The kind-18 prefix a non-plain stroke style emits, applying to the next stroke record —
     /// the same "modifier record" rule the gradient and font records follow. A plain style emits
     /// nothing, so a drawing without dashes or caps encodes exactly as it always did.
     fn stroke_style_record(style: &StrokeStyle, nums: &mut Vec<f64>, texts: &mut Vec<String>) {
@@ -6689,8 +6689,8 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
             }
         }
     }
-    /// A gradient applies to the NEXT shape record, fill or stroke. Geometry per type rides
-    /// slots a..d and the type discriminant slot f — ONE record shape, so every decoder keeps a
+    /// A gradient applies to the next shape record, fill or stroke. Geometry per type rides
+    /// slots a..d and the type discriminant slot f — one record shape, so every decoder keeps a
     /// single gradient code path.
     fn gradient_record(
         geo: [f64; 4],
@@ -6726,7 +6726,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
             DrawOp::Fill(shape, paint) => {
                 // A gradient emits one kind-14 set-gradient record before its shape record;
                 // the stops ride the texts channel as "offset,aarrggbb offset,aarrggbb …".
-                // Geometry per type rides slots a..d, the type discriminant slot f — ONE
+                // Geometry per type rides slots a..d, the type discriminant slot f — one
                 // record shape, so every decoder keeps a single gradient code path.
                 let col = match paint {
                     Paint::Solid(c) => *c,
@@ -6833,7 +6833,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 }
             }
             DrawOp::Stroke(shape, paint, style) => {
-                // A styled stroke emits one kind-18 record first, applying to the NEXT stroke
+                // A styled stroke emits one kind-18 record first, applying to the next stroke
                 // only — the same "modifier record" shape the gradient uses, so decoders keep
                 // one rule: consume, apply to the next shape record, reset.
                 stroke_style_record(style, &mut nums, &mut texts);
@@ -7172,7 +7172,7 @@ mod image_header_tests {
     fn a_header_states_the_size_before_anything_decodes() {
         assert_eq!(ImageFormat::dimensions(&png(512, 512)), Some((512, 512)));
         assert_eq!(ImageFormat::dimensions(&png(1, 65535)), Some((1, 65535)));
-        // The JPEG walk must step OVER the APP0 segment to reach the frame header.
+        // The JPEG walk must step over the APP0 segment to reach the frame header.
         assert_eq!(ImageFormat::dimensions(&jpeg(640, 480)), Some((640, 480)));
 
         let mut gif = b"GIF89a".to_vec();
@@ -7700,7 +7700,7 @@ mod sidetable_tests {
     use std::cell::Cell;
     use std::rc::Rc;
 
-    /// The whole point of the registry: one `sweep(key)` clears EVERY table without any
+    /// The whole point of the registry: one `sweep(key)` clears every table without any
     /// table needing its own line in a backend's `release()`.
     #[test]
     fn sweep_clears_every_registered_table_and_runs_teardowns() {

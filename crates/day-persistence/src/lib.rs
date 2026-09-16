@@ -18,12 +18,12 @@
 //! them — twenty keystrokes into one field is one `UPDATE`; a row inserted and then filled is
 //! one `INSERT`; a thousand-child cascade is a handful of chunked `DELETE`s.
 //!
-//! Typed live queries ([`ModelContainer::query`]) compile ENTIRELY to SQL — predicate to
+//! Typed live queries ([`ModelContainer::query`]) compile entirely to SQL — predicate to
 //! WHERE (relation crossings as correlated `EXISTS`, full-text as an FTS5 subquery, spatial
 //! boxes through the R*Tree shadow), sort to ORDER BY with the key as tie-break, window to
 //! LIMIT — so the engine's indexes answer them at any table size. Live maintenance is
 //! dependency-gated: a change to a column no query mentions costs nothing; a change a query
-//! does depend on marks it stale, and ONE requery after the turn's flush re-derives its id
+//! does depend on marks it stale, and one requery after the turn's flush re-derives its id
 //! set, diffed against the previous answer so a list animates the difference instead of
 //! reloading. Rows behind the ids stay lazy: the query holds ids, and the list faults the
 //! window it shows.
@@ -359,7 +359,7 @@ pub trait SqliteConnection: 'static {
         self.execute("ROLLBACK", &[]).map(|_| ())
     }
     /// Several statements in one string, no parameters — a DDL script, a migration step
-    /// (day-lite's storage speaks this). The default runs the string as ONE statement;
+    /// (day-lite's storage speaks this). The default runs the string as one statement;
     /// drivers whose engine executes scripts override it (the built-in native driver does).
     fn execute_batch(&mut self, sql: &str) -> Result<(), DbError> {
         self.execute(sql, &[]).map(|_| ())
@@ -967,7 +967,7 @@ struct DirtyState {
     /// (store, key) → pending statement kind, in first-touch order.
     rows: HashMap<(u64, u64), DirtyRow>,
     order: Vec<(u64, u64)>,
-    /// Stores whose WHOLE value was rewritten (a wholesale `Store::update`) — flushed by
+    /// Stores whose whole value was rewritten (a wholesale `Store::update`) — flushed by
     /// upserting every RESIDENT row. With a lazy cache no "delete the rest" is possible (the
     /// rest was never loaded), so wholesale rewrites are a resync of the working set only.
     full: Vec<u64>,
@@ -1036,7 +1036,7 @@ pub(crate) struct TableHooks {
     /// The R*Tree shadow: (lat column, lon column, shadow table name).
     pub(crate) spatial: Option<(String, String, String)>,
     /// Current row values by key, read from the CACHE at flush time — the change log carries
-    /// WHICH rows and columns moved, never their contents.
+    /// Which rows and columns moved, never their contents.
     pub(crate) row_for: Rc<dyn Fn(u64) -> Option<Vec<Value>>>,
     /// Every (key, row) currently resident, for wholesale resyncs.
     pub(crate) all_rows: Rc<dyn Fn() -> Vec<(u64, Vec<Value>)>>,
@@ -1107,7 +1107,7 @@ pub const DEFAULT_CACHE_LIMIT: usize = 8_192;
 
 impl ModelContainer {
     /// Open through `driver`, migrate, and attach every model in `schema` — attaching creates
-    /// or migrates the table and NOTHING more: no rows load, so open cost does not grow with
+    /// or migrates the table and nothing more: no rows load, so open cost does not grow with
     /// the file. Autosave is on: any turn that touched a store flushes at its end.
     pub fn open<D: SqliteDriver>(driver: D, schema: Schema) -> Result<ModelContainer, DbError>
     where
@@ -1289,7 +1289,7 @@ impl ModelContainer {
             .then(|| store.elem(h))
     }
 
-    /// Make these rows resident, faulting the missing ones in ONE chunked `SELECT`. Rows the
+    /// Make these rows resident, faulting the missing ones in one chunked `SELECT`. Rows the
     /// file does not have are simply not resident afterwards; rows deleted this turn are not
     /// resurrected.
     pub fn ensure_resident<M: Model>(&self, keys: &[u64]) -> Result<(), DbError> {
@@ -1306,7 +1306,7 @@ impl ModelContainer {
         self.ensure_resident::<M>(&keys)
     }
 
-    /// Fault EVERY row of `M`'s table in — the document pattern, said explicitly: a sketch's
+    /// Fault every row of `M`'s table in — the document pattern, said explicitly: a sketch's
     /// scene or a settings table IS the working set, and the app that draws all of it warms
     /// it once at open. Raise the cache limit first (`set_cache_limit(usize::MAX)` for a
     /// document container) so the warmed rows are not immediately eligible to leave; rows
@@ -1982,7 +1982,7 @@ impl ModelContainer {
     }
 
     fn create_indexes<M: Model>(&self) -> Result<(), DbError> {
-        // A declared relation's foreign-key column is indexed WITHOUT being asked: it is what
+        // A declared relation's foreign-key column is indexed without being asked: it is what
         // `children_of` selects on, what relation predicates correlate on, and what the
         // engine scans to enforce `ON DELETE`. Unindexed, every one of those is a full scan
         // of the child table.
@@ -2148,7 +2148,7 @@ impl ModelContainer {
     }
 
     /// The fold, materialized: the smallest statement list that expresses `dirty`, in
-    /// first-touch order. Row values come from the caches NOW — the change log carried which
+    /// first-touch order. Row values come from the caches now — the change log carried which
     /// rows and columns moved, never their contents. Reads only; [`ModelContainer::flush`]
     /// executes the list in one transaction.
     fn fold(&self, dirty: &DirtyState) -> Result<Vec<(String, Vec<Value>)>, DbError> {
@@ -2168,11 +2168,11 @@ impl ModelContainer {
         }
 
         // Per-row work, into batches that can merge. Deletes of one table merge into one
-        // `IN`; updates merge when they write the SAME columns to the SAME values, which is
+        // `IN`; updates merge when they write the same columns to the same values, which is
         // what a multi-selection edit produces ("set fill on twelve shapes").
         //
         // Deletes are held apart and emitted LAST. Dirty order interleaves rows by when each
-        // FIRST changed, which can put a parent row's delete between its children's detach
+        // First changed, which can put a parent row's delete between its children's detach
         // updates (the first detach dirties the parent through relation upkeep) — and a
         // relation column's `ON DELETE CASCADE` fires per STATEMENT, `DEFERRABLE` or not, so
         // the mid-batch delete would take every still-attached child with it (found by Day
@@ -2416,7 +2416,7 @@ const MAX_BOUND_PARAMS: usize = 900;
 /// Add `key` to the batch sharing this table, clause and values — or open a new one.
 ///
 /// The slot key separates a delete from an update (their clauses differ), and separates
-/// updates writing DIFFERENT values, which must stay different statements. Grouping is by
+/// updates writing different values, which must stay different statements. Grouping is by
 /// hash so a large flush stays linear; the values are compared before merging, so a hash
 /// collision costs a second statement rather than a wrong one.
 fn join_batch(
@@ -2936,7 +2936,7 @@ impl ModelContainer {
         )
     }
 
-    /// Opt into undo: ONE history over every store this container manages, `levels` deep.
+    /// Opt into undo: One history over every store this container manages, `levels` deep.
     /// Undo/redo replay flows through the same change pipeline as the user's edits, so
     /// autosave writes the inverse statements and live queries hear rows come back. Call it
     /// once, after open; clear it on migration (`UndoStack::clear`). While a stack is
@@ -3060,7 +3060,7 @@ impl ModelContainer {
         self.rescan()
     }
 
-    /// Look for OTHER connections' committed writes — another process, a sync engine, a CLI —
+    /// Look for other connections' committed writes — another process, a sync engine, a CLI —
     /// and merge what changed. Detection is one `PRAGMA data_version` (the counter moves only
     /// when another connection commits, never for this one's own writes), so this is cheap
     /// enough to wire to app foreground, window focus, or a timer.
@@ -3360,7 +3360,7 @@ impl ModelContainer {
                 }
                 continue;
             }
-            // BOTH gates apply: a self-referential relation makes the query's own store a
+            // Both gates apply: a self-referential relation makes the query's own store a
             // related store too, so the own-table check must not shadow the watch check.
             let own_stale = state.store_id == store
                 && match (key, change.op) {

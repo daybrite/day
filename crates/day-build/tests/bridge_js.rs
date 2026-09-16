@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The generated web arm has to be a valid ES module, and it has to carry no cargo directives —
+//! The generated web arm has to be a valid ES module, and it has to carry no cargo directives:
 //! `parse_crate` runs inside `day build` as well as inside a build script, and a stray `cargo:`
 //! line once ended up inside the module itself (docs/bridge.md).
 
@@ -48,7 +48,7 @@ fn js_arm_is_a_valid_es_module() {
         .expect("js arm");
     let js = day_build::bridge::js_adapter(&bridge, arm, "day-part-demo");
 
-    // A `&str` crosses as (ptr, len) and is decoded by the shim's helper — wasm has no C strings.
+    // A `&str` crosses as (ptr, len) and is decoded by the shim's helper; wasm has no C strings.
     assert!(
         js.contains("day_bridge_day_part_demo_speak_native(text_ptr, text_len)"),
         "{js}"

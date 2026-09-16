@@ -3,7 +3,7 @@
 
 // HarmonyOS / OpenHarmony: the native NetworkKit connection-management C API (`libnet_connection.so`,
 // `net_connection.h`, API 11+). Pure FFI, like macOS/iOS — no ArkTS bridge or Day runtime needed
-// (unlike Android's ConnectivityManager, which rides day-android's JVM/Context). The app DOES need
+// (unlike Android's ConnectivityManager, which rides day-android's JVM/Context). The app does need
 // the `ohos.permission.GET_NETWORK_INFO` permission declared in its module.json5 (a normal
 // permission, no user prompt); without it the calls fail with 201 and status() returns None.
 

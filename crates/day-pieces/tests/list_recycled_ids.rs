@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Element ids inside a recycling list's rows survive the cell pool: a pooled cell stops
 //! answering lookups while it is hidden and answers again once it is bound — even when it is
-//! bound to the SAME row, which writes no signal and so re-runs neither a static `.id()` nor a
+//! bound to the same row, which writes no signal and so re-runs neither a static `.id()` nor a
 //! reactive `.id_of()`. day-core parks the ids on recycle and restores them on the rebind
 //! (docs/list.md); without that, a dayscript `wait_for` on a row id fails after any data swap
 //! that hands a cell the article it already showed.
@@ -65,7 +65,7 @@ fn a_pooled_cell_rebound_to_the_same_row_answers_lookups_again() {
     assert!(!has_id("row-0"), "a pooled cell's reactive id is parked");
     assert!(!has_id("row-label"), "a pooled cell's static id is parked");
 
-    // Bound to the SAME row: an unchanged slot value fires nothing, and the ids must still
+    // Bound to the same row: an unchanged slot value fires nothing, and the ids must still
     // come back — a search cleared, a refresh, any data swap that lands a cell on the row it
     // already showed.
     probe.list_bind(host, 0, cell);
@@ -79,7 +79,7 @@ fn a_pooled_cell_rebound_to_the_same_row_answers_lookups_again() {
         "static id restored after a same-row rebind"
     );
 
-    // Bound to ANOTHER row: the reactive id follows the new row, the static one stays.
+    // Bound to another row: the reactive id follows the new row, the static one stays.
     probe.list_recycle(host, cell);
     probe.list_bind(host, 7, cell);
     flush_sync();

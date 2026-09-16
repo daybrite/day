@@ -6,7 +6,7 @@
 // edits to day-android; it registers no view. It is the Android twin of
 // parts/day-part-permissions/src/*.rs's other per-OS impls.
 //
-// WHY A FRAGMENT. Runtime permission results arrive at Activity.onRequestPermissionsResult, and
+// Why A FRAGMENT. Runtime permission results arrive at Activity.onRequestPermissionsResult, and
 // day-android's DayActivity overrides only onActivityResult (hardcoded to the file picker). Rather
 // than edit a core day crate — which every part's Cargo.toml promises not to do — this shim attaches
 // its own headless Fragment and uses registerForActivityResult(RequestMultiplePermissions). Results
@@ -48,7 +48,7 @@ public final class DayPermissions {
     static final String TAG = "dev.daybrite.day.permissions";
 
     /**
-     * Permission lists cross the JNI boundary as ONE string joined by U+001F, the same flattening
+     * Permission lists cross the JNI boundary as one string joined by U+001F, the same flattening
      * day_spec uses for the C ABI — it keeps this shim free of jobjectArray plumbing on both sides.
      */
     static final String SEP = "\u001f";
@@ -211,7 +211,7 @@ public final class DayPermissions {
      * A headless fragment: no view, no UI, just the ActivityResult launcher that owns the permission
      * dialog's answer.
      *
-     * <p>Deliberately NOT {@code setRetainInstance(true)}: a retained fragment skips {@code onCreate}
+     * <p>Deliberately not {@code setRetainInstance(true)}: a retained fragment skips {@code onCreate}
      * after a configuration change, which would leave {@code launcher} registered against the
      * destroyed activity's result registry and the answer would never arrive. Letting the fragment
      * be recreated re-registers the launcher with the new activity, and the ActivityResult API

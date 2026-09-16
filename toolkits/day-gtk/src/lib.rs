@@ -110,7 +110,7 @@ day_core::tls_group! {
         RefCell::new(HashMap::new());
 
     /// Per-widget CSS provider for `background`/`corner_radius` surfaces, keyed by widget ptr, so
-    /// a reactive background repaints by reloading the SAME provider (no provider accumulation).
+    /// a reactive background repaints by reloading the same provider (no provider accumulation).
     /// Each provider is registered on the DISPLAY (`apply_surface`), so the teardown — run by
     /// `release`'s sweep — must take it back off, or display-global providers pile up for the
     /// life of the process, one per decorated widget that ever existed.
@@ -156,7 +156,7 @@ day_core::tls_group! {
     /// presentation but `Tabs`) the handover finds nothing and the rows stay a list.
     static NAV_MENU_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
 
-    /// Per-label style state, keyed by widget ptr. Font and color render through ONE Pango
+    /// Per-label style state, keyed by widget ptr. Font and color render through one Pango
     /// attribute list (set_attributes replaces the whole list), but a `LabelPatch` carries only
     /// the half that changed — so each patch updates its half here and re-applies the whole.
     /// Entries drop in `release`.
@@ -557,7 +557,7 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
     let mut pending: Option<PendingGradient> = None;
     let mut pending_stroke: Option<PendingStroke> = None;
     let mut pending_font: Option<PendingFont> = None;
-    // A decoded kind-20 record (stamp): the positions the NEXT shape record is drawn at, once
+    // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
     // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
     let mut stamp_at: Vec<(f64, f64)> = Vec::new();
     let mut stamp_n = 0usize;
@@ -590,7 +590,7 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
             continue;
         }
         if k == 21 {
-            // Four points per record; the LAST record of a run is padded with zeros, so the
+            // Four points per record; the last record of a run is padded with zeros, so the
             // header's count is what says where the real ones stop.
             for pair in [(a, b), (c, d), (e, f), (g, col)] {
                 if stamp_at.len() < stamp_n {
@@ -600,7 +600,7 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
             continue;
         }
         // The template is replayed once per position under a translated CTM. `ti` is rewound
-        // each time so a template with a texts payload (a polygon, a path) reads the SAME entry
+        // each time so a template with a texts payload (a polygon, a path) reads the same entry
         // every repetition and consumes it exactly once overall.
         let reps = stamp_at.len().max(1);
         let ti_start = ti;
@@ -707,7 +707,7 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
                     // arc/ellipse would draw a line from there to its start. Clear it.
                     cr.new_path();
                 }
-                // Font (19): applies to the NEXT text record only.
+                // Font (19): applies to the next text record only.
                 19 => {
                     let family = texts.get(ti).cloned().unwrap_or_default();
                     ti += 1;
@@ -850,7 +850,7 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
                     cr.clip();
                     cr.set_fill_rule(gtk4::cairo::FillRule::Winding);
                 }
-                // Stroke style (18): applies to the NEXT stroke record only.
+                // Stroke style (18): applies to the next stroke record only.
                 18 => {
                     let raw = texts.get(ti).cloned().unwrap_or_default();
                     ti += 1;
@@ -894,7 +894,7 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
                     });
                 }
                 // Image (22): a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md).
-                // A released bitmap draws NOTHING rather than a placeholder: a canvas re-records
+                // A released bitmap draws nothing rather than a placeholder: a canvas re-records
                 // on every tracked read, so a handle can be dropped between record and replay.
                 22 => {
                     let pixbuf = BITMAPS
@@ -1365,7 +1365,7 @@ enum NavPresent {
     Split(Rc<NavSplit>),
     /// `NavPresentation::Tabs`: the Adwaita view-switching idiom — an `AdwViewSwitcher` over
     /// an `AdwViewStack` of resident pages, the switcher a libadwaita app puts in its header
-    /// bar. Drawn ABOVE the pages here: this host is usually nested inside a sidebar
+    /// bar. Drawn above the pages here: this host is usually nested inside a sidebar
     /// destination, and the window's header bar is not its to take. (Until 2026-09-12 the
     /// switcher was a hand-built `.linked` row of toggles docked at the foot, and the pages'
     /// own Day frames pushed it below the pane's clipped edge — no picker was ever visible.)
@@ -1379,7 +1379,7 @@ enum NavPresent {
         stack: adw::ViewStack,
         /// The rows the switcher shows — titles and icon names, index-aligned with the
         /// destination pages (`p1`, `p2`, …). They arrive from the NAV_MENU, which is built
-        /// AFTER the pages' host and may be rebuilt (`NavMenuPatch::Items`), so a page joining
+        /// After the pages' host and may be rebuilt (`NavMenuPatch::Items`), so a page joining
         /// before or after them takes its title from here.
         rows: Rc<RefCell<SuiteRows>>,
         /// The nav menu's node: a switch reports against it, exactly as a sidebar row click
@@ -1453,7 +1453,7 @@ struct GtkAnim {
 
 /// Apply Day's layout origin AND the animation transform `t` to `widget` as its `GtkFixed` child
 /// transform, about the widget's center. GTK positions a Fixed child *through* its child transform,
-/// so the laid-out origin and the animation transform share one slot and MUST be composed here —
+/// so the laid-out origin and the animation transform share one slot and must be composed here —
 /// otherwise setting the transform would strand the widget at the fixed's (0,0) corner.
 fn apply_gtk_transform(fixed: &gtk4::Fixed, widget: &gtk4::Widget, t: Transform, size: Size) {
     let (ox, oy) = NODE_ORIGIN
@@ -1528,7 +1528,7 @@ fn gtk_animation(
 
 /// Build a nav-menu ListBox's rows (an optional template icon left of the label). Shared by the
 /// NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
-// The parameters ARE `NavMenuProps`, minus `selected`: index-aligned per-row decoration arrays.
+// The parameters are `NavMenuProps`, minus `selected`: index-aligned per-row decoration arrays.
 // Taking the props struct instead would tie this to one caller — `NavMenuPatch::Items` carries
 // the same arrays without a props value to hand over.
 #[allow(clippy::too_many_arguments)]
@@ -1543,7 +1543,7 @@ fn fill_nav_menu(
     tints: &[Option<day_spec::Color>],
     menus: &[Vec<day_spec::MenuItem>],
 ) {
-    // Idempotent: a caller that clears the ListBox itself must call this BEFORE doing so (the
+    // Idempotent: a caller that clears the ListBox itself must call this before doing so (the
     // popovers are parented to the rows it is about to destroy), and the map entry is taken, so
     // running it twice is a no-op.
     unparent_nav_popovers(listbox);
@@ -1785,7 +1785,7 @@ fn tinted_image_texture(source: &str, t: day_spec::Color) -> Option<gtk4::gdk::T
     Some(gtk4::gdk::Texture::for_pixbuf(&pixbuf))
 }
 
-/// Release this listbox's row popovers, and do it BEFORE the rows themselves go.
+/// Release this listbox's row popovers, and do it before the rows themselves go.
 ///
 /// A `PopoverMenu` is parented to its row's label, and GTK4 requires a popover to be unparented
 /// while that parent is still alive. Destroying the rows first leaves each popover pointing at
@@ -1865,7 +1865,7 @@ fn recolor_pixbuf(pixbuf: &gtk4::gdk_pixbuf::Pixbuf, fr: u8, fg: u8, fb: u8) {
 }
 
 /// Load a bundled template image (black glyph on transparent) and tint it to the current theme's
-/// foreground so it's visible in BOTH light and dark mode — a raw black PNG vanishes on a
+/// foreground so it's visible in both light and dark mode — a raw black PNG vanishes on a
 /// dark-mode sidebar or toolbar. Every RGB pixel is recolored to the foreground; the source ALPHA
 /// is kept as the mask, so the glyph's shape and antialiasing survive. Returns a ~20px `GtkImage`
 /// or `None` if the name doesn't resolve / the file can't be decoded. Used by the sidebar rows and
@@ -2238,7 +2238,7 @@ struct ListEntry {
 /// * `measure` reports a zero minimum width, so the cell can never inflate its row; its height is
 ///   whatever Day last laid the row at (`RowHeight`).
 /// * `size_allocate` hands the width GTK actually granted to Day through
-///   [`ListSource::layout_cell`] (the seam trees use for indentation) BEFORE placing the children,
+///   [`ListSource::layout_cell`] (the seam trees use for indentation) before placing the children,
 ///   then puts each child at the frame Day recorded for it — so a row laid at the list's full
 ///   width never reaches the screen.
 ///
@@ -2278,7 +2278,7 @@ mod day_cell {
         /// must never scroll.
         fill: std::cell::Cell<bool>,
         /// A filling cell's allocation observer, `(width, height)`: GTK4 has no size-allocate
-        /// signal, and the nav and inspector panes need one. Runs BEFORE the children are
+        /// signal, and the nav and inspector panes need one. Runs before the children are
         /// allocated, so a Day relayout it triggers — a pane reporting `FrameChanged`, which
         /// day-core dispatches at once when its tree is free — lands in this same pass, and
         /// the page follows a divider drag live, as an AppKit `setFrameSize:` report does.
@@ -2543,7 +2543,7 @@ fn tree_children_model(src: &TreeSource, parent: Option<u64>) -> gtk4::StringLis
 }
 
 /// Rebuild the whole model from the source's snapshot, then restore disclosure and
-/// selection — ALWAYS deferred to an idle (see the module comment).
+/// selection — always deferred to an idle (see the module comment).
 fn schedule_tree_rebuild(entry: Rc<TreeEntry>) {
     gtk4::glib::idle_add_local_once(move || {
         ffi_guard::contain((), || {
@@ -2685,7 +2685,7 @@ fn show_menu_popover(w: &Handle, items: &[day_spec::MenuItem], x: f64, y: f64) {
     popover.set_has_arrow(false);
     popover.set_pointing_to(Some(&gtk4::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
     popover.connect_closed(|pop| {
-        // Unparent OUTSIDE the close handler — GTK is still walking the popover's state.
+        // Unparent outside the close handler — GTK is still walking the popover's state.
         let pop = pop.clone();
         gtk4::glib::idle_add_local_once(move || pop.unparent());
     });
@@ -2905,7 +2905,7 @@ pub struct Gtk {
     /// In-window presentation (Linux/Windows); macOS renders the model in the GLOBAL
     /// menu bar instead (`set_menubar` — the quartz backend maps it natively).
     menu_bar: Option<gtk4::PopoverMenuBar>,
-    /// The current app-menu action group, inserted on EVERY Day window ("daymenu."
+    /// The current app-menu action group, inserted on every Day window ("daymenu."
     /// resolves against the focused window, so the macOS global menubar keeps working
     /// while a secondary window is key).
     menu_group: Option<gtk4::gio::SimpleActionGroup>,
@@ -3195,7 +3195,7 @@ fn update_text_attrs(
 }
 
 /// Register bundled fonts (§18.4) with whatever font system Pango draws from on this OS, so
-/// `Font::Custom` family names resolve: fontconfig on Linux; on macOS BOTH CoreText and
+/// `Font::Custom` family names resolve: fontconfig on Linux; on macOS both CoreText and
 /// fontconfig (Homebrew Pango may use either fontmap depending on how it was built); GDI
 /// private fonts on Windows (MSYS2 Pango, best effort). Failures log and move on — the family
 /// simply won't resolve and Pango falls back to the default face.
@@ -3283,7 +3283,7 @@ fn register_bundled_fonts() {
 
 /// Verify every bundled font family resolved into the Pango fontmap GTK is actually using —
 /// the loud half of §18.4's degrade-loudly rule. Pango fontmaps enumerate families at creation
-/// (see the `register_bundled_fonts` call at the top of `run`), so a family missing HERE means
+/// (see the `register_bundled_fonts` call at the top of `run`), so a family missing here means
 /// registration ran too late (or failed) and labels will silently render in the default face.
 fn check_bundled_fonts(widget: &impl gtk4::prelude::IsA<gtk4::Widget>) {
     use gtk4::prelude::WidgetExt as _;
@@ -3335,7 +3335,7 @@ fn content_of(parent: &Handle) -> Handle {
     parent.clone()
 }
 
-/// Warn ONCE per kind that this backend has no registered renderer for `kind`, before falling back to
+/// Warn once per kind that this backend has no registered renderer for `kind`, before falling back to
 /// a visible placeholder. A missing renderer usually means the piece's `gtk` feature wasn't enabled
 /// (Tier A.2 derives it automatically under `day build`). Deduped per kind so a placeholder rendered
 /// every frame doesn't spam the log.
@@ -3449,7 +3449,7 @@ impl Toolkit for Gtk {
                 let trailing = matches!(edge, PaneEdge::Trailing);
                 let panel = DayCell::filling();
                 panel.set_size_request(INSPECTOR_MIN_W.min(width) as i32, -1);
-                // Hidden BEFORE it joins the paned (the nav list pane's rule).
+                // Hidden before it joins the paned (the nav list pane's rule).
                 panel.set_visible(visible);
                 let content = DayCell::filling();
                 let paned = gtk4::Paned::new(gtk4::Orientation::Horizontal);
@@ -3645,7 +3645,7 @@ impl Toolkit for Gtk {
                     });
                     list.set_size_request(list_min as i32, -1);
                     // No list page, or one collapsed for the opening destination
-                    // (`content_list_for`): hidden BEFORE it joins the paned, so the host never
+                    // (`content_list_for`): hidden before it joins the paned, so the host never
                     // opens with an empty pane beside a page that owns none.
                     list.set_visible(list_width.is_some() && list_visible);
                     let detail = DayCell::filling();
@@ -3868,10 +3868,10 @@ impl Toolkit for Gtk {
                     listbox.select_row(listbox.row_at_index(sel as i32).as_ref());
                     suppress.set(false);
                 }
-                // The list scrolls WITHIN the sidebar (its own scrolled window, like AppKit's
+                // The list scrolls within the sidebar (its own scrolled window, like AppKit's
                 // NSOutlineView-in-NSScrollView). Without this, the bare ListBox's minimum height
                 // (all rows) propagates up to the window's sizing wrapper and a wheel over the
-                // sidebar scrolls the ENTIRE window.
+                // sidebar scrolls the entire window.
                 let sw = gtk4::ScrolledWindow::new();
                 sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
                 sw.set_child(Some(&listbox));
@@ -3906,7 +3906,7 @@ impl Toolkit for Gtk {
                 }
                 sw.set_child(Some(&gtk4::Fixed::new()));
                 // Transparent like AppKit's `setDrawsBackground(false)` scroll: content layered
-                // BEHIND the viewport (e.g. a gradient backdrop in a zstack) must show through.
+                // Behind the viewport (e.g. a gradient backdrop in a zstack) must show through.
                 scroll_transparent_css();
                 sw.add_css_class("day-scroll");
                 sw.upcast()
@@ -3916,7 +3916,7 @@ impl Toolkit for Gtk {
                     return placeholder_label(kind);
                 };
                 let label = gtk4::Label::new(Some(&p.text));
-                // BOTH halves of alignment. `xalign` places the text block inside the label's
+                // Both halves of alignment. `xalign` places the text block inside the label's
                 // allocation; `justify` aligns the WRAPPED LINES against each other. A centered
                 // paragraph needs the second — with xalign alone the block sits centered while
                 // its lines stay ragged-right, which is not what `TextAlign::Center` means.
@@ -4698,7 +4698,7 @@ impl Toolkit for Gtk {
                                 }
                             }
                         }
-                        // A source swap repaints the SAME widget (docs/images.md), so an `image()`
+                        // A source swap repaints the same widget (docs/images.md), so an `image()`
                         // bound to a signal shows new pixels without rebuilding its subtree.
                         day_spec::props::ImagePatch::Source(source) => {
                             let named = match source {
@@ -4823,7 +4823,7 @@ impl Toolkit for Gtk {
                         }
                         // The resident-page switch (docs/navigation.md): the app moved the
                         // selection, so the suite shows that destination and sets its toggle
-                        // WITHOUT reporting the move back as a click.
+                        // Without reporting the move back as a click.
                         if let (NavPatch::Select(i), NavPresent::Suite { stack, .. }) =
                             (p, &state.present)
                             && let Some(child) = stack.child_by_name(&format!("p{}", i + 1))
@@ -5083,7 +5083,7 @@ impl Toolkit for Gtk {
             }
         });
         let key = widget_key(&h);
-        // ONE call clears this pointer out of EVERY SideTable registered on this thread (canvas
+        // One call clears this pointer out of every SideTable registered on this thread (canvas
         // OPS, IMAGE_SOURCE, LIST_CELL_ROWS, COVER_IDS, SURFACE's css providers, the
         // picker/textarea state, the toolbar tables), running each table's teardown hook —
         // SURFACE detaches its display-global provider here. That closes the stale-pointer-key
@@ -5120,7 +5120,7 @@ impl Toolkit for Gtk {
         if let Some(state) = NAV_MENUS.with(|m| m.borrow_mut().remove(&key)) {
             unparent_nav_popovers(&state.listbox);
         }
-        // The same rule for a piece's own `.context_menu()` popover, which is parented to THIS
+        // The same rule for a piece's own `.context_menu()` popover, which is parented to this
         // widget: unparent it here or GTK finalizes the widget with the popover still attached,
         // and the stale map entry — keyed by widget pointer — is then inherited by whatever the
         // allocator puts at that address next, whose `set_context_menu` unparents a popover
@@ -5158,7 +5158,7 @@ impl Toolkit for Gtk {
 
     fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
         // A nav menu that has just gained ancestors: if one of them is a navigation suite, its
-        // rows ARE that suite's switcher. Runs before the insert proper so the toggles exist by
+        // rows are that suite's switcher. Runs before the insert proper so the toggles exist by
         // the time the first page is shown.
         if let Some((node, titles, icons)) =
             NAV_MENU_ROWS.with(|m| m.borrow().get(&widget_key(child)).cloned())
@@ -5388,7 +5388,7 @@ impl Toolkit for Gtk {
                 let rich = LABEL_STYLE.with(|m| {
                     m.borrow().get(&key).and_then(|s| {
                         s.rich.as_ref().map(|(t, r)| {
-                            // WITHOUT the link tags: `<a href>` is GtkLabel's own extension, not
+                            // Without the link tags: `<a href>` is GtkLabel's own extension, not
                             // Pango markup — a bare layout fails to parse it, comes out empty,
                             // and reports a zero size, which collapses the label. Links change no
                             // metrics, so dropping the tag measures exactly the same text.
@@ -6015,7 +6015,7 @@ impl Toolkit for Gtk {
         };
         let group = gtk4::gio::SimpleActionGroup::new();
         let model = build_gio_menu(items, &group);
-        // Actions live under the "daymenu" prefix on EVERY Day window (menu activations —
+        // Actions live under the "daymenu" prefix on every Day window (menu activations —
         // in-window bar or macOS global bar — resolve against the FOCUSED window);
         // accelerators on the app. NOT `active_window()`: that is None before the first
         // present, which silently left every item action-less at startup.
@@ -6170,7 +6170,7 @@ impl Toolkit for Gtk {
         layout.set_font_description(Some(&canvas_font_desc(size, &pending)));
         layout.set_single_paragraph_mode(true);
         layout.set_text(text);
-        // Pango hands back BOTH boxes from one layout; the ink one used to be discarded.
+        // Pango hands back both boxes from one layout; the ink one used to be discarded.
         let (ink, logical) = layout.extents();
         let scale = f64::from(gtk4::pango::SCALE);
         let px = |v: i32| f64::from(v) / scale;
@@ -6269,7 +6269,7 @@ impl Toolkit for Gtk {
     }
 
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
-        // GTK draws its own decorations (CSD), so the HeaderBar is a widget INSIDE the window —
+        // GTK draws its own decorations (CSD), so the HeaderBar is a widget inside the window —
         // rendering the root instead of the content Fixed is the whole difference between the
         // two captures (docs/window-image.md). The compositor's drop shadow stays out either way.
         let fixed = self.window_fixed.as_ref().ok_or("no window")?;
@@ -6358,7 +6358,7 @@ impl Toolkit for Gtk {
             w.window.set_title(Some(title));
             return;
         }
-        // The primary is an ordinary window (docs/windows.md): `day::window_title` in the FIRST
+        // The primary is an ordinary window (docs/windows.md): `day::window_title` in the first
         // window's shell arrives with the primary's own content, and the GNOME window list and
         // taskbars label a window by exactly this.
         if self
@@ -6375,11 +6375,11 @@ impl Toolkit for Gtk {
         }
     }
 
-    /// Screenshot settling (see `snapshot_window`): GTK lays out and draws on the NEXT
+    /// Screenshot settling (see `snapshot_window`): GTK lays out and draws on the next
     /// frame-clock tick, so a capture right after the steps that changed the UI would render
     /// the previous frame (the CI blank/partial-shot bug). On the first poll of a settle
     /// cycle, queue a fresh draw and note the frame-clock paint counter; report idle once a
-    /// LATER paint completed. No main-loop iteration happens here — the engine polls this
+    /// Later paint completed. No main-loop iteration happens here — the engine polls this
     /// between free main-loop turns.
     fn ui_idle(&mut self) -> bool {
         let Some(fixed) = self.window_fixed.as_ref() else {
@@ -6506,7 +6506,7 @@ impl Toolkit for Gtk {
             // GFile's local path crosses back; a Cancellable lets dismiss() cancel it.
             // Presenting a modal GtkFileDialog pumps the GTK main loop (mapping its window — a
             // synchronous round-trip under a headless/xvfb display). But day-core calls this
-            // `present()` WHILE holding the tree borrow (`with_tree(|t| t.present(..))` in
+            // `present()` While holding the tree borrow (`with_tree(|t| t.present(..))` in
             // present.rs), so a loop-spin here re-enters Day (e.g. the on-main dayscript engine's
             // next step) and its `with_tree` panics "already borrowed" — inside a GTK C callback,
             // which aborts rather than unwinds. So DEFER the actual open/save to an idle: by then
@@ -6606,7 +6606,7 @@ fn apply_gtk_filters(dialog: &gtk4::FileDialog, filters: &[day_spec::present::Fi
 /// request was answered while the idle sat in the queue (`dismiss` removed the entry).
 ///
 /// Answering that fast is ordinary — a dayscript `respond` does it, and so does any app that
-/// resolves its own presentation — and the picker MUST NOT open then: Day considers the request
+/// resolves its own presentation — and the picker must NOT open then: Day considers the request
 /// closed, so a window appearing after it is a ghost whose result belongs to nothing. GTK gives
 /// a second reason to skip it. Opening with an already-cancelled GCancellable leaves the
 /// operation in a state GTK never completes: it drops the callback outright on macOS, and on
@@ -6616,7 +6616,7 @@ fn claim_file_dialog(req: u64) -> bool {
     FILE_DIALOGS.with(|m| m.borrow().contains(&req))
 }
 
-/// Drop a file picker on dismissal — WITHOUT cancelling it, whether it is queued or already
+/// Drop a file picker on dismissal — without cancelling it, whether it is queued or already
 /// shown. Removing the entry is the whole mechanism: a queued picker's idle then skips opening
 /// it (`claim_file_dialog`), and a shown one's eventual result is dropped by `emit_file_result`.
 ///
@@ -6755,7 +6755,7 @@ fn build_day_window(
     // content — the standard Adwaita window structure, and the AdwDialog host that
     // AdwAlertDialog needs.
     let header = adw::HeaderBar::new();
-    // A day toolbar packs into THIS bar (docs/toolbars.md) — remember it, since AdwToolbarView
+    // A day toolbar packs into this bar (docs/toolbars.md) — remember it, since AdwToolbarView
     // does not enumerate its top bars and there is no other way back from a content handle.
     crate::toolbar::register_header(&window, &header);
     let toolbar = adw::ToolbarView::new();
@@ -6816,7 +6816,7 @@ impl Platform for Gtk {
     const TOOLKIT: &'static str = "gtk";
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Handle, Size)>) {
-        // Bundled custom fonts (§18.4) must be registered BEFORE any GTK/Pango initialization:
+        // Bundled custom fonts (§18.4) must be registered before any GTK/Pango initialization:
         // Pango's fontmaps (CoreText on macOS, fontconfig on Linux) enumerate the available
         // families when the fontmap is created and do NOT re-scan, so a font registered after
         // GTK init silently falls back to the default family. `check_bundled_fonts` (in

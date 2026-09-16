@@ -47,7 +47,7 @@ pub(crate) fn with_current_anim<R>(spec: AnimSpec, f: impl FnOnce() -> R) -> R {
 /// applies instantly. This matches SwiftUI's transaction boundaries.
 pub fn with_animation<R>(spec: AnimSpec, f: impl FnOnce() -> R) -> R {
     with_current_anim(spec, || {
-        // Coalesce the writes, then force the drain to run NOW — while `spec` is still ambient —
+        // Coalesce the writes, then force the drain to run now — while `spec` is still ambient —
         // rather than deferring to the enclosing batch's close (event dispatch runs handlers inside
         // a batch, so that close happens after this scope ends and the intent would be lost).
         let r = day_reactive::batch(f);

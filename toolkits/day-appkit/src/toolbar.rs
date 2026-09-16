@@ -56,7 +56,7 @@ pub(crate) fn image_for(
         // A bundled image, as a template so the system tints it for the title bar the way it
         // tints its own symbols.
         //
-        // The glyph SVG comes FIRST, exactly as the sidebar's `resolve_nav_icons` does it: on this
+        // The glyph SVG comes first, exactly as the sidebar's `resolve_nav_icons` does it: on this
         // backend a `resource/vectors/` asset stages as an SVG and nothing else, so looking only
         // for a raster found nothing and the item silently fell back to drawing its LABEL — a
         // toolbar button reading "Star" where a star belonged. NSImage renders the SVG at whatever
@@ -283,7 +283,7 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
             out.push(unsafe {
                 objc2_app_kit::NSToolbarSidebarTrackingSeparatorItemIdentifier.copy()
             });
-            // The CONTENT-LIST column, and a second separator pinned to ITS divider — the one
+            // The CONTENT-LIST column, and a second separator pinned to its divider — the one
             // Day builds itself, because AppKit only vends the sidebar's.
             if has(C::List) {
                 column_items(&mut out, &w.items, C::List, true);

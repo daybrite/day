@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# Pre-flight lint — run CI's whole fmt + clippy gate locally, BEFORE pushing, so a fmt drift or a
+# Pre-flight lint — run CI's whole fmt + clippy gate locally, before pushing, so a fmt drift or a
 # clippy warning can't reach CI. It exists because the gate is a matrix, not one command: toolkit
 # and part crates are NOT in default-members and each compiles only under its own backend feature
 # and/or cross-target, so a bare `cargo clippy` silently skips them — that blind spot has shipped
@@ -46,7 +46,7 @@ leg() { # leg <label> <cmd...>
 skip() { printf '\033[33m− SKIP %s — %s\033[0m\n' "$1" "$2"; SKIPPED+=("$1: $2"); }
 
 # The showcase app is its own repository now (daybrite/Day-Showcase). Its clippy legs run in a
-# checkout of it, built against THIS checkout via `day patch`, so a framework change is still
+# checkout of it, built against this checkout via `day patch`, so a framework change is still
 # linted against the app that exercises every backend. No checkout ⇒ those legs SKIP with a reason
 # rather than silently disappearing, which is the whole contract of this script.
 SHOWCASE="${SHOWCASE:-$ROOT/../Day-Showcase}"
@@ -175,7 +175,7 @@ if [ -d parts ]; then
     leg "clippy $P (host)" cargo clippy --locked -p "$P" --all-targets
     if have_target aarch64-linux-android; then
       leg "clippy $P (android)" cargo clippy --locked --target aarch64-linux-android -p "$P" -- "${XCROSS[@]}"
-      # …and AGAIN with the staged-bridge cfg, which compiles the other half of a bridged part.
+      # …and again with the staged-bridge cfg, which compiles the other half of a bridged part.
       # A daybridge arm in a staged language (Java/Kotlin/Swift/ArkTS/JS) is behind
       # `cfg(day_bridge_staged)`, set only when `day build` has staged the foreign half into the
       # host project; a bare cargo build compiles the `platforms = [other]` fallback instead. So

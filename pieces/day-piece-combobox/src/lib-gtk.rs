@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// GTK: GtkComboBoxText WITH an entry — GTK's real combo box (free text + a dropdown of items).
-// The internal GtkEntry's "changed" signal is the single change path: it fires on typing AND
+// GTK: GtkComboBoxText with an entry — GTK's real combo box (free text + a dropdown of items).
+// The internal GtkEntry's "changed" signal is the single change path: it fires on typing and
 // when picking a dropdown item (the pick writes the entry), so both report as TextChanged. It
 // also fires on programmatic set_text, so a per-node `suppress` cell guards the sync in
 // `update` from echoing back.

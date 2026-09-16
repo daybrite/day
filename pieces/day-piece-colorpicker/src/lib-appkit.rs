@@ -128,7 +128,7 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &ColorPatch) {
         return;
     };
     // No-op on an unchanged value: `setColor:` fires the well's action, so writing back the color
-    // that just arrived FROM the well would round-trip forever.
+    // that just arrived from the well would round-trip forever.
     if to_day_color(&well.color()) != Some(*c) {
         well.setColor(&to_ns_color(*c));
     }

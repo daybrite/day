@@ -26,7 +26,7 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QColorDialog)
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 # XAML: build.rs compiles src/lib-xaml-shim.cpp — a Button whose Flyout holds the system
-# `ColorPicker`, boxed through day-xaml-sys's day_xaml_box seam. Windows-only, built in CI, NOT
+# `ColorPicker`, boxed through day-xaml-sys's day_xaml_box seam. Windows-only, built in CI, not
 # verified locally (docs/colorpicker.md records what a Windows check must confirm).
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 # web-dom: `<input type="color">`, the browser's own picker.

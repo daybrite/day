@@ -101,7 +101,7 @@ fn undo_against_a_row_another_author_deleted_degrades_quietly() {
 
     store.elem(1).rank_no().write(99);
     day_reactive::flush_sync();
-    // Another author removes the row AFTER the edit was captured (capture suppressed so the
+    // Another author removes the row after the edit was captured (capture suppressed so the
     // stack does not learn about it — the "another writer" shape).
     day_model::with_author("importer", || {
         store.restructure("remove", Op::Delete, 1, |v| {

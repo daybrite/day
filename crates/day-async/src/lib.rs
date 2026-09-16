@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-async — the std-only async support parts (docs/async.md).
+//! day-async: the std-only async support parts (docs/async.md).
 //!
 //! Day runs futures on its own main-loop executor (`day::task`) and never brings in an async
 //! runtime. What a part needs beside that executor is small and was, until this crate, written
@@ -87,7 +87,7 @@ impl<T> Drop for Deliver<T> {
 }
 
 /// The receiving half of a [`oneshot`]: a future resolving to the delivered value, or to
-/// [`Dropped`] when the sender went away first. Awaitable from any executor — `day::task`, or a
+/// [`Dropped`] when the sender went away first. Awaitable from any executor: `day::task`, or a
 /// test's park/unpark `block_on`.
 pub struct Oneshot<T> {
     slot: Arc<Mutex<Slot<T>>>,
@@ -110,7 +110,7 @@ impl<T> Future for Oneshot<T> {
 }
 
 impl<T> Oneshot<T> {
-    /// Whether a value has arrived (or the sender is gone) — without consuming it.
+    /// Whether a value has arrived (or the sender is gone), without consuming it.
     pub fn is_ready(&self) -> bool {
         let s = lock(&self.slot);
         s.value.is_some() || s.closed
@@ -148,7 +148,7 @@ pub fn next_token() -> u64 {
 
 type Callback<T> = Box<dyn FnOnce(T) + Send>;
 
-/// Waiting closures keyed by token — the shape behind every platform completion that crosses
+/// Waiting closures keyed by token: the shape behind every platform completion that crosses
 /// an FFI boundary as a number (docs/bridge.md "Callbacks").
 ///
 /// Rules that make it safe to hand a token to code in another language:
@@ -187,7 +187,7 @@ impl<T> TokenRegistry<T> {
     }
 
     /// Remove the closure for `token` and run it with `value`. `false` when no closure waits
-    /// under that token — completed, cancelled, or never registered.
+    /// under that token (completed, cancelled, or never registered).
     pub fn complete(&self, token: u64, value: T) -> bool {
         let cb = lock(&self.slots).remove(&token);
         match cb {
@@ -209,7 +209,7 @@ impl<T> TokenRegistry<T> {
         lock(&self.slots).contains_key(&token)
     }
 
-    /// How many closures wait — for tests and diagnostics.
+    /// How many closures wait, for tests and diagnostics.
     pub fn len(&self) -> usize {
         lock(&self.slots).len()
     }
