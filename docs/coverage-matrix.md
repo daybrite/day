@@ -104,3 +104,6 @@ An app branches on this rather than on the target name.
 | `Inspector` | N | – | N | N | N | – | – | – |
 | `Cursor` | N | E | N | E | E | N | – | N |
 | `FontList` | N | N | N | N | N | N | N | E |
+| `ImageDecode` | N | N | N | N | N | N | N | N |
+| `ImageEncode` | N | N | N | N | – | N | N | N |
+| `ImageProperties` | N | – | – | – | – | – | – | – |

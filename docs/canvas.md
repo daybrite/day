@@ -32,6 +32,7 @@ canvas(|d, size| {
 | `stamp_styled(shape, at, paint, style)` | The same, stroking each copy |
 | `clip(shape)` / `clipped(shape, f)` | Confine what follows to a shape |
 | `text(text, at, style)` | One line of text at a point, in a size, color and [font](fonts.md) |
+| `image(&bitmap, rect)` / `image_with_opacity(…)` | A decoded [image](images.md) scaled into a rect — the handle, never bytes |
 | `save` / `restore` / `concat(affine)` | Transform and clip state |
 
 `Shape` covers `Rect`, `RoundedRect`, `Ellipse`, `Arc`, `Line`, `Polygon`, and `Path`.

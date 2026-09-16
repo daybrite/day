@@ -291,6 +291,37 @@ impl Draw {
         })));
     }
 
+    /// Draw a decoded image into `rect` (docs/images.md).
+    ///
+    /// Takes a decoded [`Bitmap`](day_core::Bitmap), not bytes: the draw closure re-records on
+    /// every tracked read, and a buffer here would be compared — and re-decoded — every frame.
+    /// Decode once with `day::decode_image`, hold the handle, and draw it as often as you like.
+    ///
+    /// ```ignore
+    /// let photo = day::decode_image(bytes).await?;          // once
+    /// canvas(move |d, size| d.image(&photo, Rect::from_size(size)))
+    /// ```
+    ///
+    /// Needs [`Cap::ImageDecode`](day_spec::Cap::ImageDecode); a backend without it draws
+    /// nothing here, the same as for any op it does not know.
+    pub fn image(&mut self, image: &day_core::Bitmap, rect: day_spec::Rect) {
+        self.image_with_opacity(image, rect, 1.0);
+    }
+
+    /// [`Draw::image`] with an opacity in `0.0..=1.0` multiplying the image's own alpha.
+    pub fn image_with_opacity(
+        &mut self,
+        image: &day_core::Bitmap,
+        rect: day_spec::Rect,
+        opacity: f64,
+    ) {
+        self.ops.push(DrawOp::Image {
+            image: image.id(),
+            rect,
+            opacity: opacity.clamp(0.0, 1.0),
+        });
+    }
+
     /// Confine everything drawn afterwards to `shape`.
     ///
     /// The clip lasts until the enclosing [`Draw::restore`], so the usual shape is

@@ -3591,6 +3591,19 @@ mod imp {
         static NAV_OPS: RefCell<HashMap<usize, NavQueue>> = RefCell::new(HashMap::new());
     }
 
+    /// A decoded bitmap (docs/images.md), held until day-core drops its last handle.
+    struct UikitBitmap {
+        image: Retained<objc2_ui_kit::UIImage>,
+        info: day_spec::BitmapInfo,
+    }
+
+    thread_local! {
+        /// `BitmapId` → the decoded image. Keyed by the id day-core minted rather than by a view
+        /// pointer: one bitmap outlives any view and may be drawn by several at once. Entries
+        /// leave only through `release_image`.
+        static BITMAPS: RefCell<HashMap<u64, UikitBitmap>> = RefCell::new(HashMap::new());
+    }
+
     /// A Day page joins a host's stack (the insert duty).
     fn push_page(host: usize, vc: Retained<UIViewController>) {
         queue_op(host, NavOp::Push(vc));
@@ -6335,6 +6348,29 @@ mod imp {
                     }
                     let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
                 }
+                // A released bitmap draws NOTHING rather than a placeholder: a canvas re-records
+                // on every tracked read, so a handle can be dropped between the record and this
+                // replay, and a frame that flashes a grey box is worse than one that omits it.
+                DrawOp::Image {
+                    image,
+                    rect,
+                    opacity,
+                } => {
+                    let img = BITMAPS.with(|m| m.borrow().get(&image.0).map(|b| b.image.clone()));
+                    if let Some(img) = img {
+                        let dest = CGRect::new(
+                            CGPoint::new(rect.origin.x, rect.origin.y),
+                            CGSize::new(rect.size.width, rect.size.height),
+                        );
+                        // The alpha rides the context rather than a blend-mode draw, so the
+                        // opacity composes with whatever the canvas already set.
+                        let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
+                        CGContext::save_g_state(ctx.as_deref());
+                        CGContext::set_alpha(ctx.as_deref(), *opacity);
+                        img.drawInRect(dest);
+                        CGContext::restore_g_state(ctx.as_deref());
+                    }
+                }
                 DrawOp::Save => {
                     let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
                     CGContext::save_g_state(ctx.as_deref());
@@ -6475,6 +6511,126 @@ mod imp {
     /// change rather than the frame before it.
     ///
     /// `chrome` picks the whole window over Day's content view; both are views in the same tree.
+    /// The `UIImage` behind an [`day_spec::ImageSource`] (docs/images.md).
+    ///
+    /// Shared by realize and the `Source` patch on purpose: a swapped source must load exactly
+    /// what a fresh realize would have, or a piece shows different pixels depending on whether it
+    /// was built or updated.
+    fn uikit_image_for(source: &day_spec::ImageSource) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        match source {
+            day_spec::ImageSource::Named(named) => {
+                let name = NSString::from_str(named);
+                // Processed image (§18.3): load by name from the DayPieces `Assets.car` — the
+                // SwiftPM `.process` catalog compiled by actool into DayPieces_DayPieces.bundle.
+                let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
+                let bname = NSString::from_str("DayPieces_DayPieces");
+                let bext = NSString::from_str("bundle");
+                if let Some(url) =
+                    unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }
+                    && let Some(day_bundle) =
+                        unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
+                    && let Some(img) = unsafe {
+                        objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
+                            &name,
+                            Some(&day_bundle),
+                            None,
+                        )
+                    }
+                {
+                    return Some(img);
+                }
+                // Fallback: a loose file staged in the bundle (assets/ or images/), or dev.
+                let path = day_spec::resource::resolve_image_file(named)?;
+                unsafe {
+                    objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
+                        &path.to_string_lossy(),
+                    ))
+                }
+            }
+            // Bytes the app already holds — a download, a picked file, a paste — with no staged
+            // resource behind them.
+            day_spec::ImageSource::Bytes(bytes) => {
+                let data = objc2_foundation::NSData::with_bytes(bytes);
+                unsafe { objc2_ui_kit::UIImage::imageWithData(&data) }
+            }
+            // Already decoded: share the one UIImage rather than parsing the same bytes twice.
+            day_spec::ImageSource::Decoded(id) => {
+                BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.image.clone()))
+            }
+        }
+    }
+
+    /// Redraw `image` at `scale`× its pixel size, for [`day_spec::EncodeSpec`]'s `fit`.
+    fn scaled_image(
+        image: &objc2_ui_kit::UIImage,
+        pixels: Size,
+        scale: f64,
+    ) -> Option<Retained<objc2_ui_kit::UIImage>> {
+        use objc2::AllocAnyThread as _;
+        let w = (pixels.width * scale).round().max(1.0);
+        let h = (pixels.height * scale).round().max(1.0);
+        let bounds = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w, h));
+        // The format's scale is pinned to 1: the renderer would otherwise multiply by the
+        // screen's scale and hand back an image twice the size that was asked for.
+        let format = unsafe { objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat() };
+        unsafe { format.setScale(1.0) };
+        let renderer = unsafe {
+            objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds_format(
+                objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+                bounds,
+                &format,
+            )
+        };
+        let src: Retained<objc2_ui_kit::UIImage> = Retained::from(image);
+        // SAFETY: the renderer runs the block synchronously, inside this call.
+        let out = unsafe {
+            let block = block2::RcBlock::new(
+                move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                    src.drawInRect(bounds);
+                },
+            );
+            renderer.imageWithActions(&*block as *const _ as *mut _)
+        };
+        Some(out)
+    }
+
+    /// Re-encode a decoded bitmap (docs/images.md).
+    ///
+    /// A free function rather than the duty's body so each refusal reads as an early return
+    /// instead of another copy of the same emit.
+    fn encode_bitmap(
+        id: day_spec::BitmapId,
+        spec: &day_spec::EncodeSpec,
+    ) -> Result<Vec<u8>, day_spec::ImageError> {
+        use day_spec::ImageFormat as F;
+        let held = BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| (b.image.clone(), b.info)));
+        let (image, info) = held.ok_or(day_spec::ImageError::Gone)?;
+        // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+        // upscaling on an export path inflates the bytes without adding any detail.
+        let image = match spec.fit {
+            Some(fit) if info.pixels.width > 0.0 && info.pixels.height > 0.0 => {
+                let s = (fit.width / info.pixels.width)
+                    .min(fit.height / info.pixels.height)
+                    .min(1.0);
+                if s < 1.0 {
+                    scaled_image(&image, info.pixels, s).ok_or(day_spec::ImageError::Encode)?
+                } else {
+                    image
+                }
+            }
+            _ => image,
+        };
+        let data = match spec.format {
+            F::Png => image.png_representation(),
+            // UIKit's compression runs 0 (most) … 1 (least), which is `EncodeSpec::quality`'s
+            // scale exactly.
+            F::Jpeg => image.jpeg_representation(spec.quality.unwrap_or(0.9).clamp(0.0, 1.0)),
+            // UIKit ships no other writer; `encode_formats` says so before an app asks.
+            _ => return Err(day_spec::ImageError::Encode),
+        };
+        Ok(data.ok_or(day_spec::ImageError::Encode)?.to_vec())
+    }
+
     fn snapshot_uikit(chrome: bool) -> Result<Vec<u8>, String> {
         let view: Retained<UIView> = with_key_scene(|e| {
             if chrome {
@@ -7245,6 +7401,12 @@ mod imp {
                 Cap::Cursor => Support::Emulated,
                 // `UIFont.familyNames` + `fontNamesForFamilyName:` (docs/fonts.md).
                 Cap::FontList => Support::Native,
+                // `UIImage(data:)` reads every container ImageIO knows, and UIKit writes back
+                // PNG and JPEG (docs/images.md). `Cap::ImageProperties` is deliberately NOT here:
+                // reading EXIF would mean linking ImageIO and going through `CGImageSource`, and
+                // an empty struct would read as "this file records nothing" rather than "nobody
+                // looked".
+                Cap::ImageDecode | Cap::ImageEncode => Support::Native,
                 // UIGraphicsImageRenderer draws this app's own window into a bitmap
                 // (docs/window-image.md).
                 // A label carrying a link run is built as a read-only UITextView, whose delegate
@@ -8073,37 +8235,10 @@ mod imp {
                         iv.setContentMode(mode);
                         iv.setClipsToBounds(true);
                     }
-                    let name = NSString::from_str(&p.source);
-                    let mut set = false;
-                    // Processed image (§18.3): load by name from the DayPieces `Assets.car` — the
-                    // SwiftPM `.process` catalog compiled by actool into DayPieces_DayPieces.bundle.
-                    let main = unsafe { objc2_foundation::NSBundle::mainBundle() };
-                    let bname = NSString::from_str("DayPieces_DayPieces");
-                    let bext = NSString::from_str("bundle");
-                    if let Some(url) =
-                        unsafe { main.URLForResource_withExtension(Some(&bname), Some(&bext)) }
-                        && let Some(day_bundle) =
-                            unsafe { objc2_foundation::NSBundle::bundleWithURL(&url) }
-                        && let Some(img) = unsafe {
-                            objc2_ui_kit::UIImage::imageNamed_inBundle_compatibleWithTraitCollection(
-                                &name,
-                                Some(&day_bundle),
-                                None,
-                            )
-                        }
-                    {
-                        unsafe { iv.setImage(Some(&img)) };
-                        set = true;
-                    }
-                    // Fallback: a loose file staged in the bundle (assets/ or images/), or dev.
-                    if !set
-                        && let Some(path) = day_spec::resource::resolve_image_file(&p.source)
-                        && let Some(img) = unsafe {
-                            objc2_ui_kit::UIImage::imageWithContentsOfFile(&NSString::from_str(
-                                &path.to_string_lossy(),
-                            ))
-                        }
-                    {
+                    // Named is the staged-asset path; Bytes and Decoded arrive from
+                    // `day::decode_image` (docs/images.md), so an `image()` piece can show a
+                    // download or a pasted PNG with no staged resource behind it.
+                    if let Some(img) = uikit_image_for(&p.source) {
                         unsafe { iv.setImage(Some(&img)) };
                     }
                     // Vector-glyph tint (docs/vectors.md): template rendering + the view's tint —
@@ -8145,20 +8280,37 @@ mod imp {
         ) {
             match kind {
                 kinds::IMAGE => {
-                    if let (Some(day_spec::props::ImagePatch::Tint(c)), Some(iv)) = (
+                    if let (Some(p), Some(iv)) = (
                         patch.downcast_ref::<day_spec::props::ImagePatch>(),
                         h.downcast_ref::<objc2_ui_kit::UIImageView>(),
                     ) {
-                        // Template rendering + the view's tint, as at realize (docs/vectors.md).
-                        if let Some(img) = unsafe { iv.image() } {
-                            let mode = match c {
-                                Some(_) => objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                                None => objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal,
-                            };
-                            let next = unsafe { img.imageWithRenderingMode(mode) };
-                            unsafe { iv.setImage(Some(&next)) };
+                        match p {
+                            day_spec::props::ImagePatch::Tint(c) => {
+                                // Template rendering + the view's tint, as at realize
+                                // (docs/vectors.md).
+                                if let Some(img) = unsafe { iv.image() } {
+                                    let mode = match c {
+                                        Some(_) => {
+                                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
+                                        }
+                                        None => objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal,
+                                    };
+                                    let next = unsafe { img.imageWithRenderingMode(mode) };
+                                    unsafe { iv.setImage(Some(&next)) };
+                                }
+                                unsafe { iv.setTintColor(c.map(uicolor).as_deref()) };
+                            }
+                            // A source swap repaints the SAME view (docs/images.md), so an
+                            // `image()` bound to a signal shows new pixels without rebuilding
+                            // its subtree.
+                            day_spec::props::ImagePatch::Source(source) => {
+                                // A source that will not load leaves the view showing what it
+                                // was — the patch's contract, and what GTK, Qt and Android do.
+                                if let Some(img) = uikit_image_for(source) {
+                                    unsafe { iv.setImage(Some(&img)) };
+                                }
+                            }
                         }
-                        unsafe { iv.setTintColor(c.map(uicolor).as_deref()) };
                     }
                 }
                 kinds::CONTAINER => {
@@ -9518,6 +9670,67 @@ mod imp {
         fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
             OPS.with(|t| t.insert(ptr_of(h), ops.to_vec()));
             unsafe { h.setNeedsDisplay() };
+        }
+
+        /// Decode bytes with `UIImage(data:)` (docs/images.md), which reads every container
+        /// ImageIO knows — PNG, JPEG, HEIF, GIF, TIFF, BMP and WebP on iOS 14+.
+        fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+            let data = objc2_foundation::NSData::with_bytes(bytes);
+            let event = match unsafe { objc2_ui_kit::UIImage::imageWithData(&data) } {
+                Some(image) => {
+                    // `size` is in POINTS; multiplying by the image's own scale is what turns it
+                    // into the pixel dimensions a caller asked for. Bytes decode at scale 1, so
+                    // the two agree here — but the multiplication is what keeps that true.
+                    let (size, scale) = unsafe { (image.size(), image.scale()) };
+                    let format = day_spec::ImageFormat::sniff(bytes);
+                    let info = day_spec::BitmapInfo {
+                        pixels: Size::new(size.width * scale, size.height * scale),
+                        // Decoded bytes carry no density — a PNG is simply its pixels.
+                        scale: 1.0,
+                        format,
+                        // Derived from the container, not measured: asking UIKit would mean
+                        // reaching through `CGImage` for an alpha info flag. Unknown counts as
+                        // "may have alpha", the harmless direction.
+                        has_alpha: !matches!(
+                            format,
+                            Some(day_spec::ImageFormat::Jpeg) | Some(day_spec::ImageFormat::Bmp)
+                        ),
+                    };
+                    BITMAPS.with(|m| m.borrow_mut().insert(id.0, UikitBitmap { image, info }));
+                    Event::ImageDecoded {
+                        req,
+                        result: Ok(info),
+                    }
+                }
+                None => Event::ImageDecoded {
+                    req,
+                    result: Err(day_spec::ImageError::Decode),
+                },
+            };
+            emit(day_spec::WINDOW_NODE, event);
+        }
+
+        fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+            BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.info))
+        }
+
+        fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+            let result = encode_bitmap(id, spec);
+            emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
+        }
+
+        /// What UIKit WRITES: `UIImagePNGRepresentation` and `UIImageJPEGRepresentation`, and
+        /// nothing else. It READS far more, and the asymmetry is the platform's own — which is
+        /// why this duty exists rather than letting `Cap::ImageEncode` imply symmetry.
+        fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+            use day_spec::ImageFormat::{Jpeg, Png};
+            vec![Png, Jpeg]
+        }
+
+        fn release_image(&mut self, id: day_spec::BitmapId) {
+            BITMAPS.with(|m| {
+                m.borrow_mut().remove(&id.0);
+            });
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

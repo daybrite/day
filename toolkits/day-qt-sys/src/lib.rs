@@ -220,6 +220,36 @@ unsafe extern "C" {
     pub fn day_qt_image_new(path: *const c_char, mode: c_int, tint: *const c_char) -> *mut c_void;
     /// Repaint a realized glyph with a new tint ("" restores the authored colors).
     pub fn day_qt_image_set_tint(w: *mut c_void, tint: *const c_char);
+    // Raster images from bytes (docs/images.md): the shim owns a `QImage` registry keyed by the
+    // id day-core minted, because the pixels must outlive any one widget.
+    /// Decode bytes into the registry under `id`; `out` (3 doubles) receives width, height and
+    /// 1/0 for an alpha channel. Returns 0 when the bytes are not an image Qt reads.
+    pub fn day_qt_image_decode(id: u64, bytes: *const u8, len: c_int, out: *mut f64) -> c_int;
+    /// Re-encode a decoded bitmap. `quality` -1 takes the format's default; `fit_w`/`fit_h` 0
+    /// means no downscale. A heap buffer of `*out_len` bytes, released with [`day_qt_bytes_free`].
+    pub fn day_qt_image_encode(
+        id: u64,
+        format: *const c_char,
+        quality: c_int,
+        fit_w: c_double,
+        fit_h: c_double,
+        out_len: *mut c_int,
+    ) -> *mut u8;
+    /// Release a buffer returned by [`day_qt_image_encode`]. Safe to call with null.
+    pub fn day_qt_bytes_free(p: *mut u8);
+    /// Drop a decoded bitmap from the registry.
+    pub fn day_qt_image_release(id: u64);
+    /// An image widget showing a decoded bitmap rather than a staged file.
+    pub fn day_qt_image_new_bitmap(id: u64, mode: c_int) -> *mut c_void;
+    /// An image widget showing raw encoded bytes.
+    pub fn day_qt_image_new_bytes(bytes: *const u8, len: c_int, mode: c_int) -> *mut c_void;
+    /// Point a realized image widget at a decoded bitmap (the `Source` patch).
+    pub fn day_qt_image_set_bitmap(w: *mut c_void, id: u64);
+    /// Point a realized image widget at raw encoded bytes (the `Source` patch).
+    pub fn day_qt_image_set_bytes(w: *mut c_void, bytes: *const u8, len: c_int);
+    /// Point a realized image widget at a different staged file (the `Source` patch), recording
+    /// the path so a later tint re-renders from the right source.
+    pub fn day_qt_image_set_path(w: *mut c_void, path: *const c_char);
     // App icon (§18.2): Dock icon on macOS, taskbar icon on Linux/Windows.
     pub fn day_qt_set_app_icon(path: *const c_char);
     // Native Qt Resource System (§18.3): register the .rcc blob; read data zero-copy.

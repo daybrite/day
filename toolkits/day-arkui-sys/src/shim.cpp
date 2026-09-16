@@ -36,7 +36,9 @@
 #include <hilog/log.h>
 #include <multimedia/image_framework/image/image_common.h>
 #include <multimedia/image_framework/image/image_packer_native.h>
+#include <multimedia/image_framework/image/image_source_native.h>
 #include <multimedia/image_framework/image/pixelmap_native.h>
+#include <arkui/drawable_descriptor.h>
 #include <napi/native_api.h>
 #include <rawfile/raw_file.h>
 #include <rawfile/raw_file_manager.h>
@@ -55,7 +57,9 @@
 #include <native_drawing/drawing_path.h>
 #include <native_drawing/drawing_path_effect.h>
 #include <native_drawing/drawing_pen.h>
+#include <native_drawing/drawing_pixel_map.h>
 #include <native_drawing/drawing_point.h>
+#include <native_drawing/drawing_sampling_options.h>
 #include <native_drawing/drawing_rect.h>
 #include <native_drawing/drawing_round_rect.h>
 #include <native_drawing/drawing_shader_effect.h>
@@ -1576,6 +1580,22 @@ static OH_Drawing_Path* ark_cached_polygon(const std::string& pts, double key, b
     return built;
 }
 
+// ---- Raster images from bytes (docs/images.md) ---------------------------------------------
+//
+// Decoded bitmaps, keyed by the id day-core minted. A pixelmap outlives any one node and may be
+// drawn by several at once, so this is keyed by id rather than by node. Entries leave only
+// through `day_ark_image_release`, which day-core calls when the app drops its last handle.
+// Declared ahead of `canvas_draw` so the image op can reach it.
+static std::map<uint64_t, OH_PixelmapNative*>& ark_bitmaps() {
+    static std::map<uint64_t, OH_PixelmapNative*> m;
+    return m;
+}
+
+static OH_PixelmapNative* ark_bitmap_for(uint64_t id) {
+    auto it = ark_bitmaps().find(id);
+    return it == ark_bitmaps().end() ? nullptr : it->second;
+}
+
 static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     auto it = g_canvas.find(node);
     if (it == g_canvas.end()) return;
@@ -1885,6 +1905,51 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                 grad.active = grad.colors.size() >= 2;
                 break;
             }
+            case 22: { // image: a,b origin · c,dd size · e the BitmapId · f opacity (docs/images.md)
+                OH_PixelmapNative* pm = ark_bitmap_for((uint64_t)e);
+                // A released bitmap draws NOTHING rather than a placeholder: the canvas re-records
+                // on every tracked read, so a handle can be dropped between record and replay.
+                if (!pm || c <= 0 || dd <= 0) break;
+                OH_Drawing_PixelMap* dpm = OH_Drawing_PixelMapGetFromOhPixelMapNative(pm);
+                if (!dpm) break;
+                uint32_t iw = 0, ih = 0;
+                OH_Pixelmap_ImageInfo* info = nullptr;
+                if (OH_PixelmapImageInfo_Create(&info) == IMAGE_SUCCESS && info) {
+                    if (OH_PixelmapNative_GetImageInfo(pm, info) == IMAGE_SUCCESS) {
+                        OH_PixelmapImageInfo_GetWidth(info, &iw);
+                        OH_PixelmapImageInfo_GetHeight(info, &ih);
+                    }
+                    OH_PixelmapImageInfo_Release(info);
+                }
+                if (iw == 0 || ih == 0) {
+                    OH_Drawing_PixelMapDissolve(dpm);
+                    break;
+                }
+                OH_Drawing_Rect* src = OH_Drawing_RectCreate(0, 0, (float)iw, (float)ih);
+                OH_Drawing_Rect* dst = OH_Drawing_RectCreate(a, b, a + c, b + dd);
+                OH_Drawing_SamplingOptions* so =
+                    OH_Drawing_SamplingOptionsCreate(FILTER_MODE_LINEAR, MIPMAP_MODE_NONE);
+                // Opacity rides a layer: `DrawPixelMapRect` takes no brush, so an alpha brush on
+                // a saved layer is the only way to compose the image below full strength.
+                const bool faded = f < 0.999f;
+                OH_Drawing_Brush* alpha = nullptr;
+                if (faded) {
+                    alpha = OH_Drawing_BrushCreate();
+                    float clamped = f < 0.0f ? 0.0f : (f > 1.0f ? 1.0f : f);
+                    OH_Drawing_BrushSetAlpha(alpha, (uint8_t)(clamped * 255.0f + 0.5f));
+                    OH_Drawing_CanvasSaveLayer(cv, dst, alpha);
+                }
+                OH_Drawing_CanvasDrawPixelMapRect(cv, dpm, src, dst, so);
+                if (faded) {
+                    OH_Drawing_CanvasRestore(cv);
+                    OH_Drawing_BrushDestroy(alpha);
+                }
+                OH_Drawing_SamplingOptionsDestroy(so);
+                OH_Drawing_RectDestroy(dst);
+                OH_Drawing_RectDestroy(src);
+                OH_Drawing_PixelMapDissolve(dpm);
+                break;
+            }
             default:
                 break;
         }
@@ -1917,6 +1982,153 @@ static void canvas_custom_receiver(ArkUI_NodeCustomEvent* ev) {
 }
 
 extern "C" {
+
+// ---- Raster images from bytes (docs/images.md) ---------------------------------------------
+
+/// Decode `bytes` into the bitmap registry under `id`. Returns 1 and fills `out` with width,
+/// height and 1/0 for an alpha channel; 0 when the bytes are not an image this platform decodes.
+int32_t day_ark_image_decode(uint64_t id, const uint8_t* bytes, uint32_t len, double* out) {
+    OH_ImageSourceNative* src = nullptr;
+    if (OH_ImageSourceNative_CreateFromData((uint8_t*)bytes, (size_t)len, &src) != IMAGE_SUCCESS ||
+        !src) {
+        return 0;
+    }
+    OH_DecodingOptions* opts = nullptr;
+    OH_DecodingOptions_Create(&opts);
+    OH_PixelmapNative* pm = nullptr;
+    Image_ErrorCode rc = OH_ImageSourceNative_CreatePixelmap(src, opts, &pm);
+    if (opts) OH_DecodingOptions_Release(opts);
+    OH_ImageSourceNative_Release(src);
+    if (rc != IMAGE_SUCCESS || !pm) return 0;
+    uint32_t w = 0, h = 0;
+    int32_t alpha = 0;
+    OH_Pixelmap_ImageInfo* info = nullptr;
+    if (OH_PixelmapImageInfo_Create(&info) == IMAGE_SUCCESS && info) {
+        if (OH_PixelmapNative_GetImageInfo(pm, info) == IMAGE_SUCCESS) {
+            OH_PixelmapImageInfo_GetWidth(info, &w);
+            OH_PixelmapImageInfo_GetHeight(info, &h);
+            OH_PixelmapImageInfo_GetAlphaType(info, &alpha);
+        }
+        OH_PixelmapImageInfo_Release(info);
+    }
+    if (w == 0 || h == 0) {
+        OH_PixelmapNative_Release(pm);
+        return 0;
+    }
+    // Replacing an id releases what it held. day-core mints a fresh id per decode, so this only
+    // fires if one is ever reused.
+    if (OH_PixelmapNative* old = ark_bitmap_for(id)) OH_PixelmapNative_Release(old);
+    ark_bitmaps()[id] = pm;
+    if (out) {
+        out[0] = (double)w;
+        out[1] = (double)h;
+        // Unlike most backends here, the alpha answer is READ rather than inferred from the
+        // container format.
+        out[2] = alpha == PIXELMAP_ALPHA_TYPE_OPAQUE ? 0.0 : 1.0;
+    }
+    return 1;
+}
+
+/// Re-encode a decoded bitmap as `mime` ("image/png" / "image/jpeg") at `quality` 0..100
+/// (-1 = the format's default). Returns a malloc'd buffer of `*out_len` bytes to release with
+/// `day_ark_bytes_free`, or null.
+///
+/// `EncodeSpec::fit` is NOT honored here (docs/images.md): `OH_PixelmapNative_Scale` rescales in
+/// place, so fitting would resize the very bitmap every later draw shares.
+uint8_t* day_ark_image_encode(uint64_t id, const char* mime, int32_t quality, uint32_t* out_len) {
+    if (out_len) *out_len = 0;
+    OH_PixelmapNative* pm = ark_bitmap_for(id);
+    if (!pm || !mime) return nullptr;
+    uint32_t w = 0, h = 0;
+    OH_Pixelmap_ImageInfo* info = nullptr;
+    if (OH_PixelmapImageInfo_Create(&info) == IMAGE_SUCCESS && info) {
+        if (OH_PixelmapNative_GetImageInfo(pm, info) == IMAGE_SUCCESS) {
+            OH_PixelmapImageInfo_GetWidth(info, &w);
+            OH_PixelmapImageInfo_GetHeight(info, &h);
+        }
+        OH_PixelmapImageInfo_Release(info);
+    }
+    if (w == 0 || h == 0) return nullptr;
+    OH_ImagePackerNative* packer = nullptr;
+    if (OH_ImagePackerNative_Create(&packer) != IMAGE_SUCCESS || !packer) return nullptr;
+    OH_PackingOptions* opts = nullptr;
+    OH_PackingOptions_Create(&opts);
+    Image_MimeType mt{};
+    mt.data = (char*)mime;
+    mt.size = strlen(mime);
+    OH_PackingOptions_SetMimeType(opts, &mt);
+    if (quality >= 0) OH_PackingOptions_SetQuality(opts, (uint32_t)quality);
+    // The packer writes into a CALLER-allocated buffer and reports how much it used; there is no
+    // "ask how big" call, so start from the uncompressed worst case plus a header allowance.
+    size_t cap = (size_t)w * (size_t)h * 4 + 65536;
+    uint8_t* buf = (uint8_t*)malloc(cap);
+    if (!buf) {
+        OH_PackingOptions_Release(opts);
+        OH_ImagePackerNative_Release(packer);
+        return nullptr;
+    }
+    size_t used = cap;
+    Image_ErrorCode prc = OH_ImagePackerNative_PackToDataFromPixelmap(packer, opts, pm, buf, &used);
+    OH_PackingOptions_Release(opts);
+    OH_ImagePackerNative_Release(packer);
+    if (prc != IMAGE_SUCCESS) {
+        free(buf);
+        return nullptr;
+    }
+    if (out_len) *out_len = (uint32_t)used;
+    return buf;
+}
+
+/// Release a buffer returned by `day_ark_image_encode`.
+void day_ark_bytes_free(uint8_t* p) { free(p); }
+
+/// Point an image node at raw encoded bytes (an `ImageSource::Bytes` realize or swap).
+///
+/// Realize has no `BitmapId` to look up — the app never decoded these through day-core — so the
+/// bytes are decoded here, handed to the node as a drawable descriptor, and the temporary
+/// pixelmap released: the node holds its own reference by then.
+void day_ark_image_node_set_bytes(void* node, const uint8_t* bytes, uint32_t len) {
+    if (!g_api || !node || !bytes || len == 0) return;
+    OH_ImageSourceNative* src = nullptr;
+    if (OH_ImageSourceNative_CreateFromData((uint8_t*)bytes, (size_t)len, &src) != IMAGE_SUCCESS ||
+        !src) {
+        return;
+    }
+    OH_DecodingOptions* opts = nullptr;
+    OH_DecodingOptions_Create(&opts);
+    OH_PixelmapNative* pm = nullptr;
+    Image_ErrorCode rc = OH_ImageSourceNative_CreatePixelmap(src, opts, &pm);
+    if (opts) OH_DecodingOptions_Release(opts);
+    OH_ImageSourceNative_Release(src);
+    if (rc != IMAGE_SUCCESS || !pm) return;
+    if (ArkUI_DrawableDescriptor* dd = OH_ArkUI_DrawableDescriptor_CreateFromPixelMap(pm)) {
+        ArkUI_AttributeItem it{};
+        it.object = dd;
+        g_api->setAttribute((ArkUI_NodeHandle)node, NODE_IMAGE_SRC, &it);
+    }
+    OH_PixelmapNative_Release(pm);
+}
+
+/// Drop a decoded bitmap; day-core calls this when the app's last handle goes.
+void day_ark_image_release(uint64_t id) {
+    auto it = ark_bitmaps().find(id);
+    if (it == ark_bitmaps().end()) return;
+    OH_PixelmapNative_Release(it->second);
+    ark_bitmaps().erase(it);
+}
+
+/// Point an image node at a decoded bitmap (`NODE_IMAGE_SRC` takes a drawable descriptor object
+/// rather than a `resource://` string).
+void day_ark_image_node_set_bitmap(void* node, uint64_t id) {
+    OH_PixelmapNative* pm = ark_bitmap_for(id);
+    if (!g_api || !node || !pm) return;
+    ArkUI_DrawableDescriptor* dd = OH_ArkUI_DrawableDescriptor_CreateFromPixelMap(pm);
+    if (!dd) return;
+    ArkUI_AttributeItem it{};
+    it.object = dd;
+    g_api->setAttribute((ArkUI_NodeHandle)node, NODE_IMAGE_SRC, &it);
+    // The node takes its own reference; disposing the descriptor here would blank the image.
+}
 
 // Register the on-draw custom-event receiver for a canvas custom node.
 void day_ark_canvas_init(void* node, uint64_t id) {

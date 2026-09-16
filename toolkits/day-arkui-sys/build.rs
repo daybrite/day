@@ -65,6 +65,9 @@ fn main() {
         // `_ndk.z` stubs alongside them, so these are the plain names.
         "pixelmap",
         "image_packer",
+        // Raster images from bytes (docs/images.md): `OH_ImageSourceNative_*` decodes a PNG/JPEG
+        // buffer into the pixelmap the canvas draws and the image node shows.
+        "image_source",
         "uv",
     ] {
         println!("cargo:rustc-link-lib=dylib={lib}");

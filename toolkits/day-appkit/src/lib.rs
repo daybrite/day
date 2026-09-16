@@ -50,8 +50,8 @@ use objc2_app_kit::{
 use objc2_app_kit::{NSTableColumn, NSTableView, NSTableViewDataSource, NSTableViewDelegate};
 use objc2_core_foundation::CGAffineTransform;
 use objc2_foundation::{
-    NSAffineTransform, NSAffineTransformStruct, NSArray, NSDictionary, NSNotification, NSNumber,
-    NSObject, NSPoint, NSRect, NSSize, NSString,
+    NSAffineTransform, NSAffineTransformStruct, NSArray, NSData, NSDictionary, NSNotification,
+    NSNumber, NSObject, NSPoint, NSRect, NSSize, NSString,
 };
 use objc2_quartz_core::{
     CAMediaTimingFunction, CATransaction, kCAMediaTimingFunctionEaseIn,
@@ -150,6 +150,12 @@ day_core::tls_group! {
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
     /// TREE host scroll-view ptr → (outline, data source) — docs/tree.md.
     static TREE_STATE: RefCell<HashMap<usize, TreeEntry>> = RefCell::new(HashMap::new());
+
+    /// `BitmapId` → the decoded image (docs/images.md). Keyed by the id day-core minted, not by
+    /// a view pointer: a bitmap outlives any one view and may be drawn by several at once.
+    /// Entries leave only through `release_image`, which day-core calls when the app drops its
+    /// last `Bitmap` handle.
+    static BITMAPS: RefCell<HashMap<u64, AppKitBitmap>> = RefCell::new(HashMap::new());
     /// View ptr → its summon-time context-menu provider (docs/menus.md). Swept on release
     /// via `day_spec::sidetable`.
     static CTX_MENU_FNS: SideTable<day_spec::ContextMenuFn> = SideTable::new();
@@ -191,6 +197,156 @@ pub fn emit(id: NodeId, ev: Event) {
 
 fn ptr_of(v: &NSView) -> usize {
     (v as *const NSView).cast::<()>() as usize
+}
+
+/// A decoded bitmap (docs/images.md), held until day-core drops its last handle.
+///
+/// The `NSBitmapImageRep` is kept BESIDE the image rather than fetched on demand for two
+/// reasons: it is the only thing here that can re-encode to other formats, and it is the only
+/// honest source of pixel dimensions — `NSImage.size` is in points and reports a @2x asset at
+/// half its real width.
+struct AppKitBitmap {
+    image: Retained<objc2_app_kit::NSImage>,
+    rep: Option<Retained<objc2_app_kit::NSBitmapImageRep>>,
+    info: day_spec::BitmapInfo,
+}
+
+/// Draw a decoded image into a fresh bitmap `scale`× its pixel size, for [`day_spec::EncodeSpec`]'s
+/// `fit`.
+///
+/// 8 bits across 4 samples with alpha is the one layout every writer here accepts, and the only
+/// one that carries transparency through a PNG round-trip intact.
+fn scaled_rep(
+    image: &objc2_app_kit::NSImage,
+    pixels: Size,
+    scale: f64,
+) -> Option<Retained<objc2_app_kit::NSBitmapImageRep>> {
+    use objc2::AllocAnyThread as _;
+    let w = (pixels.width * scale).round().max(1.0);
+    let h = (pixels.height * scale).round().max(1.0);
+    let rep = unsafe {
+        objc2_app_kit::NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            objc2_app_kit::NSBitmapImageRep::alloc(),
+            std::ptr::null_mut(),
+            w as isize,
+            h as isize,
+            8,
+            4,
+            true,
+            false,
+            objc2_app_kit::NSDeviceRGBColorSpace,
+            0,
+            0,
+        )
+    }?;
+    let ctx = objc2_app_kit::NSGraphicsContext::graphicsContextWithBitmapImageRep(&rep)?;
+    NSGraphicsContext::saveGraphicsState_class();
+    objc2_app_kit::NSGraphicsContext::setCurrentContext(Some(&ctx));
+    unsafe {
+        image.drawInRect_fromRect_operation_fraction(
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w, h)),
+            NSRect::ZERO,
+            objc2_app_kit::NSCompositingOperation::SourceOver,
+            1.0,
+        );
+    }
+    NSGraphicsContext::restoreGraphicsState_class();
+    Some(rep)
+}
+
+/// Re-encode a decoded bitmap (docs/images.md).
+///
+/// A free function rather than the duty's body so each refusal reads as an early return instead
+/// of another copy of the same emit.
+fn encode_bitmap(
+    id: day_spec::BitmapId,
+    spec: &day_spec::EncodeSpec,
+) -> Result<Vec<u8>, day_spec::ImageError> {
+    use day_spec::ImageFormat as F;
+    use objc2_app_kit::NSBitmapImageFileType as T;
+    let file_type = match spec.format {
+        F::Png => T::PNG,
+        F::Jpeg => T::JPEG,
+        F::Tiff => T::TIFF,
+        F::Bmp => T::BMP,
+        F::Gif => T::GIF,
+        // Readable here but not writable: `NSBitmapImageRep` ships no WebP or HEIF writer. That
+        // asymmetry is why `encode_formats` exists instead of letting `Cap::ImageEncode` imply
+        // that everything decodable is also encodable.
+        _ => return Err(day_spec::ImageError::Encode),
+    };
+    let held = BITMAPS.with(|m| {
+        m.borrow()
+            .get(&id.0)
+            .map(|b| (b.rep.clone(), b.image.clone(), b.info))
+    });
+    let (rep, image, info) = held.ok_or(day_spec::ImageError::Gone)?;
+    let rep = rep.ok_or(day_spec::ImageError::Encode)?;
+
+    // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+    // upscaling on an export path inflates the bytes without adding any detail.
+    let rep = match spec.fit {
+        Some(fit) if info.pixels.width > 0.0 && info.pixels.height > 0.0 => {
+            let scale = (fit.width / info.pixels.width)
+                .min(fit.height / info.pixels.height)
+                .min(1.0);
+            if scale < 1.0 {
+                scaled_rep(&image, info.pixels, scale).ok_or(day_spec::ImageError::Encode)?
+            } else {
+                rep
+            }
+        }
+        _ => rep,
+    };
+
+    let props: Retained<NSDictionary<NSString, objc2::runtime::AnyObject>> = match spec.quality {
+        // AppKit's own compression-factor property; a lossless writer ignores it.
+        Some(q) => {
+            let key: &NSString = unsafe { objc2_app_kit::NSImageCompressionFactor };
+            let number = NSNumber::new_f64(q.clamp(0.0, 1.0));
+            let value: &objc2::runtime::AnyObject = &number;
+            NSDictionary::from_slices::<NSString>(&[key], &[value])
+        }
+        None => NSDictionary::new(),
+    };
+    let data = unsafe { rep.representationUsingType_properties(file_type, &props) }
+        .ok_or(day_spec::ImageError::Encode)?;
+    Ok(data.to_vec())
+}
+
+/// The `NSImage` behind an [`day_spec::ImageSource`] (docs/images.md).
+///
+/// Shared by realize and the `Source` patch on purpose: a swapped source must load exactly what
+/// a fresh realize would have, or a piece would show different pixels depending on whether it
+/// was built or updated.
+fn appkit_image_for(source: &day_spec::ImageSource) -> Option<Retained<objc2_app_kit::NSImage>> {
+    use objc2::AllocAnyThread as _;
+    match source {
+        // A vector glyph's SVG first (docs/vectors.md): NSImage renders SVG at display size
+        // (macOS 11+), so vectors stay vector — no build-time raster resampling. Then the shared
+        // image-file resolver (images/ then assets/ then bundle), which is macOS's native path:
+        // a bundle file loaded straight into NSImage (§18.3).
+        day_spec::ImageSource::Named(name) => day_spec::resource::resolve_vector_svg(name)
+            .or_else(|| day_spec::resource::resolve_image_file(name))
+            .and_then(|path| unsafe {
+                objc2_app_kit::NSImage::initWithContentsOfFile(
+                    objc2_app_kit::NSImage::alloc(),
+                    &NSString::from_str(&path.to_string_lossy()),
+                )
+            }),
+        // Bytes the app already holds — a download, a picked file, a paste — with no staged
+        // resource behind them.
+        day_spec::ImageSource::Bytes(bytes) => unsafe {
+            objc2_app_kit::NSImage::initWithData(
+                objc2_app_kit::NSImage::alloc(),
+                &NSData::with_bytes(bytes),
+            )
+        },
+        // Already decoded: share the one NSImage rather than parsing the same bytes twice.
+        day_spec::ImageSource::Decoded(id) => {
+            BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.image.clone()))
+        }
+    }
 }
 
 /// Day `Role` → the `NSAccessibilityRole` constant to apply (§13). `None` for `Role::None` —
@@ -3540,6 +3696,29 @@ fn draw_op(op: &DrawOp) {
                 }
                 let _: () = msg_send![&ns, drawAtPoint: origin, withAttributes: &*attrs];
             }
+            // A released bitmap draws NOTHING rather than a placeholder: the canvas re-records
+            // on every tracked read, so a handle can be dropped between the record and the
+            // replay, and a frame that flashes a grey box is worse than one that omits the image.
+            DrawOp::Image {
+                image,
+                rect,
+                opacity,
+            } => {
+                let img = BITMAPS.with(|m| m.borrow().get(&image.0).map(|b| b.image.clone()));
+                if let Some(img) = img {
+                    let dest = NSRect::new(
+                        NSPoint::new(rect.origin.x, rect.origin.y),
+                        NSSize::new(rect.size.width, rect.size.height),
+                    );
+                    // A zero `fromRect` means the whole image; `fraction` multiplies its alpha.
+                    img.drawInRect_fromRect_operation_fraction(
+                        dest,
+                        NSRect::ZERO,
+                        objc2_app_kit::NSCompositingOperation::SourceOver,
+                        *opacity,
+                    );
+                }
+            }
             DrawOp::Save => NSGraphicsContext::saveGraphicsState_class(),
             DrawOp::Restore => NSGraphicsContext::restoreGraphicsState_class(),
             DrawOp::Concat(m) => {
@@ -4876,6 +5055,10 @@ impl Toolkit for AppKit {
             Cap::Cursor => Support::Native,
             // `NSFontManager` enumerates every family and member (docs/fonts.md).
             Cap::FontList => Support::Native,
+            // ImageIO behind `NSBitmapImageRep` reads every container macOS knows and writes
+            // back PNG/JPEG/TIFF/BMP/GIF, and carries the container's own metadata dictionary
+            // (docs/images.md).
+            Cap::ImageDecode | Cap::ImageEncode | Cap::ImageProperties => Support::Native,
             Cap::Snapshot
             | Cap::NativeSymbols
             // The rows as chrome: `Rail` is the same source list pinned narrow, `Tabs` an
@@ -5748,27 +5931,13 @@ impl Toolkit for AppKit {
                     _ => objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,
                 };
                 unsafe { iv.setImageScaling(scaling) };
-                // A vector glyph's SVG first (docs/vectors.md): NSImage renders SVG at display
-                // size (macOS 11+), so vectors stay vector — no build-time raster resampling.
-                // Then the shared image-file resolver (images/ then assets/ then bundle) —
-                // macOS AppKit's native path is a bundle file loaded straight into NSImage (§18.3).
-                if let Some(path) = day_spec::resource::resolve_vector_svg(&p.source)
-                    .or_else(|| day_spec::resource::resolve_image_file(&p.source))
-                {
-                    use objc2::AllocAnyThread as _;
-                    if let Some(img) = unsafe {
-                        objc2_app_kit::NSImage::initWithContentsOfFile(
-                            objc2_app_kit::NSImage::alloc(),
-                            &NSString::from_str(&path.to_string_lossy()),
-                        )
-                    } {
-                        // Vector-glyph tint (docs/vectors.md): template rendering + the view's
-                        // content tint — AppKit recolors the alpha mask natively.
-                        if p.tint.is_some() {
-                            unsafe { img.setTemplate(true) };
-                        }
-                        unsafe { iv.setImage(Some(&img)) };
+                if let Some(img) = appkit_image_for(&p.source) {
+                    // Vector-glyph tint (docs/vectors.md): template rendering + the view's
+                    // content tint — AppKit recolors the alpha mask natively.
+                    if p.tint.is_some() {
+                        unsafe { img.setTemplate(true) };
                     }
+                    unsafe { iv.setImage(Some(&img)) };
                 }
                 if let Some(t) = p.tint {
                     unsafe { iv.setContentTintColor(Some(&nscolor(t))) };
@@ -5793,16 +5962,31 @@ impl Toolkit for AppKit {
     fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
         match kind {
             kinds::IMAGE => {
-                if let Some(day_spec::props::ImagePatch::Tint(c)) =
-                    patch.downcast_ref::<day_spec::props::ImagePatch>()
-                {
-                    // Template rendering + the view's content tint, exactly as at realize — the
-                    // glyph repaints in place rather than being rebuilt (docs/vectors.md).
-                    if let Ok(iv) = h.clone().downcast::<objc2_app_kit::NSImageView>() {
-                        if let Some(img) = unsafe { iv.image() } {
-                            unsafe { img.setTemplate(c.is_some()) };
+                if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
+                    match p {
+                        day_spec::props::ImagePatch::Tint(c) => {
+                            // Template rendering + the view's content tint, exactly as at realize
+                            // — the glyph repaints in place rather than being rebuilt
+                            // (docs/vectors.md).
+                            if let Ok(iv) = h.clone().downcast::<objc2_app_kit::NSImageView>() {
+                                if let Some(img) = unsafe { iv.image() } {
+                                    unsafe { img.setTemplate(c.is_some()) };
+                                }
+                                unsafe { iv.setContentTintColor(c.map(nscolor).as_deref()) };
+                            }
                         }
-                        unsafe { iv.setContentTintColor(c.map(nscolor).as_deref()) };
+                        // A source swap repaints the SAME view (docs/images.md), so an `image()`
+                        // bound to a signal shows new pixels without rebuilding its subtree —
+                        // which is what makes a decode-then-show flow a patch and not a rebuild.
+                        day_spec::props::ImagePatch::Source(source) => {
+                            if let Ok(iv) = h.clone().downcast::<objc2_app_kit::NSImageView>() {
+                                // A source that will not load leaves the view showing what it
+                                // was — the patch's contract, and what GTK, Qt and Android do.
+                                if let Some(img) = appkit_image_for(source) {
+                                    unsafe { iv.setImage(Some(&img)) };
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -7341,6 +7525,123 @@ impl Toolkit for AppKit {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         let content = self.content.as_ref().ok_or("no window content")?;
         snapshot_view(content)
+    }
+
+    /// Decode bytes into an `NSImage` (docs/images.md).
+    ///
+    /// `NSBitmapImageRep` is asked first and kept: it is what actually reads the container, it
+    /// answers in PIXELS (`NSImage.size` is in points and reports a 144-DPI photo at
+    /// two-thirds its real width), and it is the only thing here that can re-encode later.
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+        use objc2::AllocAnyThread as _;
+        let data = NSData::with_bytes(bytes);
+        let Some(rep) = (unsafe { objc2_app_kit::NSBitmapImageRep::imageRepWithData(&data) })
+        else {
+            emit(
+                WINDOW_NODE,
+                Event::ImageDecoded {
+                    req,
+                    result: Err(day_spec::ImageError::Decode),
+                },
+            );
+            return;
+        };
+        let (w, h) = unsafe { (rep.pixelsWide() as f64, rep.pixelsHigh() as f64) };
+        let info = day_spec::BitmapInfo {
+            pixels: Size::new(w, h),
+            // Decoded bytes carry no density — a PNG is simply its pixels. Only a staged @2x
+            // asset has a scale, and that arrives through the named path instead.
+            scale: 1.0,
+            format: day_spec::ImageFormat::sniff(bytes),
+            has_alpha: unsafe { rep.hasAlpha() },
+        };
+        // Built AT the rep's pixel size so it draws 1:1 by default: an NSImage otherwise adopts
+        // the rep's own `size`, which ImageIO derives from the file's DPI — that is what shrinks
+        // a 144-DPI photo for no reason the app asked for.
+        let image = unsafe {
+            objc2_app_kit::NSImage::initWithSize(objc2_app_kit::NSImage::alloc(), NSSize::new(w, h))
+        };
+        unsafe { image.addRepresentation(&rep) };
+        BITMAPS.with(|m| {
+            m.borrow_mut().insert(
+                id.0,
+                AppKitBitmap {
+                    image,
+                    rep: Some(rep),
+                    info,
+                },
+            )
+        });
+        emit(
+            WINDOW_NODE,
+            Event::ImageDecoded {
+                req,
+                result: Ok(info),
+            },
+        );
+    }
+
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+        BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.info))
+    }
+
+    /// The container's own metadata (docs/images.md).
+    ///
+    /// DPI is DERIVED rather than read from a tag: AppKit has already resolved the file's
+    /// resolution into the rep's point size, so pixels-per-point × 72 is the number the platform
+    /// itself believes — and it is right for containers that record resolution in ways EXIF
+    /// does not.
+    fn image_properties(&mut self, id: day_spec::BitmapId) -> Option<day_spec::ImageProperties> {
+        let rep = BITMAPS.with(|m| m.borrow().get(&id.0).and_then(|b| b.rep.clone()))?;
+        let mut out = day_spec::ImageProperties::default();
+        let size = unsafe { rep.size() };
+        if size.width > 0.0 {
+            let dpi = unsafe { rep.pixelsWide() } as f64 / size.width * 72.0;
+            // 72 is "no resolution recorded" wearing a number; reporting it would read as a fact
+            // the file never stated.
+            if (dpi - 72.0).abs() > 0.5 {
+                out.dpi = Some(dpi);
+            }
+        }
+        // EXIF arrives as a dictionary of the format's own keys. It is walked through
+        // `msg_send!` rather than a downcast because a generic `NSDictionary` is not a
+        // `DowncastTarget`.
+        if let Some(exif) = rep.valueForProperty(unsafe { objc2_app_kit::NSImageEXIFData }) {
+            let keys: Retained<NSArray<NSString>> = unsafe { msg_send![&*exif, allKeys] };
+            for key in keys.iter() {
+                let value: Option<Retained<objc2::runtime::AnyObject>> =
+                    unsafe { msg_send![&*exif, objectForKey: &*key] };
+                let Some(value) = value else { continue };
+                let text: Retained<NSString> = unsafe { msg_send![&*value, description] };
+                let (k, v) = (key.to_string(), text.to_string());
+                match k.as_str() {
+                    "Orientation" => out.orientation = v.parse().ok(),
+                    "DateTimeOriginal" => out.created = Some(v.clone()),
+                    _ => {}
+                }
+                // Keys stay in EXIF's own vocabulary, passed through rather than translated —
+                // the doc for `extra` promises exactly that.
+                out.extra.push((k, v));
+            }
+        }
+        Some(out)
+    }
+
+    /// What `NSBitmapImageRep` WRITES. It reads more than this — WebP and HEIF among them — and
+    /// the asymmetry is the platform's own, which is exactly why this duty exists instead of
+    /// letting `Cap::ImageEncode` imply every format round-trips.
+    fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+        use day_spec::ImageFormat::{Bmp, Gif, Jpeg, Png, Tiff};
+        vec![Png, Jpeg, Tiff, Bmp, Gif]
+    }
+
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+        let result = encode_bitmap(id, spec);
+        emit(WINDOW_NODE, Event::ImageEncoded { req, result });
+    }
+
+    fn release_image(&mut self, id: day_spec::BitmapId) {
+        BITMAPS.with(|m| m.borrow_mut().remove(&id.0));
     }
 
     /// `NSFontManager.availableFontFamilies` + `availableMembersOfFontFamily:`, whose members

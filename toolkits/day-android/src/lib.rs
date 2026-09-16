@@ -1896,6 +1896,69 @@ mod imp {
         with_env(|env| AHandle(placeholder_view(env, kind)))
     }
 
+    thread_local! {
+        /// `BitmapId` → what the decode reported (docs/images.md). Only the METADATA lives here;
+        /// the pixels are the shim's, in `DayBridge.bitmaps` under the same id.
+        static BITMAP_INFO: RefCell<std::collections::HashMap<u64, day_spec::BitmapInfo>> =
+            RefCell::new(std::collections::HashMap::new());
+    }
+
+    /// Re-encode a decoded bitmap through the shim (docs/images.md).
+    ///
+    /// A free function rather than the duty's body so each refusal reads as an early return
+    /// instead of another copy of the same emit. The pixels never cross the boundary: Java
+    /// compresses and hands back one `byte[]`.
+    fn encode_bitmap(
+        id: day_spec::BitmapId,
+        spec: &day_spec::EncodeSpec,
+    ) -> Result<Vec<u8>, day_spec::ImageError> {
+        use day_spec::ImageFormat as F;
+        let format = match spec.format {
+            F::Png => "png",
+            F::Jpeg => "jpeg",
+            // `Bitmap.compress` writes nothing else under this minSdk; `encode_formats` says so
+            // before an app asks.
+            _ => return Err(day_spec::ImageError::Encode),
+        };
+        if !BITMAP_INFO.with(|m| m.borrow().contains_key(&id.0)) {
+            return Err(day_spec::ImageError::Gone);
+        }
+        if !vm_ready() {
+            return Err(day_spec::ImageError::Unsupported);
+        }
+        // Android takes quality as 0..=100; -1 means the format's own default.
+        let quality = spec
+            .quality
+            .map(|q| (q.clamp(0.0, 1.0) * 100.0).round() as i32)
+            .unwrap_or(-1);
+        let (fit_w, fit_h) = spec.fit.map(|f| (f.width, f.height)).unwrap_or((0.0, 0.0));
+        with_env(|env| {
+            let jfmt = jstr(env, format);
+            let obj = env
+                .dcall_static(
+                    BRIDGE,
+                    "imageEncode",
+                    "(JLjava/lang/String;IDD)[B",
+                    &[
+                        JValue::Long(id.0 as i64),
+                        JValue::Object(&jfmt),
+                        JValue::Int(quality),
+                        JValue::Double(fit_w),
+                        JValue::Double(fit_h),
+                    ],
+                )
+                .ok()
+                .and_then(|v| v.l().ok())?;
+            if obj.is_null() {
+                return None;
+            }
+            // SAFETY: the call above returns a byte[] or null; null is handled just above.
+            let arr: jni::objects::JByteArray = unsafe { std::mem::transmute(obj) };
+            env.convert_byte_array(&arr).ok()
+        })
+        .ok_or(day_spec::ImageError::Encode)
+    }
+
     /// Ask the bridge for a PNG of this app's window (docs/window-image.md).
     ///
     /// The bytes come back as a Java `byte[]` and are copied out with `convert_byte_array` — no
@@ -1927,6 +1990,13 @@ mod imp {
                 // The families `fonts.xml` names — the ones `Typeface.create` resolves
                 // (docs/fonts.md).
                 Cap::FontList => Support::Native,
+                // `BitmapFactory` decodes every container Android reads, and `Bitmap.compress`
+                // writes back PNG and JPEG (docs/images.md). WebP DECODES here but is not
+                // offered for encode: the modern `WEBP_LOSSY`/`WEBP_LOSSLESS` constants are
+                // API 30 and the scaffold's minSdk is 24. `Cap::ImageProperties` is deliberately
+                // absent — there is no metadata reader on this path, and an empty struct would
+                // read as "this file records nothing" rather than "nobody looked".
+                Cap::ImageDecode | Cap::ImageEncode => Support::Native,
                 // `View.draw(Canvas)` renders this app's own window into a bitmap
                 // (docs/window-image.md); surface-backed content is the documented gap.
                 Cap::Snapshot => Support::Native,
@@ -2561,14 +2631,43 @@ mod imp {
                     // Vector-glyph tint (docs/vectors.md) as ARGB; 0 = none (a real tint always
                     // has alpha 0xFF, so 0 is unambiguous).
                     let tint = p.tint.map(argb_i32).unwrap_or(0);
-                    with_env(|env| {
-                        let s = jstr(env, &p.source);
-                        AHandle(make_view(
+                    // Named is the staged-drawable path; Bytes and Decoded arrive from
+                    // `day::decode_image` (docs/images.md), so an `image()` piece can show a
+                    // download or a pasted PNG with no staged resource behind it. Only a named
+                    // source takes a tint: a recolor re-resolves the drawable, and bytes have
+                    // no drawable to re-resolve.
+                    with_env(|env| match &p.source {
+                        day_spec::ImageSource::Named(named) => {
+                            let s = jstr(env, named);
+                            AHandle(make_view(
+                                env,
+                                "makeImage",
+                                "(Ljava/lang/String;II)Landroid/view/View;",
+                                &[JValue::Object(&s), JValue::Int(mode), JValue::Int(tint)],
+                            ))
+                        }
+                        day_spec::ImageSource::Bytes(bytes) => {
+                            let Ok(arr) = env.byte_array_from_slice(bytes) else {
+                                return AHandle(make_view(
+                                    env,
+                                    "makeImageBytes",
+                                    "([BI)Landroid/view/View;",
+                                    &[JValue::Object(&JObject::null()), JValue::Int(mode)],
+                                ));
+                            };
+                            AHandle(make_view(
+                                env,
+                                "makeImageBytes",
+                                "([BI)Landroid/view/View;",
+                                &[JValue::Object(&arr), JValue::Int(mode)],
+                            ))
+                        }
+                        day_spec::ImageSource::Decoded(id) => AHandle(make_view(
                             env,
-                            "makeImage",
-                            "(Ljava/lang/String;II)Landroid/view/View;",
-                            &[JValue::Object(&s), JValue::Int(mode), JValue::Int(tint)],
-                        ))
+                            "makeImageBitmap",
+                            "(JI)Landroid/view/View;",
+                            &[JValue::Long(id.0 as i64), JValue::Int(mode)],
+                        )),
                     })
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
@@ -2604,19 +2703,56 @@ mod imp {
         ) {
             match kind {
                 kinds::IMAGE => {
-                    if let Some(day_spec::props::ImagePatch::Tint(c)) =
-                        patch.downcast_ref::<day_spec::props::ImagePatch>()
-                    {
-                        // Drawable tint, as at realize (docs/vectors.md); 0 = authored colors.
-                        let tint = c.map(argb_i32).unwrap_or(0);
-                        with_env(|env| {
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setImageTint",
-                                "(Landroid/view/View;I)V",
-                                &[JValue::Object(&h.0), JValue::Int(tint)],
-                            );
-                        });
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
+                        match p {
+                            day_spec::props::ImagePatch::Tint(c) => {
+                                // Drawable tint, as at realize (docs/vectors.md); 0 = authored
+                                // colors.
+                                let tint = c.map(argb_i32).unwrap_or(0);
+                                with_env(|env| {
+                                    let _ = env.dcall_static(
+                                        BRIDGE,
+                                        "setImageTint",
+                                        "(Landroid/view/View;I)V",
+                                        &[JValue::Object(&h.0), JValue::Int(tint)],
+                                    );
+                                });
+                            }
+                            // A source swap repaints the SAME view (docs/images.md), so an
+                            // `image()` bound to a signal shows new pixels without rebuilding
+                            // its subtree.
+                            day_spec::props::ImagePatch::Source(source) => {
+                                with_env(|env| match source {
+                                    day_spec::ImageSource::Named(named) => {
+                                        let s = jstr(env, named);
+                                        let _ = env.dcall_static(
+                                            BRIDGE,
+                                            "setImageName",
+                                            "(Landroid/view/View;Ljava/lang/String;)V",
+                                            &[JValue::Object(&h.0), JValue::Object(&s)],
+                                        );
+                                    }
+                                    day_spec::ImageSource::Bytes(bytes) => {
+                                        if let Ok(arr) = env.byte_array_from_slice(bytes) {
+                                            let _ = env.dcall_static(
+                                                BRIDGE,
+                                                "setImageBytes",
+                                                "(Landroid/view/View;[B)V",
+                                                &[JValue::Object(&h.0), JValue::Object(&arr)],
+                                            );
+                                        }
+                                    }
+                                    day_spec::ImageSource::Decoded(id) => {
+                                        let _ = env.dcall_static(
+                                            BRIDGE,
+                                            "setImageBitmap",
+                                            "(Landroid/view/View;J)V",
+                                            &[JValue::Object(&h.0), JValue::Long(id.0 as i64)],
+                                        );
+                                    }
+                                });
+                            }
+                        }
                     }
                 }
                 kinds::CONTAINER => {
@@ -3736,6 +3872,98 @@ mod imp {
                 *slot = it.next()?.trim().parse::<f64>().ok()?;
             }
             Some(day_spec::TextMetrics::from_slots(&out))
+        }
+
+        /// Decode bytes with `BitmapFactory` (docs/images.md), which reads every container
+        /// Android knows — PNG, JPEG, WebP, GIF, BMP and HEIF on API 28+.
+        ///
+        /// The reply is the same comma-joined shape `measureText` uses, because that is this
+        /// backend's established way to bring a few numbers back across JNI.
+        fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+            let reply = if vm_ready() {
+                with_env(|env| {
+                    let arr = env.byte_array_from_slice(bytes).ok()?;
+                    let obj = env
+                        .dcall_static(
+                            BRIDGE,
+                            "imageDecode",
+                            "(J[B)Ljava/lang/String;",
+                            &[JValue::Long(id.0 as i64), JValue::Object(&arr)],
+                        )
+                        .ok()?
+                        .l()
+                        .ok()?;
+                    if obj.is_null() {
+                        return None;
+                    }
+                    env.dstr(&as_jstring(obj)).ok()
+                })
+            } else {
+                None
+            };
+            // "w,h,alpha" — and unlike most backends here, the alpha answer is READ from the
+            // decoded bitmap rather than inferred from the container format.
+            let parsed = reply.and_then(|r| {
+                let mut it = r.split(',');
+                let w = it.next()?.trim().parse::<f64>().ok()?;
+                let h = it.next()?.trim().parse::<f64>().ok()?;
+                let alpha = it.next()?.trim().parse::<i32>().ok()?;
+                Some((w, h, alpha != 0))
+            });
+            let event = match parsed {
+                Some((w, h, has_alpha)) => {
+                    let info = day_spec::BitmapInfo {
+                        pixels: Size::new(w, h),
+                        // Decoded bytes carry no density — a PNG is simply its pixels.
+                        scale: 1.0,
+                        format: day_spec::ImageFormat::sniff(bytes),
+                        has_alpha,
+                    };
+                    BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+                    Event::ImageDecoded {
+                        req,
+                        result: Ok(info),
+                    }
+                }
+                None => Event::ImageDecoded {
+                    req,
+                    result: Err(day_spec::ImageError::Decode),
+                },
+            };
+            emit(day_spec::WINDOW_NODE, event);
+        }
+
+        fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+            BITMAP_INFO.with(|m| m.borrow().get(&id.0).copied())
+        }
+
+        fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+            let result = encode_bitmap(id, spec);
+            emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
+        }
+
+        /// What `Bitmap.compress` WRITES under this scaffold's minSdk (24). Android READS more —
+        /// WebP among them — and the asymmetry is the platform's own: `WEBP_LOSSY` and
+        /// `WEBP_LOSSLESS` arrived in API 30, and the pre-30 `WEBP` constant is deprecated there.
+        fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+            use day_spec::ImageFormat::{Jpeg, Png};
+            vec![Png, Jpeg]
+        }
+
+        fn release_image(&mut self, id: day_spec::BitmapId) {
+            BITMAP_INFO.with(|m| {
+                m.borrow_mut().remove(&id.0);
+            });
+            if vm_ready() {
+                with_env(|env| {
+                    let _ = env.dcall_static(
+                        BRIDGE,
+                        "imageRelease",
+                        "(J)V",
+                        &[JValue::Long(id.0 as i64)],
+                    );
+                });
+            }
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

@@ -280,6 +280,24 @@ unsafe extern "C" {
 
     pub fn day_xaml_divider_new() -> *mut c_void;
     pub fn day_xaml_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;
+    // Raster images from bytes (docs/images.md): the shim holds the ENCODED buffer per id, since
+    // a `BitmapImage` is UI-thread-bound and decodes lazily.
+    /// Hold `bytes` under `id`; 0 when the buffer was empty.
+    pub fn day_xaml_image_decode(id: u64, bytes: *const u8, len: c_int) -> c_int;
+    /// Copy the bytes `id` holds into `out` (at most `cap`), returning the full length; 0 when
+    /// the id names nothing.
+    pub fn day_xaml_image_bytes(id: u64, out: *mut u8, cap: c_int) -> c_int;
+    /// Drop a held bitmap.
+    pub fn day_xaml_image_release(id: u64);
+    /// An `Image` element over raw encoded bytes.
+    pub fn day_xaml_image_bytes_new(bytes: *const u8, len: c_int, mode: c_int) -> *mut c_void;
+    /// An `Image` element over a bitmap already held under `id`.
+    pub fn day_xaml_image_bitmap_new(id: u64, mode: c_int) -> *mut c_void;
+    /// `ImagePatch::Source` on a realized raster `Image`: a resolved path or http(s) URI, raw
+    /// bytes, or a held bitmap. A source that will not load leaves the view as it was.
+    pub fn day_xaml_image_set_uri(w: *mut c_void, uri: *const c_char);
+    pub fn day_xaml_image_set_bytes(w: *mut c_void, bytes: *const u8, len: c_int);
+    pub fn day_xaml_image_set_bitmap(w: *mut c_void, id: u64);
     /// A vector glyph as real XAML `Path` geometry inside a scaling `Viewbox` (docs/vectors.md):
     /// resolution-independent, and `tinted` composes `argb` over the shapes as a brush. Null
     /// when the spec carried no drawable geometry, so the caller falls back to the raster.

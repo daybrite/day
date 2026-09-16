@@ -99,7 +99,19 @@ pub struct MockState {
     next: u64,
     pub widgets: HashMap<u64, MockWidget>,
     pub log: Vec<String>,
-    pub sink: Option<EventSink>,
+    /// Held as an `Rc` rather than the `Box` day-spec hands over, so it can be CALLED without
+    /// being taken out.
+    ///
+    /// Taking it out is what a `Box<dyn Fn>` forces, and it is a trap: the whole dispatch of one
+    /// event — pump, handler, action, any completion a Toolkit duty raises along the way —
+    /// happens inside that window, so a second event raised during the first found no sink and
+    /// vanished. An image decode completing inside a button's action is exactly that shape
+    /// (docs/images.md).
+    pub sink: Option<Rc<dyn Fn(NodeId, Event)>>,
+    /// Decoded images by id (docs/images.md) — what `image_info` answers and `release_image`
+    /// forgets, so a test can assert both that a decode landed and that dropping the handle
+    /// released it.
+    pub bitmaps: HashMap<u64, day_spec::BitmapInfo>,
     /// (kind, proposal) measure-call counter for the M1 bounded-measure tests.
     pub measure_calls: usize,
     /// Recycling-list row-pull sources, keyed by LIST host handle (docs/list.md). A test drives
@@ -512,12 +524,10 @@ impl MockProbe {
 
     /// Inject a native event through the real sink (as the toolkit trampoline would).
     pub fn emit(&self, node: NodeId, event: Event) {
-        let sink = self.state.borrow_mut().sink.take();
-        if let Some(sink) = sink {
-            sink(node, event);
-            self.state.borrow_mut().sink.get_or_insert(sink);
-        } else {
-            panic!("day-mock: no event sink installed");
+        let sink = self.state.borrow().sink.clone();
+        match sink {
+            Some(sink) => sink(node, event),
+            None => panic!("day-mock: no event sink installed"),
         }
     }
 
@@ -650,6 +660,26 @@ fn fmt_rect(r: Rect) -> String {
 /// The mock's line box: one line of text is this tall, whatever it says.
 pub const MOCK_LINE_H: f64 = 16.0;
 
+/// The synthetic pixel size every mock decode reports (docs/images.md) — deterministic, so a
+/// test can predict the frame an `image(bytes)` measures to, exactly like the synthetic text
+/// metrics above.
+pub const MOCK_IMAGE_W: f64 = 64.0;
+pub const MOCK_IMAGE_H: f64 = 48.0;
+/// What the mock claims it can encode: the two formats every real backend also manages, so a
+/// test that asserts a WebP refusal exercises the same path a desktop backend takes.
+pub const MOCK_ENCODE_FORMATS: [day_spec::ImageFormat; 2] =
+    [day_spec::ImageFormat::Png, day_spec::ImageFormat::Jpeg];
+
+/// How the probe spells an image source in the log and in `WidgetProbe::text`: the name for a
+/// staged asset, `bytes:<len>` for a buffer, `bitmap:<id>` for a shared decode.
+fn describe_image_source(source: &day_spec::ImageSource) -> String {
+    match source {
+        day_spec::ImageSource::Named(name) => name.clone(),
+        day_spec::ImageSource::Bytes(b) => format!("bytes:{}", b.len()),
+        day_spec::ImageSource::Decoded(id) => format!("bitmap:{}", id.0),
+    }
+}
+
 pub fn text_size(text: &str, proposal: Proposal, wraps: bool) -> Size {
     let needed = 8.0 * text.chars().count() as f64;
     match (proposal.width, wraps) {
@@ -661,12 +691,37 @@ pub fn text_size(text: &str, proposal: Proposal, wraps: bool) -> Size {
     }
 }
 
+impl MockToolkit {
+    /// Raise a completion through the installed sink (docs/images.md).
+    ///
+    /// Clones the `Rc` rather than taking the sink, so a completion raised while another event
+    /// is being dispatched still reaches day-core. A missing sink is LOGGED, not swallowed: a
+    /// dropped completion leaves a future parked forever, which reads as a hang rather than a
+    /// failure.
+    fn raise(&self, event: Event) {
+        let sink = self.state.borrow().sink.clone();
+        match sink {
+            Some(sink) => sink(NodeId(0), event),
+            None => self
+                .state
+                .borrow_mut()
+                .log(format!("dropped {event:?}: no event sink installed")),
+        }
+    }
+}
+
 impl Toolkit for MockToolkit {
     type Handle = MockHandle;
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // The mock decodes by reading magic numbers and encodes a matching signature
+            // (docs/images.md): no pixels, but the whole request → completion → release path a
+            // test needs. `Cap::ImageProperties` stays Unsupported in the default arm — the
+            // mock reads no metadata, and pretending otherwise would let a test pass against a
+            // capability no backend answers this way.
+            Cap::ImageDecode | Cap::ImageEncode => Support::Native,
             // Records the shape per widget (probe-visible), so a test can assert it.
             Cap::Cursor => Support::Native,
             // A fixed two-family list (`font_families` below) — composed, not read.
@@ -773,6 +828,11 @@ impl Toolkit for MockToolkit {
                     p.background, p.corner_radius, p.clips
                 );
             }
+        } else if let Some(p) = props.downcast_ref::<ImageProps>() {
+            // The probe records WHICH pixels were asked for, so a test can assert that a name
+            // resolved, that bytes arrived, or that two nodes share one decode (docs/images.md).
+            w.text = describe_image_source(&p.source);
+            detail = format!(" source={}", w.text);
         } else if let Some(p) = props.downcast_ref::<ProgressProps>() {
             // `flag` records indeterminate-ness; `value` the determinate fraction.
             w.flag = p.value.is_none();
@@ -838,7 +898,17 @@ impl Toolkit for MockToolkit {
             if anim.is_some() {
                 w.last_anim = anim.copied();
             }
-            detail = if let Some(p) = patch.downcast_ref::<LabelPatch>() {
+            detail = if let Some(p) = patch.downcast_ref::<ImagePatch>() {
+                match p {
+                    // The probe's `text` is which pixels the view draws, so a test can assert a
+                    // source swap landed in the SAME view (docs/images.md).
+                    ImagePatch::Source(s) => {
+                        w.text = describe_image_source(s);
+                        format!("source={}", w.text)
+                    }
+                    ImagePatch::Tint(c) => format!("tint={c:?}"),
+                }
+            } else if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                 match p {
                     LabelPatch::Text(t) => {
                         w.text = t.clone();
@@ -1266,7 +1336,7 @@ impl Toolkit for MockToolkit {
     }
 
     fn set_event_sink(&mut self, sink: EventSink) {
-        self.state.borrow_mut().sink = Some(sink);
+        self.state.borrow_mut().sink = Some(Rc::from(sink));
     }
 
     fn attach_tree(&mut self, host: &MockHandle, source: day_spec::TreeSource) {
@@ -1300,6 +1370,80 @@ impl Toolkit for MockToolkit {
             w.a11y = a11y.clone();
         }
         s.log(format!("a11y #{} id={:?}", h.0, a11y.identifier));
+    }
+
+    // --- raster images (docs/images.md) --------------------------------------------------
+    //
+    // The mock "decodes" without pixels: it reads the format from the magic numbers and invents
+    // a size, which is what a test needs to assert against. Undecodable bytes answer
+    // `ImageError::Decode`, so the failure path is exercised too.
+
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+        let format = day_spec::ImageFormat::sniff(bytes);
+        let mut s = self.state.borrow_mut();
+        s.log(format!(
+            "decode_image #{} {} bytes {:?}",
+            id.0,
+            bytes.len(),
+            format
+        ));
+        let event = match format {
+            Some(format) => {
+                let info = day_spec::BitmapInfo {
+                    // A deterministic synthetic size a test can predict, in the same spirit as
+                    // the mock's synthetic text metrics.
+                    pixels: Size::new(MOCK_IMAGE_W, MOCK_IMAGE_H),
+                    scale: 1.0,
+                    format: Some(format),
+                    has_alpha: format == day_spec::ImageFormat::Png,
+                };
+                s.bitmaps.insert(id.0, info);
+                Event::ImageDecoded {
+                    req,
+                    result: Ok(info),
+                }
+            }
+            None => Event::ImageDecoded {
+                req,
+                result: Err(day_spec::ImageError::Decode),
+            },
+        };
+        drop(s);
+        self.raise(event);
+    }
+
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+        self.state.borrow().bitmaps.get(&id.0).copied()
+    }
+
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+        let mut s = self.state.borrow_mut();
+        s.log(format!("encode_image #{} {:?}", id.0, spec.format));
+        let known = s.bitmaps.contains_key(&id.0);
+        let result = if !known {
+            Err(day_spec::ImageError::Gone)
+        } else if !MOCK_ENCODE_FORMATS.contains(&spec.format) {
+            Err(day_spec::ImageError::Encode)
+        } else {
+            // A recognizable stand-in, not real pixels: the format's magic number, so a test
+            // can assert what came back round-trips through `ImageFormat::sniff`.
+            Ok(match spec.format {
+                day_spec::ImageFormat::Jpeg => vec![0xff, 0xd8, 0xff, 0xe0],
+                _ => vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a],
+            })
+        };
+        drop(s);
+        self.raise(Event::ImageEncoded { req, result });
+    }
+
+    fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+        MOCK_ENCODE_FORMATS.to_vec()
+    }
+
+    fn release_image(&mut self, id: day_spec::BitmapId) {
+        let mut s = self.state.borrow_mut();
+        s.bitmaps.remove(&id.0);
+        s.log(format!("release_image #{}", id.0));
     }
 
     fn replay(&mut self, h: &MockHandle, ops: &[DrawOp], size: Size) {
@@ -1433,11 +1577,10 @@ impl Toolkit for MockToolkit {
         w.open = false;
         let node = w.node;
         s.log(format!("close_window #{}", host.0));
-        let sink = s.sink.take();
+        let sink = s.sink.clone();
         drop(s);
         if let Some(sink) = sink {
             sink(node, Event::WindowClosed);
-            self.state.borrow_mut().sink.get_or_insert(sink);
         }
     }
 
@@ -1456,7 +1599,7 @@ impl Toolkit for MockToolkit {
             w.focused = w.handle == host.0;
         }
         s.log(format!("focus_window #{}", host.0));
-        let sink = s.sink.take();
+        let sink = s.sink.clone();
         drop(s);
         if let Some(sink) = sink {
             if let Some(p) = prev
@@ -1465,7 +1608,6 @@ impl Toolkit for MockToolkit {
                 sink(p, Event::WindowFocused(false));
             }
             sink(node, Event::WindowFocused(true));
-            self.state.borrow_mut().sink.get_or_insert(sink);
         }
     }
 

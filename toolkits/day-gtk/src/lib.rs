@@ -95,6 +95,11 @@ day_core::tls_group! {
     /// [`SideTable`], so the entry goes with the widget in `release`'s sweep.
     static IMAGE_SOURCE: SideTable<String> = SideTable::new();
 
+    /// `BitmapId` → the decoded image (docs/images.md). Keyed by the id day-core minted rather
+    /// than by a widget, because one bitmap outlives any view and may be drawn by several at
+    /// once; entries leave only through `release_image`.
+    static BITMAPS: RefCell<HashMap<u64, GtkBitmap>> = RefCell::new(HashMap::new());
+
     /// Per-listbox context popovers for the nav rows (docs/menus.md), keyed by listbox ptr —
     /// unparented before every row rebuild so popovers never outlive their rows.
     static NAV_ROW_POPOVERS: RefCell<HashMap<usize, Vec<gtk4::PopoverMenu>>> =
@@ -888,6 +893,25 @@ fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
                         stops,
                     });
                 }
+                // Image (22): a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md).
+                // A released bitmap draws NOTHING rather than a placeholder: a canvas re-records
+                // on every tracked read, so a handle can be dropped between record and replay.
+                22 => {
+                    let pixbuf = BITMAPS
+                        .with(|m| m.borrow().get(&(e as u64)).and_then(|b| b.pixbuf.clone()));
+                    if let Some(pixbuf) = pixbuf {
+                        let (pw, ph) = (f64::from(pixbuf.width()), f64::from(pixbuf.height()));
+                        if pw > 0.0 && ph > 0.0 && c > 0.0 && d > 0.0 {
+                            use gtk4::gdk::prelude::GdkCairoContextExt as _;
+                            cr.save().ok();
+                            cr.translate(a, b);
+                            cr.scale(c / pw, d / ph);
+                            cr.set_source_pixbuf(&pixbuf, 0.0, 0.0);
+                            let _ = cr.paint_with_alpha(f.clamp(0.0, 1.0));
+                            cr.restore().ok();
+                        }
+                    }
+                }
                 _ => {}
             }
             if stamp_at.get(rep).is_some() {
@@ -1632,6 +1656,118 @@ fn nav_menu_headers(row: &gtk4::ListBoxRow, listbox_key: usize) {
 
 /// The bundled glyph `source`, recolored to `t` with its alpha kept as the mask — the recolor
 /// both the image piece and the sidebar template icons use (docs/vectors.md "Tint").
+/// A decoded bitmap (docs/images.md), held until day-core drops its last handle.
+///
+/// The pixbuf is kept BESIDE the texture deliberately: cairo draws from a pixbuf
+/// (`set_source_pixbuf` — there is no texture source), the pixbuf is what re-encodes to JPEG and
+/// BMP, and it is the only cheap place to ask whether the image carries alpha. Downloading the
+/// texture's pixels on every canvas redraw is precisely the cost this avoids.
+struct GtkBitmap {
+    texture: gtk4::gdk::Texture,
+    pixbuf: Option<gtk4::gdk_pixbuf::Pixbuf>,
+    info: day_spec::BitmapInfo,
+}
+
+/// Point a `GtkPicture` at an [`day_spec::ImageSource`] (docs/images.md).
+///
+/// Shared by realize and the `Source` patch, so a swapped source loads exactly what a fresh
+/// realize would have.
+fn set_picture_source(pic: &gtk4::Picture, source: &day_spec::ImageSource) {
+    match source {
+        day_spec::ImageSource::Named(name) if !name.is_empty() => {
+            // Prefer the native GResource entry `/day/images/<name>` (§18.3); else a loose file.
+            let res_path = format!("/day/images/{name}");
+            if gtk4::gio::resources_lookup_data(&res_path, gtk4::gio::ResourceLookupFlags::NONE)
+                .is_ok()
+            {
+                pic.set_resource(Some(&res_path));
+            } else if let Some(path) = day_spec::resource::resolve_image_file(name) {
+                pic.set_filename(Some(&path));
+            }
+        }
+        day_spec::ImageSource::Named(_) => {}
+        // Bytes the app already holds, with no staged resource behind them.
+        day_spec::ImageSource::Bytes(bytes) => {
+            let data = gtk4::glib::Bytes::from_owned(bytes.as_ref().clone());
+            if let Ok(texture) = gtk4::gdk::Texture::from_bytes(&data) {
+                pic.set_paintable(Some(&texture));
+            }
+        }
+        // Already decoded: share the one texture rather than parsing the bytes twice.
+        day_spec::ImageSource::Decoded(id) => {
+            let texture = BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.texture.clone()));
+            if let Some(texture) = texture {
+                pic.set_paintable(Some(&texture));
+            }
+        }
+    }
+}
+
+/// Re-encode a decoded bitmap (docs/images.md).
+///
+/// PNG and TIFF come from the texture's own writers where nothing was rescaled; everything else
+/// goes through the pixbuf, which is what gdk-pixbuf can actually write.
+fn encode_bitmap(
+    id: day_spec::BitmapId,
+    spec: &day_spec::EncodeSpec,
+) -> Result<Vec<u8>, day_spec::ImageError> {
+    use day_spec::ImageFormat as F;
+    let held = BITMAPS.with(|m| {
+        m.borrow()
+            .get(&id.0)
+            .map(|b| (b.texture.clone(), b.pixbuf.clone(), b.info))
+    });
+    let (texture, pixbuf, info) = held.ok_or(day_spec::ImageError::Gone)?;
+    if spec.fit.is_none() {
+        match spec.format {
+            F::Png => return Ok(texture.save_to_png_bytes().to_vec()),
+            F::Tiff => return Ok(texture.save_to_tiff_bytes().to_vec()),
+            _ => {}
+        }
+    }
+    let kind = match spec.format {
+        F::Png => "png",
+        F::Tiff => "tiff",
+        F::Jpeg => "jpeg",
+        F::Bmp => "bmp",
+        // gdk-pixbuf ships no WebP, GIF or HEIF writer; `encode_formats` says so up front.
+        _ => return Err(day_spec::ImageError::Encode),
+    };
+    let pixbuf = pixbuf.ok_or(day_spec::ImageError::Encode)?;
+    // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+    // upscaling on an export path inflates the bytes without adding any detail.
+    let pixbuf = match spec.fit {
+        Some(fit) if info.pixels.width > 0.0 && info.pixels.height > 0.0 => {
+            let s = (fit.width / info.pixels.width)
+                .min(fit.height / info.pixels.height)
+                .min(1.0);
+            if s < 1.0 {
+                pixbuf
+                    .scale_simple(
+                        ((info.pixels.width * s).round() as i32).max(1),
+                        ((info.pixels.height * s).round() as i32).max(1),
+                        gtk4::gdk_pixbuf::InterpType::Bilinear,
+                    )
+                    .ok_or(day_spec::ImageError::Encode)?
+            } else {
+                pixbuf
+            }
+        }
+        _ => pixbuf,
+    };
+    let quality;
+    let opts: Vec<(&str, &str)> = match (spec.format, spec.quality) {
+        (F::Jpeg, Some(q)) => {
+            quality = format!("{}", (q.clamp(0.0, 1.0) * 100.0).round() as i32);
+            vec![("quality", quality.as_str())]
+        }
+        _ => Vec::new(),
+    };
+    pixbuf
+        .save_to_bufferv(kind, &opts)
+        .map_err(|_| day_spec::ImageError::Encode)
+}
+
 fn tinted_image_texture(source: &str, t: day_spec::Color) -> Option<gtk4::gdk::Texture> {
     let path = day_spec::resource::resolve_image_file(source)?;
     let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
@@ -3237,6 +3373,11 @@ impl Toolkit for Gtk {
             Cap::Cursor => Support::Native,
             // Pango's font map lists every fontconfig family and face (docs/fonts.md).
             Cap::FontList => Support::Native,
+            // `GdkTexture::from_bytes` reads what gdk-pixbuf's loaders read, and pixbuf writes
+            // back PNG/JPEG/TIFF/BMP (docs/images.md). `Cap::ImageProperties` is deliberately NOT
+            // here: there is no metadata reader on this path, and answering an empty struct would
+            // read as "this file records nothing" rather than "nobody looked".
+            Cap::ImageDecode | Cap::ImageEncode => Support::Native,
             // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
             // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
             Cap::TextRuns
@@ -4407,23 +4548,21 @@ impl Toolkit for Gtk {
                 });
                 // Vector-glyph tint (docs/vectors.md): recolor every pixel to the tint,
                 // keeping alpha as the mask — same recolor the sidebar template icons use.
-                IMAGE_SOURCE.with(|t| t.insert(widget_key(pic.upcast_ref()), p.source.clone()));
-                let tinted = p.tint.and_then(|t| tinted_image_texture(&p.source, t));
+                // Bytes and shared decodes arrive through `decode_image` (docs/images.md); this
+                // arm is the staged-asset path, unchanged.
+                // Only a NAMED source can be tinted: a recolor re-reads the file, and bytes have
+                // no file to re-read. The name is recorded either way so a later tint patch
+                // knows whether it has one.
+                let named = match &p.source {
+                    day_spec::ImageSource::Named(name) => name.clone(),
+                    _ => String::new(),
+                };
+                IMAGE_SOURCE.with(|t| t.insert(widget_key(pic.upcast_ref()), named.clone()));
+                let tinted = p.tint.and_then(|t| tinted_image_texture(&named, t));
                 if let Some(texture) = tinted {
                     pic.set_paintable(Some(&texture));
                 } else {
-                    // Prefer the native GResource entry `/day/images/<name>` (§18.3); else a loose file.
-                    let res_path = format!("/day/images/{}", p.source);
-                    if gtk4::gio::resources_lookup_data(
-                        &res_path,
-                        gtk4::gio::ResourceLookupFlags::NONE,
-                    )
-                    .is_ok()
-                    {
-                        pic.set_resource(Some(&res_path));
-                    } else if let Some(path) = day_spec::resource::resolve_image_file(&p.source) {
-                        pic.set_filename(Some(&path));
-                    }
+                    set_picture_source(&pic, &p.source);
                 }
                 pic.upcast()
             }
@@ -4538,21 +4677,36 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::IMAGE => {
-                if let (Some(day_spec::props::ImagePatch::Tint(c)), Some(pic)) = (
+                if let (Some(p), Some(pic)) = (
                     patch.downcast_ref::<day_spec::props::ImagePatch>(),
                     h.downcast_ref::<gtk4::Picture>(),
                 ) {
-                    let source = IMAGE_SOURCE.with(|t| t.get(widget_key(h)));
-                    if let Some(source) = source {
-                        match c.and_then(|t| tinted_image_texture(&source, t)) {
-                            Some(texture) => pic.set_paintable(Some(&texture)),
-                            // Back to the authored colors: reload the file untinted.
-                            None => {
-                                if let Some(path) = day_spec::resource::resolve_image_file(&source)
-                                {
-                                    pic.set_filename(Some(&path));
+                    match p {
+                        day_spec::props::ImagePatch::Tint(c) => {
+                            let source = IMAGE_SOURCE.with(|t| t.get(widget_key(h)));
+                            if let Some(source) = source {
+                                match c.and_then(|t| tinted_image_texture(&source, t)) {
+                                    Some(texture) => pic.set_paintable(Some(&texture)),
+                                    // Back to the authored colors: reload the file untinted.
+                                    None => {
+                                        if let Some(path) =
+                                            day_spec::resource::resolve_image_file(&source)
+                                        {
+                                            pic.set_filename(Some(&path));
+                                        }
+                                    }
                                 }
                             }
+                        }
+                        // A source swap repaints the SAME widget (docs/images.md), so an `image()`
+                        // bound to a signal shows new pixels without rebuilding its subtree.
+                        day_spec::props::ImagePatch::Source(source) => {
+                            let named = match source {
+                                day_spec::ImageSource::Named(name) => name.clone(),
+                                _ => String::new(),
+                            };
+                            IMAGE_SOURCE.with(|t| t.insert(widget_key(h), named));
+                            set_picture_source(pic, source);
                         }
                     }
                 }
@@ -6041,6 +6195,66 @@ impl Toolkit for Gtk {
             // is exactly this field's origin — no baseline shift to undo.
             ink: day_spec::Rect::new(px(ink.x()), px(ink.y()), px(ink.width()), px(ink.height())),
         })
+    }
+
+    /// Decode bytes into a `GdkTexture` (docs/images.md), which reads whatever gdk-pixbuf's
+    /// loaders read — PNG, JPEG, TIFF, BMP, GIF and, where the platform ships the loader, WebP.
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+        let data = gtk4::glib::Bytes::from_owned(bytes.to_vec());
+        let event = match gtk4::gdk::Texture::from_bytes(&data) {
+            Ok(texture) => {
+                let pixbuf = gtk4::gdk::pixbuf_get_from_texture(&texture);
+                let info = day_spec::BitmapInfo {
+                    pixels: Size::new(f64::from(texture.width()), f64::from(texture.height())),
+                    // Decoded bytes carry no density — a PNG is simply its pixels.
+                    scale: 1.0,
+                    format: day_spec::ImageFormat::sniff(bytes),
+                    // Unknown counts as "may have alpha": compositing an opaque image as if it
+                    // had an alpha channel is harmless, the reverse loses transparency.
+                    has_alpha: pixbuf.as_ref().is_none_or(|p| p.has_alpha()),
+                };
+                BITMAPS.with(|m| {
+                    m.borrow_mut().insert(
+                        id.0,
+                        GtkBitmap {
+                            texture,
+                            pixbuf,
+                            info,
+                        },
+                    )
+                });
+                Event::ImageDecoded {
+                    req,
+                    result: Ok(info),
+                }
+            }
+            Err(_) => Event::ImageDecoded {
+                req,
+                result: Err(day_spec::ImageError::Decode),
+            },
+        };
+        emit(day_spec::WINDOW_NODE, event);
+    }
+
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+        BITMAPS.with(|m| m.borrow().get(&id.0).map(|b| b.info))
+    }
+
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+        let result = encode_bitmap(id, spec);
+        emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
+    }
+
+    /// What gdk-pixbuf WRITES. It reads more than this — GIF and often WebP — and the asymmetry
+    /// is the library's own, which is why this duty exists rather than letting `Cap::ImageEncode`
+    /// imply that everything decodable is also encodable.
+    fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+        use day_spec::ImageFormat::{Bmp, Jpeg, Png, Tiff};
+        vec![Png, Jpeg, Tiff, Bmp]
+    }
+
+    fn release_image(&mut self, id: day_spec::BitmapId) {
+        BITMAPS.with(|m| m.borrow_mut().remove(&id.0));
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

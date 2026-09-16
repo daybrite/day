@@ -119,6 +119,10 @@ day_core::tls_group! {
     /// heading as a band of its own above its row.
     static NAV_MENU_ROWS: RefCell<HashMap<usize, (usize, usize)>> = RefCell::new(HashMap::new());
 
+    /// `BitmapId` → what the decode reported (docs/images.md). Only the METADATA lives here;
+    /// the pixels are the shim's, in a `QImage` registry keyed by the same id.
+    static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> = RefCell::new(HashMap::new());
+
 }
 
 pub fn emit(id: NodeId, ev: Event) {
@@ -178,6 +182,49 @@ fn apply_button_style(w: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
     // SAFETY: `w` is a live QPushButton created by `day_qt_button_new`; the shim only reads the
     // packed colors.
     unsafe { ffi::day_qt_button_set_style(w, kind, argb(fill), argb(S::on_tint(fill))) };
+}
+
+/// Re-encode a decoded bitmap through the shim (docs/images.md).
+///
+/// A free function rather than the duty's body so each refusal reads as an early return instead
+/// of another copy of the same emit. The pixels never cross the boundary: the shim encodes and
+/// hands back one heap buffer, which is copied out and released through its own free.
+fn encode_bitmap(
+    id: day_spec::BitmapId,
+    spec: &day_spec::EncodeSpec,
+) -> Result<Vec<u8>, day_spec::ImageError> {
+    use day_spec::ImageFormat as F;
+    let format = match spec.format {
+        F::Png => "png",
+        F::Jpeg => "jpeg",
+        F::Tiff => "tiff",
+        F::Bmp => "bmp",
+        // Qt reads more than it writes; `encode_formats` says which before an app gets here.
+        _ => return Err(day_spec::ImageError::Encode),
+    };
+    if !BITMAP_INFO.with(|m| m.borrow().contains_key(&id.0)) {
+        return Err(day_spec::ImageError::Gone);
+    }
+    // Qt takes quality as 0..=100, with -1 meaning the format's own default.
+    let quality = spec
+        .quality
+        .map(|q| (q.clamp(0.0, 1.0) * 100.0).round() as c_int)
+        .unwrap_or(-1);
+    let (fit_w, fit_h) = spec.fit.map(|f| (f.width, f.height)).unwrap_or((0.0, 0.0));
+    let mut len: c_int = 0;
+    // SAFETY: the shim returns either null or a malloc'd buffer of `len` bytes; it is copied out
+    // and released through the shim's own free, and `len` is written before the pointer is used.
+    let bytes = unsafe {
+        let p =
+            ffi::day_qt_image_encode(id.0, cstr(format).as_ptr(), quality, fit_w, fit_h, &mut len);
+        if p.is_null() || len <= 0 {
+            return Err(day_spec::ImageError::Encode);
+        }
+        let out = std::slice::from_raw_parts(p, len as usize).to_vec();
+        ffi::day_qt_bytes_free(p);
+        out
+    };
+    Ok(bytes)
 }
 
 pub(crate) fn cstr(s: &str) -> CString {
@@ -1563,6 +1610,11 @@ impl Toolkit for Qt {
             Cap::Cursor => Support::Emulated,
             // `QFontDatabase::families()` + `styles()` (docs/fonts.md).
             Cap::FontList => Support::Native,
+            // `QImage::loadFromData` reads every format Qt's image plugins handle, and
+            // `QImage::save` writes back PNG/JPEG/TIFF/BMP (docs/images.md). `Cap::ImageProperties`
+            // is deliberately NOT here: Qt exposes no metadata reader on this path, and an empty
+            // struct would read as "this file records nothing" rather than "nobody looked".
+            Cap::ImageDecode | Cap::ImageEncode => Support::Native,
             // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
             // Cap::TextSpellCheck stays Unsupported (the default arm).
             Cap::TextRuns
@@ -1945,29 +1997,46 @@ impl Toolkit for Qt {
                     let Some(p) = props_of::<ImageProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
-                    // Prefer the native Qt resource `:/day/images/<name>` (§18.3); else a loose file.
-                    let res_path = format!(":/day/images/{}", p.source);
-                    let path = if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr()) != 0 {
-                        res_path
-                    } else {
-                        // The staged glyph SVG first (docs/vectors.md), the raster cache after —
-                        // `icon_file_path`'s rule, so the piece and the icon channels agree.
-                        icon_file_path(&p.source)
-                    };
                     // Scaling: 0=fit, 1=fill (crop), 2=stretch.
                     let mode = match p.content_mode {
                         ContentMode::Fit => 0,
                         ContentMode::Fill => 1,
                         ContentMode::Stretch => 2,
                     };
-                    // Vector-glyph tint (docs/vectors.md): the same SourceIn recolor the nav
-                    // rows use, over a glyph the SVG engine renders at size.
-                    let tint = p.tint.map(hex_rgb).unwrap_or_default();
-                    QtHandle(ffi::day_qt_image_new(
-                        cstr(&path).as_ptr(),
-                        mode,
-                        cstr(&tint).as_ptr(),
-                    ))
+                    match &p.source {
+                        // The staged-asset path: only a NAMED source resolves to a file, and only
+                        // a file can be tinted — a recolor re-renders the glyph from its source.
+                        day_spec::ImageSource::Named(named) => {
+                            // Prefer the native Qt resource `:/day/images/<name>` (§18.3); else a loose file.
+                            let res_path = format!(":/day/images/{named}");
+                            let path = if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr()) != 0
+                            {
+                                res_path
+                            } else {
+                                // The staged glyph SVG first (docs/vectors.md), the raster cache
+                                // after — `icon_file_path`'s rule, so the piece and the icon
+                                // channels agree.
+                                icon_file_path(named)
+                            };
+                            // Vector-glyph tint (docs/vectors.md): the same SourceIn recolor the
+                            // nav rows use, over a glyph the SVG engine renders at size.
+                            let tint = p.tint.map(hex_rgb).unwrap_or_default();
+                            QtHandle(ffi::day_qt_image_new(
+                                cstr(&path).as_ptr(),
+                                mode,
+                                cstr(&tint).as_ptr(),
+                            ))
+                        }
+                        // Bytes the app already holds — a download, a picked file, a paste — with
+                        // no staged resource behind them (docs/images.md).
+                        day_spec::ImageSource::Bytes(bytes) => QtHandle(
+                            ffi::day_qt_image_new_bytes(bytes.as_ptr(), bytes.len() as c_int, mode),
+                        ),
+                        // Already decoded: share the shim's one QImage rather than parsing twice.
+                        day_spec::ImageSource::Decoded(id) => {
+                            QtHandle(ffi::day_qt_image_new_bitmap(id.0, mode))
+                        }
+                    }
                 }
                 Some(Builtin::List) => {
                     let Some(p) = props_of::<ListProps>(kind, "qt", props) else {
@@ -2041,11 +2110,42 @@ impl Toolkit for Qt {
         unsafe {
             match kind {
                 kinds::IMAGE => {
-                    if let Some(day_spec::props::ImagePatch::Tint(c)) =
-                        patch.downcast_ref::<day_spec::props::ImagePatch>()
-                    {
-                        let tint = c.map(hex_rgb).unwrap_or_default();
-                        ffi::day_qt_image_set_tint(h.0, cstr(&tint).as_ptr());
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
+                        match p {
+                            day_spec::props::ImagePatch::Tint(c) => {
+                                let tint = c.map(hex_rgb).unwrap_or_default();
+                                ffi::day_qt_image_set_tint(h.0, cstr(&tint).as_ptr());
+                            }
+                            // A source swap repaints the SAME widget (docs/images.md), so an
+                            // `image()` bound to a signal shows new pixels without rebuilding
+                            // its subtree.
+                            day_spec::props::ImagePatch::Source(source) => match source {
+                                day_spec::ImageSource::Named(named) => {
+                                    let res_path = format!(":/day/images/{named}");
+                                    let path =
+                                        if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr())
+                                            != 0
+                                        {
+                                            res_path
+                                        } else {
+                                            icon_file_path(named)
+                                        };
+                                    // The tint setter re-renders from the widget's recorded path,
+                                    // so pointing it at the new file is the whole swap.
+                                    ffi::day_qt_image_set_path(h.0, cstr(&path).as_ptr());
+                                }
+                                day_spec::ImageSource::Bytes(bytes) => {
+                                    ffi::day_qt_image_set_bytes(
+                                        h.0,
+                                        bytes.as_ptr(),
+                                        bytes.len() as c_int,
+                                    );
+                                }
+                                day_spec::ImageSource::Decoded(id) => {
+                                    ffi::day_qt_image_set_bitmap(h.0, id.0);
+                                }
+                            },
+                        }
                     }
                 }
                 kinds::CONTAINER => {
@@ -3033,6 +3133,63 @@ impl Toolkit for Qt {
             )
         };
         Some(day_spec::TextMetrics::from_slots(&out))
+    }
+
+    /// Decode bytes with `QImage::loadFromData` (docs/images.md), which reads every format Qt's
+    /// image plugins handle. The pixels stay in the shim; only what the decode reported is kept
+    /// on this side.
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+        let mut out = [0.0f64; 3];
+        // SAFETY: the shim reads `len` bytes from the borrowed span and copies what it keeps,
+        // and writes exactly three doubles into `out`.
+        let ok = unsafe {
+            ffi::day_qt_image_decode(id.0, bytes.as_ptr(), bytes.len() as c_int, out.as_mut_ptr())
+        };
+        let event = if ok != 0 {
+            let info = day_spec::BitmapInfo {
+                pixels: Size::new(out[0], out[1]),
+                // Decoded bytes carry no density — a PNG is simply its pixels.
+                scale: 1.0,
+                format: day_spec::ImageFormat::sniff(bytes),
+                has_alpha: out[2] > 0.5,
+            };
+            BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+            Event::ImageDecoded {
+                req,
+                result: Ok(info),
+            }
+        } else {
+            Event::ImageDecoded {
+                req,
+                result: Err(day_spec::ImageError::Decode),
+            }
+        };
+        emit(day_spec::WINDOW_NODE, event);
+    }
+
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+        BITMAP_INFO.with(|m| m.borrow().get(&id.0).copied())
+    }
+
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+        let result = encode_bitmap(id, spec);
+        emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
+    }
+
+    /// What `QImage::save` WRITES. Qt reads more than this — GIF and, with the right plugins,
+    /// WebP — and the asymmetry is Qt's own, which is why this duty exists rather than letting
+    /// `Cap::ImageEncode` imply that everything decodable is also encodable.
+    fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+        use day_spec::ImageFormat::{Bmp, Jpeg, Png, Tiff};
+        vec![Png, Jpeg, Tiff, Bmp]
+    }
+
+    fn release_image(&mut self, id: day_spec::BitmapId) {
+        BITMAP_INFO.with(|m| {
+            m.borrow_mut().remove(&id.0);
+        });
+        // SAFETY: an id the shim either knows or does not; removing an absent one is a no-op.
+        unsafe { ffi::day_qt_image_release(id.0) };
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

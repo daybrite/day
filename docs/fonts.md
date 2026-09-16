@@ -186,6 +186,10 @@ applies to the next record and is then cleared; a decoder that does not know it 
 consume its texts entry. A default font emits no record, so a drawing without fonts encodes
 exactly as before.
 
+The image op ([docs/images.md](images.md)) is `OpCode::Image = 22`: a plain nine-slot record —
+origin, size, the bitmap id and an opacity in the numeric slots, nothing on the texts channel —
+so a decoder that does not know it skips one record and consumes no text.
+
 A shim that enumerates in C++, Java or JavaScript hands the list back as one text in the format
 `day_spec::parse_font_list` decodes: families separated by U+001E; inside a family,
 U+001F-separated fields — the family name, then one (face name, CSS weight, italic `0`/`1`)

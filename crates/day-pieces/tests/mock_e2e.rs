@@ -7317,3 +7317,310 @@ fn button_icons_seed_content_and_update_without_replacing_the_control() {
             .any(|l| l.starts_with("realize ") || l.starts_with("release "))
     );
 }
+
+/// A PNG signature with nothing behind it: the mock reads the magic numbers, not the pixels,
+/// so this is a decodable image as far as any assertion here is concerned (docs/images.md).
+fn png_bytes() -> std::sync::Arc<Vec<u8>> {
+    std::sync::Arc::new(vec![
+        0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13,
+    ])
+}
+
+#[test]
+fn decoding_bytes_answers_with_what_the_image_is_and_releases_on_drop() {
+    let out = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let sink = out.clone();
+    let probe = boot(move || {
+        let sink = sink.clone();
+        button("load")
+            .action(move || {
+                let sink = sink.clone();
+                day_core::task(async move {
+                    *sink.borrow_mut() = Some(day_core::decode_image(png_bytes()).await);
+                });
+            })
+            .id("load")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+
+    let decoded = out.borrow_mut().take().expect("the decode answered");
+    let bitmap = decoded.expect("PNG bytes decode");
+    let info = bitmap.info();
+    assert_eq!(info.format, Some(day_spec::ImageFormat::Png));
+    assert_eq!(
+        info.pixels,
+        Size::new(day_mock::MOCK_IMAGE_W, day_mock::MOCK_IMAGE_H)
+    );
+    assert_eq!(info.scale, 1.0, "decoded bytes carry no density");
+    // The toolkit knows it by the id day-core minted, and answers about it synchronously.
+    assert_eq!(
+        day_core::with_tree(|t| t.image_info(bitmap.id())),
+        Some(info)
+    );
+
+    // Dropping the last handle releases it in the toolkit — the whole point of the handle.
+    probe.clear_log();
+    let id = bitmap.id();
+    drop(bitmap);
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l == &format!("release_image #{}", id.0)),
+        "{:?}",
+        probe.log()
+    );
+    assert_eq!(day_core::with_tree(|t| t.image_info(id)), None);
+}
+
+/// The last handle can die INSIDE the tree's own borrow — a removed node's handler may own it —
+/// and the release must wait for the borrow to end rather than panic on a re-borrow.
+#[test]
+fn a_bitmap_dropped_inside_the_tree_borrow_releases_once_the_borrow_ends() {
+    let out = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let sink = out.clone();
+    let probe = boot(move || {
+        let sink = sink.clone();
+        button("load")
+            .action(move || {
+                let sink = sink.clone();
+                day_core::task(async move {
+                    *sink.borrow_mut() = Some(day_core::decode_image(png_bytes()).await);
+                });
+            })
+            .id("load")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+    let bitmap = out.borrow_mut().take().expect("answered").expect("decodes");
+    let id = bitmap.id();
+    probe.clear_log();
+    // Held while the tree is borrowed: this used to panic on the re-borrow.
+    day_core::with_tree(|_| drop(bitmap));
+    // The drop queued the release, and the pump `with_tree` runs on its way out drained it.
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l == &format!("release_image #{}", id.0)),
+        "{:?}",
+        probe.log()
+    );
+    assert_eq!(day_core::with_tree(|t| t.image_info(id)), None);
+}
+
+/// An encode keeps its source alive: asking for an export and then dropping the handle is fine,
+/// because the future holds a clone until it has answered.
+#[test]
+fn an_encode_outlives_the_handle_it_was_asked_of() {
+    let out = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let sink = out.clone();
+    let probe = boot(move || {
+        let sink = sink.clone();
+        button("go")
+            .action(move || {
+                let sink = sink.clone();
+                day_core::task(async move {
+                    let bitmap = day_core::decode_image(png_bytes()).await.expect("decodes");
+                    let export = bitmap.encode(day_spec::EncodeSpec::default());
+                    drop(bitmap);
+                    *sink.borrow_mut() = Some(export.await);
+                });
+            })
+            .id("go")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+    let bytes = out
+        .borrow_mut()
+        .take()
+        .expect("answered")
+        .expect("the encode still had its source");
+    assert_eq!(
+        day_spec::ImageFormat::sniff(&bytes),
+        Some(day_spec::ImageFormat::Png)
+    );
+}
+
+/// A canvas draws a decoded image by its HANDLE, never by its bytes.
+///
+/// This is the whole reason `DrawOp::Image` carries a `BitmapId`: a canvas re-records on every
+/// tracked read, so a buffer in the op would hand the backend a megabyte to compare — and
+/// re-decode — on every frame. The app decodes once and draws a number.
+#[test]
+fn a_canvas_draws_a_decoded_image_by_its_handle() {
+    let probe = boot(|| {
+        let img: Signal<Option<day_core::Bitmap>> = Signal::new(None);
+        column((
+            button("load")
+                .action(move || {
+                    day_core::task(async move {
+                        if let Ok(bitmap) = day_core::decode_image(png_bytes()).await {
+                            img.set(Some(bitmap));
+                        }
+                    });
+                })
+                .id("load"),
+            canvas(move |d, size| {
+                if let Some(bitmap) = img.get() {
+                    d.image(&bitmap, day_spec::Rect::from_size(size));
+                }
+            })
+            .frame(120.0, 90.0),
+        ))
+        .any()
+    });
+
+    // Nothing to draw before the decode answers — the canvas records no image rather than a
+    // placeholder for one.
+    assert!(
+        probe.find_by_kind("day.canvas")[0].1.ops.is_empty(),
+        "{:?}",
+        probe.find_by_kind("day.canvas")[0].1.ops
+    );
+
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+
+    let ops = probe.find_by_kind("day.canvas")[0].1.ops.clone();
+    match ops.first() {
+        Some(day_spec::DrawOp::Image {
+            image,
+            rect,
+            opacity,
+        }) => {
+            // The id is the one the toolkit minted for these bytes, and the rect is the
+            // canvas's own size the draw closure was handed.
+            assert_eq!(
+                day_core::with_tree(|t| t.image_info(*image)).map(|i| i.pixels),
+                Some(Size::new(day_mock::MOCK_IMAGE_W, day_mock::MOCK_IMAGE_H))
+            );
+            assert_eq!(rect.size, Size::new(120.0, 90.0));
+            assert_eq!(*opacity, 1.0);
+        }
+        other => panic!("expected an image op, got {other:?}"),
+    }
+}
+
+#[test]
+fn undecodable_bytes_answer_decode_rather_than_a_handle_to_nothing() {
+    let out = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let sink = out.clone();
+    let probe = boot(move || {
+        let sink = sink.clone();
+        button("load")
+            .action(move || {
+                let sink = sink.clone();
+                day_core::task(async move {
+                    let bytes = std::sync::Arc::new(b"not an image".to_vec());
+                    *sink.borrow_mut() = Some(day_core::decode_image(bytes).await);
+                });
+            })
+            .id("load")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+    assert_eq!(
+        out.borrow_mut().take().expect("answered").err(),
+        Some(day_spec::ImageError::Decode)
+    );
+}
+
+#[test]
+fn encoding_honors_the_format_list_and_refuses_the_rest() {
+    let out = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = out.clone();
+    let probe = boot(move || {
+        let sink = sink.clone();
+        button("go")
+            .action(move || {
+                let sink = sink.clone();
+                day_core::task(async move {
+                    let bitmap = day_core::decode_image(png_bytes()).await.expect("decode");
+                    let jpeg = bitmap
+                        .encode(day_spec::EncodeSpec {
+                            format: day_spec::ImageFormat::Jpeg,
+                            quality: Some(0.8),
+                            ..Default::default()
+                        })
+                        .await;
+                    let webp = bitmap
+                        .encode(day_spec::EncodeSpec {
+                            format: day_spec::ImageFormat::Webp,
+                            ..Default::default()
+                        })
+                        .await;
+                    sink.borrow_mut().push(jpeg);
+                    sink.borrow_mut().push(webp);
+                });
+            })
+            .id("go")
+            .any()
+    });
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+
+    let answers = out.borrow();
+    assert_eq!(answers.len(), 2, "both encodes answered");
+    let jpeg = answers[0].as_ref().expect("JPEG is in the format list");
+    assert_eq!(
+        day_spec::ImageFormat::sniff(jpeg),
+        Some(day_spec::ImageFormat::Jpeg),
+        "what came back round-trips through the sniffer"
+    );
+    assert_eq!(
+        answers[1].as_ref().err(),
+        Some(&day_spec::ImageError::Encode),
+        "a format outside `encode_formats` is refused, not substituted"
+    );
+    assert!(day_core::image_encode_formats().contains(&day_spec::ImageFormat::Png));
+}
+
+#[test]
+fn an_image_piece_carries_bytes_and_swaps_them_without_realizing_again() {
+    let state = std::rc::Rc::new(std::cell::Cell::new(None));
+    let out = state.clone();
+    let probe = boot(move || {
+        let source = Signal::new(day_spec::ImageSource::Named("logo".to_string()));
+        out.set(Some(source));
+        image(source).id("shot").any()
+    });
+    let images = probe.find_by_kind("day.image");
+    assert_eq!(images.len(), 1);
+    let node = images[0].1.node;
+    assert_eq!(
+        images[0].1.text, "logo",
+        "a name reaches the backend as a name"
+    );
+
+    probe.clear_log();
+    let bytes = png_bytes();
+    let len = bytes.len();
+    state
+        .get()
+        .unwrap()
+        .set(day_spec::ImageSource::Bytes(bytes));
+    flush_sync();
+
+    assert!(
+        probe
+            .find_by_kind("day.image")
+            .iter()
+            .any(|(_, w)| w.node == node && w.text == format!("bytes:{len}")),
+        "the same view now draws the bytes: {:?}",
+        probe.log()
+    );
+    assert!(
+        !probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("realize ") || l.starts_with("release ")),
+        "swapping the source patches in place rather than rebuilding: {:?}",
+        probe.log()
+    );
+}

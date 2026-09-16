@@ -111,6 +111,30 @@ unsafe extern "C" {
         w: f64,
         h: f64,
     );
+    // Raster images from bytes (docs/images.md). A browser decodes AND encodes asynchronously —
+    // the only backend here where that is true — so neither call answers; the shim calls the
+    // exported `day_dom_image_decoded` / `day_dom_image_encoded` when it resolves. Ids ride as
+    // `f64`: a wasm `i64` reaches JS as a `BigInt`, and an f64 carries a minted id exactly well
+    // past any count a page can reach.
+    fn day_dom_image_decode(req: u32, id: f64, ptr: *const u8, len: usize);
+    fn day_dom_image_encode(
+        req: u32,
+        id: f64,
+        fmt: *const u8,
+        fmt_len: usize,
+        quality: f64,
+        fit_w: f64,
+        fit_h: f64,
+    );
+    fn day_dom_image_release(id: f64);
+    /// Whether the engine writes this MIME type — `toBlob` would otherwise substitute PNG.
+    fn day_dom_image_can_encode(fmt: *const u8, fmt_len: usize) -> u32;
+    /// Point a realized `<img>` at a decoded bitmap's object URL.
+    fn day_dom_image_set_bitmap(el: u32, id: f64);
+    /// Point a realized `<img>` at raw encoded bytes, through a blob URL the shim owns.
+    fn day_dom_image_set_bytes(el: u32, ptr: *const u8, len: usize);
+    /// Revoke the blob URL an element made, when the element goes.
+    fn day_dom_image_revoke(el: u32);
     fn day_dom_present(req: u32, json: *const u8, len: usize);
     /// The modifier keys held right now, as the shim last observed them (bit0 shift,
     /// bit1 primary = meta|ctrl, bit2 alt).
@@ -396,6 +420,12 @@ thread_local! {
     /// DOM bridge writes attributes but does not read them back, and keeping the string here is
     /// cheaper than adding a getter to the shim for one caller.
     static IMAGE_SRC: RefCell<HashMap<u32, String>> = RefCell::new(HashMap::new());
+
+    /// `BitmapId` → what the decode reported (docs/images.md). Seeded when the decode is
+    /// REQUESTED, not when it answers: the container format comes from the bytes on this side and
+    /// the alpha answer follows from it, because an `ImageBitmap` exposes neither. The browser
+    /// fills in only the pixel size.
+    static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> = RefCell::new(HashMap::new());
 }
 
 /// Recolor a template glyph (docs/vectors.md "Tint").
@@ -1336,6 +1366,11 @@ impl Toolkit for Dom {
             // grow a tab bar as the viewport narrows (docs/navigation.md).
             Cap::NavTabsAdaptive => Support::Emulated,
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
+            // `createImageBitmap` decodes every format the engine reads; a canvas writes back
+            // PNG/JPEG/WebP (docs/images.md). `Cap::ImageProperties` is deliberately NOT here:
+            // the browser exposes no metadata reader, and an empty struct would read as "this
+            // file records nothing" rather than "nobody looked".
+            Cap::ImageDecode | Cap::ImageEncode => Support::Native,
             // The browser's file input and download ARE its file dialogs; bytes ride the
             // `web_files` store instead of a filesystem (docs/files.md).
             Cap::FileDialogs => Support::Native,
@@ -1528,10 +1563,17 @@ impl Toolkit for Dom {
                 let Some(p) = day_spec::props_of::<ImageProps>(kind, "web-dom", props) else {
                     return realize_placeholder(kind, id);
                 };
-                let src = if p.source.contains('/') {
-                    p.source.clone()
+                // Bytes and shared decodes arrive through `decode_image` (docs/images.md); this
+                // arm is the staged-asset path, unchanged — including the one backend quirk that
+                // a slash-carrying name is passed straight through as a URL.
+                let named = match &p.source {
+                    day_spec::ImageSource::Named(name) => name.clone(),
+                    _ => String::new(),
+                };
+                let src = if named.contains('/') {
+                    named.clone()
                 } else {
-                    format!("assets/images/{}.{}", p.source, image_ext(&p.source))
+                    format!("assets/images/{}.{}", named, image_ext(&named))
                 };
                 let fit = match p.content_mode {
                     ContentMode::Fit => "contain",
@@ -1550,7 +1592,18 @@ impl Toolkit for Dom {
                         attr(el, "role", "img");
                     }
                 } else {
-                    attr(el, "src", &src);
+                    // Bytes and shared decodes never name a file (docs/images.md): the shim owns
+                    // a blob URL for them, and setting the staged `src` first would fire a
+                    // request for an asset that does not exist.
+                    match &p.source {
+                        day_spec::ImageSource::Named(_) => attr(el, "src", &src),
+                        day_spec::ImageSource::Bytes(b) => unsafe {
+                            day_dom_image_set_bytes(el, b.as_ptr(), b.len())
+                        },
+                        day_spec::ImageSource::Decoded(id) => unsafe {
+                            day_dom_image_set_bitmap(el, id.0 as f64)
+                        },
+                    }
                     s(el, "object-fit", fit);
                     if p.decorative {
                         attr(el, "alt", "");
@@ -1738,15 +1791,38 @@ impl Toolkit for Dom {
         let el = h.0;
         match kind {
             kinds::IMAGE => {
-                if let Some(day_spec::props::ImagePatch::Tint(c)) =
-                    patch.downcast_ref::<day_spec::props::ImagePatch>()
-                {
-                    // The mask needs the same URL the element already loads.
-                    let src = IMAGE_SRC.with(|m| m.borrow().get(&el).cloned());
-                    if let Some(src) = src {
-                        // Only the color changes here: an element realized with a tint is
-                        // already the masked div, so this repaints the mask's fill.
-                        apply_image_tint(el, &src, "contain", *c);
+                if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
+                    match p {
+                        day_spec::props::ImagePatch::Tint(c) => {
+                            // The mask needs the same URL the element already loads.
+                            let src = IMAGE_SRC.with(|m| m.borrow().get(&el).cloned());
+                            if let Some(src) = src {
+                                // Only the color changes here: an element realized with a tint is
+                                // already the masked div, so this repaints the mask's fill.
+                                apply_image_tint(el, &src, "contain", *c);
+                            }
+                        }
+                        // A source swap repaints the SAME element (docs/images.md), so an
+                        // `image()` bound to a signal shows new pixels without rebuilding its
+                        // subtree. A tinted glyph keeps the mask it was realized with: recoloring
+                        // bytes would need a URL this side never sees.
+                        day_spec::props::ImagePatch::Source(source) => match source {
+                            day_spec::ImageSource::Named(name) => {
+                                let src = if name.contains('/') {
+                                    name.clone()
+                                } else {
+                                    format!("assets/images/{}.{}", name, image_ext(name))
+                                };
+                                attr(el, "src", &src);
+                                IMAGE_SRC.with(|m| m.borrow_mut().insert(el, src));
+                            }
+                            day_spec::ImageSource::Bytes(b) => unsafe {
+                                day_dom_image_set_bytes(el, b.as_ptr(), b.len())
+                            },
+                            day_spec::ImageSource::Decoded(id) => unsafe {
+                                day_dom_image_set_bitmap(el, id.0 as f64)
+                            },
+                        },
                     }
                 }
             }
@@ -1997,6 +2073,10 @@ impl Toolkit for Dom {
         day_spec::sidetable::sweep(el as usize);
         NODE_OF.with(|m| m.borrow_mut().remove(&el));
         IMAGE_SRC.with(|m| m.borrow_mut().remove(&el));
+        // An object URL this element made for `ImageSource::Bytes` is not reachable by the GC: it
+        // lives on the document until revoked, so the element's release is the moment to do it.
+        // SAFETY: an element id the shim either knows or does not; revoking nothing is a no-op.
+        unsafe { day_dom_image_revoke(el) };
         CSS_FRAMED.with(|s| s.borrow_mut().remove(&el));
         AREA_HINTS.with(|m| m.borrow_mut().remove(&el));
         PAGE_SIDEBAR.with(|m| m.borrow_mut().remove(&el));
@@ -2387,6 +2467,114 @@ impl Toolkit for Dom {
         if let Some(id) = &a11y.identifier {
             attr(h.0, "id", id);
         }
+    }
+
+    /// Hand the bytes to the browser's own decoder (docs/images.md).
+    ///
+    /// `createImageBitmap` is ASYNCHRONOUS, so nothing is answered here; the shim calls
+    /// `day_dom_image_decoded` when it resolves. Every other backend completes inline — this is
+    /// the one the request-id design was actually needed for.
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+        // Seeded now because the browser reports neither: an `ImageBitmap` has no format and no
+        // way to ask about alpha. Unknown counts as "may have alpha" — compositing an opaque
+        // image as if it had one is harmless, the reverse loses transparency.
+        let format = day_spec::ImageFormat::sniff(bytes);
+        let has_alpha = !matches!(
+            format,
+            Some(day_spec::ImageFormat::Jpeg) | Some(day_spec::ImageFormat::Bmp)
+        );
+        BITMAP_INFO.with(|m| {
+            m.borrow_mut().insert(
+                id.0,
+                day_spec::BitmapInfo {
+                    pixels: Size::new(0.0, 0.0),
+                    // Decoded bytes carry no density — a PNG is simply its pixels.
+                    scale: 1.0,
+                    format,
+                    has_alpha,
+                },
+            )
+        });
+        // SAFETY: the shim copies the span out of wasm memory before the first await point.
+        unsafe { day_dom_image_decode(req as u32, id.0 as f64, bytes.as_ptr(), bytes.len()) };
+    }
+
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+        BITMAP_INFO.with(|m| m.borrow().get(&id.0).copied())
+    }
+
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+        use day_spec::ImageFormat as F;
+        let refuse = |err: day_spec::ImageError| {
+            emit(
+                day_spec::WINDOW_NODE,
+                Event::ImageEncoded {
+                    req,
+                    result: Err(err),
+                },
+            );
+        };
+        // An id this backend never decoded, or has released, is `Gone` here as everywhere else.
+        if !BITMAP_INFO.with(|m| m.borrow().contains_key(&id.0)) {
+            refuse(day_spec::ImageError::Gone);
+            return;
+        }
+        let mime = match spec.format {
+            F::Png => "image/png",
+            F::Jpeg => "image/jpeg",
+            F::Webp => "image/webp",
+            // A canvas writes no TIFF, GIF or BMP; `encode_formats` says so before an app asks.
+            _ => {
+                refuse(day_spec::ImageError::Encode);
+                return;
+            }
+        };
+        // Refuse a type THIS engine cannot write rather than let `toBlob` substitute PNG for it.
+        // SAFETY: `mime` is a 'static str the shim reads and does not keep.
+        if unsafe { day_dom_image_can_encode(mime.as_ptr(), mime.len()) } == 0 {
+            refuse(day_spec::ImageError::Encode);
+            return;
+        }
+        let (fit_w, fit_h) = spec.fit.map(|f| (f.width, f.height)).unwrap_or((0.0, 0.0));
+        // -1 means "the type's own default", which is what `toBlob` does with an absent quality.
+        let quality = spec.quality.map(|q| q.clamp(0.0, 1.0)).unwrap_or(-1.0);
+        // SAFETY: `mime` is a 'static str; the shim reads `fmt_len` bytes and copies what it keeps.
+        unsafe {
+            day_dom_image_encode(
+                req as u32,
+                id.0 as f64,
+                mime.as_ptr(),
+                mime.len(),
+                quality,
+                fit_w,
+                fit_h,
+            )
+        };
+    }
+
+    /// What a canvas WRITES (`toBlob` / `convertToBlob`). A browser READS far more than this —
+    /// GIF, BMP, often AVIF — and the asymmetry is the platform's own, which is why this duty
+    /// exists rather than letting `Cap::ImageEncode` imply everything decodable is encodable.
+    fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+        use day_spec::ImageFormat::{Jpeg, Png, Webp};
+        // Asked of the engine, not assumed: WebKit — the browser this project tests with — reads
+        // WebP but does not write it, and `toBlob` would silently hand back PNG instead.
+        [Png, Jpeg, Webp]
+            .into_iter()
+            .filter(|f| {
+                let mime = f.mime();
+                // SAFETY: a 'static str the shim reads and does not keep.
+                unsafe { day_dom_image_can_encode(mime.as_ptr(), mime.len()) != 0 }
+            })
+            .collect()
+    }
+
+    fn release_image(&mut self, id: day_spec::BitmapId) {
+        BITMAP_INFO.with(|m| {
+            m.borrow_mut().remove(&id.0);
+        });
+        // SAFETY: an id the shim either knows or does not; releasing an absent one is a no-op.
+        unsafe { day_dom_image_release(id.0 as f64) };
     }
 
     fn replay(&mut self, h: &DomHandle, ops: &[DrawOp], size: Size) {
@@ -3409,6 +3597,22 @@ fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<u8>) {
             }
             DrawOp::Save => buf.push(3.0),
             DrawOp::Restore => buf.push(4.0),
+            // [8, id, x, y, w, h, opacity] (docs/images.md). The id is a number, so it rides
+            // this buffer like any coordinate. Note this encoder's numbering is its OWN — it is
+            // not day-spec's frozen wire table, and the two have never agreed.
+            DrawOp::Image {
+                image,
+                rect,
+                opacity,
+            } => buf.extend([
+                8.0,
+                image.0 as f64,
+                rect.origin.x,
+                rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+                *opacity,
+            ]),
             DrawOp::Concat(m) => buf.extend([5.0, m.a, m.b, m.c, m.d, m.tx, m.ty]),
         }
     }
@@ -3669,6 +3873,66 @@ pub extern "C" fn day_dom_event_text(el: u32, kind: u32, ptr: *mut u8, len: usiz
                 },
             );
         }
+    });
+}
+
+/// The browser answering a decode (docs/images.md): `w`/`h` are the decoded PIXEL size, or 0 when
+/// the bytes were not an image this engine reads.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_image_decoded(req: u32, id: f64, w: f64, h: f64) {
+    let id = day_spec::BitmapId(id as u64);
+    day_spec::ffi_guard::contain((), move || {
+        let event = if w > 0.0 && h > 0.0 {
+            // The format and alpha were recorded when the decode was asked for; only the size
+            // was unknown until now.
+            let info = BITMAP_INFO.with(|m| {
+                let mut m = m.borrow_mut();
+                let info = m.entry(id.0).or_insert(day_spec::BitmapInfo {
+                    pixels: Size::new(0.0, 0.0),
+                    scale: 1.0,
+                    format: None,
+                    has_alpha: true,
+                });
+                info.pixels = Size::new(w, h);
+                *info
+            });
+            Event::ImageDecoded {
+                req: u64::from(req),
+                result: Ok(info),
+            }
+        } else {
+            BITMAP_INFO.with(|m| {
+                m.borrow_mut().remove(&id.0);
+            });
+            Event::ImageDecoded {
+                req: u64::from(req),
+                result: Err(day_spec::ImageError::Decode),
+            }
+        };
+        emit(day_spec::WINDOW_NODE, event);
+    });
+}
+
+/// The browser answering an encode: `ptr`/`len` are a `day_dom_alloc` buffer to take ownership
+/// of, or 0 when the canvas could not produce that type.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // a live `day_dom_alloc` allocation from the shim
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_image_encoded(req: u32, ptr: *mut u8, len: usize) {
+    let result = if ptr.is_null() || len == 0 {
+        Err(day_spec::ImageError::Encode)
+    } else {
+        // SAFETY: the shim wrote exactly `len` bytes into a `day_dom_alloc(len)` allocation, and
+        // ownership passes here — the same contract `take_string` relies on.
+        Ok(unsafe { Vec::from_raw_parts(ptr, len, len) })
+    };
+    day_spec::ffi_guard::contain((), move || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ImageEncoded {
+                req: u64::from(req),
+                result,
+            },
+        );
     });
 }
 

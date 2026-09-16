@@ -779,6 +779,26 @@ pub enum Event {
         req: u64,
         result: present::PresentResult,
     },
+    /// A decode started by [`Toolkit::decode_image`] finished (docs/images.md).
+    ///
+    /// Keyed by request id like [`Event::PresentResult`], and for the same reason: the answer
+    /// belongs to a waiting caller, not to a tree node. It never crosses a native boundary —
+    /// every backend raises it from its own Rust arm once the platform decoder answers — so it
+    /// has no [`bridge::BridgeKind`], exactly like the completion events dialogs use in-process.
+    ///
+    /// No bitmap id rides here: day-core minted it and handed it to the backend with the bytes,
+    /// so it already knows which image a request answers for. A backend that stored the image
+    /// under that id has nothing more to say than the facts it read.
+    ImageDecoded {
+        req: u64,
+        result: Result<BitmapInfo, ImageError>,
+    },
+    /// An encode started by [`Toolkit::encode_image`] finished (docs/images.md): the encoded
+    /// bytes, or why they could not be produced.
+    ImageEncoded {
+        req: u64,
+        result: Result<Vec<u8>, ImageError>,
+    },
     /// An open, piece-defined event (§8.2). `tag` names the event for in-process emitters (a static
     /// literal); it is empty for events that cross a native boundary (JNI/C-ABI), which carry only the
     /// primitive `num`/`text` payload. A piece's `cx.on` reads whichever fields it needs. This is the
@@ -2152,6 +2172,402 @@ pub enum Cap {
     /// [`TextMetrics::approximate`]. Probe this before offering a font menu, not before
     /// drawing — a [`CanvasFont`] draws everywhere.
     FontList,
+    /// The toolkit can turn encoded image BYTES into a native image
+    /// ([`Toolkit::decode_image`], docs/images.md) — what `image(bytes)`, a pasted screenshot and
+    /// a canvas image all rest on. `Native` wherever the platform decoder takes a buffer;
+    /// `Unsupported` means only staged asset NAMES draw, so an app should not offer "open an
+    /// image" at all. Every backend that decodes also answers [`Toolkit::image_info`], so pixel
+    /// size needs no probe of its own.
+    ImageDecode,
+    /// The toolkit can encode a decoded image back to bytes ([`Toolkit::encode_image`]).
+    /// Which FORMATS it encodes is [`Toolkit::encode_formats`] — the same shape as
+    /// [`Cap::FontList`]/[`Toolkit::font_families`], because "can encode" and "can encode WebP"
+    /// are different questions and only the second one needs a list.
+    ImageEncode,
+    /// The toolkit can read an image's metadata beyond its pixels — EXIF orientation, DPI,
+    /// capture time ([`Toolkit::image_properties`]). `Native` where a platform metadata reader
+    /// is already linked (WinRT's `BitmapPropertiesView`, Android's `ExifInterface`);
+    /// `Unsupported` where reading it would mean shipping a parser or a new framework, which is
+    /// most places. An app that wants orientation must handle `None`.
+    ImageProperties,
+}
+
+// ---------------------------------------------------------------------------
+// Raster images (docs/images.md): the currency shared by the `image` piece, the canvas, and
+// the decode/metadata/encode duties below.
+// ---------------------------------------------------------------------------
+
+/// A decoded image the toolkit holds, addressed by an id day-core mints.
+///
+/// Opaque on purpose: what sits behind it is an `NSImage`, a `UIImage`, a `GdkTexture`, a
+/// `QPixmap`, a `BitmapImage`, an android `Bitmap` or an `ImageBitmap`, and none of those cross
+/// the boundary. The id is released through [`Toolkit::release_image`] when the app's handle
+/// drops, so a backend's side table never outlives the app's interest in it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BitmapId(pub u64);
+
+/// An encoded image format — what [`BitmapInfo::format`] reports and [`EncodeSpec::format`] asks
+/// for. Not every backend encodes every one: ask [`Toolkit::encode_formats`] (the
+/// [`Cap::ImageEncode`] pair of [`Toolkit::font_families`]/[`Cap::FontList`]) rather than
+/// assuming.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum ImageFormat {
+    #[default]
+    Png,
+    Jpeg,
+    Webp,
+    Gif,
+    Bmp,
+    Tiff,
+    /// HEIF/HEIC — Apple's camera format; decodable on the Apple backends and Android, and
+    /// encodable almost nowhere.
+    Heif,
+    /// Decoded from bytes whose magic numbers [`ImageFormat::sniff`] does not know. A backend may
+    /// still decode it — the platform decoders read more formats than Day names.
+    Unknown,
+}
+
+impl ImageFormat {
+    /// The IANA media type, which is also the string the ArkUI packer, GDI+ and the browser's
+    /// `toBlob` take. `Unknown` answers `application/octet-stream`.
+    pub fn mime(self) -> &'static str {
+        match self {
+            ImageFormat::Png => "image/png",
+            ImageFormat::Jpeg => "image/jpeg",
+            ImageFormat::Webp => "image/webp",
+            ImageFormat::Gif => "image/gif",
+            ImageFormat::Bmp => "image/bmp",
+            ImageFormat::Tiff => "image/tiff",
+            ImageFormat::Heif => "image/heif",
+            ImageFormat::Unknown => "application/octet-stream",
+        }
+    }
+
+    /// The pixel size the encoded bytes DECLARE, read from the container's own header
+    /// (docs/images.md).
+    ///
+    /// Every backend that decodes natively reports its own dimensions; this exists for the one
+    /// that cannot. `windows-xaml`'s `BitmapImage` learns its size asynchronously — only once the
+    /// element has been shown — so a synchronous `image_info` there would have nothing to say.
+    /// Reading the header instead gives the same answer the decoder would, before any decoding.
+    ///
+    /// `None` when the header is absent, truncated, or a container this does not parse.
+    pub fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+        let be16 = |i: usize| -> Option<u32> {
+            Some(u32::from(u16::from_be_bytes([
+                *bytes.get(i)?,
+                *bytes.get(i + 1)?,
+            ])))
+        };
+        let le16 = |i: usize| -> Option<u32> {
+            Some(u32::from(u16::from_le_bytes([
+                *bytes.get(i)?,
+                *bytes.get(i + 1)?,
+            ])))
+        };
+        let be32 = |i: usize| -> Option<u32> {
+            Some(u32::from_be_bytes([
+                *bytes.get(i)?,
+                *bytes.get(i + 1)?,
+                *bytes.get(i + 2)?,
+                *bytes.get(i + 3)?,
+            ]))
+        };
+        let le32 = |i: usize| -> Option<u32> {
+            Some(u32::from_le_bytes([
+                *bytes.get(i)?,
+                *bytes.get(i + 1)?,
+                *bytes.get(i + 2)?,
+                *bytes.get(i + 3)?,
+            ]))
+        };
+        match Self::sniff(bytes)? {
+            // IHDR is always the first chunk: 8-byte signature, 4-byte length, 4-byte type.
+            ImageFormat::Png => Some((be32(16)?, be32(20)?)),
+            // The logical screen descriptor follows the 6-byte version stamp, little-endian.
+            ImageFormat::Gif => Some((le16(6)?, le16(8)?)),
+            // The DIB header's width/height are signed; a negative height is a top-down bitmap.
+            ImageFormat::Bmp => Some((
+                le32(18)?.cast_signed().unsigned_abs(),
+                le32(22)?.cast_signed().unsigned_abs(),
+            )),
+            // Walk the segment chain to the frame header. Every SOF marker carries the size at
+            // the same offsets; the arithmetic-coded and progressive ones are SOFs too, which is
+            // why this matches the whole range rather than SOF0 alone. DNL/DHP (0xC4, 0xC8,
+            // 0xCC) are NOT frame headers and are skipped like any other segment.
+            ImageFormat::Jpeg => {
+                let mut i = 2usize;
+                // `<=`, not `<`: a frame header that ENDS the buffer is still a frame header, and
+                // the size sits in its last four bytes.
+                while i + 9 <= bytes.len() {
+                    if bytes[i] != 0xFF {
+                        i += 1;
+                        continue;
+                    }
+                    let marker = bytes[i + 1];
+                    // Padding fill bytes and the standalone markers carry no length.
+                    if marker == 0xFF || (0xD0..=0xD9).contains(&marker) || marker == 0x01 {
+                        i += 1;
+                        continue;
+                    }
+                    let is_sof = (0xC0..=0xCF).contains(&marker)
+                        && marker != 0xC4
+                        && marker != 0xC8
+                        && marker != 0xCC;
+                    if is_sof {
+                        // [marker][len:2][precision:1][height:2][width:2]
+                        return Some((be16(i + 7)?, be16(i + 5)?));
+                    }
+                    i += 2 + be16(i + 2)? as usize;
+                }
+                None
+            }
+            // RIFF: a 12-byte header, then a chunk id. VP8X states the size minus one in 24-bit
+            // little-endian; lossy VP8 hides it in the 14 low bits after the start code; lossless
+            // VP8L packs width-1 and height-1 into 14 bits each across four bytes.
+            ImageFormat::Webp => match bytes.get(12..16)? {
+                b"VP8X" => {
+                    let w = u32::from(*bytes.get(24)?)
+                        | u32::from(*bytes.get(25)?) << 8
+                        | u32::from(*bytes.get(26)?) << 16;
+                    let h = u32::from(*bytes.get(27)?)
+                        | u32::from(*bytes.get(28)?) << 8
+                        | u32::from(*bytes.get(29)?) << 16;
+                    Some((w + 1, h + 1))
+                }
+                b"VP8 " => Some((le16(26)? & 0x3FFF, le16(28)? & 0x3FFF)),
+                b"VP8L" => {
+                    let bits = le32(21)?;
+                    Some(((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1))
+                }
+                _ => None,
+            },
+            // TIFF's IFD is a pointer chase and HEIF's is a box tree; neither is worth parsing
+            // here, because every backend that reads them decodes natively and answers for itself.
+            ImageFormat::Tiff | ImageFormat::Heif | ImageFormat::Unknown => None,
+        }
+    }
+
+    /// The format `bytes` begins with, by magic number — enough to fill [`BitmapInfo::format`]
+    /// on every backend, including the ones whose decoder never says what it decoded.
+    ///
+    /// Hand-rolled rather than a crate: it is a dozen byte comparisons against fixed prefixes,
+    /// and the alternative is an image-decoding dependency in the one crate that must stay
+    /// dependency-free.
+    pub fn sniff(bytes: &[u8]) -> Option<ImageFormat> {
+        let starts = |sig: &[u8]| bytes.len() >= sig.len() && &bytes[..sig.len()] == sig;
+        if starts(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+            return Some(ImageFormat::Png);
+        }
+        if starts(&[0xff, 0xd8, 0xff]) {
+            return Some(ImageFormat::Jpeg);
+        }
+        if starts(b"GIF87a") || starts(b"GIF89a") {
+            return Some(ImageFormat::Gif);
+        }
+        if starts(b"BM") {
+            return Some(ImageFormat::Bmp);
+        }
+        if starts(&[0x49, 0x49, 0x2a, 0x00]) || starts(&[0x4d, 0x4d, 0x00, 0x2a]) {
+            return Some(ImageFormat::Tiff);
+        }
+        // RIFF....WEBP and ....ftypheic/heix/mif1 both carry their tag past a 4-byte prefix.
+        if starts(b"RIFF") && bytes.len() >= 12 && &bytes[8..12] == b"WEBP" {
+            return Some(ImageFormat::Webp);
+        }
+        if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+            let brand = &bytes[8..12];
+            if brand == b"heic" || brand == b"heix" || brand == b"mif1" || brand == b"msf1" {
+                return Some(ImageFormat::Heif);
+            }
+        }
+        None
+    }
+}
+
+/// What a decoded image is, in the terms every backend can answer
+/// ([`Toolkit::image_info`], docs/images.md).
+///
+/// `pixels` is the image's own pixel size, NOT the points it draws at: an asset that stages at
+/// 2× reports twice its point size and a `scale` of 2, so an app sizing a frame divides. Bytes
+/// carry no density, so a decoded buffer always answers `scale: 1.0`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BitmapInfo {
+    pub pixels: Size,
+    /// Pixels per point (1.0 for decoded bytes; 2 or 3 for a catalog/drawable asset that staged
+    /// a density variant).
+    pub scale: f64,
+    /// The encoded format it came from, where the backend knows or [`ImageFormat::sniff`] said.
+    pub format: Option<ImageFormat>,
+    pub has_alpha: bool,
+}
+
+/// What [`Toolkit::encode_image`] should produce (docs/images.md).
+///
+/// A struct rather than three positional arguments, per docs/api-style.md: the call site reads
+/// `EncodeSpec { format: ImageFormat::Jpeg, quality: Some(0.8), ..Default::default() }`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EncodeSpec {
+    pub format: ImageFormat,
+    /// Lossy quality in `0.0..=1.0`. `None` takes the platform's default; a lossless format
+    /// ignores it.
+    pub quality: Option<f64>,
+    /// Scale the longest side down to fit this box first (aspect preserved). `None` encodes at
+    /// the image's own size.
+    pub fit: Option<Size>,
+}
+
+impl Default for EncodeSpec {
+    fn default() -> Self {
+        EncodeSpec {
+            format: ImageFormat::Png,
+            quality: None,
+            fit: None,
+        }
+    }
+}
+
+/// The metadata an image file carries beyond its pixels ([`Toolkit::image_properties`]).
+///
+/// Sparse by construction: every field is what the platform's own reader answered, and a
+/// backend with no metadata reader at all answers `None` to the whole call rather than an empty
+/// struct. Probe [`Cap::ImageProperties`] before offering an affordance that depends on it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ImageProperties {
+    /// The EXIF orientation tag (1–8), where one was recorded.
+    pub orientation: Option<u16>,
+    /// Pixels per inch, where the file records a resolution.
+    pub dpi: Option<f64>,
+    /// The capture timestamp as the file spells it (no parsing: the formats disagree).
+    pub created: Option<String>,
+    /// Everything else the platform reader named, in its own vocabulary. Keys are the
+    /// platform's, so read them defensively.
+    pub extra: Vec<(String, String)>,
+}
+
+/// Why an image operation could not answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageError {
+    /// The bytes are not an image this platform decodes.
+    Decode,
+    /// The image decoded, but this backend cannot encode the format asked for. `encode_formats`
+    /// says which it can.
+    Encode,
+    /// The backend has no path for this at all (probe [`Cap::ImageDecode`] /
+    /// [`Cap::ImageEncode`]).
+    Unsupported,
+    /// The id named no live image — released already, or never decoded.
+    Gone,
+}
+
+impl std::fmt::Display for ImageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImageError::Decode => write!(f, "the bytes are not a decodable image"),
+            ImageError::Encode => write!(f, "this backend cannot encode that format"),
+            ImageError::Unsupported => write!(f, "image support is unavailable on this backend"),
+            ImageError::Gone => write!(f, "the image was released"),
+        }
+    }
+}
+
+impl std::error::Error for ImageError {}
+
+/// Where a raster image's pixels come from (docs/images.md).
+///
+/// One currency for both halves of the same question: `Named` is the staged asset every
+/// `image(res::images::…)` has always drawn, `Bytes` is an encoded PNG/JPEG the app already
+/// holds (a download, a file the user picked, a clipboard paste), and `Decoded` names an image
+/// the toolkit decoded once so several nodes — and the canvas — share it.
+#[derive(Clone)]
+pub enum ImageSource {
+    /// A staged asset name, resolved through the backend's own pipeline (§18.2).
+    Named(String),
+    /// Encoded bytes (PNG/JPEG/…) the app owns, decoded by the platform's own decoder. Shared
+    /// rather than copied: handing over a new buffer is a refcount bump.
+    Bytes(std::sync::Arc<Vec<u8>>),
+    /// An image already decoded through [`Toolkit::decode_image`].
+    Decoded(BitmapId),
+}
+
+impl Default for ImageSource {
+    fn default() -> Self {
+        ImageSource::Named(String::new())
+    }
+}
+
+/// Bytes compare by IDENTITY, not content.
+///
+/// This is the equality a binding gates on (§4.2), so it runs on every evaluation — and
+/// comparing two multi-megabyte buffers byte by byte would cost far more than the redundant
+/// decode it saves. Handing over a distinct buffer holding the same pixels therefore re-decodes,
+/// which is the same trade `Arc::ptr_eq` makes wherever else Day carries shared buffers.
+impl PartialEq for ImageSource {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ImageSource::Named(a), ImageSource::Named(b)) => a == b,
+            (ImageSource::Bytes(a), ImageSource::Bytes(b)) => std::sync::Arc::ptr_eq(a, b),
+            (ImageSource::Decoded(a), ImageSource::Decoded(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// Logs the buffer's LENGTH, never its contents — a `Debug` that dumped a megabyte of pixels
+/// into a trace line would make the trace useless and slow.
+impl std::fmt::Debug for ImageSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImageSource::Named(n) => f.debug_tuple("Named").field(n).finish(),
+            ImageSource::Bytes(b) => f.debug_tuple("Bytes").field(&b.len()).finish(),
+            ImageSource::Decoded(id) => f.debug_tuple("Decoded").field(&id.0).finish(),
+        }
+    }
+}
+
+impl From<BitmapId> for ImageSource {
+    fn from(id: BitmapId) -> Self {
+        ImageSource::Decoded(id)
+    }
+}
+
+/// A staged asset name is a source, so `image(res::images::cover)` keeps compiling unchanged.
+///
+/// There is deliberately NO `From<&str>` here, for the same reason [`resource::ImageName`] has
+/// none: `image("typo")` must stay a compile error rather than a blank view at runtime
+/// (resource.rs). A path or URL string is not a source either — read the bytes and hand those
+/// over.
+impl From<resource::ImageName> for ImageSource {
+    fn from(name: resource::ImageName) -> Self {
+        ImageSource::Named(name.as_str().to_owned())
+    }
+}
+
+impl From<resource::VectorName> for ImageSource {
+    fn from(name: resource::VectorName) -> Self {
+        ImageSource::Named(name.as_str().to_owned())
+    }
+}
+
+impl From<std::sync::Arc<Vec<u8>>> for ImageSource {
+    fn from(bytes: std::sync::Arc<Vec<u8>>) -> Self {
+        ImageSource::Bytes(bytes)
+    }
+}
+
+/// An owned string is a NAME, not bytes — the same conversion [`resource::ImageName`] offers for
+/// a name computed at runtime, and the reason `image(some_string)` keeps compiling. A `&str`
+/// still converts nowhere, so `image("typo")` stays a compile error (resource.rs).
+impl From<String> for ImageSource {
+    fn from(name: String) -> Self {
+        ImageSource::Named(name)
+    }
+}
+
+impl From<Vec<u8>> for ImageSource {
+    fn from(bytes: Vec<u8>) -> Self {
+        ImageSource::Bytes(std::sync::Arc::new(bytes))
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -3113,6 +3529,19 @@ pub enum DrawOp {
     /// Boxed because the payload is wider than the largest other op, and a bigger `DrawOp` would
     /// cost every op in every drawing — the exact thing this variant exists to stop paying.
     Stamp(Box<Stamp>),
+    /// Draw an image into `rect` (docs/images.md).
+    ///
+    /// The source is a [`BitmapId`] and never bytes: a canvas re-records on every tracked read,
+    /// so carrying a buffer here would hand the backend a megabyte to compare — and re-decode —
+    /// on every frame. The app decodes once with `day::decode_image` and draws the handle.
+    ///
+    /// `opacity` multiplies the image's own alpha. A backend that cannot draw a bitmap at all
+    /// draws nothing rather than a placeholder rectangle, the same way an unknown op is skipped.
+    Image {
+        image: BitmapId,
+        rect: Rect,
+        opacity: f64,
+    },
     /// Intersect the clip with `shape`; everything drawn afterwards is confined to it.
     ///
     /// Scoped by [`DrawOp::Save`]/[`DrawOp::Restore`], which is the only way to widen a clip
@@ -4336,8 +4765,11 @@ pub mod props {
 
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct ImageProps {
-        /// Resolved asset path or name; backend loads through its image pipeline (§18.2).
-        pub source: String,
+        /// Which pixels to draw: a staged asset name, encoded bytes, or an already-decoded
+        /// image ([`ImageSource`], docs/images.md). A name resolves through the backend's own
+        /// pipeline (§18.2); bytes and decoded ids need [`Cap::ImageDecode`], and a backend
+        /// without it draws nothing rather than guessing.
+        pub source: ImageSource,
         pub decorative: bool,
         /// How the image scales within its frame (default [`ContentMode::Fit`] — no stretching).
         pub content_mode: ContentMode,
@@ -4353,14 +4785,20 @@ pub mod props {
 
     /// A live change to a realized image or vector glyph.
     ///
-    /// Only the tint: `source`, `content_mode` and the rest describe which art this is and how it
-    /// fills its frame, which a rebuild expresses better than a patch. The tint is the one that
-    /// wants to follow a signal — a glyph that recolors with the selection or the theme should
-    /// repaint, not be torn down and realized again (docs/vectors.md "Tint").
+    /// `content_mode` and the rest still describe which art this is and how it fills its frame,
+    /// which a rebuild expresses better than a patch. Two things do want to follow a signal: the
+    /// tint — a glyph that recolors with the selection or the theme should repaint, not be torn
+    /// down and realized again (docs/vectors.md "Tint") — and the source, now that it can be a
+    /// buffer the app swaps (a download landing, a new photo picked, docs/images.md). Replacing
+    /// the pixels of a view that is already on screen is what a patch is for; realizing a second
+    /// view would flash.
     #[derive(Clone, Debug, PartialEq)]
     pub enum ImagePatch {
         /// Recolor the glyph, or `None` to draw the authored colors again.
         Tint(Option<Color>),
+        /// Draw different pixels in the same view. A backend that cannot decode the new source
+        /// (bytes where [`Cap::ImageDecode`] is `Unsupported`) leaves what it was drawing.
+        Source(ImageSource),
     }
 
     #[derive(Clone, Debug, Default, PartialEq)]
@@ -5348,6 +5786,60 @@ pub trait Toolkit: Sized + 'static {
     fn measure_text(&mut self, _text: &str, _size: f64, _font: &CanvasFont) -> Option<TextMetrics> {
         None
     }
+    // --- raster images (docs/images.md) -------------------------------------------------
+    //
+    // Request-id shaped rather than blocking, because one backend can never answer
+    // synchronously: a browser decodes through `createImageBitmap`, which is a promise. Every
+    // other backend decodes inline and raises the completion before returning, so the shape
+    // costs them nothing but a line — and the app-facing API can be one thing everywhere
+    // instead of two (docs/async.md rule 3: a callback and a future, never a runtime).
+
+    /// Decode encoded image bytes (PNG/JPEG/…) into a native image, answering `req` with
+    /// [`Event::ImageDecoded`].
+    ///
+    /// The id in that event is minted by the CALLER (day-core), not the backend: the backend
+    /// keeps its own side table from that id to whatever it decoded.
+    ///
+    /// The default does NOTHING, and deliberately: a default body cannot reach the event sink
+    /// (it is installed per backend by [`Toolkit::set_event_sink`], not reachable through this
+    /// trait), so there is no way for it to answer. day-core asks [`Cap::ImageDecode`] first and
+    /// resolves the request as [`ImageError::Unsupported`] itself, which is why a backend with
+    /// no decoder needs no code here at all.
+    fn decode_image(&mut self, _req: u64, _id: BitmapId, _bytes: &[u8]) {}
+
+    /// What a decoded image is — pixel size, scale, format, alpha ([`BitmapInfo`]).
+    ///
+    /// Synchronous: every backend that decoded the image already holds these facts. `None` means
+    /// the id names nothing live.
+    fn image_info(&mut self, _id: BitmapId) -> Option<BitmapInfo> {
+        None
+    }
+
+    /// The metadata beyond the pixels — EXIF orientation, DPI, capture time
+    /// ([`ImageProperties`], probe [`Cap::ImageProperties`]). `None` where the backend has no
+    /// metadata reader, which is most of them.
+    fn image_properties(&mut self, _id: BitmapId) -> Option<ImageProperties> {
+        None
+    }
+
+    /// Encode a decoded image back to bytes per `spec`, answering `req` with
+    /// [`Event::ImageEncoded`]. A format outside [`Self::encode_formats`] answers
+    /// [`ImageError::Encode`] rather than silently substituting another one.
+    ///
+    /// Defaulted to nothing for the same reason as [`Self::decode_image`]: day-core probes
+    /// [`Cap::ImageEncode`] and answers `Unsupported` without ever calling this.
+    fn encode_image(&mut self, _req: u64, _id: BitmapId, _spec: &EncodeSpec) {}
+
+    /// Which formats [`Self::encode_image`] can actually write — the [`Cap::ImageEncode`]
+    /// counterpart of [`Self::font_families`]/[`Cap::FontList`]. Empty by default.
+    fn encode_formats(&mut self) -> Vec<ImageFormat> {
+        Vec::new()
+    }
+
+    /// Drop a decoded image and everything the backend cached for it. Called when the app's
+    /// last handle to it goes away; an id the backend never saw is a no-op.
+    fn release_image(&mut self, _id: BitmapId) {}
+
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
@@ -5851,12 +6343,19 @@ pub enum OpCode {
     /// it carries no color of its own. The final record of a run is padded; the count in the
     /// [`OpCode::Stamp`] header says how many of the pairs are real.
     StampPoints = 21,
+    /// Draw a decoded image: `a,b` = origin, `c,d` = size, `e` = the [`BitmapId`], `f` = opacity
+    /// in `0.0..=1.0` (docs/images.md).
+    ///
+    /// The id rides the NUMERIC channel because it is a number, and an `f64` carries a `u64` id
+    /// exactly up to 2^53 — ids are minted from 1 per process, so that ceiling is unreachable.
+    /// Nothing rides the texts channel for this op.
+    Image = 22,
 }
 
 impl OpCode {
     /// Every code, in wire order — the density test iterates this so a new variant that
     /// forgets to join fails loudly.
-    pub const ALL: [OpCode; 22] = [
+    pub const ALL: [OpCode; 23] = [
         OpCode::FillRect,
         OpCode::StrokeRect,
         OpCode::FillRrect,
@@ -5879,6 +6378,7 @@ impl OpCode {
         OpCode::SetFont,
         OpCode::Stamp,
         OpCode::StampPoints,
+        OpCode::Image,
     ];
 
     /// The code back from a wire number (a decoder-side aid and the round-trip test's
@@ -6476,6 +6976,22 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 );
                 texts.push(text.clone());
             }
+            DrawOp::Image {
+                image,
+                rect,
+                opacity,
+            } => push(
+                OpCode::Image,
+                rect.origin.x,
+                rect.origin.y,
+                rect.size.width,
+                rect.size.height,
+                image.0 as f64,
+                *opacity,
+                0.0,
+                Color::CLEAR,
+                &mut nums,
+            ),
             DrawOp::Save => push(
                 OpCode::Save,
                 0.0,
@@ -6629,6 +7145,65 @@ mod font_list_tests {
 }
 
 #[cfg(test)]
+mod image_header_tests {
+    use super::*;
+
+    /// A 4×2 PNG: signature, then an IHDR whose width and height are big-endian.
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut v = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        v.extend(13u32.to_be_bytes());
+        v.extend(b"IHDR");
+        v.extend(w.to_be_bytes());
+        v.extend(h.to_be_bytes());
+        v
+    }
+
+    /// A JPEG whose frame header sits behind one other segment, so the walk has to skip it.
+    fn jpeg(w: u16, h: u16) -> Vec<u8> {
+        let mut v = vec![0xFF, 0xD8]; // SOI
+        v.extend([0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00]); // APP0, length 4
+        v.extend([0xFF, 0xC0, 0x00, 0x11, 0x08]); // SOF0, length 17, precision 8
+        v.extend(h.to_be_bytes());
+        v.extend(w.to_be_bytes());
+        v
+    }
+
+    #[test]
+    fn a_header_states_the_size_before_anything_decodes() {
+        assert_eq!(ImageFormat::dimensions(&png(512, 512)), Some((512, 512)));
+        assert_eq!(ImageFormat::dimensions(&png(1, 65535)), Some((1, 65535)));
+        // The JPEG walk must step OVER the APP0 segment to reach the frame header.
+        assert_eq!(ImageFormat::dimensions(&jpeg(640, 480)), Some((640, 480)));
+
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend(320u16.to_le_bytes());
+        gif.extend(240u16.to_le_bytes());
+        assert_eq!(ImageFormat::dimensions(&gif), Some((320, 240)));
+
+        // A top-down BMP states its height as a NEGATIVE number; the size is still positive.
+        let mut bmp = b"BM".to_vec();
+        bmp.resize(18, 0);
+        bmp.extend(64i32.to_le_bytes());
+        bmp.extend((-32i32).to_le_bytes());
+        assert_eq!(ImageFormat::dimensions(&bmp), Some((64, 32)));
+    }
+
+    #[test]
+    fn a_truncated_or_unknown_header_answers_nothing_rather_than_a_guess() {
+        assert_eq!(ImageFormat::dimensions(&[]), None);
+        // The signature is there but the IHDR is not.
+        assert_eq!(ImageFormat::dimensions(&png(8, 8)[..12]), None);
+        // Not an image at all.
+        assert_eq!(ImageFormat::dimensions(b"not an image"), None);
+        // A JPEG that never reaches a frame header must not loop or invent a size.
+        assert_eq!(
+            ImageFormat::dimensions(&[0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x04, 0, 0]),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
 mod encode_ops_tests {
     use super::*;
 
@@ -6723,6 +7298,11 @@ mod encode_ops_tests {
             DrawOp::Save,
             DrawOp::Concat(Affine::IDENTITY),
             DrawOp::Restore,
+            DrawOp::Image {
+                image: BitmapId(7),
+                rect: r,
+                opacity: 0.5,
+            },
         ];
         let (nums, texts) = encode_ops(&ops);
         assert_eq!(nums.len() % 9, 0, "partial record on the wire");
@@ -6776,9 +7356,17 @@ mod encode_ops_tests {
                 Save,
                 Concat,
                 Restore,
+                Image,
             ]
         };
         assert_eq!(decoded, expected);
+        // The bitmap id rides the numeric channel intact — an f64 holds a u64 id exactly well
+        // past any id this process will mint — and nothing of an image reaches the texts channel.
+        let img = nums
+            .chunks(9)
+            .find(|r| r[0] == OpCode::Image as i32 as f64)
+            .expect("Image record");
+        assert_eq!(&img[1..7], &[1.0, 2.0, 3.0, 4.0, 7.0, 0.5]);
         // …carrying the CSS weight and the slant, with the family on the texts channel.
         let font_rec = nums
             .chunks(9)

@@ -63,6 +63,7 @@ the architecture-level view and the rationale.
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; resizable windows on ios-uikit and android-mdc and what each platform requires; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
 | app icons — `day prepare`, the layered master, the generated `build/day/host` tree the host projects reference, `--check` gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | [docs/vectors.md](docs/vectors.md) | [§18.3](#183-images-and-data) |
+| raster images from bytes — `day::decode_image`, the `Bitmap` handle, `ImageSource`, `Draw::image`, per-backend decode/encode/metadata | [docs/images.md](docs/images.md) | [§8.1](#81-the-toolkit-trait), [§11](#11-canvas) |
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
@@ -743,6 +744,8 @@ text_area(text).min_lines(3).max_lines(8)      // two-way String, multi-line (do
 picker(opts, idx).segmented()      // one-of-N: .menu()/.segmented()/.inline() (docs/picker.md)
 progress(fraction)   spinner()     // docs/progress.md
 image(res::images::logo)           // typed resource constants (§18.5)
+image(bytes)   image(&bitmap)      // encoded bytes / a `day::decode_image` handle (docs/images.md);
+                                   // a canvas draws the handle with `d.image(&bitmap, rect)`
 vector(res::vectors::home)         // resource/vectors/ glyph + .tint(color) (docs/vectors.md)
 divider()   spacer()
 
@@ -1457,6 +1460,17 @@ pub trait Toolkit: Sized + 'static {
                                                                       // memoized above the seam
                                                                       // (pure in text/size/font),
                                                                       // docs/fonts.md
+    // raster images from bytes (docs/images.md) — Cap::ImageDecode /
+    // Cap::ImageEncode / Cap::ImageProperties. The defaults are no-ops rather than refusals: a
+    // default body cannot reach the per-backend event sink, so day-core probes the Cap and
+    // answers `Unsupported` itself.
+    fn decode_image(&mut self, req: u64, id: BitmapId, bytes: &[u8]) {}   // → Event::ImageDecoded
+    fn image_info(&mut self, id: BitmapId) -> Option<BitmapInfo> { None } // pixels, scale, format, alpha
+    fn image_properties(&mut self, id: BitmapId) -> Option<ImageProperties> { None } // EXIF & co.
+    fn encode_image(&mut self, req: u64, id: BitmapId, spec: &EncodeSpec) {} // → Event::ImageEncoded
+    fn encode_formats(&mut self) -> Vec<ImageFormat> { Vec::new() }       // every platform reads
+                                                                          // more than it writes
+    fn release_image(&mut self, id: BitmapId) {}                          // the handle's last drop
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> { … }    // dayscript §14, docs/window-image.md
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> { … } // + titlebar/status bar
     fn ui_idle(&mut self) -> bool { true }                            // transitions settled? (screenshots)
@@ -1633,6 +1647,9 @@ pub enum Event {
     Key(KeyEvent), Pointer(PointerEvent),
     WindowResized(Size),
     PresentResult { req, result },            // modal answers (docs/dialogs.md)
+    ImageDecoded { req, result },             // a decode answered (docs/images.md); in-process
+    ImageEncoded { req, result },             // only — neither crosses a BridgeKind, because
+                                              // bytes never ride the event wire
     MenuAction(u64),                          // docs/menus.md
     Lifecycle(Lifecycle),                     // docs/lifecycle.md
     ListReorder { from: usize, to: usize },   // committed native row drag (docs/list.md)
@@ -2403,7 +2420,7 @@ button(icon("trash"))
     .a11y(|a| a.label(tr("delete-item")).hint(tr("delete-item-hint")))
     .id("delete-button")
 
-image(ImageSource::asset("chart"))
+image(res::images::chart)
     .a11y(|a| a.label(tr("q3-chart-summary")))     // or .decorative()
 
 canvas(…).a11y(|a| a.role(Role::Meter).value_with(move || …))
@@ -3996,6 +4013,12 @@ Assets ship platform-idiomatically, with the per-target mechanics specified now:
 > `day pack` assembles `.icns` via `sips` + `iconutil` on macOS, `.ico` on Windows, and the
 > freedesktop policy sizes (48/64/128) for flatpak — with embedded defaults so a bare project
 > still packs. Dark/light theming is native per toolkit ([§6.3](#63-semantic-theme-tokens)), forced only by `DAY_THEME`.
+>
+> **Since then:** a staged file is no longer the only source. `day::decode_image` turns bytes the
+> app already holds — a download, a picked file, a paste — into the platform's own image type, and
+> `ImageSource` carries all three forms (`Named`, `Bytes`, `Decoded`) through the same `image`
+> piece; `Draw::image` draws a decoded handle on a canvas. Per-backend decode/encode/metadata
+> support: [docs/images.md](docs/images.md).
 
 ### §18.3 Processed images + random-access data resources ([docs/resources.md](docs/resources.md))
 

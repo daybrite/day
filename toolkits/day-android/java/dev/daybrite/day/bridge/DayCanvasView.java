@@ -418,6 +418,22 @@ public class DayCanvasView extends View {
                     }
                     break;
                 }
+                case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
+                    android.graphics.Bitmap bmp = DayBridge.bitmapFor((long) e);
+                    // A released bitmap draws NOTHING rather than a placeholder: the canvas
+                    // re-records on every tracked read, so a handle can be dropped between the
+                    // record and this replay.
+                    if (bmp != null && c > 0 && d > 0) {
+                        // Its OWN Paint rather than the shared one: an alpha set here would
+                        // otherwise leak into later records, and the shared paint carries a
+                        // shader and stroke state this op has no business touching. Images are
+                        // rare in a display list, so the allocation is not on a hot path.
+                        Paint ip = new Paint(Paint.FILTER_BITMAP_FLAG);
+                        ip.setAlpha((int) Math.round(Math.max(0f, Math.min(1f, f)) * 255f));
+                        cv.drawBitmap(bmp, null, new RectF(a, b, a + c, b + d), ip);
+                    }
+                    break;
+                }
             }
             if (!stampAt.isEmpty()) cv.restore();
             }

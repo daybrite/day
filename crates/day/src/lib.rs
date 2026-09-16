@@ -31,12 +31,28 @@ pub use day_core::{
     set_appearance, size_class, sleep, task,
 };
 pub use day_core::{AssetDir, AssetName, FontFamily, ImageName, Resource, VectorName, resource};
+/// Raster images from bytes (docs/images.md): decode an encoded PNG or JPEG the app already
+/// holds — a download, a file the user picked, a paste — into the platform's own image type,
+/// then show it with `image(&bitmap)` or draw it with `Draw::image`.
+///
+/// `Bitmap` is a HANDLE, not the pixels: they live in the toolkit and are released when the last
+/// handle drops. Decoding is asynchronous because several backends decode off the main thread.
+/// Probe `image_decode_support()` / `image_encode_support()` before offering an affordance that
+/// depends on either — and `image_encode_formats()` before offering a format, since every
+/// platform here reads more formats than it writes.
+pub use day_core::{
+    Bitmap, decode_image, decode_image_async, image_decode_support, image_encode_formats,
+    image_encode_support,
+};
 pub use day_spec::AppBadge;
 /// An app-writable scratch directory. The OS temp dir is NOT app-writable on every target
 /// (Android reports `getCacheDir()`), so a backend records the right location at startup and
 /// this is how an app asks for it. For derived files an app can rebuild: rendered documents,
 /// thumbnails, export staging.
 pub use day_spec::present::app_temp_dir;
+pub use day_spec::{
+    BitmapId, BitmapInfo, EncodeSpec, ImageError, ImageFormat, ImageProperties, ImageSource,
+};
 pub use day_spec::{KeyEvent, Modifiers};
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.

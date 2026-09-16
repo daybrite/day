@@ -99,6 +99,30 @@ unsafe extern "C" {
     /// Whether rawfile `path` (e.g. "day/home.svg") exists in the app package; 0 before the entry
     /// ability registers the resource manager (docs/vectors.md).
     pub fn day_ark_rawfile_exists(path: *const c_char) -> i32;
+
+    // Raster images from bytes (docs/images.md): the shim owns an `OH_PixelmapNative` registry
+    // keyed by the id day-core minted, because the pixels must outlive any one node.
+    /// Decode bytes into the registry under `id`; `out` (3 doubles) receives width, height and
+    /// 1/0 for an alpha channel. Returns 0 when the bytes are not an image this platform reads.
+    pub fn day_ark_image_decode(id: u64, bytes: *const u8, len: u32, out: *mut f64) -> i32;
+    /// Re-encode a decoded bitmap as `mime` ("image/png" / "image/jpeg") at `quality` 0..100
+    /// (-1 = the format's default). A heap buffer of `*out_len` bytes, released with
+    /// [`day_ark_bytes_free`]. `EncodeSpec::fit` is not honored here — see the shim.
+    pub fn day_ark_image_encode(
+        id: u64,
+        mime: *const c_char,
+        quality: i32,
+        out_len: *mut u32,
+    ) -> *mut u8;
+    /// Release a buffer returned by [`day_ark_image_encode`]. Safe to call with null.
+    pub fn day_ark_bytes_free(p: *mut u8);
+    /// Drop a decoded bitmap from the registry.
+    pub fn day_ark_image_release(id: u64);
+    /// Point an image node at a decoded bitmap (a drawable descriptor, not a `resource://` URI).
+    pub fn day_ark_image_node_set_bitmap(node: *mut c_void, id: u64);
+    /// Point an image node at raw encoded bytes: decoded in the shim, since realize has no
+    /// `BitmapId` to look up.
+    pub fn day_ark_image_node_set_bytes(node: *mut c_void, bytes: *const u8, len: u32);
     /// One margin (vp) on all four sides (`NODE_MARGIN`) — symmetric, so RTL needs no flip.
     pub fn day_ark_set_margin(node: *mut c_void, vp: f64);
 

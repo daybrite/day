@@ -860,6 +860,13 @@ fn set_label_runs(h: *mut c_void, node: u64, text: &str, runs: &[day_spec::TextR
     }
 }
 
+thread_local! {
+    /// `BitmapId` → what the container's header stated (docs/images.md). Only the METADATA lives
+    /// here; the encoded bytes are the shim's, held under the same id until `release_image`.
+    static BITMAP_INFO: std::cell::RefCell<std::collections::HashMap<u64, day_spec::BitmapInfo>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
 fn cstr(s: &str) -> CString {
     // An interior NUL must not blank the whole string — a label, a menu item, a window title
     // would silently vanish. Strip the NULs and keep the visible text.
@@ -1482,6 +1489,11 @@ impl Toolkit for Xaml {
             // DirectWrite's system font collection (docs/fonts.md).
             Cap::FontList => Support::Native,
             Cap::Snapshot => Support::Native,
+            // A `BitmapImage` decodes every container WIC reads, and the canvas draws it
+            // (docs/images.md). `Cap::ImageEncode` is deliberately absent: writing would mean
+            // `BitmapEncoder`, a namespace this shim does not use, and this is the one backend
+            // with no local compiler to check it against. `Cap::ImageProperties` likewise.
+            Cap::ImageDecode => Support::Native,
             // TextBlock.BaselineOffset for text, font-derived for templated controls
             // (docs/baseline.md).
             Cap::BaselineAlignment => Support::Emulated,
@@ -1914,31 +1926,59 @@ impl Toolkit for Xaml {
                     // any size, and its tint composed as a brush at realize time. Tried FIRST,
                     // tinted or not; `vector_geometry` is None for a raster `image(…)` name and
                     // for art the CLI could not convert, which is what falls through below.
-                    let geometry = vector_geometry(&p.source).and_then(|spec| {
-                        let h = ffi::day_xaml_vector_new(
-                            cstr(&spec).as_ptr(),
-                            mode,
-                            p.tint.map(argb).unwrap_or(0),
-                            c_int::from(p.tint.is_some()),
-                        );
-                        (!h.is_null()).then_some(h)
-                    });
-                    // Raster fallbacks: a monochrome BitmapIcon still honors a tint, and a
-                    // plain Image carries the art as authored.
-                    let tinted = || {
-                        p.tint.and_then(|c| {
-                            let file = icon_file_name(&p.source);
-                            if file.is_empty() {
-                                return None;
-                            }
-                            let h =
-                                ffi::day_xaml_image_tinted_new(cstr(&file).as_ptr(), mode, argb(c));
-                            (!h.is_null()).then_some(h)
-                        })
+                    // Bytes and shared decodes arrive through `decode_image` (docs/images.md);
+                    // this arm is the staged-asset path, unchanged.
+                    let named = match &p.source {
+                        day_spec::ImageSource::Named(name) => name.clone(),
+                        _ => String::new(),
                     };
-                    WinHandle(geometry.or_else(tinted).unwrap_or_else(|| {
-                        ffi::day_xaml_image_new(cstr(&image_uri(&p.source)).as_ptr(), mode)
-                    }))
+                    // Bytes and shared decodes (docs/images.md) never resolve to a staged file:
+                    // the shim builds a `BitmapImage` over the buffer instead, so an `image()`
+                    // piece can show a download or a pasted PNG with no resource behind it. The
+                    // vector/raster resolution below is NAMED-only, so it stays inside that arm
+                    // rather than running for sources that have no name to resolve.
+                    match &p.source {
+                        day_spec::ImageSource::Bytes(bytes) => {
+                            WinHandle(ffi::day_xaml_image_bytes_new(
+                                bytes.as_ptr(),
+                                bytes.len() as c_int,
+                                mode,
+                            ))
+                        }
+                        day_spec::ImageSource::Decoded(id) => {
+                            WinHandle(ffi::day_xaml_image_bitmap_new(id.0, mode))
+                        }
+                        day_spec::ImageSource::Named(_) => {
+                            let geometry = vector_geometry(&named).and_then(|spec| {
+                                let h = ffi::day_xaml_vector_new(
+                                    cstr(&spec).as_ptr(),
+                                    mode,
+                                    p.tint.map(argb).unwrap_or(0),
+                                    c_int::from(p.tint.is_some()),
+                                );
+                                (!h.is_null()).then_some(h)
+                            });
+                            // Raster fallbacks: a monochrome BitmapIcon still honors a tint, and
+                            // a plain Image carries the art as authored.
+                            let tinted = || {
+                                p.tint.and_then(|c| {
+                                    let file = icon_file_name(&named);
+                                    if file.is_empty() {
+                                        return None;
+                                    }
+                                    let h = ffi::day_xaml_image_tinted_new(
+                                        cstr(&file).as_ptr(),
+                                        mode,
+                                        argb(c),
+                                    );
+                                    (!h.is_null()).then_some(h)
+                                })
+                            };
+                            WinHandle(geometry.or_else(tinted).unwrap_or_else(|| {
+                                ffi::day_xaml_image_new(cstr(&image_uri(&named)).as_ptr(), mode)
+                            }))
+                        }
+                    }
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
@@ -1962,6 +2002,26 @@ impl Toolkit for Xaml {
     ) {
         unsafe {
             match kind {
+                kinds::IMAGE => {
+                    if let Some(day_spec::props::ImagePatch::Source(source)) =
+                        patch.downcast_ref::<day_spec::props::ImagePatch>()
+                    {
+                        // A source swap repaints the SAME element (docs/images.md), and one
+                        // that will not load leaves it showing what it was. Only the raster
+                        // `Image` swaps: a vector glyph is `Path` geometry, not an `Image`.
+                        match source {
+                            day_spec::ImageSource::Named(name) => {
+                                ffi::day_xaml_image_set_uri(h.0, cstr(&image_uri(name)).as_ptr());
+                            }
+                            day_spec::ImageSource::Bytes(b) => {
+                                ffi::day_xaml_image_set_bytes(h.0, b.as_ptr(), b.len() as c_int);
+                            }
+                            day_spec::ImageSource::Decoded(id) => {
+                                ffi::day_xaml_image_set_bitmap(h.0, id.0);
+                            }
+                        }
+                    }
+                }
                 kinds::CONTAINER => {
                     if let Some(ContainerPatch::Background(c)) =
                         patch.downcast_ref::<ContainerPatch>()
@@ -2976,6 +3036,61 @@ impl Toolkit for Xaml {
     /// app-painted surfaces in light colors.
     fn dark_mode(&mut self) -> bool {
         unsafe { ffi::day_xaml_is_dark() != 0 }
+    }
+
+    /// Hold the bytes and answer from their HEADER (docs/images.md).
+    ///
+    /// XAML decodes lazily: a `BitmapImage` reports `PixelWidth`/`PixelHeight` only after the
+    /// element it feeds has been shown, so there is nothing to ask at this point. Reading the
+    /// container's own header gives the same numbers the decoder would, synchronously — and it
+    /// is the one part of this backend that is testable off Windows (`ImageFormat::dimensions`).
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+        let held =
+            unsafe { ffi::day_xaml_image_decode(id.0, bytes.as_ptr(), bytes.len() as c_int) != 0 };
+        let format = day_spec::ImageFormat::sniff(bytes);
+        let event = match (held, day_spec::ImageFormat::dimensions(bytes)) {
+            (true, Some((w, h))) => {
+                let info = day_spec::BitmapInfo {
+                    pixels: Size::new(f64::from(w), f64::from(h)),
+                    // Decoded bytes carry no density — a PNG is simply its pixels.
+                    scale: 1.0,
+                    format,
+                    // Derived from the container rather than measured: nothing here decodes far
+                    // enough to inspect an alpha channel.
+                    has_alpha: !matches!(
+                        format,
+                        Some(day_spec::ImageFormat::Jpeg) | Some(day_spec::ImageFormat::Bmp)
+                    ),
+                };
+                BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+                Event::ImageDecoded {
+                    req,
+                    result: Ok(info),
+                }
+            }
+            // A container whose header this does not parse would leave the caller with no size
+            // to lay out against, so it is refused rather than answered with zeros.
+            _ => {
+                unsafe { ffi::day_xaml_image_release(id.0) };
+                Event::ImageDecoded {
+                    req,
+                    result: Err(day_spec::ImageError::Decode),
+                }
+            }
+        };
+        emit(day_spec::WINDOW_NODE, event);
+    }
+
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+        BITMAP_INFO.with(|m| m.borrow().get(&id.0).copied())
+    }
+
+    fn release_image(&mut self, id: day_spec::BitmapId) {
+        BITMAP_INFO.with(|m| {
+            m.borrow_mut().remove(&id.0);
+        });
+        // SAFETY: an id the shim either knows or does not; releasing an absent one is a no-op.
+        unsafe { ffi::day_xaml_image_release(id.0) };
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

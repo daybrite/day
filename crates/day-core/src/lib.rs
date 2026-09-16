@@ -10,6 +10,7 @@ day_reactive::tls_root! {
     ambient: crate::ambient::TlsGroupSlots,
     anim: crate::anim::TlsGroupSlots,
     frame: crate::frame::TlsGroupSlots,
+    image: crate::image::TlsGroupSlots,
     lifecycle: crate::lifecycle::TlsGroupSlots,
     menu: crate::menu::TlsGroupSlots,
     nav: crate::nav::TlsGroupSlots,
@@ -29,6 +30,7 @@ mod ambient;
 mod anim;
 mod build;
 pub mod frame;
+pub mod image;
 mod layout;
 pub mod lifecycle;
 pub mod list;
@@ -52,6 +54,10 @@ pub use build::*;
 pub use frame::{
     FrameConsumer, add_frame_consumer, frame_consumer_count, install_frame_requester,
     remove_frame_consumer,
+};
+pub use image::{
+    Bitmap, decode as decode_image, decode_async as decode_image_async, image_decode_support,
+    image_encode_formats, image_encode_support, resolve_image_decode, resolve_image_encode,
 };
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};

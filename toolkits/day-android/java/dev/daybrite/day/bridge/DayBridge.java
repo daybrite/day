@@ -2250,6 +2250,151 @@ public final class DayBridge {
     public static void setCanvasOps(View v, double[] nums, String textsJoined) {
         ((DayCanvasView) v).setOps(nums, textsJoined);
     }
+    // ---- Raster images from bytes (docs/images.md) -----------------------------------------
+
+    /** Decoded bitmaps, keyed by the id day-core minted. A bitmap outlives any one view and may
+     *  be drawn by several at once, so this is keyed by id rather than by View. Entries leave
+     *  only through {@link #imageRelease}, which day-core calls when the app drops its last
+     *  handle. */
+    static final java.util.HashMap<Long, android.graphics.Bitmap> bitmaps = new java.util.HashMap<>();
+
+    /** The bitmap `id` names, or null once released — what DayCanvasView's image op draws. */
+    public static android.graphics.Bitmap bitmapFor(long id) {
+        return bitmaps.get(id);
+    }
+
+    /** Decode `bytes` into the registry under `id`. Answers "w,h,alpha" (alpha 1/0) — the same
+     *  comma-joined reply shape `measureText` uses — or null when the bytes are not an image
+     *  this platform decodes. */
+    public static String imageDecode(long id, byte[] bytes) {
+        // A null array would NPE inside decodeByteArray, and an exception thrown back across
+        // JNI aborts the process rather than failing the call.
+        if (bytes == null) {
+            return null;
+        }
+        android.graphics.Bitmap bmp =
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (bmp == null) {
+            return null;
+        }
+        bitmaps.put(id, bmp);
+        // `hasAlpha` is a real query here, unlike the backends that must infer it from the
+        // container format.
+        return bmp.getWidth() + "," + bmp.getHeight() + "," + (bmp.hasAlpha() ? 1 : 0);
+    }
+
+    /** Re-encode a decoded bitmap as "png" or "jpeg", optionally scaled to fit `fitW`×`fitH`
+     *  (0 = no fit), at `quality` 0..100 (-1 = the format's default). Null when the id names
+     *  nothing or the writer fails. */
+    public static byte[] imageEncode(long id, String format, int quality, double fitW, double fitH) {
+        android.graphics.Bitmap bmp = bitmaps.get(id);
+        if (bmp == null) {
+            return null;
+        }
+        // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+        // upscaling on an export path inflates the bytes without adding any detail.
+        if (fitW > 0 && fitH > 0 && bmp.getWidth() > 0 && bmp.getHeight() > 0) {
+            double s = Math.min(Math.min(fitW / bmp.getWidth(), fitH / bmp.getHeight()), 1.0);
+            if (s < 1.0) {
+                bmp = android.graphics.Bitmap.createScaledBitmap(
+                        bmp,
+                        Math.max(1, (int) Math.round(bmp.getWidth() * s)),
+                        Math.max(1, (int) Math.round(bmp.getHeight() * s)),
+                        true);
+            }
+        }
+        android.graphics.Bitmap.CompressFormat fmt = "jpeg".equals(format)
+                ? android.graphics.Bitmap.CompressFormat.JPEG
+                : android.graphics.Bitmap.CompressFormat.PNG;
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        if (!bmp.compress(fmt, quality < 0 ? 90 : quality, out)) {
+            return null;
+        }
+        return out.toByteArray();
+    }
+
+    /** Drop a decoded bitmap; day-core calls this when the app's last handle goes.
+     *
+     *  Deliberately NOT `recycle()`: a view may still be showing this bitmap, and drawing a
+     *  recycled one is a hard crash ("trying to use a recycled bitmap"). Dropping the last
+     *  reference is enough — the GC frees the pixels once nothing draws them. */
+    public static void imageRelease(long id) {
+        bitmaps.remove(id);
+    }
+
+    /** An image view showing a DECODED bitmap rather than a staged drawable. */
+    public static View makeImageBitmap(long id, int mode) {
+        android.widget.ImageView iv = imageViewWithMode(mode);
+        android.graphics.Bitmap bmp = bitmaps.get(id);
+        if (bmp != null) {
+            iv.setImageBitmap(bmp);
+        }
+        return iv;
+    }
+
+    /** An image view showing raw encoded bytes the app already holds, with no staged resource
+     *  behind them. */
+    public static View makeImageBytes(byte[] bytes, int mode) {
+        android.widget.ImageView iv = imageViewWithMode(mode);
+        // An empty view rather than an NPE: allocating the array can fail on the Rust side, and
+        // an exception crossing back through JNI aborts the process.
+        if (bytes == null) {
+            return iv;
+        }
+        android.graphics.Bitmap bmp =
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (bmp != null) {
+            iv.setImageBitmap(bmp);
+        }
+        return iv;
+    }
+
+    /** Point a realized image view at a different staged drawable (an `ImageSource::Named`
+     *  swap). Goes through `drawableByName` so the weight-alias fallback still applies, and
+     *  `.mutate()` so a later tint cannot follow every other view showing the same glyph. */
+    public static void setImageName(View v, String name) {
+        if (!(v instanceof android.widget.ImageView)) {
+            return;
+        }
+        android.graphics.drawable.Drawable d = drawableByName(ctx, name);
+        if (d != null) {
+            ((android.widget.ImageView) v).setImageDrawable(d.mutate());
+        }
+    }
+
+    /** Point a realized image view at a decoded bitmap (an `ImageSource::Decoded` swap). */
+    public static void setImageBitmap(View v, long id) {
+        if (!(v instanceof android.widget.ImageView)) {
+            return;
+        }
+        android.graphics.Bitmap bmp = bitmaps.get(id);
+        if (bmp != null) {
+            ((android.widget.ImageView) v).setImageBitmap(bmp);
+        }
+    }
+
+    /** Point a realized image view at raw encoded bytes (an `ImageSource::Bytes` swap). */
+    public static void setImageBytes(View v, byte[] bytes) {
+        if (!(v instanceof android.widget.ImageView) || bytes == null) {
+            return;
+        }
+        android.graphics.Bitmap bmp =
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (bmp != null) {
+            ((android.widget.ImageView) v).setImageBitmap(bmp);
+        }
+    }
+
+    /** A plain ImageView carrying day's scale-type mapping: 0=fit, 1=fill (crop), 2=stretch. */
+    private static android.widget.ImageView imageViewWithMode(int mode) {
+        android.widget.ImageView iv = new android.widget.ImageView(ctx);
+        iv.setScaleType(
+                mode == 2 ? android.widget.ImageView.ScaleType.FIT_XY
+                        : mode == 1 ? android.widget.ImageView.ScaleType.CENTER_CROP
+                                : android.widget.ImageView.ScaleType.FIT_CENTER);
+        return iv;
+    }
+
     /** `ImagePatch::Tint`: repaint a realized glyph. 0 restores the authored colors. */
     public static void setImageTint(View v, int tint) {
         if (!(v instanceof android.widget.ImageView)) {

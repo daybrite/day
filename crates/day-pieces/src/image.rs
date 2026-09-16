@@ -15,22 +15,106 @@ use day_spec::props::*;
 // bundle (ios), or AssetManager (android).
 // ---------------------------------------------------------------------------
 
-/// A bundled image, resolved by name through the backend's native image pipeline (§18.3). Scales
-/// with [`ContentMode::Fit`] by default (never stretches); tune with `.content_mode()` / `.fill()` /
-/// `.stretch()`, and optionally constrain the frame with `.aspect_ratio(w/h)`.
+/// An image: a bundled asset resolved by name through the backend's native image pipeline
+/// (§18.3), encoded bytes the app already holds, or an image decoded once and shared
+/// (docs/images.md). Scales with [`ContentMode::Fit`] by default (never stretches); tune with
+/// `.content_mode()` / `.fill()` / `.stretch()`, and optionally constrain the frame with
+/// `.aspect_ratio(w/h)`.
 pub struct Image {
-    source: String,
+    source: crate::Reactive<day_spec::ImageSource>,
     content_mode: ContentMode,
     aspect_ratio: Option<f64>,
     decorative: bool,
 }
 
-pub fn image(name: impl Into<day_spec::ImageName>) -> Image {
+/// Draw an image from any [`ImageSource`](day_spec::ImageSource) — a staged asset name, encoded
+/// bytes, or a decoded [`Bitmap`](day_core::Bitmap).
+///
+/// ```ignore
+/// image(res::images::cover)                 // a staged asset, as it always was
+/// image(png_bytes)                          // Vec<u8> / Arc<Vec<u8>> the app fetched or picked
+/// image(&bitmap)                            // one decode, shared by several nodes
+/// image(move || shot.get())                 // reactive: swapping the source patches in place
+/// ```
+///
+/// Bytes and decoded sources need [`Cap::ImageDecode`](day_spec::Cap::ImageDecode); a backend
+/// without it draws nothing rather than guessing. A name still resolves the way it always has,
+/// on every backend.
+pub fn image<M>(source: impl IntoImageSource<M>) -> Image {
     Image {
-        source: name.into().as_str().to_owned(),
+        source: source.into_image_source(),
         content_mode: ContentMode::default(),
         aspect_ratio: None,
         decorative: false,
+    }
+}
+
+/// Disjoint-marker conversion into an image source (the same shape as
+/// [`IntoText`](crate::IntoText), and for the same coherence reason): a staged name, a byte
+/// buffer, a decoded [`Bitmap`](day_core::Bitmap), a `Signal`, or a closure all convert, each
+/// under its own marker.
+///
+/// A blanket `impl<S: Into<ImageSource>>` over the existing
+/// [`IntoReactive`](crate::IntoReactive) would be ambiguous for `ImageSource` itself — the
+/// static blanket and the converting one would both apply and leave the marker unconstrained —
+/// so the conversions are spelled per concrete type instead.
+pub trait IntoImageSource<M> {
+    fn into_image_source(self) -> crate::Reactive<day_spec::ImageSource>;
+}
+
+/// Marker for the by-value conversions (a name, bytes, a bitmap, a source).
+pub struct ImageValueMark;
+/// Marker for `Signal<ImageSource>`.
+pub struct ImageSignalMark;
+/// Marker for `Fn() -> ImageSource`.
+pub struct ImageFnMark;
+
+macro_rules! image_source_from_value {
+    ($($t:ty),* $(,)?) => {
+        $(impl IntoImageSource<ImageValueMark> for $t {
+            fn into_image_source(self) -> crate::Reactive<day_spec::ImageSource> {
+                crate::Reactive::Const(self.into())
+            }
+        })*
+    };
+}
+
+image_source_from_value!(
+    day_spec::ImageSource,
+    day_spec::ImageName,
+    day_spec::VectorName,
+    day_spec::BitmapId,
+    // An owned string is a runtime-computed NAME (`ImageName::dynamic`'s spelling), never bytes.
+    // `&str` is deliberately absent, so `image("typo")` still fails to compile.
+    String,
+    Vec<u8>,
+    std::sync::Arc<Vec<u8>>,
+);
+
+/// A decoded image draws by id, so several nodes (and the canvas) share one decode.
+/// A decoded handle. The piece keeps a CLONE alive for the node's life: the closure below owns
+/// it, the binding owns the closure, and the node's scope owns the binding — so the toolkit's
+/// image outlives the view that shows it however the app juggles its own handle. Without this an
+/// `image(&bitmap)` would carry only the id, and on the web the `<img>` would point at an object
+/// URL that `release_image` had already revoked.
+impl IntoImageSource<ImageValueMark> for &day_core::Bitmap {
+    fn into_image_source(self) -> crate::Reactive<day_spec::ImageSource> {
+        let keep = self.clone();
+        crate::Reactive::Dyn(std::rc::Rc::new(move || {
+            day_spec::ImageSource::Decoded(keep.id())
+        }))
+    }
+}
+
+impl IntoImageSource<ImageSignalMark> for day_reactive::Signal<day_spec::ImageSource> {
+    fn into_image_source(self) -> crate::Reactive<day_spec::ImageSource> {
+        crate::Reactive::Dyn(std::rc::Rc::new(move || self.get()))
+    }
+}
+
+impl<F: Fn() -> day_spec::ImageSource + 'static> IntoImageSource<ImageFnMark> for F {
+    fn into_image_source(self) -> crate::Reactive<day_spec::ImageSource> {
+        crate::Reactive::Dyn(std::rc::Rc::new(self))
     }
 }
 
@@ -68,14 +152,16 @@ impl Image {
 
 impl Piece for Image {
     fn build(self, cx: &mut BuildCx) -> day_core::RNode {
+        let source = self.source;
+        let seed = source.get_untracked();
         let props = ImageProps {
-            source: self.source,
+            source: seed.clone(),
             decorative: self.decorative,
             content_mode: self.content_mode,
             aspect_ratio: self.aspect_ratio,
             tint: None,
         };
-        match self.aspect_ratio {
+        let node = match self.aspect_ratio {
             Some(ratio) => cx.native(
                 kinds::IMAGE,
                 &props,
@@ -84,7 +170,20 @@ impl Piece for Image {
                 day_core::Boundary::No,
             ),
             None => cx.leaf(kinds::IMAGE, &props, Flex::default()),
-        }
+        };
+        // A constant source reads the same value forever, so this seeds once and never patches;
+        // a signal or closure replaces the pixels in the view that is already on screen rather
+        // than realizing a second one, which would flash (docs/images.md).
+        day_reactive::bind_seeded(
+            seed,
+            move || source.get(),
+            move |s: &day_spec::ImageSource| {
+                day_core::with_tree(|t| {
+                    t.patch(node, Box::new(ImagePatch::Source(s.clone())), true)
+                });
+            },
+        );
+        node
     }
 }
 
@@ -160,7 +259,7 @@ impl Piece for Vector {
         let tint = self.tint;
         let seed = tint.as_ref().map(|t| t.get_untracked());
         let props = ImageProps {
-            source,
+            source: day_spec::ImageSource::Named(source),
             decorative: self.decorative,
             content_mode: ContentMode::Fit,
             aspect_ratio: None,

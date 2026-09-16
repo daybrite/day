@@ -829,6 +829,23 @@ pub trait TreeOps {
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     /// The same capture with the window's own chrome (see `Toolkit::snapshot_window_chrome`).
     fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String>;
+
+    // --- raster images (docs/images.md) -------------------------------------------------
+    // Request-shaped, like `present`: the answer arrives as `Event::ImageDecoded` /
+    // `Event::ImageEncoded` and resolves the waiter in `crate::image`.
+
+    /// Decode encoded bytes into a native image under `id` (see `Toolkit::decode_image`).
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]);
+    /// What a decoded image is (see `Toolkit::image_info`).
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo>;
+    /// An image's metadata beyond its pixels (see `Toolkit::image_properties`).
+    fn image_properties(&mut self, id: day_spec::BitmapId) -> Option<day_spec::ImageProperties>;
+    /// Encode a decoded image back to bytes (see `Toolkit::encode_image`).
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec);
+    /// Which formats this toolkit encodes (see `Toolkit::encode_formats`).
+    fn image_encode_formats(&mut self) -> Vec<day_spec::ImageFormat>;
+    /// Release a decoded image (see `Toolkit::release_image`).
+    fn release_image(&mut self, id: day_spec::BitmapId);
     /// Whether the toolkit can rasterize its own window at all (`Cap::Snapshot`).
     fn window_image_support(&mut self) -> day_spec::Support;
     /// The platform's font families (see `Toolkit::font_families`); cached by day-core.
@@ -1662,6 +1679,30 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.toolkit.snapshot_window_chrome()
     }
 
+    fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+        self.toolkit.decode_image(req, id, bytes);
+    }
+
+    fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+        self.toolkit.image_info(id)
+    }
+
+    fn image_properties(&mut self, id: day_spec::BitmapId) -> Option<day_spec::ImageProperties> {
+        self.toolkit.image_properties(id)
+    }
+
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+        self.toolkit.encode_image(req, id, spec);
+    }
+
+    fn image_encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+        self.toolkit.encode_formats()
+    }
+
+    fn release_image(&mut self, id: day_spec::BitmapId) {
+        self.toolkit.release_image(id);
+    }
+
     fn window_image_support(&mut self) -> day_spec::Support {
         self.toolkit.capability(day_spec::Cap::Snapshot)
     }
@@ -2244,6 +2285,8 @@ pub fn is_mounted() -> bool {
 
 /// Reset the thread-local tree + queues (tests).
 pub fn uninstall_tree() {
+    // A decode parked on the tree that is going away would wait forever (docs/images.md).
+    crate::image::reset();
     crate::nav::clear_controllers();
     crate::windows::reset_windows();
     // Per-window signals are keyed by root node, and roots repeat across trees on this thread —
@@ -2317,6 +2360,28 @@ pub fn try_with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Option<R> {
         pump_events();
     }
     r
+}
+
+/// [`try_with_tree`] without the pump on the way out — for work that is itself part of a pump,
+/// or that raises no events (`release_image`), where a nested pump would be wrong or wasted.
+pub(crate) fn with_tree_if_free<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Option<R> {
+    TREE.with(|t| {
+        let mut opt = t.try_borrow_mut().ok()?;
+        let ops = opt.as_mut()?;
+        Some(f(ops.as_mut()))
+    })
+}
+
+/// Whether NO tree is installed — as distinct from one that is merely borrowed right now, which
+/// this answers `false` for. [`is_mounted`] cannot tell the two apart without panicking.
+pub(crate) fn tree_absent() -> bool {
+    TREE.with(|t| t.try_borrow().map(|o| o.is_none()).unwrap_or(false))
+}
+
+/// Ask for a pump at the next safe point (the end of the current `with_tree`), for work queued
+/// while the tree was borrowed.
+pub(crate) fn request_pump() {
+    PUMP_PENDING.with(|c| c.set(true));
 }
 
 pub fn has_tree() -> bool {
@@ -2434,6 +2499,8 @@ pub fn pump_events() {
 }
 
 fn pump_events_inner() {
+    // The tree borrow has ended by now: run the image releases that arrived while it was held.
+    crate::image::flush_deferred_releases();
     // A new pump: bump the generation, then record any route change that a PREVIOUS pump left
     // pending (a signal-bound sidebar/stack remount settles into NAV_STACK a tick after the pump
     // that triggered it, so the tail check below reads a stale route — this start check catches it
@@ -2446,6 +2513,16 @@ fn pump_events_inner() {
         // Presentation answers are keyed by request id, not by tree node (docs/dialogs.md).
         if let Event::PresentResult { req, result } = ev {
             crate::present::resolve_presentation(req, result);
+            continue;
+        }
+        // Image decodes/encodes are keyed by request id too (docs/images.md), for the same
+        // reason presentation is: the answer belongs to the caller that asked, not to a node.
+        if let Event::ImageDecoded { req, result } = ev {
+            crate::image::resolve_image_decode(req, result);
+            continue;
+        }
+        if let Event::ImageEncoded { req, result } = ev {
+            crate::image::resolve_image_encode(req, result);
             continue;
         }
         // Menu actions are keyed by action id, not by tree node (§ menus).

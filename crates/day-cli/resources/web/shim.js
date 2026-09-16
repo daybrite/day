@@ -99,6 +99,14 @@ function setSuggestions(dl, list) {
 }
 // Crate-owned browser behaviors release subscriptions before their element is destroyed.
 const releaseHooks = new Map();
+
+// Decoded bitmaps (docs/images.md), keyed by the id day-core minted: the `ImageBitmap` a canvas
+// draws, plus the object URL an `<img>` loads. Entries leave only through
+// `day_dom_image_release`, which day-core calls when the app drops its last handle — the URL is
+// revoked there, since an object URL the page forgets is a leak the GC cannot reach.
+const bitmaps = new Map();
+// MIME type → whether this engine can encode it (see `day_dom_image_can_encode`).
+const encodeProbe = new Map();
 const utf8 = new TextDecoder();
 const utf8enc = new TextEncoder();
 
@@ -602,6 +610,99 @@ const env = {
 
   day_dom_canvas_replay: (id, ops, opsLen, strs, strsLen, w, h) =>
     replay(E(id), f64(ops, opsLen), new Uint8Array(wasm.memory.buffer, strs, strsLen), w, h),
+
+  // Raster images from bytes (docs/images.md). A browser decodes ASYNCHRONOUSLY, so the answer
+  // comes back through the exported `day_dom_image_decoded` rather than from this call — which is
+  // exactly what day-core's request-id design is for. Ids ride as f64: a wasm i64 would reach JS
+  // as a BigInt, and an f64 carries a minted id exactly well past any count this page can reach.
+  day_dom_image_decode: (req, id, ptr, len) => {
+    // `slice` COPIES out of wasm memory: a Blob over the live buffer would tear the moment the
+    // heap grows.
+    const blob = new Blob([mem().slice(ptr, ptr + len)]);
+    createImageBitmap(blob)
+      .then((bitmap) => {
+        bitmaps.set(id, { bitmap, url: URL.createObjectURL(blob) });
+        wasm.day_dom_image_decoded(req, id, bitmap.width, bitmap.height);
+      })
+      .catch(() => wasm.day_dom_image_decoded(req, id, 0, 0));
+  },
+  day_dom_image_encode: (req, id, fmtPtr, fmtLen, quality, fitW, fitH) => {
+    const b = bitmaps.get(id);
+    if (!b || !b.bitmap) { wasm.day_dom_image_encoded(req, 0, 0); return; }
+    const type = str(fmtPtr, fmtLen);
+    let w = b.bitmap.width, h = b.bitmap.height;
+    // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+    // upscaling on an export path inflates the bytes without adding any detail.
+    if (fitW > 0 && fitH > 0) {
+      const s = Math.min(fitW / w, fitH / h, 1);
+      if (s < 1) { w = Math.max(1, Math.round(w * s)); h = Math.max(1, Math.round(h * s)); }
+    }
+    const off = typeof OffscreenCanvas === 'function' ? new OffscreenCanvas(w, h) : null;
+    const canvas = off || Object.assign(document.createElement('canvas'), { width: w, height: h });
+    canvas.getContext('2d').drawImage(b.bitmap, 0, 0, w, h);
+    const q = quality >= 0 ? quality : undefined;
+    const encoded = canvas.convertToBlob
+      ? canvas.convertToBlob(q === undefined ? { type } : { type, quality: q })
+      : new Promise((res, rej) =>
+          canvas.toBlob((out) => (out ? res(out) : rej(new Error('encode'))), type, q));
+    encoded
+      .then((out) => {
+        // `toBlob` substitutes PNG for a type the engine cannot write (WebKit reads WebP but
+        // will not encode it). The contract is to refuse, so a substituted answer is a failure.
+        if (out.type !== type) throw new Error('unwritable');
+        return out.arrayBuffer();
+      })
+      .then((buf) => {
+        const u8 = new Uint8Array(buf);
+        const p = wasm.day_dom_alloc(u8.length);
+        mem().set(u8, p);
+        wasm.day_dom_image_encoded(req, p, u8.length);
+      })
+      .catch(() => wasm.day_dom_image_encoded(req, 0, 0));
+  },
+  // Whether the engine WRITES `type` — what `encode_formats` answers from, so an app never
+  // offers a format the browser would quietly turn into PNG. Probed once per type on a 1×1
+  // canvas: `toDataURL` answers synchronously and prefixes the type it actually produced.
+  day_dom_image_can_encode: (fmtPtr, fmtLen) => {
+    const type = str(fmtPtr, fmtLen);
+    if (!encodeProbe.has(type)) {
+      let ok = false;
+      try {
+        const c = Object.assign(document.createElement('canvas'), { width: 1, height: 1 });
+        ok = c.toDataURL(type).startsWith('data:' + type);
+      } catch (e) { /* an engine with no canvas here writes nothing */ }
+      encodeProbe.set(type, ok);
+    }
+    return encodeProbe.get(type) ? 1 : 0;
+  },
+  day_dom_image_release: (id) => {
+    const b = bitmaps.get(id);
+    if (!b) return;
+    if (b.url) URL.revokeObjectURL(b.url);
+    if (b.bitmap && b.bitmap.close) b.bitmap.close();
+    bitmaps.delete(id);
+  },
+  // An `<img>` showing a decoded bitmap: the object URL the decode already made.
+  day_dom_image_set_bitmap: (el, id) => {
+    const b = bitmaps.get(id);
+    if (b && b.url) E(el).src = b.url;
+  },
+  // An `<img>` showing raw encoded bytes the app holds, with no staged resource behind them.
+  day_dom_image_set_bytes: (el, ptr, len) => {
+    const node = E(el);
+    if (!node) return;
+    const url = URL.createObjectURL(new Blob([mem().slice(ptr, ptr + len)]));
+    // Revoke the blob this element made last time: a signal-driven swap would otherwise leak one
+    // URL per change, and nothing else is holding them.
+    if (node.__dayBlob) URL.revokeObjectURL(node.__dayBlob);
+    node.__dayBlob = url;
+    node.src = url;
+  },
+  // Release an element's own blob URL when the element goes (day-dom's `release`).
+  day_dom_image_revoke: (el) => {
+    const node = E(el);
+    if (node && node.__dayBlob) { URL.revokeObjectURL(node.__dayBlob); node.__dayBlob = null; }
+  },
 
   day_dom_present: (req, json, len) => present(req, JSON.parse(str(json, len))),
   day_dom_modifiers: () => modifierMask,
@@ -1954,6 +2055,20 @@ function replay(canvas, ops, strs, w, h) {
     } else if (op === 3) ctx.save();
     else if (op === 4) ctx.restore();
     else if (op === 5) { const a = next(), b = next(), c = next(), d = next(), e = next(), f = next(); ctx.transform(a, b, c, d, e, f); }
+    else if (op === 8) { // image: id, x, y, w, h, opacity (docs/images.md)
+      // Every slot is read BEFORE the bitmap is looked up: this stream is variable-length, so a
+      // branch that consumed fewer slots would desync every record after it.
+      const id = next(), x = next(), y = next(), w = next(), h = next(), alpha = next();
+      const b = bitmaps.get(id);
+      // A released bitmap draws NOTHING rather than a placeholder: a canvas re-records on every
+      // tracked read, so a handle can be dropped between the record and this replay.
+      if (b && b.bitmap && w > 0 && h > 0) {
+        const was = ctx.globalAlpha;
+        ctx.globalAlpha = was * Math.max(0, Math.min(1, alpha));
+        ctx.drawImage(b.bitmap, x, y, w, h);
+        ctx.globalAlpha = was;
+      }
+    }
   }
 }
 

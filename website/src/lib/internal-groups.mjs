@@ -56,6 +56,7 @@ export const groups = [
       ['persistence', 'SQLite storage for the model: ModelContainer, the Model derive, migrations'],
       ['resources', 'asset packaging and the zero-copy runtime path'],
       ['vectors', 'resolution-independent SVG glyphs and the `vector` piece'],
+      ['images', 'raster images from bytes: decode, draw, read, and write back out'],
       ['color', 'the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it'],
       ['icons', "`day icon`: every platform's app-icon set from one master"],
       ['files', 'file I/O and platform paths'],

@@ -10,6 +10,9 @@
 #include <QStyleHints>
 #include <QBuffer>
 #include <QByteArray>
+#include <QImage>
+#include <cstdlib>
+#include <cstring>
 #include <QCheckBox>
 #include <QFileDialog>
 #include <QFont>
@@ -1619,6 +1622,16 @@ extern "C" {
 /// The QFont canvas text draws and measures with: the requested family (else `base`, the
 /// painter's — i.e. the application — font), a CSS weight (Qt 6 weights ARE 100 … 900), a
 /// slant, and an absolute point size.
+/// Decoded bitmaps (docs/images.md), keyed by the id day-core minted.
+///
+/// A `QImage` rather than a `QPixmap`: it is what `QImage::save` re-encodes from, it answers the
+/// alpha question directly, and it is independent of any window's graphics context. Declared
+/// ahead of the canvas widget so the image op can reach it.
+static QHash<quint64, QImage> &day_qt_bitmaps() {
+    static QHash<quint64, QImage> map;
+    return map;
+}
+
 static QFont day_qt_canvas_font(const QFont &base, double size, int weight, bool italic,
                                 const QString &family) {
     QFont font = family.isEmpty() ? base : QFont(family);
@@ -1946,6 +1959,18 @@ protected:
                     gradPending = !gstops.isEmpty();
                     break;
                 }
+                case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
+                    auto it = day_qt_bitmaps().constFind((quint64)e);
+                    // A released bitmap draws NOTHING rather than a placeholder: a canvas
+                    // re-records on every tracked read, so a handle can be dropped between the
+                    // record and this replay.
+                    if (it == day_qt_bitmaps().constEnd()) break;
+                    const qreal was = p.opacity();
+                    p.setOpacity(was * qBound(0.0, f, 1.0));
+                    p.drawImage(QRectF(a, b, c, d), *it);
+                    p.setOpacity(was);
+                    break;
+                }
             }
             if (!stampAt.isEmpty()) p.restore();
             }
@@ -2021,6 +2046,106 @@ void day_qt_image_set_tint(void *w, const char *tint) {
         if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
     }
     if (!pm.isNull()) l->setImage(pm);
+}
+
+/// Point a realized image widget at a different staged file (an `ImageSource::Named` swap).
+///
+/// The path is recorded the way realize records it, so a later tint still re-renders from the
+/// right source.
+void day_qt_image_set_path(void *w, const char *path) {
+    auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    const QString file = QString::fromUtf8(path);
+    l->setProperty("dayGlyphPath", file);
+    QPixmap pm = day_qt_load_glyph(file, 512);
+    if (!pm.isNull()) l->setImage(pm);
+}
+
+/// Decode `bytes` into the bitmap registry under `id` (docs/images.md). Returns 1 and fills `out`
+/// with width, height and 1/0 for an alpha channel; 0 when the bytes are not an image Qt reads.
+int day_qt_image_decode(unsigned long long id, const unsigned char *bytes, int len, double *out) {
+    QImage img;
+    // `fromRawData` does not copy, and `loadFromData` decodes into its own storage, so the
+    // borrowed span never outlives this call.
+    if (!img.loadFromData(QByteArray::fromRawData(reinterpret_cast<const char *>(bytes), len)))
+        return 0;
+    day_qt_bitmaps().insert(id, img);
+    if (out) {
+        out[0] = img.width();
+        out[1] = img.height();
+        out[2] = img.hasAlphaChannel() ? 1.0 : 0.0;
+    }
+    return 1;
+}
+
+/// Re-encode the bitmap `id` as `format` ("png"/"jpeg"/"tiff"/"bmp"), optionally scaled to fit
+/// `fitW`×`fitH` (0 = no fit), at `quality` (-1 = the format's default). Returns a malloc'd buffer
+/// of `*out_len` bytes to release with `day_qt_bytes_free`, or null.
+unsigned char *day_qt_image_encode(unsigned long long id, const char *format, int quality,
+                                   double fitW, double fitH, int *out_len) {
+    if (out_len) *out_len = 0;
+    auto it = day_qt_bitmaps().constFind(id);
+    if (it == day_qt_bitmaps().constEnd()) return nullptr;
+    QImage img = *it;
+    // `fit` scales the longest side down first. A box LARGER than the original is ignored:
+    // upscaling on an export path inflates the bytes without adding any detail.
+    if (fitW > 0.0 && fitH > 0.0 && img.width() > 0 && img.height() > 0) {
+        const double s = qMin(qMin(fitW / img.width(), fitH / img.height()), 1.0);
+        if (s < 1.0)
+            img = img.scaled(qMax(1, (int)qRound(img.width() * s)),
+                             qMax(1, (int)qRound(img.height() * s)), Qt::KeepAspectRatio,
+                             Qt::SmoothTransformation);
+    }
+    QByteArray out;
+    QBuffer buf(&out);
+    buf.open(QIODevice::WriteOnly);
+    if (!img.save(&buf, format, quality)) return nullptr;
+    buf.close();
+    unsigned char *p = (unsigned char *)malloc(out.size());
+    if (!p) return nullptr;
+    memcpy(p, out.constData(), out.size());
+    if (out_len) *out_len = out.size();
+    return p;
+}
+
+/// Release a buffer returned by `day_qt_image_encode`.
+void day_qt_bytes_free(unsigned char *p) { free(p); }
+
+/// Drop a decoded bitmap; day-core calls this when the app's last handle goes.
+void day_qt_image_release(unsigned long long id) { day_qt_bitmaps().remove(id); }
+
+/// An image widget showing a DECODED bitmap rather than a staged file (docs/images.md).
+void *day_qt_image_new_bitmap(unsigned long long id, int mode) {
+    DayImageLabel *l = new DayImageLabel(mode);
+    auto it = day_qt_bitmaps().constFind(id);
+    if (it != day_qt_bitmaps().constEnd()) l->setImage(QPixmap::fromImage(*it));
+    return l;
+}
+
+/// An image widget showing raw encoded bytes the app already holds.
+void *day_qt_image_new_bytes(const unsigned char *bytes, int len, int mode) {
+    DayImageLabel *l = new DayImageLabel(mode);
+    QImage img;
+    if (img.loadFromData(QByteArray::fromRawData(reinterpret_cast<const char *>(bytes), len)))
+        l->setImage(QPixmap::fromImage(img));
+    return l;
+}
+
+/// Point a realized image widget at a decoded bitmap (an `ImageSource::Decoded` swap).
+void day_qt_image_set_bitmap(void *w, unsigned long long id) {
+    auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    auto it = day_qt_bitmaps().constFind(id);
+    if (it != day_qt_bitmaps().constEnd()) l->setImage(QPixmap::fromImage(*it));
+}
+
+/// Point a realized image widget at raw encoded bytes (an `ImageSource::Bytes` swap).
+void day_qt_image_set_bytes(void *w, const unsigned char *bytes, int len) {
+    auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    QImage img;
+    if (img.loadFromData(QByteArray::fromRawData(reinterpret_cast<const char *>(bytes), len)))
+        l->setImage(QPixmap::fromImage(img));
 }
 
 // App icon (§18.2): the window icon doubles as the Dock icon on macOS and the taskbar icon on

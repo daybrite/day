@@ -2057,6 +2057,32 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             }
             break;
         }
+        case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
+            auto it = xaml_bitmaps().find((uint64_t)e);
+            // A released bitmap draws NOTHING rather than a placeholder: the canvas re-records on
+            // every tracked read, so a handle can be dropped between the record and this replay.
+            if (it == xaml_bitmaps().end() || c <= 0 || d <= 0) break;
+            auto bmp = bitmap_from_bytes(it->second.data(), (uint32_t)it->second.size());
+            if (!bmp) break;
+            WUXC::Image img;
+            img.Stretch(WUXM::Stretch::Fill); // the op names an exact rect; day did the fitting
+            img.Source(bmp);
+            img.Width(c);
+            img.Height(d);
+            img.Opacity(f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f));
+            // This canvas is RETAINED: an element is positioned by matrix rather than drawn, so
+            // the op's origin rides the transform the same way every shape's does.
+            WUXM::Matrix m = cur;
+            m.OffsetX += a;
+            m.OffsetY += b;
+            WUXC::Canvas::SetLeft(img, 0);
+            WUXC::Canvas::SetTop(img, 0);
+            WUXM::MatrixTransform mt;
+            mt.Matrix(m);
+            img.RenderTransform(mt);
+            canvas.Children().Append(img);
+            break;
+        }
         }
         } // the stamp repetition; its body keeps the switch's own indentation on purpose
         if (!stampAt.empty()) { cur = curSaved; stampAt.clear(); }
@@ -3814,24 +3840,135 @@ void* day_xaml_image_tinted_new(const char* icon_file, int mode, unsigned int ar
     return nullptr;
 }
 
+// ---- Raster images from bytes (docs/images.md) ---------------------------------------------
+//
+// Decoded bitmaps, keyed by the id day-core minted. XAML has no cheap decoded-bitmap type to
+// hold across threads — a `BitmapImage` belongs to the UI thread and decodes lazily — so what is
+// kept is the ENCODED buffer, and each consumer builds its own `BitmapImage` from it. The
+// registry still owns the lifetime: entries leave only through `day_xaml_image_release`.
+static std::map<uint64_t, std::vector<uint8_t>>& xaml_bitmaps() {
+    static std::map<uint64_t, std::vector<uint8_t>> m;
+    return m;
+}
+
+/// A random-access stream over `bytes` — the in-memory twin of `read_file_stream`, which XAML's
+/// image loader needs because it accepts neither `file://` nor a bare path.
+static WSS::IRandomAccessStream bytes_stream(const uint8_t* bytes, uint32_t len) {
+    try {
+        if (!bytes || len == 0) return nullptr;
+        WSS::InMemoryRandomAccessStream stream;
+        WSS::DataWriter writer(stream);
+        writer.WriteBytes(winrt::array_view<uint8_t const>(bytes, bytes + len));
+        writer.StoreAsync().get();
+        writer.DetachStream();
+        stream.Seek(0);
+        return stream;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+/// A `BitmapImage` over encoded bytes, or null.
+static WUXM::Imaging::BitmapImage bitmap_from_bytes(const uint8_t* bytes, uint32_t len) {
+    try {
+        auto stream = bytes_stream(bytes, len);
+        if (!stream) return nullptr;
+        WUXM::Imaging::BitmapImage bmp;
+        bmp.SetSource(stream);
+        return bmp;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+/// Hold `bytes` under `id`. Returns 1 always — XAML decodes lazily when the image is first
+/// shown, so there is nothing to validate here (docs/images.md records the consequence: this
+/// backend cannot report pixel dimensions at decode time).
+int day_xaml_image_decode(unsigned long long id, const unsigned char* bytes, int len) {
+    if (!bytes || len <= 0) return 0;
+    xaml_bitmaps()[id] = std::vector<uint8_t>(bytes, bytes + len);
+    return 1;
+}
+
+/// The encoded bytes `id` holds, copied into `out` (at most `cap`); returns the full length so a
+/// caller can tell whether it fitted. 0 when the id names nothing.
+int day_xaml_image_bytes(unsigned long long id, unsigned char* out, int cap) {
+    auto it = xaml_bitmaps().find(id);
+    if (it == xaml_bitmaps().end()) return 0;
+    const int len = (int)it->second.size();
+    if (out && cap > 0) {
+        const int n = cap < len ? cap : len;
+        memcpy(out, it->second.data(), (size_t)n);
+    }
+    return len;
+}
+
+/// Drop a decoded bitmap; day-core calls this when the app's last handle goes.
+void day_xaml_image_release(unsigned long long id) { xaml_bitmaps().erase(id); }
+
+/// An `Image` element showing raw encoded bytes (an `ImageSource::Bytes` realize).
+void* day_xaml_image_bytes_new(const unsigned char* bytes, int len, int mode) {
+    WUXC::Image img;
+    img.Stretch(mode == 2 ? WUXM::Stretch::Fill
+                : mode == 1 ? WUXM::Stretch::UniformToFill
+                            : WUXM::Stretch::Uniform);
+    if (auto bmp = bitmap_from_bytes(bytes, len > 0 ? (uint32_t)len : 0)) img.Source(bmp);
+    return boxh(img);
+}
+
+/// An `Image` element showing a bitmap already held under `id` (an `ImageSource::Decoded`).
+void* day_xaml_image_bitmap_new(unsigned long long id, int mode) {
+    auto it = xaml_bitmaps().find(id);
+    if (it == xaml_bitmaps().end()) return day_xaml_image_bytes_new(nullptr, 0, mode);
+    return day_xaml_image_bytes_new(it->second.data(), (int)it->second.size(), mode);
+}
+
+/// A `BitmapImage` over a resolved native path or an http(s) URI, or null: the loader behind
+/// `day_xaml_image_new`, shared with the source swap so both load exactly the same way.
+static WUXM::Imaging::BitmapImage bitmap_from_uri(const char* uri) {
+    if (!uri || !*uri) return nullptr;
+    try {
+        WUXM::Imaging::BitmapImage bmp;
+        std::string s = uri;
+        if (s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0) {
+            bmp.UriSource(WF::Uri{ hs(uri) }); // remote — BitmapImage loads http(s) directly
+        } else if (auto stream = read_file_stream(uri)) {
+            bmp.SetSource(stream); // local bundled file — feed the bytes, not a file:// Uri
+        } else {
+            return nullptr;
+        }
+        return bmp;
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+/// `ImagePatch::Source` on the raster `Image` element. A source that will not load leaves the
+/// view showing what it was (the patch's contract); a vector glyph is `Path` geometry rather than
+/// an `Image` and cannot be swapped in place.
+static void image_set(void* w, WUXM::Imaging::BitmapImage const& bmp) {
+    if (!bmp) return;
+    try {
+        if (auto img = elem(w).try_as<WUXC::Image>()) img.Source(bmp);
+    } catch (...) {}
+}
+void day_xaml_image_set_uri(void* w, const char* uri) { image_set(w, bitmap_from_uri(uri)); }
+void day_xaml_image_set_bytes(void* w, const unsigned char* bytes, int len) {
+    image_set(w, bitmap_from_bytes(bytes, len > 0 ? (uint32_t)len : 0));
+}
+void day_xaml_image_set_bitmap(void* w, unsigned long long id) {
+    auto it = xaml_bitmaps().find(id);
+    if (it == xaml_bitmaps().end()) return;
+    image_set(w, bitmap_from_bytes(it->second.data(), (uint32_t)it->second.size()));
+}
+
 void* day_xaml_image_new(const char* uri, int mode) {
     WUXC::Image img;
     // Scaling (§18.3): 0=fit (Uniform), 1=fill (UniformToFill, cropped), 2=stretch (Fill).
     img.Stretch(mode == 2 ? WUXM::Stretch::Fill
                 : mode == 1 ? WUXM::Stretch::UniformToFill
                             : WUXM::Stretch::Uniform);
-    if (uri && *uri) {
-        try {
-            WUXM::Imaging::BitmapImage bmp;
-            std::string s = uri;
-            if (s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0) {
-                bmp.UriSource(WF::Uri{ hs(uri) }); // remote — BitmapImage loads http(s) directly
-            } else if (auto stream = read_file_stream(uri)) {
-                bmp.SetSource(stream); // local bundled file — feed the bytes, not a file:// Uri
-            }
-            img.Source(bmp);
-        } catch (...) {}
-    }
+    if (auto bmp = bitmap_from_uri(uri)) img.Source(bmp);
     return boxh(img);
 }
 

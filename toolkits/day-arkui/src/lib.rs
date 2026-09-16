@@ -476,6 +476,84 @@ mod imp {
         col
     }
 
+    thread_local! {
+        /// `BitmapId` → what the decode reported (docs/images.md). Only the METADATA lives here;
+        /// the pixels are the shim's, in an `OH_PixelmapNative` registry under the same id.
+        static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// Re-encode a decoded bitmap through the shim (docs/images.md).
+    ///
+    /// A free function rather than the duty's body so each refusal reads as an early return
+    /// instead of another copy of the same emit.
+    fn encode_bitmap(
+        id: day_spec::BitmapId,
+        spec: &day_spec::EncodeSpec,
+    ) -> Result<Vec<u8>, day_spec::ImageError> {
+        use day_spec::ImageFormat as F;
+        let mime = match spec.format {
+            F::Png => "image/png",
+            F::Jpeg => "image/jpeg",
+            // The image packer writes nothing else here; `encode_formats` says so up front.
+            _ => return Err(day_spec::ImageError::Encode),
+        };
+        if !BITMAP_INFO.with(|m| m.borrow().contains_key(&id.0)) {
+            return Err(day_spec::ImageError::Gone);
+        }
+        // OpenHarmony takes quality as 0..=100; -1 means the format's own default.
+        let quality = spec
+            .quality
+            .map(|q| (q.clamp(0.0, 1.0) * 100.0).round() as i32)
+            .unwrap_or(-1);
+        let mut len: u32 = 0;
+        // SAFETY: the shim returns either null or a malloc'd buffer of `len` bytes, copied out
+        // here and released through its own free.
+        unsafe {
+            let p = ffi::day_ark_image_encode(id.0, cstr(mime).as_ptr(), quality, &mut len);
+            if p.is_null() || len == 0 {
+                return Err(day_spec::ImageError::Encode);
+            }
+            let out = std::slice::from_raw_parts(p, len as usize).to_vec();
+            ffi::day_ark_bytes_free(p);
+            Ok(out)
+        }
+    }
+
+    /// Point an image node at an [`day_spec::ImageSource`] (docs/images.md) — shared by realize
+    /// and the `Source` patch, so a swap loads exactly what a fresh realize would have.
+    ///
+    /// Named is the staged-rawfile path: a vector's SVG first (docs/vectors.md), then the PNG,
+    /// and `tint` recolors an SVG's paths. Bytes and Decoded need no file at all, and take no
+    /// tint: there is no SVG to repaint.
+    fn arkui_apply_image_source(
+        n: *mut c_void,
+        source: &day_spec::ImageSource,
+        tint: Option<day_spec::Color>,
+    ) {
+        match source {
+            day_spec::ImageSource::Named(named) => {
+                let svg = format!("day/{named}.svg");
+                if unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0 {
+                    let src = format!("resource://RAWFILE/{svg}");
+                    unsafe { ffi::day_ark_set_image_src(n, cstr(&src).as_ptr()) };
+                    if let Some(t) = tint {
+                        unsafe { ffi::day_ark_set_image_fill(n, argb(t)) };
+                    }
+                } else if !named.is_empty() {
+                    let src = format!("resource://RAWFILE/day/{named}.png");
+                    unsafe { ffi::day_ark_set_image_src(n, cstr(&src).as_ptr()) };
+                }
+            }
+            day_spec::ImageSource::Bytes(bytes) => unsafe {
+                ffi::day_ark_image_node_set_bytes(n, bytes.as_ptr(), bytes.len() as u32)
+            },
+            day_spec::ImageSource::Decoded(id) => unsafe {
+                ffi::day_ark_image_node_set_bitmap(n, id.0)
+            },
+        }
+    }
+
     pub fn emit(id: NodeId, ev: Event) {
         let sink = SINK.with(|s| s.borrow().clone());
         if let Some(sink) = sink {
@@ -1468,17 +1546,12 @@ mod imp {
                     // A vector name resolves to its staged SVG instead (docs/vectors.md): ArkUI
                     // renders it natively at display size, and `.tint(…)` recolors it via
                     // NODE_IMAGE_FILL_COLOR (untinted = as authored, matching every backend).
-                    let svg = format!("day/{}.svg", p.source);
-                    if unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0 {
-                        let src = format!("resource://RAWFILE/{svg}");
-                        unsafe { ffi::day_ark_set_image_src(n.0, cstr(&src).as_ptr()) };
-                        if let Some(t) = p.tint {
-                            unsafe { ffi::day_ark_set_image_fill(n.0, argb(t)) };
-                        }
-                    } else {
-                        let src = format!("resource://RAWFILE/day/{}.png", p.source);
-                        unsafe { ffi::day_ark_set_image_src(n.0, cstr(&src).as_ptr()) };
-                    }
+                    // Named is the staged-rawfile path; Bytes and Decoded arrive from
+                    // `day::decode_image` (docs/images.md), so an `image()` piece can show a
+                    // download or a pasted PNG with no staged resource behind it. Only a named
+                    // source takes a tint: the recolor repaints an SVG's paths, and bytes have no
+                    // SVG to repaint.
+                    arkui_apply_image_source(n.0, &p.source, p.tint);
                     // Scaling (§18.3): ArkUI_ObjectFit CONTAIN=0 (fit) / COVER=1 (fill) / FILL=3.
                     let fit = match p.content_mode {
                         ContentMode::Fit => 0,
@@ -1959,6 +2032,23 @@ mod imp {
                                 }
                                 // No hide transition: the content can go immediately.
                                 post_emit(node, Event::CoverHidden);
+                            }
+                        }
+                    }
+                }
+                kinds::IMAGE => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
+                        match p {
+                            // SVG-only recolor, as at realize (docs/vectors.md). Only a tint to
+                            // apply: ArkUI keeps no "authored" fill to go back to, so a `None`
+                            // leaves the last recolor in place.
+                            day_spec::props::ImagePatch::Tint(Some(c)) => unsafe {
+                                ffi::day_ark_set_image_fill(h.0, argb(*c))
+                            },
+                            day_spec::props::ImagePatch::Tint(None) => {}
+                            // A source swap repaints the SAME node (docs/images.md).
+                            day_spec::props::ImagePatch::Source(source) => {
+                                arkui_apply_image_source(h.0, source, None);
                             }
                         }
                     }
@@ -2531,6 +2621,67 @@ mod imp {
             (ok == 1).then(|| day_spec::TextMetrics::from_slots(&out))
         }
 
+        /// Decode bytes with `OH_ImageSourceNative` (docs/images.md), which reads every container
+        /// the platform's image framework knows.
+        fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
+            let mut out = [0.0f64; 3];
+            // SAFETY: the shim reads `len` bytes from the borrowed span and keeps only its own
+            // decoded pixelmap; it writes exactly three doubles into `out`.
+            let ok = unsafe {
+                ffi::day_ark_image_decode(
+                    id.0,
+                    bytes.as_ptr(),
+                    bytes.len() as u32,
+                    out.as_mut_ptr(),
+                )
+            };
+            let event = if ok != 0 {
+                let info = day_spec::BitmapInfo {
+                    pixels: Size::new(out[0], out[1]),
+                    // Decoded bytes carry no density — a PNG is simply its pixels.
+                    scale: 1.0,
+                    format: day_spec::ImageFormat::sniff(bytes),
+                    // Read from the pixelmap's alpha type, not inferred from the container.
+                    has_alpha: out[2] > 0.5,
+                };
+                BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+                Event::ImageDecoded {
+                    req,
+                    result: Ok(info),
+                }
+            } else {
+                Event::ImageDecoded {
+                    req,
+                    result: Err(day_spec::ImageError::Decode),
+                }
+            };
+            emit(day_spec::WINDOW_NODE, event);
+        }
+
+        fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {
+            BITMAP_INFO.with(|m| m.borrow().get(&id.0).copied())
+        }
+
+        fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+            let result = encode_bitmap(id, spec);
+            emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
+        }
+
+        /// What the image packer WRITES. The platform READS more, and the asymmetry is its own —
+        /// which is why this duty exists rather than letting `Cap::ImageEncode` imply symmetry.
+        fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+            use day_spec::ImageFormat::{Jpeg, Png};
+            vec![Png, Jpeg]
+        }
+
+        fn release_image(&mut self, id: day_spec::BitmapId) {
+            BITMAP_INFO.with(|m| {
+                m.borrow_mut().remove(&id.0);
+            });
+            // SAFETY: an id the shim either knows or does not; releasing an absent one is a no-op.
+            unsafe { ffi::day_ark_image_release(id.0) };
+        }
+
         /// In-process capture of the window root (docs/window-image.md). `hdc shell
         /// snapshot_display` remains what a dayscript screenshot uses on a device — it is the
         /// whole display, including the system status bar this cannot see — but the app itself
@@ -2597,6 +2748,12 @@ mod imp {
                 Cap::FileDialogs => Support::Native,
                 // `OH_Drawing_FontMgr` lists every family and style set (docs/fonts.md).
                 Cap::FontList => Support::Native,
+                // `OH_ImageSourceNative` decodes every container the platform reads, and the
+                // image packer writes back PNG and JPEG (docs/images.md). `Cap::ImageProperties`
+                // is deliberately NOT here: the platform DOES expose
+                // `OH_ImageSourceNative_GetImageProperty`, but nothing reads it yet, and an empty
+                // struct would read as "this file records nothing" rather than "nobody looked".
+                Cap::ImageDecode | Cap::ImageEncode => Support::Native,
                 // OH_ArkUI_GetNodeSnapshot + the native image packer, both synchronous
                 // (docs/window-image.md).
                 Cap::Snapshot => Support::Native,
