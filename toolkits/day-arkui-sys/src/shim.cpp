@@ -1506,6 +1506,76 @@ static void apply_gradient(OH_Drawing_Brush* brush, PendingGradient& g,
     g.active = false;
 }
 
+// Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key). Paths and
+// polygons are the only ops whose geometry arrives as TEXT, and re-parsing every segment of a
+// drawing that had not moved was this backend's per-frame cost. The key IS the content, so an
+// entry can never go stale, and one entry is safely shared by every canvas: drawing and clipping
+// only READ a path.
+//
+// Ownership moves with it. `parse_path` hands back an owning pointer that each case used to
+// destroy after drawing; a CACHED path belongs to this map instead, so callers destroy only what
+// they own — which is what the `owned` out-parameter answers, and it is true exactly when the
+// encoder offered no key.
+static std::map<long long, OH_Drawing_Path*> g_path_cache;
+
+static void ark_cache_trim() {
+    if (g_path_cache.size() <= 512) return;
+    for (auto& kv : g_path_cache) OH_Drawing_PathDestroy(kv.second);
+    g_path_cache.clear();
+}
+
+static OH_Drawing_Path* ark_cached_path(const std::string& spec, int rule, double key, bool* owned) {
+    const long long k = (long long)key;
+    if (k == 0) {
+        *owned = true;
+        return parse_path(spec, rule);
+    }
+    *owned = false;
+    auto it = g_path_cache.find(k);
+    if (it != g_path_cache.end()) return it->second;
+    OH_Drawing_Path* built = parse_path(spec, rule);
+    ark_cache_trim();
+    g_path_cache[k] = built;
+    return built;
+}
+
+// "x,y x,y …" as one closed path, cached the same way.
+static OH_Drawing_Path* ark_cached_polygon(const std::string& pts, double key, bool* owned) {
+    const long long k = (long long)key;
+    if (k != 0) {
+        auto it = g_path_cache.find(k);
+        if (it != g_path_cache.end()) {
+            *owned = false;
+            return it->second;
+        }
+    }
+    OH_Drawing_Path* built = OH_Drawing_PathCreate();
+    bool first = true;
+    size_t p = 0;
+    while (p < pts.size()) {
+        size_t sp = pts.find(' ', p);
+        std::string tok = pts.substr(p, sp == std::string::npos ? sp : sp - p);
+        size_t comma = tok.find(',');
+        if (comma != std::string::npos) {
+            float px = strtof(tok.substr(0, comma).c_str(), nullptr);
+            float py = strtof(tok.substr(comma + 1).c_str(), nullptr);
+            if (first) { OH_Drawing_PathMoveTo(built, px, py); first = false; }
+            else OH_Drawing_PathLineTo(built, px, py);
+        }
+        if (sp == std::string::npos) break;
+        p = sp + 1;
+    }
+    if (!first) OH_Drawing_PathClose(built);
+    if (k == 0) {
+        *owned = true;
+        return built;
+    }
+    *owned = false;
+    ark_cache_trim();
+    g_path_cache[k] = built;
+    return built;
+}
+
 static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
     auto it = g_canvas.find(node);
     if (it == g_canvas.end()) return;
@@ -1691,24 +1761,11 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
             }
             case 11:
             case 12: { // polygon fill / stroke — points ride the text channel as "x,y x,y …"
+                // The text entry is consumed either way: that channel is positional, so a cache
+                // hit that skipped it would desynchronize every record after this one.
                 std::string pts = text_i < texts.size() ? texts[text_i++] : std::string();
-                OH_Drawing_Path* path = OH_Drawing_PathCreate();
-                bool first = true;
-                size_t p = 0;
-                while (p < pts.size()) {
-                    size_t sp = pts.find(' ', p);
-                    std::string tok = pts.substr(p, sp == std::string::npos ? sp : sp - p);
-                    size_t comma = tok.find(',');
-                    if (comma != std::string::npos) {
-                        float px = strtof(tok.substr(0, comma).c_str(), nullptr);
-                        float py = strtof(tok.substr(comma + 1).c_str(), nullptr);
-                        if (first) { OH_Drawing_PathMoveTo(path, px, py); first = false; }
-                        else OH_Drawing_PathLineTo(path, px, py);
-                    }
-                    if (sp == std::string::npos) break;
-                    p = sp + 1;
-                }
-                OH_Drawing_PathClose(path);
+                bool owned = true;
+                OH_Drawing_Path* path = ark_cached_polygon(pts, a, &owned);
                 if (kind == 11 && grad.active) {
                     OH_Drawing_Rect* pb = OH_Drawing_RectCreate(0, 0, 0, 0);
                     OH_Drawing_PathGetBounds(path, pb);
@@ -1720,13 +1777,14 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                     OH_Drawing_CanvasAttachBrush(cv, brush);
                 }
                 OH_Drawing_CanvasDrawPath(cv, path);
-                OH_Drawing_PathDestroy(path);
+                if (owned) OH_Drawing_PathDestroy(path);
                 break;
             }
             case 15:
             case 16: { // path fill / stroke — segments ride the text channel; f = fill rule
                 std::string spec = text_i < texts.size() ? texts[text_i++] : std::string();
-                OH_Drawing_Path* path = parse_path(spec, (int)f);
+                bool owned = true;
+                OH_Drawing_Path* path = ark_cached_path(spec, (int)f, a, &owned);
                 if (kind == 15 && grad.active) {
                     OH_Drawing_Rect* pb = OH_Drawing_RectCreate(0, 0, 0, 0);
                     OH_Drawing_PathGetBounds(path, pb);
@@ -1738,37 +1796,23 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                     OH_Drawing_CanvasAttachBrush(cv, brush);
                 }
                 OH_Drawing_CanvasDrawPath(cv, path);
-                OH_Drawing_PathDestroy(path);
+                if (owned) OH_Drawing_PathDestroy(path);
                 break;
             }
             case 17: { // clip: f names the shape, a..dd geometry, e radius or fill rule
                 OH_Drawing_Path* clip = nullptr;
+                // The three fixed-size kinds below build a path of their own and always own it;
+                // only the two payload kinds can come from the cache.
+                bool clip_owned = true;
                 switch ((int)f) {
                     case 3:
-                        clip = parse_path(text_i < texts.size() ? texts[text_i++] : std::string(),
-                                          (int)e);
+                        clip = ark_cached_path(text_i < texts.size() ? texts[text_i++] : std::string(),
+                                               (int)e, a, &clip_owned);
                         break;
-                    case 4: {
-                        std::string pts = text_i < texts.size() ? texts[text_i++] : std::string();
-                        clip = OH_Drawing_PathCreate();
-                        bool first = true;
-                        size_t p2 = 0;
-                        while (p2 < pts.size()) {
-                            size_t sp = pts.find(' ', p2);
-                            std::string tok = pts.substr(p2, sp == std::string::npos ? sp : sp - p2);
-                            size_t comma = tok.find(',');
-                            if (comma != std::string::npos) {
-                                float px = strtof(tok.substr(0, comma).c_str(), nullptr);
-                                float py = strtof(tok.substr(comma + 1).c_str(), nullptr);
-                                if (first) { OH_Drawing_PathMoveTo(clip, px, py); first = false; }
-                                else OH_Drawing_PathLineTo(clip, px, py);
-                            }
-                            if (sp == std::string::npos) break;
-                            p2 = sp + 1;
-                        }
-                        if (!first) OH_Drawing_PathClose(clip);
+                    case 4:
+                        clip = ark_cached_polygon(text_i < texts.size() ? texts[text_i++] : std::string(),
+                                                  a, &clip_owned);
                         break;
-                    }
                     case 2: {
                         clip = OH_Drawing_PathCreate();
                         OH_Drawing_Rect* r = OH_Drawing_RectCreate(a, b, a + c, b + dd);
@@ -1798,7 +1842,7 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                 if (clip) {
                     // INTERSECT: a clip only ever narrows until the matching restore.
                     OH_Drawing_CanvasClipPath(cv, clip, INTERSECT, true);
-                    OH_Drawing_PathDestroy(clip);
+                    if (clip_owned) OH_Drawing_PathDestroy(clip);
                 }
                 break;
             }

@@ -3237,17 +3237,24 @@ fn push_shape(buf: &mut Vec<f64>, shape: &Shape) {
             *sweep_deg,
         ]),
         Shape::Line(a, b) => buf.extend([4.0, a.x, a.y, b.x, b.y]),
+        // The two variable-length kinds lead with their `geometry_key` and the length of what
+        // follows: a shim that has decoded this key before keeps the `Path2D` it built and JUMPS
+        // the payload. The length is what makes that possible — the geometry rides this buffer
+        // rather than a side channel, so a hit has to know how far to skip.
         Shape::Polygon(pts) => {
-            buf.extend([5.0, pts.len() as f64]);
+            buf.extend([5.0, day_spec::geometry_key(shape), 0.0]);
+            let len_at = buf.len() - 1;
+            buf.push(pts.len() as f64);
             for p in pts {
                 buf.extend([p.x, p.y]);
             }
+            buf[len_at] = (buf.len() - len_at - 1) as f64;
         }
-        // Path: [6, rule, segCount, then per segment: kind + its points]. Self-describing, so
-        // the shim walks it without a length table.
+        // Path: [6, key, len, rule, segCount, then per segment: kind + its points].
         Shape::Path(path) => {
+            buf.extend([6.0, day_spec::geometry_key(shape), 0.0]);
+            let len_at = buf.len() - 1;
             buf.extend([
-                6.0,
                 match path.rule {
                     day_spec::FillRule::EvenOdd => 1.0,
                     day_spec::FillRule::NonZero => 0.0,
@@ -3265,6 +3272,7 @@ fn push_shape(buf: &mut Vec<f64>, shape: &Shape) {
                     day_spec::PathSeg::Close => buf.push(4.0),
                 }
             }
+            buf[len_at] = (buf.len() - len_at - 1) as f64;
         }
     }
 }

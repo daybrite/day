@@ -109,6 +109,55 @@ public class DayCanvasView extends View {
         invalidate();
     }
 
+    /** Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key).
+     *
+     *  Paths and polygons are the only ops whose geometry arrives as TEXT, and re-parsing it was
+     *  this backend's per-frame cost: a drawing re-recorded every frame re-parsed every segment of
+     *  every path, float by float. The key IS the content, so an entry can never go stale — the
+     *  cap exists only to stop a long-lived view from holding every path it has ever drawn. Key 0
+     *  means the encoder offered none, and that geometry is parsed as it always was. */
+    private final java.util.HashMap<Long, android.graphics.Path> pathCache = new java.util.HashMap<>();
+
+    private android.graphics.Path cachedPath(double key, String spec, int rule) {
+        long k = (long) key;
+        if (k == 0) return parsePath(spec, rule);
+        android.graphics.Path hit = pathCache.get(k);
+        if (hit != null) return hit;
+        android.graphics.Path built = parsePath(spec, rule);
+        if (pathCache.size() > 512) pathCache.clear();
+        pathCache.put(k, built);
+        return built;
+    }
+
+    /** The polygon counterpart: "x,y x,y …" as one closed path, cached the same way. Returns an
+     *  EMPTY path when the payload held no points, which is what the callers already test for. */
+    private android.graphics.Path cachedPolygon(double key, String pts) {
+        long k = (long) key;
+        if (k != 0) {
+            android.graphics.Path hit = pathCache.get(k);
+            if (hit != null) return hit;
+        }
+        android.graphics.Path built = new android.graphics.Path();
+        boolean first = true;
+        for (String pair : pts.split(" ")) {
+            int comma = pair.indexOf(',');
+            if (comma <= 0) continue;
+            try {
+                float x = Float.parseFloat(pair.substring(0, comma));
+                float y = Float.parseFloat(pair.substring(comma + 1));
+                if (first) { built.moveTo(x, y); first = false; } else { built.lineTo(x, y); }
+            } catch (NumberFormatException nfe) {
+                android.util.Log.w("Day", "canvas point parse failed: " + pair, nfe);
+            }
+        }
+        if (!first) built.close();
+        if (k != 0) {
+            if (pathCache.size() > 512) pathCache.clear();
+            pathCache.put(k, built);
+        }
+        return built;
+    }
+
     // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
     // parsed stops, applied as the paint's shader for the NEXT fill-shape record (resolved
     // against that shape's bounds).
@@ -263,22 +312,11 @@ public class DayCanvasView extends View {
                     break;
                 }
                 case 11: case 12: { // polygon (11 fill / 12 stroke); points ride texts as "x,y x,y …"
+                    // The texts entry is consumed either way: that channel is positional, so a
+                    // cache hit that skipped it would desynchronize every record after this one.
                     String t = ti < texts.length ? texts[ti++] : "";
-                    android.graphics.Path path = new android.graphics.Path();
-                    boolean first = true;
-                    for (String pair : t.split(" ")) {
-                        int comma = pair.indexOf(',');
-                        if (comma <= 0) continue;
-                        try {
-                            float x = Float.parseFloat(pair.substring(0, comma));
-                            float y = Float.parseFloat(pair.substring(comma + 1));
-                            if (first) { path.moveTo(x, y); first = false; } else { path.lineTo(x, y); }
-                        } catch (NumberFormatException nfe) {
-                            android.util.Log.w("Day", "canvas point parse failed: " + pair, nfe);
-                        }
-                    }
-                    if (!first) {
-                        path.close();
+                    android.graphics.Path path = cachedPolygon(a, t);
+                    if (!path.isEmpty()) {
                         if (k == 11) {
                             paint.setStyle(Paint.Style.FILL);
                             if (gradPending) {
@@ -297,7 +335,7 @@ public class DayCanvasView extends View {
                 }
                 case 15: case 16: { // path (15 fill / 16 stroke); segments ride texts, f = fill rule
                     String t = ti < texts.length ? texts[ti++] : "";
-                    android.graphics.Path path = parsePath(t, (int) f);
+                    android.graphics.Path path = cachedPath(a, t, (int) f);
                     if (k == 15) {
                         paint.setStyle(Paint.Style.FILL);
                         if (gradPending) {
@@ -323,24 +361,10 @@ public class DayCanvasView extends View {
                     switch ((int) f) {
                         case 1: clip.addRoundRect(new RectF(a, b, a+c, b+d), e, e, android.graphics.Path.Direction.CW); break;
                         case 2: clip.addOval(new RectF(a, b, a+c, b+d), android.graphics.Path.Direction.CW); break;
-                        case 3: clip = parsePath(ti < texts.length ? texts[ti++] : "", (int) e); break;
-                        case 4: {
-                            String tp = ti < texts.length ? texts[ti++] : "";
-                            boolean first = true;
-                            for (String pair : tp.split(" ")) {
-                                int comma = pair.indexOf(',');
-                                if (comma <= 0) continue;
-                                try {
-                                    float x = Float.parseFloat(pair.substring(0, comma));
-                                    float y = Float.parseFloat(pair.substring(comma + 1));
-                                    if (first) { clip.moveTo(x, y); first = false; } else { clip.lineTo(x, y); }
-                                } catch (NumberFormatException nfe) {
-                                    android.util.Log.w("Day", "clip point parse failed: " + pair, nfe);
-                                }
-                            }
-                            if (!first) clip.close();
-                            break;
-                        }
+                        // These two REPLACE the path rather than adding to it, so the cached
+                        // object is never mutated afterwards — `cv.clipPath` only reads it.
+                        case 3: clip = cachedPath(a, ti < texts.length ? texts[ti++] : "", (int) e); break;
+                        case 4: clip = cachedPolygon(a, ti < texts.length ? texts[ti++] : ""); break;
                         default: clip.addRect(a, b, a+c, b+d, android.graphics.Path.Direction.CW); break;
                     }
                     // Canvas.clipPath intersects with the current clip, which is the spec's rule.

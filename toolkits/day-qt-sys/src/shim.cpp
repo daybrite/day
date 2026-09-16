@@ -1687,6 +1687,16 @@ class DayCanvasWidget : public QWidget {
 public:
     QVector<double> nums;
     QStringList texts;
+    // Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key). Paths and
+    // polygons are the only ops whose geometry arrives as TEXT, and re-parsing it was this
+    // backend's per-frame cost: every segment of every path split and converted again for a
+    // drawing that had not moved. The key IS the content, so an entry can never go stale — the
+    // cap only stops a long-lived canvas from holding every path it has ever drawn. These live
+    // on the widget rather than in the paint handler because surviving across paints is the
+    // whole point. `QPainterPath`/`QPolygonF` are copy-on-write, so handing back a copy is cheap
+    // and no caller can disturb the cached original.
+    QHash<qint64, QPainterPath> pathCache;
+    QHash<qint64, QPolygonF> polyCache;
     using QWidget::QWidget;
 
 protected:
@@ -1727,6 +1737,35 @@ protected:
                 else if (op == "Z") path.closeSubpath();
             }
             return path;
+        };
+        // The cached forms. A key of 0 means the encoder offered none — parse as before.
+        auto cachedPath = [&](double key, const QString &spec, int rule) {
+            const qint64 kk = (qint64)key;
+            if (kk == 0) return parsePath(spec, rule);
+            const auto it = pathCache.constFind(kk);
+            if (it != pathCache.constEnd()) return it.value();
+            QPainterPath built = parsePath(spec, rule);
+            if (pathCache.size() > 512) pathCache.clear();
+            pathCache.insert(kk, built);
+            return built;
+        };
+        auto cachedPolygon = [&](double key, const QString &pts) {
+            const qint64 kk = (qint64)key;
+            if (kk != 0) {
+                const auto it = polyCache.constFind(kk);
+                if (it != polyCache.constEnd()) return it.value();
+            }
+            QPolygonF poly;
+            for (const QString &pair : pts.split(' ', Qt::SkipEmptyParts)) {
+                int comma = pair.indexOf(',');
+                if (comma > 0)
+                    poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
+            }
+            if (kk != 0) {
+                if (polyCache.size() > 512) polyCache.clear();
+                polyCache.insert(kk, poly);
+            }
+            return poly;
         };
         auto gradBrush = [&](const QRectF &bounds) {
             gradPending = false;
@@ -1840,13 +1879,10 @@ protected:
                     p.setWorldTransform(QTransform(a, b, c, d, e, f), true);
                     break;
                 case 11: case 12: { // polygon (11 fill / 12 stroke); points in texts as "x,y x,y …"
+                    // The texts entry is consumed either way: that channel is positional, so a
+                    // cache hit that skipped it would desynchronize every record after this one.
                     QString t = ti < texts.size() ? texts[ti++] : QString();
-                    QPolygonF poly;
-                    for (const QString &pair : t.split(' ', Qt::SkipEmptyParts)) {
-                        int comma = pair.indexOf(',');
-                        if (comma > 0)
-                            poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
-                    }
+                    QPolygonF poly = cachedPolygon(a, t);
                     if (poly.size() >= 2) {
                         if (k == 11) {
                             p.setPen(Qt::NoPen);
@@ -1859,7 +1895,7 @@ protected:
                 }
                 case 15: case 16: { // path (15 fill / 16 stroke); segments in texts, f = fill rule
                     QString spec = ti < texts.size() ? texts[ti++] : QString();
-                    QPainterPath path = parsePath(spec, (int)f);
+                    QPainterPath path = cachedPath(a, spec, (int)f);
                     if (k == 15) {
                         p.setPen(Qt::NoPen);
                         p.setBrush(gradPending ? gradBrush(path.boundingRect()) : QBrush(color));
@@ -1876,18 +1912,10 @@ protected:
                     switch ((int)f) {
                         case 1: clip.addRoundedRect(QRectF(a, b, c, d), e, e); break;
                         case 2: clip.addEllipse(QRectF(a, b, c, d)); break;
-                        case 3: clip = parsePath(ti < texts.size() ? texts[ti++] : QString(), (int)e); break;
-                        case 4: {
-                            QString tp = ti < texts.size() ? texts[ti++] : QString();
-                            QPolygonF poly;
-                            for (const QString &pair : tp.split(' ', Qt::SkipEmptyParts)) {
-                                int comma = pair.indexOf(',');
-                                if (comma > 0)
-                                    poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
-                            }
-                            clip.addPolygon(poly);
-                            break;
-                        }
+                        // Both take a CACHED copy: `clip` is a local, so adding to it leaves the
+                        // cached geometry untouched, and `setClipPath` only ever reads it.
+                        case 3: clip = cachedPath(a, ti < texts.size() ? texts[ti++] : QString(), (int)e); break;
+                        case 4: clip.addPolygon(cachedPolygon(a, ti < texts.size() ? texts[ti++] : QString())); break;
                         default: clip.addRect(QRectF(a, b, c, d)); break;
                     }
                     // IntersectClip, matching the spec: a clip only ever narrows until restore.

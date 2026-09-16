@@ -2218,6 +2218,28 @@ made native nav containers possible without a scaffold migration.
 > defaulted duties arrived with it — `font_families()` (`Cap::FontList`) and `measure_text()` —
 > so a drawing app can offer the platform's font list and frame its text
 > ([docs/fonts.md](docs/fonts.md); Day Sketch's Text node is the reference consumer).
+>
+> **2026-09 — decoded geometry is kept.** The two ops whose geometry rides a side channel, path
+> and polygon, now carry a `day_spec::geometry_key` — a hash of the geometry, masked to the 53
+> bits an `f64` wire slot holds exactly — in the record slot those kinds leave empty (`a`; for
+> `OpCode::Clip` only its path and polygon sub-kinds, the other three having real geometry
+> there). Backends keep the native geometry they decoded under that key, so a path is parsed
+> once rather than once a frame. It is keyed by CONTENT, not identity, because canvas consumers
+> rebuild their `PathBuilder` chains inside the draw closure on every frame — an identity would
+> miss every time, and a content key hits. Purely additive: `0` means "no key" and a decoder
+> that ignores the slot behaves exactly as before. Every backend now takes it: android keeps an
+> `android.graphics.Path`, qt a `QPainterPath` / `QPolygonF` (copy-on-write, so a hit hands back
+> a cheap copy), web-dom a `Path2D`, arkui an `OH_Drawing_Path` whose OWNERSHIP moves into the
+> cache — the per-draw `OH_Drawing_PathDestroy` now runs only for the uncached case — and xaml
+> the parsed `PathGeometry`, plus the bounding box of a clip payload, that backend clipping to
+> rectangles. A stamped template is parsed once rather than once per stamped position, since the
+> replay loop re-enters the same record and now hits the cache.
+>
+> What is verified where: android, qt, gtk and web-dom were RUN, drawing correctly. The arkui arm
+> compiles for the OHOS target but was not run — no runtime here, and this machine's hvigor cannot
+> assemble a HAP. The xaml arm is written BLIND; nothing here can build it. Both stand on CI. GTK also stopped re-encoding the whole display list
+> on every expose — it encodes once in `replay` — and the web shim keeps its `Path2D`s, its
+> payload now length-prefixed so a hit can jump the geometry rather than walk it.
 
 ```rust
 pub fn gauge(value: Signal<f64>) -> impl Piece {

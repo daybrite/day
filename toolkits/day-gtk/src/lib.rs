@@ -48,10 +48,15 @@ day_core::tls_group! {
     static BUTTON_CONTENT: day_spec::sidetable::SideTable<day_spec::props::ButtonContent> = day_spec::sidetable::SideTable::new();
     static BUTTON_INK: day_spec::sidetable::SideTable<day_spec::Color> = day_spec::sidetable::SideTable::new();
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
-    /// Canvas ptr → its display list (`replay` writes, the draw func reads). A [`SideTable`]:
-    /// the release sweep drops a dead canvas's list, so a recycled address can't briefly
-    /// draw the previous canvas's ops.
-    static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
+    /// Canvas ptr → its display list, ALREADY ENCODED (`replay` writes, the draw func reads). A
+    /// [`SideTable`]: the release sweep drops a dead canvas's list, so a recycled address can't
+    /// briefly draw the previous canvas's ops.
+    ///
+    /// Encoded once per replay rather than once per draw. GTK raises a draw for reasons that have
+    /// nothing to do with the content — a resize, an occlusion change, a window damage event —
+    /// and re-encoding there meant formatting every path segment into a string again for a
+    /// drawing that had not moved, in-process, with no boundary to cross.
+    static OPS: SideTable<(Vec<f64>, Vec<String>)> = SideTable::new();
     /// (widget_ptr, kind) pairs already wired, so enable_gesture is idempotent.
     static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
@@ -542,8 +547,7 @@ fn reset_stroke(cr: &gtk4::cairo::Context) {
     cr.set_dash(&[], 0.0);
 }
 
-fn cairo_draw(cr: &gtk4::cairo::Context, ops: &[DrawOp]) {
-    let (nums, texts) = day_spec::encode_ops(ops);
+fn cairo_draw(cr: &gtk4::cairo::Context, nums: &[f64], texts: &[String]) {
     let mut ti = 0;
     let mut pending: Option<PendingGradient> = None;
     let mut pending_stroke: Option<PendingStroke> = None;
@@ -3911,8 +3915,8 @@ impl Toolkit for Gtk {
                     // dispatch, where an unwound panic is an abort.
                     ffi_guard::contain((), || {
                         let ptr = area.as_ptr() as usize;
-                        let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
-                        cairo_draw(cr, &ops);
+                        let (nums, texts) = OPS.with(|t| t.get(ptr)).unwrap_or_default();
+                        cairo_draw(cr, &nums, &texts);
                     });
                 });
                 // Focus, and with it the keyboard (docs/menus.md). A DrawingArea is not
@@ -5952,7 +5956,7 @@ impl Toolkit for Gtk {
     }
 
     fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
-        OPS.with(|t| t.insert(h.as_ptr() as usize, ops.to_vec()));
+        OPS.with(|t| t.insert(h.as_ptr() as usize, day_spec::encode_ops(ops)));
         h.queue_draw();
     }
 

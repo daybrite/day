@@ -5800,8 +5800,9 @@ pub enum OpCode {
     /// Concat an affine transform (a..f).
     Concat = 10,
     /// Fill a polygon; points ride the texts channel as "x,y x,y …" (closed automatically).
+    /// `a` = the [`geometry_key`] of those points, or 0 for none.
     FillPolygon = 11,
-    /// Stroke a polygon (g=width); points as [`OpCode::FillPolygon`].
+    /// Stroke a polygon (g=width); points and key as [`OpCode::FillPolygon`].
     StrokePolygon = 12,
     /// Stroke a rounded rect (e=radius, g=width).
     StrokeRrect = 13,
@@ -5811,13 +5812,22 @@ pub enum OpCode {
     /// resolves against the shape's bounding box.
     SetGradient = 14,
     /// Fill a path (f=fill rule: 0 non-zero / 1 even-odd); segments ride the texts channel
-    /// (see [`encode_path`]).
+    /// (see [`encode_path`]). `a` = the [`geometry_key`] of those segments, or 0 for none.
+    ///
+    /// The key is a CACHE handle, not a payload: a decoder that recognizes it may keep the
+    /// native geometry it built last time and skip re-parsing the segments — but it must still
+    /// CONSUME the texts entry either way, because that channel is positional and a skipped
+    /// entry desynchronizes every record after it.
     FillPath = 15,
-    /// Stroke a path (g=width); segments as [`OpCode::FillPath`].
+    /// Stroke a path (g=width); segments and key as [`OpCode::FillPath`].
     StrokePath = 16,
     /// Clip to a shape (f=shape kind: 0 rect / 1 rrect(e=radius) / 2 ellipse / 3 path
     /// (e=fill rule) / 4 polygon; a..d=geometry; path/polygon payloads ride the texts
     /// channel).
+    ///
+    /// For the two payload-bearing kinds (3 and 4) there is no geometry in the slots, so `a`
+    /// carries the [`geometry_key`] instead and b..d stay 0. The other three kinds put real
+    /// geometry in a..d and have nothing to cache.
     Clip = 17,
     /// Stroke style for the NEXT stroke record (a=cap, b=join, c=miter limit, d=dash
     /// phase, e=dash count; the dash array rides the texts channel).
@@ -5894,6 +5904,77 @@ impl OpCode {
 /// variable-length payloads, and every decoder (JS, Java, C++) can already split a string. The
 /// numeric channel is a flat `[f64; 9]`-per-record array with no length prefix, so a path could
 /// not ride it without changing the record shape for every backend at once.
+/// A content key for a shape's variable-length geometry: the handle a backend caches decoded
+/// native geometry under — a `Path2D`, a `QPainterPath`, an `android.graphics.Path` — so an
+/// unchanged path is rebuilt once instead of re-parsed out of the texts channel every frame.
+///
+/// It hashes the GEOMETRY, not the op's position or its identity, and that is the whole point: a
+/// draw closure that rebuilds its `PathBuilder` chain from scratch on every frame — which is what
+/// canvas consumers actually do — produces an equal path, so it hashes the same and hits the same
+/// entry. An identity would miss every time.
+///
+/// Two different paths that collided would draw each other, so the width matters: FNV-1a over the
+/// IEEE bits, masked to the 53 bits an `f64` wire slot carries exactly. `0.0` is reserved for "no
+/// key" — a decoder seeing it must decode the payload as it always did, which is also what every
+/// decoder written before this key existed does with the slot.
+pub fn geometry_key(shape: &Shape) -> f64 {
+    fn mix(h: &mut u64, v: f64) {
+        for byte in v.to_bits().to_le_bytes() {
+            *h ^= u64::from(byte);
+            *h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    fn mix_point(h: &mut u64, p: Point) {
+        mix(h, p.x);
+        mix(h, p.y);
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    match shape {
+        Shape::Polygon(pts) => {
+            // The discriminant joins the hash so a polygon and a path of the same points can
+            // never share an entry — they decode to different geometry.
+            mix(&mut h, 11.0);
+            for p in pts {
+                mix_point(&mut h, *p);
+            }
+        }
+        Shape::Path(path) => {
+            mix(&mut h, 15.0);
+            mix(&mut h, rule_bits(path.rule));
+            for seg in &path.segs {
+                match seg {
+                    PathSeg::Move(a) => {
+                        mix(&mut h, 0.0);
+                        mix_point(&mut h, *a);
+                    }
+                    PathSeg::Line(a) => {
+                        mix(&mut h, 1.0);
+                        mix_point(&mut h, *a);
+                    }
+                    PathSeg::Quad(c, a) => {
+                        mix(&mut h, 2.0);
+                        mix_point(&mut h, *c);
+                        mix_point(&mut h, *a);
+                    }
+                    PathSeg::Cubic(c1, c2, a) => {
+                        mix(&mut h, 3.0);
+                        mix_point(&mut h, *c1);
+                        mix_point(&mut h, *c2);
+                        mix_point(&mut h, *a);
+                    }
+                    PathSeg::Close => mix(&mut h, 4.0),
+                }
+            }
+        }
+        // Everything else puts its whole geometry in the record's own slots, so there is nothing
+        // to parse and nothing worth caching.
+        _ => return 0.0,
+    }
+    let masked = h & ((1u64 << 53) - 1);
+    // 0 means "no key", so the one hash that lands there borrows its neighbor.
+    if masked == 0 { 1.0 } else { masked as f64 }
+}
+
 pub fn encode_path(path: &Path) -> String {
     let mut out = String::with_capacity(path.segs.len() * 16);
     for seg in &path.segs {
@@ -6068,7 +6149,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     } else {
                         OpCode::FillPolygon
                     },
-                    0.0,
+                    geometry_key(shape),
                     0.0,
                     0.0,
                     0.0,
@@ -6094,7 +6175,7 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                     } else {
                         OpCode::FillPath
                     },
-                    0.0,
+                    geometry_key(shape),
                     0.0,
                     0.0,
                     0.0,
@@ -6306,10 +6387,18 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                         0.0,
                         None,
                     ),
-                    Shape::Path(p) => (3.0, [0.0; 4], rule_bits(p.rule), Some(encode_path(p))),
+                    // Slot a carries the geometry key for these two sub-kinds only — the other
+                    // three put real geometry there, which is why the key rides the same slot
+                    // the payload-bearing kinds leave empty.
+                    Shape::Path(p) => (
+                        3.0,
+                        [geometry_key(shape), 0.0, 0.0, 0.0],
+                        rule_bits(p.rule),
+                        Some(encode_path(p)),
+                    ),
                     Shape::Polygon(pts) => (
                         4.0,
-                        [0.0; 4],
+                        [geometry_key(shape), 0.0, 0.0, 0.0],
                         0.0,
                         Some(
                             pts.iter()
@@ -6711,6 +6800,82 @@ mod encode_ops_tests {
             path_rec.map(|r| r[8] as u32),
             Some(0xFFFF_FFFF),
             "gradient shape record must carry opaque white"
+        );
+    }
+
+    #[test]
+    fn variable_length_geometry_carries_a_content_key() {
+        let path = |x: f64| {
+            Shape::Path(Path {
+                segs: vec![
+                    PathSeg::Move(Point::new(x, 0.0)),
+                    PathSeg::Cubic(
+                        Point::new(1.0, 1.0),
+                        Point::new(2.0, 2.0),
+                        Point::new(3.0, 3.0),
+                    ),
+                    PathSeg::Close,
+                ],
+                rule: FillRule::NonZero,
+            })
+        };
+        let poly = Shape::Polygon(vec![
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 0.0),
+            Point::new(0.0, 1.0),
+        ]);
+
+        // Equal geometry keys equal though the two were built separately — the whole point, since
+        // a draw closure rebuilds its paths from scratch on every frame.
+        assert_eq!(geometry_key(&path(0.0)), geometry_key(&path(0.0)));
+        assert_ne!(geometry_key(&path(0.0)), geometry_key(&path(1.0)));
+        // The fill rule decides what the path DRAWS, so it belongs to the key.
+        let even_odd = Shape::Path(Path {
+            segs: match path(0.0) {
+                Shape::Path(p) => p.segs,
+                _ => unreachable!(),
+            },
+            rule: FillRule::EvenOdd,
+        });
+        assert_ne!(geometry_key(&path(0.0)), geometry_key(&even_odd));
+        // A polygon and a path decode to different geometry and never share an entry.
+        assert_ne!(geometry_key(&poly), geometry_key(&path(0.0)));
+        // Fixed-size shapes keep 0: their geometry rides the record's own slots.
+        assert_eq!(
+            geometry_key(&Shape::Rect(Rect::new(0.0, 0.0, 1.0, 1.0))),
+            0.0
+        );
+        // And a key survives an f64 wire slot exactly, which is what the 53-bit mask buys.
+        let k = geometry_key(&path(0.0));
+        assert!(
+            k > 0.0 && k < (1u64 << 53) as f64 && k.fract() == 0.0,
+            "{k}"
+        );
+
+        // It reaches the wire in slot a, for exactly the ops whose payload rides the texts
+        // channel — and never displaces geometry that is already there.
+        let (nums, _) = encode_ops(&[
+            DrawOp::Fill(path(0.0), Paint::Solid(Color::WHITE)),
+            DrawOp::Fill(poly.clone(), Paint::Solid(Color::WHITE)),
+            DrawOp::Clip(path(0.0)),
+            DrawOp::Clip(Shape::Rect(Rect::new(1.0, 2.0, 3.0, 4.0))),
+        ]);
+        let slot_a = |code: OpCode| {
+            nums.chunks(9)
+                .find(|r| r[0] == code as i32 as f64)
+                .unwrap_or_else(|| panic!("no {code:?} record"))[1]
+        };
+        assert_eq!(slot_a(OpCode::FillPath), geometry_key(&path(0.0)));
+        assert_eq!(slot_a(OpCode::FillPolygon), geometry_key(&poly));
+        let clips: Vec<&[f64]> = nums
+            .chunks(9)
+            .filter(|r| r[0] == OpCode::Clip as i32 as f64)
+            .collect();
+        assert_eq!(clips[0][1], geometry_key(&path(0.0)), "path clip keys");
+        assert_eq!(
+            &clips[1][1..5],
+            &[1.0, 2.0, 3.0, 4.0],
+            "a rect clip still puts its geometry in a..d"
         );
     }
 }

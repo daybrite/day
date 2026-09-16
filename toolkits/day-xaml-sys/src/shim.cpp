@@ -1159,6 +1159,68 @@ static WUXM::PathGeometry parse_path_geometry(const std::string &spec, int rule)
     return pg;
 }
 
+/// Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key). Parsing a spec
+/// and building its figures is what this removes; the ELEMENTS are rebuilt regardless, since
+/// `set_ops` clears the canvas every replay. The key IS the content, so an entry can never go
+/// stale, and a projected `PathGeometry` is refcounted — the map holds one reference and each
+/// caller takes another. Capped so a long-lived process cannot grow without bound.
+static std::map<long long, WUXM::PathGeometry> g_geo_cache;
+/// Clip payload BOUNDS under the same key. This backend clips to rectangles (see the kind-17
+/// case), so the box is all it needs — four doubles rather than a geometry.
+static std::map<long long, std::array<double, 4>> g_clip_bounds_cache;
+
+static WUXM::PathGeometry cached_path_geometry(const std::string &spec, int rule, double key) {
+    const long long k = static_cast<long long>(key);
+    if (k == 0) return parse_path_geometry(spec, rule);
+    auto it = g_geo_cache.find(k);
+    if (it != g_geo_cache.end()) return it->second;
+    WUXM::PathGeometry pg = parse_path_geometry(spec, rule);
+    if (g_geo_cache.size() > 512) g_geo_cache.clear();
+    g_geo_cache[k] = pg;
+    return pg;
+}
+
+/// "x,y x,y …" as one closed figure, cached like a path. A null geometry means the payload held
+/// no points, which is what the caller already tests for.
+static WUXM::PathGeometry cached_polygon_geometry(const std::string &t, double key) {
+    const long long k = static_cast<long long>(key);
+    if (k != 0) {
+        auto it = g_geo_cache.find(k);
+        if (it != g_geo_cache.end()) return it->second;
+    }
+    WUXM::PathFigure fig;
+    fig.IsClosed(true);
+    bool first = true;
+    size_t pos = 0;
+    while (pos < t.size()) {
+        size_t sp = t.find(' ', pos);
+        std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
+        pos = sp == std::string::npos ? t.size() : sp + 1;
+        size_t comma = pair.find(',');
+        if (comma == std::string::npos || comma == 0) continue;
+        // std::from_chars: locale-independent (atof honors LC_NUMERIC).
+        float x = 0.0f, y = 0.0f;
+        std::from_chars(pair.data(), pair.data() + comma, x);
+        std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), y);
+        if (first) {
+            fig.StartPoint(WF::Point{ x, y });
+            first = false;
+        } else {
+            WUXM::LineSegment seg;
+            seg.Point(WF::Point{ x, y });
+            fig.Segments().Append(seg);
+        }
+    }
+    if (first) return WUXM::PathGeometry{ nullptr };
+    WUXM::PathGeometry pg;
+    pg.Figures().Append(fig);
+    if (k != 0) {
+        if (g_geo_cache.size() > 512) g_geo_cache.clear();
+        g_geo_cache[k] = pg;
+    }
+    return pg;
+}
+
 /// Bounding box of a clip payload: a path spec (kind 3) or "x,y x,y …" points (kind 4).
 /// Only the box is needed — see the kind-17 case for why this backend clips to rectangles.
 static void bounds_of_payload(const std::string &payload, int shapeKind, double &bx, double &by,
@@ -1864,33 +1926,11 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         }
         case 11:
         case 12: { // polygon (11 fill / 12 stroke); points ride texts as "x,y x,y ..."
+            // The texts entry is consumed either way: that channel is positional, so a cache hit
+            // that skipped it would desynchronize every record after this one.
             std::string t = ti < texts.size() ? texts[ti++] : std::string();
-            WUXM::PathFigure fig;
-            fig.IsClosed(true);
-            bool first = true;
-            size_t pos = 0;
-            while (pos < t.size()) {
-                size_t sp = t.find(' ', pos);
-                std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
-                pos = sp == std::string::npos ? t.size() : sp + 1;
-                size_t comma = pair.find(',');
-                if (comma == std::string::npos || comma == 0) continue;
-                // std::from_chars: locale-independent (atof honors LC_NUMERIC).
-                float x = 0.0f, y = 0.0f;
-                std::from_chars(pair.data(), pair.data() + comma, x);
-                std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), y);
-                if (first) {
-                    fig.StartPoint(WF::Point{ x, y });
-                    first = false;
-                } else {
-                    WUXM::LineSegment seg;
-                    seg.Point(WF::Point{ x, y });
-                    fig.Segments().Append(seg);
-                }
-            }
-            if (!first) {
-                WUXM::PathGeometry pg;
-                pg.Figures().Append(fig);
+            WUXM::PathGeometry pg = cached_polygon_geometry(t, a);
+            if (pg) {
                 WUXSh::Path p;
                 p.Data(pg);
                 if (k == 12) {
@@ -1906,7 +1946,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         case 15:
         case 16: { // path (15 fill / 16 stroke); segments ride texts, f = fill rule
             std::string spec = ti < texts.size() ? texts[ti++] : std::string();
-            WUXM::PathGeometry pg = parse_path_geometry(spec, static_cast<int>(f));
+            WUXM::PathGeometry pg = cached_path_geometry(spec, static_cast<int>(f), a);
             WUXSh::Path p;
             p.Data(pg);
             if (k == 16) {
@@ -1927,7 +1967,20 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             int shapeKind = static_cast<int>(f);
             if (shapeKind == 3 || shapeKind == 4) {
                 std::string payload = ti < texts.size() ? texts[ti++] : std::string();
-                bounds_of_payload(payload, shapeKind, bx, by, bw, bh);
+                // For these two sub-kinds slot a carries the content key, not geometry, so the
+                // box computed from the payload is cached under it rather than recomputed.
+                const long long ck = static_cast<long long>(a);
+                auto hit = ck ? g_clip_bounds_cache.find(ck) : g_clip_bounds_cache.end();
+                if (ck && hit != g_clip_bounds_cache.end()) {
+                    bx = hit->second[0]; by = hit->second[1];
+                    bw = hit->second[2]; bh = hit->second[3];
+                } else {
+                    bounds_of_payload(payload, shapeKind, bx, by, bw, bh);
+                    if (ck) {
+                        if (g_clip_bounds_cache.size() > 512) g_clip_bounds_cache.clear();
+                        g_clip_bounds_cache[ck] = { bx, by, bw, bh };
+                    }
+                }
             }
             // Intersect with any clip already in force, matching the spec's narrowing rule.
             if (clipActive) {

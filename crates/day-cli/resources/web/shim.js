@@ -1806,6 +1806,12 @@ function fontListText() {
   return families.join(RS);
 }
 
+// Decoded path geometry, keyed by the encoder's content key (day_spec::geometry_key). It lives
+// OUT here on purpose: a cache inside `replay` would be built and thrown away every frame, which
+// is the cost it exists to remove. Entries can never go stale — the key IS the content — so the
+// cap is only to keep a long-lived page from holding every path it has ever drawn.
+const pathCache = new Map();
+
 function replay(canvas, ops, strs, w, h) {
   const dpr = devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.round(w * dpr));
@@ -1839,21 +1845,33 @@ function replay(canvas, ops, strs, w, h) {
       const x = next(), y = next(), pw = next(), ph = next(), start = next(), sweep = next();
       p.ellipse(x + pw / 2, y + ph / 2, pw / 2, ph / 2, 0, (start * Math.PI) / 180, ((start + sweep) * Math.PI) / 180);
     } else if (kind === 4) { p.moveTo(next(), next()); p.lineTo(next(), next()); }
-    else if (kind === 5) {
-      const n = next();
-      for (let k = 0; k < n; k++) { const x = next(), y = next(); k === 0 ? p.moveTo(x, y) : p.lineTo(x, y); }
-      p.closePath();
-    } else if (kind === 6) {
-      // Arbitrary path: [rule, segCount, then per segment kind + points].
-      p.__rule = next() === 1 ? 'evenodd' : 'nonzero';
-      const n = next();
-      for (let k = 0; k < n; k++) {
-        const s = next();
-        if (s === 0) p.moveTo(next(), next());
-        else if (s === 1) p.lineTo(next(), next());
-        else if (s === 2) p.quadraticCurveTo(next(), next(), next(), next());
-        else if (s === 3) p.bezierCurveTo(next(), next(), next(), next(), next(), next());
-        else p.closePath();
+    else if (kind === 5 || kind === 6) {
+      // Variable-length geometry: [key, payloadLen, …]. A key already decoded keeps its Path2D
+      // and the payload is jumped rather than walked, so a drawing re-recorded every frame
+      // rebuilds no geometry here.
+      const key = next(), len = next(), at = i;
+      const hit = key ? pathCache.get(key) : undefined;
+      if (hit) { i = at + len; return hit; }
+      if (kind === 5) {
+        const n = next();
+        for (let k = 0; k < n; k++) { const x = next(), y = next(); k === 0 ? p.moveTo(x, y) : p.lineTo(x, y); }
+        p.closePath();
+      } else {
+        // Arbitrary path: [rule, segCount, then per segment kind + points].
+        p.__rule = next() === 1 ? 'evenodd' : 'nonzero';
+        const n = next();
+        for (let k = 0; k < n; k++) {
+          const s = next();
+          if (s === 0) p.moveTo(next(), next());
+          else if (s === 1) p.lineTo(next(), next());
+          else if (s === 2) p.quadraticCurveTo(next(), next(), next(), next());
+          else if (s === 3) p.bezierCurveTo(next(), next(), next(), next(), next(), next());
+          else p.closePath();
+        }
+      }
+      if (key) {
+        if (pathCache.size > 512) pathCache.clear();
+        pathCache.set(key, p);
       }
     }
     return p;

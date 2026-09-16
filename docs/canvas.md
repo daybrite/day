@@ -319,3 +319,20 @@ op count is stable and small. Two ways to keep it that way:
 - **One path over many segments.** Day Trader's chart line went from one `Shape::Line` per sample
   (about 250 ops for a year of daily closes, every corner unjoined) to a single path op.
 - **One stamp over many identical marks** — see [Stamping](#stamping) above.
+
+### Geometry is decoded once, not once a frame
+
+A path and a polygon are the only shapes whose geometry does not fit the record's own slots: they
+ride a side channel, as text on the serializing backends and as a length-prefixed run on the web.
+Decoding that — parsing every segment into an `android.graphics.Path`, a `QPainterPath`, a
+`Path2D` — used to happen on every frame, for drawings that had not moved.
+
+Each of those records now carries a **content key**, and backends keep the geometry they decoded
+under it. The key is a hash of the geometry itself, never of the op's position or identity, which
+is what makes it work for the way canvases are actually written: a draw closure that rebuilds its
+`PathBuilder` chain from scratch every frame produces an equal path, so it keys the same and the
+decoded geometry is reused. Nothing is asked of the caller — there is no cached path type to hold
+on to, and no handle to thread through a draw closure.
+
+Backends are free to ignore it: a key of `0` means "none offered", and a decoder that does not
+know the slot decodes the payload exactly as it did before.
