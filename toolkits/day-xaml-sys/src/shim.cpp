@@ -1047,6 +1047,30 @@ void* day_xaml_window_root(void* win) {
     return boxh(app->content);
 }
 
+// The ROOT canvas, and its full extent — the whole client area, docked chrome included.
+//
+// Distinct from `day_xaml_window_root` above, which despite the name hands back the CONTENT
+// canvas: the child that day's tree mounts into, offset below the menu bar and inset past the
+// toolbar. Anything parented there is bounded by the page area. A fullscreen cover
+// (docs/cover.md) is the one thing that must escape it — parented to the content canvas it
+// leaves the menu bar, toolbar and nav pane visible AND clickable, which is not what "presented
+// over the whole window" means, and lets the user navigate underneath a modal.
+void* day_xaml_window_chrome_root(void* win) {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    return app ? boxh(app->root) : nullptr;
+}
+
+// The root's laid-out size in DIPs. Read from the element rather than tracked alongside the
+// resize callback, because that callback reports the CONTENT size (it is what day's layout
+// needs) and the difference between the two is exactly the chrome a cover has to cover.
+// A null `win` means the primary window, which is the same single-window convention
+// `day_xaml_window_on_resize` already follows — the resize callback carries no handle to pass on.
+void day_xaml_window_chrome_size(void* win, double* out_w, double* out_h) {
+    auto app = win ? reinterpret_cast<AppWindow*>(win) : g_app;
+    if (out_w) *out_w = (app && app->root) ? app->root.ActualWidth() : 0.0;
+    if (out_h) *out_h = (app && app->root) ? app->root.ActualHeight() : 0.0;
+}
+
 void day_xaml_window_on_resize(void* win, void (*cb)(int, int)) {
     (void)win; // single window (v1)
     g_resize_cb = cb;
@@ -4031,6 +4055,25 @@ void* day_xaml_image_new(const char* uri, int mode) {
 void day_xaml_add_child(void* parent, void* child) {
     guard([&] {
         if (auto p = elem(parent).try_as<WUXC::Panel>()) p.Children().Append(elem(child));
+    });
+}
+// Move `child` under `parent`, detaching it from wherever it currently hangs.
+//
+// `day_xaml_add_child` cannot do this: a XAML element may have only ONE logical parent, so
+// `Children().Append` on an already-parented element throws, and `guard` swallows it — the call
+// silently does nothing. That is how a fullscreen cover stayed boxed inside the content canvas
+// while the code read as though it had been re-homed onto the root (docs/cover.md).
+void day_xaml_reparent(void* parent, void* child) {
+    guard([&] {
+        auto c = elem(child);
+        if (auto fe = c.try_as<WUX::FrameworkElement>()) {
+            if (auto oldp = fe.Parent().try_as<WUXC::Panel>()) {
+                uint32_t idx = 0;
+                if (oldp.Children().IndexOf(c, idx)) oldp.Children().RemoveAt(idx);
+            }
+        }
+        // Appended last, so it is topmost among its new siblings — what a cover needs.
+        if (auto p = elem(parent).try_as<WUXC::Panel>()) p.Children().Append(c);
     });
 }
 void day_xaml_remove_child(void* parent, void* child) {

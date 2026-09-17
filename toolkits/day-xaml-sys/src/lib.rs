@@ -19,6 +19,12 @@ unsafe extern "C" {
         min_h: c_int,
     ) -> *mut c_void;
     pub fn day_xaml_window_root(win: *mut c_void) -> *mut c_void;
+    /// The ROOT canvas, above the docked chrome — unlike [`day_xaml_window_root`], which returns
+    /// the content canvas day's tree mounts into. Only a fullscreen cover needs this.
+    pub fn day_xaml_window_chrome_root(win: *mut c_void) -> *mut c_void;
+    /// The root's laid-out size in DIPs: the whole client area, chrome included. The resize
+    /// callback reports the CONTENT size instead, which is smaller by exactly that chrome.
+    pub fn day_xaml_window_chrome_size(win: *mut c_void, out_w: *mut f64, out_h: *mut f64);
     pub fn day_xaml_window_show(win: *mut c_void);
     // Secondary windows (docs/windows.md): per-window event callbacks keyed by day node id.
     pub fn day_xaml_set_window_events_cb(
@@ -324,6 +330,9 @@ unsafe extern "C" {
 
     // tree / geometry / props
     pub fn day_xaml_add_child(parent: *mut c_void, child: *mut c_void);
+    /// Move a child that already has a parent. [`day_xaml_add_child`] cannot: XAML allows one
+    /// logical parent, so appending an already-parented element throws and is swallowed.
+    pub fn day_xaml_reparent(parent: *mut c_void, child: *mut c_void);
     pub fn day_xaml_remove_child(parent: *mut c_void, child: *mut c_void);
     pub fn day_xaml_delete(w: *mut c_void);
     pub fn day_xaml_set_geometry(w: *mut c_void, x: c_int, y: c_int, width: c_int, height: c_int);

@@ -15,18 +15,41 @@ use std::os::raw::{c_int, c_void};
 use day_spec::{NodeId, Proposal, Size};
 use day_xaml::{WinHandle, Xaml};
 
+/// A civil date as it crosses to the shim: the three numbers a calendar names a day with.
+///
+/// Epoch days stop at this boundary. XAML's calendar controls take an INSTANT and render it in the
+/// viewer's zone, so a day number would have to be turned back into y/m/d over there before it
+/// could be anchored — arithmetic `DayDate` already owns, done twice. Qt and GTK speak civil dates
+/// to their toolkits for the same reason; XAML is only unusual in needing the anchoring step at all
+/// (see the shim's `toDateTime`).
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CivilDate {
+    year: i32,
+    month: i32,
+    day: i32,
+}
+
+impl CivilDate {
+    fn of(d: DayDate) -> Self {
+        CivilDate { year: d.year, month: d.month as i32, day: d.day as i32 }
+    }
+    /// The filler for an absent min/max, which the `has_*` flag tells the shim to ignore.
+    const UNSET: Self = CivilDate { year: 0, month: 0, day: 0 };
+}
+
 unsafe extern "C" {
     fn day_datetime_xaml_date_new(
         inline_style: c_int,
-        days: i64,
+        date: CivilDate,
         has_min: c_int,
-        min_days: i64,
+        min: CivilDate,
         has_max: c_int,
-        max_days: i64,
+        max: CivilDate,
         id: u64,
-        cb: extern "C" fn(u64, i64),
+        cb: extern "C" fn(u64, i32, i32, i32),
     ) -> *mut c_void;
-    fn day_datetime_xaml_date_set(h: *mut c_void, days: i64);
+    fn day_datetime_xaml_date_set(h: *mut c_void, date: CivilDate);
     fn day_datetime_xaml_time_new(secs: i64, id: u64, cb: extern "C" fn(u64, i64)) -> *mut c_void;
     fn day_datetime_xaml_time_set(h: *mut c_void, secs: i64);
     // Generic size hint from day-xaml-sys (already linked).
@@ -49,12 +72,19 @@ fn measure(_backend: &mut Xaml, h: &WinHandle, _p: Proposal) -> Size {
 mod date_renderer {
     use super::*;
 
-    extern "C" fn on_date(id: u64, days: i64) {
+    extern "C" fn on_date(id: u64, year: i32, month: i32, day: i32) {
+        // The event stays epoch days: that is the piece's cross-backend contract
+        // (`Event::Custom.num`), and only the ABI below it changed. `DayDate::new` validates
+        // rather than trusting the boundary — a triple that is not a real calendar day is dropped
+        // instead of becoming a wrong date.
+        let Some(d) = DayDate::new(year, month as u8, day as u8) else {
+            return;
+        };
         day_xaml::emit(
             NodeId(id),
             Event::Custom {
                 tag: "datepicker:value",
-                num: days as f64,
+                num: d.to_epoch_days() as f64,
                 text: String::new(),
             },
         );
@@ -64,11 +94,11 @@ mod date_renderer {
         WinHandle(unsafe {
             day_datetime_xaml_date_new(
                 (p.style == Style::Inline) as c_int,
-                p.date.to_epoch_days(),
+                CivilDate::of(p.date),
                 p.min.is_some() as c_int,
-                p.min.map_or(0, DayDate::to_epoch_days),
+                p.min.map_or(CivilDate::UNSET, CivilDate::of),
                 p.max.is_some() as c_int,
-                p.max.map_or(0, DayDate::to_epoch_days),
+                p.max.map_or(CivilDate::UNSET, CivilDate::of),
                 id.0,
                 on_date,
             )
@@ -77,7 +107,7 @@ mod date_renderer {
 
     fn update(_backend: &mut Xaml, h: &WinHandle, patch: &DatePatch) {
         let DatePatch::SetDate(d) = patch;
-        unsafe { day_datetime_xaml_date_set(h.0, d.to_epoch_days()) };
+        unsafe { day_datetime_xaml_date_set(h.0, CivilDate::of(*d)) };
     }
 
     day_pieces::renderer!(day_xaml::RENDERERS, Xaml,

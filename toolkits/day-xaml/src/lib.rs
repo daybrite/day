@@ -2234,9 +2234,17 @@ impl Toolkit for Xaml {
                                     Some(bg) => ffi::day_xaml_container_set_bg(h.0, argb(*bg)),
                                     None => ffi::day_xaml_cover_ground(h.0),
                                 }
-                                let root = ffi::day_xaml_window_root(self.window);
-                                ffi::day_xaml_add_child(root, h.0);
-                                let size = LAST_WINDOW_SIZE.with(|c| c.get());
+                                // The ROOT canvas, not the content one: a cover parented to the
+                                // content canvas is bounded by the page area, leaving the menu
+                                // bar, toolbar and nav pane on show and still clickable — so the
+                                // "fullscreen" cover covered neither the chrome nor the user's
+                                // ability to navigate out from under it.
+                                let root = ffi::day_xaml_window_chrome_root(self.window);
+                                // Reparent, not add: the cover is realized under its day parent
+                                // in the content canvas, and XAML refuses a second logical parent
+                                // (the throw is swallowed), so an `add_child` here moved nothing.
+                                ffi::day_xaml_reparent(root, h.0);
+                                let size = cover_extent(self.window);
                                 ffi::day_xaml_set_geometry(
                                     h.0,
                                     0,
@@ -3289,6 +3297,22 @@ extern "C" fn win_focused(node: u64, active: c_int) {
     });
 }
 
+/// The area a presented cover has to fill: the whole client area, docked chrome included.
+///
+/// Read from the root element rather than from `LAST_WINDOW_SIZE`, which the resize callback
+/// fills with the CONTENT size — what day's layout wants, and smaller than the window by exactly
+/// the chrome a cover must hide. Falls back to the content size if the root has not been laid out
+/// yet (a cover presented before the first frame), which is no worse than the old behaviour.
+fn cover_extent(window: *mut c_void) -> Size {
+    let (mut w, mut h) = (0.0f64, 0.0f64);
+    unsafe { ffi::day_xaml_window_chrome_size(window, &mut w, &mut h) };
+    if w > 0.0 && h > 0.0 {
+        Size::new(w, h)
+    } else {
+        LAST_WINDOW_SIZE.with(|c| c.get())
+    }
+}
+
 extern "C" fn window_resized(w: c_int, h: c_int) {
     // Client rect is reported in pixels; day-xaml's v1 assumes a 100% scale factor
     // throughout (same convention as window creation).
@@ -3296,7 +3320,10 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
         let size = Size::new(w as f64, h as f64);
         LAST_WINDOW_SIZE.with(|c| c.set(size));
         emit(day_spec::WINDOW_NODE, Event::WindowResized(size));
-        // Presented emulated covers track the content area (docs/cover.md).
+        // Presented emulated covers track the WHOLE window, chrome included (docs/cover.md) —
+        // `size` above is the content area, which is what day's layout wants and what a cover
+        // must not be limited to. Null = the primary window (this callback carries no handle).
+        let full = cover_extent(std::ptr::null_mut());
         COVERS.with(|c| {
             for (cover, node) in c.borrow().iter() {
                 unsafe {
@@ -3304,11 +3331,11 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
                         *cover,
                         0,
                         0,
-                        size.width.round() as c_int,
-                        size.height.round() as c_int,
+                        full.width.round() as c_int,
+                        full.height.round() as c_int,
                     )
                 };
-                emit(*node, Event::FrameChanged(size));
+                emit(*node, Event::FrameChanged(full));
             }
         });
     });
