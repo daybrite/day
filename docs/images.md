@@ -166,3 +166,14 @@ Who keeps a decode alive:
 A handle that outlives its tree releases nothing, because there is no toolkit left to tell. That
 only arises when a tree is torn down while bitmaps are still alive — `uninstall_tree` in tests,
 not an app, which exits the process instead.
+
+### Image handles during thread shutdown
+
+A `Bitmap` can outlive the core tree or the platform bitmap registry when thread-local
+state is destroyed (notably AppKit's normal Quit path). Its final release must tolerate
+both orders: core treats an inaccessible TLS root as an absent tree, and AppKit skips
+removal when its registry has already been destroyed and released the native images.
+Live registries still remove images normally; deferred release while the tree is borrowed
+is unchanged. This does not suppress panics or leak the registry to avoid destruction.
+Subprocess regressions in `day-core::image::teardown_tests` and
+`day-appkit::bitmap_teardown_tests` exercise late release after each TLS owner is gone.

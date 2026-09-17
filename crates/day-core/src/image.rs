@@ -459,3 +459,48 @@ pub(crate) fn reset() {
     }
     DEFERRED_RELEASE.with(|q| q.borrow_mut().clear());
 }
+
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+
+    #[test]
+    fn bitmap_can_outlive_core_tls() {
+        const CHILD: &str = "DAY_CORE_BITMAP_TEARDOWN_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            struct LateBitmap(Option<Bitmap>);
+            impl Drop for LateBitmap {
+                fn drop(&mut self) {
+                    assert!(crate::try_tls_root(|_| ()).is_err());
+                    drop(self.0.take());
+                }
+            }
+            std::thread_local! {
+                static LATE: RefCell<LateBitmap> = const { RefCell::new(LateBitmap(None)) };
+            }
+            std::thread::spawn(|| {
+                LATE.with(|slot| {
+                    slot.borrow_mut().0 = Some(bitmap_from((BitmapId(1), BitmapInfo::default())))
+                });
+                assert!(crate::tree_absent()); // core initialized last, destroyed first
+            })
+            .join()
+            .unwrap();
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "image::teardown_tests::bitmap_can_outlive_core_tls",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

@@ -7646,9 +7646,7 @@ impl Toolkit for AppKit {
     }
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
-        // AppKit's TLS may be destroyed before the reactive arena drops its last Bitmap.
-        // The registry already released the native images in that case.
-        let _ = BITMAPS.try_with(|m| m.borrow_mut().remove(&id.0));
+        release_bitmap(id);
     }
 
     /// `NSFontManager.availableFontFamilies` + `availableMembersOfFontFamily:`, whose members
@@ -8980,6 +8978,12 @@ pub(crate) fn build_ns_menu(
     menu
 }
 
+// AppKit's TLS may be destroyed before the reactive arena drops its last Bitmap.
+// The registry already released the native images in that case.
+fn release_bitmap(id: day_spec::BitmapId) {
+    let _ = BITMAPS.try_with(|m| m.borrow_mut().remove(&id.0));
+}
+
 #[cfg(test)]
 mod bitmap_teardown_tests {
     use super::*;
@@ -8994,8 +8998,7 @@ mod bitmap_teardown_tests {
                 fn drop(&mut self) {
                     assert!(BITMAPS.try_with(|_| ()).is_err());
                     // Same duty called by Bitmap::drop; no NSApplication is needed.
-                    let mut toolkit = AppKit::default();
-                    toolkit.release_image(day_spec::BitmapId(1));
+                    release_bitmap(day_spec::BitmapId(1));
                 }
             }
             std::thread_local! {

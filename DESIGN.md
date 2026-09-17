@@ -5701,3 +5701,15 @@ independent; no toolkit-specific behavior changes.
 
 Undo and redo return `false` while a group is active, preventing replay from invalidating
 a live gesture. They become available again after its final guard drops.
+
+### Bitmap teardown order at process exit
+
+Native Quit can destroy toolkit TLS before the reactive arena releases its cached
+`Bitmap` handles. AppKit's `release_image` therefore uses fallible registry access;
+a destroyed registry has already released its images. Core also treats destroyed TLS
+as an absent tree so handles dropped later do not access its dead root. The shared
+`tls_root!`/`tls_slots!` macros expose `try_tls_root`/`try_with` for these destructor
+paths while normal `.with` access retains its strict contract. See
+[image shutdown semantics](docs/images.md#image-handles-during-thread-shutdown) and
+the subprocess regressions in `day-core` and `day-appkit`. Runtime image ownership
+and deferred releases are unchanged; this fix changes no drawing or persistence API.

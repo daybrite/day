@@ -2376,7 +2376,9 @@ pub(crate) fn with_tree_if_free<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Opt
 /// Whether no tree is installed, as distinct from one that is merely borrowed right now, which
 /// this answers `false` for. [`is_mounted`] cannot tell the two apart without panicking.
 pub(crate) fn tree_absent() -> bool {
-    TREE.with(|t| t.try_borrow().map(|o| o.is_none()).unwrap_or(false))
+    // Bitmap handles can outlive the entire core TLS root at process/thread exit.
+    TREE.try_with(|t| t.try_borrow().map(|o| o.is_none()).unwrap_or(false))
+        .unwrap_or(true)
 }
 
 /// Ask for a pump at the next safe point (the end of the current `with_tree`), for work queued

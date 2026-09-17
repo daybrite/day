@@ -89,6 +89,14 @@ macro_rules! tls_root {
         pub(crate) fn tls_root<R>(f: impl ::core::ops::FnOnce(&TlsRoot) -> R) -> R {
             TLS_ROOT.with(f)
         }
+        /// Best-effort access for destructor paths after the crate's TLS has gone away.
+        #[inline]
+        #[allow(dead_code)]
+        pub(crate) fn try_tls_root<R>(
+            f: impl ::core::ops::FnOnce(&TlsRoot) -> R,
+        ) -> ::core::result::Result<R, ::std::thread::AccessError> {
+            TLS_ROOT.try_with(f)
+        }
     };
 }
 
@@ -115,6 +123,14 @@ macro_rules! tls_slots {
                 #[allow(dead_code)]
                 $vis fn with<R>(self, f: impl ::core::ops::FnOnce(&$ty) -> R) -> R {
                     crate::tls_root(|r| f(&r.$field.$name))
+                }
+                #[inline]
+                #[allow(dead_code)]
+                $vis fn try_with<R>(
+                    self,
+                    f: impl ::core::ops::FnOnce(&$ty) -> R,
+                ) -> ::core::result::Result<R, ::std::thread::AccessError> {
+                    crate::try_tls_root(|r| f(&r.$field.$name))
                 }
             }
         )+
