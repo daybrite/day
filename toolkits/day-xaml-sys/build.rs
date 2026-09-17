@@ -45,7 +45,13 @@ fn main() {
     println!("cargo:rustc-link-lib=gdiplus"); // window snapshot PNG encoding
     println!("cargo:rustc-link-lib=dwmapi"); // dark title bar opt-in (DwmSetWindowAttribute)
     println!("cargo:rustc-link-lib=dwrite"); // the system font collection (docs/fonts.md)
+    // OleInitialize — the OLE layer cross-process drag and drop needs (docs/drag-and-drop.md).
+    // Not covered by WindowsApp.lib, which carries the UWP surface only.
+    println!("cargo:rustc-link-lib=ole32");
+    // DragQueryFileW — reading CF_HDROP, the form Explorer offers dropped files in.
+    println!("cargo:rustc-link-lib=shell32");
     println!("cargo:rerun-if-changed=src/shim.cpp");
     println!("cargo:rerun-if-changed=src/transfer.inc");
+    println!("cargo:rerun-if-changed=src/transfer-host.inc");
     println!("cargo:rerun-if-changed=build.rs");
 }

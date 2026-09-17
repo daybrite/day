@@ -80,7 +80,7 @@ item/alternative coverage; multiple native file references can be encoded in one
 | AppKit | NSDraggingSession, NSPasteboard | File URLs; synchronous receipt |
 | GTK | DragSource, DropTargetAsync, GIO streams | URI lists; reads cancel after 30 seconds |
 | Qt | QDrag, QMimeData | URLs; synchronous receipt; source survives nested event-loop disposal safely |
-| XAML | CanDrag/AllowDrop, DataPackage | StorageItems; drag/drop deferrals; Windows validation pending |
+| XAML | CanDrag/AllowDrop in-app, host-window `IDropTarget` for external drags, DataPackage | StorageItems; drag/drop deferrals; CF_HDROP imported as `text/uri-list` |
 | UIKit | UIDragInteraction, UIDropInteraction, NSItemProvider | Encoded byte providers; pending loads cancel after 30 seconds |
 | Android | startDragAndDrop, ClipData, ContentProvider | Read-only URI grants; bounded reads on a worker; permissions released at receipt/timeout |
 | ArkUI | native node drag events, UDMF | General byte records and file URI records; compile checked against API 18 |
@@ -122,7 +122,13 @@ Current evidence:
   long-press testing confirms a local image move. This is not proof of every mobile foreign-provider
   combination. The Android provider is a toolkit manifest contribution, so existing apps receive it.
 - Harmony native adapter compile check passes; emulator acceptance belongs in CI.
-- Windows and Linux runtime interoperability remain unverified on this macOS host.
+- Windows XAML is verified on a Windows host: dropping a file from Explorer onto a Showcase drop
+  zone imports it. Getting there needed two things the macOS-written adapter could not have found.
+  `OleInitialize` — `init_apartment` brings up COM only, and cross-process drag and drop is an OLE
+  service. And a host-window `IDropTarget`: XAML Islands routes only drags that BEGIN inside the
+  island, so `DesktopWindowXamlSource` never registers its HWND and an external drag was never
+  offered to it, silently, while `AllowDrop(true)` still reported success. See
+  `toolkits/day-xaml-sys/src/transfer-host.inc`. Linux remains unverified.
 
 Framework regression: `cargo test -p day-spec transfer`. Browser integration is in
 `Day-Showcase/tests/drag-drop-web.mjs`, used as `DAY_WEB_DRIVER` with

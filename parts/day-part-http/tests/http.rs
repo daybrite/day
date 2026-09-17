@@ -137,12 +137,27 @@ fn timeout_is_reported() {
 
 #[test]
 fn connection_refused_maps_to_connect() {
-    // Bind + drop to find a port that is (almost certainly) closed.
-    let port = {
-        let l = TcpListener::bind("127.0.0.1:0").unwrap();
-        l.local_addr().unwrap().port()
+    // A port the OS never hands out, rather than one this test just released.
+    //
+    // This used to bind `127.0.0.1:0`, take the port, and drop the listener — which draws from the
+    // very pool `serve` binds from, so a test running alongside could be handed the same port
+    // moments later. Then this test connected to a REAL server and got `200 future-ok` instead of a
+    // refusal, and, because `serve` accepts a fixed number of connections, it also consumed the
+    // budget its owner needed, failing that test too. Both halves showed up together on CI's
+    // aarch64 Windows runner; x86_64 passed the same commit, which is what a race looks like.
+    //
+    // Every platform allocates ephemeral ports from a high range — 49152+ on Windows and macOS,
+    // 32768+ on Linux — so a low port cannot collide with one of this suite's own servers. Port 1
+    // (tcpmux) has no modern implementation, and connecting needs no privilege even though binding
+    // it would.
+    const CLOSED_PORT: u16 = 1;
+    let err = match fetch(&Request::get(format!("http://127.0.0.1:{CLOSED_PORT}/"))) {
+        Err(e) => e,
+        Ok(resp) => panic!(
+            "expected a connect-class error from the closed port {CLOSED_PORT}, got a response: \
+             {resp:?} — something is listening there on this machine"
+        ),
     };
-    let err = fetch(&Request::get(format!("http://127.0.0.1:{port}/"))).expect_err("refused");
     assert!(
         matches!(err, HttpError::Connect | HttpError::Io(_)),
         "expected Connect-class error, got {err:?}"

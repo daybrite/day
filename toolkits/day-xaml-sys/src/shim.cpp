@@ -852,6 +852,21 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     g_min_w = min_w;
     g_min_h = min_h;
     winrt::init_apartment(winrt::apartment_type::single_threaded);
+    // OLE, not just COM — this is what makes drops from OTHER PROCESSES arrive (docs/drag-and-drop.md).
+    //
+    // `init_apartment` above is `CoInitializeEx(COINIT_APARTMENTTHREADED)`, which brings up COM
+    // and nothing else. Cross-process drag and drop is an OLE service: to receive a drop, a
+    // window must be registered with `RegisterDragDrop`, and that call is documented to fail
+    // unless `OleInitialize` ran on the same thread first. XAML registers the island's HWND for
+    // us when an element sets `AllowDrop`, so the failure is invisible — no error surfaces
+    // anywhere, `AllowDrop` still reports true, and drags WITHIN the app keep working because
+    // XAML routes those itself without OLE. Only drops from Explorer (or any other process)
+    // silently never arrive, which is exactly how this looked.
+    //
+    // OleInitialize enters the same STA `init_apartment` just established, so it adds the OLE
+    // layer rather than changing the apartment. No matching OleUninitialize: it would have to run
+    // after XAML has released every island, and the process is exiting at that point anyway.
+    OleInitialize(nullptr);
 
     // XAML requires a DispatcherQueue on the UI thread. Load the flat export dynamically to
     // avoid needing the CoreMessaging import library.

@@ -145,9 +145,13 @@ extern "C" void day_xaml_drag_source(void* h,day_transfer::Prepare prepare,day_t
         el.DropCompleted([](auto const&,auto const&) {day_transfer::local_session={};});
     });
 }
+// Cross-process drops need the host window registered with OLE; the island never registers itself.
+#include "transfer-host.inc"
+
 extern "C" void day_xaml_drop_target(void* h,day_transfer::Accept accept,day_transfer::Receive receive) {
     guard([&] {
         auto s=day_transfer::state(h); s->accept=accept; s->receive=receive;
+        day_transfer::ensure_host_drop();
         auto el=elem(h); el.AllowDrop(true);
         if(auto panel=el.try_as<WUXC::Panel>()) panel.Background(WUXM::SolidColorBrush(WUI::Colors::Transparent()));
         auto over=[s](WF::IInspectable const& sender,WUX::DragEventArgs const& e) {
