@@ -342,3 +342,41 @@ fn transient_context_rides_the_history() {
     assert!(selection.borrow().is_empty());
     assert!(!stack.can_undo().get_untracked());
 }
+
+#[test]
+fn a_guard_groups_multiple_turns_and_nested_groups() {
+    let store = store();
+    let stack = stack_over(store);
+    let group = stack.begin_group("duplicate");
+    store.elem(1).name().write("copy".into());
+    day_reactive::flush_sync();
+    stack.grouped("move", || {
+        store.elem(1).count().write(42);
+    });
+    day_reactive::flush_sync();
+    assert!(!stack.can_undo().get_untracked());
+    assert!(
+        !stack.undo(),
+        "an active gesture cannot be partially undone"
+    );
+    assert!(!stack.redo());
+    drop(group);
+    assert_eq!(stack.undo_label().get_untracked(), "Duplicate");
+    assert!(stack.undo());
+    assert_eq!(store.elem(1).name().peek(), "one");
+    assert_eq!(store.elem(1).count().peek(), 10);
+    assert!(!stack.can_undo().get_untracked());
+    assert!(stack.redo());
+    assert_eq!(store.elem(1).name().peek(), "copy");
+    assert_eq!(store.elem(1).count().peek(), 42);
+}
+
+#[test]
+fn an_empty_group_does_not_label_the_next_edit() {
+    let store = store();
+    let stack = stack_over(store);
+    drop(stack.begin_group("duplicate"));
+    store.elem(1).name().write("next".into());
+    day_reactive::flush_sync();
+    assert_ne!(stack.undo_label().get_untracked(), "Duplicate");
+}

@@ -266,3 +266,17 @@ The scaffold's own editor (`day new`, `src/pages/detail.rs`) is the worked examp
 control binds a field accessor directly, and the model file's one coarse `watch` handles all of
 its persistence. When a coarse watch stops being enough, [docs/persistence.md](persistence.md)
 is the next step: the same store, loaded from and autosaved to SQLite.
+
+### Undo groups spanning input events
+
+`UndoStack::begin_group(label)` returns a must-use `UndoGroup` guard. Keep it in the
+interaction state and drop it after the final commit to seal one unit across event
+turns. Nested `grouped` calls join the outer unit and retain its label. The last guard
+seals the changes, even on an early return; an empty group creates no history entry.
+All watched edits during the interval belong to that group, so keep its lifetime
+limited to the interaction. This groups Day-Sketch's Option/Alt-drag insertion and
+final movement into one Duplicate unit. See `tests/undo.rs` in `day-model` for
+multi-turn, nested-group, and empty-group regressions.
+
+Undo and redo return `false` while a group is active, preventing replay from invalidating
+a live gesture. They become available again after its final guard drops.

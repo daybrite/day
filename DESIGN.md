@@ -5685,3 +5685,19 @@ $ day pack -p macos-appkit --profile release
    encoded in `day doctor` checks *and* asserted in CI, never tribal.
 7. piece-ci runs the dayffi ASAN ownership-round-trip suite and the v1-pinned ABI cell from the
    first tier-2 piece onward ([§15.3](#153-dayffi-the-c-abi-superseded--never-built), [§20](#20-continuous-integration)).
+
+### Undo group lifetimes across gestures
+
+`day-model` exposes `UndoStack::begin_group(label) -> UndoGroup` for interactions
+whose durable edits span multiple event turns. A depth count suppresses turn-end
+sealing; nested closure groups join the outer label, and dropping the last guard
+seals the unit. Empty groups clear their label without creating history. The guard
+owns a stack clone, and its lifetime must cover only the interaction because all
+watched edits during it join the unit. Day-Sketch uses this for creating exact node
+copies at Option/Alt-drag start and committing their final position at release.
+See [docs/model.md](docs/model.md#undo-groups-spanning-input-events) and
+`crates/day-model/tests/undo.rs` for the contract and regressions. This is platform
+independent; no toolkit-specific behavior changes.
+
+Undo and redo return `false` while a group is active, preventing replay from invalidating
+a live gesture. They become available again after its final guard drops.

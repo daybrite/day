@@ -2237,7 +2237,7 @@ struct UndoInner {
     redo: RefCell<Vec<UndoUnit>>,
     open: RefCell<Vec<Change>>,
     group_label: Cell<Option<&'static str>>,
-    grouping: Cell<bool>,
+    grouping: Cell<usize>,
     replaying: Cell<Replay>,
     ops: RefCell<HashMap<u64, StoreOps>>,
     can_undo: day_reactive::Signal<bool>,
@@ -2255,6 +2255,24 @@ struct UndoInner {
 #[derive(Clone)]
 pub struct UndoStack {
     inner: Rc<UndoInner>,
+}
+
+/// RAII lifetime of an undo group; dropping the last nested guard seals its changes.
+#[must_use = "keep the group alive until the interaction finishes"]
+pub struct UndoGroup {
+    stack: UndoStack,
+}
+
+impl Drop for UndoGroup {
+    fn drop(&mut self) {
+        let depth = self.stack.inner.grouping.get() - 1;
+        self.stack.inner.grouping.set(depth);
+        if depth == 0 {
+            self.stack.seal();
+            // Empty groups must not lend their label to the next unrelated edit.
+            self.stack.inner.group_label.set(None);
+        }
+    }
 }
 
 impl UndoStack {
@@ -2276,7 +2294,7 @@ impl UndoStack {
                 redo: RefCell::new(Vec::new()),
                 open: RefCell::new(Vec::new()),
                 group_label: Cell::new(None),
-                grouping: Cell::new(false),
+                grouping: Cell::new(0),
                 replaying: Cell::new(Replay::No),
                 ops: RefCell::new(HashMap::new()),
                 can_undo,
@@ -2306,7 +2324,7 @@ impl UndoStack {
         day_reactive::on_turn_end(move || {
             if let Some(inner) = weak.upgrade() {
                 let stack = UndoStack { inner };
-                if !stack.inner.grouping.get() {
+                if stack.inner.grouping.get() == 0 {
                     stack.seal();
                 }
             }
@@ -2420,12 +2438,22 @@ impl UndoStack {
     /// Everything `f` changes lands as one unit named `label`: a multi-field commit, an
     /// inspector applying twelve properties.
     pub fn grouped(&self, label: &'static str, f: impl FnOnce()) {
-        self.seal();
-        self.inner.grouping.set(true);
-        self.inner.group_label.set(Some(label));
+        let _group = self.begin_group(label);
         f();
-        self.inner.grouping.set(false);
-        self.seal();
+    }
+
+    /// Keep one undo unit open across event turns, until the returned guard is dropped.
+    /// Nested groups join the outer unit and retain its label. Keep the guard only for the
+    /// duration of the interaction: all watched edits in that interval belong to the group.
+    pub fn begin_group(&self, label: &'static str) -> UndoGroup {
+        if self.inner.grouping.get() == 0 {
+            self.seal();
+            self.inner.group_label.set(Some(label));
+        }
+        self.inner.grouping.set(self.inner.grouping.get() + 1);
+        UndoGroup {
+            stack: self.clone(),
+        }
     }
 
     pub fn can_undo(&self) -> day_reactive::Signal<bool> {
@@ -2497,6 +2525,10 @@ impl UndoStack {
     }
 
     pub fn undo(&self) -> bool {
+        // Never replay a partially completed interaction under its live gesture state.
+        if self.inner.grouping.get() > 0 {
+            return false;
+        }
         self.seal();
         let Some(unit) = self.inner.undo.borrow_mut().pop_back() else {
             return false;
@@ -2521,6 +2553,10 @@ impl UndoStack {
     }
 
     pub fn redo(&self) -> bool {
+        // Never replay a partially completed interaction under its live gesture state.
+        if self.inner.grouping.get() > 0 {
+            return false;
+        }
         let Some(unit) = self.inner.redo.borrow_mut().pop() else {
             return false;
         };

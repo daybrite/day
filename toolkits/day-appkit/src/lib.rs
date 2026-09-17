@@ -7646,7 +7646,9 @@ impl Toolkit for AppKit {
     }
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
-        BITMAPS.with(|m| m.borrow_mut().remove(&id.0));
+        // AppKit's TLS may be destroyed before the reactive arena drops its last Bitmap.
+        // The registry already released the native images in that case.
+        let _ = BITMAPS.try_with(|m| m.borrow_mut().remove(&id.0));
     }
 
     /// `NSFontManager.availableFontFamilies` + `availableMembersOfFontFamily:`, whose members
@@ -8976,4 +8978,50 @@ pub(crate) fn build_ns_menu(
         }
     }
     menu
+}
+
+#[cfg(test)]
+mod bitmap_teardown_tests {
+    use super::*;
+
+    #[test]
+    fn releasing_after_bitmap_registry_teardown_does_not_abort() {
+        // Isolate destructor panics: Rust aborts the process when a TLS destructor unwinds.
+        const CHILD: &str = "DAY_APPKIT_BITMAP_TEARDOWN_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            struct LateRelease;
+            impl Drop for LateRelease {
+                fn drop(&mut self) {
+                    assert!(BITMAPS.try_with(|_| ()).is_err());
+                    // Same duty called by Bitmap::drop; no NSApplication is needed.
+                    let mut toolkit = AppKit::default();
+                    toolkit.release_image(day_spec::BitmapId(1));
+                }
+            }
+            std::thread_local! {
+                static LATE: RefCell<Option<LateRelease>> = const { RefCell::new(None) };
+            }
+            std::thread::spawn(|| {
+                LATE.with(|slot| *slot.borrow_mut() = Some(LateRelease));
+                BITMAPS.with(|_| ()); // initialized last, destroyed first
+            })
+            .join()
+            .unwrap();
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "bitmap_teardown_tests::releasing_after_bitmap_registry_teardown_does_not_abort",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }
