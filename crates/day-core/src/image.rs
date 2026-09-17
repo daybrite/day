@@ -6,8 +6,8 @@
 //!
 //! The shape mirrors presentation (`present.rs`): a request id, a pending registry, and a
 //! completion that arrives as an [`Event`] the backend raises. It is request-shaped rather than
-//! blocking because one backend can never answer synchronously — a browser decodes through
-//! `createImageBitmap`, which is a promise — and one async-shaped API everywhere beats a
+//! blocking because one backend can never answer synchronously (a browser decodes through
+//! `createImageBitmap`, which is a promise), and one async-shaped API everywhere beats a
 //! synchronous one that is a lie on the web (docs/async.md rule 3: a callback and a future,
 //! never a runtime).
 //!
@@ -33,8 +33,8 @@ day_reactive::tls_slots! {
     static PENDING_DECODE: RefCell<HashMap<u64, (BitmapId, Pending<(BitmapId, BitmapInfo)>)>> =
         RefCell::new(HashMap::new());
     static PENDING_ENCODE: RefCell<HashMap<u64, Pending<Vec<u8>>>> = RefCell::new(HashMap::new());
-    /// Releases that arrived while the tree was borrowed — a handler dropping its last handle
-    /// inside `collect_and_release` — drained at the top of the next pump, once the borrow ends.
+    /// Releases that arrived while the tree was borrowed (a handler dropping its last handle
+    /// inside `collect_and_release`), drained at the top of the next pump, once the borrow ends.
     static DEFERRED_RELEASE: RefCell<Vec<BitmapId>> = RefCell::new(Vec::new());
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
     /// Ids are minted here, not by the backends: day-core hands the id to the backend with the
@@ -46,8 +46,8 @@ day_reactive::tls_slots! {
 /// A caller waiting by CALLBACK rather than by future (docs/async.md rule 3): what
 /// `decode_async` / `encode_async` hand over in place of an `.await`.
 ///
-/// Named rather than spelled out at each use so the three signatures below read as one idea —
-/// and deliberately not `Done<T>`, which is day-bridge's own callback tier and a different thing.
+/// Named rather than spelled out at each use so the three signatures below read as one idea,
+/// and not `Done<T>`, which is day-bridge's callback tier and a different thing.
 type ImageDone<T> = Box<dyn FnOnce(Result<T, ImageError>)>;
 
 /// One waiting caller: either a future parked on a `Waker`, or a plain callback.
@@ -117,7 +117,7 @@ impl Drop for BitmapInner {
 /// A handle can die inside the tree's own borrow: `collect_and_release` drops a removed node's
 /// handlers, and a handler may own the last clone. A plain `with_tree` there would panic on the
 /// re-borrow, so the id is queued and [`flush_deferred_releases`] runs it once the borrow has
-/// ended. The tree being absent — teardown, or a test that never mounted one — is the other way
+/// ended. The tree being absent (teardown, or a test that never mounted one) is the other way
 /// to have nothing to release, and that is the no-op the duty promises.
 fn release(id: BitmapId) {
     if crate::tree_absent() {
@@ -142,7 +142,7 @@ pub(crate) fn flush_deferred_releases() {
 }
 
 impl Bitmap {
-    /// The id the toolkit knows this image by — what [`day_spec::ImageSource::Decoded`] carries.
+    /// The id the toolkit knows this image by, which [`day_spec::ImageSource::Decoded`] carries.
     pub fn id(&self) -> BitmapId {
         self.0.id
     }
@@ -152,7 +152,7 @@ impl Bitmap {
         self.0.info
     }
 
-    /// The metadata beyond the pixels — EXIF orientation, DPI, capture time. `None` where this
+    /// The metadata beyond the pixels: EXIF orientation, DPI, capture time. `None` where this
     /// backend ships no metadata reader; probe [`Cap::ImageProperties`] before offering an
     /// affordance that needs it.
     pub fn properties(&self) -> Option<ImageProperties> {
@@ -181,7 +181,7 @@ impl Bitmap {
             return;
         }
         // The clone rides in the callback so the toolkit's image outlives the encode however the
-        // app juggles its own handle — a browser encodes on a later turn.
+        // app juggles its own handle; a browser encodes on a later turn.
         let keep = self.clone();
         start_encode(
             self.0.id,
@@ -263,7 +263,7 @@ pub fn image_encode_support() -> day_spec::Support {
     support(Cap::ImageEncode)
 }
 
-/// Which formats [`Bitmap::encode`] can actually write here — the [`Cap::ImageEncode`]
+/// Which formats [`Bitmap::encode`] can write here: the [`Cap::ImageEncode`]
 /// counterpart of `font_families()`. Empty where encoding is unsupported.
 pub fn image_encode_formats() -> Vec<ImageFormat> {
     with_tree(|t| t.image_encode_formats())
@@ -343,7 +343,7 @@ impl Future for DecodeFuture {
             let bytes = self.bytes.take().expect("decode bytes");
             let shared = self.shared.clone();
             start_decode(&bytes, Some(shared), None);
-            // A backend that decodes INLINE has already answered by now — every backend but the
+            // A backend that decodes inline has already answered by now; every backend but the
             // browser does, since `with_tree` pumps the completion on its way out. The waker is
             // not registered yet at that point, so `deliver`'s wake reaches nobody; take the
             // result here instead of parking forever. (Presentation never needed this: a native
@@ -394,7 +394,7 @@ impl Future for EncodeFuture {
             }
             let shared = self.shared.clone();
             start_encode(self.source.id(), self.spec, Some(shared), None);
-            // Answered inline — see `DecodeFuture::poll`.
+            // Answered inline; see `DecodeFuture::poll`.
             if let Some(result) = self.shared.result.borrow_mut().take() {
                 return Poll::Ready(result);
             }
@@ -409,7 +409,7 @@ impl Future for EncodeFuture {
 // ---------------------------------------------------------------------------
 
 /// Deliver a decode answer. Called from `pump_events`; a request already answered, cancelled, or
-/// never issued finds nothing and does nothing — the same contract presentation has.
+/// never issued finds nothing and does nothing, the same contract presentation has.
 pub fn resolve_image_decode(req: u64, result: Result<BitmapInfo, ImageError>) {
     let Some((id, entry)) = PENDING_DECODE.with(|p| p.borrow_mut().remove(&req)) else {
         return;
@@ -445,7 +445,7 @@ fn deliver<T>(entry: Pending<T>, value: Result<T, ImageError>) {
 }
 
 /// Resolve every pending request (tests, and `uninstall_tree`): the tree that would have answered
-/// is going away, so each waiter gets `Unsupported` — there is no backend left to ask — rather
+/// is going away, so each waiter gets `Unsupported` (there is no backend left to ask) rather
 /// than staying parked forever. Queued releases go too: their toolkit is the one being torn down.
 pub(crate) fn reset() {
     let decodes: Vec<_> =

@@ -8,10 +8,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A standalone Day Piece wrapping the platform's NATIVE map view (MKMapView) — APPLE PLATFORMS ONLY.
-# It is the reference for a piece that DELIBERATELY does not cover every backend: only AppKit and
-# UIKit render a real map; on GTK/Qt/Android/XAML the `map` kind falls back to day's placeholder
-# leaf (their features exist but register no renderer). Like the other pieces it carries both its
+# A standalone Day Piece wrapping the platform's native map view (MKMapView), Apple platforms only.
+# It is the reference for a piece that does not cover every backend: only AppKit and UIKit
+# render a real map; on GTK/Qt/Android/XAML the `map` kind falls back to day's placeholder leaf
+# (their features exist but register no renderer). Like the other pieces it carries both its
 # cross-platform front-end (Rust) and its per-toolkit backend, without touching any core day crate.
 # objc2-map-kit binds MKMapView for macOS only, so UIKit hand-rolls the view via `extern_class!` (the
 # same shape the media piece uses for AVPlayerViewController). See docs/extending.md + docs/map.md.
@@ -28,7 +28,7 @@ appkit = [
     "objc2-map-kit/objc2-app-kit",
 ]
 # UIKit hand-rolls MKMapView (objc2-map-kit binds it for macOS only), reusing the crate's typed
-# geometry/annotation structs (cross-platform) — so no MKMapView/objc2-app-kit feature here.
+# geometry/annotation structs (cross-platform), so no MKMapView/objc2-app-kit feature here.
 uikit = [
     "dep:day-uikit",
     "dep:objc2",
@@ -36,8 +36,9 @@ uikit = [
     "dep:objc2-core-location",
     "dep:objc2-map-kit",
 ]
-# No native map on these backends — the feature exists (so an app can enable `day-piece-map/<feature>`
-# uniformly per backend) but registers no renderer; the map kind falls back to day's placeholder leaf.
+# No native map on these backends: the feature exists (so an app can enable
+# `day-piece-map/<feature>` uniformly per backend) but registers no renderer; the map kind falls
+# back to day's placeholder leaf.
 gtk = []
 qt = []
 mdc = []
@@ -45,9 +46,10 @@ xaml = []
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
-# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
-# no per-backend feature fan-out in its own Cargo.toml. (Only appkit/uikit render a real map; the
-# other backends declare an empty feature so `<pkg>/<backend>` resolves and the map kind falls back.)
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
+# and no per-backend feature fan-out in its own Cargo.toml. (Only appkit/uikit render a real map;
+# the other backends declare an empty feature so `<pkg>/<backend>` resolves and the map kind falls
+# back.)
 [package.metadata.day.piece]
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
 
@@ -77,9 +79,9 @@ features = ["MKGeometry", "MKPointAnnotation", "MKAnnotation", "MKShape", "objc2
 day-mock = { workspace = true }
 
 # --- iOS backend contribution (docs/extending.md) ---
-# The UIKit MKMapView is hand-rolled in Rust (objc2), so there is no Swift shim — but its ObjC class
+# The UIKit MKMapView is hand-rolled in Rust (objc2), so there is no Swift shim, but its ObjC class
 # lives in MapKit.framework (and CLLocationCoordinate2D in CoreLocation.framework), which the app must
 # link or `+[MKMapView alloc]` aborts (SIGABRT). Declaring them here links them via the generated
-# DayPieces SwiftPM package (the framework-contribution seam, like the media piece's AVKit).
+# DayPieces SwiftPM package (the same framework contribution the media piece makes for AVKit).
 [package.metadata.day.ios]
 frameworks = ["MapKit", "CoreLocation"]

@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-stepper's OWN Qt shim: a `QDoubleSpinBox` behind a flat C ABI — Qt's
-// field-with-arrows widget, range/step/decimals and keyboard entry included. The value
+// day-piece-stepper's Qt shim: a `QDoubleSpinBox` (Qt's field-with-arrows widget, with
+// range/step/decimals and keyboard entry included) behind a flat C ABI. The value
 // crosses as a double both ways; the suppress flag keeps day's own writes from echoing back
 // through `valueChanged` as user steps.
 

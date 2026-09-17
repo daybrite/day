@@ -8,17 +8,17 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for the system's
-# plain-text clipboard via each platform's NATIVE API. Any Rust code can depend on it and call
+# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for the system's
+# plain-text clipboard via each platform's native API. Any Rust code can depend on it and call
 # `day_part_clipboard::{set_text, get_text, has_text}`. Platform selection is by `#[cfg(target_os)]`
-# (the clipboard is an OS concern, not a widget-toolkit one), so there are no backend features — it
+# (the clipboard is an OS concern, not a widget-toolkit one), so there are no backend features; it
 # "just works" per target:
-#   macOS    — NSPasteboard (AppKit; toolkit-independent, works under day-qt binaries too)
-#   iOS      — UIPasteboard
-#   Windows  — Win32 OpenClipboard/CF_UNICODETEXT (raw FFI)
-#   Linux    — wl-copy/wl-paste (Wayland) falling back to xclip (X11), via std::process
-#   HarmonyOS— native libpasteboard.so + libudmf.so (BasicServicesKit), gated on target_env = "ohos"
-#   Android  — ClipboardManager via the inline Java arm in src/android.rs (docs/bridge.md)
+#   macOS:     NSPasteboard (AppKit; toolkit-independent, works under day-qt binaries too)
+#   iOS:       UIPasteboard
+#   Windows:   Win32 OpenClipboard/CF_UNICODETEXT (raw FFI)
+#   Linux:     wl-copy/wl-paste (Wayland) falling back to xclip (X11), via std::process
+#   HarmonyOS: native libpasteboard.so + libudmf.so (BasicServicesKit), gated on target_env = "ohos"
+#   Android:   ClipboardManager via the inline Java arm in src/android.rs (docs/bridge.md)
 # See docs/clipboard.md + docs/extending.md.
 
 [dependencies]
@@ -36,7 +36,7 @@ objc2-foundation = { version = "0.3", features = ["NSString"] }
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 # daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
-# dependency is Android-only too — every other target compiles exactly as it did before.
+# dependency is Android-only too; every other target compiles exactly as it did before.
 day-bridge = { workspace = true }
 
 [build-dependencies]

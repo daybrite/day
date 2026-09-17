@@ -1,13 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Recycling-tree driver (docs/tree.md). [`crate::list`]'s shape addressed by TOKEN instead of
+//! Recycling-tree driver (docs/tree.md). [`crate::list`]'s shape addressed by token instead of
 //! row index: the native tree host owns scrolling, disclosure and cell reuse; Day owns row
 //! *content*. day-core injects a [`day_spec::TreeSource`] into the backend; when the native
 //! data-source pulls a cell, `bind_row` builds it once (per physical cell) and thereafter
-//! *rebinds* it — one slot-write — as the cell recycles.
+//! *rebinds* it (one slot-write) as the cell recycles.
 //!
-//! Re-entrancy follows `list.rs` exactly: `bind_row` phases the tree borrow —
+//! Re-entrancy follows `list.rs` exactly: `bind_row` phases the tree borrow:
 //! `with_tree` (adopt cell) → build/rebind + `flush_sync` **outside** any borrow → `with_tree`
 //! (lay the row out in its cell). Holding the borrow across the build would deadlock the RefCell.
 
@@ -25,19 +25,19 @@ pub struct TreeDriver {
     pub row_height: RowHeight,
     /// How many children `parent` has (reads the piece's snapshot; no tree access).
     pub children_len: Box<dyn Fn(Option<u64>) -> usize>,
-    /// The i-th child of `parent` — the stable token every backend keys its rows by.
+    /// The i-th child of `parent`: the stable token every backend keys its rows by.
     pub child_token: Box<dyn Fn(Option<u64>, usize) -> u64>,
     /// Whether this token can hold children at all (draws or omits the disclosure).
     pub expandable: Box<dyn Fn(u64) -> bool>,
     /// The piece's current desired expansion state for this token (untracked read of the
-    /// app's expansion signal) — what the flattener descends into.
+    /// app's expansion signal), which is what the flattener descends into.
     pub expanded: Box<dyn Fn(u64) -> bool>,
     /// Build the row for `token` into `anchor`. Uses `BuildCx` internally, so it must be
     /// called with no `with_tree` borrow held. Returns the row's scope + a rebind writer.
     pub build: Box<dyn Fn(u64, RNode) -> TreeBuiltRow>,
-    /// The row's type-ahead string (docs/tree.md) — native type-select answers from it.
+    /// The row's type-ahead string (docs/tree.md); native type-select answers from it.
     pub type_select_text: Box<dyn Fn(u64) -> String>,
-    /// Resolve a dayscript row id (the piece's `.row_id` string) to its token — how the
+    /// Resolve a dayscript row id (the piece's `.row_id` string) to its token. This is how the
     /// `expand:`/`tree_move:` steps and the mock address rows without native gestures.
     pub resolve_row: RowResolver,
     /// The row's summon-time context menu (docs/menus.md), `None` = no row menus.
@@ -76,12 +76,12 @@ pub struct TreeBuiltRow {
 
 pub(crate) struct TreeBoundCell {
     pub anchor: RNode,
-    /// The row subtree's reactive scope — disposed by `remove_subtree` when the TREE node
+    /// The row subtree's reactive scope, disposed by `remove_subtree` when the tree node
     /// goes away (cells live in the tree machinery, not the node tree).
     pub scope: Scope,
     pub rebind: Rc<dyn Fn(u64)>,
-    /// The width the backend last laid this cell at through `TreeSource::layout_cell` — the
-    /// indented width the native row actually granted. Every later layout of the row uses it;
+    /// The width the backend last laid this cell at through `TreeSource::layout_cell`: the
+    /// indented width the native row granted. Every later layout of the row uses it;
     /// `None` until the backend has reported one, when the tree's width stands in.
     pub native_width: Option<f64>,
     /// The width this cell's row was last laid at, by either path; only a width that actually
@@ -106,7 +106,7 @@ pub enum TreeCellStep {
     },
 }
 
-/// Register a tree's driver and wire its native host's data-source. Call after the TREE node
+/// Register a tree's driver and wire its native host's data-source. Call after the tree node
 /// and its native handle exist (from within the piece build; `with_tree` is acquired per op).
 pub fn install_tree(node: RNode, driver: TreeDriver) {
     with_tree(|t| t.install_tree(node, driver));
@@ -165,7 +165,7 @@ pub fn tree_try_move(
     }
 }
 
-/// The flattened VISIBLE rows — `(token, depth)` in display order, descending only into
+/// The flattened visible rows: `(token, depth)` in display order, descending only into
 /// expanded rows (docs/tree.md). The shared substrate the emulated backends, the keyboard
 /// handler and the mock probe all read; one implementation, kind-agnostic over any token tree.
 pub fn tree_visible_rows(driver: &TreeDriver) -> Vec<(u64, u16)> {
@@ -213,13 +213,13 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
         bind_row: Rc::new(move |token, cell| {
             let key = cell as usize;
             // Same skip rule as the list: a backend snapshot drawing inside a with_tree
-            // borrow may re-enter here — bind on the next real layout pass instead.
+            // borrow may re-enter here; bind on the next real layout pass instead.
             let Some(step) = try_with_tree(|t| t.tree_prepare_cell(node, key, cell)) else {
                 return;
             };
             match step {
                 TreeCellStep::Build { anchor } => {
-                    // Build outside the borrow — BuildCx re-acquires with_tree per op.
+                    // Build outside the borrow; BuildCx re-acquires with_tree per op.
                     let built = (d_bind.build)(token, anchor);
                     with_tree(|t| t.tree_store_cell(node, key, anchor, built));
                 }
@@ -230,12 +230,12 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
         }),
         recycle: Rc::new(move |cell| {
             // The pooled cell keeps its built row (rebind is the fast path), but its element
-            // ids go now — see `TreeOps::tree_recycle_cell`. Skip quietly inside a borrow;
+            // ids go now; see `TreeOps::tree_recycle_cell`. Skip quietly inside a borrow;
             // the backend defers this call to a safe turn.
             let _ = try_with_tree(|t| t.tree_recycle_cell(node, cell as usize));
         }),
         layout_cell: Rc::new(move |cell, width| {
-            // From the native cell's own layout pass — skip inside a snapshot borrow, the
+            // From the native cell's own layout pass: skip inside a snapshot borrow, the
             // next real pass corrects it (same rule as bind_row).
             let _ = try_with_tree(|t| t.tree_layout_cell_width(node, cell as usize, width));
         }),
@@ -260,7 +260,7 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
 mod tests {
     use super::*;
 
-    /// A fixed tree: 1{ 2, 3{ 4 } }, 5 — driver closures over static tables.
+    /// A fixed tree: 1{ 2, 3{ 4 } }, 5. Driver closures over static tables.
     fn fixture(open: &'static [u64]) -> TreeDriver {
         fn kids(parent: Option<u64>) -> &'static [u64] {
             match parent {

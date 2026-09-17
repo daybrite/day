@@ -4,12 +4,12 @@
 //! Starter translations for the keys `day new app` scaffolds (docs/localization.md).
 //!
 //! `day localize add <tag>` copies the default locale verbatim under a translate-me header,
-//! which is right for an app's own strings — the CLI cannot know what they mean. It can know
-//! what the scaffold's own strings mean, because it wrote them. So for the handful of keys the
+//! which is right for an app's strings: the CLI cannot know what they mean. It can know
+//! what the scaffold's strings mean, because it wrote them. So for the handful of keys the
 //! generated sample app shows on its opening screen, a locale added here starts translated
 //! rather than starting as English labeled otherwise.
 //!
-//! Scope is deliberately narrow. A key is listed only if the scaffold ships it and the phrase is
+//! Scope is narrow. A key is listed only if the scaffold ships it and the phrase is
 //! a UI label with one obvious rendering in each language. Anything longer (the panel blurbs)
 //! stays an English copy for a human to translate in context.
 //!
@@ -23,7 +23,7 @@ pub const KEYS: &[&str] = &[
     "welcome_title",
 ];
 
-/// `(locale tag, [translation per KEYS])`. A tag absent here simply gets the English copy.
+/// `(locale tag, [translation per KEYS])`. A tag absent here gets the English copy.
 #[rustfmt::skip]
 pub const STARTER: &[(&str, [&str; 4])] = &[
     ("ar-SA", ["مرحبًا", "تصفح", "الإعدادات", "مرحبًا بك في Day"]),

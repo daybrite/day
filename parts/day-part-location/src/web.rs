@@ -10,14 +10,14 @@
 //!
 //! Two browser realities:
 //!
-//! - **A secure context is required** — geolocation is refused outside HTTPS/localhost, and reports
+//! - **A secure context is required.** Geolocation is refused outside HTTPS/localhost, and reports
 //!   as [`LocationError::PermissionDenied`], which is what the browser itself calls it.
 //! - **The first `watchPosition` call IS the permission prompt.** There is no separate request, so
 //!   on the web `day-part-permissions`' `Permission::Location` and this crate reach the same dialog;
 //!   whichever runs first shows it.
 //!
 //! Using this crate on wasm outside a day-dom host page fails at instantiation (the imports are
-//! unresolved) — the same contract as the tree's other web arms (docs/web.md).
+//! unresolved), the same contract as the tree's other web arms (docs/web.md).
 
 use crate::{Accuracy, Fix, LocationError};
 

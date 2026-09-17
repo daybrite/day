@@ -9,12 +9,12 @@ repository.workspace = true
 license.workspace = true
 build = "build.rs"
 
-# Standalone date & time pickers (docs/datepicker.md): Two pieces — `date_picker(Signal<DayDate>)`
-# and `time_picker(Signal<DayTime>)` — each realized as the platform's closest idiomatic control
+# Standalone date & time pickers (docs/datepicker.md): two pieces, `date_picker(Signal<DayDate>)`
+# and `time_picker(Signal<DayTime>)`, each realized as the platform's closest idiomatic control
 # per style intent (`Compact` = field/button that summons a transient chooser; `Inline` = embedded
 # calendar/clock/wheels). Two pieces rather than one combined date-time piece: a single combined
 # control exists on only 3 of the 7 toolkits (NSDatePicker / UIDatePicker.dateAndTime /
-# QDateTimeEdit), while separate date and time controls realize natively on all of them — combined
+# QDateTimeEdit), while separate date and time controls realize natively on all of them; combined
 # selection stays portable as composition (`row((date_picker(d), time_picker(t)))`).
 
 [features]
@@ -28,8 +28,9 @@ xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/datetime-arkui.cpp
 dom = ["dep:day-dom"]
 
-# Backends this piece carries a native renderer for — ALL EIGHT: the seven native toolkits plus
-# web-dom, whose `<input type="date">` is the browser's own picker. `day build` unions `<pkg>/<backend>` into an app build (Tier A.2).
+# Backends this piece carries a native renderer for, all eight: the seven native toolkits plus
+# web-dom, whose `<input type="date">` is the browser's picker. `day build` unions
+# `<pkg>/<backend>` into an app build (Tier A.2).
 [package.metadata.day.piece]
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom"]
 
@@ -49,7 +50,8 @@ day-android = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
-# `persistence`: SQLite codecs only — no engine, no driver, so this never drags rusqlite in.
+# `persistence`: SQLite codecs only, without the engine or a driver, so this never drags rusqlite
+# in.
 day-persistence = { workspace = true, default-features = false, optional = true }
 day-arkui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
@@ -72,7 +74,8 @@ day-mock = { workspace = true }
 [package.metadata.day.android]
 java = ["src/DayDateTime.java"]
 # A theme overlay fixing MaterialTimePicker's dialog buttons under a non-AppCompat activity
-# (see platform/android/res/values/themes.xml) — the reference use of piece-shipped Android resources.
+# (see platform/android/res/values/themes.xml), the reference use of piece-shipped Android
+# resources.
 res = ["platform/android/res"]
 gradle-dependencies = ["com.google.android.material:material:1.14.0"]
 gradle-repositories = []

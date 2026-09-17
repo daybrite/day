@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// GTK: GtkComboBoxText with an entry — GTK's real combo box (free text + a dropdown of items).
+// GTK: GtkComboBoxText with an entry, GTK's combo box (free text + a dropdown of items).
 // The internal GtkEntry's "changed" signal is the single change path: it fires on typing and
 // when picking a dropdown item (the pick writes the entry), so both report as TextChanged. It
 // also fires on programmatic set_text, so a per-node `suppress` cell guards the sync in
 // `update` from echoing back.
 //
 // GTK 4.10 deprecated GtkComboBoxText without shipping an editable replacement (GtkDropDown
-// has no entry), so this renderer keeps it deliberately — hence the file-wide
-// allow(deprecated). Revisit if GTK grows an editable dropdown.
+// has no entry), so this renderer keeps it, hence the file-wide allow(deprecated). Revisit if
+// GTK grows an editable dropdown.
 // ---------------------------------------------------------------------------
 #![allow(deprecated)]
 
@@ -118,8 +118,8 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
 
 /// Drop the per-widget state when the widget goes away.
 ///
-/// Without this the map grows by one entry per realized combo box, and — worse — its key is the
-/// widget's ADDRESS, which the allocator reuses: a later widget landing on a freed address would
+/// Without this the map grows by one entry per realized combo box, and, worse, its key is the
+/// widget's address, which the allocator reuses: a later widget landing on a freed address would
 /// inherit the dead entry's combo and drive the wrong one.
 fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     STATE.with(|m| {

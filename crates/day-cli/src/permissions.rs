@@ -3,8 +3,8 @@
 
 //! Resolve `[permissions]` (plus any library contributions) into what each platform must declare.
 //!
-//! One [`Plan`] feeds every writer — the Android manifest overlay, the Apple `Info.plist` keys, and
-//! the HarmonyOS `module.json5` entries — so the three can never disagree about what the app asked
+//! One [`Plan`] feeds every writer (the Android manifest overlay, the Apple `Info.plist` keys, and
+//! the HarmonyOS `module.json5` entries), so the three can never disagree about what the app asked
 //! for. The table itself lives in `day_build::permissions`, shared with `day-part-permissions` so a
 //! generated declaration cannot drift from the permission the app's code requests at runtime.
 //!
@@ -131,7 +131,7 @@ pub struct Resolved {
     /// The same reason in every locale the catalog has it for (locale → text), the default
     /// locale included. Empty for a permission that needs none.
     pub reasons: BTreeMap<String, String>,
-    /// Who asked for it — `"Day.toml"` and/or the contributing crate names, for diagnostics.
+    /// Who asked for it: `"Day.toml"` and/or the contributing crate names, for diagnostics.
     pub sources: Vec<String>,
 }
 
@@ -165,16 +165,16 @@ pub struct AndroidRaw {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OhosEntry {
     pub name: String,
-    /// The `$string:` resource NAME (not the text) — HarmonyOS requires a resource reference.
+    /// The `$string:` resource name (not the text); HarmonyOS requires a resource reference.
     pub reason_key: Option<String>,
     pub when: &'static str,
 }
 
-/// Resolve for `platform` — one of `"android"`, `"ios"`, `"macos"`, `"ohos"`.
+/// Resolve for `platform`, one of `"android"`, `"ios"`, `"macos"`, `"ohos"`.
 ///
 /// `contributed` is `(crate_name, permission_name)` from dependencies' own
 /// `[package.metadata.day.permissions]`. A contribution the app has not given a reason for is a
-/// hard ERROR on the platforms that need one: the alternative is an app that builds fine and then
+/// hard error on the platforms that need one: the alternative is an app that builds fine and then
 /// terminates the first time it touches the API on a device.
 #[cfg(test)]
 pub fn resolve(
@@ -384,7 +384,7 @@ pub fn reason_key(permission: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Projections — pure functions over a Plan, one per writer.
+// Projections: pure functions over a Plan, one per writer.
 // ---------------------------------------------------------------------------
 
 /// `<uses-permission>` entries, deduped and sorted (a stable file keeps AGP's up-to-date checks warm).
@@ -448,7 +448,7 @@ pub fn apple_keys_localized(
     out
 }
 
-/// True when any key has text in a locale other than the default — the case that needs an
+/// True when any key has text in a locale other than the default, the case that needs an
 /// `InfoPlist.xcstrings` at all.
 pub fn has_translations(keys: &BTreeMap<String, BTreeMap<String, String>>, default: &str) -> bool {
     keys.values().any(|m| m.keys().any(|l| l != default))
@@ -456,7 +456,7 @@ pub fn has_translations(keys: &BTreeMap<String, BTreeMap<String, String>>, defau
 
 /// The `InfoPlist.xcstrings` string catalog (Xcode 15+) for `keys`: one entry per usage
 /// description, one `stringUnit` per locale, spelled the way Xcode spells locales
-/// (`zh-Hans`, not `zh-CN`). Sorted maps in, byte-stable JSON out — two builds produce the
+/// (`zh-Hans`, not `zh-CN`). Sorted maps in, byte-stable JSON out: two builds produce the
 /// same file, so the tracked catalog stays clean.
 pub fn xcstrings_json(default: &str, keys: &BTreeMap<String, BTreeMap<String, String>>) -> String {
     let mut strings = serde_json::Map::new();
@@ -483,7 +483,7 @@ pub fn xcstrings_json(default: &str, keys: &BTreeMap<String, BTreeMap<String, St
     out
 }
 
-/// Every `Info.plist` key Day manages on this platform — the set it may write OR remove. Derived
+/// Every `Info.plist` key Day manages on this platform: the set it may write or remove. Derived
 /// from the table, so a fresh clone needs no state file to clean up after a removed declaration.
 pub fn apple_managed_keys(macos: bool) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
@@ -622,7 +622,7 @@ mod tests {
         );
     }
 
-    /// Notifications needs no reason anywhere, so it must not trip the reason check — and it writes
+    /// Notifications needs no reason anywhere, so it must not trip the reason check, and it writes
     /// no Apple key at all.
     #[test]
     fn notifications_needs_no_reason() {

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# Pre-flight lint — run CI's whole fmt + clippy gate locally, before pushing, so a fmt drift or a
+# Pre-flight lint: run CI's whole fmt + clippy gate locally, before pushing, so a fmt drift or a
 # clippy warning can't reach CI. It exists because the gate is a matrix, not one command: toolkit
-# and part crates are NOT in default-members and each compiles only under its own backend feature
-# and/or cross-target, so a bare `cargo clippy` silently skips them — that blind spot has shipped
+# and part crates are not in default-members and each compiles only under its own backend feature
+# and/or cross-target, so a bare `cargo clippy` silently skips them; that blind spot has shipped
 # `useless_conversion` (day-android) and unformatted imports to CI more than once.
 #
 #     scripts/ci/lint.sh            # run every leg this machine can
@@ -12,7 +12,7 @@
 #
 # Each leg mirrors a command in .github/workflows/ci.yml under its `RUSTFLAGS: -D warnings`. A leg
 # whose toolchain is absent (a rustup target not installed, a GUI lib missing, the wrong OS) is
-# SKIPPED with a printed reason — never silently — and the summary lists skips so "green here" is
+# skipped with a printed reason, never silently, and the summary lists skips so "green here" is
 # never mistaken for "green everywhere". Exit is nonzero if any leg failed.
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 1
@@ -47,8 +47,8 @@ skip() { printf '\033[33m− SKIP %s — %s\033[0m\n' "$1" "$2"; SKIPPED+=("$1: 
 
 # The showcase app is its own repository now (daybrite/Day-Showcase). Its clippy legs run in a
 # checkout of it, built against this checkout via `day patch`, so a framework change is still
-# linted against the app that exercises every backend. No checkout ⇒ those legs SKIP with a reason
-# rather than silently disappearing, which is the whole contract of this script.
+# linted against the app that exercises every backend. No checkout ⇒ those legs skip with a reason
+# rather than silently disappearing, which is the contract of this script.
 SHOWCASE="${SHOWCASE:-$ROOT/../Day-Showcase}"
 if [ -f "$SHOWCASE/Day.toml" ]; then
   # Additional local dependencies (one checkout per line) participate in the same patch table.
@@ -72,11 +72,11 @@ app_leg() {
   leg "$label" env -C "$SHOWCASE" "$@"
 }
 
-# 1) Formatting — the whole workspace, the exact command CI fails on.
+# 1) Formatting: the whole workspace, the exact command CI fails on.
 leg "fmt --all --check" cargo fmt --all -- --check
 
-# 1b) Spelling + the American-English rule (typos.toml, STYLE_GUIDE.md) — the local twin of
-# ci.yml's `spelling` job. Not installed is a SKIP rather than a failure, since it is the one leg
+# 1b) Spelling + the American-English rule (typos.toml, STYLE_GUIDE.md), the local twin of
+# ci.yml's `spelling` job. Not installed is a skip rather than a failure, since it is the one leg
 # here that needs a tool outside the Rust toolchain; CI still runs it either way.
 if command -v typos >/dev/null 2>&1; then
   leg "typos (spelling + en-us)" typos
@@ -84,7 +84,7 @@ else
   skip "typos (spelling + en-us)" "not installed — brew install typos-cli, or cargo install typos-cli"
 fi
 
-# 2) Host clippy — the default members plus the CLI, dayscript, and mock-backend showcase.
+# 2) Host clippy: the default members plus the CLI, dayscript, and mock-backend showcase.
 leg "clippy host (default members)"    cargo clippy --locked --all-targets
 # day-pieces' `dyn-registry` feature rides along here: no member turns it on now that day-lite
 # lives in its own repository, so the line above never compiles the dynamic registry (see ci.yml).
@@ -92,11 +92,11 @@ leg "clippy host day-cli + day-script + dyn-registry"  cargo clippy --locked -p 
 app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features mock --all-targets
 
 # 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-android, day-arkui,
-#    day-appkit, …) — the crates a host clippy never compiles.
+#    day-appkit, …), the crates a host clippy never compiles.
 if have_target aarch64-linux-android; then
   # bundled SQLite (day-persistence, in the showcase's non-wasm graph) compiles C, and cc-rs
   # never finds the NDK's API-suffixed clang on its own (`aarch64-linux-android-clang` does not
-  # exist in modern NDKs — the wrappers carry the API level). Derive CC_/AR_ from the NDK, the
+  # exist in modern NDKs; the wrappers carry the API level). Derive CC_/AR_ from the NDK, the
   # same posture as the ohos leg below; a caller's own values win. ANDROID_NDK_HOME first, then
   # the conventional local installs.
   ANDROID_NDK="${ANDROID_NDK_HOME:-}"
@@ -114,11 +114,11 @@ if have_target aarch64-linux-android; then
   else skip "clippy android (mdc)" "no Android NDK found (set ANDROID_NDK_HOME)"; fi
 else skip "clippy android (mdc)" "rustup target add aarch64-linux-android"; fi
 
-# arkui needs the OpenHarmony NDK for day-arkui-sys's build.rs and ring's C compile — CI exports it;
-# skip (don't fail) when it's absent locally, the same posture as a missing rustup target.
+# arkui needs the OpenHarmony NDK for day-arkui-sys's build.rs and ring's C compile. CI exports
+# it; skip (don't fail) when it's absent locally, the same posture as a missing rustup target.
 if have_target aarch64-unknown-linux-ohos && [ -n "${OHOS_NDK_HOME:-}" ]; then
   # ring's `cc` probe never finds the NDK's wrapper clang on its own (it isn't on PATH and
-  # carries the target triple in its NAME, not its location) — without these the leg dies at
+  # carries the target triple in its name, not its location); without these the leg dies at
   # `assert.h` from a host clang told to cross-compile. Derive them from the NDK the caller
   # already pointed at; a caller's own CC_* values win.
   export CC_aarch64_unknown_linux_ohos="${CC_aarch64_unknown_linux_ohos:-$OHOS_NDK_HOME/llvm/bin/aarch64-unknown-linux-ohos-clang}"
@@ -131,7 +131,7 @@ elif have_target aarch64-unknown-linux-ohos; then
 else skip "clippy harmonyos (arkui)" "rustup target add aarch64-unknown-linux-ohos"; fi
 
 if have_target wasm32-unknown-unknown; then
-  # CI only *builds* web-dom (no clippy leg), so this is a local superset — clippy subsumes the
+  # CI only *builds* web-dom (no clippy leg), so this is a local superset: clippy subsumes the
   # build's warning check and additionally keeps the dom backend clippy-clean. The
   # getrandom_backend cfg mirrors what `day build` sets for every web app (crates/day-cli/web.rs):
   # day-dom carries getrandom's custom-backend hook, and getrandom refuses to compile for raw
@@ -166,7 +166,7 @@ case "$OS" in
   *) skip "clippy xaml" "Windows only" ;;
 esac
 
-# 4) Headless part crates: no backend feature, not in default-members — bare clippy never reaches
+# 4) Headless part crates: no backend feature, not in default-members; bare clippy never reaches
 #    them. Lint each on host + the Android cross-target, exactly as ci.yml's loop does.
 if [ -d parts ]; then
   for dir in parts/day-part-*/; do
@@ -179,7 +179,7 @@ if [ -d parts ]; then
       # A daybridge arm in a staged language (Java/Kotlin/Swift/ArkTS/JS) is behind
       # `cfg(day_bridge_staged)`, set only when `day build` has staged the foreign half into the
       # host project; a bare cargo build compiles the `platforms = [other]` fallback instead. So
-      # each configuration hides the other's warnings, and the leg above sees only the fallback —
+      # each configuration hides the other's warnings, and the leg above sees only the fallback,
       # which is how an unused import in day-part-clipboard's android arm reached CI as a build
       # failure inside `cargo ndk`, having passed every lint here.
       RUSTFLAGS="$RUSTFLAGS --cfg day_bridge_staged" \
@@ -191,7 +191,7 @@ fi
 
 # 5) Website content wiring: every docs/*.md needs its symlink in website/src/content/internal/
 # (and no symlink may outlive its doc). Cheap, and it fails on the machine that added the doc
-# instead of on a runner after the whole matrix has built — which is how window-image.md reached
+# instead of on a runner after the whole matrix has built, which is how window-image.md reached
 # CI. `scripts/ci/docs-symlinks.sh --fix` repairs both directions.
 leg "docs symlinks" scripts/ci/docs-symlinks.sh
 # Doc cross-references must be real links (bare `docs/foo.md` text is unclickable on the site
@@ -202,10 +202,10 @@ leg "doc links" scripts/ci/doc-links.py
 # does nothing). Both are static facts, so they are checked here rather than in a browser.
 leg "web shim ABI" scripts/ci/web-shim-abi.py
 
-# 6) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md) — the same drift
+# 6) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md): the same drift
 # checks CI runs. Two ways to fail: changing the Toolkit trait or a backend without regenerating,
-# or changing the SHAPE the generators detect (renaming a realize match arm, moving the kinds
-# table) so a generator silently stops seeing what it measures — that one emits an empty table
+# or changing the shape the generators detect (renaming a realize match arm, moving the kinds
+# table) so a generator silently stops seeing what it measures; that one emits an empty table
 # rather than an error, so only the diff catches it. Runs last because it rewrites the two files
 # in place: on failure they are left regenerated, so `git diff` shows exactly what moved.
 drift() { # drift <generator> <generated-file>

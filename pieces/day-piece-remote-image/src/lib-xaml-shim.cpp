@@ -1,15 +1,15 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The remote-image piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. day-xaml hosts the
-// UWP system XAML (winrt::Windows::UI::Xaml, from the base Windows SDK — no WinAppSDK). A circle clip
-// uses an Ellipse filled with an ImageBrush (a true circular avatar); a rounded/plain image uses a
-// Border (CornerRadius) hosting an Image. The root element is boxed into a day handle via the
-// `day_xaml_box`/`day_xaml_unbox` seam day-xaml-sys exports, so this piece carries its own XAML
-// native code with ZERO edits to day's toolkit crates. Bytes are decoded into a BitmapImage from an
-// InMemoryRandomAccessStream.
+// The remote-image piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. day-xaml hosts the
+// UWP system XAML (winrt::Windows::UI::Xaml, from the base Windows SDK, not WinAppSDK). A circle
+// clip uses an Ellipse filled with an ImageBrush (a true circular avatar); a rounded/plain image
+// uses a Border (CornerRadius) hosting an Image. The root element is boxed into a day handle via
+// the `day_xaml_box`/`day_xaml_unbox` functions day-xaml-sys exports, so this piece carries its
+// own XAML native code with no edits to day's toolkit crates. Bytes are decoded into a BitmapImage
+// from an InMemoryRandomAccessStream.
 //
-// WRITTEN BLIND (no Windows host here) and not verified — best-effort so the xaml build links in CI.
+// Written blind (no Windows host here) and not verified; best-effort so the xaml build links in CI.
 // Caveats: the byte→BitmapImage decode blocks on StoreAsync().get(), which on an STA UI thread can
 // stall; and clearing (None) on the Ellipse path drops the placeholder brush. Both are acceptable
 // for the CI-only xaml backend and are noted in the crate's caveats. Everything is wrapped in
@@ -34,7 +34,7 @@ namespace WUXMI = winrt::Windows::UI::Xaml::Media::Imaging;
 namespace WUXS = winrt::Windows::UI::Xaml::Shapes;
 namespace WSS = winrt::Windows::Storage::Streams;
 
-// The boxing seam, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 
@@ -116,7 +116,7 @@ void day_remote_image_set_bytes(void *handle, const uint8_t *data, uint64_t len)
                 ib.Stretch(WUXM::Stretch::UniformToFill);
                 ell.Fill(ib);
             }
-            // (Clearing an Ellipse back to the placeholder brush is not supported — see caveats.)
+            // (Clearing an Ellipse back to the placeholder brush is not supported; see caveats.)
         } else if (auto bd = e.try_as<WUXC::Border>()) {
             if (auto img = bd.Child().try_as<WUXC::Image>()) {
                 img.Source(bmp); // nullptr clears → the Border's placeholder background shows

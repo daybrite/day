@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Undo against the container: the plan's exit assertions — an undone delete is ONE INSERT, a
-//! sixty-move drag is ONE UPDATE, and the agreement property holds with undos interleaved.
+//! Undo against the container: the plan's exit assertions. An undone delete is one INSERT, a
+//! sixty-move drag is one UPDATE, and the agreement property holds with undos interleaved.
 
 use day_macros::Model;
 use day_model::Op;
@@ -33,7 +33,7 @@ fn recorder_seeded() -> (ModelContainer, day_persistence::RecorderLog) {
         ]],
     );
     let c = ModelContainer::open(driver, schema![Trip]).expect("open");
-    // Editing starts by faulting the row in — nothing is resident at open.
+    // Editing starts by faulting the row in; nothing is resident at open.
     c.ensure_resident::<Trip>(&[1]).expect("fault");
     log.clear();
     (c, log)
@@ -223,5 +223,5 @@ fn container_undo_covers_every_store_and_labels_resolve() {
     day_reactive::flush_sync();
     assert_eq!(stack.undo_label().get_untracked(), "Undo notes");
 
-    let _ = Fetch::new(); // keep the import honest
+    let _ = Fetch::new(); // keep the import used
 }

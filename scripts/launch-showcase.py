@@ -9,28 +9,28 @@
 #     scripts/launch-showcase.py mobile --env DAY_DEMO_ROUTE=canvas
 #     scripts/launch-showcase.py desktop --profile release
 #
-# On Windows, invoke it through the interpreter — `python scripts\launch-showcase.py desktop`
+# On Windows, invoke it through the interpreter, `python scripts\launch-showcase.py desktop`
 # (the `python3` alias there is a Microsoft Store stub that only offers to install Python).
 #
 # Each argument is either a platform-toolkit name (`macos-appkit`, `windows-xaml`, …) or one of the
 # symbolic groups:
 #
 #     desktop   every desktop target this host can build (macOS: appkit, gtk, qt)
-#     mobile    every phone-class target this host can build (iOS, Android, HarmonyOS) — each needs
+#     mobile    every phone-class target this host can build (iOS, Android, HarmonyOS); each needs
 #               its simulator/emulator already running; `day launch` says which is missing
 #     web       web-dom, served over loopback with a browser opened on it
 #
 # Anything starting with `-` is passed straight through to `day launch`, so `--profile release`,
-# `--env K=V`, `--locale`, `--script`, and `--detach` all work — the script adds no flags of its
+# `--env K=V`, `--locale`, `--script`, and `--detach` all work; the script adds no flags of its
 # own. `--dry-run` prints the targets an argument list expands to and stops, without building.
 #
-# Symlink it anywhere and call it from anywhere — `ln -s .../day/scripts/launch-showcase.py
+# Symlink it anywhere and call it from anywhere: `ln -s .../day/scripts/launch-showcase.py
 # ~/bin/showcase`. The script resolves its own path through the link chain, so it always finds the
-# checkout it actually lives in, whatever the caller's working directory is.
+# checkout it lives in, whatever the caller's working directory is.
 #
-# The build profile is whatever `day launch` defaults to; pass `--profile release` when the point
-# is performance, since a debug build of a UI framework indicates nothing about what a user would
-# experience. The `day` CLI itself is always built from this checkout, in debug — it is the build
+# The build profile is whatever `day launch` defaults to; pass `--profile release` when measuring
+# performance, since a debug build of a UI framework indicates nothing about what a user would
+# experience. The `day` CLI itself is always built from this checkout, in debug: it is the build
 # tool, not the thing being measured.
 #
 # Python 3.8+, standard library only.
@@ -101,8 +101,8 @@ def die(message):
     sys.exit("error: %s" % message)
 
 
-# Resolve this file through any symlinks, so the checkout is found relative to the SCRIPT rather
-# than to wherever it was linked from — `ln -s .../day/scripts/launch-showcase.py ~/bin/showcase`
+# Resolve this file through any symlinks, so the checkout is found relative to the script rather
+# than to wherever it was linked from: `ln -s .../day/scripts/launch-showcase.py ~/bin/showcase`
 # has to keep working. `Path.resolve()` walks the whole link chain and raises on a loop, which is
 # what the shell version hand-rolled a hop counter for.
 try:
@@ -140,7 +140,7 @@ def parse_args(argv):
     pending_value = False
     for arg in argv:
         if pending_value:
-            # The value of a flag consumed on the previous iteration — never a target, even though
+            # The value of a flag consumed on the previous iteration, never a target, even though
             # it does not start with `-` (`--env DAY_DEMO_ROUTE=canvas`).
             passthrough.append(arg)
             pending_value = False
@@ -201,7 +201,7 @@ def main():
         return 2
 
     # --- the CLI from this checkout -------------------------------------------------------------
-    # Even a dry run builds it: the target catalog it prints is the whole point of resolving here.
+    # Even a dry run builds it: resolving here is what produces the target catalog it prints.
     step("Building the day CLI")
     if subprocess.run(
         ["cargo", "build", "-p", "day-cli"], cwd=str(ROOT), stdout=subprocess.DEVNULL
@@ -233,7 +233,7 @@ def main():
     step("Launching showcase: %s" % " ".join(targets))
     if os.name != "nt":
         os.execv(str(day), argv)  # replace this process, as the shell version does
-    # Windows has no exec that REPLACES the caller: os.execv there spawns a new process and exits
+    # Windows has no exec that replaces the caller: os.execv there spawns a new process and exits
     # this one, handing the console back while the app is still running and detaching it from
     # Ctrl-C. Stay alive as a thin wrapper and forward the status instead.
     try:

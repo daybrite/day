@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `#[derive(Model)]`: the generated schema half, checked without a database — and one
+//! `#[derive(Model)]`: the generated schema half, checked without a database, and one
 //! container round-trip through the Recorder to show the derive and the runtime agree.
 
 use day_macros::Model;

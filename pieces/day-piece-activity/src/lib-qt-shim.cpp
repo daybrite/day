@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // The activity piece's own Qt shim behind a flat C ABI. Qt ships no native spinner widget, so the
-// idiomatic indeterminate indicator is a QProgressBar in busy mode (min == max == 0) — the same
+// idiomatic indeterminate indicator is a QProgressBar in busy mode (min == max == 0), the same
 // approach day-qt-sys uses for `spinner()` (docs/progress.md). Only Qt6Widgets is needed (day-qt-sys
 // already links it), so build.rs compiles this with the Qt6Widgets --cflags and emits no extra libs.
 //

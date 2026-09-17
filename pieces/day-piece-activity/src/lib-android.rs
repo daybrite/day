@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Android: android.widget.ProgressBar — the default style is a circular indeterminate spinner, so
-// this piece adds ZERO Gradle dependencies and no permissions. The Java factory
+// Android: android.widget.ProgressBar: the default style is a circular indeterminate spinner, so
+// this piece adds no Gradle dependencies and no permissions. The Java factory
 // (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with this crate in `src/DayActivity.java`
 // and pulled into the app's Gradle build via `[package.metadata.day.android]`, using only
-// day-android's PUBLIC Java surface (DayBridge.ctx). See docs/extending.md.
+// day-android's public Java surface (DayBridge.ctx). See docs/extending.md.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -15,7 +15,7 @@ use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
-/// This piece's OWN Java class (src/DayActivity.java, on the app classpath at build).
+/// This piece's Java class (src/DayActivity.java, on the app classpath at build).
 const ACTIVITY_CLASS: &str = "dev/daybrite/day/piece/activity/DayActivity";
 
 fn make(_backend: &mut Android, p: &ActivityProps, _id: NodeId) -> AHandle {

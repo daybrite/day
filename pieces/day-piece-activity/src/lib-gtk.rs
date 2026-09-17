@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// GTK: gtk4::Spinner — the native GTK activity indicator. `start()`/`stop()` run/stop the spin.
+// GTK: gtk4::Spinner, the native GTK activity indicator. `start()`/`stop()` run/stop the spin.
 // GtkSpinner scales to its allocation and its natural size is small, so a `set_size_request` gives
 // it a stable, visible square (larger for `.large`). A stopped spinner stays on screen (drawn
 // static), matching the other backends.

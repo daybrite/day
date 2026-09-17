@@ -34,7 +34,7 @@ fn a_disposed_scope_gives_its_triggers_back() {
     let store = store();
     let before = day_model::observed_paths();
 
-    // Observation happens through COMPUTATIONS: three bindings, three fields of two elements.
+    // Observation happens through computations: three bindings, three fields of two elements.
     let page = Scope::child();
     page.enter(|| {
         day_reactive::bind(
@@ -173,7 +173,7 @@ fn a_reclaimed_path_still_works_when_someone_looks_again() {
     flush_sync();
     page.dispose();
 
-    // Fresh trigger, same behavior — a trigger holds only a counter.
+    // Fresh trigger, same behavior: a trigger holds only a counter.
     let seen: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
     let s = seen.clone();
     let again = Scope::child();
@@ -255,7 +255,7 @@ fn a_stale_handle_heals_after_reclamation() {
     });
     page.dispose(); // the element's interner slot is freed with its trigger
 
-    // A NEW observer interns the element afresh — a different id under the hood.
+    // A new observer interns the element afresh, under a different id.
     let runs = Rc::new(Cell::new(0usize));
     let r = runs.clone();
     let watcher = Scope::child();
@@ -273,7 +273,7 @@ fn a_stale_handle_heals_after_reclamation() {
     flush_sync();
     let base = runs.get();
 
-    // Write through the STALE handle.
+    // Write through the stale handle.
     held.write("edited".into());
     flush_sync();
 
@@ -290,7 +290,7 @@ fn a_stale_handle_heals_after_reclamation() {
 }
 
 /// The recycling shape: One long-lived binding whose tracked row rotates. Claims made from
-/// inside a computation belong to its current RUN and are released on re-track — so old rows'
+/// inside a computation belong to its current run and are released on re-track, so old rows'
 /// triggers and interner slots do not pile up behind a recycled list cell.
 #[test]
 fn a_rebinding_computation_releases_the_paths_it_left() {
@@ -338,8 +338,8 @@ fn a_rebinding_computation_releases_the_paths_it_left() {
     page.dispose();
 }
 
-/// Attribution: a claim made during a RE-run (which executes from the flush, not from inside
-/// the binding's scope) still belongs to the binding — disposing its scope reclaims everything.
+/// Attribution: a claim made during a re-run (which executes from the flush, not from inside
+/// the binding's scope) still belongs to the binding; disposing its scope reclaims everything.
 #[test]
 fn a_re_run_binding_is_still_reclaimed_after_its_scope_dies() {
     use day_reactive::{Binding as _, flush_sync};

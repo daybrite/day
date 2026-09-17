@@ -8,8 +8,8 @@ import android.util.DisplayMetrics;
 
 /** A secondary day window (docs/windows.md): a document-style Activity hosting one day
  *  window root. Launched by DayBridge.openWindow with the day node id and title as extras
- *  (NEW_DOCUMENT | MULTIPLE_TASK — its own recents entry; side-by-side in split-screen /
- *  freeform / desktop windowing). The cdylib is already loaded and native already running —
+ *  (NEW_DOCUMENT | MULTIPLE_TASK: its own recents entry; side-by-side in split-screen /
+ *  freeform / desktop windowing). The cdylib is already loaded and native already running;
  *  this activity only builds a root, completes the pending open, and reports its lifecycle
  *  to the window's day root node. */
 public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
@@ -80,7 +80,7 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
                     started = true;
                     root.post(new Runnable() { public void run() {
                         // Completes the pending day::open_window; false = closed before
-                        // we connected — drop this activity again.
+                        // we connected, so drop this activity again.
                         if (!DayBridge.nativeStartWindow(root, node, dm.density,
                                 root.getWidth(), root.getHeight())) {
                             finish();

@@ -4,21 +4,21 @@
 //! iOS and macOS: `UNUserNotificationCenter`, one framework covering both OSes and both immediate
 //! and scheduled delivery.
 //!
-//! Scheduling is OS-HELD: a `UNTimeIntervalNotificationTrigger` fires even if the app has exited,
+//! Scheduling is OS-held: a `UNTimeIntervalNotificationTrigger` fires even if the app has exited,
 //! which is what lets an alarm ring without a background process. That is also why the content is
-//! snapshotted at post time — the notification is rendered by the system, not by the app.
+//! snapshotted at post time: the notification is rendered by the system, not by the app.
 //!
-//! AUTHORIZATION is deliberately not requested here. day-part-permissions owns
-//! `Permission::Notifications` on every platform, and duplicating the prompt would mean two crates
-//! racing to ask. Note what that costs: `getNotificationSettings` is block-based, so this arm
-//! cannot synchronously tell "denied" from "allowed" and never returns `PermissionDenied` — an
-//! unauthorized post is accepted here and dropped by the system. An app that wants to explain the
-//! silence asks day-part-permissions for the status.
+//! Authorization is not requested here. day-part-permissions owns `Permission::Notifications` on
+//! every platform, and duplicating the prompt would mean two crates racing to ask. Note what that
+//! costs: `getNotificationSettings` is block-based, so this arm cannot synchronously tell "denied"
+//! from "allowed" and never returns `PermissionDenied`; an unauthorized post is accepted here and
+//! dropped by the system. An app that wants to explain the silence asks day-part-permissions for
+//! the status.
 //!
-//! macOS caveat worth knowing when nothing appears: `UNUserNotificationCenter` requires a SIGNED,
-//! BUNDLED app with a bundle identifier. `day pack` produces one; a bare `cargo run` binary does
-//! not, and there the center itself is nil — reported here as `Unsupported` rather than a silent
-//! no-op (docs/notify.md).
+//! macOS caveat when nothing appears: `UNUserNotificationCenter` requires a signed, bundled app
+//! with a bundle identifier. `day pack` produces one; a bare `cargo run` binary does not, and
+//! there the center itself is nil, reported here as `Unsupported` rather than a silent no-op
+//! (docs/notify.md).
 
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
@@ -34,7 +34,7 @@ use crate::{Capabilities, Channel, Importance, NotifId, Notification, NotifyErro
 
 pub(crate) fn capabilities() -> Capabilities {
     // No center (an unbundled macOS binary) means nothing works, so every capability must read
-    // false — reporting `badge: true` beside `post: false` would have a UI offer a control that
+    // false; reporting `badge: true` beside `post: false` would have a UI offer a control that
     // cannot fire.
     if center().is_none() {
         return Capabilities::default();
@@ -44,11 +44,11 @@ pub(crate) fn capabilities() -> Capabilities {
         // The system holds the trigger, so it fires with the app dead.
         schedule_while_dead: true,
         // Apple has no user-facing per-channel settings model; a channel still groups (thread
-        // identifier) and carries importance, so this reports the honest `false`.
+        // identifier) and carries importance, so this reports `false`.
         channels: false,
         badge: true,
         // A custom small icon needs a UNNotificationAttachment, which is a file-URL image rather
-        // than a named resource — out of scope for this phase.
+        // than a named resource; out of scope for this phase.
         icon: false,
         tap_route: true,
         // UNTimeIntervalNotificationTrigger fires on time; the system does not defer it.
@@ -69,7 +69,7 @@ fn center() -> Option<objc2::rc::Retained<UNUserNotificationCenter>> {
     Some(UNUserNotificationCenter::currentNotificationCenter())
 }
 
-/// Apple has no channel registry to populate — importance and grouping ride on each notification —
+/// Apple has no channel registry to populate (importance and grouping ride on each notification),
 /// so registration only records the channel for later lookup.
 pub(crate) fn register_channel(channel: &Channel) {
     super::channels::remember(channel);
@@ -77,7 +77,7 @@ pub(crate) fn register_channel(channel: &Channel) {
 
 define_class!(
     // The delegate decides what a notification does while the app is running. Without one, iOS
-    // treats a foreground notification as already-seen and shows nothing — which is why tapping
+    // treats a foreground notification as already-seen and shows nothing, which is why tapping
     // "Post" in the open app appeared to do nothing at all.
     #[unsafe(super(NSObject))]
     // Creatable from any thread: the first `post` may run wherever the app called it.
@@ -131,7 +131,7 @@ define_class!(
 const ROUTE_KEY: &str = "day.route";
 
 /// Install the delegate once. It must be set before a tap can be delivered, and `UNUserNotification`
-/// keeps only a weak reference, so the instance is leaked deliberately — it lives for the process.
+/// keeps only a weak reference, so the instance is leaked; it lives for the process.
 fn install_delegate(center: &UNUserNotificationCenter) {
     use std::sync::Once;
     static ONCE: Once = Once::new();

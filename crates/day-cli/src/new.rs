@@ -5,22 +5,23 @@
 //!
 //! * `day new piece <name>`: a composite piece (pure composition, every backend without any
 //!   per-backend code).
-//! * `day new piece <name> --toolkits <csv>`: a native piece (a distinct native control per toolkit,
-//!   registered link-time with `renderer!`).
-//! * `day new part <name> [--platforms <csv>]`: a headless part (a cross-platform capability with no
-//!   UI, dispatched by `#[cfg(target_os)]`).
+//! * `day new piece <name> --toolkits <csv>`: a native piece (a distinct native control per
+//!   toolkit, registered link-time with `renderer!`).
+//! * `day new part <name> [--platforms <csv>]`: a headless part (a cross-platform capability with
+//!   no UI, dispatched by `#[cfg(target_os)]`).
 //!
 //! Every scaffold is its own cargo workspace, carries a README + .gitignore, and builds out of the
 //! box. A piece also gets `demo/`: the app template, written by the same code as `day new app` and
 //! cut to one page that shows the piece (`--no-demo` skips it).
 //!
-//! Dependencies default to the **`day` git remote**, because the framework crates are not published to
-//! crates.io yet; `--registry` writes **versioned crates.io** deps pinned to this CLI's own version
-//! (`day-cli x.y.z` scaffolds against `day x.y.z`) for when they are, and the hidden `--local <path>` flag
-//! (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local `day` checkout, which CI uses to build
-//! a freshly-scaffolded crate against the day tree under test. `--day-version <spec>` pins whichever of
-//! those applies to one day: a `vX.Y.Z` tag, a branch, a commit, or (with `--registry`) a crates.io
-//! version. `day checkup` drives that flag to check several days from one CLI.
+//! Dependencies default to the **`day` git remote**, because the framework crates are not published
+//! to crates.io yet; `--registry` writes **versioned crates.io** deps pinned to this CLI's own
+//! version (`day-cli x.y.z` scaffolds against `day x.y.z`) for when they are, and the hidden
+//! `--local <path>` flag (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local `day`
+//! checkout, which CI uses to build a freshly-scaffolded crate against the day tree under test.
+//! `--day-version <spec>` pins whichever of those applies to one day: a `vX.Y.Z` tag, a branch, a
+//! commit, or (with `--registry`) a crates.io version. `day checkup` drives that flag to check
+//! several days from one CLI.
 
 use std::path::{Path, PathBuf};
 
@@ -1618,8 +1619,8 @@ name = "{name}"
 version = "0.1.0"
 edition = "2024"
 
-# A COMPOSITE Day piece: a reusable widget built PURELY from Day's core primitives — no native /
-# per-backend code and no cargo features, so it works on every toolkit. Depend on it with a
+# A composite Day piece: a reusable widget built purely from Day's core primitives, with no native
+# or per-backend code and no cargo features, so it works on every toolkit. Depend on it with a
 # plain `{{ workspace = true }}` (or git) line and call the builder from `use day::prelude::*` code.
 
 [dependencies]
@@ -1756,7 +1757,7 @@ fn native_piece_files(
     if has("uikit") {
         meta.push_str(
             "\n# Standalone-piece iOS contribution: system frameworks to link, and any SwiftPM packages\n\
-             # or Swift shim dirs. A plain UITextField needs none — left empty as a template.\n\
+             # or Swift shim dirs. A plain UITextField needs none; it is left empty as a template.\n\
              [package.metadata.day.ios]\n\
              frameworks = []\n\
              # swift = [\"platform/ios/swift\"]\n\
@@ -1795,9 +1796,9 @@ name = "{name}"
 version = "0.1.0"
 edition = "2024"
 {build_line}
-# A NATIVE Day piece: a two-way text input realized as a DISTINCT native control per toolkit,
+# A native Day piece: a two-way text input realized as a distinct native control per toolkit,
 # registered link-time into each backend's renderer slice without touching any core day crate.
-# Depend on it with a plain `{{ workspace = true }}` (or git) line — `day` unions `<pkg>/<backend>`
+# Depend on it with a plain `{{ workspace = true }}` (or git) line; `day` unions `<pkg>/<backend>`
 # into the app build, so an app never re-lists these per-backend features.
 
 [features]
@@ -1933,7 +1934,7 @@ fn part_files(
     let mut dep_sections = String::new();
     if has("android") {
         dep_sections.push_str(&format!(
-            "\n# Android reads through a Java shim + day-android's cached JVM/Context — the one platform\n\
+            "\n# Android reads through a Java shim + day-android's cached JVM/Context, the one platform\n\
              # where a headless part rides on the day runtime (like the pieces' Android backends).\n\
              [target.'cfg(target_os = \"android\")'.dependencies]\n{}\n",
             deps.dep("day-android", ""),
@@ -1955,7 +1956,7 @@ fn part_files(
     if has("ios") || has("macos") {
         meta.push_str(
             "\n# System frameworks the app must link on iOS (Rust `#[link]` is honored only when cargo\n\
-             # drives the final link — on iOS xcodebuild links the staticlib and ignores it). Empty template.\n\
+             # drives the final link; on iOS xcodebuild links the staticlib and ignores it). Empty template.\n\
              [package.metadata.day.ios]\n\
              frameworks = []\n",
         );
@@ -1967,9 +1968,9 @@ name = "{name}"
 version = "0.1.0"
 edition = "2024"
 
-# A HEADLESS Day part: a cross-platform capability with no UI. Any Rust code can depend on it and call
-# `{ident}::status()`. Platform selection is by `#[cfg(target_os)]` (it depends on the OS, not a widget
-# toolkit), so there are no backend features — it "just works" per target.
+# A headless Day part: a cross-platform capability with no UI. Any Rust code can depend on it and
+# call `{ident}::status()`. Platform selection is by `#[cfg(target_os)]` (it depends on the OS, not
+# a widget toolkit), so there are no backend features; it just works per target.
 
 [dependencies]
 # Most platforms need no crates for a native reading (plain std / C FFI). Add per-platform deps as you
@@ -2116,10 +2117,10 @@ const NATIVE_LIB: &str = r#"//! __CRATE__, a native Day piece: a two-way text in
 //! toolkit (NSTextField / GtkEntry / a QLineEdit shim / UITextField / an Android EditText / a XAML
 //! TextBox), registered link-time into each backend's renderer slice without touching day.
 //!
-//! It is bound **two-way** to a `Signal<String>`: a native edit dispatches `Event::TextChanged` back
-//! to Rust which `set`s the signal, and an external signal change patches the control via
-//! [`__PASCAL__Patch::SetText`]. A per-build echo guard remembers the last value that arrived from the
-//! native control so its own change is not written straight back (a feedback loop).
+//! It is bound **two-way** to a `Signal<String>`: a native edit dispatches `Event::TextChanged`
+//! back to Rust which `set`s the signal, and an external signal change patches the control via
+//! [`__PASCAL__Patch::SetText`]. A per-build echo guard remembers the last value that arrived from
+//! the native control so its own change is not written straight back (a feedback loop).
 //!
 //! ```ignore
 //! let text = Signal::new(String::new());
@@ -2223,9 +2224,9 @@ impl Piece for __PASCAL__ {
 __MOD_DECLS__
 "#;
 
-const APPKIT_IMPL: &str = r#"// AppKit: an editable NSTextField. A per-node delegate implements controlTextDidChange: and dispatches
-// Event::TextChanged; programmatic setStringValue does not fire the delegate (no echo guard needed on
-// this backend; update only writes when the value differs).
+const APPKIT_IMPL: &str = r#"// AppKit: an editable NSTextField. A per-node delegate implements controlTextDidChange:
+// and dispatches Event::TextChanged; programmatic setStringValue does not fire the delegate (no
+// echo guard needed on this backend; update only writes when the value differs).
 
 use super::*;
 use std::cell::RefCell;
@@ -2500,8 +2501,9 @@ void day___SNAKE___set_text(void *w, const char *text) {
 } // extern "C"
 "#;
 
-const UIKIT_IMPL: &str = r#"// UIKit: a UITextField. A per-node target fires on UIControlEvents::EditingChanged and dispatches
-// Event::TextChanged; programmatic setText does not fire EditingChanged (no echo guard needed here).
+const UIKIT_IMPL: &str = r#"// UIKit: a UITextField. A per-node target fires on UIControlEvents::EditingChanged and
+// dispatches Event::TextChanged; programmatic setText does not fire EditingChanged (no echo guard
+// needed here).
 
 use super::*;
 use std::cell::RefCell;
@@ -2654,9 +2656,10 @@ day_pieces::renderer!(day_android::RENDERERS, Android,
     make: make, update: update, measure: measure);
 "#;
 
-const ANDROID_JAVA: &str = r#"// This piece's Android factory, bundled with the crate and pulled into the app's Gradle build
-// via [package.metadata.day.android], without touching day-android. It uses only day-android's public
-// Java surface: DayBridge.ctx (the Android Context) and DayBridge.nativeOnEvent (the event trampoline).
+const ANDROID_JAVA: &str = r#"// This piece's Android factory, bundled with the crate and pulled into the app's Gradle
+// build via [package.metadata.day.android], without touching day-android. It uses only
+// day-android's public Java surface: DayBridge.ctx (the Android Context) and
+// DayBridge.nativeOnEvent (the event trampoline).
 package __PKG_DOTS__;
 
 import android.text.Editable;
@@ -3119,7 +3122,7 @@ pub fn status() -> Option<Sample> {
 
 __CFG_MODS__
 
-// Any other platform: no native API. (The mandatory catch-all, which keeps the crate building everywhere.)
+// Any other platform: no native API. This mandatory catch-all keeps the crate building everywhere.
 #[cfg(not(any(
     __NOT_ANY__
 )))]

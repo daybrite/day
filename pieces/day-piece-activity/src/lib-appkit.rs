@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: NSProgressIndicator in the Spinning style — the native macOS activity indicator.
+// AppKit: NSProgressIndicator in the Spinning style, the native macOS activity indicator.
 // `setIndeterminate(true)` + `startAnimation:`/`stopAnimation:` run/stop the spin; `.large` maps to
 // `controlSize` (Large vs Regular). `setDisplayedWhenStopped(true)` keeps a stopped indicator on
 // screen (a frozen indicator, matching UIKit's `hidesWhenStopped = false`) rather than vanishing.

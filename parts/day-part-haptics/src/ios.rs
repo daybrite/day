@@ -3,10 +3,10 @@
 
 // iOS: UIKit's feedback generators. The three impact intensities go through
 // UIImpactFeedbackGenerator, the three notification outcomes through UINotificationFeedbackGenerator,
-// and a selection tick through UISelectionFeedbackGenerator — the standard Apple mapping (see the
+// and a selection tick through UISelectionFeedbackGenerator, the standard Apple mapping (see the
 // `Haptic` doc). These classes are MainThreadOnly and day runs on the main thread; if somehow called
 // off it, MainThreadMarker::new() returns None and we no-op. The Simulator has no Taptic engine, so
-// the calls are silently ignored there — they must not (and do not) crash.
+// the calls are silently ignored there; they must not (and do not) crash.
 
 use super::Haptic;
 use objc2::{MainThreadMarker, MainThreadOnly};

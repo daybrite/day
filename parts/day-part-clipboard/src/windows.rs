@@ -1,16 +1,16 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Windows: the Win32 clipboard — OpenClipboard/EmptyClipboard/SetClipboardData with
+// Windows: the Win32 clipboard. OpenClipboard/EmptyClipboard/SetClipboardData with
 // CF_UNICODETEXT (UTF-16, NUL-terminated, in a GMEM_MOVEABLE global that the clipboard takes
-// ownership of) and GetClipboardData/GlobalLock to read. Raw FFI — no dependencies. Written blind
+// ownership of) and GetClipboardData/GlobalLock to read. Raw FFI, no dependencies. Written blind
 // (no Windows host); compiled only on the windows target.
 
 use std::os::raw::{c_int, c_void};
 
 type Handle = *mut c_void;
 
-/// CF_UNICODETEXT — UTF-16 text. Windows synthesizes it from CF_TEXT and vice versa, so this one
+/// CF_UNICODETEXT is UTF-16 text. Windows synthesizes it from CF_TEXT and vice versa, so this one
 /// format covers any text on the clipboard.
 const CF_UNICODETEXT: u32 = 13;
 const GMEM_MOVEABLE: u32 = 0x0002;
@@ -72,7 +72,7 @@ pub fn get_text() -> Option<String> {
             return None;
         }
         let result = (|| {
-            // The clipboard owns this handle — lock, copy out, unlock; never free it.
+            // The clipboard owns this handle: lock, copy out, unlock; never free it.
             let mem = GetClipboardData(CF_UNICODETEXT);
             if mem.is_null() {
                 return None;
@@ -95,6 +95,6 @@ pub fn get_text() -> Option<String> {
 }
 
 pub fn has_text() -> bool {
-    // Format probe — no OpenClipboard needed.
+    // Format probe; no OpenClipboard needed.
     unsafe { IsClipboardFormatAvailable(CF_UNICODETEXT) != 0 }
 }

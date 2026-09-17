@@ -3,11 +3,12 @@
 
 // Re-arms scheduled notifications after a reboot.
 //
-// Why THIS EXISTS. A restart clears every AlarmManager alarm, so without this a notification
-// scheduled for tomorrow morning silently never fires if the phone is rebooted tonight — the
+// Why this exists. A restart clears every AlarmManager alarm, so without this a notification
+// scheduled for tomorrow morning silently never fires if the phone is rebooted tonight, the
 // failure this crate persists its payloads to avoid. Declared through the crate's
-// platform/android/components.xml, and the RECEIVE_BOOT_COMPLETED permission it needs is contributed by the
-// crate's [package.metadata.day.android].permissions (it is structural: no prompt, no reason).
+// platform/android/components.xml, and the RECEIVE_BOOT_COMPLETED permission it needs is
+// contributed by the crate's [package.metadata.day.android].permissions (it is structural: no
+// consent prompt and no reason string).
 package dev.daybrite.day.notify;
 
 import android.app.AlarmManager;

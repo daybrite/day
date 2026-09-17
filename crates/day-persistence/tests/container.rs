@@ -292,8 +292,8 @@ fn a_wholesale_rewrite_resyncs_the_table() {
         .into_iter()
         .filter(|s| !matches!(s.as_str(), "BEGIN" | "COMMIT"))
         .collect();
-    // The cache is a WORKING SET: a wholesale rewrite upserts what it holds and touches
-    // nothing else — rows outside the cache were never part of the rewrite, and deleting
+    // The cache is a working set: a wholesale rewrite upserts what it holds and touches
+    // nothing else. Rows outside the cache were never part of the rewrite, and deleting
     // "the rest" would delete data the rewrite never saw. Deleting is an explicit act.
     assert_eq!(sql.len(), 2, "{sql:?}");
     assert!(sql.iter().all(|s| s.starts_with("INSERT INTO")));
@@ -304,7 +304,7 @@ fn autosave_flushes_at_turn_end() {
     let (container, log) = open_with_one_note();
     let store = container.cache::<Note>();
 
-    // A turn only drains when something observes — as the UI always does. One binding
+    // A turn only drains when something observes, as the UI always does. One binding
     // stands in for it.
     day_reactive::Effect::new(move || {
         store.elem(1).title().read();

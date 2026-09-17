@@ -7,7 +7,7 @@
 // ClipboardManager needs a `Context` and has no C entry point, so it is this crate's only foreign
 // arm (docs/bridge.md). Written in Java rather than Kotlin so it compiles in any Android project.
 //
-// Note: since Android 10, apps can only READ the clipboard while they hold input focus —
+// Note: since Android 10, apps can only read the clipboard while they hold input focus, so
 // `get_text`/`has_text` answer empty/false in the background. Writing is always allowed.
 
 pub fn set_text(text: &str) -> bool {
@@ -87,7 +87,7 @@ day_bridge::bridge! {
     );
 
     // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
-    // never compiled — it satisfies the rule that a bridge always has an answer for an unclaimed
+    // never compiled; it satisfies the rule that a bridge always has an answer for an unclaimed
     // target.
     #[day_bridge::impl(rust, platforms = [other])]
     fn set_text_native(_text: &str) -> Result<bool, day_bridge::Error> {

@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The remote-image piece's OWN Android factory — bundled with the day-piece-remote-image crate and
+// The remote-image piece's Android factory, bundled with the day-piece-remote-image crate and
 // pulled into the app's Gradle build automatically (via [package.metadata.day.android] →
-// day-pieces.json), with ZERO edits to day-android. It uses only day-android's PUBLIC Java surface:
+// day-pieces.json), with no edits to day-android. It uses only day-android's public Java surface:
 // DayBridge.ctx (the Android Context). An ImageView decodes the pushed bytes with BitmapFactory;
-// the circle / rounded clip is a ViewOutlineProvider + setClipToOutline (resize-correct — the
+// the circle / rounded clip is a ViewOutlineProvider + setClipToOutline (resize-correct: the
 // outline is recomputed against the view's current size), and the placeholder is the view's
 // background color, shown while there is no bitmap.
 package dev.daybrite.day.piece.remoteimage;

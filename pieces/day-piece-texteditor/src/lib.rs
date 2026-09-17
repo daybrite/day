@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-texteditor — a styled-text editor bound two-way to a `Signal<StyledText>`
+//! day-piece-texteditor: a styled-text editor bound two-way to a `Signal<StyledText>`
 //! (docs/texteditor.md).
 //!
 //! ```ignore
@@ -22,17 +22,17 @@
 //! write, in each platform's own rich-text view: `NSTextView`, `UITextView`, `GtkTextView`,
 //! `QTextEdit`, an `EditText` over a `SpannableStringBuilder`, `RichEditBox`, the ArkTS
 //! `RichEditor`, and a `contenteditable` element. There is **no composed tier** and there must not
-//! be one — a hand-rolled editor loses IME composition, bidirectional cursor movement, the
+//! be one: a hand-rolled editor loses IME composition, bidirectional cursor movement, the
 //! platform's undo stack, dictation, and the accessibility tree, and loses them invisibly.
 //!
 //! ## Who owns the attributes
 //!
-//! Day does. The native view owns the *characters* — typing, deletion, IME, undo, autocorrect —
+//! Day does. The native view owns the *characters* (typing, deletion, IME, undo, autocorrect)
 //! and reports them as [`Event::TextChanged`]; the piece diffs that against the text it last knew,
 //! reflows its runs over the edit ([`StyledText::reflow`]), and writes the signal. Attributes only
 //! ever travel Day → native.
 //!
-//! That is why every arm turns the platform's own formatting UI OFF (iOS's
+//! That is why every arm turns the platform's own formatting UI off (iOS's
 //! `allowsEditingTextAttributes`, the macOS font panel) rather than reading it back: an editor
 //! whose attributes can change from two directions has to reconcile them, and reconciling an
 //! attributed string across eight toolkits is a much larger promise than this piece makes.
@@ -57,8 +57,8 @@ pub const KIND: &str = "day.piece.texteditor";
 /// offsets, which every arm converts into from its own indexing.
 pub const SEL_PREFIX: &str = "sel ";
 
-/// The prefix a TEXT report carries on the same channel, for a backend whose piece bridge can
-/// only send `Event::Custom` — HarmonyOS's ArkTS side is the one that has to: `"txt <the text>"`,
+/// The prefix a text report carries on the same channel, for a backend whose piece bridge can
+/// only send `Event::Custom` (HarmonyOS's ArkTS side is the one that has to): `"txt <the text>"`,
 /// the whole document, exactly as [`Event::TextChanged`] carries it.
 pub const TEXT_PREFIX: &str = "txt ";
 
@@ -92,7 +92,7 @@ impl Default for EditorProps {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditorPatch {
-    /// Replace the text AND its attributes. Moves the caret, so it is sent only when the text
+    /// Replace both the text and its attributes. Moves the caret, so it is sent only when the text
     /// itself changed under the app's hand.
     SetDocument(StyledText),
     /// Restyle text the native view already holds, preserving the selection and the undo stack.
@@ -115,7 +115,7 @@ pub enum EditorPatch {
 
 /// Whether the compiled backend edits styled text natively.
 ///
-/// [`Support::Native`] on all eight toolkits — every one ships a rich-text view
+/// [`Support::Native`] on all eight toolkits; every one ships a rich-text view
 /// (docs/texteditor.md). [`Support::Emulated`] only on the headless mock and on an external
 /// toolkit with no arm, where the piece degrades to plain text: the characters round-trip and the
 /// styling does not.
@@ -149,9 +149,9 @@ pub struct TextEditor {
     spellcheck: bool,
 }
 
-/// `text_editor(doc)` — the platform's rich-text view over a [`StyledText`] signal.
+/// `text_editor(doc)`: the platform's rich-text view over a [`StyledText`] signal.
 pub fn text_editor(doc: Signal<StyledText>) -> TextEditor {
-    // web-dom's registry is populated at RUNTIME (no `linkme` on wasm), and a constructor always
+    // web-dom's registry is populated at runtime (no `linkme` on wasm), and a constructor always
     // runs before the node it returns is realized.
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
     dom_impl::register();
@@ -246,7 +246,7 @@ impl Piece for TextEditor {
             },
         );
 
-        // The text the NATIVE view is known to hold. Two jobs: it is what an incoming
+        // The text the native view is known to hold. Two jobs: it is what an incoming
         // `TextChanged` is diffed against to recover the edit, and it is what an outgoing patch
         // is compared against to decide whether the text changed at all (which decides between
         // replacing the document and repainting its attributes).
@@ -274,11 +274,11 @@ impl Piece for TextEditor {
             );
         }
 
-        // The selection the NATIVE view last reported, and the same echo guard `native_text` is:
+        // The selection the native view last reported, and the same echo guard `native_text` is:
         // a caret move the user made must not be written back to the view it came from.
         //
         // Writing it back is not merely redundant. A `selectionchange` fires on every mouse-move
-        // of a drag, and re-setting the selection mid-drag re-anchors it — on the web
+        // of a drag, and re-setting the selection mid-drag re-anchors it; on the web
         // (`removeAllRanges` + `addRange`) that visibly collapses the selection the user is in
         // the middle of making, so a drag cannot select anything at all.
         let native_sel: Rc<RefCell<Option<std::ops::Range<usize>>>> = Rc::new(RefCell::new(None));
@@ -308,7 +308,7 @@ impl Piece for TextEditor {
                 move |s: &RunStyle| {
                     // Recorded as well as patched. A native `typingAttributes` styles the
                     // keystroke, but Day's own attribute patch lands a moment later and would
-                    // repaint it from the model — so the model has to learn the style too.
+                    // repaint it from the model, so the model has to learn the style too.
                     *typing_now.borrow_mut() = Some(s.clone());
                     with_tree(|t| {
                         t.patch(
@@ -335,7 +335,7 @@ impl Piece for TextEditor {
         let edited = move |new_text: &str| {
             let old = native_text.borrow().clone();
             if old == new_text {
-                // The echo of a patch Day just sent. Nothing changed, so nothing to write — which
+                // The echo of a patch Day just sent. Nothing changed, so nothing to write, which
                 // is what keeps `SetDocument` from looping.
                 return;
             }
@@ -344,7 +344,7 @@ impl Piece for TextEditor {
             let pending = typing_now.borrow().clone();
             doc.update(|d| {
                 d.text = new_text.to_string();
-                // Inserted text inherits the run it landed in — which is what an editor does when
+                // Inserted text inherits the run it landed in, which is what an editor does when
                 // nothing is pending, and what typing at the end of a bold word should do. A
                 // pending typing style then overrides exactly the new characters.
                 d.reflow(offset, removed, inserted);
@@ -369,7 +369,7 @@ impl Piece for TextEditor {
                 };
                 // The caret's own style becomes the pending one, so a toolbar bound to it reads
                 // the text the caret sits in and typing continues that text's style. An app write
-                // lands the same way and simply wins until the caret moves again.
+                // lands the same way and wins until the caret moves again.
                 //
                 // `set_if_changed`, because this runs on every mouse-move of a drag: an unchanged
                 // style would patch the native typing attributes hundreds of times for nothing.
@@ -394,8 +394,8 @@ impl Piece for TextEditor {
 ///
 /// The whole reason a keystroke does not need the backend's cooperation. A common prefix and a
 /// common suffix bracket exactly what changed, which for one keystroke, one deletion, one paste or
-/// one autocorrect IS the edit. An edit that touched two separate places (a multi-cursor change)
-/// comes back as one span covering both — coarser, never wrong, and it costs only the styling
+/// one autocorrect is the edit. An edit that touched two separate places (a multi-cursor change)
+/// comes back as one span covering both: coarser, never wrong, and it costs only the styling
 /// between them.
 ///
 /// Both ends are pulled back to character boundaries, so a multi-byte character that changed
@@ -436,7 +436,7 @@ fn parse_selection(payload: &str) -> Option<std::ops::Range<usize>> {
 
 // ---------------------------------------------------------------------------
 // Offset conversion. Every arm speaks its toolkit's index unit and converts here, so the
-// arithmetic is written and tested once rather than eight times — an off-by-N here styles the
+// arithmetic is written and tested once rather than eight times; an off-by-N here styles the
 // wrong words, and only in text with an emoji or a CJK character.
 // ---------------------------------------------------------------------------
 
@@ -459,7 +459,7 @@ pub fn byte_of_utf16(text: &str, units: usize) -> usize {
     text.len()
 }
 
-/// A byte range as a CHARACTER range (GTK's `TextIter`, ArkUI's spans).
+/// A byte range as a character range (GTK's `TextIter`, ArkUI's spans).
 pub fn char_range(text: &str, r: &std::ops::Range<usize>) -> Option<(usize, usize)> {
     let start = text.get(..r.start)?.chars().count();
     let len = text.get(r.clone())?.chars().count();
@@ -479,13 +479,13 @@ pub fn selection_payload(start: usize, end: usize) -> String {
     format!("{SEL_PREFIX}{start} {end}")
 }
 
-/// The text payload for an arm that has only the custom channel — see [`TEXT_PREFIX`].
+/// The text payload for an arm that has only the custom channel; see [`TEXT_PREFIX`].
 pub fn text_payload(text: &str) -> String {
     format!("{TEXT_PREFIX}{text}")
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend.
+// Per-toolkit native renderers, one file per backend.
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);

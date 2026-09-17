@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The model-driven list's two promises, measured: a field edit costs the one widget showing
-//! it (no reload, no rebind, nothing cloned), and a recycled cell scrolled across the whole
-//! collection leaves no observation residue behind.
+//! it (the row neither reloads nor rebinds, and nothing is cloned), and a recycled cell
+//! scrolled across the whole collection leaves no observation residue behind.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -100,7 +100,7 @@ fn a_field_edit_patches_one_label_and_reloads_nothing() {
 #[test]
 fn an_order_edit_reloads_and_a_value_edit_does_not() {
     let store = store();
-    // A projection the ORDER of which depends on `done` (and nothing else).
+    // A projection whose order depends on `done` (and nothing else).
     let probe = boot(move || {
         list(
             store.rows(move || {
@@ -136,7 +136,7 @@ fn an_order_edit_reloads_and_a_value_edit_does_not() {
         "the projection does not read `name`, so it did not re-run"
     );
 
-    // A value the ORDER depends on: exactly one reload.
+    // A value the order depends on: exactly one reload.
     store.elem(2).done().update(|d| *d = !*d);
     flush_sync();
     assert_eq!(
@@ -147,7 +147,7 @@ fn an_order_edit_reloads_and_a_value_edit_does_not() {
 }
 
 /// The massive-list claim: One physical cell recycled across the whole collection. The slot's
-/// bindings re-track per rebind, and day-model's run-keyed claims release as they go — so the
+/// bindings re-track per rebind, and day-model's run-keyed claims release as they go, so the
 /// observation tables end where they began, not 200 rows deep.
 #[test]
 fn recycling_a_cell_across_the_collection_leaves_no_claims() {
@@ -184,7 +184,7 @@ fn recycling_a_cell_across_the_collection_leaves_no_claims() {
 }
 
 /// Correctness of following: after a rebind, the old row's writes no longer reach the cell and
-/// the NEW row's do — including through a two-way control bound once at build.
+/// the new row's do, including through a two-way control bound once at build.
 #[test]
 fn slot_bindings_follow_the_recycled_row() {
     let store = store();
@@ -226,7 +226,7 @@ fn slot_bindings_follow_the_recycled_row() {
         "a write to the cell's FORMER row does not wake it"
     );
 
-    // The NEW row is live — and the two-way control wrote through to it.
+    // The new row is live, and the two-way control wrote through to it.
     store.elem(5).name().write("new row".into());
     flush_sync();
     assert!(
@@ -237,9 +237,9 @@ fn slot_bindings_follow_the_recycled_row() {
     assert_eq!(tf, "new row", "the once-built control tracked the recycle");
 }
 
-/// Phase-2 regression probe: with a STANDING change sink installed (the persistence container's
+/// Phase-2 regression probe: with a standing change sink installed (the persistence container's
 /// shape) and a turn-end callback reading the store, every one of a burst of sequential field
-/// writes must still patch the row's label — the Showcase walkthrough caught a row label
+/// writes must still patch the row's label. The Showcase walkthrough caught a row label
 /// freezing partway through a rename.
 #[test]
 fn sequential_writes_keep_patching_under_a_change_sink() {
@@ -292,8 +292,8 @@ fn sequential_writes_keep_patching_under_a_change_sink() {
     day_model::remove_change_sink(sink);
 }
 
-/// A text patch inside a BOUND cell must re-lay-out that cell. Cell anchors live outside the
-/// window trees, so the window pass never reaches them — layout_now's dirty-cell sweep does.
+/// A text patch inside a bound cell must re-lay-out that cell. Cell anchors live outside the
+/// window trees, so the window pass never reaches them; layout_now's dirty-cell sweep does.
 /// Without it, a row label edited to longer text keeps the frame its old text measured and
 /// truncates the very text it was just given (the Showcase rename froze at "Re…").
 #[test]

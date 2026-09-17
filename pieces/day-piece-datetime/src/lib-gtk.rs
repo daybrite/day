@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// GTK: COMPOSED from native primitives — GTK4/libadwaita have no stock date or time picker
+// GTK: composed from native primitives, because GTK4/libadwaita have no stock date or time picker
 // (support() reports Emulated). Compact date = GtkMenuButton (label = the locale-formatted date,
-// via g_date_time_format "%x") opening a GtkCalendar in a GtkPopover — the GNOME-idiom popover
+// via g_date_time_format "%x") opening a GtkCalendar in a GtkPopover, the GNOME-idiom popover
 // chooser. Inline date = GtkCalendar. Time = linked GtkSpinButtons (h/m[/s]). GtkCalendar has no
 // min/max, so bounds ride the piece's own clamp: an out-of-range pick clamps in the signal and the
 // resulting patch snaps the calendar back. Echo-guarded like the picker's GTK renderer.
@@ -101,8 +101,8 @@ mod date_renderer {
             btn.set_popover(Some(&pop));
             (btn.clone().upcast::<gtk4::Widget>(), Some(btn))
         };
-        // Keep the compact label in sync with USER picks too (patches only cover signal changes
-        // that differ — a pick echoes through the signal and patches back idempotently).
+        // Keep the compact label in sync with user picks too (patches only cover signal changes
+        // that differ; a pick echoes through the signal and patches back idempotently).
         if let Some(btn) = &button {
             let btn = btn.clone();
             calendar.connect_day_selected(move |c| {
@@ -146,8 +146,8 @@ mod date_renderer {
 
     /// Drop the composed state when the widget goes away.
     ///
-    /// Without this the map grows by one entry per realized picker, and — worse — its key is
-    /// the widget's ADDRESS, which the allocator reuses: a later widget landing on a freed
+    /// Without this the map grows by one entry per realized picker, and, worse, its key is
+    /// the widget's address, which the allocator reuses: a later widget landing on a freed
     /// address would inherit the dead entry's calendar and drive the wrong one.
     fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
         DATES.with(|m| {
@@ -178,8 +178,8 @@ mod time_renderer {
     }
 
     fn make(_backend: &mut Gtk, p: &TimeProps, id: NodeId) -> gtk4::Widget {
-        // Both styles compose the same linked spin buttons — GNOME's own time-setting idiom
-        // (GTK has no clock widget at all); `Inline` vs `Compact` only matters where a real
+        // Both styles compose the same linked spin buttons, GNOME's time-setting idiom
+        // (GTK has no clock widget at all); `Inline` vs `Compact` only matters where an
         // embedded chooser exists.
         let suppress = Rc::new(Cell::new(false));
         let bx = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
@@ -251,8 +251,8 @@ mod time_renderer {
 
     /// Drop the composed state when the widget goes away.
     ///
-    /// Without this the map grows by one entry per realized picker, and — worse — its key is
-    /// the widget's ADDRESS, which the allocator reuses: a later widget landing on a freed
+    /// Without this the map grows by one entry per realized picker, and, worse, its key is
+    /// the widget's address, which the allocator reuses: a later widget landing on a freed
     /// address would inherit the dead entry's spin buttons and drive the wrong ones.
     fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
         TIMES.with(|m| {

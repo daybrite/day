@@ -1,12 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day metadata` — the machine-readable project interface (docs/cli.md).
+//! `day metadata`: the machine-readable project interface (docs/cli.md).
 //!
 //! IDE tooling (day-vscode) shells out to `day metadata --json` instead of parsing Day.toml
-//! itself, so the manifest format can evolve without breaking editors — and the target
+//! itself, so the manifest format can evolve without breaking editors, and the target
 //! catalog travels with the CLI instead of being hand-mirrored in each tool. The JSON
-//! envelope is VERSIONED and grow-only: add keys freely, never repurpose existing ones.
+//! envelope is versioned and grow-only: add keys freely, never repurpose existing ones.
 
 use crate::meta::Project;
 use crate::targets::{self, TargetKind};
@@ -50,7 +50,7 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
         })
         .collect();
     // Externally declared targets (docs/extending.md) ride the same catalog with two extra
-    // fields — `external` and the declaring `crate` — so tooling that groups or filters can
+    // fields (`external` and the declaring `crate`) so tooling that groups or filters can
     // tell them apart. Grow-only, per the envelope's contract. A discovery failure degrades to
     // the builtin catalog with a warning: metadata is read by editors, which must keep working
     // while a Cargo.toml is mid-edit.
@@ -71,7 +71,7 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
         }
         Err(e) => eprintln!("warning: external toolkit discovery failed: {e}"),
     }
-    // Per-target identity after [app.<key>] overrides — what each target actually builds with.
+    // Per-target identity after [app.<key>] overrides: what each target builds with.
     let resolved: serde_json::Map<String, serde_json::Value> = m
         .app
         .targets
@@ -144,7 +144,7 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
     Ok(())
 }
 
-/// The app's declared permissions, resolved from Day.toml alone — no `cargo metadata`, so
+/// The app's declared permissions, resolved from Day.toml alone (no `cargo metadata`), so
 /// `day metadata` stays as fast as it has always been. Library contributions are therefore not
 /// included here; `day build` unions them at build time (docs/permissions.md).
 fn declared_permissions(project: &Project) -> Vec<serde_json::Value> {

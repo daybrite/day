@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// UIKit: the real thing — UIRefreshControl. The piece's realized node is a passthrough host
+// UIKit: the native tier, UIRefreshControl. The piece's realized node is a passthrough host
 // `UIView` subclass (DayRefreshHost): when day-core mounts the wrapped scrollable into it
 // (generic `addSubview`), `didAddSubview:` sees the `UIScrollView` (a `UITableView` from `list()`
-// IS one) and assigns the prepared `UIRefreshControl` to its `refreshControl` property — the
+// is one) and assigns the prepared `UIRefreshControl` to its `refreshControl` property; the
 // attach is fully piece-internal, no framework child hook needed. The control's `valueChanged`
 // fires on a user pull and reports back through `Event::custom` (§8.2); `RefreshPatch` drives
 // `beginRefreshing`/`endRefreshing` for the programmatic path.
@@ -32,7 +32,7 @@ define_class!(
     struct RefreshTarget;
 
     impl RefreshTarget {
-        /// UIControl target-action for `UIControlEventValueChanged` — the user pulled.
+        /// UIControl target-action for `UIControlEventValueChanged`: the user pulled.
         #[unsafe(method(refreshPulled:))]
         fn refresh_pulled(&self, _sender: &UIRefreshControl) {
             day_uikit::emit(
@@ -52,7 +52,7 @@ impl RefreshTarget {
 
 struct HostIvars {
     control: Retained<UIRefreshControl>,
-    // UIControl targets are held weakly — the host retains the target for the control's lifetime.
+    // UIControl targets are held weakly; the host retains the target for the control's lifetime.
     _target: Retained<RefreshTarget>,
 }
 

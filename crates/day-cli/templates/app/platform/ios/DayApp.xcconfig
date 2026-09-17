@@ -8,12 +8,12 @@
 // Reference:   https://developer.apple.com/documentation/xcode/build-settings-reference
 
 // ===========================================================================
-// Identity — fresh-checkout fallbacks
+// Identity: fresh-checkout fallbacks
 // ===========================================================================
-// Day.toml is the source of truth for these three: every `day build` regenerates the
-// include at the bottom of this file from it, and that include wins. These lines only
-// carry a checkout that has not run `day build` yet. Change the app id in Day.toml [app]
-// and the version in Cargo.toml [package].
+// Day.toml decides these three: every `day build` regenerates the include at the bottom
+// of this file from it, and that include wins. These lines only carry a checkout that has
+// not run `day build` yet. Change the app id in Day.toml [app] and the version in
+// Cargo.toml [package].
 // The app's name: the .app bundle, the executable, and what Xcode shows.
 // Renaming a fork is this line (plus the id below) and nothing in the pbxproj.
 PRODUCT_NAME = {{pascal}}

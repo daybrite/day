@@ -10,7 +10,7 @@ use std::rc::Rc;
 day_reactive::tls_slots! {
     layout;
     /// Nodes already warned about (see the report site below): once per node, not per
-    /// frame. A rebuilt page gets a fresh node and may report again — fine.
+    /// frame. A rebuilt page gets a fresh node and may report again, which is fine.
     static REPORTED: std::cell::RefCell<std::collections::HashSet<RNode>> =
         std::cell::RefCell::new(std::collections::HashSet::new());
 }
@@ -20,16 +20,16 @@ use day_spec::*;
 use crate::tree::{Flex, RNode, Tree, TreeOps};
 
 /// Open layout protocol (§7.2). `children` are the node's direct children; group nodes
-/// (`when`/`each` anchors) are layout-transparent — stacks expand them inline.
+/// (`when`/`each` anchors) are layout-transparent: stacks expand them inline.
 pub trait Layout: 'static {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size;
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect);
     /// Where this node's own first text baseline falls, measured from the top of a box of
-    /// `size` (docs/baseline.md). `None` — the default — means the node has no baseline to
+    /// `size` (docs/baseline.md). `None` (the default) means the node has no baseline to
     /// offer, so a baseline-aligned parent falls back to box alignment for it.
     ///
     /// A container answers on behalf of its content: a column reports its first
-    /// baseline-bearing child's, shifted by where that child sits. Leaves never reach here —
+    /// baseline-bearing child's, shifted by where that child sits. Leaves never reach here;
     /// [`LayoutOps::baseline_of`] asks the toolkit for those.
     fn baseline(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], _size: Size) -> Option<f64> {
         None
@@ -40,8 +40,8 @@ pub trait Layout: 'static {
 pub trait LayoutOps {
     fn measure_child(&mut self, child: RNode, p: Proposal) -> Size;
     fn place_child(&mut self, child: RNode, rect: Rect);
-    /// Place a child whose on-screen frame is NATIVE-owned (nav pages in splitter panes /
-    /// nav-controller views): never direction-mirrored — the toolkit positions it.
+    /// Place a child whose on-screen frame is native-owned (nav pages in splitter panes /
+    /// nav-controller views): never direction-mirrored, because the toolkit positions it.
     fn place_child_native(&mut self, child: RNode, rect: Rect) {
         self.place_child(child, rect);
     }
@@ -56,10 +56,10 @@ pub trait LayoutOps {
     /// Report scroll content size for the current node (§7.6).
     fn set_scroll_content(&mut self, content: Size);
     /// Report that the current node's children outgrew the bounds its `place()` was given
-    /// (`needed` vs `available` main-axis points). A diagnostic seam, not a layout input:
+    /// (`needed` vs `available` main-axis points). A diagnostic hook, not a layout input:
     /// the engine logs it once per node in debug builds and ignores it in release, and
-    /// placement proceeds unchanged either way. Scroll containers never report — content
-    /// larger than the viewport is their normal state.
+    /// placement proceeds unchanged either way. Scroll containers never report, since
+    /// content larger than the viewport is their normal state.
     fn report_overflow(&mut self, _needed: f64, _available: f64) {}
 }
 
@@ -67,7 +67,7 @@ pub struct EngineCx<'a, B: Toolkit> {
     pub(crate) tree: &'a mut Tree<B>,
     pub(crate) offset: Point,
     pub(crate) current: RNode,
-    /// The bounds the current node's `place()` was given — the mirroring axis for RTL.
+    /// The bounds the current node's `place()` was given: the mirroring axis for RTL.
     pub(crate) parent_size: Size,
 }
 
@@ -78,8 +78,8 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
     fn place_child(&mut self, child: RNode, rect: Rect) {
         // RTL (docs/localization): layouts compute LTR ("leading" = left); under a
         // right-to-left locale every horizontal placement mirrors around the parent's
-        // width, so leading means right everywhere — rows reverse, padding swaps sides,
-        // alignment flips — without any layout impl knowing about direction. Leaf CONTENT
+        // width, so leading means right everywhere (rows reverse, padding swaps sides,
+        // alignment flips) without any layout impl knowing about direction. Leaf content
         // (canvas drawing, text runs) is not mirrored; native text handles RTL itself.
         let rect = if crate::layout_direction() == day_geometry::LayoutDirection::Rtl {
             Rect::new(
@@ -131,8 +131,9 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
 
     #[cfg(debug_assertions)]
     fn report_overflow(&mut self, needed: f64, available: f64) {
-        // Once per node, not per frame: layout re-runs constantly, and the point is a greppable
-        // hint, not a firehose. A rebuilt page gets a fresh node and may report again — fine.
+        // Once per node, not per frame: layout re-runs constantly, and this is meant as a
+        // greppable hint, not a firehose. A rebuilt page gets a fresh node and may report
+        // again, which is fine.
         if REPORTED.with(|r| !r.borrow_mut().insert(self.current)) {
             return;
         }
@@ -240,8 +241,8 @@ pub(crate) fn baseline_node<B: Toolkit>(
     baseline
 }
 
-/// `rect` is in the parent NODE's coordinates; `offset` is the parent's origin in the nearest
-/// native ancestor's coordinates (§7.1 — accumulated through layout-only nodes).
+/// `rect` is in the parent node's coordinates; `offset` is the parent's origin in the nearest
+/// native ancestor's coordinates (§7.1, accumulated through layout-only nodes).
 pub(crate) fn place_node<B: Toolkit>(
     tree: &mut Tree<B>,
     node: RNode,
@@ -258,12 +259,12 @@ pub(crate) fn place_node<B: Toolkit>(
         (n.layout.clone(), n.children.clone(), n.handle.is_some())
     };
     // A cover's frame is the backend's (docs/cover.md): presented, it is re-homed over the
-    // window and follows the window's own resizing; parked, it is hidden. Where it SITS in
-    // the tree it measures zero (`CoverLayout`), so applying the parent's placement — a
-    // zero-size rect at the parent's center — would collapse a presented cover to a line
+    // window and follows the window's resizing; parked, it is hidden. Where it sits in
+    // the tree it measures zero (`CoverLayout`), so applying the parent's placement (a
+    // zero-size rect at the parent's center) would collapse a presented cover to a line
     // the moment anything re-lays the parent out. A window resize did exactly that on
     // macOS (Day-Games, 2026-09-11): the game vanished into a one-pixel strip over the home
-    // page. Its CONTENT is still placed below, at the size the backend reported.
+    // page. Its content is still placed below, at the size the backend reported.
     let native_frame = tree
         .node(node)
         .map(|n| n.kind == day_spec::kinds::COVER)
@@ -301,11 +302,12 @@ pub(crate) fn place_node<B: Toolkit>(
     } else {
         abs.origin
     };
-    // A LIST whose width changes re-lays its bound cells in this pass: the native table
+    // A list whose width changes re-lays its bound cells in this pass: the native table
     // resizes the physical cell views, but each cell's day content keeps the old width's
     // placement until laid out again (a trailing control would sit clipped after a
-    // narrowing). Synchronous on purpose — interactive live-resize runs inside a native
-    // tracking loop where deferred main-thread work may not drain until the drag ends.
+    // narrowing). It runs synchronously because interactive live-resize runs inside a
+    // native tracking loop where deferred main-thread work may not drain until the drag
+    // ends.
     let relayout_cells = tree
         .node(node)
         .map(|n| {
@@ -340,8 +342,8 @@ pub(crate) fn place_node<B: Toolkit>(
 /// (docs/baseline.md).
 ///
 /// Every wrapper below places its one child at its own top-left, so `dy` is 0 for all of them
-/// but padding. Without this a decorated piece reports NO baseline, and since decorators are
-/// invisible in the source — `.width(90)` on a label is still "a label" to the reader — a row
+/// but padding. Without this a decorated piece reports no baseline, and since decorators are
+/// invisible in the source (`.width(90)` on a label is still "a label" to the reader), a row
 /// would silently center the very children the author asked to align. That is exactly what
 /// happened to the showcase's first baseline demo.
 fn wrapper_baseline(
@@ -372,8 +374,8 @@ impl Layout for PassThrough {
     }
 }
 
-/// A recycled TREE cell's anchor layout (docs/tree.md): row content HUGS its own height, so
-/// center it in the cell's fixed row height — [`PassThrough`] pins it to the top, which
+/// A recycled tree cell's anchor layout (docs/tree.md): row content hugs its own height, so
+/// center it in the cell's fixed row height; [`PassThrough`] pins it to the top, which
 /// reads as a misaligned row whenever the content is shorter than the row (a 16pt label in
 /// a 28pt row sat 6pt high). Width still fills; a content taller than the row clamps to it.
 pub struct CellCenter;
@@ -410,11 +412,11 @@ impl PassThrough {
 }
 
 /// Paint/clip wrapper (`.background`, `.corner_radius`, the animatable layers): like
-/// [`PassThrough`] for measurement, but the GRANTED rect flows to the child verbatim at place
-/// time — these containers exist to paint or clip the area the parent granted, so a grow
+/// [`PassThrough`] for measurement, but the granted rect flows to the child verbatim at place
+/// time. These containers exist to paint or clip the area the parent granted, so a grow
 /// stretch above them must reach the painted surface (the grid-cell card case) instead of
-/// being re-hugged at every wrapper. Under a parent that places at measured size — every
-/// stack, grid rigid cell, and overlay — bounds equal the measure and nothing changes.
+/// being re-hugged at every wrapper. Under a parent that places at measured size (every
+/// stack, grid rigid cell, and overlay) bounds equal the measure and nothing changes.
 pub struct FillThrough;
 
 impl Layout for FillThrough {
@@ -457,7 +459,7 @@ pub enum CrossAlign {
     Center,
     Trailing,
     /// Align children on their first text baseline rather than on their boxes
-    /// (docs/baseline.md). Horizontal rows only — a column's children are stacked along the
+    /// (docs/baseline.md). Horizontal rows only: a column's children are stacked along the
     /// axis a baseline lives on, so there is nothing to align. A child whose toolkit reports no
     /// baseline is centered, so a row of text and an image still looks right.
     FirstBaseline,
@@ -555,8 +557,8 @@ impl StackLayout {
                 sizes[i] = s;
             }
         }
-        // Shrink pass: when the rigid children's natural sizes OVERFLOW a bounded main axis,
-        // re-measure the overflowing ones against the space that is actually left (in order —
+        // Shrink pass: when the rigid children's natural sizes overflow a bounded main axis,
+        // re-measure the overflowing ones against the space that is left (in order, so
         // earlier children keep their natural size first). Content that fits keeps its natural
         // measure, so proposal-expanding kinds (text fields, lists) don't balloon; wrapping
         // content (a capped message bubble, a long label) folds instead of spilling out of the
@@ -611,7 +613,7 @@ impl StackLayout {
     }
 
     /// Each child's first baseline at the size it settled on, or `None` where it has none
-    /// (docs/baseline.md). Only a horizontal row aligns on baselines — down a column the
+    /// (docs/baseline.md). Only a horizontal row aligns on baselines; down a column the
     /// baselines sit on the stacking axis, where aligning them would pile the children up.
     fn baselines(
         &self,
@@ -656,7 +658,7 @@ impl Layout for StackLayout {
         let sizes = self.negotiate(cx, &kids, p);
         let spacing_total = self.spacing * (kids.len() - 1) as f64;
         let has_flex = kids.iter().any(|&k| self.grows_main(cx.flex_of(k)));
-        // A stack with a stretching child fills what it is offered — but never reports less
+        // A stack with a stretching child fills what it is offered, but never reports less
         // than its children need together (a `.min_width`, fixed-size pairs), so an overflow
         // is visible to the parent (a `labeled` row stacks) instead of being clipped.
         let needed = sizes.iter().map(|&s| self.main(s)).sum::<f64>() + spacing_total;
@@ -726,7 +728,7 @@ impl Layout for StackLayout {
         let needed = sizes.iter().map(|&s| self.main(s)).sum::<f64>()
             + self.spacing * (kids.len() - 1) as f64;
         let available = self.main(bounds.size);
-        // A container with NO extent is not overflowing, it is not laid out yet — the state a
+        // A container with no extent is not overflowing, it is not laid out yet: the state a
         // native-owned surface is in until the backend reports its frame (a `cover` lays its
         // content out once before `Event::FrameChanged` arrives, §7.6/docs/cover.md). Reporting
         // it would name a real developer's ids for a transient the developer cannot act on:
@@ -837,8 +839,8 @@ impl FlowLayout {
             .collect()
     }
 
-    /// Solve the flow for an available width: ragged lines at natural widths, or — under
-    /// `uniform` — one column width for every cell with as many columns per line as fit.
+    /// Solve the flow for an available width: ragged lines at natural widths, or, under
+    /// `uniform`, one column width for every cell with as many columns per line as fit.
     fn plan(&self, cx: &mut dyn LayoutOps, kids: &[RNode], max_w: Option<f64>) -> FlowPlan {
         let natural = Self::natural_sizes(cx, kids);
         if !self.uniform {
@@ -961,17 +963,17 @@ struct GridGeom {
     col_w: Vec<f64>,
     row_y: Vec<f64>,
     row_h: Vec<f64>,
-    /// Pass-B size per cell, indexed `[row][cell]` — placement uses these, never re-measuring.
+    /// Pass-B size per cell, indexed `[row][cell]`; placement uses these, never re-measuring.
     cell_sizes: Vec<Vec<Size>>,
     size: Size,
 }
 
 /// SwiftUI-style grid negotiation (docs/grid.md): columns are inferred from `grid_row` children,
 /// a column's width is the max ideal width of its span-1 cells, a `grow_w` cell makes its column
-/// flexible (leftover width split evenly — the [`StackLayout`] share rule), and a non-row child
+/// flexible (leftover width split evenly, the [`StackLayout`] share rule), and a non-row child
 /// is a full-width cell spanning every column. `spacer()` is an inert empty cell. The contract:
-/// exactly two measure proposals per cell per layout — unconstrained (pass A) and at the final
-/// column width (pass B) — and `place` re-runs the same proposals, so it measures from cache.
+/// exactly two measure proposals per cell per layout, unconstrained (pass A) and at the final
+/// column width (pass B), and `place` re-runs the same proposals, so it measures from cache.
 pub struct GridLayout {
     pub row_spacing: f64,
     pub column_spacing: f64,
@@ -1035,8 +1037,8 @@ impl GridLayout {
     }
 
     /// The single geometry pass (docs/grid.md): pass A (unconstrained ideals → column widths),
-    /// pass B (heights at final widths), then prefix sums. All decisions are closed-form — no
-    /// iterative negotiation — and only `p.width` affects cell proposals, so a `measure` at
+    /// pass B (heights at final widths), then prefix sums. All decisions are closed-form (no
+    /// iterative negotiation) and only `p.width` affects cell proposals, so a `measure` at
     /// `(Some(w), None)` and a `place` at `exact(w × h)` generate identical per-cell proposals.
     fn geometry(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> GridGeom {
         let (mut rows, ncols) = self.collect(cx, children);
@@ -1059,7 +1061,7 @@ impl GridLayout {
         }
         let unconstrained = Proposal::new(None, None);
 
-        // PASS A1 — span-1 cells: rigid ideals set their column's width; grow_w flags it
+        // Pass A1, span-1 cells: rigid ideals set their column's width; grow_w flags it
         // flexible (its unconstrained ideal only matters when the grid itself is unconstrained).
         let mut col_ideal = vec![0.0f64; ncols];
         let mut col_flex = vec![false; ncols];
@@ -1078,7 +1080,7 @@ impl GridLayout {
                 }
             }
         }
-        // PASS A2 — flexible spanning cells only flag their columns…
+        // Pass A2: flexible spanning cells only flag their columns…
         for r in rows.iter().filter(|r| !r.full_width) {
             for c in r.cells.iter().filter(|c| c.span > 1 && !c.flex.is_spacer) {
                 if c.flex.grow_w {
@@ -1087,7 +1089,7 @@ impl GridLayout {
                 }
             }
         }
-        // …PASS A3 — then rigid spanning cells distribute any width deficit in one shot: onto
+        // …pass A3: then rigid spanning cells distribute any width deficit in one shot: onto
         // the spanned flexible columns if any (they absorb width anyway), else evenly.
         for r in rows.iter().filter(|r| !r.full_width) {
             for c in r.cells.iter().filter(|c| c.span > 1 && !c.flex.is_spacer) {
@@ -1161,7 +1163,7 @@ impl GridLayout {
             _ => cols_total.max(fw_ideal),
         };
 
-        // PASS B — heights at final widths (text height-for-width happens here).
+        // Pass B: heights at final widths (text height-for-width happens here).
         let nrows = rows.len();
         let mut cell_sizes: Vec<Vec<Size>> = Vec::with_capacity(nrows);
         let mut row_h = vec![0.0f64; nrows];
@@ -1187,7 +1189,7 @@ impl GridLayout {
             }
             cell_sizes.push(sizes);
         }
-        // Flexible rows stretch to a height proposal (additive — this never re-measures cells,
+        // Flexible rows stretch to a height proposal (additive: this never re-measures cells,
         // which keeps measure/place proposal identity).
         let vgutters = self.row_spacing * (nrows - 1) as f64;
         if let Some(ph) = p.height
@@ -1276,7 +1278,7 @@ impl Layout for GridLayout {
                 cx.place_child(c.node, Rect::new(x, y, w, h));
             }
         }
-        // Row nodes are transparent carriers and are deliberately never placed.
+        // Row nodes are transparent carriers and are never placed.
     }
 }
 
@@ -1317,9 +1319,9 @@ impl Alignment {
 
 /// Z-layering (§overlay): children share the container bounds, stacked back-to-front in child
 /// order (first child = bottom of the z-order), each positioned by a single [`Alignment`].
-/// `size_to_first` reports only the first child's natural size — the badge/annotation sizing of
+/// `size_to_first` reports only the first child's natural size, the badge/annotation sizing of
 /// [`overlay`](crate) (the annotation does not grow the frame); otherwise the layout reports the
-/// UNION (max) of all children's natural sizes — the ZStack sizing of `zstack`. No native work:
+/// union (max) of all children's natural sizes, the ZStack sizing of `zstack`. No native work:
 /// the container is the same panel as `column`/`row`, so backends stack children by attach order.
 pub struct OverlayLayout {
     pub align: Alignment,
@@ -1416,7 +1418,7 @@ impl Layout for PaddingLayout {
 /// the parent proposes, with the child given that whole box.
 ///
 /// With one axis proposed it derives the other, which is what makes `.grow_w().aspect_ratio(r)`
-/// take the width a container offers and compute the height from it — a canvas that keeps its
+/// take the width a container offers and compute the height from it: a canvas that keeps its
 /// proportions as the window resizes.
 pub struct AspectRatioLayout {
     pub ratio: f64,
@@ -1462,7 +1464,7 @@ impl Layout for GrowLayout {
             Some(&c) => cx.measure_child(c, p),
             None => Size::ZERO,
         };
-        // A grown axis fills what is offered — but never reports less than the child needs, so
+        // A grown axis fills what is offered, but never reports less than the child needs, so
         // a child that cannot shrink to the offer (a `.min_width`, a fixed-size pair) overflows
         // visibly and its row can respond (a `labeled` row stacks) instead of clipping it.
         Size::new(
@@ -1532,7 +1534,7 @@ impl Layout for MaxWidthLayout {
 /// The `.min_width(w)` decorator: the child measures as it would, but never reports narrower
 /// than `w`, and is placed across whatever width the wrapper is given. A stretching control
 /// (a slider) in a row that is being squeezed thereby overflows its row instead of shrinking
-/// to nothing — which is what lets a `labeled` row notice and stack (docs/forms.md). The
+/// to nothing, which is what lets a `labeled` row notice and stack (docs/forms.md). The
 /// vertical axis passes through untouched.
 pub struct MinWidthLayout {
     pub min: f64,
@@ -1561,10 +1563,10 @@ impl Layout for MinWidthLayout {
     }
 }
 
-/// Reserve at least the size of a SAMPLE child, then lay the content out inside it.
+/// Reserve at least the size of a sample child, then lay the content out inside it.
 ///
-/// The problem it solves: a numeric readout beside a slider changes width as the value changes —
-/// `1` is narrower than `8` in a proportional font, and `9` → `10` adds a whole glyph — so the
+/// The problem it solves: a numeric readout beside a slider changes width as the value changes
+/// (`1` is narrower than `8` in a proportional font, and `9` → `10` adds a whole glyph), so the
 /// row reflows on every drag and the control you are aiming at moves. A hardcoded width "fixes"
 /// that until the reader raises their accessibility text size, at which point the number is
 /// clipped.
@@ -1664,9 +1666,9 @@ impl Layout for ScrollLayout {
     }
 }
 
-/// Navigation host (docs/navigation.md): page FRAMES are native-owned (splitter panes,
+/// Navigation host (docs/navigation.md): page frames are native-owned (splitter panes,
 /// nav-controller views), so `set_frame` on pages is a toolkit no-op; Day lays each page's
-/// CONTENT within the size the toolkit last reported via `Event::FrameChanged`, falling
+/// content within the size the toolkit last reported via `Event::FrameChanged`, falling
 /// back to a sidebar/detail split (or the full host) of the host bounds.
 pub struct NavLayout {
     pub sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
@@ -1677,12 +1679,12 @@ pub struct NavLayout {
     /// The host's sidebar page, once it has one. Identity, not position: after a re-present the
     /// pages keep their roles but a backend may have re-homed them in a different order.
     pub sidebar: std::rc::Rc<std::cell::Cell<Option<RNode>>>,
-    /// The host's content-list page (`Pane::List`), once it has one — shared like `sidebar`.
+    /// The host's content-list page (`Pane::List`), once it has one; shared like `sidebar`.
     pub list: std::rc::Rc<std::cell::Cell<Option<RNode>>>,
     /// The content-list pane's preferred width (`NavProps::list_width`), for the fallback split.
     pub list_width: f64,
-    /// Whether the pane is showing (`NavPatch::ListVisible`) — shared with the piece so a
-    /// collapsed pane stops narrowing the detail's FALLBACK immediately, rather than one
+    /// Whether the pane is showing (`NavPatch::ListVisible`), shared with the piece so a
+    /// collapsed pane stops narrowing the detail's fallback immediately, rather than one
     /// FrameChanged report later.
     pub list_visible: std::rc::Rc<std::cell::Cell<bool>>,
 }
@@ -1721,7 +1723,7 @@ impl Layout for NavLayout {
         let sidebar = self.sidebar.get();
         let list = self.list.get();
         // The list pane narrows the detail's fallback only while it has its own pane and it
-        // is showing — a collapsed pane gives the detail its width back at once.
+        // is showing; a collapsed pane gives the detail its width back at once.
         let list_w = if split && list.is_some() && self.list_visible.get() {
             self.list_width
         } else {
@@ -1729,7 +1731,7 @@ impl Layout for NavLayout {
         };
         for &page in children {
             let reported = self.sizes.borrow().get(&page).copied();
-            // Only a FALLBACK: every backend reports each page's real frame through
+            // Only a fallback: every backend reports each page's real frame through
             // `Event::FrameChanged`, and that wins. This is what the page gets for the frame
             // before the first report arrives.
             let sz = reported.unwrap_or_else(|| {
@@ -1738,7 +1740,7 @@ impl Layout for NavLayout {
                 if pres.rows_are_chrome() {
                     // The rows are the chrome (a tab bar, a rail): the backend draws them itself
                     // and sizes its own bar, so the sidebar page is measured but not shown. Keep
-                    // it at the pane width rather than zero — a zero-width menu measured here
+                    // it at the pane width rather than zero, since a zero-width menu measured here
                     // would have to re-measure from scratch the moment the window widens back
                     // into a split.
                     if is_sidebar {
@@ -1771,12 +1773,12 @@ impl Layout for NavLayout {
 
 /// Inspector split (docs/inspector.md): the two pane frames are native-owned (an
 /// `NSSplitView`'s panes, a dock widget), so Day lays each pane's content within the size the
-/// toolkit last reported via `Event::FrameChanged` — the same native-owned-frame contract as
+/// toolkit last reported via `Event::FrameChanged`, the same native-owned-frame contract as
 /// [`NavLayout`] pages. The fallback before the first report splits the host bounds at the
 /// pane width when visible, and gives the content everything when hidden.
 pub struct InspectorLayout {
     pub sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
-    /// Visibility as last patched — shared with the piece so a toggle changes the fallback
+    /// Visibility as last patched, shared with the piece so a toggle changes the fallback
     /// split without rebuilding the layout object the host was realized with.
     pub visible: std::rc::Rc<std::cell::Cell<bool>>,
     /// The pane's preferred width (`InspectorProps::width`), for the fallback split.
@@ -1805,9 +1807,9 @@ impl Layout for InspectorLayout {
     }
 }
 
-/// Fullscreen cover (docs/cover.md): the COVER node occupies no space where it sits in the
+/// Fullscreen cover (docs/cover.md): the cover node occupies no space where it sits in the
 /// tree (its native surface is presented over the window, outside the parent's bounds), and
-/// its content is laid out at the size the backend reported via `Event::FrameChanged` — the
+/// its content is laid out at the size the backend reported via `Event::FrameChanged`, the
 /// same native-owned-frame contract as [`NavLayout`] pages.
 pub struct CoverLayout {
     pub size: std::rc::Rc<std::cell::RefCell<Option<Size>>>,
@@ -1819,7 +1821,7 @@ impl Layout for CoverLayout {
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], _bounds: Rect) {
         let Some(sz) = *self.size.borrow() else {
-            return; // not presented yet — content lays out on the first FrameChanged
+            return; // not presented yet; content lays out on the first FrameChanged
         };
         for &child in children {
             cx.place_child_native(child, Rect::from_size(sz));

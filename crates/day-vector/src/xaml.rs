@@ -3,14 +3,14 @@
 
 //! SVG → XAML geometry (docs/vectors.md §per-backend emission).
 //!
-//! Windows' `Path`/`PathIcon` take a `Geometry`, and XAML's geometry mini-language IS the SVG
-//! path grammar — so the usvg tree, whose paths already carry absolute transforms and resolved
+//! Windows' `Path`/`PathIcon` take a `Geometry`, and XAML's geometry mini-language is the SVG
+//! path grammar, so the usvg tree, whose paths already carry absolute transforms and resolved
 //! paints, converts about as directly as it does to a VectorDrawable next door in `vd.rs`. The
 //! supported subset matches that emitter's for the same reason: solid fills and strokes, both
 //! fill rules, nested plain groups; anything XAML cannot express as one flat shape list returns
 //! [`Unsupported`] and the caller stages only the raster, a loud fallback and never wrong art.
 //!
-//! Emitted at BUILD time rather than parsed in the backend: day-xaml would otherwise carry
+//! Emitted at build time rather than parsed in the backend: day-xaml would otherwise carry
 //! resvg/usvg into every Windows binary to read a handful of icons, and Android already sets
 //! the precedent of converting once, in the CLI, into the form the toolkit loads natively.
 //!
@@ -52,7 +52,7 @@ pub struct XamlGeometry {
 /// P <fill|-> <evenOdd 0|1> <stroke|-> <strokeWidth> <cap> <join> \t <path data>
 /// ```
 ///
-/// Tab-separated payload so the path data — which contains spaces and commas — needs no
+/// Tab-separated payload so the path data, which contains spaces and commas, needs no
 /// escaping, and one line per shape so a reader can stop at the first line it does not know.
 impl XamlGeometry {
     pub fn to_spec(&self) -> String {
@@ -98,8 +98,8 @@ fn collect(group: &usvg::Group, out: &mut Vec<XamlShape>) -> Result<(), Unsuppor
     if !group.filters().is_empty() {
         return Err(Unsupported("filter".into()));
     }
-    // Partial group opacity composites the GROUP, not each shape — folding it into per-shape
-    // alpha is wrong wherever the art overlaps itself, so it stays out of the subset.
+    // Partial group opacity composites the group as a whole, not each shape; folding it into
+    // per-shape alpha is wrong wherever the art overlaps itself, so it stays out of the subset.
     if group.opacity().get() < 1.0 {
         return Err(Unsupported("group opacity".into()));
     }
@@ -133,7 +133,7 @@ fn shape(p: &usvg::Path) -> Result<Option<XamlShape>, Unsupported> {
         None => None,
         Some(s) => {
             let ts = p.abs_transform();
-            // Uniform-ish scale for the stroke width (glyph transforms are translate+scale) —
+            // Uniform-ish scale for the stroke width (glyph transforms are translate+scale):
             // the geometry below is baked into absolute coordinates, so the width must follow.
             let scale = ((ts.sx * ts.sy - ts.kx * ts.ky).abs()).sqrt();
             stroke_width = s.width().get() * scale;
@@ -170,7 +170,7 @@ fn shape(p: &usvg::Path) -> Result<Option<XamlShape>, Unsupported> {
     }))
 }
 
-/// A solid `#AARRGGBB`. Gradients and patterns are out of the subset — a `Path` could carry a
+/// A solid `#AARRGGBB`. Gradients and patterns are out of the subset: a `Path` could carry a
 /// gradient brush, but the staged spec is one flat shape list and stop data does not belong in
 /// it; the raster fallback covers that art.
 fn solid(paint: &usvg::Paint, opacity: f32) -> Result<String, Unsupported> {
@@ -192,9 +192,9 @@ fn solid(paint: &usvg::Paint, opacity: f32) -> Result<String, Unsupported> {
 /// Serialize a (transformed) tiny-skia path as XAML's geometry mini-language.
 ///
 /// Only `M`/`L`/`C`/`Z` are emitted. The grammar is SVG's, but not every SVG command survives
-/// XAML's parser, and a command it rejects fails the whole geometry — the glyph then silently
+/// XAML's parser, and a command it rejects fails the whole geometry; the glyph then silently
 /// falls back to the raster, which is the least debuggable outcome available. Quadratics are the
-/// case that matters (Material's glyphs are full of them), so they are ELEVATED to cubics rather
+/// case that matters (Material's glyphs are full of them), so they are elevated to cubics rather
 /// than emitted as `Q`: exact, not an approximation, since a quadratic is the cubic with
 /// C1 = P0 + ⅔(Q−P0) and C2 = P2 + ⅔(Q−P2).
 fn path_data(path: &tiny_skia::Path) -> String {
@@ -202,8 +202,8 @@ fn path_data(path: &tiny_skia::Path) -> String {
     let mut d = String::new();
     // The quadratic elevation needs the segment's start, which the segment itself doesn't carry.
     let (mut cx, mut cy) = (0.0f32, 0.0f32);
-    // `Z` returns to the subpath's start, so that has to be tracked too or the point after a
-    // close is wrong for any curve following it.
+    // `Z` returns to the subpath's start, so that has to be tracked too or the current position
+    // after a close is wrong for any curve following it.
     let (mut sx, mut sy) = (0.0f32, 0.0f32);
     for seg in path.segments() {
         match seg {
@@ -283,7 +283,7 @@ mod tests {
     }
 
     /// A negative-origin viewBox (the Material convention, `0 -960 960 960`) must land in the
-    /// viewport's own coordinates — otherwise every glyph draws outside the box it is scaled to.
+    /// viewport's coordinates; otherwise every glyph draws outside the box it is scaled to.
     #[test]
     fn negative_origin_viewbox_is_normalized() {
         let g = to_xaml_geometry(&tree(
@@ -301,11 +301,11 @@ mod tests {
     }
 
     /// Only M/L/C/Z reach XAML. A `Q` slipping through fails the whole geometry in the parser
-    /// and drops the glyph to its raster — the regression this guards is invisible on screen
+    /// and drops the glyph to its raster. The regression this guards is invisible on screen
     /// (the icon still draws, just not from geometry), so it is asserted on the data instead.
     #[test]
     fn quadratics_are_elevated_to_cubics() {
-        // `a` is an arc and `q` a quadratic — the shapes Material's glyphs are built from.
+        // `a` is an arc and `q` a quadratic, the shapes Material's glyphs are built from.
         let g = to_xaml_geometry(&tree(
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><path d="M4 24q4-20 20-20a20 20 0 0 1 20 20z"/></svg>"#,
         ))
@@ -338,7 +338,7 @@ mod tests {
         );
     }
 
-    /// Art outside the subset must FAIL rather than silently drop the part XAML can't draw.
+    /// Art outside the subset must fail rather than silently drop the part XAML can't draw.
     #[test]
     fn gradient_is_unsupported() {
         let err = to_xaml_geometry(&tree(
@@ -365,7 +365,7 @@ mod tests {
     }
 
     impl XamlGeometry {
-        /// Every numeric literal in the emitted path data — a coordinate-range assertion helper.
+        /// Every numeric literal in the emitted path data; a coordinate-range assertion helper.
         fn data_numbers(&self) -> Vec<f64> {
             self.shapes
                 .iter()

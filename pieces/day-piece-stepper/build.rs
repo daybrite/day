@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Compiles this piece's OWN Qt shim when the feature is on — an external Day Piece carrying
+//! Compiles this piece's Qt shim when the feature is on: an external Day Piece carrying
 //! native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim).
 
 fn main() {

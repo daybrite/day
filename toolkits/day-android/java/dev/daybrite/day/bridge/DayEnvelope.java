@@ -3,7 +3,7 @@
 
 // The part↔Java payload convention (docs/extending.md, "The Android bridging contract"): One
 // byte[] crosses JNI per call, laid out as
-//   [0..4)  status i32 BE (NEGATIVE = the part's transport-error sentinel)
+//   [0..4)  status i32 BE (negative = the part's transport-error sentinel)
 //   [4..8)  meta-block length i32 BE
 //   then    meta "k\nv\n..." UTF-8 (for sentinels: the error message instead)
 //   then    payload bytes

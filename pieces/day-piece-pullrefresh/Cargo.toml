@@ -9,12 +9,12 @@ repository.workspace = true
 license.workspace = true
 build = "build.rs"
 
-# A standalone Day Piece adding pull-to-refresh to any scrollable (`scroll(...)` or `list(...)`) —
-# modeled on SwiftUI's `refreshable(action:)`. NATIVE where the toolkit has a real implementation
+# A standalone Day Piece adding pull-to-refresh to any scrollable (`scroll(...)` or `list(...)`),
+# modeled on SwiftUI's `refreshable(action:)`. Native where the toolkit has a real implementation
 # (UIRefreshControl on iOS, AndroidX SwipeRefreshLayout on Android, ARKUI_NODE_REFRESH on
-# HarmonyOS), EMULATED elsewhere (a spinner overlay driven by the `refreshing` signal, plus
-# overscroll-gesture detection on AppKit — elastic scroll — and GTK — `edge-overshot`; Qt/XAML are
-# spinner + programmatic in v1). Also the reference for CONTAINER pieces: the first external piece
+# HarmonyOS), emulated elsewhere (a spinner overlay driven by the `refreshing` signal, plus
+# overscroll-gesture detection on AppKit via elastic scroll and GTK via `edge-overshot`; Qt/XAML are
+# spinner + programmatic in v1). Also the reference for container pieces: the first external piece
 # that hosts a Day child inside its own native view (docs/extending.md).
 
 [features]
@@ -25,9 +25,9 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/refresh-arkui.cpp
 
 # Backends this piece carries native-side code for. `day build` unions `<pkg>/<backend>` into an app
-# build (Tier A.2). Qt / XAML / mock are deliberately ABSENT: with no feature enabled the piece
-# takes its pure-composition emulated path (overlay spinner, programmatic refresh), which needs no
-# native code at all.
+# build (Tier A.2). Qt / XAML / mock are absent: with no feature enabled the piece takes its
+# pure-composition emulated path (overlay spinner, programmatic refresh), which needs no native
+# code at all.
 [package.metadata.day.piece]
 backends = ["appkit", "gtk", "uikit", "mdc", "arkui"]
 
@@ -58,7 +58,7 @@ cc = "1"
 day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the SwipeRefreshLayout subclass ships
-# with this crate; the AndroidX artifact is added to the app's Gradle build by `day build` — no
+# with this crate; the AndroidX artifact is added to the app's Gradle build by `day build`, with no
 # scaffold edits.
 [package.metadata.day.android]
 java = ["src/DayPullRefresh.java"]

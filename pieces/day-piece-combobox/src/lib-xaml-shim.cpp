@@ -1,17 +1,17 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The combo piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. An EDITABLE ComboBox
-// (IsEditable, Windows 10 1809+): the platform's real combo box (free text + a dropdown of
-// items), boxed into a Day handle via the day_xaml_box/day_xaml_unbox seam that day-xaml-sys
-// exports, so this piece carries its own XAML native code with ZERO edits to day's toolkit
-// crates.
+// The combo piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. An editable ComboBox
+// (IsEditable, Windows 10 1809+): the platform's combo box (free text + a dropdown of
+// items), boxed into a Day handle via the day_xaml_box/day_xaml_unbox functions that
+// day-xaml-sys exports, so this piece carries its own XAML native code with no edits to day's
+// toolkit crates.
 //
 // Change paths back to Rust (each reports the current text as UTF-8, valid only during the
 // callback; Rust copies it):
 //   - SelectionChanged → the picked item's string (immediate);
 //   - TextSubmitted (Enter) and LostFocus → the free-form text. XAML's ComboBox exposes no
-//     per-keystroke text event, so free-form entry commits on those two — a documented
+//     per-keystroke text event, so free-form entry commits on those two, a documented
 //     divergence from the per-keystroke backends.
 // Programmatic setters never echo: Text(...) fires none of the three, and an items swap only
 // fires SelectionChanged with nothing selected, which is dropped.
@@ -19,7 +19,7 @@
 // Windows-only; compiled by build.rs (like the Qt shim) and linked alongside day-xaml-sys.
 
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Foundation.Collections.h> // IObservableVector Clear/Append on box.Items() — else C3779
+#include <winrt/Windows.Foundation.Collections.h> // IObservableVector Clear/Append on box.Items(); else C3779
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h> // ComboBox's Selector members (SelectedItem / SelectionChanged)
@@ -34,7 +34,7 @@ namespace WF = winrt::Windows::Foundation;
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 
-// The boxing seam, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 
@@ -93,7 +93,7 @@ void *day_combo_xaml_new(const char *items_joined, const char *text, const char 
         auto b = sender.as<WUXC::ComboBox>();
         auto sel = b.SelectedItem();
         if (!sel)
-            return; // an items swap deselects — not a user change
+            return; // an items swap deselects; not a user change
         if (auto v = sel.try_as<WF::IPropertyValue>()) {
             std::string t = to_utf8(v.GetString());
             cb(id, t.c_str());

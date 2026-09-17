@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-location — a HEADLESS cross-platform location API. No UI; any Rust code can depend on
-//! this crate and ask the platform's own location service for a fix, once or as a live stream.
+//! day-part-location: a headless cross-platform location API. No UI; any Rust code can depend on
+//! this crate and ask the platform's location service for a fix, once or as a live stream.
 //!
 //! ```no_run
 //! use day_part_location::Accuracy;
@@ -16,26 +16,26 @@
 //! Platform selection is purely `#[cfg(target_os)]` (location is an OS concern, not a
 //! widget-toolkit one): Apple platforms use CoreLocation, Android `LocationManager` through a Java
 //! shim staged by `day build`, and the web `navigator.geolocation`. HarmonyOS, desktop Linux and
-//! Windows report [`LocationError::Unavailable`] — see the table in docs/location.md, which says
+//! Windows report [`LocationError::Unavailable`]; see the table in docs/location.md, which says
 //! why rather than pretending.
 //!
 //! # Permissions are a separate concern
 //!
 //! This crate never prompts. A platform denial arrives as [`LocationError::PermissionDenied`], and
-//! the app asks for access through `day-part-permissions` (`Permission::Location`) — so neither
-//! crate depends on the other, and an app that already has permission pays nothing for the machinery
-//! that requests it. Every mobile OS also needs a build-time declaration, which `[permissions]` in
-//! Day.toml generates (docs/permissions.md).
+//! the app asks for access through `day-part-permissions` (`Permission::Location`), so neither
+//! crate depends on the other, and an app that already has permission pays nothing for the
+//! machinery that requests it. Every mobile OS also needs a build-time declaration, which
+//! `[permissions]` in Day.toml generates (docs/permissions.md).
 //!
 //! # Threading
 //!
-//! Callbacks run on an unspecified thread — the platform's delivery thread natively, the sole
-//! browser thread on the web — so deliver into UI state with a `day_reactive::Setter`, exactly as
+//! Callbacks run on an unspecified thread (the platform's delivery thread natively, the sole
+//! browser thread on the web), so deliver into UI state with a `day_reactive::Setter`, exactly as
 //! `day-part-http` and `day-part-sensors` document.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-/// One position fix. Fields the platform did not report stay `None` — never faked, and never
+/// One position fix. Fields the platform did not report stay `None`: never faked, and never
 /// silently zero.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fix {
@@ -44,7 +44,7 @@ pub struct Fix {
     /// Degrees east of the prime meridian (WGS-84).
     pub longitude: f64,
     /// Meters above the reference surface. Apple reports height above the WGS-84 ellipsoid, Android
-    /// above the WGS-84 ellipsoid too, and the browser whatever its provider gives — treat it as
+    /// above the WGS-84 ellipsoid too, and the browser whatever its provider gives, so treat it as
     /// approximate.
     pub altitude: Option<f64>,
     /// Horizontal accuracy radius in meters: the true position is within this distance with ~68%
@@ -55,8 +55,8 @@ pub struct Fix {
     /// Ground speed in meters per second, when reported.
     pub speed_mps: Option<f64>,
     /// Direction of travel in degrees clockwise from true north, when reported. Meaningless when
-    /// stationary, and platforms differ on whether they say so — treat a `Some` at zero speed with
-    /// suspicion.
+    /// stationary, and platforms differ on whether they say so, so treat a `Some` at zero speed
+    /// with suspicion.
     pub course_deg: Option<f64>,
     /// When the platform timestamped the fix, in milliseconds since the Unix epoch.
     pub timestamp_ms: Option<i64>,
@@ -70,7 +70,7 @@ pub enum LocationError {
     /// (`Permission::Location`); this crate never prompts.
     PermissionDenied,
     /// Location services are switched off device-wide, or every provider is disabled. Only the user
-    /// can change that — from Settings, not from a prompt.
+    /// can change that, from Settings rather than from a prompt.
     Disabled,
     /// No fix arrived in time. Indoors and on a cold start this is ordinary; try again.
     Timeout,
@@ -98,7 +98,7 @@ impl std::error::Error for LocationError {}
 /// for the least you need.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Accuracy {
-    /// City-level, cheapest — network and cell positioning.
+    /// City-level, cheapest: network and cell positioning.
     Coarse,
     /// Roughly a city block. The sensible default.
     Balanced,
@@ -106,8 +106,8 @@ pub enum Accuracy {
     Best,
 }
 
-/// Whether this target has a location API Day can reach at all. `false` is a platform statement, not
-/// a permission one — a denied permission still answers `true` here.
+/// Whether this target has a location API Day can reach at all. `false` is a platform statement,
+/// not a permission one; a denied permission still answers `true` here.
 pub fn is_available() -> bool {
     imp::is_available()
 }
@@ -118,7 +118,7 @@ pub fn current(acc: Accuracy, on_done: impl FnOnce(Result<Fix, LocationError>) +
         on_done(Err(LocationError::Unavailable));
         return;
     }
-    // A one-shot is a watch that stops after the first answer — which is also how CoreLocation and
+    // A one-shot is a watch that stops after the first answer, which is also how CoreLocation and
     // the browser model it, so nothing platform-specific is needed here.
     let holder: Arc<Mutex<Option<Watch>>> = Arc::new(Mutex::new(None));
     let sink = holder.clone();
@@ -145,7 +145,7 @@ pub fn current(acc: Accuracy, on_done: impl FnOnce(Result<Fix, LocationError>) +
     *lock(&holder) = Some(watch);
 }
 
-/// [`current`] as a `Future`. Plain oneshot plumbing over the same completion — any executor can
+/// [`current`] as a `Future`. Plain oneshot plumbing over the same completion, so any executor can
 /// await it, including a test's `block_on`.
 pub fn current_future(acc: Accuracy) -> FixFuture {
     let shared = Arc::new(Mutex::new(FutureState::default()));
@@ -199,7 +199,7 @@ pub fn watch(
 }
 
 /// An active subscription. Dropping it stops delivery, and stops the platform's updates once the
-/// last watcher is gone — which is what keeps the GPS from staying warm behind a closed page.
+/// last watcher is gone, which is what keeps the GPS from staying warm behind a closed page.
 pub struct Watch {
     id: u64,
 }
@@ -237,7 +237,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// Deliver a platform update to every watcher. The per-OS arms call this.
 ///
 /// `allow(dead_code)`: the targets with no location API compile the catch-all arm, which never
-/// delivers — so this looks unused there while being the whole delivery path everywhere else.
+/// delivers, so this looks unused there while being the whole delivery path everywhere else.
 #[allow(dead_code)]
 pub(crate) fn deliver(update: Result<Fix, LocationError>) {
     let mut w = lock(watchers());
@@ -301,8 +301,8 @@ mod imp;
 #[path = "web.rs"]
 mod imp;
 
-// Everything else — including HarmonyOS, desktop Linux and Windows — has no reachable location API
-// yet. Answering honestly beats a stub that looks like an oversight (docs/location.md).
+// Everything else, including HarmonyOS, desktop Linux and Windows, has no reachable location API
+// yet. Reporting that beats a stub that looks like an oversight (docs/location.md).
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
@@ -327,7 +327,7 @@ mod tests {
         let _ = is_available();
     }
 
-    /// A target with no location API still has to answer — a watcher that is silently never called
+    /// A target with no location API still has to answer: a watcher that is silently never called
     /// would hang an app waiting for its first fix.
     #[test]
     fn unavailable_targets_report_once() {
@@ -343,7 +343,7 @@ mod tests {
         assert_eq!(got[0], Err(LocationError::Unavailable));
     }
 
-    /// On a mac CoreLocation exists, so availability is true even when the app is unauthorized —
+    /// On a mac CoreLocation exists, so availability is true even when the app is unauthorized:
     /// `is_available` is a platform statement, not a permission one.
     #[cfg(target_os = "macos")]
     #[test]

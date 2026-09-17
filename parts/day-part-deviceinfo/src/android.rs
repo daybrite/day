@@ -9,7 +9,7 @@
 // Kotlin so it compiles in any Android project. No permission is needed.
 //
 // Before daybridge the four fields crossed as one string joined by U+001F, packed in Java and split
-// in Rust — a wire format written twice. Each field is now its own declaration, which is three JNI
+// in Rust, a wire format written twice. Each field is now its own declaration, which is three JNI
 // calls instead of one against static data read once per launch.
 
 use super::DeviceInfo;
@@ -83,7 +83,7 @@ day_bridge::bridge! {
     );
 
     // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
-    // never compiled — it satisfies the rule that a bridge always has an answer for an unclaimed
+    // never compiled; it satisfies the rule that a bridge always has an answer for an unclaimed
     // target.
     #[day_bridge::impl(rust, platforms = [other])]
     fn model_native() -> Result<String, day_bridge::Error> {

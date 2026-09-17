@@ -9,7 +9,7 @@ use objc2::runtime::AnyObject;
 use super::{class, nsstring};
 use crate::{Gate, Permission, Status};
 
-/// macOS has no `CMMotionActivityManager` — CoreMotion's activity APIs are iOS-only.
+/// macOS has no `CMMotionActivityManager`: CoreMotion's activity APIs are iOS-only.
 pub fn motion_gate() -> Gate {
     Gate::Absent
 }

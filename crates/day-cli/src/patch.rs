@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day patch` — build an app against a LOCAL checkout, or a FORK, of the crates it takes from git.
+//! `day patch`: build an app against a local checkout, or a fork, of the crates it takes from git.
 //!
 //! An app outside this repository declares its framework dependencies from git:
 //!
@@ -22,11 +22,11 @@
 //!   the fork too, unchanged. That table is meant to be committed.
 //!
 //! Writing either table by hand is the problem this command exists to remove: it is a list of
-//! entries that goes stale when a dependency is added, and a MISSING ENTRY does NOT FAIL. Cargo
-//! simply resolves that crate from the git cache, and the build silently mixes a local (or forked)
-//! framework with a published one — green, and testing something other than what you think.
+//! entries that goes stale when a dependency is added, and a missing entry does not fail. Cargo
+//! resolves that crate from the git cache, and the build silently mixes a local (or forked)
+//! framework with a published one: green, and testing something other than what you think.
 //!
-//! Only DIRECT dependencies of each source need an entry. A patched crate's own dependencies are
+//! Only direct dependencies of each source need an entry. A patched crate's own dependencies are
 //! path deps inside the same checkout, so they follow automatically; `--check` is what proves
 //! that, by asserting no package from a patched source still carries its git source.
 //!
@@ -49,8 +49,8 @@ use crate::ops::status;
 pub(crate) const DAY_GIT: &str = "https://github.com/daybrite/day.git";
 
 /// One triple per platform Day targets. A day crate reaches an app through the umbrella and the
-/// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself — so the set to
-/// patch is the resolved graph of every platform, not the app's own manifest. Resolving for the
+/// parts, under `[target.'cfg(…)'.dependencies]` tables the app never names itself, so the set to
+/// patch is the resolved graph of every platform, not the app's manifest. Resolving for the
 /// host alone is what let `day-android` build from the git cache while a local checkout sat
 /// patched in beside it, silently, on every Android build.
 const PATCH_TRIPLES: &[&str] = &[
@@ -137,12 +137,12 @@ pub(crate) fn canon(url: &str) -> String {
     url.to_ascii_lowercase()
 }
 
-/// Is `manifest` inside `root`, comparing paths that may differ only in Windows' VERBATIM prefix?
+/// Is `manifest` inside `root`, comparing paths that may differ only in Windows' verbatim prefix?
 ///
-/// `Path::canonicalize` returns `\\?\C:\…` on Windows — which is what a checkout root is —
+/// `Path::canonicalize` returns `\\?\C:\…` on Windows (which is what a checkout root is),
 /// while cargo reports plain `C:\…` manifest paths. `Path::starts_with` matches prefix
-/// COMPONENTS, and `Prefix::VerbatimDisk` never equals `Prefix::Disk`, so the raw comparison is
-/// always false between the two forms. That only bites on a RE-RUN, once the crates already
+/// components, and `Prefix::VerbatimDisk` never equals `Prefix::Disk`, so the raw comparison is
+/// always false between the two forms. That only bites on a re-run, once the crates already
 /// resolve from the checkout as path deps: `source` is no longer `git+…`, so the path is the only
 /// thing left to recognize them by, and every transitive crate silently drops out of the table.
 fn within(manifest: &Path, root: &Path) -> bool {
@@ -157,7 +157,7 @@ fn within(manifest: &Path, root: &Path) -> bool {
 }
 
 /// The package's git source, canonicalized, when the resolved package is one this project may
-/// patch — or `None` for anything else: the project's own packages, registry crates, path deps.
+/// patch, or `None` for anything else: the project's own packages, registry crates, path deps.
 ///
 /// A package already patched to one of `checkouts` reports that checkout's URL, so a re-run keeps
 /// the entry it wrote the first time instead of shrinking the table.
@@ -167,7 +167,7 @@ fn package_source(
     project_root: &Path,
     checkouts: &[(String, PathBuf)],
 ) -> Option<String> {
-    // The project's OWN packages are never crates to patch, whatever they are called. CI checks
+    // The project's packages are never crates to patch, whatever they are called. CI checks
     // an app out inside the day workspace (`day/showcase-src`), which puts the app's manifest
     // under the checkout root and made the checkout arm below claim it.
     if manifest_path.is_some_and(|m| within(Path::new(m), project_root)) {
@@ -200,7 +200,7 @@ fn resolved_git_packages(
             "1",
             "--filter-platform",
             triple,
-            // Backends are OPTIONAL dependencies behind per-toolkit features, so the default
+            // Backends are optional dependencies behind per-toolkit features, so the default
             // resolve sees none of them: an app's gtk build would take day-gtk from the git
             // cache while every other crate came from the checkout.
             "--all-features",
@@ -326,7 +326,7 @@ fn checkout_versions(root: &Path) -> BTreeMap<String, String> {
 /// Why a patch that was written is absent from the graph, when the reason is cargo's version rule.
 ///
 /// A `[patch]` entry is one more candidate, not an override: cargo keeps the newest version it can
-/// see, so a checkout carrying a lower version than the URL's tip loses to git — every crate at
+/// see, so a checkout carrying a lower version than the URL's tip loses to git, every crate at
 /// once, the moment a release bump lands upstream. `None` when the versions agree, which leaves
 /// the plain missing-entry explanation standing.
 fn outranked(sources: &[Source], missing: &[(String, String, String)]) -> Option<String> {
@@ -353,7 +353,7 @@ fn outranked(sources: &[Source], missing: &[(String, String, String)]) -> Option
 
 /// The git URL a checkout on disk stands for.
 ///
-/// A checkout carrying the `day` crate is the framework, whatever its manifest says — a fork
+/// A checkout carrying the `day` crate is the framework, whatever its manifest says: a fork
 /// cloned locally must patch the canonical URL the app's dependencies name, not the fork's own.
 /// Anything else is identified by its manifest's `repository` (the package's, or the workspace's),
 /// which is the URL its consumers depend on.
@@ -387,7 +387,7 @@ fn checkout_url(root: &Path, crates: &BTreeMap<String, PathBuf>) -> Result<Strin
     }
 }
 
-/// The app's OWN git-sourced dependencies, read straight from its manifest: name → canonical
+/// The app's git-sourced dependencies, read straight from its manifest: name → canonical
 /// URL. The floor under [`wanted_by_source`]: it needs no resolver, so a project that cannot
 /// resolve offline still patches the crates it names itself.
 fn manifest_git_deps(root: &Path) -> Result<Vec<(String, String)>, String> {
@@ -397,7 +397,7 @@ fn manifest_git_deps(root: &Path) -> Result<Vec<(String, String)>, String> {
     let doc: toml::Value =
         toml::from_str(&text).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let mut names = Vec::new();
-    // Plain dependencies plus every `[target.<cfg>.dependencies]` table — the backend crates an
+    // Plain dependencies plus every `[target.<cfg>.dependencies]` table: the backend crates an
     // app pulls in per platform live there, and they are exactly the ones easiest to forget.
     let mut tables: Vec<&toml::Value> = Vec::new();
     for key in ["dependencies", "dev-dependencies", "build-dependencies"] {
@@ -431,8 +431,8 @@ fn manifest_git_deps(root: &Path) -> Result<Vec<(String, String)>, String> {
     Ok(names)
 }
 
-/// For each source, the crates the project takes from it — the manifest's own entries plus every
-/// platform's resolved graph — keyed by canonical URL. Sources the graph never names map to an
+/// For each source, the crates the project takes from it (the manifest's own entries plus every
+/// platform's resolved graph), keyed by canonical URL. Sources the graph never names map to an
 /// empty list, which the table builder reports.
 fn wanted_by_source(
     root: &Path,
@@ -471,12 +471,12 @@ fn wanted_by_source(
 }
 
 /// The `[patch]` tables mapping every git-sourced dependency of `project` from each source to its
-/// target, as TOML text — and the number of entries across them.
+/// target, as TOML text, and the number of entries across them.
 ///
 /// One text, two lifetimes: `day patch` writes it to `.cargo/config.toml` and every later build
 /// picks it up, while `--day-src` writes it to a scratch file handed to one cargo invocation
 /// through `--config`. The crate set, the missing-crate error, and the wording are therefore the
-/// same for both, which is the point of computing it here.
+/// same for both, which is why it is computed here.
 ///
 /// `header` leads the file, since the lifetimes need to say different things about it.
 fn patch_tables(root: &Path, sources: &[Source], header: &str) -> Result<(String, usize), String> {
@@ -563,9 +563,9 @@ fn write_patch(root: &Path, sources: &[Source]) -> Result<usize, String> {
         "Patched",
         &format!("{} ({written} crate(s))", path.display()),
     );
-    // The config file itself is gitignored, but its EFFECT on Cargo.lock is not: the next cargo
+    // The config file itself is gitignored, but its effect on Cargo.lock is not: the next cargo
     // command rewrites the lock to record these paths, dropping the `source` line from every day
-    // crate. Committed, that lock describes a machine nobody else has — it cannot be resolved, and
+    // crate. Committed, that lock describes a machine nobody else has: it cannot be resolved, and
     // `cargo update -p day` cannot even find a `day` package in it. Said here because the rewrite
     // happens silently, on the next build, long after this command has scrolled away.
     if !forked && root.join("Cargo.lock").exists() {
@@ -579,7 +579,7 @@ fn write_patch(root: &Path, sources: &[Source]) -> Result<usize, String> {
     Ok(written)
 }
 
-/// The URLs a project's `.cargo/config.toml` patches — or the framework's, when there is no table
+/// The URLs a project's `.cargo/config.toml` patches, or the framework's, when there is no table
 /// yet (so a bare `--check` still asks the question it always asked).
 fn patched_urls(root: &Path) -> Vec<String> {
     let path = root.join(".cargo/config.toml");
@@ -603,10 +603,10 @@ fn patched_urls(root: &Path) -> Vec<String> {
 /// git sources nothing patches.
 #[derive(Default)]
 pub struct CheckReport {
-    /// `(name, url, version)`: from a patched URL, still resolving from git — a missing table
+    /// `(name, url, version)`: from a patched URL, still resolving from git; a missing table
     /// entry, or a patch cargo passed over for a newer version at the URL (see [`outranked`]).
     pub missing: Vec<(String, String, String)>,
-    /// `(name, url)`: from a git URL the table does not cover — published as far as this build is
+    /// `(name, url)`: from a git URL the table does not cover; published as far as this build is
     /// concerned, which may or may not be what the developer wants.
     pub unpatched: Vec<(String, String)>,
 }
@@ -616,8 +616,8 @@ pub struct CheckReport {
 /// The check the whole command exists for. A direct dependency without a patch entry resolves from
 /// the git cache and builds green, so a build that believes it is testing this checkout may be
 /// testing a published crate for part of the graph. Resolution is asked of cargo rather than read
-/// out of `Cargo.lock`, so it is correct for a project that has not locked yet — and across every
-/// platform, not just the host's: a check that asks only the host says "all local" while the
+/// out of `Cargo.lock`, so it is correct for a project that has not locked yet, and across every
+/// platform rather than only the host's: a check that asks only the host says "all local" while the
 /// Android, Linux, Windows, web, and HarmonyOS builds quietly use the git cache.
 pub fn check(root: &Path) -> Result<CheckReport, String> {
     let patched = patched_urls(root);
@@ -786,7 +786,7 @@ pub fn run(
 /// consumers disagree when it does not.
 ///
 /// Cargo unifies a git dependency only when URL and ref both match, so an app on the bare
-/// canonical URL plus a piece that pins `tag = "v0.4.1"` resolves two `day-core`s — and the
+/// canonical URL plus a piece that pins `tag = "v0.4.1"` resolves two `day-core`s, and the
 /// failure that follows is a wall of "expected `day_core::Piece`, found `day_core::Piece`", or
 /// worse, two `RENDERERS` slices and a widget that quietly renders as a placeholder. Asked of
 /// cargo here, once, before anything compiles, so the answer is one sentence naming both sources.
@@ -902,7 +902,7 @@ pub fn verify_graph(project: &Project) -> Result<(), String> {
 // --- `--day-src`: the same patch, for exactly one build ------------------------------------------
 //
 // `day patch` puts you in a mode: the table it writes governs every later build until you delete
-// it. `--day-src` answers a different question — "does this branch fix the bug?" — where you build
+// it. `--day-src` answers a different question ("does this branch fix the bug?") where you build
 // the app twice, against two versions of the framework, and look at both. So the table it computes
 // never reaches the project: it goes to a scratch file that one cargo invocation reads through
 // `--config`, and the run leaves nothing behind.
@@ -924,7 +924,7 @@ static ACTIVE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 pub struct DaySrc {
     /// The day checkout to build against, absolute.
     pub checkout: PathBuf,
-    /// How it was named, for the status line — a path, or `url @ ref`.
+    /// How it was named, for the status line: a path, or `url @ ref`.
     pub label: String,
     /// `build/day/day-src/<slug>`: this run's build root, and where the cargo config is written.
     pub dir: PathBuf,
@@ -932,7 +932,7 @@ pub struct DaySrc {
 
 /// Resolve a `--day-src` argument to a day checkout on disk.
 ///
-/// An existing directory is that checkout. Anything else must be a git URL — cloned into the same
+/// An existing directory is that checkout. Anything else must be a git URL, cloned into the same
 /// per-URL-and-ref cache `--git` uses ([`crate::git`]), so two branches of the framework coexist as
 /// two checkouts and switching between them stays incremental.
 pub fn resolve_day_src(arg: &str, project: &Project) -> Result<DaySrc, CliError> {
@@ -986,7 +986,7 @@ pub fn resolve_day_src(arg: &str, project: &Project) -> Result<DaySrc, CliError>
 /// The build-tree name for one day-src: a readable stem plus a hash of what it resolved to.
 ///
 /// Both come from the resolved checkout rather than what was typed, which gets each of them right
-/// at once. The stem is the directory's own name — for a git day-src that is the ref, since the
+/// at once. The stem is the directory's name; for a git day-src that is the ref, since the
 /// cache is keyed by one (`…/daybrite/day/experimental-nav`). The hash keeps two branches apart
 /// when their stems collide, and makes `../day` and the absolute path it points at share one tree
 /// instead of building the same framework twice.
@@ -1042,9 +1042,9 @@ pub fn activate(src: &DaySrc, project: &Project) -> Result<(), CliError> {
         .map_err(|e| CliError::failure(format!("{}: {e}", file.display())))?;
 
     // An app that is already `day patch`ed has a `[patch]` table of its own in
-    // `.cargo/config.toml`. Cargo ranks a `--config` argument above a config FILE, so this run
-    // wins — but silently swapping the framework under someone who deliberately patched their
-    // project would be the wrong kind of surprise.
+    // `.cargo/config.toml`. Cargo ranks a `--config` argument above a config file, so this run
+    // wins, but silently swapping the framework under someone who patched their project would be
+    // the wrong kind of surprise.
     if project.root.join(".cargo/config.toml").is_file() {
         crate::ops::status(
             "Note",
@@ -1063,8 +1063,8 @@ fn config_path(dir: &Path) -> PathBuf {
 
 /// This run's day-src build directory, or `None` when `--day-src` was not given.
 ///
-/// Falls back to the environment so `day xcode-backend build` — a separate process, spawned by
-/// xcodebuild, which never sees the flag — resolves the same directory the porcelain did.
+/// Falls back to the environment so `day xcode-backend build` (a separate process, spawned by
+/// xcodebuild, which never sees the flag) resolves the same directory the porcelain did.
 pub fn day_src_dir() -> Option<PathBuf> {
     ACTIVE
         .get()
@@ -1072,7 +1072,7 @@ pub fn day_src_dir() -> Option<PathBuf> {
         .or_else(|| std::env::var_os(DAY_SRC_DIR_ENV).map(PathBuf::from))
 }
 
-/// This run's day-src as a short name — the build tree's own directory name.
+/// This run's day-src as a short name: the build tree's directory name.
 ///
 /// Rides into the app on `DAY_APP_VERSION`, so a debug build's window title says which framework
 /// it was built against (`Day Rise (0.1.0+main-2d77edbf/appkit)`). Two builds of one app running
@@ -1086,8 +1086,8 @@ pub fn day_src_tag() -> Option<String> {
 /// The `DAY_SRC_DIR=<dir>` assignment to hand a build tool that calls `day` back.
 ///
 /// xcodebuild takes it as a build setting, which it exports to script phases as an environment
-/// variable — the route `DAY_BIN` already travels. `None` when `--day-src` was not given, so the
-/// argument is simply not added.
+/// variable, the route `DAY_BIN` already travels. `None` when `--day-src` was not given, so the
+/// argument is not added.
 pub fn day_src_setting() -> Option<String> {
     day_src_dir().map(|d| format!("{DAY_SRC_DIR_ENV}={}", d.display()))
 }
@@ -1104,11 +1104,11 @@ pub fn apply_day_src(cmd: &mut Command) {
 }
 
 /// Cargo records the patched sources in `Cargo.lock`, so a build under `--day-src` would leave the
-/// project's lockfile rewritten — a tracked file, modified by a flag whose whole promise is that it
+/// project's lockfile rewritten: a tracked file, modified by a flag whose promise is that it
 /// changes nothing. This snapshots the lock and puts it back.
 ///
-/// Scoped to the BUILD, not the launch: the app may run for a long time afterwards, and the lock
-/// should be correct again the moment the compiler is done with it. Restoring costs no rebuild —
+/// Scoped to the build, not the launch: the app may run for a long time afterwards, and the lock
+/// should be correct again the moment the compiler is done with it. Restoring costs no rebuild;
 /// the next run re-resolves to the same graph, and the fingerprints live in the day-src's own
 /// target directory.
 pub struct LockGuard {
@@ -1134,7 +1134,7 @@ impl Drop for LockGuard {
     }
 }
 
-/// Put a file back the way it was — or remove it, if it was not there. Shared with the interrupt
+/// Put a file back the way it was, or remove it if it was not there. Shared with the interrupt
 /// path in [`crate::signals`], which cannot run a `Drop`.
 pub(crate) fn restore(path: &Path, before: Option<&[u8]>) {
     match before {
@@ -1211,7 +1211,7 @@ mod tests {
     }
 
     /// The table names every git-sourced day dependency, and points each at the checkout. This is
-    /// the text both lifetimes use — `day patch` writes it to `.cargo/config.toml`, `--day-src`
+    /// the text both lifetimes use: `day patch` writes it to `.cargo/config.toml`, `--day-src`
     /// hands it to one cargo run.
     #[test]
     fn the_table_maps_each_git_dep_to_the_checkout() {
@@ -1295,7 +1295,7 @@ day-piece-lottie = { git = "https://github.com/daybrite/day-piece-lottie.git" }
     }
 
     /// A fork is a git entry per crate, spelled with the ref kind the caller named or that the
-    /// ref's shape implies — and the canonical URL stays the table's key, which is what lets an
+    /// ref's shape implies, and the canonical URL stays the table's key, which is what lets an
     /// external piece depending on it follow the fork unchanged.
     #[test]
     fn a_fork_writes_git_entries_under_the_canonical_key() {
@@ -1361,7 +1361,7 @@ day = { git = "https://github.com/daybrite/day.git" }
     }
 
     /// The version rule: a checkout behind the URL's tip loses to git, every crate at once, the
-    /// moment a release bump lands upstream — and the guard then names the two versions instead
+    /// moment a release bump lands upstream, and the guard then names the two versions instead
     /// of suggesting a table entry that is already there.
     #[test]
     fn an_outranked_checkout_is_explained_by_version() {
@@ -1492,7 +1492,7 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
 
     /// An app is named `day-<something>` too, so a name cannot tell one from a framework crate.
     /// CI checks the showcase out inside the day workspace, which put the app's own manifest
-    /// under the checkout root — and `day patch` then demanded `day-showcase` be one of day's
+    /// under the checkout root, and `day patch` then demanded `day-showcase` be one of day's
     /// crates and failed every toolkit job.
     #[test]
     fn the_app_is_never_a_crate_to_patch() {
@@ -1542,7 +1542,7 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
             .as_deref(),
             Some("https://github.com/daybrite/day")
         );
-        // An external piece from its own repository reports THAT URL.
+        // An external piece from its own repository reports that repository's URL.
         assert_eq!(
             package_source(
                 Some("/home/u/.cargo/git/checkouts/lottie-1/9/Cargo.toml"),
@@ -1565,8 +1565,8 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
         );
     }
 
-    /// Which dependencies need a patch entry: the DIRECT ones from git, including the per-target
-    /// tables where an app's backend crates live — the easiest ones to forget — each with the
+    /// Which dependencies need a patch entry: the direct ones from git, including the per-target
+    /// tables where an app's backend crates live (the easiest ones to forget), each with the
     /// source it comes from.
     #[test]
     fn git_deps_are_collected_from_every_dependency_table() {
@@ -1643,7 +1643,7 @@ day = { git = "https://github.com/daybrite/day.git" }
     }
 
     /// The checkout's crate map comes from its workspace, so a new framework crate needs no edit
-    /// here — verified against this very repository.
+    /// here; verified against this very repository.
     #[test]
     fn the_checkout_map_is_read_from_the_workspace() {
         let here = Path::new(env!("CARGO_MANIFEST_DIR"))

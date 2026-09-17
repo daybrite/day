@@ -4,7 +4,7 @@
 //! Android: `LocationManager.requestLocationUpdates` through this crate's Java shim
 //! (`src/DayLocation.java`), staged into the app's Gradle build by `day build`.
 //!
-//! Deliberately not `FusedLocationProviderClient`: that lives in Google Play services, which AOSP
+//! Not `FusedLocationProviderClient`: that lives in Google Play services, which AOSP
 //! images and many emulators lack, and it would add a Gradle coordinate to every app linking this
 //! part. The platform `LocationManager` is always there.
 //!
@@ -74,7 +74,7 @@ pub extern "system" fn Java_dev_daybrite_day_location_DayLocation_nativeFix(
     }));
 }
 
-/// The shim's error callback. Codes are DayLocation.java's, not Android's — the platform reports
+/// The shim's error callback. Codes are DayLocation.java's, not Android's; the platform reports
 /// these as exceptions and provider callbacks rather than a single error enum.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_daybrite_day_location_DayLocation_nativeError(

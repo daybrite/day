@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-fluent — the piece-facing localization layer over the [`day_l10n`] engine (DESIGN.md §12).
+//! day-fluent: the piece-facing localization layer over the [`day_l10n`] engine (DESIGN.md §12).
 //!
 //! The engine (bundles, the current-locale [`Signal`], `format_in`, and the built-in core catalog of
 //! standard UI strings) now lives in `day-l10n`, low enough that the central crates localize their
@@ -21,7 +21,7 @@ pub use day_l10n::{
 /// Register the app's locales (see [`day_l10n::install`]) and fix the layout direction from the
 /// locale that actually resolved (docs/localization): an RTL locale (Arabic, Hebrew, …) mirrors
 /// every horizontal placement and flips the native toolkit's direction. Direction is resolved
-/// once, before the first layout — runtime `set_locale` switches strings but not direction.
+/// once, before the first layout; runtime `set_locale` switches strings but not direction.
 pub fn install(default: &str, locales: &[(&str, &str)]) {
     day_l10n::install(default, locales);
     day_core::set_layout_direction(day_core::direction_of_locale(

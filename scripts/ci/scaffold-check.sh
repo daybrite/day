@@ -8,18 +8,18 @@
 # `day new app` is the CLI's largest single output and nothing else in CI runs it end to end: it
 # writes Day.toml, the sample sources, a website/, and then per locale a resource/locales/<tag>/
 # catalog, a store/<tag>/ listing, an Xcode knownRegions entry and a site.toml locales row. Those
-# four surfaces have to agree, and `day lint` is what checks that they do — so a scaffold that
+# four surfaces have to agree, and `day lint` is what checks that they do, so a scaffold that
 # lints clean is the cheapest proof the whole `day new` → `day localize add` path still works.
 #
 # With a combo argument the check keeps going: `day pack` builds the scaffold into a release
 # artifact, `day rebuild --from-dir` packs the same tree again from a scratch copy and compares
-# the two (§20.3 — the scaffold is not in git, which is exactly what --from-dir is for), and on a
-# desktop combo the smoke dayscript then drives the REBUILT copy and must leave its screenshot
+# the two (§20.3; the scaffold is not in git, which is exactly what --from-dir is for), and on a
+# desktop combo the demo dayscript then drives the rebuilt copy and must leave its screenshot
 # behind. Without a combo the check stops after the lint, as it always did.
 #
 # The locale list is the one daysite's CI scaffolds with (daysite/.github/workflows/ci.yml), which
-# is what the language picker there renders. `en` is the template's own default and is left out on
-# purpose: passing en-US would stand up a second en-US/ tree beside en/.
+# is what the language picker there renders. `en` is the template's own default and is left out:
+# passing en-US would stand up a second en-US/ tree beside en/.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ROOT="$PWD"
@@ -32,7 +32,7 @@ COMBO="${2:-}"
     exit 1
 }
 # Absolutize after the existence check: the scaffold happens in a scratch dir outside the
-# checkout, where a relative target/<triple>/release/day silently stops resolving — bash then
+# checkout, where a relative target/<triple>/release/day silently stops resolving; bash then
 # fails with 127 on Linux and "No such file or directory" (exit 1) on macOS's bash 3.2, which is
 # exactly how this bug shipped twice-disguised.
 DAY="$(cd "$(dirname "$DAY")" && pwd)/$(basename "$DAY")"
@@ -47,7 +47,7 @@ mkdir -p "$WORK"
 cd "$WORK"
 
 # No --toolkit: `day new --no-input` already defaults to every target pair, which is what this
-# check wants — the scaffold materializes every host project (Xcode, gradle, ohos, …) and any of
+# check wants: the scaffold materializes every host project (Xcode, gradle, ohos, …) and any of
 # them can be the pack target below. Naming them here instead pinned the list at the eight that
 # existed when it was written, so the three added since went unexercised and the default itself
 # was never the thing under test. --local points the day deps at this checkout: the pack stage
@@ -64,11 +64,12 @@ n=$(find resource/locales -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
     echo "expected 21 locale catalogs, found $n" >&2
     exit 1
 }
-# A STARTER key, and translated rather than copied: `day localize add` writes the table in
+# A starter key, and translated rather than copied: `day localize add` writes the table in
 # starter_l10n.rs for the handful of scaffold strings the CLI knows the meaning of, and everything
 # else lands as an English copy under a translate-me header. Naming the key explicitly is what
-# keeps this honest — the previous one (`home_greeting`) belonged to a template two rewrites ago,
-# and a bare `grep -q` under `set -e` fails with NO output at all, which is how it read as a
+# ties this check to the current template: the previous one (`home_greeting`) belonged to a
+# template two rewrites ago, and a bare `grep -q` under `set -e` fails with no output at all,
+# which is how it read as a
 # mysterious exit 1 rather than "that key is gone".
 grep -q '^nav_welcome = ' resource/locales/ja-JP/app.ftl || {
     echo "resource/locales/ja-JP/app.ftl has no nav_welcome — is it still a scaffold key?" >&2
@@ -88,20 +89,20 @@ cargo fmt --all -- --check || {
 }
 
 # …and clippy-clean, on the same reasoning: a user's first `cargo clippy` should be quiet, and
-# every app scaffolded from this template runs nearly this command in its own CI — the shared
+# every app scaffolded from this template runs nearly this command in its own CI; the shared
 # `dayapp` preflight is `cargo clippy --workspace --all-targets -- -D warnings`. Without
-# this gate the template's lints are found by the GENERATED repositories rather than here, which
+# this gate the template's lints are found by the generated repositories rather than here, which
 # is how `tr(*k)` (an explicit deref clippy does for you) reached Day-Rise's preflight.
 #
 # `--features mock` where that preflight passes none. The scaffold now declares `default =
 # ["mock"]`, so this is the same backend the default would have selected and the flag is
-# redundant — kept explicit because it is what makes this command work on every host regardless
-# of that default. With NO backend the `day` facade has no `launch`, which is fine on Linux, where
+# redundant, kept explicit because it is what makes this command work on every host regardless
+# of that default. With no backend the `day` facade has no `launch`, which is fine on Linux, where
 # the entry macro expands to nothing, and a `cannot find function launch` error on macOS, where it
 # does not. The app's own code is backend-independent, so the lints are the same either way.
 #
-# Exactly one backend, note — `mock` and a real one together trip day's `enable exactly one
-# backend feature`, which is why the scratch-app BUILD in ci.yml pairs its `--features` with
+# Exactly one backend, note: `mock` and a real one together trip day's `enable exactly one
+# backend feature`, which is why the scratch-app build in ci.yml pairs its `--features` with
 # `--no-default-features`.
 #
 # It compiles the framework, which the pack stage below then reuses from the same target dir, so
@@ -122,7 +123,7 @@ cargo clippy --workspace --all-targets --features mock -- -D warnings || {
 # Android mipmaps and the harmony media dirs are derived from resource/icons/icon.svg into
 # build/day/host/ by `day prepare`, and the checked-in projects point there. A derived file
 # reappearing in the template would put the two side by side, which is exactly the drift this
-# layout was made to end — Gradle refuses duplicate resources, and Xcode would ship whichever
+# layout was made to end: Gradle refuses duplicate resources, and Xcode would ship whichever
 # catalog it resolved first. `find` rather than `git`: the scaffold is not a repository yet.
 STRAY="$(find platform -not -path '*/build/*' \( -name '*.xcassets' -o -name 'mipmap-*' -o -name '*.icon' \) -print)"
 [ -z "$STRAY" ] || {
@@ -146,7 +147,7 @@ done
 
 if [ -n "$COMBO" ]; then
     case "$COMBO" in
-        # The combos `day pack` supports (pack/mod.rs) — only these can go on to the rebuild.
+        # The combos `day pack` supports (pack/mod.rs); only these can go on to the rebuild.
         macos-appkit | ios-uikit | android-mdc | linux-gtk | linux-qt | windows-xaml | harmony-arkui) ;;
         *)
             echo "day pack does not support $COMBO yet — stopping after the lint"
@@ -160,7 +161,7 @@ if [ -n "$COMBO" ]; then
     # piece that introduced that key (day-piece-lottie) lives in its own repository now, so this
     # tree needs a fixture of its own: a native piece scaffolded beside the app that declares one
     # small, stable public SwiftPM package and a Swift shim importing it. `day pack` below then
-    # generates the DayPieces package, xcodebuild resolves swift-collections, and the shim links —
+    # generates the DayPieces package, xcodebuild resolves swift-collections, and the shim links:
     # the whole path a real third-party package takes, in the job that already builds for iOS.
     # The piece is never drawn; being in the app's dependency closure with the uikit feature is
     # what puts its metadata in front of the aggregator.
@@ -212,7 +213,7 @@ SWIFT
     # `<artifact>.sbom-cdx.json` / `.buildinfo.json` / `.buildinfo.deb822`, so matching the
     # container's extension is what separates them). One per target, except Linux: a .flatpak and
     # a .appimage are separate downloads that fail in different places, so both get rebuilt.
-    # android's .aab and windows' -setup.exe are deliberately absent — they come from the same
+    # android's .aab and windows' -setup.exe are absent because they come from the same
     # payload as the .apk / .msix beside them, and `day rebuild` extracts those.
     case "$COMBO" in
         macos-appkit) EXTS="dmg" ;;
@@ -228,7 +229,7 @@ SWIFT
     esac
 
     # `day rebuild` scratches in ${TMPDIR:-/tmp}/day-rebuild-<artifact stem>; clear leftovers so
-    # the find below cannot pick up a copy some earlier run kept. Once, before the loop — the
+    # the find below cannot pick up a copy some earlier run kept. Once, before the loop: the
     # stems differ per artifact, so the runs do not collide with each other.
     TMP="${TMPDIR:-/tmp}"
     rm -rf "$TMP"/day-rebuild-*
@@ -245,8 +246,8 @@ SWIFT
 
     case "$COMBO" in
         macos-appkit | macos-gtk | macos-qt | linux-gtk | linux-qt | windows-xaml | windows-gtk | windows-qt)
-            # Desktop: run the smoke dayscript against the REBUILT copy (--keep left it in the
-            # scratch), so the thing that gets driven is the tree the rebuild actually packed.
+            # Desktop: run the demo dayscript against the rebuilt copy (--keep left it in the
+            # scratch), so the thing that gets driven is the tree the rebuild packed.
             # find is scoped to the scratch dirs (never the whole temp dir: macOS's is full of
             # unreadable app dirs, and under pipefail find's exit 1 would kill the script even
             # after a successful match); `|| true` keeps a no-match answered by the check below.

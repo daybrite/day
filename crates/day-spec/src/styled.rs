@@ -4,7 +4,7 @@
 //! Styled text: the document `label().runs(…)` renders and `day-piece-texteditor` edits
 //! (docs/texteditor.md).
 //!
-//! [`StyledText`] is plain text plus two range vectors over it — [`TextRun`]s for character
+//! [`StyledText`] is plain text plus two range vectors over it: [`TextRun`]s for character
 //! attributes and [`ParagraphRun`]s for paragraph ones. Text and ranges travel together by
 //! construction, because a range only means something against a particular string.
 //!
@@ -23,8 +23,8 @@ use crate::{Color, Font, FontSpec, FontWeight, TextRun, runs_are_valid};
 /// A line under a run.
 ///
 /// An enum rather than a `bool` because every toolkit distinguishes at least single from double,
-/// and because a wavy underline is how an app draws its OWN diagnostics — a spelling or grammar
-/// mark of its own making — without fighting the platform's checker for the same pixels.
+/// and because a wavy underline is how an app draws its diagnostics (a spelling or grammar
+/// mark of its own making) without fighting the platform's checker for the same pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Underline {
     #[default]
@@ -92,7 +92,7 @@ impl RunStyle {
 /// How a paragraph's lines sit in the width they are given.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum ParagraphAlign {
-    /// The reading direction's start edge — left under LTR, right under RTL.
+    /// The reading direction's start edge: left under LTR, right under RTL.
     #[default]
     Natural,
     Center,
@@ -108,7 +108,7 @@ pub enum ListStyle {
     None,
     /// A bullet; the glyph is the platform's.
     Bullet,
-    /// A number, which the APP computes — nothing here renumbers a list, because nothing here
+    /// A number, which the app computes. Nothing here renumbers a list, because nothing here
     /// knows where the list began or whether the paragraph above belongs to it.
     Ordered(u32),
 }
@@ -206,7 +206,7 @@ impl StyledText {
         }
     }
 
-    /// Parse markdown — the ergonomic way to seed a document
+    /// Parse markdown, the ergonomic way to seed a document
     /// ([`styled_codec`](crate::styled_codec)).
     pub fn markdown(md: &str, base: Font) -> Self {
         crate::styled_codec::markdown_to_styled(
@@ -272,7 +272,7 @@ impl StyledText {
         )
     }
 
-    /// Text with character runs and no paragraph attributes — what a label carries today.
+    /// Text with character runs and no paragraph attributes, which is what a label carries today.
     pub fn new(text: impl Into<String>, runs: Vec<TextRun>) -> Self {
         StyledText {
             text: text.into(),
@@ -317,7 +317,7 @@ impl StyledText {
 
     /// The style in effect across `range`.
     ///
-    /// Where the segments under it disagree, the differing attribute comes back as its DEFAULT
+    /// Where the segments under it disagree, the differing attribute comes back as its default
     /// rather than as one of the values. That is what a toolbar renders as its mixed state, and
     /// it is what makes pressing the button set the whole selection instead of toggling half of
     /// it.
@@ -392,7 +392,7 @@ impl StyledText {
     }
 
     /// Apply `f` to every paragraph the selection touches. Paragraph boundaries are `\n`, so a
-    /// caret anywhere inside a paragraph styles the whole of it — which is what every editor does.
+    /// caret anywhere inside a paragraph styles the whole of it, which is what every editor does.
     pub fn apply_paragraph(
         &mut self,
         range: std::ops::Range<usize>,
@@ -420,13 +420,13 @@ impl StyledText {
             .unwrap_or_default()
     }
 
-    /// Move the ranges over a CHARACTER edit the native editor already made: `removed` bytes at
+    /// Move the ranges over a character edit the native editor already made: `removed` bytes at
     /// `offset` replaced by `inserted` bytes.
     ///
     /// This is why a keystroke does not have to ship the whole document back. Ranges before the
     /// edit are untouched, ranges after it shift, a range containing it grows or shrinks, and a
-    /// range the edit emptied is dropped — the rule every attributed-string implementation uses,
-    /// exact, and O(runs) rather than O(document).
+    /// range the edit emptied is dropped. That is the rule every attributed-string implementation
+    /// uses, exact, and O(runs) rather than O(document).
     ///
     /// `self.text` must already be the new text; this only moves ranges.
     pub fn reflow(&mut self, offset: usize, removed: usize, inserted: usize) {
@@ -498,7 +498,7 @@ impl StyledText {
 }
 
 /// Fold `b` into the accumulated selection style: an attribute both agree on survives, one they
-/// differ on resets to its default — the toolbar's mixed state.
+/// differ on resets to its default (the toolbar's mixed state).
 fn merge_style(acc: Option<RunStyle>, b: &RunStyle) -> RunStyle {
     let Some(a) = acc else { return b.clone() };
     RunStyle {
@@ -572,7 +572,7 @@ pub fn coalesce_runs(runs: Vec<TextRun>, base: Font) -> Vec<TextRun> {
 /// The `\n`-delimited paragraphs of `text`, as byte ranges INCLUDING the terminator.
 ///
 /// An empty string has no paragraphs. A trailing newline makes an empty final paragraph, the way
-/// an editor shows a blank last line — so `"a\n"` is two paragraphs, not one.
+/// an editor shows a blank last line, so `"a\n"` is two paragraphs, not one.
 pub fn paragraph_bounds(text: &str) -> Vec<(usize, usize)> {
     if text.is_empty() {
         return Vec::new();
@@ -589,8 +589,8 @@ pub fn paragraph_bounds(text: &str) -> Vec<(usize, usize)> {
     out
 }
 
-/// Are these paragraph runs well formed for `text` — [`runs_are_valid`]'s rules, applied to the
-/// second range vector.
+/// Whether these paragraph runs are well formed for `text`: [`runs_are_valid`]'s rules, applied
+/// to the second range vector.
 pub fn paragraphs_are_valid(text: &str, paragraphs: &[ParagraphRun]) -> Result<(), String> {
     let mut prev_end = 0usize;
     for (i, p) in paragraphs.iter().enumerate() {
@@ -665,11 +665,11 @@ mod tests {
 
     #[test]
     fn a_caret_takes_the_style_of_the_run_it_ends() {
-        // Typing at offset 5 — right after "hello" — continues bold.
+        // Typing at offset 5, right after "hello", continues bold.
         assert!(doc().style_of(5..5, Font::Body).bold());
         // And at 11, after the plain tail, it does not.
         assert!(!doc().style_of(11..11, Font::Body).bold());
-        // At offset 0 there is nothing behind the caret, so it takes the run AHEAD instead —
+        // At offset 0 there is nothing behind the caret, so it takes the run ahead instead:
         // typing at the very start of a document that begins bold gives bold, which is what
         // TextEdit, Word and every web editor do.
         assert!(doc().style_of(0..0, Font::Body).bold());

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// GTK: GtkSearchEntry — a native search entry (magnifier + clear icon). Its "search-changed" signal
+// GTK: GtkSearchEntry, a native search entry (magnifier + clear icon). Its "search-changed" signal
 // fires on user input and on programmatic set_text, so a per-node `suppress` cell guards the
 // programmatic sync in `update` from echoing back as an Event::TextChanged.
 // ---------------------------------------------------------------------------
@@ -79,8 +79,8 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
 
 /// Drop the per-widget state when the widget goes away.
 ///
-/// Without this the map grows by one entry per realized search field, and — worse — its key is
-/// the widget's ADDRESS, which the allocator reuses: a later widget landing on a freed address
+/// Without this the map grows by one entry per realized search field, and, worse, its key is
+/// the widget's address, which the allocator reuses: a later widget landing on a freed address
 /// would inherit the dead entry's suppress cell and entry and drive the wrong one.
 fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     STATE.with(|m| {
@@ -92,7 +92,7 @@ day_pieces::renderer!(day_gtk::RENDERERS, Gtk,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure, release: release);
 
-/// Non-generic anchor for the linker — called by `SearchField::build` (see lib.rs). Without a
+/// Non-generic anchor for the linker, called by `SearchField::build` (see lib.rs). Without a
 /// caller this module's object is never pulled out of the rlib, and the `renderer!` registration
 /// above never reaches the binary.
 pub(crate) fn anchor() {}

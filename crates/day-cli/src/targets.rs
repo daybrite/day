@@ -24,7 +24,7 @@ pub struct Target {
     pub toolkit: &'static str,
     pub kind: TargetKind,
     /// The platform key: the `platform/<os>/` scaffold dir, the `[app.<os>]` override table, and
-    /// the per-platform namespace generally. Not derivable from `name` — `harmony-arkui`'s
+    /// the per-platform namespace generally. Not derivable from `name`: `harmony-arkui`'s
     /// platform key is `ohos` (the scaffold dir, signing table, and `day ohos` all predate the
     /// target's rename and keep the OS's own name). Deriving this by splitting the target name
     /// is what silently broke `day new`'s HarmonyOS scaffold when the target was renamed.
@@ -33,12 +33,12 @@ pub struct Target {
     pub host: &'static str,
     /// Human-friendly label for pickers/menus (e.g. `day new`'s interactive target chooser).
     pub label: &'static str,
-    /// Not yet production-ready — surfaced with an `[EXPERIMENTAL]` tag in menus.
+    /// Not yet production-ready; surfaced with an `[EXPERIMENTAL]` tag in menus.
     pub experimental: bool,
 }
 
 // Ordered for presentation: the phone OSes first (iOS, Android, HarmonyOS), then the desktops
-// grouped by OS (macOS, Linux, Windows), then the web — this is the order the `day new`
+// grouped by OS (macOS, Linux, Windows), then the web. This is the order the `day new`
 // interactive target menu shows and the column order `day screenshot index` writes into a
 // gallery, so a published site reads the same way the menu does. `find()` is by name and
 // `Day.toml` defaults are string literals, so the order is purely cosmetic elsewhere.
@@ -169,13 +169,13 @@ pub fn host_os() -> &'static str {
     }
 }
 
-/// The default target for the current host — the sensible preselection for `day new app`'s target
+/// The default target for the current host: the sensible preselection for `day new app`'s target
 /// menu, the fallback when a non-interactive `day new app` gets no `--toolkit`, and what
 /// `day launch`/`day build` run when given no `-p`.
 ///
 /// Each OS has one obvious native answer except Linux, where the toolkit follows the DESKTOP the
 /// user is actually running: a Qt desktop gets `linux-qt`, everything else `linux-gtk`. Getting
-/// this wrong is not cosmetic — a GTK build under Plasma (or vice versa) is the one that looks
+/// this wrong is not cosmetic: a GTK build under Plasma (or vice versa) is the one that looks
 /// foreign, which is the whole thing Day exists to avoid.
 pub fn host_default() -> &'static str {
     match host_os() {
@@ -185,17 +185,17 @@ pub fn host_default() -> &'static str {
     }
 }
 
-/// The target to SUGGEST running, out of the ones an app declares.
+/// The target to suggest running, out of the ones an app declares.
 ///
 /// The first declared target used to be the answer, and the scaffold's default list opens with
-/// `ios-uikit` — so a fresh `day new app` on a Linux desktop finished by advising a build that
+/// `ios-uikit`, so a fresh `day new app` on a Linux desktop finished by advising a build that
 /// needs Xcode, on a machine that has none.
 ///
 /// Preference order: the [`host_default`] when the app declares it, which is the common case and
 /// the one that follows the Linux desktop's own toolkit; failing that, the first declared target
 /// this host can build at all, so an app scaffolded `--toolkit ios-uikit --toolkit linux-qt` on a
 /// GNOME box is still pointed at the Qt build rather than at Xcode; failing that, the first
-/// declared, which is the only honest answer left when nothing here can build any of them.
+/// declared, which is the only answer left when nothing here can build any of them.
 pub fn suggested(targets: &[String]) -> &str {
     let default = host_default();
     if targets.iter().any(|t| t == default) {
@@ -226,7 +226,7 @@ fn linux_default_desktop() -> &'static str {
     ])
 }
 
-/// The toolkit for a set of desktop-identifying strings — pure, so the mapping is testable
+/// The toolkit for a set of desktop-identifying strings. Pure, so the mapping is testable
 /// without mutating the process environment.
 fn desktop_toolkit(values: &[String]) -> &'static str {
     const QT_DESKTOPS: [&str; 6] = ["kde", "plasma", "lxqt", "deepin", "razor", "trinity"];
@@ -245,7 +245,7 @@ fn desktop_toolkit(values: &[String]) -> &'static str {
 mod tests {
     use super::*;
 
-    /// Every default names a real target — a typo here would only surface as a launch failure on
+    /// Every default names a real target; a typo here would only surface as a launch failure on
     /// the one OS that hits that arm.
     /// The desktops a Linux user actually runs, as their session variables report them.
     #[test]
@@ -280,7 +280,7 @@ mod tests {
             |names: &[&str]| -> Vec<String> { names.iter().map(|s| s.to_string()).collect() };
 
         // The scaffold's own list, which opens with `ios-uikit`. Whatever this host is, the
-        // suggestion is its native target — advising an Xcode build on a Linux desktop is the
+        // suggestion is its native target; advising an Xcode build on a Linux desktop is the
         // bug this exists to prevent.
         let scaffold = list(&[
             "ios-uikit",
@@ -294,8 +294,8 @@ mod tests {
         ]);
         assert_eq!(suggested(&scaffold), host_default());
 
-        // The host default is not declared, so fall to the first target this host can build —
-        // Not to `ios-uikit` just because it is written first.
+        // The host default is not declared, so fall to the first target this host can build,
+        // not to `ios-uikit` just because it is written first.
         let host = host_os();
         let elsewhere: Vec<String> = TARGETS
             .iter()
@@ -311,14 +311,14 @@ mod tests {
             assert_eq!(suggested(&mixed), native.name, "{mixed:?}");
         }
 
-        // Nothing here can build any of them: naming the first is the only honest answer left,
+        // Nothing here can build any of them: naming the first is the only answer left,
         // and it must not invent a target the app does not declare.
         if !elsewhere.is_empty() {
             assert_eq!(suggested(&elsewhere), elsewhere[0]);
         }
 
         // `web-dom` declares `host: "any"`, so it counts as runnable everywhere. Put a target
-        // this host cannot build in FRONT of it, so passing means the host check chose it rather
+        // this host cannot build in front of it, so passing means the host check chose it rather
         // than the first-declared fallback landing on it by accident.
         if let Some(foreign) = elsewhere.first() {
             let pair = list(&[foreign, "web-dom"]);

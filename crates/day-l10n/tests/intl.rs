@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! icu4x-backed formatting + collation (docs/localization.md "Formatted values"/"Sorting").
-//! These run under bare `cargo` — full compiled data, no thinning pipeline involved — and pin the
+//! These run under bare `cargo` (full compiled data, no thinning pipeline involved) and pin the
 //! locale per assertion via `format_in`, so they are independent of DAY_LOCALE and each other.
 
 use day_l10n::{FArg, compare_in, format_in, install};
@@ -57,13 +57,13 @@ fn dt(locale: &str, key: &str, v: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// NUMBER + the bundle-wide formatter
+// `NUMBER()` + the bundle-wide formatter
 // ---------------------------------------------------------------------------
 
 #[test]
 fn plain_interpolations_localize() {
     install_fixture();
-    // The set_formatter hook covers plain `{ $n }` — not just explicit NUMBER() calls.
+    // The set_formatter hook covers plain `{ $n }` as well as explicit NUMBER() calls.
     assert_eq!(num("en", "plain", 1234567.891), "1,234,567.891");
     assert_eq!(num("de", "plain", 1234567.891), "1.234.567,891");
     // fr groups with narrow no-break space (U+202F).
@@ -168,8 +168,8 @@ fn datetime_garbage_is_echoed_not_blank() {
 fn french_accents_collate_correctly() {
     use std::cmp::Ordering;
     // Base letters compare before accents (UCA secondary level): unaccented < accented, and the
-    // earlier accent position wins — coté (accent on é, position 4) < côte (accent on ô,
-    // position 2). Naive byte order would put both after "cote" by code point instead.
+    // earlier accent position wins: coté (accent on é, position 4) < côte (accent on ô,
+    // position 2). Byte order would put both after "cote" by code point instead.
     assert_eq!(compare_in("fr", "cote", "coté"), Ordering::Less);
     assert_eq!(compare_in("fr", "coté", "côte"), Ordering::Less);
     assert_eq!(
@@ -194,8 +194,8 @@ fn chinese_sorts_by_pinyin() {
 
 #[test]
 fn chinese_stroke_extension_differs() {
-    // Stroke order: 上 (3 strokes) < 广 (3, later radical order) < 北 (5)… — the exact order is
-    // data-defined; the invariant we pin is that the -u-co-stroke tailoring CHANGES the result
+    // Stroke order: 上 (3 strokes) < 广 (3, later radical order) < 北 (5)… The exact order is
+    // data-defined; the invariant we pin is that the -u-co-stroke tailoring changes the result
     // vs pinyin for at least one pair.
     let pinyin = compare_in("zh", "上海", "北京");
     let stroke = compare_in("zh-u-co-stroke", "上海", "北京");
@@ -232,7 +232,7 @@ fn pseudolocale_unaffected() {
 #[test]
 fn pseudolocale_of_any_locale() {
     install_fixture();
-    // `fr-XA` is French underneath: the French rendering, accented and expanded — not the
+    // `fr-XA` is French underneath: the French rendering, accented and expanded, not the
     // English one.
     let fr = dt("fr", "when_long", "2026-09-10");
     let xa = dt("fr-XA", "when_long", "2026-09-10");

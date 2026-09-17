@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Desktop Linux: there is NO toolkit-independent native clipboard API — the clipboard lives in the
+// Desktop Linux: there is no toolkit-independent native clipboard API. The clipboard lives in the
 // display server, and GDK's accessor needs GTK initialized (which would break day-qt binaries). So
 // this shells out to the session's standard clipboard tools instead: `wl-copy`/`wl-paste`
-// (wl-clipboard) on Wayland, `xclip` on X11 — zero dependencies beyond std::process. The session
-// type (WAYLAND_DISPLAY) picks which to try first; the other is the fallback.
+// (wl-clipboard) on Wayland, `xclip` on X11, with zero dependencies beyond std::process. The
+// session type (WAYLAND_DISPLAY) picks which to try first; the other is the fallback.
 
 use std::io::Write;
 use std::process::{Command, Stdio};
@@ -53,9 +53,10 @@ fn read_out(cmd: &str, args: &[&str]) -> Option<String> {
 pub fn set_text(text: &str) -> bool {
     let wl = || pipe_in("wl-copy", &["--type", "text/plain"], text);
     let x = || pipe_in("xclip", &["-selection", "clipboard", "-in"], text);
-    // Try the session's native tool first, the other as fallback. Selecting the order up front —
-    // rather than a bare `wl()||x()` vs `x()||wl()` in each branch — keeps clippy::if_same_then_else,
-    // which normalizes commutative `||`, from collapsing the two arms into "identical blocks".
+    // Try the session's native tool first, the other as fallback. Selecting the order up front,
+    // rather than a bare `wl()||x()` vs `x()||wl()` in each branch, keeps
+    // clippy::if_same_then_else, which normalizes commutative `||`, from collapsing the two arms
+    // into "identical blocks".
     let (first, second): (&dyn Fn() -> bool, &dyn Fn() -> bool) = if wayland_session() {
         (&wl, &x)
     } else {

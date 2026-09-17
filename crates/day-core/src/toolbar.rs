@@ -1,13 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Toolbar contributions (docs/toolbars.md). The MODEL ([`day_spec::ToolbarItem`]) is
-//! toolkit-neutral and carries only ids for its commands; the real closures live here, keyed by
-//! id — the same shape as [`crate::menu`], and deliberately the same id space, so one closure can
+//! Toolbar contributions (docs/toolbars.md). The model ([`day_spec::ToolbarItem`]) is
+//! toolkit-neutral and carries only ids for its commands; the closures live here, keyed by
+//! id, the same shape as [`crate::menu`] and the same id space, so one closure can
 //! back both a toolbar button and its menu-bar twin.
 //!
-//! Any piece can declare items. Where it sits decides which CHROME carries them — the window's
-//! own, or one navigation page's — and its scope decides how long they stay: a contribution is
+//! Any piece can declare items. Where it sits decides which chrome carries them (the window's
+//! own, or one navigation page's), and its scope decides how long they stay: a contribution is
 //! withdrawn when the piece that registered it is disposed, so a command leaves with the content
 //! it acts on. Several pieces may contribute to one chrome; this module merges them in
 //! registration order and hands the result to the toolkit as one model.
@@ -20,14 +20,14 @@ use day_spec::{ToolbarItem, ToolbarPatch, ToolbarValue};
 
 use crate::tree::{RNode, with_tree};
 
-/// A toolbar item's value callback — what a search field's text or a toggle's state runs.
+/// A toolbar item's value callback: what a search field's text or a toggle's state runs.
 type ValueAction = Rc<dyn Fn(&ToolbarValue)>;
 
 /// Which chrome a contribution lands on.
 ///
-/// Not a placement — [`day_spec::ToolbarPlacement`] says where on a chrome an item sits. This
+/// Not a placement; [`day_spec::ToolbarPlacement`] says where on a chrome an item sits. This
 /// says which chrome, and it is never written by an app: it follows from the piece that declared
-/// the items, which is the whole point of the design (docs/toolbars.md).
+/// the items, which is what the design is built around (docs/toolbars.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Chrome {
     /// The window's own chrome, shown on every page of that window.
@@ -43,9 +43,9 @@ struct PageFrame {
     page: RNode,
     active: Option<Rc<dyn Fn() -> bool>>,
     column: day_spec::ToolbarColumn,
-    /// The window this page belongs to, captured when its HOST was built. A destination page is
-    /// built lazily, on the first selection, long after its window's own build has returned —
-    /// and `window_being_built()` then answers the PRIMARY window, so a second window's pages
+    /// The window this page belongs to, captured when its host was built. A destination page is
+    /// built lazily, on the first selection, long after its window's build has returned, and
+    /// `window_being_built()` then answers the primary window, so a second window's pages
     /// would contribute to the first one's bar.
     window: RNode,
 }
@@ -59,22 +59,22 @@ struct Contribution {
     items: Vec<ToolbarItem>,
     /// The window this contribution's chrome belongs to.
     window: RNode,
-    /// Whether the page carrying it is ON SCREEN. One bar serves the window, so a pane that is
-    /// collapsed or a destination that is not the one showing must not leave its commands on it
-    /// — that is what made a sidebar row's chrome look one level out of step (docs/toolbars.md).
-    /// `None` for a window's own items, which are always showing.
+    /// Whether the page carrying it is on screen. One bar serves the window, so a pane that is
+    /// collapsed or a destination that is not the one showing must not leave its commands on it;
+    /// that is what made a sidebar row's chrome look one level out of step (docs/toolbars.md).
+    /// `None` for a window's items, which are always showing.
     active: Option<Rc<dyn Fn() -> bool>>,
 }
 
 day_reactive::tls_slots! {
     toolbar;
     /// Value callbacks (search text, toggle state) by dispatch id. Plain buttons don't appear
-    /// here — they register with [`crate::menu::register_menu_action`] and arrive as
+    /// here; they register with [`crate::menu::register_menu_action`] and arrive as
     /// `Event::MenuAction`.
     static VALUE_ACTIONS: RefCell<HashMap<u64, ValueAction>> = RefCell::new(HashMap::new());
     /// Live contributions by token.
     static CONTRIBUTIONS: RefCell<HashMap<u64, Contribution>> = RefCell::new(HashMap::new());
-    /// Each chrome's merged model as last lowered — dayscript resolves an item's action here,
+    /// Each chrome's merged model as last lowered; dayscript resolves an item's action here,
     /// and a re-lower diffs against it to drop the closures the old model owned.
     static MODELS: RefCell<Vec<(Chrome, Vec<ToolbarItem>)>> = const { RefCell::new(Vec::new()) };
     /// Next contribution token, and the registration counter behind `Contribution::seq`.
@@ -115,8 +115,8 @@ pub fn with_page<R>(page: RNode, f: impl FnOnce() -> R) -> R {
     )
 }
 
-/// [`with_page_gated`] naming the window explicitly. Callers that build pages lazily — every
-/// navigation host — pass the window they were built in.
+/// [`with_page_gated`] naming the window explicitly. Callers that build pages lazily (every
+/// navigation host) pass the window they were built in.
 pub fn with_page_in<R>(
     page: RNode,
     active: Option<Rc<dyn Fn() -> bool>>,
@@ -144,8 +144,8 @@ pub fn with_page_in<R>(
     f()
 }
 
-/// [`with_page`] with the predicate that says whether this page is ON SCREEN — a collapsed
-/// content-list pane, a destination that is not the one showing, a page covered by a push. The
+/// [`with_page`] with the predicate that says whether this page is on screen (a collapsed
+/// content-list pane, a destination that is not the one showing, a page covered by a push). The
 /// window's one bar carries only the chromes that predicate admits (docs/toolbars.md).
 pub fn with_page_gated<R>(
     page: RNode,
@@ -168,7 +168,7 @@ pub fn current_page_gate() -> Option<Rc<dyn Fn() -> bool>> {
     PAGE_STACK.with(|s| s.borrow().last().and_then(|f| f.active.clone()))
 }
 
-/// Which column the page being built is — [`day_spec::ToolbarColumn::Window`] at the window root.
+/// Which column the page being built is; [`day_spec::ToolbarColumn::Window`] at the window root.
 pub fn current_page_column() -> day_spec::ToolbarColumn {
     PAGE_STACK.with(|s| {
         s.borrow()
@@ -179,7 +179,7 @@ pub fn current_page_column() -> day_spec::ToolbarColumn {
 }
 
 /// The window being built, else the primary root. Shared with [`crate::ambient`], which scopes
-/// the same way for the same reason — an app's one `size_class()` call inside a shared
+/// the same way for the same reason: an app's one `size_class()` call inside a shared
 /// `build_shell` must mean "this window".
 pub fn window_being_built() -> RNode {
     BUILDING
@@ -253,8 +253,8 @@ pub fn register_contribution_gated(
     token
 }
 
-/// One window's whole bar for a toolkit that draws only one: its own items, then every page
-/// chrome ON SCREEN under it, in registration order (docs/toolbars.md).
+/// One window's whole bar for a toolkit that draws only one: its items, then every page
+/// chrome on screen under it, in registration order (docs/toolbars.md).
 fn merged_window(root: RNode) -> Vec<ToolbarItem> {
     let mut live: Vec<(u64, Vec<ToolbarItem>)> = CONTRIBUTIONS.with(|m| {
         m.borrow()
@@ -335,9 +335,9 @@ fn placement_rank(p: day_spec::ToolbarPlacement) -> u8 {
 /// recreates the native widgets. That is invisible for a button, and destructive for the search
 /// field: it takes the keyboard focus and the caret with it. Typing a letter that moves the nav
 /// selection re-ran the page build, which re-lowered the bar, which threw away the field being
-/// typed into — on every backend, because they all rebuild what they are handed.
+/// typed into, on every backend, because they all rebuild what they are handed.
 ///
-/// The remedy is to notice that only the CLOSURES are new. Same items, same order, same labels,
+/// The remedy is to notice that only the closures are new. Same items, same order, same labels,
 /// icons, kinds and enablement means the native bar is already correct; moving the new closures
 /// onto the action ids it already carries makes it current without touching a widget.
 fn lower(chrome: Chrome) {
@@ -363,8 +363,8 @@ fn lower(chrome: Chrome) {
     sweep_values(chrome, &items);
     // One bar per window, whichever chrome changed: the toolkit is handed the window's items
     // plus the pages showing, already merged, so it draws what it has always drawn and never has
-    // to know that a page contributed any of it (docs/toolbars.md). There is deliberately no
-    // per-chrome model — one authority, so a live patch and a re-compose cannot disagree.
+    // to know that a page contributed any of it (docs/toolbars.md). There is no per-chrome
+    // model: one authority, so a live patch and a re-compose cannot disagree.
     let _ = items;
     recompose_windows();
 }
@@ -400,14 +400,14 @@ fn recompose_windows() {
     }
 }
 
-/// The pieces layer, after a change to what is ON SCREEN (a push, a pop, a tab switch), so a
+/// The pieces layer, after a change to what is on screen (a push, a pop, a tab switch), so a
 /// one-bar-per-window toolkit is handed the showing pages' items. No-op where every page has a
 /// bar of its own.
 pub fn chrome_changed() {
     recompose_windows();
 }
 
-/// Apply a targeted item update wherever the item lives — the path a bound signal writes through,
+/// Apply a targeted item update wherever the item lives: the path a bound signal writes through,
 /// so a search field keeps its focus and its insertion point.
 pub fn patch_toolbar(patch: ToolbarPatch) {
     let owner = MODELS.with(|m| {
@@ -437,11 +437,11 @@ pub fn patch_chrome(chrome: Chrome, patch: ToolbarPatch) {
         }
         window
     });
-    // …and so does the WINDOW's model, which is the one the toolkit draws and dayscript reads.
+    // …and so does the window's model, which is the one the toolkit draws and dayscript reads.
     //
     // A page's chrome has no model of its own: everything is composed into the window's before
     // it crosses (see `lower`). Patching a per-chrome copy left the drawn bar carrying the value
-    // the item was BUILT with — which is how a page command declared while nothing was selected
+    // the item was built with, which is how a page command declared while nothing was selected
     // stayed disabled on a window that never re-composed afterwards, and did nothing when tapped.
     let Some(root) = window else { return };
     MODELS.with(|m| {
@@ -504,14 +504,14 @@ fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
     }
 }
 
-/// Every live item, across every chrome — dayscript's `toolbar:` step walks it to resolve an
+/// Every live item, across every chrome. dayscript's `toolbar:` step walks it to resolve an
 /// item's dispatch id, and an app has one bar per window at a time, so a duplicate id across two
 /// chromes would be an app bug rather than an ambiguity to resolve here.
 pub fn toolbar_model() -> Vec<ToolbarItem> {
     MODELS.with(|m| m.borrow().iter().flat_map(|(_, i)| i.clone()).collect())
 }
 
-/// Show/hide the sidebar pane of the navigation host `host` — the behavior behind the sidebar
+/// Show/hide the sidebar pane of the navigation host `host`: the behavior behind the sidebar
 /// affordance a nav host contributes for itself (`day_spec::SIDEBAR_TOGGLE_ID`). `false` when
 /// the toolkit has no pane to toggle there. The item's action makes this call, and dayscript's
 /// `toolbar:` step presses the item like any other, so a walkthrough drives the same path a
@@ -523,7 +523,7 @@ pub fn toggle_sidebar(host: RNode) -> bool {
 /// Drop a closed window's contributions, chrome model and the value closures only they owned.
 ///
 /// Called before the window's scope is disposed. Disposal runs every contribution's cleanup,
-/// and each one re-composes the window it belonged to — a merge that asks the other
+/// and each one re-composes the window it belonged to, a merge that asks the other
 /// contributions' gates whether their page is showing, through signals the same disposal has
 /// already dropped. Withdrawing the whole window here first leaves those cleanups nothing to
 /// re-compose (a token that is already gone is a no-op), so a closed window never merges its
@@ -545,11 +545,11 @@ pub(crate) fn forget_window(root: RNode) {
     drop_values(&gone, &[]);
 }
 
-/// Forget the value closures the previous model owned and the new one does not — the same
+/// Forget the value closures the previous model owned and the new one does not, the same
 /// discipline `set_app_menu` applies to menu actions, so a toolbar rebuilt on every locale change
 /// does not leak a closure per install.
 fn sweep_values(chrome: Chrome, next: &[ToolbarItem]) {
-    // Against the WINDOW's model — the only one there is. `next` is this chrome's share of it,
+    // Against the window's model, the only one there is. `next` is this chrome's share of it,
     // so the comparison keeps every id the window still carries and drops only the ones this
     // chrome stopped declaring.
     let root = CONTRIBUTIONS.with(|m| {
@@ -572,7 +572,7 @@ fn sweep_values(chrome: Chrome, next: &[ToolbarItem]) {
     drop_values(&prev, &live);
 }
 
-/// Whether two models describe the same BAR — everything the toolkit renders or dispatches by
+/// Whether two models describe the same bar: everything the toolkit renders or dispatches by
 /// position, ignoring the action ids (new closures every build) and the search field's live text
 /// and completions (kept current through [`ToolbarPatch`], never through a rebuild).
 fn same_shape(a: &[ToolbarItem], b: &[ToolbarItem]) -> bool {
@@ -672,7 +672,7 @@ fn drop_values(prev: &[ToolbarItem], next: &[ToolbarItem]) {
     });
 }
 
-/// Reset every chrome's toolbar state (tests — pairs with `uninstall_tree`).
+/// Reset every chrome's toolbar state (tests; pairs with `uninstall_tree`).
 pub fn reset_toolbars() {
     MODELS.with(|m| m.borrow_mut().clear());
     CONTRIBUTIONS.with(|m| m.borrow_mut().clear());

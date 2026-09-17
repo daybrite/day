@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// UIKit: UIDatePicker for both pieces — Compact → .compact (field → calendar popover / time
+// UIKit: UIDatePicker for both pieces. Compact → .compact (field → calendar popover / time
 // keypad, the modern iOS idiom), Inline → .inline for dates (embedded calendar) and .wheels for
 // times (iOS has no inline clock face; wheels are its embedded time UI). Calendar/timeZone pinned
 // to proleptic-Gregorian GMT (locale stays the user's) so civil values map 1:1 onto NSDate epoch
@@ -114,10 +114,10 @@ fn set_if_changed(p: &UIDatePicker, secs: i64) {
 }
 
 fn measure_picker(h: &Retained<UIView>, p: Proposal) -> Size {
-    // The probe must be the PROPOSAL, never an unbounded sentinel: the compact style ECHOES
+    // The probe must be the proposal, never an unbounded sentinel: the compact style echoes
     // whatever width it is asked about (the compact view stretches to fill and right-aligns
     // its pill inside), so probing at 1e6 measured every compact picker a million points wide
-    // and laid its pill that far offscreen — invisible pickers on every iPhone and iPad.
+    // and laid its pill that far offscreen, giving invisible pickers on every iPhone and iPad.
     // Probed at the width the cell can actually give, the picker fills that cell and the
     // trailing pill lands at its visible edge (the iOS Settings-row idiom). The inline
     // calendar and wheels report their intrinsic size regardless of the probe.
@@ -126,10 +126,10 @@ fn measure_picker(h: &Retained<UIView>, p: Proposal) -> Size {
     Size::new(s.width.ceil().clamp(60.0, cap.ceil()), s.height.ceil().max(28.0))
 }
 
-/// Drop the retained target when the picker goes away (shared by both renderers — the map is).
+/// Drop the retained target when the picker goes away (shared by both renderers, as the map is).
 ///
-/// Without this the map grows by one entry per realized picker, and — worse — its key is the
-/// view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// Without this the map grows by one entry per realized picker, and, worse, its key is the
+/// view's address, which the allocator reuses: a later view landing on a freed address would
 /// inherit the dead node's target.
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     TARGETS.with(|m| {

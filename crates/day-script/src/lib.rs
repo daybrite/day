@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-script — the embedded dayscript engine (DESIGN.md §14). Bind-only-when-invited: the
+//! day-script: the embedded dayscript engine (DESIGN.md §14). Bind-only-when-invited: the
 //! server starts only when DAYSCRIPT_PORT + DAYSCRIPT_TOKEN are present in the environment
 //! (never otherwise), listens on 127.0.0.1, and accepts only the step catalog. Steps execute
-//! as synthesized Day events on the main thread between flushes — deterministic and
+//! as synthesized Day events on the main thread between flushes, deterministic and
 //! toolkit-uniform. Locator steps get an implicit bounded wait (default 5s).
 
 use std::collections::BTreeMap;
@@ -28,7 +28,7 @@ pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
 /// How long one dispatch may wait for the main thread before the step is failed.
 ///
 /// This is not the step's implicit-wait budget ([`DEFAULT_TIMEOUT_SECS`], §14.3). That one governs
-/// re-asking a question whose answer may change — "is it visible yet?". This one governs a main
+/// re-asking a question whose answer may change ("is it visible yet?"). This one governs a main
 /// thread that has not answered *at all*: a CI runner compositing its first frame on a shared vCPU,
 /// a debug build faulting in pages, a compositor stall. Those are properties of the machine, not of
 /// the script, which is why `DAY_SCRIPT_MAIN_TIMEOUT_SECS` can raise it without editing a
@@ -51,7 +51,7 @@ pub struct Request {
 pub enum Step {
     WaitFor {
         id: String,
-        /// Upper bound in seconds for the implicit retry wait (§14.3) — for elements that
+        /// Upper bound in seconds for the implicit retry wait (§14.3), for elements that
         /// appear only after slow work (a login round-trip, a first sync). Defaults to the
         /// shared step timeout.
         #[serde(default)]
@@ -59,7 +59,7 @@ pub enum Step {
     },
     WaitIdle,
     /// Programmatic scroll (docs/scroll.md §dayscript). With `edge`/`x`+`y`, `id` must name a
-    /// `scroll` piece; with neither, `id` names ANY element and its nearest enclosing scroll
+    /// `scroll` piece; with neither, `id` names any element and its nearest enclosing scroll
     /// reveals it. Unanimated, so the next step sees the settled position.
     ScrollTo {
         id: String,
@@ -75,7 +75,7 @@ pub enum Step {
         id: String,
         #[serde(default)]
         repeat: Option<u32>,
-        /// Tap at this point in the element's own coordinate space instead of its center —
+        /// Tap at this point in the element's coordinate space instead of its center, which is
         /// what canvas hit-testing needs (`- tap: { id: canvas, at: [40, 60] }`).
         #[serde(default)]
         at: Option<[f64; 2]>,
@@ -85,13 +85,13 @@ pub enum Step {
         #[serde(default)]
         modifiers: Vec<String>,
     },
-    /// A non-text key press, delivered the way the platform delivers one — to whatever holds
-    /// FOCUS (`- focus: { id: canvas }` then `- key: { key: ArrowRight, modifiers: [shift] }`,
+    /// A non-text key press, delivered the way the platform delivers one: to whatever holds
+    /// focus (`- focus: { id: canvas }` then `- key: { key: ArrowRight, modifiers: [shift] }`,
     /// docs/menus.md). Names follow the web `KeyboardEvent.key` vocabulary.
     Key {
         key: String,
         /// The piece to deliver to. Omit to send it wherever focus is, which is what a real
-        /// key press does (docs/menus.md) — pair it with a `focus:` step to drive the whole
+        /// key press does (docs/menus.md); pair it with a `focus:` step to drive the whole
         /// route. Name an `id` to address one piece's handler regardless of focus.
         #[serde(default)]
         id: Option<String>,
@@ -99,11 +99,11 @@ pub enum Step {
         modifiers: Vec<String>,
     },
     /// A synthetic pointer drag over one element, in its own coordinate space: `Began` at
-    /// `from`, a few `Changed` samples along the segment, `Ended` at `to` — the same
+    /// `from`, a few `Changed` samples along the segment, `Ended` at `to`, the same
     /// `Event::Drag` stream a native recognizer delivers, so `.on_drag` state machines
     /// (canvas move/resize) run their whole preview→commit path. Injected, like every
     /// dayscript step: green here says the app logic holds, not that the platform recognizer
-    /// fires — verify that with real input (docs/agent.md).
+    /// fires; verify that with real input (docs/agent.md).
     Drag {
         id: String,
         from: [f64; 2],
@@ -111,14 +111,14 @@ pub enum Step {
         /// Intermediate `Changed` samples between the endpoints (default 4).
         #[serde(default)]
         steps: Option<u32>,
-        /// Modifier keys "held" for the whole drag, named as in [`Step::Tap`] — for gestures
-        /// whose meaning they change (a shift-drag that ADDS to a selection rather than
+        /// Modifier keys "held" for the whole drag, named as in [`Step::Tap`], for gestures
+        /// whose meaning they change (a shift-drag that adds to a selection rather than
         /// replacing it). They stand in for every phase, press through release, because that
         /// is how a real drag reads them: once, when it starts.
         #[serde(default)]
         modifiers: Vec<String>,
     },
-    /// Deliver `Event::Submitted` to the element — the scripted stand-in for the platform's
+    /// Deliver `Event::Submitted` to the element: the scripted stand-in for the platform's
     /// submit gesture (Enter in a `text_area` with `.on_submit`, a field's return key).
     Submit {
         id: String,
@@ -127,8 +127,8 @@ pub enum Step {
         id: String,
         #[serde(default)]
         text: Option<String>,
-        /// Localized alternative to `text`: resolve this Fluent key (with `args`) in the RUN'S
-        /// locale and type the result — locale-portable queries (e.g. a localized fruit name).
+        /// Localized alternative to `text`: resolve this Fluent key (with `args`) in the run's
+        /// locale and type the result, for locale-portable queries (e.g. a localized fruit name).
         #[serde(default)]
         key: Option<String>,
         #[serde(default)]
@@ -153,7 +153,7 @@ pub enum Step {
         index: i64,
     },
     /// Drag-reorder a list row programmatically: row `from` drops at row `to` through the same
-    /// guard → commit path a native drag takes (docs/list.md) — the app's `reorder_guard` may
+    /// guard → commit path a native drag takes (docs/list.md); the app's `reorder_guard` may
     /// deny or retarget it. Fails (non-retryably) when the list isn't `.reorderable()` or the
     /// guard denies the move.
     Reorder {
@@ -161,7 +161,7 @@ pub enum Step {
         from: usize,
         to: usize,
     },
-    /// Undo one unit of the app's history, through the installed undo bridge — the same
+    /// Undo one unit of the app's history, through the installed undo bridge, the same
     /// handler ⌘Z and the Edit menu reach (docs/model.md). Portable: it needs no undo
     /// button and no scriptable menu item on the target. Fails (non-retryably) when the
     /// app never installed an undo stack.
@@ -170,7 +170,7 @@ pub enum Step {
     Redo,
     /// Disclose or collapse a tree row programmatically (docs/tree.md). The row is resolved
     /// by its `.row_id` string; the step emits the same `Event::TreeExpanded` a native
-    /// disclosure does, so the piece's expansion signal — and through it the native row —
+    /// disclosure does, so the piece's expansion signal (and through it the native row)
     /// follows. Retryable while the row id is unknown (a pending reload may still produce it).
     Expand {
         id: String,
@@ -179,9 +179,9 @@ pub enum Step {
         expanded: bool,
     },
     /// Move a tree row programmatically: `row` lands under `parent` (absent = the root) at
-    /// `index` (absent = dropped onto the parent — append), through the same guard → commit
+    /// `index` (absent = dropped onto the parent, i.e. append), through the same guard → commit
     /// path a native drag takes (docs/tree.md). Fails (non-retryably) when the tree isn't
-    /// `.movable()` or a guard — structural or the app's — denies the move.
+    /// `.movable()` or a guard (structural or the app's) denies the move.
     TreeMove {
         id: String,
         row: String,
@@ -191,22 +191,22 @@ pub enum Step {
         index: Option<usize>,
     },
     /// Delete a list row programmatically: row `row` goes through the same guard → commit path
-    /// a native swipe takes (docs/list.md) — the app's `delete_guard` may refuse it. Fails
+    /// a native swipe takes (docs/list.md); the app's `delete_guard` may refuse it. Fails
     /// (non-retryably) when the list isn't `.deletable()` or the guard refuses.
     ///
     /// This is how a walkthrough asserts deletion on every target, including the desktops whose
     /// toolkits answer `Cap::ListDelete = Unsupported` and have no gesture to simulate: the step
-    /// drives the seam, not the platform's gesture recognizer.
+    /// drives the guard → commit path, not the platform's gesture recognizer.
     DeleteRow {
         id: String,
         row: usize,
     },
     /// Activate a list row's swipe action programmatically: pull row `row`'s offer for `edge`
     /// (`trailing`, the default, or `leading`) and run action `action` (an index into the
-    /// offer, default 0 — the one a native full swipe activates), through the same
+    /// offer, default 0, the one a native full swipe activates), through the same
     /// offer → commit path a native gesture takes (docs/list.md). `label:` (literal) or
-    /// `key:` (a Fluent key resolved in the run's locale) PINS which button may be pressed —
-    /// offers are state-dependent ("Mark as Read" vs "Mark as Unread"), and the pin is
+    /// `key:` (a Fluent key resolved in the run's locale) pins which button may be pressed.
+    /// Offers are state-dependent ("Mark as Read" vs "Mark as Unread"), and the pin is
     /// checked before the press: a mismatched offer refuses the activation and fails the
     /// step with the row's state untouched, so a stale pin (leftover state from an aborted
     /// earlier run) fails once instead of flipping state and poisoning every later run.
@@ -215,7 +215,7 @@ pub enum Step {
     ///
     /// This is how a walkthrough exercises swipe actions on every target, including the
     /// toolkits that answer `Cap::ListSwipeActions = Unsupported` and show no affordance:
-    /// the step drives the seam, not the platform's gesture recognizer.
+    /// the step drives the offer → commit path, not the platform's gesture recognizer.
     SwipeRow {
         id: String,
         row: usize,
@@ -228,15 +228,15 @@ pub enum Step {
         #[serde(default)]
         key: Option<String>,
     },
-    /// Evaluate JavaScript in a WEB VIEW node and assert on the result
-    /// (docs/webview-eval.md) — the step that proves a page RENDERED, where
+    /// Evaluate JavaScript in a web view node and assert on the result
+    /// (docs/webview-eval.md), the step that proves a page rendered, where
     /// `assert_visible` only proves the native view exists. `script` runs in the page;
     /// its value (a string compares as itself, anything else as its JSON) must contain
-    /// `contains:` and/or equal `text:` — with neither, a successful evaluation alone
+    /// `contains:` and/or equal `text:`; with neither, a successful evaluation alone
     /// passes. Retryable while the reply is pending, the script throws, or the assertion
     /// mismatches (a page mid-load settles within the wait); fails non-retryably when the
     /// id names no web view or no webview piece is linked. Only meaningful where the
-    /// backend's eval arm exists (`eval_support()` — docs/webview-eval.md keeps the list);
+    /// backend's eval arm exists (`eval_support()`; docs/webview-eval.md keeps the list);
     /// elsewhere the step fails after the wait, so gate it with `only_on:`.
     WebEval {
         id: String,
@@ -247,15 +247,15 @@ pub enum Step {
         text: Option<String>,
     },
     /// Invoke an app-menu item programmatically (docs/menus.md): match a unique `Action`
-    /// leaf in the installed app-menu model by exact `item` label, or by `key` — a Fluent
+    /// leaf in the installed app-menu model by exact `item` label, or by `key`, a Fluent
     /// key resolved in the run's locale (locale-portable; a standard-role item also
     /// matches its role's core-catalog key, so the auto Preferences item is
     /// `key: day-preferences`). `path` disambiguates with ancestor submenu labels (suffix
     /// match). Items that run a native selector instead of a day action (role items with
     /// id 0) are not invokable this way.
-    /// Choose an app-menu item. Address it by `id:` — the name the app gave it with
-    /// `MenuEntry::id` — in preference to anything else: a label is localized, and an item that
-    /// shows a check mark rewrites its own label as the state moves, so neither is a stable
+    /// Choose an app-menu item. Address it by `id:` (the name the app gave it with
+    /// `MenuEntry::id`) in preference to anything else: a label is localized, and an item that
+    /// shows a check mark rewrites its label as the state moves, so neither is a stable
     /// address. `item:` matches the literal label, `key:` a built-in role key (`day-copy`) or a
     /// Fluent key resolved in the run's locale.
     Menu {
@@ -271,14 +271,14 @@ pub enum Step {
     /// Drive a window-toolbar item by its id (docs/toolbars.md). With neither `text:` nor
     /// `on:` this runs a button's command; `text:` types into a search item; `on:` sets a
     /// toggle. Each goes through the same dispatch the native control fires, so it exercises
-    /// the app's wiring — it does not prove the native widget drew (a screenshot does).
+    /// the app's wiring; it does not prove the native widget drew (a screenshot does).
     Toolbar {
         item: String,
         #[serde(default)]
         text: Option<String>,
         /// Localized alternative to `text`, exactly as [`Step::Input`] takes one: resolve this
-        /// Fluent key (with `args`) in the RUN'S locale and type the result. A toolbar search
-        /// field that filters on localized text needs this — a literal query written in English
+        /// Fluent key (with `args`) in the run's locale and type the result. A toolbar search
+        /// field that filters on localized text needs this: a literal query written in English
         /// matches nothing once the run switches locale.
         #[serde(default)]
         key: Option<String>,
@@ -294,7 +294,7 @@ pub enum Step {
     AssertVisible {
         id: String,
     },
-    /// Fail if the id IS in the tree — the assertion for a subtree a `when` has not mounted
+    /// Fail if the id is in the tree: the assertion for a subtree a `when` has not mounted
     /// (a property row that does not apply, a page's absent chrome). `assert_visible` cannot
     /// say this: a missing id is an error there, and an error is not a pass.
     AssertMissing {
@@ -318,7 +318,7 @@ pub enum Step {
         id: String,
         value: serde_json::Value,
     },
-    /// Fail if any piece kind rendered a `⟨kind⟩` placeholder — i.e. the backend had no renderer
+    /// Fail if any piece kind rendered a `⟨kind⟩` placeholder, i.e. the backend had no renderer
     /// for it. Placeholders are invisible to every other assertion (the app still renders, the
     /// screenshot still looks plausible), so this is the only step that catches a missing or
     /// silently-dropped renderer. `allow` lists the kinds a target is expected to lack, which
@@ -327,7 +327,7 @@ pub enum Step {
         #[serde(default)]
         allow: Vec<String>,
     },
-    /// Close the secondary window opened under `window` (`day::open_window`'s key —
+    /// Close the secondary window opened under `window` (`day::open_window`'s key;
     /// the preferences window is `day.preferences`), through the same async confirm →
     /// teardown path a title-bar close takes (docs/windows.md; on the cover-fallback tier
     /// this dismisses the cover). An already-closed window is a success (closing is
@@ -339,22 +339,22 @@ pub enum Step {
         name: String,
         /// Capture the secondary window opened under this key (`day::open_window`'s `key`)
         /// instead of the primary (docs/windows.md). On the cover-fallback tier the key
-        /// resolves to the primary window, whose fullscreen cover IS the content — same
+        /// resolves to the primary window, whose fullscreen cover is the content: the same
         /// pixels, no special case. A missing key fails retryably (the window may still be
         /// opening).
         #[serde(default)]
         window: Option<String>,
-        /// Whether the reply carries the engine's OWN capture (`png_base64`).
+        /// Whether the reply carries the engine's capture (`png_base64`).
         ///
-        /// On a device target the runner captures through `simctl`/`adb` and that image —
-        /// whole screen, system chrome and all — is what the gallery publishes, so a payload
+        /// On a device target the runner captures through `simctl`/`adb` and that image
+        /// (whole screen, system chrome and all) is what the gallery publishes, so a payload
         /// rendered here would be encoded, shipped over the socket and dropped on the floor.
         /// Measured at 819ms per shot on the iOS simulator (33.6s across one walkthrough
         /// variant, ~4.5 minutes across a CI job's eight), so the runner asks for it only
         /// where it will be used, and re-asks with this set if the device capture fails.
         ///
         /// Defaults to `true`: an older runner, `day drive`, or a hand-written step says
-        /// nothing and still gets the image. The idle wait above happens either way — it is
+        /// nothing and still gets the image. The idle wait above happens either way; it is
         /// what makes a capture land on a settled frame, not an artifact of the encoding.
         #[serde(default = "default_true")]
         in_process: bool,
@@ -363,7 +363,7 @@ pub enum Step {
         secs: f64,
     },
     /// Deliver a deep-link URL in-process (docs/deep-links.md): the URL maps to its route
-    /// through the same `day_spec::route_of_url` every platform intake uses, then navigates —
+    /// through the same `day_spec::route_of_url` every platform intake uses, then navigates,
     /// identical to a warm OS delivery. Proves routing, params, and back-stack seeding on
     /// every backend, including mock; OS registration and intake are the runner tier's job.
     DeepLink {
@@ -375,8 +375,8 @@ pub enum Step {
     },
     /// Pop one navigation level. Bare, it is Day's own rail (`day_core::nav_back`), which pops
     /// the model and lets the backend follow. `native: true` presses the platform's back
-    /// affordance instead (`Toolkit::native_back`) — the bar's `shouldPop`, the dispatcher's
-    /// callbacks, the native pop, then the backend's report of it to Day as a user back — which
+    /// affordance instead (`Toolkit::native_back`): the bar's `shouldPop`, the dispatcher's
+    /// callbacks, the native pop, then the backend's report of it to Day as a user back, which
     /// is the code a real tap runs and the bare step never reaches (docs/navigation.md).
     NavBack {
         // Skipped when false so a recorded bare back still writes as `- nav_back:`.
@@ -393,7 +393,7 @@ pub enum Step {
         title: Option<String>,
     },
     /// Answer the open modal: a button `index`, a prompt `text`, a file `path` (open/save
-    /// pickers — relative paths resolve against the app temp dir, writable on every target), or
+    /// pickers; relative paths resolve against the app temp dir, writable on every target), or
     /// `dismiss`.
     Respond {
         #[serde(default)]
@@ -405,62 +405,62 @@ pub enum Step {
         #[serde(default)]
         dismiss: bool,
     },
-    /// Diff the NATIVE accessibility tree against Day's expectations (role/label/value/identifier)
+    /// Diff the native accessibility tree against Day's expectations (role/label/value/identifier)
     /// for every id'd node, or just `id` (§13, §14.2). Backends that can't read their native tree
     /// (`found = false`) are skipped; role is only compared when both sides map to a known `Role`.
     A11yAudit {
         #[serde(default)]
         id: Option<String>,
     },
-    /// Move native focus to the control — the real Toolkit duty, not a synthetic event, so
+    /// Move native focus to the control: the real Toolkit duty, not a synthetic event, so
     /// keyboards and end-editing flows engage (docs/focus.md). `focused: false` resigns it.
     Focus {
         id: String,
         #[serde(default)]
         focused: Option<bool>,
     },
-    /// Assert the control's focus state as Day resolved it (`NodeProbe.focused`; retryable —
+    /// Assert the control's focus state as Day resolved it (`NodeProbe.focused`; retryable, since
     /// focus lands a turn after the request). `focused` defaults to `true`.
     AssertFocused {
         id: String,
         #[serde(default)]
         focused: Option<bool>,
     },
-    /// Expect the app to TERMINATE — the only step that tolerates the app dying (docs/break.md's
+    /// Expect the app to terminate: the only step that tolerates the app dying (docs/break.md's
     /// crash-reporting flow, docs/agent.md). Must be the last step: a preceding step triggered an
-    /// intentional exit/crash, and `expect_exit` treats the connection dropping within `within`
+    /// exit or crash, and `expect_exit` treats the connection dropping within `within`
     /// seconds (default 15) as success; the app surviving the window is the failure. Handled
-    /// runner-side (`day-cli`), so the in-app engine never executes it — this arm is defensive.
+    /// runner-side (`day-cli`), so the in-app engine never executes it; this arm is defensive.
     ExpectExit {
         #[serde(default)]
         within: Option<f64>,
     },
-    /// Force the window's size class (docs/size-classes.md) without resizing anything — the
+    /// Force the window's size class (docs/size-classes.md) without resizing anything: the
     /// cheap way to drive a responsive layout on a backend whose window cannot be resized from a
     /// script (the phones, an emulator). `width` is `compact` | `medium` | `expanded` | `large` |
     /// `extra-large`; `height` is `compact` | `medium` | `expanded` and defaults to `expanded`.
     ///
-    /// This reports a class the way a backend would, so everything downstream — an automatic
-    /// nav host re-presenting, a piece that lays out from `day::size_class()` — runs its real
-    /// path. What it does NOT do is change the window's actual pixels: a screenshot after this
-    /// step shows the new LAYOUT at the old size. Drive a real resize from the runner instead
+    /// This reports a class the way a backend would, so everything downstream (an automatic
+    /// nav host re-presenting, a piece that lays out from `day::size_class()`) runs its real
+    /// path. What it does not do is change the window's actual pixels: a screenshot after this
+    /// step shows the new layout at the old size. Drive a real resize from the runner instead
     /// (Playwright's `setViewportSize` on web, the simulator's rotation on iOS) when the
     /// geometry itself is what's under test.
-    /// `width: auto` RELEASES the override and restores the class the window itself reports, so
+    /// `width: auto` releases the override and restores the class the window itself reports, so
     /// the steps after an adaptive sweep run at the device's real geometry again. A script that
     /// forces `expanded` and never lets go leaves a phone laying out a split whose detail pane
-    /// falls off the screen — the layout is honest, the window just isn't that wide.
+    /// falls off the screen: the layout is correct, the window just isn't that wide.
     SizeClass {
         width: String,
         #[serde(default)]
         height: Option<String>,
     },
-    /// Change the window's REAL geometry, and wait until the app has reported the new size
-    /// (docs/size-classes.md). The runner performs the resize — a device's window belongs to the
-    /// system, not to the app — and this half is the barrier: without it the next step races the
-    /// platform's own resize animation.
+    /// Change the window's actual geometry, and wait until the app has reported the new size
+    /// (docs/size-classes.md). The runner performs the resize (a device's window belongs to the
+    /// system, not to the app) and this half is the barrier: without it the next step races the
+    /// platform's resize animation.
     ///
-    /// `size_class:`'s complement, and the difference is the point: that step reports a class the
+    /// `size_class:`'s complement, and the difference matters: that step reports a class the
     /// window is not actually at, so a screenshot after it shows the new layout at the old size.
     /// This one moves the pixels.
     Resize {
@@ -468,7 +468,7 @@ pub enum Step {
         width: Option<f64>,
         #[serde(default)]
         height: Option<f64>,
-        /// `resize: auto` — back to the device's own geometry.
+        /// `resize: auto`: back to the device's geometry.
         #[serde(default)]
         restore: bool,
     },
@@ -572,13 +572,13 @@ impl Reply {
 pub fn init() {
     // Recording (§14.6) is independent of the socket engine: `DAY_RECORD=<path>` (from `day launch
     // --record`, or set directly) starts a headless recorder that continuously flushes a replayable
-    // dayscript to that file for the app's lifetime — no port/token needed. Checked before the
+    // dayscript to that file for the app's lifetime; no port/token needed. Checked before the
     // engine gate so `--record` works on an ordinary launch, and on every backend that calls
     // `init()`.
     if let Some(path) = std::env::var_os("DAY_RECORD").filter(|p| !p.is_empty()) {
         record::start_to_file(path);
     }
-    // `DAY_LOG_ACTIONS=1` narrates every action to stdout without recording anything (§14.6) — the
+    // `DAY_LOG_ACTIONS=1` narrates every action to stdout without recording anything (§14.6): the
     // same lines a recording echoes. An app can also switch it on for itself with
     // `day::record::log_actions(true)`; the env var is here so any app gets it without a rebuild.
     if std::env::var("DAY_LOG_ACTIONS").is_ok_and(|v| v == "1") {
@@ -602,7 +602,7 @@ pub fn init() {
 // (the day-cli dev server bridges that WebSocket to the same TCP protocol the runner
 // already speaks, so `day drive`/`--script` are unchanged). Everything runs on the one
 // wasm thread: the implicit bounded wait reschedules through the delayed poster instead
-// of sleeping, and there is no `Instant` (it traps on wasm) — attempts are counted.
+// of sleeping, and there is no `Instant` (it traps on wasm), so attempts are counted.
 // ---------------------------------------------------------------------------
 
 /// Retry cadence of the implicit bounded wait, shared by both transports.
@@ -679,8 +679,8 @@ fn serve(port: u16, token: String) {
     std::thread::sleep(Duration::from_millis(300));
     // Retry, because the port is a fixed per-target number and a capture sweep relaunches the
     // app on it every variant: the previous instance can still be letting go of the socket when
-    // this one starts. Giving up on the first EADDRINUSE is what made that silent — the engine
-    // thread simply ended, the app carried on without one, and the runner then talked to
+    // this one starts. Giving up on the first EADDRINUSE is what made that silent: the engine
+    // thread ended, the app carried on without one, and the runner then talked to
     // whatever was still listening. That is the previous variant's app, which shares this run's
     // token and answers every step, so a locale sweep re-photographs the earlier locale instead
     // of failing.
@@ -737,8 +737,8 @@ fn handle_conn(stream: TcpStream, token: &str) {
     }
 }
 
-/// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout —
-/// the shared default, or the step's own `timeout_secs` where it declares one.
+/// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout
+/// (the shared default, or the step's `timeout_secs` where it declares one).
 fn run_step_with_wait(step: Step) -> Reply {
     let budget = Duration::from_secs_f64(step.wait_budget_secs());
     let deadline = Instant::now() + budget;
@@ -753,7 +753,7 @@ fn run_step_with_wait(step: Step) -> Reply {
 }
 
 /// The main-thread budget for one dispatch: [`DEFAULT_MAIN_TIMEOUT_SECS`], overridable by
-/// `DAY_SCRIPT_MAIN_TIMEOUT_SECS`, and never shorter than the step's own wait budget — a step that
+/// `DAY_SCRIPT_MAIN_TIMEOUT_SECS`, and never shorter than the step's wait budget: a step that
 /// declares `timeout_secs: 60` is saying the app may legitimately take that long.
 fn main_thread_budget(step_budget: Duration) -> Duration {
     let secs = std::env::var("DAY_SCRIPT_MAIN_TIMEOUT_SECS")
@@ -766,8 +766,8 @@ fn main_thread_budget(step_budget: Duration) -> Duration {
 
 fn run_on_main(step: Step, budget: Duration) -> Reply {
     let (tx, rx) = mpsc::sync_channel::<Reply>(1);
-    // A dispatch that times out leaves its closure QUEUED on the main thread, where it would run
-    // later and apply a `navigate`/`tap` the runner has already given up on — moving the app to a
+    // A dispatch that times out leaves its closure queued on the main thread, where it would run
+    // later and apply a `navigate`/`tap` the runner has already given up on, moving the app to a
     // state the rest of the script does not expect, so the real damage shows up as a later step
     // failing for no visible reason. The flag makes an abandoned dispatch a no-op. (It is checked
     // before `exec`, so a dispatch that starts in the instant before the timeout still runs; that
@@ -779,7 +779,7 @@ fn run_on_main(step: Step, budget: Duration) -> Reply {
             return;
         }
         // The engine listens from the moment `day_script::init` runs, which is before the
-        // backend has built the tree — a runner that connects during a slow startup (day-break
+        // backend has built the tree; a runner that connects during a slow startup (day-break
         // reconciling a crash from the previous launch is the reliable way to be slow) can land
         // a step in that window. Answering "retryable" hands it back to the bounded wait, which
         // is exactly the "not there yet" case that machinery exists for; running it anyway would
@@ -810,10 +810,10 @@ fn run_on_main(step: Step, budget: Duration) -> Reply {
 // Step execution (main thread; events go through the normal Day path)
 // ---------------------------------------------------------------------------
 
-/// Resolve a Fluent key (+ JSON args) in the current locale — the shared engine for the
+/// Resolve a Fluent key (+ JSON args) in the current locale: the shared engine for the
 /// `key:`-flavored script fields (assert_text, input).
 /// Walk the app-menu model for `Action` leaves matching the `menu:` step's target: by
-/// exact label, or — when the step used `key:` — by the role's core-catalog key (the
+/// exact label, or (when the step used `key:`) by the role's core-catalog key (the
 /// injected Preferences item carries an empty label; its role is its identity). `path`
 /// filters by ancestor submenu labels (suffix match). Returns `(id, enabled, trail)`.
 /// `[shift, primary, alt]` (with `cmd`/`ctrl` accepted for `primary`) → the day mask.
@@ -837,7 +837,7 @@ fn find_menu_actions(
     target_id: Option<&str>,
     path: &[(String, String)],
 ) -> Vec<(u64, bool, Vec<String>)> {
-    // Mirrors day-pieces' role_catalog_key (docs/menus.md) — the stable `day-*` key set.
+    // Mirrors day-pieces' role_catalog_key (docs/menus.md), the stable `day-*` key set.
     fn role_key(role: day_spec::MenuRole) -> &'static str {
         use day_spec::MenuRole as R;
         match role {
@@ -977,9 +977,9 @@ fn exec(step: Step) -> Reply {
                 at,
                 modifiers,
             } => {
-                // Deliver a button `Pressed` AND a gesture `Tap` (at `at`, or the node's local
+                // Deliver a button `Pressed` and a gesture `Tap` (at `at`, or the node's local
                 // center), so one step exercises buttons (which ignore `Tap`) and
-                // shape/`.on_tap` pieces (which ignore `Pressed`) alike — the native
+                // shape/`.on_tap` pieces (which ignore `Pressed`) alike; the native
                 // recognizers deliver the same `Tap`.
                 let node = find(&id)?;
                 let point = match at {
@@ -989,7 +989,7 @@ fn exec(step: Step) -> Reply {
                         .unwrap_or(day_spec::Point::ZERO),
                 };
                 // Declared modifiers stand in for held keys while the tap dispatches
-                // (`day::modifiers()` answers them), then clear — a synthetic tap cannot
+                // (`day::modifiers()` answers them), then clear, since a synthetic tap cannot
                 // hold a real shift key.
                 if !modifiers.is_empty() {
                     day_core::set_modifier_override(Some(parse_modifiers(&modifiers)));
@@ -1061,7 +1061,7 @@ fn exec(step: Step) -> Reply {
                         },
                     );
                 };
-                // Held for the whole gesture, not just one phase: a drag that reads
+                // Held for the whole gesture rather than one phase: a drag that reads
                 // modifiers reads them at `Began`, and the override has to still be in place
                 // at `Ended` for a handler that re-reads them there.
                 if !modifiers.is_empty() {
@@ -1095,7 +1095,7 @@ fn exec(step: Step) -> Reply {
                     None => text.unwrap_or_default(),
                 };
                 // Paint-then-event via the shared synthesizer (day-core): the widget must
-                // SHOW the typed text, not only deliver it to the app's signal.
+                // show the typed text, not only deliver it to the app's signal.
                 let node = find(&id)?;
                 day_core::synthesize_text(node, value);
                 day_reactive::flush_sync();
@@ -1104,7 +1104,7 @@ fn exec(step: Step) -> Reply {
             Step::SetValue { id, value } => {
                 // Both, for the same reason `tap` sends `Pressed` and `Tap`: a binding follows
                 // the live value and anything durable follows the committed one, and a replayed
-                // `set_value` is a user who dragged and let go — so it has to look like one.
+                // `set_value` is a user who dragged and let go, so it has to look like one.
                 emit(&id, Event::ValueChanged(value))?;
                 emit(&id, Event::ValueCommitted(value))?;
                 Ok(Reply::ok())
@@ -1130,7 +1130,7 @@ fn exec(step: Step) -> Reply {
                 match day_core::list_try_reorder(node, from, to) {
                     Ok(_) => Ok(Reply::ok()),
                     // Not retryable: a guard denial or a non-reorderable list won't change by
-                    // waiting — surface it to the runner immediately.
+                    // waiting; surface it to the runner immediately.
                     Err(e) => Err(Reply::fail(
                         format!("reorder {id:?} {from}->{to}: {e}"),
                         false,
@@ -1182,7 +1182,7 @@ fn exec(step: Step) -> Reply {
                 match day_core::list_try_delete(node, row) {
                     Ok(()) => Ok(Reply::ok()),
                     // Not retryable: a guard refusal or a non-deletable list won't change by
-                    // waiting — surface it to the runner immediately.
+                    // waiting; surface it to the runner immediately.
                     Err(e) => Err(Reply::fail(format!("delete_row {id:?} {row}: {e}"), false)),
                 }
             }
@@ -1212,10 +1212,10 @@ fn exec(step: Step) -> Reply {
                 };
                 // The pin is checked before the press (docs/list.md): a mismatched offer
                 // refuses the activation rather than flipping state the script did not mean
-                // to flip — which is how one aborted run would poison every later one.
+                // to flip, which is how one aborted run would poison every later one.
                 match day_core::list_try_swipe(node, row, edge, action, expected.as_deref()) {
                     Ok(_) => Ok(Reply::ok()),
-                    // Not retryable: the offer was pulled live — a missing seam, an
+                    // Not retryable: the offer was pulled live; a list without swipe offers, an
                     // out-of-offer action, or a different button at this position won't
                     // change by waiting. Surface it to the runner immediately.
                     Err(e) => Err(Reply::fail(format!("swipe_row {id:?} {row}: {e}"), false)),
@@ -1228,7 +1228,7 @@ fn exec(step: Step) -> Reply {
                 text,
             } => {
                 // The eval resolves at a later event drain, and a step handler cannot block
-                // the pump it needs — so the step is a retryable poll: the first pass starts
+                // the pump it needs, so the step is a retryable poll: the first pass starts
                 // the evaluation, retries within the runner's implicit wait collect it, and
                 // an assertion mismatch discards the result so the retry re-evaluates (a page
                 // mid-load settles into passing). Keyed by (id, script): the runner resends
@@ -1307,7 +1307,7 @@ fn exec(step: Step) -> Reply {
                             _ => None,
                         };
                         match failed {
-                            // Retryable: the page may still be settling — the retry
+                            // Retryable: the page may still be settling; the retry
                             // re-evaluates against its current state.
                             Some(why) => Err(Reply::fail(format!("web_eval {id:?}: {why}"), true)),
                             None => Ok(Reply::ok()),
@@ -1347,7 +1347,7 @@ fn exec(step: Step) -> Reply {
                     id.as_deref(),
                     &path,
                 );
-                // The AUTO items (docs/windows.md) exist even when the app never installed a
+                // The auto items (docs/windows.md) exist even when the app never installed a
                 // menu (the backend's default menu carries them): resolve their keys straight
                 // to the registered dispatch actions when the model has no entry.
                 let auto_id = match (matches.is_empty(), key.as_deref()) {
@@ -1440,11 +1440,11 @@ fn exec(step: Step) -> Reply {
                         false,
                     ));
                 }
-                // A TOGGLE's action lives in the value registry, not the menu-action one, so a
+                // A toggle's action lives in the value registry, not the menu-action one, so a
                 // bare `toolbar: { item }` on one used to dispatch into the wrong registry and
-                // do nothing at all — the step passed, the app did not move, and the script was
+                // do nothing at all: the step passed, the app did not move, and the script was
                 // left asserting against a state it never reached. Say what is missing instead.
-                // A segmented item takes an INDEX; nothing else in the vocabulary does, and a
+                // A segmented item takes an index; nothing else in the vocabulary does, and a
                 // bare press on one would have no choice to make.
                 if let day_spec::ToolbarItemKind::Segmented { segments, .. } = &found.kind {
                     let Some(i) = index else {
@@ -1667,13 +1667,13 @@ fn exec(step: Step) -> Reply {
                 }
             }
             Step::Pause { secs } => {
-                // Pausing the MAIN thread would freeze the UI; the runner sleeps instead.
+                // Pausing the main thread would freeze the UI; the runner sleeps instead.
                 let _ = secs;
                 Ok(Reply::ok())
             }
             Step::ExpectExit { within } => {
                 // Runner-side (day-cli watches for the connection to drop); the engine only reaches
-                // this arm if the step was somehow delivered — treat it as a no-op success.
+                // this arm if the step was somehow delivered; treat it as a no-op success.
                 let _ = within;
                 Ok(Reply::ok())
             }
@@ -1713,8 +1713,8 @@ fn exec(step: Step) -> Reply {
                 restore,
             } => {
                 // The runner has already asked the platform to resize; this half waits for the
-                // app to have SEEN it. Everything downstream — the re-present, a piece rebuilding
-                // off `size_class()` — rides the report, so acknowledging before it landed would
+                // app to have seen it. Everything downstream (the re-present, a piece rebuilding
+                // off `size_class()`) rides the report, so acknowledging before it landed would
                 // hand the next step the old layout.
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
@@ -1726,13 +1726,13 @@ fn exec(step: Step) -> Reply {
                     let _ = restore;
                     return Ok(Reply::ok());
                 };
-                // Compared as a WIDTH CLASS, and only that.
+                // Compared as a width class, and only that.
                 //
                 // Two reasons, both learned from the first run of this step. What reaches day-core
-                // is the safe-area-inset CONTENT size, not the window's: a window resized to 900dp
+                // is the safe-area-inset content size, not the window's: a window resized to 900dp
                 // tall reports about 830 once the status bar, the navigation bar and the app bar
                 // are taken out, so asserting the height class fails a resize that was letter
-                // perfect. And width is what the step exists to control — every re-presentation
+                // perfect. And width is what the step exists to control: every re-presentation
                 // decision reads `SizeClass::width` (`prefers_split`, the Tabs/Rail/Split ladder),
                 // while height enters into none of them. Top and bottom chrome is also exactly
                 // where the insets are, so height is the axis the content size distorts most.
@@ -1775,7 +1775,7 @@ fn exec(step: Step) -> Reply {
             }
             Step::NavBack { native } => {
                 // `native`: the platform's own back affordance, so the backend's user-back
-                // path — the bar's `shouldPop`, the pop, the report to Day — is what runs. The
+                // path (the bar's `shouldPop`, the pop, the report to Day) is what runs. The
                 // pop animates and Day hears of it on completion, so nothing is flushed here;
                 // the next `assert_route` waits for it like any assertion.
                 // A native press must not race the transition before it: pressed during a
@@ -1801,14 +1801,14 @@ fn exec(step: Step) -> Reply {
                     // the script is already where `nav_back` would have taken it.
                     //
                     // Without this, one walkthrough could not describe both form factors of the
-                    // same target. The step was gated `only_on: [uikit, mdc]` — mobile TOOLKIT —
+                    // same target. The step was gated `only_on: [uikit, mdc]`, a toolkit condition,
                     // which silently meant "phone" until ios-uikit started running on an iPad,
                     // where the presentation is expanded exactly like a desktop's. The toolkit was
                     // never the thing that decided; the width class is.
                     //
-                    // Deliberately still a FAILURE while compact, which is where a missing pop is
-                    // a real regression and where the guard in the scaffold's walkthrough earns
-                    // its keep. Tolerating it everywhere would have made this step unable to fail.
+                    // Still a failure while compact, which is where a missing pop is a regression
+                    // and where the guard in the scaffold's walkthrough does its job. Tolerating
+                    // it everywhere would have made this step unable to fail.
                     Ok(Reply::ok())
                 } else {
                     Err(Reply::fail("nothing to pop", true))
@@ -1888,7 +1888,7 @@ fn exec(step: Step) -> Reply {
                 let mut checked = 0usize;
                 for (nid, _kind, expected, actual) in &rows {
                     if !actual.found {
-                        continue; // backend can't read its native a11y tree (non-apple) — skip
+                        continue; // backend can't read its native a11y tree (non-apple); skip
                     }
                     checked += 1;
                     if actual.identifier.as_deref() != Some(nid.as_str()) {
@@ -1897,8 +1897,8 @@ fn exec(step: Step) -> Reply {
                             actual.identifier
                         ));
                     }
-                    // Role: audit only EXPLICIT (user-set) roles — the canvas/custom cases where
-                    // Day actually applies a role. Native controls own their own roles (Day's job
+                    // Role: audit only explicit (user-set) roles, the canvas/custom cases where
+                    // Day itself applies a role. Native controls own their roles (Day's job
                     // is to not break them, §13), and those vary per platform, so we don't diff
                     // the kind-default. Compare only when the native role also maps to a known Role.
                     if expected.role != day_spec::Role::None
@@ -1934,7 +1934,7 @@ fn exec(step: Step) -> Reply {
                     ));
                 }
                 if checked == 0 {
-                    // No node could be read natively — treat as unsupported, not a pass/fail.
+                    // No node could be read natively; treat as unsupported, not a pass/fail.
                     return Ok(Reply::ok());
                 }
                 Ok(Reply::ok())
@@ -1944,7 +1944,8 @@ fn exec(step: Step) -> Reply {
     result.unwrap_or_else(|r| r)
 }
 
-/// Two roles match for audit purposes — `Heading` levels are ignored (the native role carries no level).
+/// Two roles match for audit purposes; `Heading` levels are ignored (the native role carries
+/// no level).
 fn role_eq(a: day_spec::Role, b: day_spec::Role) -> bool {
     use day_spec::Role::Heading;
     matches!((a, b), (Heading(_), Heading(_))) || a == b
@@ -2058,8 +2059,8 @@ mod tests {
         assert_eq!(waiting.wait_budget_secs(), 30.0);
     }
 
-    /// `menu: { id: … }` is the address that survives a label change — which is exactly what a
-    /// checked item does to itself on every state flip — and it never falls back to the label,
+    /// `menu: { id: … }` is the address that survives a label change (which is exactly what a
+    /// checked item does to itself on every state flip), and it never falls back to the label,
     /// so a step naming an id that is not there fails instead of hitting a lookalike.
     #[test]
     fn menu_id_addresses_an_item_whose_label_moves() {
@@ -2110,7 +2111,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![7]
         );
-        // An id that is not in the model matches nothing — never the same-named item by label.
+        // An id that is not in the model matches nothing: never the same-named item by label.
         assert!(
             find_menu_actions(&model("    "), "Grid", None, Some("view-ruler"), &[]).is_empty()
         );

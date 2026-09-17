@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The dayscript runner (DESIGN.md §14, §16.5): launches the app with the engine invited
-//! (token + runner-chosen port — the port-0 handshake-file refinement is post-MVP), connects
+//! (token + runner-chosen port; the port-0 handshake-file refinement is post-MVP), connects
 //! over TCP (adb-forwarded on Android), executes the YAML flow, saves screenshots, prints
 //! per-step results, and returns exit code 5 on assertion failure.
 
@@ -20,7 +20,7 @@ use anstream::eprintln;
 pub struct ScriptRun {
     pub steps_total: usize,
     pub steps_failed: usize,
-    /// How many of `steps_failed` the engine marked RETRYABLE — an element not realized yet,
+    /// How many of `steps_failed` the engine marked retryable: an element not realized yet,
     /// an assert still pending. Those are the failures a race can produce, so a run whose only
     /// failure is one of them is a retry candidate (cli.rs); a non-retryable failure is a
     /// verdict and re-running would only spend the time again.
@@ -32,7 +32,7 @@ pub struct ScriptRun {
 #[derive(Debug)]
 pub enum ScriptError {
     /// The engine socket could not be reached, or died mid-run: the app process is gone (or
-    /// never came up). `steps_failed` counts failures seen before the loss — a loss with ZERO
+    /// never came up). `steps_failed` counts failures seen before the loss; a loss with zero
     /// failures on the iOS simulator is the known app-death flake, which the launch path
     /// retries once. Both CI workflows used to grep the log for exactly this distinction
     /// (`grep "engine connection lost" && ! grep ✗`); typing it here replaced those greps.
@@ -57,10 +57,10 @@ impl std::fmt::Display for ScriptError {
 /// Parse a walkthrough file into engine steps: each flow entry is a single-key mapping
 /// (`- tap: { id: x, repeat: 3 }`, `- screenshot: home`, `- wait_idle:`).
 /// Expand `${project}` in every string a step carries. A script that hands a real file to a
-/// picker (`respond: { path: … }`) needs a fixture that lives in the REPOSITORY, so the run
-/// works on any machine and on CI — and the repository's location is known only here, on the
+/// picker (`respond: { path: … }`) needs a fixture that lives in the repository, so the run
+/// works on any machine and on CI, and the repository's location is known only here, on the
 /// host. The engine itself runs inside the app, where a relative path resolves against the
-/// app's own writable directory (which on a device is nowhere near the checkout).
+/// app's writable directory (which on a device is nowhere near the checkout).
 fn expand_project(v: &mut serde_json::Value, root: &str) {
     match v {
         serde_json::Value::String(s) => {
@@ -104,7 +104,7 @@ fn parse_flow(
             serde_json::Value::Number(n) if op == "pause" => {
                 step.insert("secs".into(), serde_json::Value::Number(n.clone()));
             }
-            // `- resize: auto` — the same spelling `size_class: { width: auto }` uses for
+            // `- resize: auto` is the same spelling `size_class: { width: auto }` uses for
             // "back to what the device actually is".
             serde_json::Value::String(s) if op == "resize" && s == "auto" => {
                 step.insert("restore".into(), serde_json::Value::Bool(true));
@@ -121,10 +121,10 @@ fn parse_flow(
     Ok(steps)
 }
 
-/// Perform a `resize:` step's REAL geometry change, host-side (docs/size-classes.md).
+/// Perform a `resize:` step's geometry change, host-side (docs/size-classes.md).
 ///
 /// A mobile window belongs to the system: there is no in-app call that resizes it, which is why
-/// this half is the runner's. Where the platform gives the host no lever either, the step FAILS —
+/// this half is the runner's. Where the platform gives the host no lever either, the step fails
 /// loudly, naming what to do instead. A silent pass would be worse than useless: the assertions
 /// after it would all hold at the old size and the walkthrough would report a resize it never did.
 fn apply_resize(target: &crate::targets::Target, step: &serde_json::Value) -> Result<(), String> {
@@ -147,8 +147,8 @@ fn apply_resize(target: &crate::targets::Target, step: &serde_json::Value) -> Re
     };
 
     match target.kind {
-        // `wm size` resizes the DISPLAY, which is the one lever that reaches a full-screen
-        // activity — and it delivers exactly the configuration change this feature is about
+        // `wm size` resizes the display, which is the one lever that reaches a full-screen
+        // activity, and it delivers exactly the configuration change this feature is about
         // (`screenLayout`, `smallestScreenSize`), so it tests the manifest as well as the layout.
         // Points are dp here, which is what Day's breakpoints are in.
         TargetKind::Android => {
@@ -172,14 +172,14 @@ fn apply_resize(target: &crate::targets::Target, step: &serde_json::Value) -> Re
                 ));
             }
             // `wm size` returns as soon as the request is queued, not once the display has
-            // reconfigured — and a display reconfiguration is a heavier thing than a window
+            // reconfigured, and a display reconfiguration is a heavier thing than a window
             // resize: SurfaceFlinger reallocates buffers and every visible surface redraws.
-            // Screenshots taken before that finished came out TORN, the same page composited
+            // Screenshots taken before that finished came out torn, the same page composited
             // twice side by side, which reads as a layout bug and is not one.
             //
             // So wait for the display itself, then give the compositor a beat. The engine half
-            // of the step is the other barrier — it waits for the app to have seen the new
-            // size — but it can only ask about Day's own state, not about the surface.
+            // of the step is the other barrier (it waits for the app to have seen the new
+            // size), but it can only ask about Day's state, not about the surface.
             android_await_display(if restore { None } else { Some((w, h)) });
             Ok(())
         }
@@ -311,7 +311,7 @@ fn sleep_watching_engine(stream: &TcpStream, total: Duration) -> Option<String> 
 }
 
 /// How long to keep (re)trying the engine connection, in seconds. Override with
-/// `DAYSCRIPT_CONNECT_SECS`; the default is per-target — 20 s for local targets, 120 s for
+/// `DAYSCRIPT_CONNECT_SECS`; the default is per-target: 20 s for local targets, 120 s for
 /// HarmonyOS, whose software-emulated (TCG) guest can spend minutes between `aa start` and the
 /// app-side engine binding its socket (and whose forwarded hdc channel drops with transient
 /// connection resets that the roundtrip retry below rides out).
@@ -326,7 +326,7 @@ pub(crate) fn connect_window_secs(kind: TargetKind) -> u64 {
 }
 
 /// How long the runner waits for one step's reply: the connect window (which a slow device
-/// bumps — HarmonyOS uses 120 s), but never less than the step's own implicit-wait budget plus
+/// bumps; HarmonyOS uses 120 s), but never less than the step's own implicit-wait budget plus
 /// headroom. The engine answers a retryable step only after polling for the whole budget, so an
 /// equal timeout is already a race; the headroom covers the reply's trip back.
 fn read_window(window_secs: u64, budget_secs: f64) -> Duration {
@@ -338,8 +338,8 @@ pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> 
     let attempts = window_secs * 4; // 250 ms apart
     for _ in 0..attempts {
         if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
-            // A floor for the handshake only — `roundtrip` resets this per step from the
-            // step's own wait budget.
+            // A floor for the handshake only; `roundtrip` resets this per step from the
+            // step's wait budget.
             s.set_read_timeout(Some(read_window(window_secs, 0.0))).ok();
             return Ok(s);
         }
@@ -354,8 +354,8 @@ pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> 
 /// subdir is the `--variant` name when given (themed/localized capture sets: light / dark / fr),
 /// else the locale, else "default".
 ///
-/// The DEVICE level is inserted only when `--device` named one, so a run that does not use it
-/// writes exactly where it always has — every existing script, site build and local capture tree
+/// The device level is inserted only when `--device` named one, so a run that does not use it
+/// writes exactly where it always has: every existing script, site build and local capture tree
 /// is unaffected. Where it is used, it separates form factors that would otherwise overwrite each
 /// other: one target, one script, an iPhone tree and an iPad tree (docs/screenshots.md).
 fn shot_dir(
@@ -378,7 +378,7 @@ fn shot_dir(
 fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Result<(), String> {
     match target.kind {
         TargetKind::IosSim => {
-            // The simulator this run launched on, else the first booted one — pinned either way
+            // The simulator this run launched on, else the first booted one, pinned either way
             // so multiple booted sims don't make `simctl … booted` ambiguous. Without the first
             // arm a `--ios-simulator` run photographed whichever sim happened to boot first.
             let udid = crate::ops::selected_ios_simulator()
@@ -398,8 +398,8 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
             }
         }
         TargetKind::Android => {
-            // Pin the device the runner forwarded to — `android_devices` is already narrowed to
-            // this run's selection — else `adb` errors with several attached.
+            // Pin the device the runner forwarded to (`android_devices` is already narrowed to
+            // this run's selection), else `adb` errors with several attached.
             let serial = crate::mobile::android_devices()
                 .into_iter()
                 .next()
@@ -420,9 +420,9 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
             std::fs::write(path, &out.stdout).map_err(|e| e.to_string())
         }
         TargetKind::Desktop => {
-            // Engine (in-process) snapshot unavailable — on an X11 session (the CI linux legs run
+            // Engine (in-process) snapshot unavailable. On an X11 session (the CI linux legs run
             // under xvfb) capture the root window with ImageMagick's `import`: with the xvfb
-            // screen sized to the app window (ci.yml passes `-screen 0 1000x720x24`) the root IS
+            // screen sized to the app window (ci.yml passes `-screen 0 1000x720x24`) the root is
             // the window. Elsewhere there is nothing portable to call.
             if cfg!(target_os = "linux") && std::env::var_os("DISPLAY").is_some() {
                 let ok = Command::new("import")
@@ -443,20 +443,21 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
             crate::web::driver_screenshot(path)
         }
         TargetKind::HarmonyOs => {
-            // `uitest screenCap` writes a real PNG; `snapshot_display` writes JPEG (so its bytes in a
-            // .png file are wrong) — prefer uitest, fall back to snapshot_display. Then `hdc file recv`.
+            // `uitest screenCap` writes a real PNG; `snapshot_display` writes JPEG (so its bytes
+            // in a .png file are wrong), so prefer uitest and fall back to snapshot_display. Then
+            // `hdc file recv`.
             // Re-wake the display first (best-effort): a sleeping screen captures as a black frame.
             let _ = crate::ohos::hdc()
                 .args(["shell", "power-shell", "wakeup"])
                 .status();
             // The TCG guest's compositor lags the UI thread: `ui_idle` returns once the pushed
-            // page has reported its first area (laid out), but screenCap serves the PREVIOUS
-            // frame until RenderService composites the new one — measured at 2-3s on the
+            // page has reported its first area (laid out), but screenCap serves the previous
+            // frame until RenderService composites the new one, measured at 2-3s on the
             // cross-arch emulator (every shot trails one page without this settle). The first
             // push after app start can lag longer still (>6s: first render-tree build), so a
             // capture that comes out byte-identical to the run's previous screenshot is treated
             // as that stale frame and retried; the last attempt is accepted either way, which
-            // keeps scripts with genuinely identical consecutive shots slow-but-correct.
+            // keeps scripts with identical consecutive shots slow-but-correct.
             let settle = std::env::var("DAY_OHOS_SHOT_SETTLE_MS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -509,7 +510,7 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
 
 /// Reach the in-app dayscript engine from the host: device targets need a TCP forward
 /// (adb / hdc); desktop and the iOS simulator answer on loopback directly.
-/// Public seams for `day drive` (drive.rs): the same primitives run_scripts uses.
+/// Public entry points for `day drive` (drive.rs): the same primitives run_scripts uses.
 pub(crate) fn b64decode_public(s: &str) -> Vec<u8> {
     day_script_b64::b64decode(s)
 }
@@ -525,7 +526,7 @@ pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
         // The dayscript runner drives one device; with several attached, `adb forward` (no
         // `-s`) errors ("more than one device"). ANDROID_SERIAL is the device-selection
         // contract everywhere else in the CLI (`--android-device` sets it), so honor it here
-        // too — pinning the first enumerated device instead sent the forward to a bystander
+        // too; pinning the first enumerated device instead sent the forward to a bystander
         // phone while the app ran on the emulator.
         let serial = std::env::var("ANDROID_SERIAL").ok().or_else(|| {
             crate::mobile::android_devices()
@@ -563,7 +564,7 @@ pub fn run_scripts(
 ) -> Result<ScriptRun, ScriptError> {
     forward_engine(target.kind, port);
     let window_secs = connect_window_secs(target.kind);
-    // A connect failure IS an engine loss (the app died during startup, or never bound) — the
+    // A connect failure is an engine loss (the app died during startup, or never bound): the
     // same condition the mid-run loss reports, and the same one the CI retry used to catch.
     let mut stream = connect(port, window_secs).map_err(|detail| ScriptError::EngineLost {
         steps_failed: 0,
@@ -581,7 +582,7 @@ pub fn run_scripts(
     // `budget` is the step's own implicit-wait budget (§14.3). The engine polls a retryable step
     // on the main thread for that long before answering, so the runner must out-wait it: sizing
     // the socket read from `window_secs` alone made any step declaring a longer `timeout_secs`
-    // time out runner-side first and report "engine connection lost" — a healthy, idle app
+    // time out runner-side first and report "engine connection lost", a healthy, idle app
     // mislabeled as a dead one.
     let roundtrip = |stream: &mut TcpStream,
                      reader: &mut BufReader<TcpStream>,
@@ -632,7 +633,7 @@ pub fn run_scripts(
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
     for script in scripts {
         let steps = parse_flow(script, &project.root).map_err(ScriptError::Other)?;
-        // `expect_exit` tolerates the app dying, so it must be terminal — a step after it could
+        // `expect_exit` tolerates the app dying, so it must be terminal: a step after it could
         // never run (the connection is gone). Reject a misplaced one before driving anything.
         if let Some(pos) = steps.iter().position(|(op, _)| op == "expect_exit")
             && pos != steps.len() - 1
@@ -655,12 +656,12 @@ pub fn run_scripts(
             run.steps_total += 1;
             // The target gates run before the runner-side steps below (`pause`, `expect_exit`):
             // those `continue` on their own, so evaluating them first made a gated `pause` sleep
-            // on every target regardless of its `only_on`/`skip_on` — 10s a variant on Android
+            // on every target regardless of its `only_on`/`skip_on`: 10s a variant on Android
             // and 21s on HarmonyOS, spent waiting for blocks those targets never run.
             //
-            // `skip_on:` — a per-step target filter: the step is dropped on the named targets
-            // or toolkits (`skip_on: [web-dom]`), so one walkthrough stays honest across
-            // platforms with genuinely absent capabilities (docs/agent.md).
+            // `skip_on:` is a per-step target filter: the step is dropped on the named targets
+            // or toolkits (`skip_on: [web-dom]`), so one walkthrough runs across platforms
+            // that lack a capability (docs/agent.md).
             if let Some(skips) = step.get("skip_on").and_then(|v| v.as_array()) {
                 let hit = skips
                     .iter()
@@ -671,7 +672,7 @@ pub fn run_scripts(
                     continue;
                 }
             }
-            // `only_on:` — skip_on's mirror, for a step whose expectations are per-target (an
+            // `only_on:` is skip_on's mirror, for a step whose expectations are per-target (an
             // `assert_no_placeholders` allow-list differs sharply between, say, appkit and
             // web-dom, so the script carries one step per target group).
             if let Some(onlys) = step.get("only_on").and_then(|v| v.as_array()) {
@@ -705,7 +706,7 @@ pub fn run_scripts(
                 continue;
             }
             // `resize` is runner-side first, then engine: a device's window belongs to the
-            // system, so only the host can change it — and the engine half that follows is what
+            // system, so only the host can change it, and the engine half that follows is what
             // waits for the app to have seen the new geometry (docs/size-classes.md).
             if op == "resize"
                 && let Err(why) = apply_resize(target, &step)
@@ -714,9 +715,9 @@ pub fn run_scripts(
                 eprintln!("  {ERROR}✗{ERROR:#} resize — {why}");
                 continue;
             }
-            // `expect_exit` is runner-side: a prior step triggered an intentional exit/crash, so
-            // here we WANT the connection to drop. Probe until it does (success) or the window
-            // elapses (the app survived — failure). Never sent to the engine.
+            // `expect_exit` is runner-side: a prior step triggered an expected exit/crash, so
+            // here the connection is supposed to drop. Probe until it does (success) or the
+            // window elapses (the app survived: failure). Never sent to the engine.
             if op == "expect_exit" {
                 let within = step.get("within").and_then(|v| v.as_f64()).unwrap_or(15.0);
                 let deadline = std::time::Instant::now() + Duration::from_secs_f64(within);
@@ -758,8 +759,8 @@ pub fn run_scripts(
                 map.remove("skip_on");
                 map.remove("only_on");
                 // A screenshot step's gallery metadata (`title:`/`caption:`/`source:`, §14.7)
-                // is the RUNNER's: it feeds the per-target gallery.json below and must not
-                // reach the engine — apps predate it and never need it.
+                // is the runner's: it feeds the per-target gallery.json below and must not
+                // reach the engine, because apps predate it and never need it.
                 if op == "screenshot" {
                     shot_meta = crate::screenshot::extract_meta(map);
                     // A device target's capture comes from `simctl`/`adb` below, so the
@@ -780,7 +781,7 @@ pub fn run_scripts(
                 .and_then(|v| v.as_f64())
                 .filter(|t| *t > 0.0)
                 .unwrap_or(0.0);
-            // A roundtrip that gives up reconnecting means the app process is gone — carry
+            // A roundtrip that gives up reconnecting means the app process is gone. Carry
             // the failure count seen so far, so the caller can tell a clean-run flake (retry)
             // from a failing run that then died (report).
             let failed_before = run.steps_failed;
@@ -825,14 +826,14 @@ pub fn run_scripts(
                     .map(day_script_b64::b64decode);
                 let write_in_process = |bytes: &[u8]| std::fs::write(&path, bytes).is_ok();
 
-                // On a device or simulator the DEVICE capture stays the source of truth. It is the
-                // whole screen — status bar, home indicator, system chrome — which is what every
-                // published mobile gallery shot shows; the in-process capture frames the app's own
+                // On a device or simulator the device capture stays the one that is saved. It is
+                // the whole screen (status bar, home indicator, system chrome), which is what every
+                // published mobile gallery shot shows; the in-process capture frames the app's
                 // view tree alone, so preferring it would silently re-crop every one of them.
                 //
                 // The mobile backends that grew an in-process capture (docs/window-image.md) are
-                // the FALLBACK instead: a refusing device tool used to abandon the shot outright.
-                // Desktop is the other way round — the in-process render is the real capture there
+                // the fallback instead: a refusing device tool used to abandon the shot outright.
+                // Desktop is the other way round: the in-process render is the capture there
                 // and `device_screenshot` has no desktop arm at all.
                 let prev = run.screenshots.last().cloned();
                 let mut saved = false;
@@ -840,7 +841,7 @@ pub fn run_scripts(
                     match device_screenshot(target, &path, prev.as_deref()) {
                         Ok(()) => saved = true,
                         Err(e) => {
-                            // The payload was skipped on purpose, so fetch it now — this arm
+                            // The payload was skipped above, so fetch it now; this arm
                             // runs when a device tool refuses, not once per shot.
                             let mut again = step_for_retry.clone();
                             if let Some(m) = again.as_object_mut() {
@@ -905,13 +906,13 @@ pub fn run_scripts(
         }
     }
     if keep_alive {
-        // Interactive script development (docs/agent.md): leave the app running — its session
-        // stays drivable (`day drive`), so scripts can be built and debugged incrementally.
+        // Interactive script development (docs/agent.md): leave the app running so its session
+        // stays drivable (`day drive`) and scripts can be built and debugged incrementally.
         // Attached: `day` stays in the foreground streaming the app's console output until the
         // app exits or the run is stopped. Detached: `day` exits now and the app lives on.
         //
         // A device app is stopped by a registered command rather than by dying with its parent
-        // (signals.rs), and the exit path runs those unconditionally — which would take down the
+        // (signals.rs), and the exit path runs those unconditionally, which would take down the
         // very app this flag exists to keep. Retract them: `--keep-alive` is the explicit wish,
         // and it outranks the interrupt contract.
         crate::signals::forget_remote_stops();
@@ -937,7 +938,7 @@ pub fn run_scripts(
     }
     // Refresh the machine-local screenshot gallery (an at-a-glance index of every capture
     // set under build/day/screenshots/) after each run that saved captures, and fold this
-    // run's captures into the target's machine-readable gallery index (screenshot.rs) —
+    // run's captures into the target's machine-readable gallery index (screenshot.rs);
     // `day screenshot index` merges those per-target files into the published gallery.json.
     if !index_entries.is_empty() {
         crate::screenshot::record_target_entries(
@@ -953,7 +954,7 @@ pub fn run_scripts(
 }
 
 /// Regenerate `build/day/screenshots/index.html`: one labeled thumbnail per capture, grouped
-/// by `<target>/<variant>`, each linking to the full-size image — a quick browsable index of
+/// by `<target>/<variant>`, each linking to the full-size image: a quick browsable index of
 /// everything captured on this machine (open it with `open build/day/screenshots/index.html`).
 fn write_gallery(root: &Path) {
     fn dirs(p: &Path) -> Vec<PathBuf> {
@@ -979,7 +980,7 @@ fn write_gallery(root: &Path) {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        // A target's children are variant directories, or DEVICE directories that each hold
+        // A target's children are variant directories, or device directories that each hold
         // variants (`ios-uikit/ipad/dark/`, docs/screenshots.md). Both are walked, and a device
         // is named in the heading beside its variant so two form factors of the same capture
         // set are distinguishable at a glance.
@@ -1111,31 +1112,31 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
                 .status();
         }
         TargetKind::Desktop => {
-            // Match the launch DIRECTORY, never the app name. Two layouts have to be covered,
+            // Match the launch directory, never the app name. Two layouts have to be covered,
             // because macos-appkit now builds through a scaffolded Xcode host project (§17.4)
             // while every other desktop target is still a bare cargo binary:
             //
             //   <root>/build/day/cargo/<target>/<profile>/<name>                     cargo
             //   <root>/build/day/<target>/<config>/<Name>.app/Contents/MacOS/<Name>  xcodebuild
             //
-            // and the executable's NAME is not common ground between them: `app.name` is the
+            // and the executable's name is not common ground between them: `app.name` is the
             // crate name (`day-skies`), while an Xcode bundle's binary is named by the pbxproj's
             // PRODUCT_NAME (`DaySkies`). A pattern built from `app.name` matches nothing at all
             // under the second layout. The directory is the one thing both agree on, and it is
-            // also what makes this project-specific — two checkouts building the same target
+            // also what makes this project-specific: two checkouts building the same target
             // would otherwise terminate each other's apps.
             //
             // Getting this wrong is not a leaked process so much as a corrupted run: the
             // survivor holds the dayscript engine's port, the next launch cannot bind, and the
-            // runner then drives the old app — which shares the run's token and answers every
+            // runner then drives the old app, which shares the run's token and answers every
             // step, so a locale sweep quietly re-photographs the first locale.
             let root = ere_escape(&project.root.to_string_lossy());
             let pattern = format!("^{root}/build/day/(cargo/)?{}/", target.name);
             let _ = Command::new("pkill").args(["-f", &pattern]).status();
-            // `pkill` only DELIVERS the signal; the app still has to run its own teardown, and
+            // `pkill` only delivers the signal; the app still has to run its teardown, and
             // it holds the engine port until it does. Returning here would hand the next launch
-            // a port that is still bound — the same corrupted run as above, reached by a race
-            // instead of by a bad pattern. So wait for the process table to actually clear, and
+            // a port that is still bound: the same corrupted run as above, reached by a race
+            // instead of by a bad pattern. So wait for the process table to clear, and
             // escalate to SIGKILL for an app that will not go on its own.
             if !await_exit(&pattern, Duration::from_secs(10)) {
                 let _ = Command::new("pkill").args(["-9", "-f", &pattern]).status();
@@ -1144,7 +1145,7 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
         }
         // The three device branches are bounded (`status_within`): each talks to a device over a
         // tool that waits for an unresponsive one indefinitely, and this runs between a matrix
-        // run's variants — so a wedged emulator here stops the run rather than the app.
+        // run's variants, so a wedged emulator here stops the run rather than the app.
         TargetKind::IosSim => {
             let _ = crate::ops::status_within(
                 Command::new("xcrun").args([
@@ -1184,7 +1185,7 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
 /// multiple of that leaves room for a loaded runner without leaving room for a hang.
 const DEVICE_CMD: Duration = Duration::from_secs(30);
 
-/// Whether this target's device still answers — asked after the engine is lost, to decide
+/// Whether this target's device still answers. Asked after the engine is lost, to decide
 /// whether there is any point running the next variant.
 ///
 /// The probe is the device's own shell rather than a host-side listing: a wedged emulator is
@@ -1217,17 +1218,17 @@ pub(crate) fn device_alive(target: &Target) -> bool {
 
 /// A port for the launch's dayscript engine to bind. The pid-based start keeps concurrent
 /// `day` invocations in different ranges; the bind probe then takes the first port that is
-/// actually free — the arithmetic alone handed out ports something else already held. Falls
-/// back to the base when the whole range is busy (the old behavior: let the launch report it).
+/// free; the arithmetic alone handed out ports something else already held. Falls back to the
+/// base when the whole range is busy (the old behavior: let the launch report it).
 ///
-/// The range is deliberately below 32768, and that is the whole point of the constant. Linux's
-/// default ephemeral range is 32768–60999 (`net.ipv4.ip_local_port_range`), which Android inherits
-/// — so a port picked from inside it can already be the local end of some unrelated outbound
-/// connection, and `bind` fails with EADDRINUSE. The probe below cannot see that: it tests the
-/// HOST, while the engine binds inside the emulator, where a long-lived connection (adbd's, the
-/// emulator's own services) holds the number for the whole session. That is exactly how it
-/// presented — `day-script: bind 127.0.0.1:34951 failed after 15s: Address already in use`, on
-/// every launch of the job, while neighboring ports in other jobs were fine.
+/// The constant exists to keep the range below 32768. Linux's default ephemeral range is
+/// 32768–60999 (`net.ipv4.ip_local_port_range`), which Android inherits, so a port picked from
+/// inside it can already be the local end of some unrelated outbound connection, and `bind`
+/// fails with EADDRINUSE. The probe below cannot see that: it tests the host, while the engine
+/// binds inside the emulator, where a long-lived connection (adbd's, the emulator's services)
+/// holds the number for the whole session. That is exactly how it presented:
+/// `day-script: bind 127.0.0.1:34951 failed after 15s: Address already in use`, on every
+/// launch of the job, while neighboring ports in other jobs were fine.
 ///
 /// Below 32768 the kernel never hands the number out on its own, so only a real listener can
 /// collide, on either side.
@@ -1258,8 +1259,8 @@ pub fn make_token() -> String {
 mod port_tests {
     use super::pick_port;
 
-    /// The port handed to a launch must be bindable right now — the probe is the point. Holding
-    /// the first pick open proves the next pick walks past it instead of colliding.
+    /// The port handed to a launch must be bindable right now, which is what the probe checks.
+    /// Holding the first pick open proves the next pick walks past it instead of colliding.
     #[test]
     fn pick_port_returns_a_bindable_port_and_walks_past_a_taken_one() {
         let port = pick_port(0);
@@ -1274,13 +1275,13 @@ mod port_tests {
 
     /// Every port this can hand out must sit below Linux's ephemeral floor (32768). Inside that
     /// range the kernel gives the number to outbound connections on its own, and the engine's
-    /// `bind` inside an emulator then fails with EADDRINUSE for the whole session — which the
+    /// `bind` inside an emulator then fails with EADDRINUSE for the whole session, which the
     /// host-side probe cannot predict, because it is a different machine. The `+ 100` is the walk
     /// `pick_port` may do past busy ports, and `index` is one per target in a multi-target launch.
     #[test]
     fn every_pick_stays_below_the_ephemeral_range() {
         const EPHEMERAL_FLOOR: u16 = 32768;
-        // The widest pid and index this can see, not just today's process.
+        // The widest pid and index this can see, beyond today's process.
         let worst = super::ENGINE_PORT_BASE + 8999 + 64 + 100;
         assert!(
             worst < EPHEMERAL_FLOOR,
@@ -1290,10 +1291,10 @@ mod port_tests {
     }
 }
 
-/// A minimal standalone base64 decoder — dayscript replies (screenshots, a11y dumps) come back
-/// base64-encoded. Inlined here so the CLI needn't pull in `day-script` (and its whole runtime graph:
-/// day-core/reactive/pieces/fluent/l10n) for one small function; `day-script` keeps its own copy for
-/// the app side.
+/// A minimal standalone base64 decoder: dayscript replies (screenshots, a11y dumps) come back
+/// base64-encoded. Inlined here so the CLI needn't pull in `day-script` (and its whole runtime
+/// graph: day-core/reactive/pieces/fluent/l10n) for one small function; `day-script` keeps its
+/// own copy for the app side.
 mod day_script_b64 {
     const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 

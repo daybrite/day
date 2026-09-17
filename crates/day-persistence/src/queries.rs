@@ -3,10 +3,10 @@
 
 //! Typed queries and their SQL compiler (docs/persistence.md).
 //!
-//! A predicate here is DATA, not a string: the same value compiles to a WHERE clause the
-//! engine can drive from its indexes, and names its column DEPENDENCIES so a live query knows
-//! which changes can move its result at all. The engine answers every fetch — filter, sort,
-//! window, relation traversal, full-text match, spatial candidates — which is what lets a
+//! A predicate here is data, not a string: the same value compiles to a `WHERE` clause the
+//! engine can drive from its indexes, and names its column dependencies so a live query knows
+//! which changes can move its result at all. The engine answers every fetch (filter, sort,
+//! window, relation traversal, full-text match, spatial candidates), which is what lets a
 //! container serve a million-row table without ever holding it in memory. The change log
 //! names the column a write touched, so a write to a column the query never mentions is
 //! discarded before any SQL runs; a write the query does depend on marks it stale, and one
@@ -18,15 +18,15 @@ use std::cmp::Ordering;
 use crate::Value;
 
 /// A row, as a predicate can read it: column name → stored value. Implementations answer in
-/// the column's STORED language (through the field's codec), which is the language predicates
-/// encode their arguments into — comparisons never mix representations.
+/// the column's stored language (through the field's codec), which is the language predicates
+/// encode their arguments into, so comparisons never mix representations.
 pub trait RowView {
     fn col(&self, column: &str) -> Option<Value>;
 }
 
 /// How many related rows have to satisfy the inner predicate.
 ///
-/// `All` over an empty relation is TRUE — the vacuous reading, and the one SQL gives for
+/// `All` over an empty relation is true: the vacuous reading, and the one SQL gives for
 /// `NOT EXISTS (… AND NOT p)`. It is the choice that surprises people, which is why `None`
 /// sits beside it: "no unconfirmed lodging" and "every lodging confirmed" differ exactly for
 /// the rows with nothing related, and an app usually means the former.
@@ -35,9 +35,9 @@ pub enum Quant {
     Any,
     All,
     None,
-    /// No related rows at all — one `NOT EXISTS` over the foreign-key index.
+    /// No related rows at all: one `NOT EXISTS` over the foreign-key index.
     Empty,
-    /// At least `n` related rows — a correlated `COUNT` over the same index.
+    /// At least `n` related rows: a correlated `COUNT` over the same index.
     CountGe(usize),
 }
 
@@ -52,33 +52,33 @@ pub enum Pred {
     Le(&'static str, Value),
     Gt(&'static str, Value),
     Ge(&'static str, Value),
-    /// Case-sensitive substring on a TEXT column (SQL: `instr(col, ?) > 0`).
+    /// Case-sensitive substring on a `TEXT` column (SQL: `instr(col, ?) > 0`).
     Contains(&'static str, String),
-    /// Case-insensitive substring — what a search field wants. Folds with full Unicode
+    /// Case-insensitive substring, what a search field wants. Folds with full Unicode
     /// lowercasing on both paths: the driver registers `day_fold` (Rust's `to_lowercase` as a
     /// SQL function), so the SQL form selects exactly the rows the in-memory form would.
     ContainsCi(&'static str, String),
-    /// Case-sensitive prefix. Deliberately NOT `LIKE`, whose SQLite default is
-    /// case-INsensitive for ASCII and would quietly answer the wrong question.
+    /// Case-sensitive prefix. Not `LIKE`, whose SQLite default is case-insensitive for
+    /// ASCII and would quietly answer the wrong question.
     StartsWith(&'static str, String),
-    /// Case-insensitive prefix — `day_fold`, like [`Pred::ContainsCi`].
+    /// Case-insensitive prefix through `day_fold`, like [`Pred::ContainsCi`].
     StartsWithCi(&'static str, String),
     Between(&'static str, Value, Value),
-    /// `column ∈ set`. The set is SORTED and deduped at construction, so the fallback
+    /// `column ∈ set`. The set is sorted and deduped at construction, so the fallback
     /// evaluator can binary-search it.
     In(&'static str, Vec<Value>),
-    /// `column ∉ set`, with SQL's own NULL rule: a NULL column is UNKNOWN, not a match.
+    /// `column ∉ set`, with SQL's NULL rule: a NULL column is unknown, not a match.
     NotIn(&'static str, Vec<Value>),
-    /// The ROW'S OWN KEY ∈ set — compiles against the key column directly.
+    /// The row's key ∈ set. Compiles against the key column directly.
     IdIn(Vec<u64>),
-    /// A question about a row's RELATIVES: "some lodging of this trip is in Kyoto".
+    /// A question about a row's relatives: "some lodging of this trip is in Kyoto".
     /// Compiles to a correlated `EXISTS` over the relation's foreign key (or join table);
     /// `inner` evaluates against rows of `target`, not of the query's own table. Nesting is
-    /// unlimited — each level is another subquery the engine plans.
+    /// unlimited; each level is another subquery the engine plans.
     Related {
-        /// The table declaring the relation — what tells two like-named fields apart.
+        /// The table declaring the relation, which tells two like-named fields apart.
         owner: &'static str,
-        /// The `Many` field, or the `One` column's FIELD name, that was crossed.
+        /// The `Many` field, or the `One` column's field name, that was crossed.
         field: &'static str,
         target: &'static str,
         quant: Quant,
@@ -88,7 +88,7 @@ pub enum Pred {
     Or(Box<Pred>, Box<Pred>),
     Not(Box<Pred>),
     /// Raw SQL the layer cannot read. The query cannot know its dependencies, so every flush
-    /// that touches the table re-runs it — the honest cost of the escape hatch.
+    /// that touches the table re-runs it. That is the cost of the escape hatch.
     Raw(String, Vec<Value>),
     /// Full-text match (`#[model(fts(…))]`): compiles to a subquery over the FTS5 shadow.
     /// The dependency set is the indexed columns, so the zero-cost tier survives search.
@@ -96,9 +96,9 @@ pub enum Pred {
         columns: &'static [&'static str],
         query: String,
     },
-    /// A bounding-box test over two REAL columns. When the columns are the model's declared
+    /// A bounding-box test over two `REAL` columns. When the columns are the model's declared
     /// `spatial(…)` pair, the compiler narrows through the R*Tree shadow first and re-checks
-    /// exactly (the shadow stores 32-bit floats, outward-rounded — a candidate superset).
+    /// exactly (the shadow stores 32-bit floats, outward-rounded, as a candidate superset).
     Within {
         lat: &'static str,
         lon: &'static str,
@@ -110,7 +110,7 @@ pub enum Pred {
 }
 
 impl Pred {
-    /// The columns whose change can move a result through this predicate — LOCAL columns
+    /// The columns whose change can move a result through this predicate: local columns
     /// only; what a predicate reads across a relation is collected by [`Pred::related_deps`].
     pub fn columns(&self, out: &mut Vec<&'static str>) {
         let push = |c: &'static str, out: &mut Vec<&'static str>| {
@@ -136,8 +136,8 @@ impl Pred {
             // A row's key never changes: it can only enter or leave an id set by being
             // inserted or deleted, which is a structural op, not a column write.
             Pred::IdIn(_) => {}
-            // The inner predicate reads the TARGET's columns, which are a different table's
-            // dependency — `Fetch::dependencies` collects them into `Deps::related`, and a
+            // The inner predicate reads the target's columns, which are a different table's
+            // dependency; `Fetch::dependencies` collects them into `Deps::related`, and a
             // local column write can never move a row through them. The membership itself
             // (a foreign key rewrite, a link) is routed by the relation's own machinery.
             Pred::Related { .. } => {}
@@ -158,7 +158,7 @@ impl Pred {
         }
     }
 
-    /// Collect what this predicate reads across relations, at every depth — the tables whose
+    /// Collect what this predicate reads across relations, at every depth: the tables whose
     /// changes must mark a query stale. A nested crossing's `owner` is the enclosing target,
     /// recorded at construction, so each entry stands on its own.
     fn related_deps(&self, out: &mut Vec<RelatedDep>) {
@@ -189,7 +189,7 @@ impl Pred {
         }
     }
 
-    /// Whether any part is RAW SQL — unreadable, so every flush of the table re-queries.
+    /// Whether any part is raw SQL (unreadable, so every flush of the table re-queries).
     pub fn contains_raw(&self) -> bool {
         match self {
             Pred::Raw(..) => true,
@@ -199,7 +199,7 @@ impl Pred {
         }
     }
 
-    /// Whether any part folds case (`ContainsCi`/`StartsWithCi`) — those need the driver's
+    /// Whether any part folds case (`ContainsCi`/`StartsWithCi`); those need the driver's
     /// `day_fold` function for exact SQL, or the fallback path.
     pub(crate) fn contains_fold(&self) -> bool {
         match self {
@@ -221,19 +221,19 @@ impl Pred {
         }
     }
 
-    /// Does this row match? The WHERE-clause reading: UNKNOWN is not a match. The FALLBACK
-    /// evaluator — the SQL compiler is the primary path; this answers for drivers without
-    /// `day_fold` (over the row's own columns; relation crossings are refused upstream) and
-    /// for unit tests. `Raw` and `Matches` answer true here: on the fallback path they have
-    /// already filtered in SQL.
+    /// Whether this row matches, in the WHERE-clause reading: unknown is not a match. This is
+    /// the fallback evaluator; the SQL compiler is the primary path, and this answers for
+    /// drivers without `day_fold` (over the row's own columns; relation crossings are refused
+    /// upstream) and for unit tests. `Raw` and `Matches` answer true here: on the fallback
+    /// path they have already filtered in SQL.
     pub fn eval(&self, key: u64, row: &dyn RowView) -> bool {
         self.eval3(key, row) == Some(true)
     }
 
-    /// [`Pred::eval`], three-valued — SQL's own logic, which is the only way this path and
-    /// the SQL path can agree about NULL.
+    /// [`Pred::eval`], three-valued: SQL's logic, which is the only way this path and the SQL
+    /// path can agree about NULL.
     ///
-    /// A comparison against a NULL column is UNKNOWN (`None`), not false: SQL's `notes <> 'x'`
+    /// A comparison against a NULL column is unknown (`None`), not false: SQL's `notes <> 'x'`
     /// does not select rows whose `notes` is NULL, and neither does this. `Eq`/`Ne` against a
     /// `Null` literal keep their `IS NULL` / `IS NOT NULL` meaning and are always definite.
     pub fn eval3(&self, key: u64, row: &dyn RowView) -> Option<bool> {
@@ -245,7 +245,7 @@ impl Pred {
             // a constant keeps the match total without inventing an answer.
             Pred::Related { .. } => Some(true),
 
-            // IS NULL / IS NOT NULL: definite, even about NULL.
+            // `IS NULL` / `IS NOT NULL`: definite, even about NULL.
             Pred::Eq(c, Value::Null) => Some(matches!(row.col(c), Some(Value::Null) | None)),
             Pred::Ne(c, Value::Null) => Some(!matches!(row.col(c), Some(Value::Null) | None)),
 
@@ -278,7 +278,7 @@ impl Pred {
             // The key is always present and never NULL, so membership is definite.
             Pred::IdIn(ids) => Some(ids.binary_search(&key).is_ok()),
 
-            // Kleene logic, so UNKNOWN propagates exactly as SQL propagates it.
+            // Kleene logic, so unknown propagates exactly as SQL propagates it.
             Pred::And(a, b) => match (a.eval3(key, row), b.eval3(key, row)) {
                 (Some(false), _) | (_, Some(false)) => Some(false),
                 (Some(true), Some(true)) => Some(true),
@@ -343,18 +343,18 @@ impl std::ops::Not for Pred {
 // The SQL compiler
 // ---------------------------------------------------------------------------
 
-/// One relation crossing, as SQL needs it — resolved by the container from its wired
+/// One relation crossing, as SQL needs it, resolved by the container from its wired
 /// relations when a fetch compiles.
 #[derive(Clone, Debug)]
 pub(crate) enum RelSql {
-    /// The owner is the PARENT (a `Many` field): its children are the target rows whose
+    /// The owner is the parent (a `Many` field): its children are the target rows whose
     /// foreign-key column names the owner's key.
     Children {
         target_key: String,
         fk_col: String,
         owner_key: String,
     },
-    /// The owner is the CHILD (a `One` column): the target is the one row its foreign key
+    /// The owner is the child (a `One` column): the target is the one row its foreign key
     /// names.
     Referent { target_key: String, fk_col: String },
     /// A many-to-many: membership lives in the join table, one column per side.
@@ -366,7 +366,7 @@ pub(crate) enum RelSql {
         target_key: String,
     },
     /// A link by value (`#[model(link(…))]`): target rows whose `remote_col` equals the
-    /// owner's `local_col` — no key on either side is involved, which is what lets it cross
+    /// owner's `local_col`; no key on either side is involved, which is what lets it cross
     /// into an attached database.
     Linked {
         local_col: String,
@@ -397,7 +397,7 @@ pub(crate) enum CompileErr {
     /// A case-insensitive text predicate on a driver without `day_fold`.
     NeedsFold,
     /// A `ContainsCi`/`StartsWithCi` inside a relation predicate on a driver without
-    /// `day_fold` — the fallback evaluator cannot traverse relations, so this combination
+    /// `day_fold`: the fallback evaluator cannot traverse relations, so this combination
     /// needs the function.
     FoldInsideRelation,
     /// `owner.field` is not a wired relation of this container.
@@ -427,8 +427,8 @@ pub(crate) struct SqlQuery {
     pub params: Vec<Value>,
 }
 
-/// Compile a whole fetch over `table` into the id `SELECT` that answers it: WHERE from the
-/// predicate, ORDER BY from the sorts (with the key as the deterministic tie-break), LIMIT
+/// Compile a whole fetch over `table` into the id `SELECT` that answers it: `WHERE` from the
+/// predicate, `ORDER BY` from the sorts (with the key as the deterministic tie-break), `LIMIT`
 /// from the window. `Err(NeedsFold)` sends the caller to the fallback path.
 pub(crate) fn compile_fetch(
     table: &str,
@@ -440,13 +440,13 @@ pub(crate) fn compile_fetch(
     let mut aliases = 0usize;
     let by_rank = fetch.sort.iter().any(|s| s.by_rank);
 
-    // A rank sort orders by the FTS index's own bm25 — the match query moves into a join so
+    // A rank sort orders by the FTS index's own bm25: the match query moves into a join so
     // `rank` is in scope, and the predicate's own `Matches` compiles to `1` (the join already
     // constrains to matching rows).
     let (from, rank_pred);
     if by_rank {
         let fts = idx.fts_of(table).ok_or(CompileErr::NoFts)?;
-        // The hidden MATCH column carries the index's BARE name, schema-qualified or not.
+        // The hidden `MATCH` column carries the index's bare name, schema-qualified or not.
         let fts_bare = fts.rsplit('.').next().unwrap_or(&fts).to_string();
         let Some(q) = find_match_query(&fetch.pred) else {
             return Err(CompileErr::NoFts);
@@ -501,7 +501,7 @@ pub(crate) fn compile_fetch(
     Ok(SqlQuery { sql, params })
 }
 
-/// Compile the COUNT form of a fetch: the same WHERE, no ORDER BY, no id vector — the
+/// Compile the `COUNT` form of a fetch: the same `WHERE`, no `ORDER BY`, no id vector; the
 /// badge-shaped query. A `limit` caps the answer after the fact (`min(count, limit)` is what
 /// a limited set's length would be), which the caller applies.
 pub(crate) fn compile_count(
@@ -532,18 +532,18 @@ pub(crate) fn compile_count(
     Ok(SqlQuery { sql, params })
 }
 
-/// Compile the fallback form for a driver without `day_fold`: select the key AND every column
-/// the predicate/sort reads, SQL-filter by the top-level AND conjuncts that compile exactly,
-/// keep the ORDER BY (so the fallback preserves the query's order), and leave the LIMIT to
-/// the caller — it applies after the in-memory re-check.
+/// Compile the fallback form for a driver without `day_fold`: select the key and every column
+/// the predicate/sort reads, SQL-filter by the top-level `AND` conjuncts that compile exactly,
+/// keep the `ORDER BY` (so the fallback preserves the query's order), and leave the `LIMIT`
+/// to the caller, which applies it after the in-memory re-check.
 pub(crate) fn compile_fallback(
     table: &str,
     fetch: &Fetch,
     idx: &dyn SqlIndex,
 ) -> Result<(SqlQuery, Vec<&'static str>), CompileErr> {
     if fetch.pred.contains_related() && fetch.pred.contains_fold() {
-        // The evaluator cannot traverse relations, and the SQL cannot fold — no path is
-        // exact, so refuse rather than under- or over-answer.
+        // The evaluator cannot traverse relations, and the SQL cannot fold, so no path is
+        // exact; refuse rather than under- or over-answer.
         return Err(CompileErr::FoldInsideRelation);
     }
     let key = idx.key_of(table).ok_or(CompileErr::Unwired("", ""))?;
@@ -554,8 +554,8 @@ pub(crate) fn compile_fallback(
         skip_matches: false,
     };
 
-    // The exact conjuncts filter in SQL (a candidate superset — dropping a conjunct can only
-    // widen); the full predicate re-checks in memory over the selected columns.
+    // The exact conjuncts filter in SQL (a candidate superset, since dropping a conjunct can
+    // only widen); the full predicate re-checks in memory over the selected columns.
     let mut conjuncts = Vec::new();
     split_and(&fetch.pred, &mut conjuncts);
     let mut clauses = Vec::new();
@@ -613,7 +613,7 @@ pub(crate) fn compile_fallback(
     Ok((SqlQuery { sql, params }, deps))
 }
 
-/// Split a predicate into its top-level AND conjuncts.
+/// Split a predicate into its top-level `AND` conjuncts.
 fn split_and<'p>(pred: &'p Pred, out: &mut Vec<&'p Pred>) {
     match pred {
         Pred::And(a, b) => {
@@ -631,10 +631,10 @@ struct SqlCtx<'a> {
     skip_matches: bool,
 }
 
-/// The WHERE form of one predicate, columns qualified by `alias` (the current table or an
-/// EXISTS alias), appending bound parameters to `params`. `table` is the alias's TRUE table
-/// name — what FTS and R*Tree shadow lookups resolve against, since an EXISTS alias like
-/// `day_r0` names no shadow.
+/// The `WHERE` form of one predicate, columns qualified by `alias` (the current table or an
+/// `EXISTS` alias), appending bound parameters to `params`. `table` is the alias's underlying
+/// table name, which FTS and R*Tree shadow lookups resolve against, since an `EXISTS` alias
+/// like `day_r0` names no shadow.
 fn pred_sql(
     pred: &Pred,
     table: &str,
@@ -684,9 +684,9 @@ fn pred_sql(
             format!("instr(day_fold({alias}.{c}), ?) > 0")
         }
         Pred::StartsWith(c, prefix) => {
-            // NOT `LIKE`: SQLite's LIKE is case-INsensitive for ASCII by default, which
+            // Not `LIKE`: SQLite's `LIKE` is case-insensitive for ASCII by default, which
             // would quietly answer a different question. `substr` counts characters on
-            // TEXT, which agrees with Rust's `starts_with` on any valid UTF-8.
+            // `TEXT`, which agrees with Rust's `starts_with` on any valid UTF-8.
             params.push(Value::Int(prefix.chars().count() as i64));
             params.push(Value::Text(prefix.clone()));
             format!("substr({alias}.{c}, 1, ?) = ?")
@@ -702,10 +702,10 @@ fn pred_sql(
         }
         Pred::In(c, set) | Pred::NotIn(c, set) => {
             // The empty set compiles to its three-valued constant: `IN ()` matches nothing;
-            // `NOT IN ()` matches every row whose column is PRESENT — a NULL column is
-            // UNKNOWN, not vacuously a non-member, which is the same rule the evaluator
-            // applies (SQLite's own literal `NOT IN ()` extension answers TRUE for NULL,
-            // and would let the two paths disagree).
+            // `NOT IN ()` matches every row whose column is present; a NULL column is
+            // unknown, not vacuously a non-member, which is the same rule the evaluator
+            // applies (SQLite's literal `NOT IN ()` extension answers true for NULL, and
+            // would let the two paths disagree).
             if set.is_empty() {
                 return Ok(if matches!(pred, Pred::In(..)) {
                     "0".into()
@@ -762,7 +762,7 @@ fn pred_sql(
             } else {
                 let fts = ctx.idx.fts_of(table).ok_or(CompileErr::NoFts)?;
                 params.push(Value::Text(query.clone()));
-                // The MATCH operand is the index's BARE name even when the table is
+                // The `MATCH` operand is the index's bare name even when the table is
                 // schema-qualified (an attached database): `catalog.t_fts MATCH` is a
                 // syntax error, `t_fts MATCH` inside `FROM catalog.t_fts` is not.
                 let fts_bare = fts.rsplit('.').next().unwrap_or(&fts);
@@ -884,8 +884,8 @@ fn pred_sql(
                         Quant::None => format!(
                             "NOT EXISTS (SELECT 1 FROM {from} WHERE {tie} AND ({inner_sql}))"
                         ),
-                        // Every related row definitely matches — `IS TRUE` keeps a related
-                        // row whose inner is UNKNOWN failing the quantifier, the reading
+                        // Every related row definitely matches: `IS TRUE` keeps a related
+                        // row whose inner is unknown failing the quantifier, the reading
                         // `All` documents.
                         Quant::All => format!(
                             "NOT EXISTS (SELECT 1 FROM {from} WHERE {tie} AND ({inner_sql}) IS NOT TRUE)"
@@ -902,8 +902,8 @@ fn pred_sql(
 // Values
 // ---------------------------------------------------------------------------
 
-/// A column's value when it is present and not NULL — otherwise UNKNOWN. A column the row
-/// does not carry at all (a transient field's label) reads as UNKNOWN too, rather than as a
+/// A column's value when it is present and not NULL, otherwise unknown. A column the row
+/// does not carry at all (a transient field's label) reads as unknown too, rather than as a
 /// silent non-match.
 fn defined(v: Option<Value>) -> Option<Value> {
     match v {
@@ -912,9 +912,9 @@ fn defined(v: Option<Value>) -> Option<Value> {
     }
 }
 
-/// The TEXT of a column, or UNKNOWN. A text predicate can only be built on a `Col<String>`,
-/// so a non-text value here is a schema mismatch rather than a real answer — UNKNOWN keeps it
-/// out of the result instead of guessing at a coercion the two paths might disagree about.
+/// The text of a column, or unknown. A text predicate can only be built on a `Col<String>`,
+/// so a non-text value here is a schema mismatch rather than an answer; unknown keeps it out
+/// of the result instead of guessing at a coercion the two paths might disagree about.
 fn text(v: Option<Value>) -> Option<String> {
     match defined(v) {
         Some(Value::Text(t)) => Some(t),
@@ -933,8 +933,8 @@ fn in_set(set: &[Value], v: &Value) -> bool {
         .any(|x| x == v)
 }
 
-/// SQLite's cross-class ordering (NULL < numbers < text < blob), with one deliberate
-/// difference: `Real` compares by `total_cmp`, so a NaN that reaches the fallback evaluator
+/// SQLite's cross-class ordering (NULL < numbers < text < blob), with one difference:
+/// `Real` compares by `total_cmp`, so a NaN that reaches the fallback evaluator
 /// still orders deterministically instead of poisoning it.
 pub fn compare_values(a: &Value, b: &Value) -> Ordering {
     fn class(v: &Value) -> u8 {
@@ -960,16 +960,16 @@ pub fn compare_values(a: &Value, b: &Value) -> Ordering {
 // Typed builders
 // ---------------------------------------------------------------------------
 
-/// A typed column reference — what `Trip::name()` returns (the derive emits one inherent fn
-/// per persisted field). It knows the column's NAME and its stored ENCODING, so a predicate
+/// A typed column reference, what `Trip::name()` returns (the derive emits one inherent fn
+/// per persisted field). It knows the column's name and its stored encoding, so a predicate
 /// built from it compares in the column's stored language whatever codec the field uses.
 pub struct Col<V: 'static> {
     pub column: &'static str,
-    /// The struct FIELD this column stores. The change log speaks field names and the SQL
+    /// The struct field this column stores. The change log speaks field names and the SQL
     /// speaks column names; they differ under `#[model(column = "…")]`, and a relation is
     /// wired by field, so a predicate that crosses one needs both.
     pub field: &'static str,
-    /// The table this column belongs to — what disambiguates a relation when two models
+    /// The table this column belongs to, which disambiguates a relation when two models
     /// happen to name a field alike.
     pub owner: &'static str,
     encode: fn(&V) -> Value,
@@ -982,7 +982,7 @@ impl<V> Clone for Col<V> {
 }
 impl<V> Copy for Col<V> {}
 
-/// A relation, as a predicate builder — what `Trip::lodging()` returns. The instance
+/// A relation, as a predicate builder: what `Trip::lodging()` returns. The instance
 /// accessor of the same name (`trip.lodging()`) reads and writes the relation; this one asks
 /// questions about it in a query. They cannot collide: one takes `self`, this one does not.
 pub struct RelationCol<P: 'static, T: 'static> {
@@ -1029,13 +1029,13 @@ impl<P, T> RelationCol<P, T> {
         self.build(Quant::None, inner)
     }
 
-    /// Every related row matches — VACUOUSLY TRUE when there are none, as in SQL. Reach for
+    /// Every related row matches; vacuously true when there are none, as in SQL. Reach for
     /// [`RelationCol::none`] when that is not what you meant.
     pub fn all(self, inner: Pred) -> Pred {
         self.build(Quant::All, inner)
     }
 
-    /// No related rows at all — one `NOT EXISTS` over the indexed foreign key.
+    /// No related rows at all: one `NOT EXISTS` over the indexed foreign key.
     pub fn is_empty(self) -> Pred {
         self.build(Quant::Empty, Pred::Always)
     }
@@ -1087,13 +1087,13 @@ impl<V> Col<V> {
         Pred::Ge(self.column, self.enc(v.borrow()))
     }
     /// `column ∈ values`, each encoded through this column's own codec exactly as `eq` does.
-    /// An EMPTY set matches nothing, in both evaluation paths.
+    /// An empty set matches nothing, in both evaluation paths.
     pub fn is_in(self, values: impl IntoIterator<Item = impl std::borrow::Borrow<V>>) -> Pred {
         Pred::In(self.column, self.encode_set(values))
     }
 
-    /// The complement of [`Col::is_in`], with SQL's NULL rule: a NULL column is UNKNOWN, so
-    /// it is not selected — `not_in` is therefore NOT the same as `!is_in` over nullable
+    /// The complement of [`Col::is_in`], with SQL's NULL rule: a NULL column is unknown, so
+    /// it is not selected; `not_in` is therefore not the same as `!is_in` over nullable
     /// columns, exactly as in SQL.
     pub fn not_in(self, values: impl IntoIterator<Item = impl std::borrow::Borrow<V>>) -> Pred {
         Pred::NotIn(self.column, self.encode_set(values))
@@ -1138,7 +1138,7 @@ pub struct FtsRef {
 }
 
 impl FtsRef {
-    /// FTS5 MATCH — one subquery over the shadow table; the query re-runs when an INDEXED
+    /// FTS5 `MATCH`: one subquery over the shadow table; the query re-runs when an indexed
     /// column changes and ignores every other column, so the zero-cost tier survives search.
     pub fn matches(self, query: impl Into<String>) -> Pred {
         Pred::Matches {
@@ -1179,7 +1179,7 @@ impl GeoRef {
     }
 }
 
-/// Order by FTS relevance (bm25, best first) — pair with a `matches` predicate.
+/// Order by FTS relevance (bm25, best first); pair with a `matches` predicate.
 pub fn rank() -> Sort {
     Sort {
         column: "",
@@ -1193,7 +1193,7 @@ impl Col<String> {
     pub fn contains(self, needle: impl Into<String>) -> Pred {
         Pred::Contains(self.column, needle.into())
     }
-    /// Case-SENSITIVE prefix match.
+    /// Case-sensitive prefix match.
     pub fn starts_with(self, prefix: impl Into<String>) -> Pred {
         Pred::StartsWith(self.column, prefix.into())
     }
@@ -1203,7 +1203,7 @@ impl Col<String> {
         Pred::StartsWithCi(self.column, prefix.into())
     }
 
-    /// Case-insensitive substring — what a search field wants.
+    /// Case-insensitive substring, what a search field wants.
     pub fn contains_ci(self, needle: impl Into<String>) -> Pred {
         Pred::ContainsCi(self.column, needle.into())
     }
@@ -1213,8 +1213,8 @@ impl Col<String> {
 pub struct Sort {
     pub column: &'static str,
     pub ascending: bool,
-    /// Order by FTS relevance (bm25) instead of a column — `column` is empty; compiles to a
-    /// join against the FTS shadow so the engine orders by its own rank.
+    /// Order by FTS relevance (bm25) instead of a column: `column` is empty, and it compiles
+    /// to a join against the FTS shadow so the engine orders by its own rank.
     pub by_rank: bool,
 }
 
@@ -1273,7 +1273,7 @@ impl Fetch {
         self
     }
 
-    /// The columns a change must touch for this query's RESULT to be able to move. Everything
+    /// The columns a change must touch for this query's result to be able to move. Everything
     /// else is a row-level change the query ignores entirely.
     pub fn dependencies(&self) -> Deps {
         let mut local = Vec::new();
@@ -1299,14 +1299,14 @@ pub enum Delta {
 
 /// What a fetch reads, and therefore what can move a row through it.
 ///
-/// Split by table on purpose: a query's own columns are one question, and the columns it
-/// reads across a relation are another — a change to a related row the predicate never
-/// mentions must stay as free as a change to a local column it never mentions.
+/// Split by table because a query's own columns are one question, and the columns it reads
+/// across a relation are another: a change to a related row the predicate never mentions
+/// must stay as free as a change to a local column it never mentions.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Deps {
-    /// Columns of the query's own table — its predicate's and its sort's.
+    /// Columns of the query's own table: its predicate's and its sort's.
     pub local: Vec<&'static str>,
-    /// One entry per relation the predicate crosses, at ANY depth.
+    /// One entry per relation the predicate crosses, at any depth.
     pub related: Vec<RelatedDep>,
 }
 
@@ -1318,13 +1318,13 @@ pub struct RelatedDep {
     /// The `Many` field, or the `One` column, the predicate crossed.
     pub field: &'static str,
     pub target_table: &'static str,
-    /// Columns of the TARGET table the inner predicate reads. Empty when the predicate asks
+    /// Columns of the target table the inner predicate reads. Empty when the predicate asks
     /// only about membership (`is_empty`, `count_ge`), which no column write can change.
     pub columns: Vec<&'static str>,
 }
 
 impl Deps {
-    /// Whether a change to this column of the query's OWN table can move a row.
+    /// Whether a change to this column of the query's own table can move a row.
     pub fn touches_local(&self, column: &str) -> bool {
         self.local.contains(&column)
     }
@@ -1336,7 +1336,7 @@ impl Deps {
             .any(|r| r.target_table == table && r.columns.contains(&column))
     }
 
-    /// The tables this fetch reads across a relation — what a query subscribes to beyond its
+    /// The tables this fetch reads across a relation: what a query subscribes to beyond its
     /// own store.
     pub fn related_tables(&self) -> Vec<&'static str> {
         let mut out: Vec<&'static str> = Vec::new();
@@ -1352,13 +1352,13 @@ impl Deps {
 /// What adopting a fresh answer did to a result set.
 #[derive(Clone, PartialEq, Debug)]
 pub enum SetChange {
-    /// Identical — nothing downstream needs waking.
+    /// Identical; nothing downstream needs waking.
     Same,
-    /// Changed by exactly these deltas — enough to animate a list rather than reload it.
-    /// Removals come first in DESCENDING index order, then insertions in ascending order
+    /// Changed by exactly these deltas, enough to animate a list rather than reload it.
+    /// Removals come first in descending index order, then insertions in ascending order
     /// (each index valid at its point of application); a pure reposition is one `Move`.
     Deltas(Vec<Delta>),
-    /// Too different to narrate row by row; a reload is honest.
+    /// Too different to narrate row by row; the consumer reloads.
     Reload,
 }
 
@@ -1387,7 +1387,7 @@ impl ResultSet {
         &self.fetch
     }
 
-    /// What this set reads — its own columns, and anything it reaches across a relation.
+    /// What this set reads: its own columns, and anything it reaches across a relation.
     pub fn deps(&self) -> &Deps {
         &self.deps
     }
@@ -1422,7 +1422,7 @@ impl ResultSet {
             .collect();
 
         let mut deltas: Vec<Delta> = Vec::new();
-        // Removals from the END first, so each index is valid at its point of application.
+        // Removals from the end first, so each index is valid at its point of application.
         for (i, k) in old.iter().enumerate().rev() {
             if !new_set.contains(k) {
                 deltas.push(Delta::Remove(i, *k));
@@ -1431,8 +1431,8 @@ impl ResultSet {
         let mut scratch = retained_old.clone();
 
         if retained_old != retained_new {
-            // The retained rows reordered. One reposition — the shape a sort-column edit
-            // produces — narrates as a Move; more than one reloads. With one row out of
+            // The retained rows reordered. One reposition (the shape a sort-column edit
+            // produces) narrates as a Move; more than one reloads. With one row out of
             // place, it is the first mismatched key of one side or the other.
             let mismatch = retained_old
                 .iter()

@@ -5,7 +5,7 @@
 // Android: this crate's Java factory (`dev.daybrite.day.piece.datetime.DayDateTime`, bundled
 // in src/DayDateTime.java and folded into the app's Gradle build via [package.metadata.day.android]).
 // Compact = a value button launching the modal MaterialDatePicker / MaterialTimePicker through
-// DayActivity's FragmentManager (the Material idiom — a dialog, not a popover); Inline = the
+// DayActivity's FragmentManager (the Material idiom: a dialog, not a popover); Inline = the
 // framework DatePicker / TimePicker widgets. Picks come back through DayBridge.nativeOnEvent
 // kind 12 → `Event::Custom { tag: "", num, .. }` carrying epoch days / seconds-of-day.
 // ---------------------------------------------------------------------------
@@ -16,7 +16,7 @@ use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
 use day_spec::NodeId;
 
-/// This piece's OWN Java class (src/DayDateTime.java, on the app classpath at build).
+/// This piece's Java class (src/DayDateTime.java, on the app classpath at build).
 const CLASS: &str = "dev/daybrite/day/piece/datetime/DayDateTime";
 
 mod date_renderer {

@@ -8,8 +8,8 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A compose piece (DESIGN §8 / the composition-first tier): a reusable widget built from Day's
-# core primitives — no native/per-toolkit code. Works on every backend.
+# A compose piece (DESIGN.md §8 / the composition-first tier): a reusable widget built from Day's
+# core primitives, with no native/per-toolkit code. Works on every backend.
 # The flagship example that native pieces are the exception, not the rule. Filled in by the build.
 
 [dependencies]

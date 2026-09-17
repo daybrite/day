@@ -1,14 +1,14 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-pieces — the built-in piece library (DESIGN.md §5.3).
+//! day-pieces: the built-in piece library (DESIGN.md §5.3).
 //!
 //! Every constructor is a plain function returning a piece value; builder methods configure;
 //! `build` runs once. Dynamic attributes become seeded bindings writing sparse typed patches
 //! through the thread-local tree.
 //!
 //! The vocabulary is split across sibling modules (one logical group each) and re-exported here,
-//! so the public API stays flat — `day_pieces::button`, `day_pieces::stack`, … — regardless of
+//! so the public API stays flat (`day_pieces::button`, `day_pieces::stack`, …) regardless of
 //! which module a piece is defined in.
 
 // External-piece registration surface (§8.2): the `renderer!` macro + `fill_measure`, plus the
@@ -16,15 +16,15 @@
 pub mod render;
 
 // The dynamic piece registry (docs/lite.md §4 in https://github.com/daybrite/day-lite): drive
-// pieces by name with loosely-typed values — the surface interpreted languages (day-lite) build
-// real UIs through.
+// pieces by name with loosely-typed values, the surface interpreted languages (day-lite) build
+// UIs through.
 #[cfg(feature = "dyn-registry")]
 pub mod dynreg;
 pub use day_spec::Renderer;
 pub use linkme;
 pub use render::fill_measure;
 
-// The piece vocabulary — one logical group per module, re-exported flat (see each module's docs).
+// The piece vocabulary: one logical group per module, re-exported flat (see each module's docs).
 mod canvas;
 mod containers;
 mod decorators;
@@ -59,7 +59,7 @@ pub use shapes::*;
 pub use sources::*;
 pub use structure::*;
 // The ambient environment and the `Ambient` state trait (docs/state.md) live in day-core, so an
-// app's own `*-core` crate — which depends on day-core but not on day-pieces — can `impl Ambient`
+// app's `*-core` crate (which depends on day-core but not on day-pieces) can `impl Ambient`
 // for its view-model. Re-exported here so `day_pieces::environment` and the prelude are unchanged.
 pub use day_core::{Ambient, app_environment, environment, focused_environment, with_environment};
 pub use toolbar::*;
@@ -131,7 +131,7 @@ pub mod prelude {
     pub use day_spec::{CanvasFont, FontFace, FontFamilyInfo, TextMetrics};
     pub use day_spec::{Font, FontSpec, FontWeight, Role};
     // The styled-text document (docs/texteditor.md): what `.markdown()` parses into, what a
-    // label's runs are, and what `day-piece-texteditor` edits — plus the Markdown / HTML / RTF
+    // label's runs are, and what `day-piece-texteditor` edits, plus the Markdown / HTML / RTF
     // codecs over it.
     pub use day_spec::{
         LabelStyle, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPlacement, ToolbarValue,

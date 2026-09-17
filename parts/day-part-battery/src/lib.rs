@@ -1,8 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-battery — a HEADLESS cross-platform battery-status API. No UI; any Rust code can depend on this
-//! crate and call [`status`] to read the device battery through the platform's NATIVE API.
+//! day-part-battery is a headless cross-platform battery-status API. No UI; any Rust code can
+//! depend on this crate and call [`status`] to read the device battery through the platform's
+//! native API.
 //!
 //! ```no_run
 //! if let Some(b) = day_part_battery::status() {
@@ -10,11 +11,11 @@
 //! }
 //! ```
 //!
-//! Platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]` (a battery is an OS concern,
-//! not a widget-toolkit one): macOS uses IOKit, iOS `UIDevice`, Windows `GetSystemPowerStatus`, Linux
-//! `/sys/class/power_supply`, HarmonyOS the native `libohbattery_info.so`, and Android
-//! `BatteryManager` (via the inline Java arm staged by `day build`). Platforms without a battery API — or
-//! devices with no battery — return `None`.
+//! Platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]` (a battery is an OS
+//! concern, not a widget-toolkit one): macOS uses IOKit, iOS `UIDevice`, Windows
+//! `GetSystemPowerStatus`, Linux `/sys/class/power_supply`, HarmonyOS the native
+//! `libohbattery_info.so`, and Android `BatteryManager` (via the inline Java arm staged by
+//! `day build`). Platforms without a battery API, and devices with no battery, return `None`.
 
 /// A snapshot of the device battery.
 #[derive(Clone, Copy, Debug, PartialEq)]

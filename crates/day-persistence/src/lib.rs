@@ -3,39 +3,39 @@
 
 //! SQLite persistence for the observable model (docs/persistence.md).
 //!
-//! The engine owns the data; memory holds a WORKING SET. A [`ModelContainer`] opens a
+//! The engine owns the data; memory holds a working set. A [`ModelContainer`] opens a
 //! database through a pluggable [`SqliteDriver`], creates or migrates each model's table,
-//! and stops — no rows are read at open, so opening a million-row store costs the same as
-//! opening an empty one. Rows enter memory by FAULTING: a typed [`ModelContainer::get`], a
+//! and stops: no rows are read at open, so opening a million-row store costs the same as
+//! opening an empty one. Rows enter memory by faulting: a typed [`ModelContainer::get`], a
 //! batch [`ModelContainer::ensure_resident`], or a list binding materializing the rows it is
-//! about to show. Each model's [`Store`] is that working set — an ordinary day-model store,
-//! so every binding and accessor works on it unchanged — bounded by a per-table cache limit;
+//! about to show. Each model's [`Store`] is that working set (an ordinary day-model store,
+//! so every binding and accessor works on it unchanged), bounded by a per-table cache limit;
 //! clean rows nothing observes leave silently and fault back on the next read.
 //!
 //! The write half is day-model's change log, folded. Any write requires its row resident
 //! (editing is what faulted it in); at the end of any turn that touched a store (autosave,
 //! the default) the accumulated changes fold into the smallest statement list that expresses
-//! them — twenty keystrokes into one field is one `UPDATE`; a row inserted and then filled is
+//! them: twenty keystrokes into one field is one `UPDATE`; a row inserted and then filled is
 //! one `INSERT`; a thousand-child cascade is a handful of chunked `DELETE`s.
 //!
-//! Typed live queries ([`ModelContainer::query`]) compile entirely to SQL — predicate to
-//! WHERE (relation crossings as correlated `EXISTS`, full-text as an FTS5 subquery, spatial
-//! boxes through the R*Tree shadow), sort to ORDER BY with the key as tie-break, window to
-//! LIMIT — so the engine's indexes answer them at any table size. Live maintenance is
+//! Typed live queries ([`ModelContainer::query`]) compile entirely to SQL: predicate to
+//! `WHERE` (relation crossings as correlated `EXISTS`, full-text as an FTS5 subquery, spatial
+//! boxes through the R*Tree shadow), sort to `ORDER BY` with the key as tie-break, window to
+//! `LIMIT`, so the engine's indexes answer them at any table size. Live maintenance is
 //! dependency-gated: a change to a column no query mentions costs nothing; a change a query
 //! does depend on marks it stale, and one requery after the turn's flush re-derives its id
 //! set, diffed against the previous answer so a list animates the difference instead of
 //! reloading. Rows behind the ids stay lazy: the query holds ids, and the list faults the
 //! window it shows.
 //!
-//! The driver is a trait so the ENGINE is the app's choice: the built-in [`Sqlite`] driver
+//! The driver is a trait so the engine is the app's choice: the built-in [`Sqlite`] driver
 //! (feature `driver-rusqlite`, on by default) compiles a bundled SQLite, links the system one
 //! (`system`), or builds SQLCipher (`cipher`); the [`Recorder`] answers from fixtures and
-//! records every statement, which is what keeps persistence assertable headlessly — a test
+//! records every statement, which is what keeps persistence assertable headlessly: a test
 //! can check the SQL a UI action produced without a database on disk.
 //!
 //! Another connection's committed writes arrive through [`ModelContainer::check_external`],
-//! which re-reads only the RESIDENT rows and re-runs the live queries — O(working set), never
+//! which re-reads only the resident rows and re-runs the live queries: O(working set), never
 //! O(table). Row identity is the model's `#[model(id)]` key; display order is a projection
 //! concern and is not persisted.
 
@@ -85,10 +85,10 @@ pub struct DbError {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DbErrorKind {
-    /// The engine said no — SQL error, I/O, constraint.
+    /// The engine said no: SQL error, I/O, constraint.
     Driver,
     /// The stored schema and the declared one disagree in a way lightweight migration cannot
-    /// close (a type change, a rename) — the file is refused, never silently rewritten.
+    /// close (a type change, a rename); the file is refused, never silently rewritten.
     Schema,
     /// The database would not open with the key it was given.
     BadKey,
@@ -96,7 +96,7 @@ pub enum DbErrorKind {
     Decode,
     /// The driver cannot do this (encryption on a non-cipher build, …).
     Unsupported,
-    /// A `DeleteRule::Deny` relation refused the delete — children still reference the row.
+    /// A `DeleteRule::Deny` relation refused the delete: children still reference the row.
     Deny,
 }
 
@@ -125,7 +125,7 @@ impl std::error::Error for DbError {}
 // Values and rows
 // ---------------------------------------------------------------------------
 
-/// SQLite's five storage classes, and nothing else — no driver type reaches the layer above.
+/// SQLite's five storage classes, and nothing else; no driver type reaches the layer above.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
@@ -175,7 +175,7 @@ impl Value {
     }
 }
 
-/// A column's declared type — part of the schema fingerprint, so changing one is a migration.
+/// A column's declared type. Part of the schema fingerprint, so changing one is a migration.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SqlType {
     Integer,
@@ -214,7 +214,7 @@ impl Row for Vec<Value> {
 }
 
 // ---------------------------------------------------------------------------
-// The driver seam
+// The driver interface
 // ---------------------------------------------------------------------------
 
 /// Where the database lives.
@@ -224,7 +224,7 @@ pub enum Location {
     File(PathBuf),
 }
 
-/// A key for an encrypted database. Redacted in Debug and zeroed on drop — where it lives
+/// A key for an encrypted database. Redacted in Debug and zeroed on drop; where it lives
 /// between launches is the app's business, never this crate's.
 #[derive(Clone)]
 pub struct Secret(String);
@@ -286,7 +286,7 @@ impl OpenOptions {
     }
 }
 
-/// What a driver can and cannot do, so the container degrades honestly instead of silently.
+/// What a driver can and cannot do, so the container degrades visibly instead of silently.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Capabilities {
     /// Survives a relaunch (false for memory stores and the Recorder).
@@ -300,14 +300,14 @@ pub struct Capabilities {
     /// claims it for file databases on native targets; memory databases (no second connection
     /// can reach one), the Recorder, and the web engine (its OPFS access is exclusive) do not.
     pub external_changes: bool,
-    /// The connection has `day_fold` registered — Rust's full-Unicode `to_lowercase` as a
-    /// scalar SQL function — so case-insensitive text predicates compile to EXACT SQL. The
+    /// The connection has `day_fold` registered (Rust's full-Unicode `to_lowercase` as a
+    /// scalar SQL function), so case-insensitive text predicates compile to exact SQL. The
     /// built-in native driver registers it at open; without it those predicates take the
     /// fallback path (SQL for everything else, the folding test re-checked in memory).
     pub unicode_fold: bool,
 }
 
-/// The engine seam. Object-safe on the connection side, so the container stores
+/// The engine trait. Object-safe on the connection side, so the container stores
 /// `Box<dyn SqliteConnection>` and never names an engine type.
 pub trait SqliteDriver {
     type Connection: SqliteConnection;
@@ -358,13 +358,13 @@ pub trait SqliteConnection: 'static {
     fn rollback(&mut self) -> Result<(), DbError> {
         self.execute("ROLLBACK", &[]).map(|_| ())
     }
-    /// Several statements in one string, no parameters — a DDL script, a migration step
+    /// Several statements in one string, no parameters: a DDL script, a migration step
     /// (day-lite's storage speaks this). The default runs the string as one statement;
     /// drivers whose engine executes scripts override it (the built-in native driver does).
     fn execute_batch(&mut self, sql: &str) -> Result<(), DbError> {
         self.execute(sql, &[]).map(|_| ())
     }
-    /// [`SqliteConnection::query`], with the result's column names alongside each row — for
+    /// [`SqliteConnection::query`], with the result's column names alongside each row, for
     /// callers that surface rows as named objects (day-lite's JS bridge). A driver that
     /// cannot name columns refuses rather than guessing.
     fn query_named(
@@ -382,16 +382,16 @@ pub trait SqliteConnection: 'static {
 }
 
 // ---------------------------------------------------------------------------
-// The Recorder — the headless fake
+// The Recorder: the headless fake
 // ---------------------------------------------------------------------------
 
-/// A driver that answers from fixtures and records every statement — the piece that keeps
+/// A driver that answers from fixtures and records every statement: the piece that keeps
 /// persistence assertable with no database on disk. `let (driver, log) = Recorder::new();`
 ///
-/// Fixtures answer by TABLE, not by statement: any `SELECT … FROM <table>` serves every
-/// fixture row registered for it, whatever the WHERE clause says. Faulting paths keep only
-/// the keys they asked for, so `get` and `ensure_resident` behave; a QUERY against the
-/// Recorder answers with all fixture keys — assert the SQL it recorded, and use
+/// Fixtures answer by table, not by statement: any `SELECT … FROM <table>` serves every
+/// fixture row registered for it, whatever the `WHERE` clause says. Faulting paths keep only
+/// the keys they asked for, so `get` and `ensure_resident` behave; a query against the
+/// Recorder answers with all fixture keys, so assert the SQL it recorded, and use
 /// `Sqlite::memory()` where predicate results themselves are under test.
 pub struct Recorder {
     state: Rc<RecorderState>,
@@ -464,7 +464,7 @@ impl SqliteDriver for Recorder {
             wal: false,
             // The fake answers everything: an FTS/spatial model must open against fixtures
             // (its reads just come back empty unless a fixture answers them), and folded
-            // predicates compile as if day_fold existed — the SQL is recorded, never run.
+            // predicates compile as if day_fold existed; the SQL is recorded, never run.
             full_text_search: true,
             rtree: true,
             unicode_fold: true,
@@ -491,7 +491,7 @@ impl SqliteConnection for RecorderConn {
             .log
             .borrow_mut()
             .push((sql.to_string(), params.to_vec()));
-        // Serve a fixture when the statement reads FROM a table one was registered for.
+        // Serve a fixture when the statement reads `FROM` a table one was registered for.
         if let Some(from) = sql.split(" FROM ").nth(1) {
             let table = from.split_whitespace().next().unwrap_or("");
             if let Some(rows) = self.state.fixtures.borrow().get(table) {
@@ -508,7 +508,7 @@ impl SqliteConnection for RecorderConn {
 // Column values and codecs (docs/persistence.md)
 // ---------------------------------------------------------------------------
 
-/// A Rust type that knows how to be a column. One impl per type — its canonical form.
+/// A Rust type that knows how to be a column. One impl per type: its canonical form.
 pub trait ColumnValue: Sized + 'static {
     /// The declared column type. Part of the schema fingerprint, so changing it is a
     /// migration, never a surprise.
@@ -517,7 +517,7 @@ pub trait ColumnValue: Sized + 'static {
     fn from_sqlite_value(v: Value) -> Result<Self, DbError>;
 }
 
-/// A NAMED alternative representation for `T` — serde's `#[serde(with = …)]` idiom.
+/// A named alternative representation for `T`, serde's `#[serde(with = …)]` idiom.
 /// Implement on a unit struct; select it per field with `#[model(with = …)]`.
 pub trait ValueCodec<T>: 'static {
     const SQL_TYPE: SqlType;
@@ -590,8 +590,8 @@ impl ColumnValue for Vec<u8> {
     }
 }
 
-/// A Uuid is a 16-byte `BLOB` — compact, indexable, and readable by any tool that knows the
-/// convention. (`day_model::Uuid` IS `uuid::Uuid`, so no second dependency edge exists.)
+/// A Uuid is a 16-byte `BLOB`: compact, indexable, and readable by any tool that knows the
+/// convention. (`day_model::Uuid` is `uuid::Uuid`, so no second dependency edge exists.)
 impl ColumnValue for day_model::Uuid {
     const SQL_TYPE: SqlType = SqlType::Blob;
     fn to_sqlite_value(&self) -> Value {
@@ -616,7 +616,7 @@ fn key_param(handle: u64) -> Value {
 }
 
 /// A stored key value, back as its path handle. `None` for shapes no key takes (a negative
-/// integer, a blob that is not 16 bytes) — the caller treats those rows as unaddressable.
+/// integer, a blob that is not 16 bytes); the caller treats those rows as unaddressable.
 fn value_to_handle(v: &Value) -> Option<u64> {
     match v {
         Value::Int(i) if *i >= 0 => Some(Key::U64(*i as u64).handle()),
@@ -629,7 +629,7 @@ fn value_to_handle(v: &Value) -> Option<u64> {
 }
 
 /// `NULL` belongs to the framework: `Option` wraps any column type, encoding is called only on
-/// present values, and a NULL decodes to `None` — an impl never sees `Null` and cannot
+/// present values, and a NULL decodes to `None`, so an impl never sees `Null` and cannot
 /// disagree about it.
 impl<T: ColumnValue> ColumnValue for Option<T> {
     const SQL_TYPE: SqlType = T::SQL_TYPE;
@@ -671,11 +671,11 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// The Model trait — what #[derive(Model)] implements
+// The Model trait: what #[derive(Model)] implements
 // ---------------------------------------------------------------------------
 
-/// One column of a model's table, as the derive declares it. `field` is the STRUCT field the
-/// column stores — the change log speaks field names, the SQL speaks column names, and this is
+/// One column of a model's table, as the derive declares it. `field` is the struct field the
+/// column stores: the change log speaks field names, the SQL speaks column names, and this is
 /// where the two meet (they differ only under `#[model(column = "…")]`).
 #[derive(Clone, Copy, Debug)]
 pub struct ColumnDef {
@@ -697,7 +697,7 @@ pub struct SpatialCols {
 /// One `#[model(link(…))]` as the derive emits it: `owner.local = target.remote` is the join.
 #[derive(Clone, Copy, Debug)]
 pub struct LinkDef {
-    /// The marker field the link was declared on — the name `Owner::field()` answers to.
+    /// The marker field the link was declared on: the name `Owner::field()` answers to.
     pub field: &'static str,
     /// The owner's column holding the value.
     pub local: &'static str,
@@ -707,8 +707,8 @@ pub struct LinkDef {
     pub remote: &'static str,
 }
 
-/// The marker a `#[model(link(…))]` field carries: no column, no state — the type is what
-/// names the far model for the derive.
+/// The marker a `#[model(link(…))]` field carries. It has neither a column nor state; the
+/// type is what names the far model for the derive.
 pub struct Linked<M: ?Sized> {
     _m: std::marker::PhantomData<fn() -> M>,
 }
@@ -756,40 +756,40 @@ pub trait Model: Identified + day_model::ApplyField + Clone + 'static {
     const COLUMNS: &'static [ColumnDef];
     /// Composite indexes from struct-level `#[model(index("a", "b"))]`.
     const COMPOSITE_INDEXES: &'static [&'static [&'static str]] = &[];
-    /// Full-text-indexed columns from struct-level `#[model(fts("a", "b"))]` — an
+    /// Full-text-indexed columns from struct-level `#[model(fts("a", "b"))]`: an
     /// external-content FTS5 shadow table plus sync triggers, generated at open.
     const FTS_COLUMNS: &'static [&'static str] = &[];
-    /// The FTS5 tokenizer, from `#[model(fts(…, tokenize = "…"))]` — e.g.
+    /// The FTS5 tokenizer, from `#[model(fts(…, tokenize = "…"))]`, e.g.
     /// `"unicode61 remove_diacritics 2"` for diacritics-insensitive search. `None` keeps
     /// FTS5's default. Part of the schema fingerprint, so changing it rebuilds the shadow.
     const FTS_TOKENIZE: Option<&'static str> = None;
     /// The R*Tree pair from struct-level `#[model(spatial(lat = "…", lon = "…"))]`.
     const SPATIAL: Option<SpatialCols> = None;
-    /// The key column's SQL shape — what a `One<Self>` foreign-key column stores.
+    /// The key column's SQL shape: what a `One<Self>` foreign-key column stores.
     const KEY_SQL: SqlType = SqlType::Integer;
     /// Relations declared on this model's `Many` fields (`#[model(relation(…))]`).
     const RELATIONS: &'static [RelationDef] = &[];
-    /// Relations by VALUE (`#[model(link(…))]`): rows of another model whose `remote` column
-    /// equals this row's `local` column, with no foreign key — the shape that reaches across an
+    /// Relations by value (`#[model(link(…))]`): rows of another model whose `remote` column
+    /// equals this row's `local` column, with no foreign key: the shape that reaches across an
     /// attached database (see [`ModelContainer::attach_database`]).
     const LINKS: &'static [LinkDef] = &[];
-    /// Declared `external = "alias"`: the table belongs to a database ATTACHed under that alias
+    /// Declared `external = "alias"`: the table belongs to a database attached under that alias
     /// and managed elsewhere. The container creates, migrates, and fingerprints nothing for
     /// it, and treats it as read-only.
     const EXTERNAL: bool = false;
     /// One [`Value`] per column, in `COLUMNS` order.
     fn to_row(&self) -> Vec<Value>;
     fn from_row(row: &dyn Row) -> Result<Self, DbError>;
-    /// Each column's Rust-default value — what an added column backfills with.
+    /// Each column's Rust-default value: what an added column backfills with.
     fn default_row() -> Vec<Value>;
-    /// Wire this model's declared relations — generated; the default declares none.
+    /// Wire this model's declared relations. Generated; the default declares none.
     fn wire(reg: &mut Registrar<'_>) {
         let _ = reg;
     }
 }
 
 /// The declared schema's fingerprint: table, columns, types, flags, indexes. Equal fingerprints
-/// open instantly; a difference migrates or refuses — never silently.
+/// open instantly; a difference migrates or refuses, never silently.
 pub fn model_fingerprint<M: Model>() -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |bytes: &[u8]| {
@@ -831,13 +831,13 @@ pub fn model_fingerprint<M: Model>() -> u64 {
 // Schema sets and migrations
 // ---------------------------------------------------------------------------
 
-/// The set of models a container manages — build with [`schema!`].
+/// The set of models a container manages; build with [`schema!`].
 #[derive(Default)]
 pub struct Schema {
     installers: Vec<Installer>,
-    /// Run after every table is attached — relation wiring needs both ends present.
+    /// Run after every table is attached, because relation wiring needs both ends present.
     wirers: Vec<Installer>,
-    /// Foreign-key clauses each declared relation contributes to its TARGET's table.
+    /// Foreign-key clauses each declared relation contributes to its target's table.
     fk_specs: Vec<FkSpec>,
 }
 
@@ -848,14 +848,14 @@ type AbsorbFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<Vec<u64>, DbError>>;
 /// authored [`ModelContainer::EXTERNAL_AUTHOR`], resident rows missing from the input deleted
 /// the same way. Returns whether anything differed.
 type RefreshFn = Rc<dyn Fn(Vec<Vec<Value>>) -> Result<bool, DbError>>;
-/// A WHERE clause plus its parameters, addressing one row by handle.
+/// A `WHERE` clause plus its parameters, addressing one row by handle.
 type KeyWhere = Rc<dyn Fn(u64) -> (String, Vec<Value>)>;
-/// A WHERE clause plus its parameters, addressing a SET of rows by handle.
+/// A `WHERE` clause plus its parameters, addressing a set of rows by handle.
 type KeysWhere = Rc<dyn Fn(&[u64]) -> (String, Vec<Value>)>;
 /// Evict up to N clean rows from an ordered candidate list, answering how many left.
 type EvictFn = Rc<dyn Fn(&[u64], usize) -> usize>;
 
-/// One foreign-key clause, resolved from a `RelationDef` at `Schema::with` time — the child's
+/// One foreign-key clause, resolved from a `RelationDef` at `Schema::with` time: the child's
 /// column carries `REFERENCES parent(key) ON DELETE …` in its generated DDL.
 #[derive(Clone, Copy, Debug)]
 struct FkSpec {
@@ -898,7 +898,7 @@ impl Schema {
     }
 }
 
-/// `schema![Trip, Lodging]` — the models a container manages.
+/// `schema![Trip, Lodging]`: the models a container manages.
 #[macro_export]
 macro_rules! schema {
     ($($m:ty),+ $(,)?) => {{
@@ -950,7 +950,7 @@ impl MigrationPlan {
 }
 
 // ---------------------------------------------------------------------------
-// Dirty tracking — the fold, applied live
+// Dirty tracking: the fold, applied live
 // ---------------------------------------------------------------------------
 
 /// What one row needs at the next flush. The merge rules are the change-log fold: same-row
@@ -967,8 +967,8 @@ struct DirtyState {
     /// (store, key) → pending statement kind, in first-touch order.
     rows: HashMap<(u64, u64), DirtyRow>,
     order: Vec<(u64, u64)>,
-    /// Stores whose whole value was rewritten (a wholesale `Store::update`) — flushed by
-    /// upserting every RESIDENT row. With a lazy cache no "delete the rest" is possible (the
+    /// Stores whose whole value was rewritten (a wholesale `Store::update`), flushed by
+    /// upserting every resident row. With a lazy cache no "delete the rest" is possible (the
     /// rest was never loaded), so wholesale rewrites are a resync of the working set only.
     full: Vec<u64>,
 }
@@ -1026,7 +1026,7 @@ pub(crate) struct TableHooks {
     /// The key column(s), in order: the key SELECT list, the upsert's conflict target, and
     /// what its DO UPDATE leaves alone. One entry everywhere but join tables.
     pub(crate) key_cols: Vec<String>,
-    /// WHERE clause + params addressing one row by its key handle.
+    /// `WHERE` clause + params addressing one row by its key handle.
     pub(crate) key_where: KeyWhere,
     pub(crate) columns: Vec<String>,
     /// Same order as `columns`; what a change's label matches against.
@@ -1035,26 +1035,26 @@ pub(crate) struct TableHooks {
     pub(crate) fts: Option<String>,
     /// The R*Tree shadow: (lat column, lon column, shadow table name).
     pub(crate) spatial: Option<(String, String, String)>,
-    /// Current row values by key, read from the CACHE at flush time — the change log carries
-    /// Which rows and columns moved, never their contents.
+    /// Current row values by key, read from the cache at flush time; the change log carries
+    /// which rows and columns moved, never their contents.
     pub(crate) row_for: Rc<dyn Fn(u64) -> Option<Vec<Value>>>,
     /// Every (key, row) currently resident, for wholesale resyncs.
     pub(crate) all_rows: Rc<dyn Fn() -> Vec<(u64, Vec<Value>)>>,
-    /// The resident keys, in cache (≈ fault) order — what eviction walks.
+    /// The resident keys, in cache (≈ fault) order: what eviction walks.
     pub(crate) resident_keys: Rc<dyn Fn() -> Vec<u64>>,
-    /// The resident COUNT, O(1) — the fault path's eviction gate.
+    /// The resident count, O(1): the fault path's eviction gate.
     pub(crate) resident_len: Rc<dyn Fn() -> usize>,
     pub(crate) is_resident: Rc<dyn Fn(u64) -> bool>,
     /// Decode raw rows into the cache silently (a fault landing).
     pub(crate) absorb: AbsorbFn,
     /// Diff raw rows against the resident set, announcing as the external author.
     pub(crate) refresh: RefreshFn,
-    /// Silently drop up to `want` CLEAN rows from the cache, taking candidates in order and
+    /// Silently drop up to `want` clean rows from the cache, taking candidates in order and
     /// skipping anything observed; answers how many left. One retain over the store, so an
     /// eviction pass costs O(cache), not O(cache × evicted). (Dirtiness is the container's
-    /// knowledge — checked before this is called.)
+    /// knowledge, checked before this is called.)
     pub(crate) evict: EvictFn,
-    /// Bring this store under an undo history — captured here because the model TYPE is known
+    /// Bring this store under an undo history; captured here because the model type is known
     /// only at attach time.
     pub(crate) watch_undo: Rc<dyn Fn(&day_model::UndoStack)>,
 }
@@ -1071,12 +1071,12 @@ pub(crate) struct ContainerInner {
     /// handles own the state; dead entries are pruned on dispatch.
     queries: RefCell<Vec<std::rc::Weak<QueryState>>>,
     /// The engine's cross-connection change counter as of the last look (`PRAGMA
-    /// data_version` — it moves only when ANOTHER connection commits to the file). `None`
+    /// data_version`; it moves only when another connection commits to the file). `None`
     /// where the driver reports no external-change detection.
     data_version: Cell<Option<i64>>,
     /// Foreign-key clauses relations contribute to their targets' tables, set before attach.
     fk_specs: RefCell<Vec<FkSpec>>,
-    /// The wired relations — maintained from the change sink, read by `RelationRef`s.
+    /// The wired relations, maintained from the change sink and read by `RelationRef`s.
     pub(crate) relations: RefCell<Vec<Rc<relations::ToOneRel>>>,
     /// The wired many-to-manys, each over its own membership cache.
     pub(crate) joins: RefCell<Vec<Rc<relations::JoinRel>>>,
@@ -1095,7 +1095,7 @@ pub(crate) struct ContainerInner {
     flushing: Cell<bool>,
 }
 
-/// An open database and the working-set caches over it. Clone is shallow — clones share the
+/// An open database and the working-set caches over it. Clone is shallow: clones share the
 /// connection and the dirty state.
 #[derive(Clone)]
 pub struct ModelContainer {
@@ -1106,7 +1106,7 @@ pub struct ModelContainer {
 pub const DEFAULT_CACHE_LIMIT: usize = 8_192;
 
 impl ModelContainer {
-    /// Open through `driver`, migrate, and attach every model in `schema` — attaching creates
+    /// Open through `driver`, migrate, and attach every model in `schema`. Attaching creates
     /// or migrates the table and nothing more: no rows load, so open cost does not grow with
     /// the file. Autosave is on: any turn that touched a store flushes at its end.
     pub fn open<D: SqliteDriver>(driver: D, schema: Schema) -> Result<ModelContainer, DbError>
@@ -1161,7 +1161,7 @@ impl ModelContainer {
         for install in installers {
             install(&container)?;
         }
-        // Relations wire once every table is attached — both ends exist — and only then does
+        // Relations wire once every table is attached (both ends exist), and only then does
         // the sink go live.
         for wire in wirers {
             wire(&container)?;
@@ -1178,14 +1178,14 @@ impl ModelContainer {
         Ok(container)
     }
 
-    /// The author tag on changes [`ModelContainer::check_external`] merges in — the database's
+    /// The author tag on changes [`ModelContainer::check_external`] merges in: the database's
     /// own contents arriving, distinguishable by every change consumer and never persisted
     /// back. Reserved: an app writing stores under this tag would have its writes dropped by
     /// the autosave fold.
     pub const EXTERNAL_AUTHOR: &'static str = "database";
 
-    /// The WORKING-SET cache for `M` — an ordinary day-model store holding the rows currently
-    /// resident, NOT the table: its `keys()` are whatever happens to be faulted in. Bindings
+    /// The working-set cache for `M`, an ordinary day-model store holding the rows currently
+    /// resident and not the table: its `keys()` are whatever happens to be faulted in. Bindings
     /// and accessors work on it unchanged; enumerate rows through a [`ModelContainer::query`],
     /// never through the cache. Panics only if `M` was not in the container's `schema!`,
     /// which is a wiring bug worth stopping on.
@@ -1198,12 +1198,12 @@ impl ModelContainer {
             .expect("store map holds the exact type it was keyed by")
     }
 
-    /// What the driver can do — the container's honesty surface.
+    /// What the driver can and cannot do.
     pub fn capabilities(&self) -> Capabilities {
         self.inner.caps
     }
 
-    /// Autosave on/off (default on). Off, changes accumulate until [`ModelContainer::save`] —
+    /// Autosave on/off (default on). Off, changes accumulate until [`ModelContainer::save`],
     /// and live queries answer from the last save, since only the file can answer them.
     pub fn set_autosave(&self, on: bool) {
         self.inner.autosave.set(on);
@@ -1221,7 +1221,7 @@ impl ModelContainer {
         }
     }
 
-    /// The last autosave failure, if any — a tracked signal the UI can watch.
+    /// The last autosave failure, if any, as a tracked signal the UI can watch.
     pub fn last_error(&self) -> day_reactive::Signal<Option<String>> {
         self.inner.error
     }
@@ -1232,7 +1232,7 @@ impl ModelContainer {
         self.save_now().map(|_| ())
     }
 
-    /// Run `f` and return the SQL one flush of everything it changed issues — the headless
+    /// Run `f` and return the SQL one flush of everything it changed issues: the headless
     /// persistence assert (autosave is suspended for the duration so the statements land
     /// here). Twenty keystrokes into one field come back as one `UPDATE`.
     pub fn record_sql(&self, f: impl FnOnce()) -> Result<Vec<String>, DbError> {
@@ -1251,7 +1251,7 @@ impl ModelContainer {
             let mut d = self.inner.dirty.borrow_mut();
             if d.is_empty() {
                 drop(d);
-                // Nothing to flush — but a stale query may still be waiting on its deferred
+                // Nothing to flush, but a stale query may still be waiting on its deferred
                 // requery (a fetch swap on a clean container lands here).
                 self.run_deferred_requeries(&[]);
                 return Ok(Vec::new());
@@ -1273,7 +1273,7 @@ impl ModelContainer {
 
     // --- faulting ----------------------------------------------------------------------------
 
-    /// One row, resident — faulted from the file if it was not. `None` when no such row
+    /// One row, made resident (faulted from the file if it was not). `None` when no such row
     /// exists (or a driver error surfaced, observable through [`ModelContainer::last_error`]).
     pub fn get<M: Model>(&self, id: impl Into<ModelId<M>>) -> Option<day_model::Elem<M>> {
         let store = self.cache::<M>();
@@ -1290,7 +1290,7 @@ impl ModelContainer {
     }
 
     /// Make these rows resident, faulting the missing ones in one chunked `SELECT`. Rows the
-    /// file does not have are simply not resident afterwards; rows deleted this turn are not
+    /// file does not have are not resident afterwards; rows deleted this turn are not
     /// resurrected.
     pub fn ensure_resident<M: Model>(&self, keys: &[u64]) -> Result<(), DbError> {
         let store = self.cache::<M>();
@@ -1306,8 +1306,8 @@ impl ModelContainer {
         self.ensure_resident::<M>(&keys)
     }
 
-    /// Fault every row of `M`'s table in — the document pattern, said explicitly: a sketch's
-    /// scene or a settings table IS the working set, and the app that draws all of it warms
+    /// Fault every row of `M`'s table in: the document pattern, said explicitly. A sketch's
+    /// scene or a settings table is the working set, and the app that draws all of it warms
     /// it once at open. Raise the cache limit first (`set_cache_limit(usize::MAX)` for a
     /// document container) so the warmed rows are not immediately eligible to leave; rows
     /// deleted this turn stay deleted. Returns how many rows are resident afterward.
@@ -1331,7 +1331,7 @@ impl ModelContainer {
         store.restructure("create", Op::Insert, h, move |k| k.push(row));
     }
 
-    /// `SELECT COUNT(*)` — the table's true size, which the cache cannot know. Settles
+    /// `SELECT COUNT(*)`: the table's true size, which the cache cannot know. Settles
     /// pending writes first (with autosave), like every other read.
     pub fn table_count<M: Model>(&self) -> Result<u64, DbError> {
         if self.inner.autosave.get() && !self.inner.dirty.borrow().is_empty() {
@@ -1390,24 +1390,24 @@ impl ModelContainer {
             )?;
             faulted.extend(absorb(rows)?);
         }
-        // The Recorder serves whole fixture tables whatever the WHERE says; keep only what
-        // was asked for so faulting stays precise there too. (By SET — a linear scan here
-        // made warming half a million rows quadratic.)
+        // The Recorder serves whole fixture tables whatever the `WHERE` says; keep only what
+        // was asked for so faulting stays precise there too. (Through a `HashSet`; a linear
+        // scan here made warming half a million rows quadratic.)
         let wanted: std::collections::HashSet<u64> = missing.iter().copied().collect();
         faulted.retain(|k| wanted.contains(k));
         self.enforce_cache_limit(store_id, &faulted, false);
         Ok(())
     }
 
-    /// Release resident rows beyond the cache limit — oldest first, never a dirty row, never
+    /// Release resident rows beyond the cache limit: oldest first, never a dirty row, never
     /// an observed one, never one just faulted for the caller still holding it.
     ///
-    /// The pass walks every resident key, so it runs with HYSTERESIS on the fault path:
+    /// The pass walks every resident key, so it runs with hysteresis on the fault path:
     /// nothing happens until the cache overshoots the limit by a slack margin, and one pass
-    /// then brings it back to the limit — amortizing the walk over the faults that filled the
+    /// then brings it back to the limit, amortizing the walk over the faults that filled the
     /// slack, instead of paying O(resident) per fault batch. (Measured: a 50k-row relation
     /// traversal over a 500k-row table spent 99% of its time in the un-amortized walk.)
-    /// `strict` skips the slack — `set_cache_limit` enforces its new bound immediately.
+    /// `strict` skips the slack, so `set_cache_limit` enforces its new bound immediately.
     fn enforce_cache_limit(&self, store_id: u64, protect: &[u64], strict: bool) {
         let limit = self.inner.cache_limit.get();
         if limit == usize::MAX {
@@ -1458,7 +1458,7 @@ impl ModelContainer {
 
     /// Run a one-column SELECT and hand back the values as key handles. Errors surface on the
     /// error signal (these run on read paths with no caller to give a `Result` to).
-    /// One-column key SELECT with the error returned — for callers that have a `Result` to
+    /// One-column key SELECT with the error returned, for callers that have a `Result` to
     /// give it to (the read paths use [`ModelContainer::select_id_column`] instead).
     fn select_id_column_checked(&self, sql: &str) -> Result<Vec<u64>, DbError> {
         let mut ids = Vec::new();
@@ -1493,7 +1493,7 @@ impl ModelContainer {
         v
     }
 
-    /// This turn's unflushed rows of one store — what relation reads overlay.
+    /// This turn's unflushed rows of one store: what relation reads overlay.
     pub(crate) fn dirty_rows_of(&self, store_id: u64) -> Vec<(u64, DirtyRow)> {
         self.inner
             .dirty
@@ -1593,12 +1593,12 @@ impl ModelContainer {
         Ok(())
     }
 
-    /// CREATE (or lightweight-migrate) `M`'s table and register its hooks. The cache starts
-    /// EMPTY — this is the line where the old engine read the whole table, and the point of
-    /// the lazy one is that nothing does.
+    /// Create (or lightweight-migrate) `M`'s table and register its hooks. The cache starts
+    /// empty: this is the line where the old engine read the whole table, and the lazy one
+    /// exists so that nothing does.
     fn attach<M: Model>(&self) -> Result<(), DbError> {
-        // FTS5's external-content table and the R*Tree address rows by ROWID — an i64 — so
-        // both need the key column to BE the integer rowid. A wide-keyed model declaring one
+        // FTS5's external-content table and the R*Tree address rows by ROWID (an i64), so
+        // both need the key column to be the integer rowid. A wide-keyed model declaring one
         // is refused at open, naming the constraint, rather than silently mis-indexing.
         let key_sql = M::COLUMNS
             .iter()
@@ -1615,7 +1615,7 @@ impl ModelContainer {
                 ),
             ));
         }
-        // A second attach of the same model — a re-attached database after a catalog swap —
+        // A second attach of the same model (a re-attached database after a catalog swap)
         // keeps its store and hooks; only the resident rows are stale, and they are dropped
         // so the next fault reads the new file.
         if self.inner.stores.borrow().contains_key(&TypeId::of::<M>()) {
@@ -1688,7 +1688,7 @@ impl ModelContainer {
                         let key = m.handle();
                         match store.with_untracked(|k| k.get(key).map(|old| old.to_row())) {
                             // Selected by resident keys, so an unknown row means the cache
-                            // moved underneath us — treat it as an arrival.
+                            // moved underneath us; treat it as an arrival.
                             None => {
                                 changed = true;
                                 store.restructure("external", Op::Insert, key, |k| k.push(m));
@@ -1766,8 +1766,8 @@ impl ModelContainer {
 
     fn ensure_table<M: Model>(&self) -> Result<(), DbError> {
         // Relation-contributed clauses fold into the fingerprint: adopting or changing a
-        // delete rule re-runs this path. An EXISTING table cannot gain the SQL-level clause
-        // (SQLite has no ALTER ADD CONSTRAINT) — the in-memory rule still enforces, and a
+        // delete rule re-runs this path. An existing table cannot gain the SQL-level clause
+        // (SQLite has no `ALTER ADD CONSTRAINT`); the in-memory rule still enforces, and a
         // staged rebuild adopts the clause when the app wants the engine's backstop too.
         let mut fp_val = model_fingerprint::<M>();
         for s in self
@@ -1806,7 +1806,7 @@ impl ModelContainer {
     }
 
     /// The FTS5 and R*Tree shadows a model declares: virtual tables plus `AFTER` triggers, so
-    /// the indexes stay true inside the same transaction as every write — even a write made by
+    /// the indexes stay true inside the same transaction as every write, even a write made by
     /// another tool straight into the file. Backfilled when first created.
     fn create_shadow_tables<M: Model>(&self) -> Result<(), DbError> {
         let t = M::TABLE;
@@ -1954,7 +1954,7 @@ impl ModelContainer {
                     s.push_str(" UNIQUE");
                 }
                 // A declared relation's foreign key: enforced by the engine too, so another
-                // process honors the same delete rule — and so a cascade's reach into rows
+                // process honors the same delete rule, and so a cascade's reach into rows
                 // this process never faulted still lands in the file. Deferred, so
                 // within-transaction statement order (a cascade's children, an undo's
                 // re-inserts) never trips it.
@@ -1973,8 +1973,8 @@ impl ModelContainer {
             })
             .collect();
         let body = format!("CREATE TABLE {} ({})", M::TABLE, cols.join(", "));
-        // STRICT where the engine allows it (always, for the bundled build); older system
-        // SQLites reject the keyword, and the plain form is the honest fallback.
+        // `STRICT` where the engine allows it (always, for the bundled build); older system
+        // SQLites reject the keyword, and the plain form is the fallback.
         if self.conn().execute(&format!("{body} STRICT"), &[]).is_err() {
             self.conn().execute(&body, &[])?;
         }
@@ -2026,7 +2026,7 @@ impl ModelContainer {
         Ok(())
     }
 
-    /// Close the gap between the file's columns and the declared ones — additions and drops
+    /// Close the gap between the file's columns and the declared ones: additions and drops
     /// only. A type change or a rename is refused with both names in the error; that is what
     /// staged migrations are for.
     fn lightweight_migrate<M: Model>(&self) -> Result<(), DbError> {
@@ -2148,14 +2148,14 @@ impl ModelContainer {
     }
 
     /// The fold, materialized: the smallest statement list that expresses `dirty`, in
-    /// first-touch order. Row values come from the caches now — the change log carried which
+    /// first-touch order. Row values come from the caches now; the change log carried which
     /// rows and columns moved, never their contents. Reads only; [`ModelContainer::flush`]
     /// executes the list in one transaction.
     fn fold(&self, dirty: &DirtyState) -> Result<Vec<(String, Vec<Value>)>, DbError> {
         let tables = self.inner.tables.borrow();
         let mut stmts: Vec<(String, Vec<Value>)> = Vec::new();
 
-        // Wholesale rewrites first: upsert every RESIDENT row. (The cache is a working set —
+        // Wholesale rewrites first: upsert every resident row. (The cache is a working set;
         // rows outside it were never part of the rewrite, and deleting "the rest" would
         // delete data the rewrite never saw.)
         for store_id in &dirty.full {
@@ -2171,17 +2171,17 @@ impl ModelContainer {
         // `IN`; updates merge when they write the same columns to the same values, which is
         // what a multi-selection edit produces ("set fill on twelve shapes").
         //
-        // Deletes are held apart and emitted LAST. Dirty order interleaves rows by when each
-        // First changed, which can put a parent row's delete between its children's detach
-        // updates (the first detach dirties the parent through relation upkeep) — and a
-        // relation column's `ON DELETE CASCADE` fires per STATEMENT, `DEFERRABLE` or not, so
+        // Deletes are held apart and emitted last. Dirty order interleaves rows by when each
+        // first changed, which can put a parent row's delete between its children's detach
+        // updates (the first detach dirties the parent through relation upkeep), and a
+        // relation column's `ON DELETE CASCADE` fires per statement, `DEFERRABLE` or not, so
         // the mid-batch delete would take every still-attached child with it (found by Day
         // Sketch's ungroup: two members detached, one row left). With inserts and updates
         // first, a row still referencing a deleted parent at delete time is one the batch
-        // never detached — an orphan the cascade rule is SUPPOSED to take.
+        // never detached: an orphan the cascade rule is meant to take.
         let mut batches: Vec<Batch> = Vec::new();
         let mut deletes: Vec<Batch> = Vec::new();
-        // (store, statement shape, a fingerprint of the SET values) → the batch it joins.
+        // (store, statement shape, a fingerprint of the `SET` values) → the batch it joins.
         let mut open: HashMap<(u64, String, u64), usize> = HashMap::new();
         let mut open_deletes: HashMap<(u64, String, u64), usize> = HashMap::new();
 
@@ -2196,7 +2196,7 @@ impl ModelContainer {
             let Some(hooks) = tables.get(&store_id) else {
                 continue;
             };
-            // A join row is addressed by a PAIR of columns, which no single-column `IN` can
+            // A join row is addressed by a pair of columns, which no single-column `IN` can
             // express, so those keep one statement each.
             let batchable = hooks.key_cols.len() == 1;
             match state {
@@ -2219,10 +2219,10 @@ impl ModelContainer {
                 }
                 DirtyRow::Update(cols) => {
                     let Some(row) = (hooks.row_for)(key) else {
-                        continue; // deleted since — its own Delete entry handles it
+                        continue; // deleted since; its Delete entry handles it
                     };
                     if cols.is_empty() {
-                        // A row-level replacement named no columns — write them all.
+                        // A row-level replacement named no columns; write them all.
                         let (sql, params) = upsert_stmt(hooks, &row);
                         batches.push(Batch::Single(sql, params));
                         continue;
@@ -2231,7 +2231,7 @@ impl ModelContainer {
                     let mut set_params: Vec<Value> = Vec::with_capacity(cols.len());
                     for c in cols {
                         let Some(i) = hooks.fields.iter().position(|n| n == c) else {
-                            continue; // a transient field's label — never a column
+                            continue; // a transient field's label, never a column
                         };
                         sets.push(format!("{} = ?", hooks.columns[i]));
                         set_params.push(row.get(i));
@@ -2302,7 +2302,7 @@ impl ModelContainer {
         Ok(findings)
     }
 
-    /// Fold the WAL into the main file — before the OS copies it whole (device backup).
+    /// Fold the WAL into the main file, before the OS copies it whole (device backup).
     pub fn checkpoint(&self) -> Result<(), DbError> {
         // The PRAGMA answers with a status row; a query with an ignored callback consumes it.
         self.conn()
@@ -2324,14 +2324,14 @@ impl ModelContainer {
             .query(&format!("PRAGMA rekey = '{quoted}'"), &[], &mut |_| {})
     }
 
-    /// Write an ENCRYPTED copy at `path` — SQLCipher's own conversion path (`ATTACH` +
+    /// Write an encrypted copy at `path` through SQLCipher's conversion path (`ATTACH` +
     /// `sqlcipher_export`); plaintext↔encrypted cannot happen in place.
     #[cfg(feature = "cipher")]
     pub fn encrypt_to(&self, path: &Path, key: Secret) -> Result<(), DbError> {
         self.export_to(path, Some(key))
     }
 
-    /// Write a PLAINTEXT copy at `path`, same mechanism with an empty key.
+    /// Write a plaintext copy at `path`, same mechanism with an empty key.
     #[cfg(feature = "cipher")]
     pub fn decrypt_to(&self, path: &Path) -> Result<(), DbError> {
         self.export_to(path, None)
@@ -2368,7 +2368,7 @@ impl ModelContainer {
     }
 }
 
-/// The multi-key WHERE builder for a hooks entry: `key IN (…)` for single-column keys, an OR
+/// The multi-key `WHERE` builder for a hooks entry: `key IN (…)` for single-column keys, an OR
 /// list of pair clauses for join tables.
 fn keys_where_of(hooks: &TableHooks) -> KeysWhere {
     if hooks.key_cols.len() == 1 {
@@ -2400,7 +2400,7 @@ enum Batch {
     /// Stands alone: an upsert (its values are the row's own), or a row addressed by a
     /// composite key, which no single-column `IN` can express.
     Single(String, Vec<Value>),
-    /// Same table, same operation, same values — one statement per chunk of keys.
+    /// Same table, same operation, same values: one statement per chunk of keys.
     Keyed {
         store: u64,
         /// The `SET` clause and its parameters for an update; `None` for a delete.
@@ -2413,7 +2413,7 @@ enum Batch {
 /// `system` engine may be an older one, and chunking costs nothing to write.
 const MAX_BOUND_PARAMS: usize = 900;
 
-/// Add `key` to the batch sharing this table, clause and values — or open a new one.
+/// Add `key` to the batch sharing this table, clause and values, or open a new one.
 ///
 /// The slot key separates a delete from an update (their clauses differ), and separates
 /// updates writing different values, which must stay different statements. Grouping is by
@@ -2449,7 +2449,7 @@ fn join_batch(
 }
 
 /// A cheap order-sensitive hash of bound values, for grouping identical updates. Equality is
-/// still checked before two rows share a statement — this only decides who to compare with.
+/// still checked before two rows share a statement; this only decides who to compare with.
 fn fingerprint(values: &[Value]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     let mut eat = |bytes: &[u8]| {
@@ -2535,9 +2535,9 @@ fn materialize(
 fn upsert_stmt(hooks: &TableHooks, row: &[Value]) -> (String, Vec<Value>) {
     let cols = hooks.columns.join(", ");
     let marks = vec!["?"; hooks.columns.len()].join(", ");
-    // A true UPSERT, not INSERT OR REPLACE: the conflict path fires UPDATE triggers, which is
-    // what keeps the generated FTS/R*Tree shadows in sync (OR REPLACE's implicit delete skips
-    // AFTER DELETE triggers unless recursive_triggers is on).
+    // A true upsert, not `INSERT OR REPLACE`: the conflict path fires `UPDATE` triggers, which
+    // is what keeps the generated FTS/R*Tree shadows in sync (`OR REPLACE`'s implicit delete
+    // skips `AFTER DELETE` triggers unless recursive_triggers is on).
     let sets = hooks
         .columns
         .iter()
@@ -2574,7 +2574,7 @@ impl Drop for ContainerInner {
 
 /// What a query's consumers have not yet seen. `Deltas` can animate a list row by row;
 /// `Reload` means the whole set moved (a fetch swap, a tangled requery) and a reload is
-/// honest.
+/// the accurate answer.
 #[derive(Clone, Debug, PartialEq)]
 pub enum QueryEvents {
     None,
@@ -2595,27 +2595,27 @@ impl QueryEvents {
     }
 }
 
-/// What one relation crossing subscribes a query to — precomputed at install (and at every
+/// What one relation crossing subscribes a query to, precomputed at install (and at every
 /// fetch swap) so the change sink's staleness check is a few comparisons.
 struct RelWatch {
     /// The store on the far side of the crossing (the related table's cache).
     store: u64,
-    /// The join membership store, when the crossing is a many-to-many — every link, unlink
+    /// The join membership store, when the crossing is a many-to-many; every link, unlink
     /// and reposition there is a membership change.
     join_store: Option<u64>,
-    /// FIELD names on the far store whose write is a membership change (the foreign key, the
+    /// Field names on the far store whose write is a membership change (the foreign key, the
     /// order field) even though no predicate reads them.
     fields: Vec<&'static str>,
-    /// COLUMN names of the far table the inner predicate reads.
+    /// Column names of the far table the inner predicate reads.
     columns: Vec<&'static str>,
 }
 
 struct QueryState {
     store_id: u64,
     table: &'static str,
-    /// The relation subscriptions — recomputed when the fetch is swapped.
+    /// The relation subscriptions, recomputed when the fetch is swapped.
     watches: RefCell<Vec<RelWatch>>,
-    /// Extra LOCAL columns whose write is a membership change (a `One` column crossed by the
+    /// Extra local columns whose write is a membership change (a `One` column crossed by the
     /// query's own table).
     local_extra: RefCell<Vec<&'static str>>,
     set: RefCell<ResultSet>,
@@ -2626,8 +2626,8 @@ struct QueryState {
     needs_sql: Cell<bool>,
     /// `query_raw` only: the statement and the tables whose flush re-runs it.
     raw: Option<RawQuery>,
-    /// A COUNT-shaped query: `count` is the answer, the id set stays empty, and requeries
-    /// run `SELECT COUNT(*)` — the badge query, O(1) memory at any result size.
+    /// A count-shaped query: `count` is the answer, the id set stays empty, and requeries
+    /// run `SELECT COUNT(*)`, the badge query, O(1) memory at any result size.
     count_only: bool,
     count: Cell<usize>,
 }
@@ -2638,7 +2638,7 @@ struct RawQuery {
     tables: Vec<String>,
 }
 
-/// A live, typed result set over one model's table — ids only, answered by the engine and
+/// A live, typed result set over one model's table: ids only, answered by the engine and
 /// kept current by dependency-gated requeries. Rows stay lazy: fault the ones you show
 /// ([`Query::materialize`], or a list source doing it for you). Clone shares the same set.
 pub struct Query<M: Model> {
@@ -2658,7 +2658,7 @@ impl<M: Model> Clone for Query<M> {
 }
 
 impl<M: Model> Query<M> {
-    /// The result ids, typed and in query order — a TRACKED read: the caller re-runs when
+    /// The result ids, typed and in query order, as a tracked read: the caller re-runs when
     /// the set changes, and only then.
     pub fn ids(&self) -> Vec<ModelId<M>> {
         self.refresh_if_stale();
@@ -2698,8 +2698,8 @@ impl<M: Model> Query<M> {
         self.state.set.borrow().ids().contains(&id.into().handle())
     }
 
-    /// Untracked snapshot — reactively silent, but still CURRENT: pending staleness settles
-    /// first, like every other read.
+    /// Untracked snapshot: reactively silent, but still current (pending staleness settles
+    /// first, like every other read).
     pub fn ids_untracked(&self) -> Vec<ModelId<M>> {
         self.refresh_if_stale();
         self.state
@@ -2711,7 +2711,7 @@ impl<M: Model> Query<M> {
             .collect()
     }
 
-    /// Bring this window of the result into the cache — what a list binding calls for the
+    /// Bring this window of the result into the cache: what a list binding calls for the
     /// rows it is about to show, batched into one `SELECT`.
     pub fn materialize(&self, range: std::ops::Range<usize>) {
         let keys: Vec<u64> = {
@@ -2744,7 +2744,7 @@ impl<M: Model> Query<M> {
         self.bump();
     }
 
-    /// Drain what changed since the last call — the list source's feed. Pending staleness
+    /// Drain what changed since the last call: the list source's feed. Pending staleness
     /// settles first, so a drain right after an edit already narrates it.
     pub fn take_events(&self) -> QueryEvents {
         self.refresh_if_stale();
@@ -2753,7 +2753,7 @@ impl<M: Model> Query<M> {
 
     /// A dependency-touching change arrived this turn and the flush has not run yet: settle
     /// it now. With autosave the pending statements flush (which requeries everything stale);
-    /// with autosave off the query re-derives against the last save — the file is the only
+    /// with autosave off the query re-derives against the last save; the file is the only
     /// thing that can answer it.
     fn refresh_if_stale(&self) {
         if !self.state.needs_sql.get() {
@@ -2774,7 +2774,7 @@ impl<M: Model> Query<M> {
     }
 }
 
-/// Builder for a [`Query`] — `container.query::<Trip>().filter(…).sort(…).live()`.
+/// Builder for a [`Query`]: `container.query::<Trip>().filter(…).sort(…).live()`.
 pub struct QueryBuilder<'c, M: Model> {
     container: &'c ModelContainer,
     fetch: Fetch,
@@ -2799,7 +2799,7 @@ impl<M: Model> QueryBuilder<'_, M> {
         self.container.install_query::<M>(self.fetch, None)
     }
 
-    /// Keep only the COUNT live — the badge form: no id vector, one `SELECT COUNT(*)` per
+    /// Keep only the count live, the badge form: no id vector, one `SELECT COUNT(*)` per
     /// requery, the same dependency gating.
     pub fn live_count(self) -> CountQuery<M> {
         CountQuery {
@@ -2810,7 +2810,7 @@ impl<M: Model> QueryBuilder<'_, M> {
     }
 }
 
-/// A live COUNT over one model's table — the badge query: `SELECT COUNT(*)` behind the same
+/// A live count over one model's table, the badge query: `SELECT COUNT(*)` behind the same
 /// dependency-gated staleness as [`Query`], holding no id vector, so a count over a
 /// million-row result costs O(1) memory. Clone shares the same state.
 pub struct CountQuery<M: Model> {
@@ -2830,14 +2830,14 @@ impl<M: Model> Clone for CountQuery<M> {
 }
 
 impl<M: Model> CountQuery<M> {
-    /// The count — a TRACKED read: the caller re-runs when it changes, and only then.
+    /// The count, as a tracked read: the caller re-runs when it changes, and only then.
     pub fn get(&self) -> usize {
         self.refresh_if_stale();
         let _ = self.state.version.get();
         self.state.count.get()
     }
 
-    /// Untracked snapshot — reactively silent, still current.
+    /// Untracked snapshot: reactively silent, still current.
     pub fn get_untracked(&self) -> usize {
         self.refresh_if_stale();
         self.state.count.get()
@@ -2886,7 +2886,7 @@ impl RowView for FallbackRow<'_> {
 
 impl ModelContainer {
     /// Start a typed query over `M`'s rows. Panics (like [`ModelContainer::cache`]) if `M` is
-    /// not in this container's `schema!` — a wiring bug worth stopping on.
+    /// not in this container's `schema!`, a wiring bug worth stopping on.
     pub fn query<M: Model>(&self) -> QueryBuilder<'_, M> {
         let _ = self.cache::<M>();
         QueryBuilder {
@@ -2896,7 +2896,7 @@ impl ModelContainer {
         }
     }
 
-    /// The reactive-fetch form: `f` is a computation — a query whose FETCH depends on signals
+    /// The reactive-fetch form: `f` is a computation, so a query whose fetch depends on signals
     /// (a search term, a filter toggle) re-derives itself when they change.
     pub fn query_fn<M: Model>(&self, f: impl Fn() -> Fetch + 'static) -> Query<M> {
         let q = self.install_query::<M>(f(), None);
@@ -2905,7 +2905,7 @@ impl ModelContainer {
         q
     }
 
-    /// The reactive-fetch COUNT: a badge whose FETCH depends on signals (the "Today" cutoff,
+    /// The reactive-fetch count: a badge whose fetch depends on signals (the "Today" cutoff,
     /// a filter toggle) re-counts itself when they change.
     pub fn count_fn<M: Model>(&self, f: impl Fn() -> Fetch + 'static) -> CountQuery<M> {
         let q = CountQuery::<M> {
@@ -2950,7 +2950,7 @@ impl ModelContainer {
         stack
     }
 
-    /// The driver's connection, directly — for maintenance, imports, an extension's own
+    /// The driver's connection, directly, for maintenance, imports, or an extension's
     /// statements. Pending changes flush first; writes made here bypass the change log, so
     /// call [`ModelContainer::rescan`] afterward if they touched Day's tables.
     pub fn with_connection<R>(&self, f: impl FnOnce(&mut dyn SqliteConnection) -> R) -> R {
@@ -2958,7 +2958,7 @@ impl ModelContainer {
         f(self.conn().as_mut())
     }
 
-    /// Re-read the RESIDENT rows from the file and re-run every query — the recovery from
+    /// Re-read the resident rows from the file and re-run every query: the recovery from
     /// writes that bypassed the change log ([`ModelContainer::with_connection`], another
     /// process). O(working set + query results), never O(table).
     pub fn rescan(&self) -> Result<(), DbError> {
@@ -2974,15 +2974,15 @@ impl ModelContainer {
         Ok(())
     }
 
-    /// ATTACH another SQLite file under `alias` and bring `schema`'s models — every one
-    /// declared `external = "alias"` — into this container: their tables are read as they
+    /// Attach another SQLite file under `alias` and bring `schema`'s models (every one
+    /// declared `external = "alias"`) into this container: their tables are read as they
     /// are, with no DDL, migration, or fingerprint, through the same caches, queries, and
     /// lists as the container's own. Writes to them fail at flush (the file is attached
     /// read-only where the engine honors `mode=ro`), which is the contract: the other
     /// database has its own owner.
     ///
     /// Calling it again with the same alias swaps the file: the old one is detached, every
-    /// resident row of its models dropped, and every live query re-run — the shape a
+    /// resident row of its models dropped, and every live query re-run: the shape a
     /// downloaded catalog update takes.
     pub fn attach_database(&self, alias: &str, path: &str, schema: Schema) -> Result<(), DbError> {
         if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
@@ -3029,7 +3029,7 @@ impl ModelContainer {
         self.rescan()
     }
 
-    /// DETACH a database [`ModelContainer::attach_database`] holds, dropping every resident
+    /// Detach a database [`ModelContainer::attach_database`] holds, dropping every resident
     /// row of its models. Their stores stay registered (empty), so a query over them answers
     /// nothing until the alias is attached again.
     pub fn detach_database(&self, alias: &str) -> Result<(), DbError> {
@@ -3060,14 +3060,14 @@ impl ModelContainer {
         self.rescan()
     }
 
-    /// Look for other connections' committed writes — another process, a sync engine, a CLI —
+    /// Look for other connections' committed writes (another process, a sync engine, a CLI)
     /// and merge what changed. Detection is one `PRAGMA data_version` (the counter moves only
     /// when another connection commits, never for this one's own writes), so this is cheap
     /// enough to wire to app foreground, window focus, or a timer.
     ///
-    /// When the counter moved, pending local edits flush first; then the RESIDENT rows are
-    /// re-read and diffed — changed fields announce per column, disappearances take the
-    /// structural path, every live query re-derives — all authored
+    /// When the counter moved, pending local edits flush first; then the resident rows are
+    /// re-read and diffed: changed fields announce per column, disappearances take the
+    /// structural path, every live query re-derives, all authored
     /// [`ModelContainer::EXTERNAL_AUTHOR`], so the autosave fold declines the echo and an
     /// installed undo stack skips them (another author's writes are not the user's history).
     /// Rows that arrived elsewhere become visible through the re-run queries and fault in
@@ -3075,7 +3075,7 @@ impl ModelContainer {
     /// `#[model(transient)]` fields reset to their defaults, exactly as at fault.
     ///
     /// Returns whether anything arrived. On a driver without detection
-    /// ([`Capabilities::external_changes`]) this is `Ok(false)`, honestly; writes made
+    /// ([`Capabilities::external_changes`]) this is `Ok(false)`; writes made
     /// through [`ModelContainer::with_connection`] are this connection's own and stay
     /// [`ModelContainer::rescan`]'s job.
     pub fn check_external(&self) -> Result<bool, DbError> {
@@ -3090,7 +3090,7 @@ impl ModelContainer {
         }
         self.inner.data_version.set(Some(current));
         // Local edits flush first, so the diff compares the file against a cache with nothing
-        // pending — an unflushed local edit must not read as the other side's deletion.
+        // pending: an unflushed local edit must not read as the other side's deletion.
         self.save()?;
         let changed = self.refresh_resident()?;
         self.invalidate_relation_memos();
@@ -3098,7 +3098,7 @@ impl ModelContainer {
         Ok(changed)
     }
 
-    /// `PRAGMA data_version` — `None` where the engine did not answer (the Recorder).
+    /// `PRAGMA data_version`, or `None` where the engine did not answer (the Recorder).
     fn file_data_version(&self) -> Result<Option<i64>, DbError> {
         let mut v = None;
         self.conn().query("PRAGMA data_version", &[], &mut |row| {
@@ -3109,7 +3109,7 @@ impl ModelContainer {
         Ok(v)
     }
 
-    /// Re-select every RESIDENT row and feed the differences through the caches — per-field
+    /// Re-select every resident row and feed the differences through the caches: per-field
     /// announcements, external deletions, all authored [`ModelContainer::EXTERNAL_AUTHOR`].
     fn refresh_resident(&self) -> Result<bool, DbError> {
         struct RefreshJob {
@@ -3157,7 +3157,7 @@ impl ModelContainer {
                     },
                 )?;
             }
-            // The connection borrow is released before refresh announces — a sink hearing
+            // The connection borrow is released before refresh announces; a sink hearing
             // these changes may read back through SQL.
             if refresh(rows)? {
                 changed = true;
@@ -3237,7 +3237,7 @@ impl ModelContainer {
                     break;
                 }
                 if r.child_table == dep.owner && r.fk_field == dep.field {
-                    // The membership column lives on the QUERY's own table: a rewrite of the
+                    // The membership column lives on the query's table: a rewrite of the
                     // reference must mark it stale even though no predicate reads it.
                     if dep.owner == state.table && !local_extra.contains(&r.fk_col) {
                         local_extra.push(r.fk_col);
@@ -3255,8 +3255,8 @@ impl ModelContainer {
             if resolved {
                 continue;
             }
-            // A link: the far store's read columns matter, and so does the owner's own value
-            // column — rewriting it is what moves the row across the link.
+            // A link: the far store's read columns matter, and so does the owner's value
+            // column; rewriting it is what moves the row across the link.
             if let Some(l) = self
                 .inner
                 .links
@@ -3312,7 +3312,7 @@ impl ModelContainer {
         *state.local_extra.borrow_mut() = local_extra;
     }
 
-    /// One announced change: decide, per live query, whether it can move the result — and
+    /// One announced change: decide, per live query, whether it can move the result, and
     /// mark stale where it can. No SQL runs here; the requery happens once, after the flush.
     fn mark_queries_stale(&self, change: &day_model::Change) {
         let Some(&store) = change.components.first() else {
@@ -3330,7 +3330,7 @@ impl ModelContainer {
         if key == Some(day_model::STRUCTURE) {
             return; // the shape path duplicates the row paths
         }
-        // The change log speaks FIELD names; predicates speak COLUMN names.
+        // The change log speaks field names; predicates speak column names.
         let (column, changed_table): (Option<String>, Option<&'static str>) = {
             let tables = self.inner.tables.borrow();
             let hooks = tables.get(&store);
@@ -3427,7 +3427,7 @@ impl ModelContainer {
         }
     }
 
-    /// Mark every query stale and requery now — the external-change and rescan path.
+    /// Mark every query stale and requery now: the external-change and rescan path.
     fn requery_all(&self) {
         let states: Vec<Rc<QueryState>> = self
             .inner
@@ -3528,7 +3528,7 @@ impl ModelContainer {
         }
     }
 
-    /// Answer a query's fetch through the engine — the compiled form, the fallback form for
+    /// Answer a query's fetch through the engine: the compiled form, the fallback form for
     /// drivers without `day_fold`, or the raw statement.
     fn answer(&self, state: &Rc<QueryState>) -> Vec<u64> {
         if let Some(raw) = &state.raw {
@@ -3741,7 +3741,7 @@ impl SqlIndex for SqlSnapshot {
     }
 }
 
-/// Whether a statement's target table is `table` — a plain-text check over the SQL the fold
+/// Whether a statement's target table is `table`, a plain-text check over the SQL the fold
 /// itself produced (`INSERT INTO t … ON CONFLICT`, `UPDATE t SET …`, `DELETE FROM t …`).
 fn statement_touches(sql: &str, table: &str) -> bool {
     for prefix in [
@@ -3770,12 +3770,12 @@ mod pieces_glue {
 
     use crate::{Delta, Model, Query, QueryEvents};
 
-    /// How far around a bound row the list source faults in one batch — the price of showing
+    /// How far around a bound row the list source faults in one batch: the price of showing
     /// row N is one `SELECT` that also covers the rows about to scroll in.
     const FAULT_BEHIND: usize = 16;
     const FAULT_AHEAD: usize = 64;
 
-    /// `list(query, row)` — the query's ids are the display order, rows FAULT IN as the list
+    /// `list(query, row)`: the query's ids are the display order, rows fault in as the list
     /// binds them (a window at a time), and set changes arrive as row deltas the native list
     /// can animate.
     impl<M: Model> RowSource for Query<M> {

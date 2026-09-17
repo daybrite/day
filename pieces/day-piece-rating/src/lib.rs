@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-rating — flagship COMPOSE pieces (DESIGN §8, the composition-first tier).
+//! day-piece-rating: flagship compose pieces (DESIGN.md §8, the composition-first tier).
 //!
 //! Everything here is built purely from Day's core primitives ([`row`], [`canvas`], the
 //! [`Decorate`] modifiers, [`with_environment`], …). There is **no** per-backend/native code and
-//! **no** cargo features: these widgets work on every backend — the flagship demonstration
+//! **no** cargo features: these widgets work on every backend, the flagship demonstration
 //! that native pieces are the exception, not the rule. Drop the crate in as a plain dependency and
 //! call [`rating`], [`badge`], or the [`Card`] modifier from `use day::prelude::*` code.
 
@@ -20,13 +20,14 @@ const CARD_BG: Color = Color::rgba(0.5, 0.5, 0.5, 0.12);
 const BADGE_BLUE: Color = Color::hex(0x0A_84_FF);
 
 // ---------------------------------------------------------------------------
-// rating — a tappable star rating, drawn with canvas polygons
+// rating: a tappable star rating, drawn with canvas polygons
 // ---------------------------------------------------------------------------
 
-/// A star rating bound to a `Signal<usize>`: `.max` stars, of which `1..=value` are drawn FILLED and
-/// the rest OUTLINED. When [`editable`](Rating::editable) (the default), tapping the *i*-th star sets
-/// the signal to `i + 1`. It is reactive by construction — each star is a [`canvas`] whose draw
-/// closure reads the signal, so changing `value` re-records exactly the stars whose fill flips.
+/// A star rating bound to a `Signal<usize>`: `.max` stars, of which `1..=value` are drawn filled
+/// and the rest outlined. When [`editable`](Rating::editable) (the default), tapping the *i*-th
+/// star sets the signal to `i + 1`. It is reactive by construction: each star is a [`canvas`] whose
+/// draw closure reads the signal, so changing `value` re-records exactly the stars whose fill
+/// flips.
 ///
 /// Pure composition: a [`row`] of canvas polygons, no per-backend code.
 ///
@@ -80,8 +81,8 @@ impl<S: Binding<usize>> Rating<S> {
     }
 
     /// Assign a dayscript/a11y id scheme so the widget is scriptable. Because a rating is a
-    /// COMPOSITE of individually tappable stars (not one node), an inherent `id` sets the row's id
-    /// to `prefix` and each star's id to `prefix:N` (1-based) — so a walkthrough can `tap` a
+    /// composite of individually tappable stars (not one node), an inherent `id` sets the row's id
+    /// to `prefix` and each star's id to `prefix:N` (1-based), so a walkthrough can `tap` a
     /// specific star (`prefix:4` sets the value to 4). Shadows [`Decorate::id`], which would only
     /// tag the row (leaving the stars unaddressable).
     pub fn id(mut self, prefix: impl Into<String>) -> Self {
@@ -102,8 +103,9 @@ impl<S: Binding<usize>> Piece for Rating<S> {
         } = self;
         let stars: Vec<AnyPiece> = (0..max as usize)
             .map(|i| {
-                // The per-star id goes ON THE CANVAS LEAF (inside `star`), not on the frame wrapper,
-                // so a dayscript `tap prefix:N` reaches the same node the tap handler lives on.
+                // The per-star id goes on the canvas leaf (inside `star`), not on the frame
+                // wrapper, so a dayscript `tap prefix:N` reaches the same node the tap handler
+                // lives on.
                 let id = id_prefix.as_ref().map(|p| format!("{p}:{}", i + 1));
                 star(i, value.clone(), star_size, color, editable, id)
             })
@@ -137,9 +139,9 @@ fn star<S: Binding<usize>>(
             d.stroke(Shape::Polygon(pts), color, width);
         }
     });
-    // The id and the `.on_tap` must be applied to the canvas LEAF, before `.frame`. `.frame` wraps
-    // its content in a layout-only sizing node with no native view — a gesture (or a dayscript tap
-    // addressed by id) attached to *that* wrapper never fires, because the click lands on the real
+    // The id and the `.on_tap` must be applied to the canvas leaf, before `.frame`. `.frame` wraps
+    // its content in a layout-only sizing node with no native view; a gesture (or a dayscript tap
+    // addressed by id) attached to the wrapper never fires, because the click lands on the real
     // canvas view underneath and the tap handler lives on the canvas node. So tag + wire the canvas,
     // then size it. (The shapes page does the same for exactly this reason.)
     // Starting from an undecorated `Decorated` keeps every branch below the same type, so the
@@ -176,7 +178,7 @@ fn star_points(size: Size) -> Vec<Point> {
 }
 
 // ---------------------------------------------------------------------------
-// Card — a reusable surface, expressed as a Modifier
+// Card: a reusable surface, expressed as a Modifier
 // ---------------------------------------------------------------------------
 
 /// A reusable card surface, applied via [`Decorate::modifier`]: pads its content, paints a subtle
@@ -200,12 +202,12 @@ impl Modifier for Card {
 }
 
 // ---------------------------------------------------------------------------
-// badge — a numbered pill overlaid on a piece's top-trailing corner
+// badge: a numbered pill overlaid on a piece's top-trailing corner
 // ---------------------------------------------------------------------------
 
-/// Overlay a small numbered blue pill on the TOP-TRAILING corner of `over` (a notification badge),
+/// Overlay a small numbered blue pill on the top-trailing corner of `over` (a notification badge),
 /// via [`Decorate::overlay_aligned`]. Returns `over` unchanged when `count <= 0`, so a zero count
-/// shows no badge. Pure composition — the pill is a padded, rounded, colored [`label`].
+/// shows no badge. Pure composition: the pill is a padded, rounded, colored [`label`].
 ///
 /// ```ignore
 /// badge(3, icon.any())  // the icon with a "3" pill in its corner

@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The built-in driver. On native targets the engine is rusqlite, chosen by cargo feature —
+//! The built-in driver. On native targets the engine is rusqlite, chosen by cargo feature:
 //! `bundled` (the default), `system` (link the OS's libsqlite3), or `cipher` (SQLCipher with
 //! vendored crypto). On web-dom the engine is day-sqlite-worker: `:memory:` databases run
 //! in-process, and file databases are proxied synchronously to the day-sql worker, which
@@ -27,8 +27,8 @@ type TraceFn = Rc<dyn Fn(&str)>;
 
 pub struct Sqlite {
     opts: OpenOptions,
-    /// Runs against the raw rusqlite connection right after open — register a custom SQL
-    /// function, load an extension, set a PRAGMA. The framework neither knows nor cares.
+    /// Runs against the raw rusqlite connection right after open, to register a custom SQL
+    /// function, load an extension, or set a PRAGMA. The framework neither knows nor cares.
     /// Native only: the web engine lives in the day-sql worker, out of closure reach.
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     init: Option<InitHook>,
@@ -52,12 +52,12 @@ impl Sqlite {
         Sqlite::from_opts(OpenOptions::new(Location::Memory))
     }
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
-    /// The database named `name` in the per-app data directory, created if missing — the
-    /// day-part-fs root rules (docs/fs.md): `DAY_DATA_DIR` when the host passes one (the
-    /// Android and OpenHarmony hosts do), the platform's app-data convention otherwise, and a
-    /// `day-db/` leaf of its own beside day-part-fs' `day-fs/`. `name` is a file name, not a
-    /// path. Errs where no such directory exists (web has no filesystem — keep a wasm build on
-    /// [`Sqlite::memory`] or its own driver).
+    /// The database named `name` in the per-app data directory, created if missing. The
+    /// directory follows the day-part-fs root rules (docs/fs.md): `DAY_DATA_DIR` when the
+    /// host passes one (the Android and OpenHarmony hosts do), the platform's app-data
+    /// convention otherwise, and a `day-db/` leaf of its own beside day-part-fs' `day-fs/`.
+    /// `name` is a file name, not a path. Errs where no such directory exists (web has no
+    /// filesystem; keep a wasm build on [`Sqlite::memory`] or its own driver).
     pub fn app_data(name: impl AsRef<str>) -> Result<Self, DbError> {
         let name = name.as_ref();
         if name.is_empty() || name.contains(['/', '\\']) || name.contains("..") {
@@ -85,15 +85,15 @@ impl Sqlite {
         self.opts.wal = on;
         self
     }
-    /// The directory [`Sqlite::app_data`] resolves into — for apps that manage their own
-    /// document files there (numbering "Drawing 2", importing a picked file). Created lazily
-    /// by `app_data`; this accessor only resolves it.
+    /// The directory [`Sqlite::app_data`] resolves into, for apps that manage their document
+    /// files there (numbering "Drawing 2", importing a picked file). Created lazily by
+    /// `app_data`; this accessor only resolves it.
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn app_data_dir() -> Result<std::path::PathBuf, DbError> {
         app_data_root()
     }
 
-    /// A per-connection hook over the raw rusqlite connection — the escape valve for loadable
+    /// A per-connection hook over the raw rusqlite connection: the escape valve for loadable
     /// extensions, custom functions, and PRAGMAs this crate does not model. Native only.
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
     pub fn with_init(mut self, f: impl Fn(&Connection) + 'static) -> Self {
@@ -102,8 +102,8 @@ impl Sqlite {
     }
 
     /// Per-statement SQL tracing through the engine's own facility (`sqlite3_trace_v2` with
-    /// `SQLITE_TRACE_STMT`): `f` sees every statement this connection executes — migrations,
-    /// autosave flushes, live-query `SELECT`s, maintenance — with bound parameters expanded by
+    /// `SQLITE_TRACE_STMT`): `f` sees every statement this connection executes (migrations,
+    /// autosave flushes, live-query `SELECT`s, maintenance) with bound parameters expanded by
     /// the engine itself. Wire it to a logger in debug builds:
     ///
     /// ```ignore
@@ -116,7 +116,7 @@ impl Sqlite {
     /// ```
     ///
     /// The trace installs after any `PRAGMA key`, so a cipher key never reaches the sink. On
-    /// web-dom a FILE database's engine runs in the day-sql worker, out of closure reach:
+    /// web-dom a file database's engine runs in the day-sql worker, out of closure reach:
     /// there the statements log to the browser console (`[day-sql]` lines in devtools) and
     /// `f` is not called. `:memory:` databases call `f` on every target.
     pub fn trace_sql(mut self, f: impl Fn(&str) + 'static) -> Self {
@@ -196,7 +196,7 @@ impl SqliteDriver for Sqlite {
             }
         }
 
-        // A wrong (or missing) key surfaces on the first real read, not at PRAGMA time — probe
+        // A wrong (or missing) key surfaces on the first real read, not at PRAGMA time. Probe
         // now so the caller gets BadKey at open instead of a raw engine error later. Only the
         // cipher build maps the failure to BadKey; a plaintext build's unreadable file is
         // corruption, not a key problem.
@@ -271,7 +271,7 @@ impl SqliteDriver for Sqlite {
                 // A file database is durable when the day-sql worker holds it on OPFS: the
                 // worker fsyncs before each reply, so a commit that returned has landed. No
                 // channel (a host serving without cross-origin isolation) = no file databases
-                // at all — reported here, refused loudly at open.
+                // at all: reported here, refused loudly at open.
                 durable: matches!(self.opts.location, Location::File(_)) && web::channel::ready(),
                 encryption: false,
                 wal: false,
@@ -280,7 +280,7 @@ impl SqliteDriver for Sqlite {
                 rtree: true,
                 external_changes: false,
                 // The web engine runs in the day-sql worker, out of reach of a Rust closure
-                // registration — folded predicates take the exact fallback path instead.
+                // registration, so folded predicates take the exact fallback path instead.
                 unicode_fold: false,
             }
         }
@@ -306,7 +306,7 @@ impl SqliteDriver for Sqlite {
     }
 }
 
-/// The `day-db/` sibling of day-part-fs' root — same resolution order, own leaf, so the
+/// The `day-db/` sibling of day-part-fs' root: same resolution order, its own leaf, so the
 /// database never collides with other day state in the directory.
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 fn app_data_root() -> Result<std::path::PathBuf, DbError> {
@@ -490,7 +490,7 @@ impl SqliteConnection for RusqliteConn {
     }
 }
 
-/// A dropped remote connection closes its worker side — best effort, like a file handle.
+/// A dropped remote connection closes its worker side, best effort, like a file handle.
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 impl Drop for RusqliteConn {
     fn drop(&mut self) {
@@ -588,13 +588,13 @@ impl SqliteConnection for RusqliteConn {
 // The web leg (wasm32-unknown-unknown): the synchronous channel to the day-sql worker.
 //
 // OPFS's only random-access synchronous API (`createSyncAccessHandle`) exists solely in
-// dedicated workers, so the engine runs in day-cli's day-sql worker — the same wasm module,
-// instantiated there — and this side is a proxy. Each call encodes one request in
+// dedicated workers, so the engine runs in day-cli's day-sql worker (the same wasm module,
+// instantiated there) and this side is a proxy. Each call encodes one request in
 // day-sqlite-worker's protocol, hands it to the shim, and the main thread blocks the few
 // microseconds until the worker's reply lands back through the SharedArrayBuffer. Fully
 // synchronous from Rust's point of view, fully durable at commit, one code path with every
 // other platform. The channel needs cross-origin isolation (COOP/COEP; `day launch` serves
-// it — docs/web.md); without it File opens fail loudly and capabilities say durable: false.
+// it, see docs/web.md); without it File opens fail loudly and capabilities say durable: false.
 // ---------------------------------------------------------------------------
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
@@ -668,7 +668,7 @@ mod web {
         }
     }
 
-    /// The origin's database pool — names in, bytes out, OPFS underneath. The document
+    /// The origin's database pool: names in, bytes out, OPFS underneath. The document
     /// surface a file-per-document app needs on the web: numbering a fresh drawing,
     /// importing an Open… pick, exporting a download.
     #[derive(Clone)]
@@ -692,7 +692,7 @@ mod web {
             }
         }
 
-        /// The database's bytes — a plain SQLite file image, downloadable as a file. Flush
+        /// The database's bytes: a plain SQLite file image, downloadable as a file. Flush
         /// (`ModelContainer::save`) first for an image that includes this turn's edits.
         pub fn export_db(&self, name: &str) -> Result<Vec<u8>, DbError> {
             match channel::call(&WReq::Export {
@@ -704,7 +704,7 @@ mod web {
         }
 
         /// Write a SQLite file image under `name` (an Open… flow's landing). A connection
-        /// still open on that name is stale afterwards — close (drop) it before importing.
+        /// still open on that name is stale afterwards; close (drop) it before importing.
         pub fn import_db(&self, name: &str, bytes: &[u8]) -> Result<(), DbError> {
             match channel::call(&WReq::Import {
                 name: name.to_string(),

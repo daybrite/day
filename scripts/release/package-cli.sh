@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# package-cli.sh — turn the CI's raw day-CLI artifacts into release archives named by Rust
+# package-cli.sh: turn the CI's raw day-CLI artifacts into release archives named by Rust
 # target triple (the cargo-dist convention: day-<triple>.tar.gz / .zip, binary at archive root).
 #
 #   package-cli.sh <artifacts-dir> <out-dir>
@@ -10,7 +10,7 @@
 #   day-macos-x86_64/day    day-macos-aarch64/day
 #   day-linux-x86_64/day    day-linux-aarch64/day
 #   day-windows-x86_64/day.exe   day-windows-aarch64/day.exe
-# A missing artifact is a hard error — a release must never silently drop a platform.
+# A missing artifact is a hard error: a release must never silently drop a platform.
 
 set -euo pipefail
 

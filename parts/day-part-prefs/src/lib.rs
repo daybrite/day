@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-prefs — a HEADLESS cross-platform persistent key/value store. No UI; any Rust code can
+//! day-part-prefs: a headless cross-platform persistent key/value store. No UI; any Rust code can
 //! depend on this crate and call [`set`] / [`get`] / [`remove`] / [`contains`] to persist small
-//! strings across launches through the platform's NATIVE preferences facility.
+//! strings across launches through the platform's native preferences facility.
 //!
 //! ```no_run
 //! day_part_prefs::set("greeting", "hello");
@@ -19,7 +19,7 @@
 //! survive process restarts. Platforms without any store fall back to a no-op that always reports
 //! failure/absence.
 //!
-//! This is a small **string** store for user settings and lightweight app state — not a database.
+//! This is a small **string** store for user settings and lightweight app state, not a database.
 //! Keep values modest; large blobs belong in a file. See docs/prefs.md for the per-platform matrix.
 
 /// Persist `value` under `key`, overwriting any previous value. Returns `true` when the write was
@@ -164,8 +164,8 @@ mod imp {
 mod tests {
     // A full round-trip on platforms with a usable store in a plain test process (Apple
     // NSUserDefaults / the desktop file store). Android and iOS need a device runtime + Context, so
-    // they are excluded here. The values deliberately contain `=` and a newline to exercise the
-    // file store's escaping.
+    // they are excluded here. The values contain `=` and a newline to exercise the file store's
+    // escaping.
     #[cfg(any(
         target_os = "macos",
         all(target_os = "linux", not(target_env = "ohos")),

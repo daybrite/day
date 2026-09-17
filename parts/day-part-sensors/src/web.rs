@@ -15,15 +15,15 @@
 //!
 //! Two browser realities the shim handles and this file documents:
 //!
-//! - **A secure context is required.** `devicemotion` fires only over HTTPS or on localhost — both
-//!   `day launch`'s server and the hosted showcase qualify — and `Permissions-Policy` defaults
+//! - **A secure context is required.** `devicemotion` fires only over HTTPS or on localhost (both
+//!   `day launch`'s server and the hosted showcase qualify), and `Permissions-Policy` defaults
 //!   `accelerometer`/`gyroscope` to `self`, so a cross-origin iframe embed needs delegation.
 //! - **iOS Safari needs a user gesture**: `DeviceMotionEvent.requestPermission()` must be called
-//!   from a user activation, which is `day-part-permissions`' `Permission::Motion` on the web —
+//!   from a user activation, which is `day-part-permissions`' `Permission::Motion` on the web;
 //!   ask for it from inside a button's action, where the gesture is still live.
 //!
 //! Using this crate on wasm outside a day-dom host page fails at instantiation (the imports are
-//! unresolved) — the same contract as `day-part-prefs` and `day-part-http` (docs/web.md).
+//! unresolved), the same contract as `day-part-prefs` and `day-part-http` (docs/web.md).
 
 use super::{SensorKind, SensorReading};
 
@@ -39,7 +39,7 @@ unsafe extern "C" {
     fn day_dom_sensor_unfeed(kind: u32);
 }
 
-/// Drive this sensor's feed from the browser's timer — wasm has no threads to sample on.
+/// Drive this sensor's feed from the browser's timer; wasm has no threads to sample on.
 pub fn start_feed(kind: SensorKind, ms: u64) {
     unsafe {
         day_dom_sensor_start(code(kind));

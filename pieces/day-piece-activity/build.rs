@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Compiles this piece's OWN native shim per feature — a standalone Day Piece carrying native C++
+//! Compiles this piece's native shim per feature: a standalone Day Piece carrying native C++
 //! without touching Day's toolkit crates (like day-piece-media). The Qt shim needs only
 //! Qt6Widgets (already linked by day-qt-sys), so we pull its --cflags and emit no extra link flags.
 //! The XAML shim uses `cc` (MSVC) + the Windows SDK cppwinrt projection, mirroring day-xaml-sys.
@@ -21,8 +21,8 @@ fn main() {
 }
 
 fn build_qt() {
-    // QProgressBar lives in Qt6Widgets, which day-qt-sys already links — so we only need its include
-    // flags to compile, and emit NO extra link directives (the linker already has Qt6Widgets).
+    // QProgressBar lives in Qt6Widgets, which day-qt-sys already links, so we only need its include
+    // flags to compile, and emit no extra link directives (the linker already has Qt6Widgets).
     let cflags = pkg_config(&["--cflags", "Qt6Widgets"]);
     let mut build = cc::Build::new();
     build.cpp(true).std("c++17").file("src/lib-qt-shim.cpp");
@@ -66,6 +66,6 @@ fn build_xaml() {
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
     build.compile("dayactivityxamlshim");
-    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox seam are already linked by
+    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox functions are already linked by
     // day-xaml-sys; nothing extra to link here.
 }

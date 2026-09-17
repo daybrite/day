@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Qt resource staging (§18.3) — native Qt Resource System packing.
+//! Qt resource staging (§18.3): native Qt Resource System packing.
 //!
 //! Generates a `.qrc` and compiles it with `rcc -binary` into `app.rcc` under `build/day/qt/`.
 //! `day launch` points `DAY_QRESOURCE` at it; the day-qt shim registers it at startup
@@ -20,7 +20,7 @@ pub fn qresource_path(project: &Project) -> PathBuf {
     project.root.join("build/day/qt/app.rcc")
 }
 
-/// Locate `rcc` — it lives in Qt's libexec (Qt 6) or host-bins, or on PATH.
+/// Locate `rcc`, which lives in Qt's libexec (Qt 6) or host-bins, or on PATH.
 fn find_rcc() -> Option<PathBuf> {
     // On Windows the executable carries `.exe`, so the qmake-queried libexec/host-bins dir holds
     // `rcc.exe`; joining a bare "rcc" there fails `exists()` and Qt's icon would silently drop.

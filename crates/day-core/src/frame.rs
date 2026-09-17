@@ -4,8 +4,8 @@
 //! Frame clock / continuous-animation driver (§8.4, docs/animation.md).
 //!
 //! Backends deliver a single vsync-aligned callback through [`day_spec::Platform::request_frame`];
-//! this driver owns the registry of frame CONSUMERS (game loops, self-driven interpolations) and
-//! re-arms the backend each tick while any remain — stopping requests when none do, so an idle app
+//! this driver owns the registry of frame consumers (game loops, self-driven interpolations) and
+//! re-arms the backend each tick while any remain, stopping requests when none do, so an idle app
 //! never wakes the display link (battery). Consumers receive the wall-clock delta since the previous
 //! frame, clamped so a backgrounded/paused window can't deliver a huge jump.
 //!
@@ -76,7 +76,7 @@ pub fn remove_frame_consumer(c: FrameConsumer) {
     });
 }
 
-/// Live consumer count — for diagnostics/tests.
+/// Live consumer count, for diagnostics/tests.
 pub fn frame_consumer_count() -> usize {
     DRIVER.with(|d| d.borrow().consumers.len())
 }
@@ -114,7 +114,7 @@ fn tick(ts: f64) {
         d.last_ts = Some(ts);
         raw
     });
-    // A paused/backgrounded window can report a huge gap — clamp to one ~100ms step so physics
+    // A paused/backgrounded window can report a huge gap; clamp to one ~100ms step so physics
     // never explodes on resume.
     let dt = Duration::from_secs_f64(dt.clamp(0.0, 0.1));
 

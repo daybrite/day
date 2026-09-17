@@ -1,26 +1,26 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `[[shortcuts]]` conveyance — launcher shortcuts as saved deep links (docs/deep-links.md).
+//! `[[shortcuts]]` conveyance: launcher shortcuts as saved deep links (docs/deep-links.md).
 //!
 //! Each Day.toml `[[shortcuts]]` entry is a route plus a Fluent label id. `day build` resolves
 //! the label in every locale under `resource/locales/` and writes each platform's native
 //! declaration:
 //!
-//! - **Android** — everything is staged, nothing committed: `build/day/android/res/xml/
+//! - **Android**. Everything is staged, nothing committed: `build/day/android/res/xml/
 //!   day_shortcuts.xml` + per-locale `values*/day_shortcuts.xml` string resources (the scaffold
 //!   already registers `build/day/android/res` as a res srcDir), and the `<meta-data>` that
 //!   points the launcher activity at them rides the day-pieces overlay manifest (pieces.rs).
-//! - **iOS** — `UIApplicationShortcutItems` in the committed `Info.plist` (same editor as the
+//! - **iOS**. `UIApplicationShortcutItems` in the committed `Info.plist` (same editor as the
 //!   permission keys), titled with the default-locale text; per-locale titles are
 //!   `<loc>.lproj/InfoPlist.strings` files staged into the built bundle by the scaffold's
 //!   `day xcode-backend stage-strings` script phase, keyed by that default text.
-//! - **HarmonyOS** — `base/profile/shortcuts_config.json` + an `ohos.ability.shortcuts`
+//! - **HarmonyOS**. `base/profile/shortcuts_config.json` + an `ohos.ability.shortcuts`
 //!   metadata entry on the ability, labels as `$string:` references merged into each locale's
 //!   `string.json` (ohos.rs owns those writers and calls in here).
 //!
 //! Activation needs no machinery of its own: every declaration emits a URL (or bare route) that
-//! the platform's shipped deep-link intake already delivers — `day_spec::route_of_url` →
+//! the platform's shipped deep-link intake already delivers: `day_spec::route_of_url` →
 //! `request_route`.
 
 use std::collections::BTreeMap;
@@ -32,13 +32,13 @@ use crate::meta::Project;
 pub struct Resolved {
     /// The declared route (query params allowed).
     pub route: String,
-    /// The per-platform identifier: `day_shortcut_<index>` in declaration order — the prefix is
+    /// The per-platform identifier: `day_shortcut_<index>` in declaration order; the prefix is
     /// the ownership marker everywhere these land, exactly like `day_perm_reason_`.
     pub id: String,
-    /// Label text per locale dir name (`en`, `fr`, `zh-CN`, …) — complete by construction:
+    /// Label text per locale dir name (`en`, `fr`, `zh-CN`, …), complete by construction:
     /// [`resolved`] errors on a missing translation rather than shipping a mixed-language menu.
     pub labels: BTreeMap<String, String>,
-    /// The default-locale (`en`) label — the base value platforms fall back to.
+    /// The default-locale (`en`) label: the base value platforms fall back to.
     pub base: String,
 }
 
@@ -95,7 +95,7 @@ pub fn resolved(project: &Project) -> Result<Vec<Resolved>, String> {
 }
 
 /// Find a Fluent message's value in a locale dir's `*.ftl` files. Only simple single-line
-/// static messages qualify — a placeable or a continuation line is an error, not a skip,
+/// static messages qualify; a placeable or a continuation line is an error, not a skip,
 /// because the native carriers hold plain strings the OS renders with no formatter behind them.
 fn ftl_value(dir: &Path, key: &str) -> Result<Option<String>, String> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -147,7 +147,7 @@ fn xml_escape(s: &str) -> String {
 }
 
 // ===========================================================================
-// Android — staged res files + the overlay-manifest fragment
+// Android: staged res files + the overlay-manifest fragment
 // ===========================================================================
 
 /// The `resource/locales/` dir name → Android `values*` resource qualifier.
@@ -166,7 +166,7 @@ fn android_values_dir(locale: &str) -> String {
 
 /// Stage `xml/day_shortcuts.xml` + per-locale string resources into
 /// `build/day/android/res`. Runs after `resources::android::stage`, which wipes that tree on
-/// builds that have resources to stage — and clears its own files first because builds with
+/// builds that have resources to stage, and clears its own files first because builds with
 /// no resources don't.
 pub fn sync_android(project: &Project) -> Result<(), String> {
     let manifest = project
@@ -176,7 +176,7 @@ pub fn sync_android(project: &Project) -> Result<(), String> {
         return Ok(());
     }
     let res = project.root.join("build/day/android/res");
-    // Remove every file this sync owns, then regenerate — a shortcut removed from Day.toml
+    // Remove every file this sync owns, then regenerate: a shortcut removed from Day.toml
     // must not linger in a res tree the image stage had no reason to wipe.
     if let Ok(rd) = std::fs::read_dir(&res) {
         for dir in rd.flatten() {
@@ -246,7 +246,7 @@ pub fn sync_android(project: &Project) -> Result<(), String> {
 
 /// The `<activity>` fragment the day-pieces overlay manifest carries when shortcuts are
 /// declared: AGP's manifest merger matches the activity by name and merges the `<meta-data>`
-/// into the app manifest's own element. `None` when the app declares no shortcuts or ships no
+/// into the app manifest's element. `None` when the app declares no shortcuts or ships no
 /// Android platform dir.
 pub fn android_manifest_fragment(project: &Project) -> Option<String> {
     if project.manifest.shortcuts.is_empty() {
@@ -265,7 +265,7 @@ pub fn android_manifest_fragment(project: &Project) -> Option<String> {
     ))
 }
 
-/// The first `android:scheme` in the manifest — the scaffold's deep-link intent-filter.
+/// The first `android:scheme` in the manifest: the scaffold's deep-link intent-filter.
 fn android_scheme(manifest: &str) -> Option<String> {
     let at = manifest.find("android:scheme=\"")?;
     let rest = &manifest[at + "android:scheme=\"".len()..];
@@ -287,7 +287,7 @@ fn android_launcher_activity(manifest: &str) -> Option<String> {
 }
 
 // ===========================================================================
-// iOS — committed Info.plist items + staged InfoPlist.strings
+// iOS: committed Info.plist items + staged InfoPlist.strings
 // ===========================================================================
 
 /// The `resource/locales/` dir name → `.lproj` name. Apple bundles spell Chinese by script,
@@ -310,9 +310,9 @@ fn ios_scheme(plist: &str) -> Option<String> {
     rest.split('<').next().map(str::trim).map(String::from)
 }
 
-/// Write `UIApplicationShortcutItems` into the committed Info.plist — same editor, same
-/// idempotence story as the permission keys. The item title is the DEFAULT-locale text: that
-/// string doubles as the lookup key in the staged `InfoPlist.strings`, so an unlocalized
+/// Write `UIApplicationShortcutItems` into the committed Info.plist, with the same editor and
+/// the same idempotence story as the permission keys. The item title is the default-locale text:
+/// that string doubles as the lookup key in the staged `InfoPlist.strings`, so an unlocalized
 /// device falls back to readable text instead of a raw key.
 pub fn sync_ios(project: &Project, plist_path: &Path) -> Result<(), String> {
     if !plist_path.exists() {
@@ -347,7 +347,7 @@ pub fn sync_ios(project: &Project, plist_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Stage per-locale `<loc>.lproj/InfoPlist.strings` into the built bundle — called by
+/// Stage per-locale `<loc>.lproj/InfoPlist.strings` into the built bundle, called by
 /// `day xcode-backend stage-strings` from the scaffold's script phase, which runs before
 /// code signing so the files are sealed with everything else. Clears its own files first so
 /// a removed shortcut (or locale) doesn't linger across incremental builds.
@@ -393,11 +393,11 @@ fn strings_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// The scaffold's own `day-cli.sh`, embedded so an injected phase and a fresh scaffold can
+/// The scaffold's `day-cli.sh`, embedded so an injected phase and a fresh scaffold can
 /// never disagree about what the shim contains.
 const DAY_CLI_SHIM: &str = include_str!("../templates/app/platform/ios/day-cli.sh");
 
-/// Ensure the iOS scaffold's pbxproj carries the `stage-strings` script phase — scaffolds
+/// Ensure the iOS scaffold's pbxproj carries the `stage-strings` script phase; scaffolds
 /// generated before it existed get it injected once, anchored on the template's deterministic
 /// object ids. A hand-restructured project that lost the anchors gets instructions instead of
 /// a half-edit.
@@ -468,7 +468,7 @@ pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
 }
 
 // ===========================================================================
-// HarmonyOS — profile JSON + $string entries (module.json5 edits live in ohos.rs)
+// HarmonyOS: profile JSON + $string entries (module.json5 edits live in ohos.rs)
 // ===========================================================================
 
 /// The `resource/locales/` dir name → HarmonyOS resource qualifier dir (`base` for the
@@ -482,7 +482,7 @@ pub fn harmony_resource_dir(locale: &str) -> String {
 }
 
 /// The `shortcuts_config.json` profile content. The want carries the deep link in
-/// `parameters["day.uri"]` — the ability forwards it through the same `deepLink` shim call a
+/// `parameters["day.uri"]`; the ability forwards it through the same `deepLink` shim call a
 /// `uris`-skill launch uses, so activation is one rail regardless of temperature.
 pub fn harmony_shortcuts_config(
     shortcuts: &[Resolved],
@@ -497,12 +497,12 @@ pub fn harmony_shortcuts_config(
             Some(s) => format!("{s}://{}", sc.route),
             None => sc.route.clone(),
         };
-        // Keys in ALPHABETICAL order, deliberately: serde_json's map is a BTreeMap (sorts) or,
-        // when any dependency enables `preserve_order`, an IndexMap (keeps insertion order) —
-        // and cargo feature unification flips that from outside this crate (handlebars 6.4
-        // turned it on and reordered this file under every app's pristine check). Alphabetical
-        // insertion serializes identically under both, so the emitted profile cannot drift
-        // with the dependency tree. The pin test below holds the exact bytes.
+        // Keys in alphabetical order: serde_json's map is a BTreeMap (sorts) or, when any
+        // dependency enables `preserve_order`, an IndexMap (keeps insertion order), and cargo
+        // feature unification flips that from outside this crate (handlebars 6.4 turned it on
+        // and reordered this file under every app's pristine check). Alphabetical insertion
+        // serializes identically under both, so the emitted profile cannot drift with the
+        // dependency tree. The pin test below holds the exact bytes.
         items.push(serde_json::json!({
             "label": format!("$string:{}", sc.id),
             "shortcutId": sc.id,
@@ -594,8 +594,8 @@ mod tests {
         assert_eq!(doc["shortcuts"][0]["label"], "$string:day_shortcut_0");
     }
 
-    // The exact bytes, key order included. The profile is written into the app's CHECKED-IN
-    // harmony project and drift-guarded there by CI's pristine check — an output reorder
+    // The exact bytes, key order included. The profile is written into the app's checked-in
+    // harmony project and drift-guarded there by CI's pristine check; an output reorder
     // (serde_json's `preserve_order` flipping via feature unification, see the emitter's
     // comment) must fail here, not in every app repository's next build.
     #[test]

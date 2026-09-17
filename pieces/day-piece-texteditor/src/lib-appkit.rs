@@ -3,18 +3,18 @@
 
 // ---------------------------------------------------------------------------
 // AppKit: a rich `NSTextView` in an `NSScrollView`, over the `NSTextStorage` TextKit already
-// gives it — the model every other arm here is compared against.
+// gives it, the model every other arm here is compared against.
 //
-// Three things this arm does not do, each on purpose and each shared by every other arm:
+// Three things this arm does not do, each shared by every other arm:
 //
-// - **No font panel.** `setUsesFontPanel(false)` and no `NSFontManager` wiring, so ⌘B and the
+// - No font panel. `setUsesFontPanel(false)` and no `NSFontManager` wiring, so ⌘B and the
 //   Format menu cannot change attributes behind Day's back. Attributes travel Day → native only
 //   (see the crate docs); the app's toolbar goes through the bound signal instead.
-// - **No rich paste.** `setImportsGraphics(false)`, and the piece reports the pasted TEXT through
+// - No rich paste. `setImportsGraphics(false)`, and the piece reports the pasted text through
 //   the ordinary change path. Pasting styled text keeps its characters and takes the surrounding
-//   style, which is what "paste and match style" does — and is the only paste whose result Day's
+//   style, which is what "paste and match style" does, and is the only paste whose result Day's
 //   model can describe.
-// - **No attribute read-back.** `textDidChange:` reports characters; `NSTextStorageDelegate`'s
+// - No attribute read-back. `textDidChange:` reports characters; `NSTextStorageDelegate`'s
 //   `editedAttributes` mask is the hook a future read-back would use, and is named in
 //   docs/texteditor.md rather than half-implemented here.
 // ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ fn run_font(spec: day_spec::FontSpec, mtm: MainThreadMarker) -> Retained<NSFont>
     }
 }
 
-/// `Underline` as an `NSUnderlineStyle` bitmask — line style low, pattern second byte.
+/// `Underline` as an `NSUnderlineStyle` bitmask: line style low, pattern second byte.
 fn underline_bits(u: Underline) -> i64 {
     match u {
         Underline::None => 0,
@@ -165,7 +165,7 @@ fn nscolor(c: day_spec::Color) -> Retained<NSColor> {
     NSColor::colorWithSRGBRed_green_blue_alpha(c.r, c.g, c.b, c.a)
 }
 
-/// Build the attributed string for a document — the one place runs become AppKit attributes, so
+/// Build the attributed string for a document, the one place runs become AppKit attributes, so
 /// realize and every attribute patch produce identical results.
 fn attributed(doc: &StyledText, base: Font, mtm: MainThreadMarker) -> Retained<NSAttributedString> {
     let ns = NSString::from_str(&doc.text);
@@ -262,7 +262,7 @@ fn attributed(doc: &StyledText, base: Font, mtm: MainThreadMarker) -> Retained<N
     s.into_super()
 }
 
-/// The typing attributes a `RunStyle` becomes — what AppKit applies to the next typed character.
+/// The typing attributes a `RunStyle` becomes: what AppKit applies to the next typed character.
 fn typing_attributes(
     style: &RunStyle,
     mtm: MainThreadMarker,
@@ -296,10 +296,10 @@ fn typing_attributes(
     }
 }
 
-/// Replace the view's attributed string while KEEPING the caret where the user left it.
+/// Replace the view's attributed string while keeping the caret where the user left it.
 ///
-/// The whole reason a live syntax highlighter is usable: it pushes fresh runs on every keystroke,
-/// and a naive `setAttributedString:` would send the caret to the start of the document each time.
+/// This is what makes a live syntax highlighter usable: it pushes fresh runs on every keystroke,
+/// and a plain `setAttributedString:` would send the caret to the start of the document each time.
 fn set_attributed_preserving_selection(tv: &NSTextView, s: &NSAttributedString) {
     let sel = tv.selectedRange();
     let Some(storage) = (unsafe { tv.textStorage() }) else {
@@ -323,7 +323,7 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
     scroll.setHasHorizontalScroller(false);
 
     let tv = NSTextView::new(mtm);
-    // RICH text — the one line that separates this from the built-in `text_area`.
+    // Rich text: the one line that separates this from the built-in `text_area`.
     tv.setRichText(true);
     tv.setEditable(p.editable);
     tv.setSelectable(true);
@@ -334,7 +334,7 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
         let _: () = msg_send![&tv, setContinuousSpellCheckingEnabled: p.spellcheck];
         let _: () = msg_send![&tv, setAutomaticSpellingCorrectionEnabled: p.spellcheck];
         let _: () = msg_send![&tv, setGrammarCheckingEnabled: p.spellcheck];
-        // Smart quotes and dashes REPLACE what was typed, which would be an edit Day never asked
+        // Smart quotes and dashes replace what was typed, which would be an edit Day never asked
         // for in a document whose text an app may be parsing (the syntax-highlighting case).
         let _: () = msg_send![&tv, setAutomaticQuoteSubstitutionEnabled: false];
         let _: () = msg_send![&tv, setAutomaticDashSubstitutionEnabled: false];
@@ -354,7 +354,7 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
         set_attributed_preserving_selection(&tv, &attributed(&p.doc, p.base, mtm));
     }
     // SAFETY: the dictionary's values are the attribute types AppKit documents for these keys
-    // (an NSFont, NSColors, NSNumbers) — which is the whole of what makes this setter unsafe.
+    // (an NSFont, NSColors, NSNumbers), which is the whole of what makes this setter unsafe.
     unsafe { tv.setTypingAttributes(&typing_attributes(&RunStyle::plain(p.base), mtm)) };
     let line_h = unsafe { tv.layoutManager() }
         .map(|lm| lm.defaultLineHeightForFont(&base_font))
@@ -362,7 +362,7 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
 
     // Empty-state prompt: a dim label at the text origin, a subview of the text view itself so it
     // sits in the same coordinate space as the first line. Non-interactive, hidden once there is
-    // text — NSTextView, unlike NSTextField, has no placeholder of its own.
+    // text; NSTextView, unlike NSTextField, has no placeholder of its own.
     let ph = NSTextField::labelWithString(&NSString::from_str(&p.placeholder), mtm);
     ph.setFont(Some(&base_font));
     ph.setTextColor(Some(&NSColor::tertiaryLabelColor()));
@@ -406,7 +406,7 @@ fn update(backend: &mut AppKit, h: &Retained<NSView>, patch: &EditorPatch) {
                 st.placeholder.setHidden(!doc.is_empty());
             }
             EditorPatch::SetAttributes(attrs) => {
-                // Same characters: rebuild the attributed string over the text the VIEW holds,
+                // Same characters: rebuild the attributed string over the text the view holds,
                 // so a document one edit stale can never replace what the user just typed.
                 let doc = StyledText {
                     text: st.tv.string().to_string(),
@@ -423,7 +423,7 @@ fn update(backend: &mut AppKit, h: &Retained<NSView>, patch: &EditorPatch) {
                 st.tv.setSelectedRange(NSRange::new(start, len));
             }
             EditorPatch::SetTypingStyle(style) => {
-                // SAFETY: as at realize — `typing_attributes` builds only documented pairings.
+                // SAFETY: as at realize; `typing_attributes` builds only documented pairings.
                 unsafe { st.tv.setTypingAttributes(&typing_attributes(style, mtm)) };
             }
             EditorPatch::SetEditable(v) => st.tv.setEditable(*v),

@@ -8,16 +8,16 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for a small persistent
-# key/value string store, backed by each platform's NATIVE preferences facility. Any Rust code can
+# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for a small persistent
+# key/value string store, backed by each platform's native preferences facility. Any Rust code can
 # depend on it and call `day_part_prefs::{set, get, remove, contains}`. Platform selection is by
 # `#[cfg(target_os)]` (persistence is an OS concern, not a widget-toolkit one), so there are no
-# backend features — it "just works" per target:
-#   macOS/iOS — NSUserDefaults.standard (shared apple.rs)
-#   Android   — SharedPreferences via the inline Java arm in src/android.rs (docs/bridge.md)
-#   Linux     — a file-backed JSON-ish store under $XDG_CONFIG_HOME/day (shared file.rs)
-#   Windows   — the same file store under %APPDATA%\day (shared file.rs)
-#   HarmonyOS — the same file store, best-effort in the app sandbox (target_env = "ohos")
+# backend features; it works per target as follows:
+#   macOS/iOS: NSUserDefaults.standard (shared apple.rs)
+#   Android:   SharedPreferences via the inline Java arm in src/android.rs (docs/bridge.md)
+#   Linux:     a file-backed JSON-ish store under $XDG_CONFIG_HOME/day (shared file.rs)
+#   Windows:   the same file store under %APPDATA%\day (shared file.rs)
+#   HarmonyOS: the same file store, best-effort in the app sandbox (target_env = "ohos")
 # See docs/prefs.md + docs/extending.md.
 
 [dependencies]
@@ -26,10 +26,10 @@ license.workspace = true
 day-reactive = { workspace = true }
 # `install_nav_store` registers this store as day-core's navigation-persistence sink so a
 # `.restore(key)` selector/stack survives a relaunch (docs/navigation.md). day-core is the base
-# crate — no cycle — and this is the only edge into it.
+# crate (no cycle), and this is the only edge into it.
 day-core = { workspace = true }
 
-# macOS + iOS store into NSUserDefaults — no Java shim, no Day runtime; pure objc2 Foundation.
+# macOS + iOS store into NSUserDefaults: pure objc2 Foundation, no Java shim or Day runtime.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSUserDefaults", "NSString"] }
@@ -40,7 +40,7 @@ objc2-foundation = { version = "0.3", features = ["NSUserDefaults", "NSString"] 
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 # daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
-# dependency is Android-only too — every other target compiles exactly as it did before.
+# dependency is Android-only too; every other target compiles exactly as it did before.
 day-bridge = { workspace = true }
 
 [build-dependencies]

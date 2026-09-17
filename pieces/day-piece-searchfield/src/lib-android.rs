@@ -4,8 +4,8 @@
 // ---------------------------------------------------------------------------
 // Android: an EditText styled for search (single line, IME_ACTION_SEARCH). The Java factory
 // (`dev.daybrite.day.piece.searchfield.DaySearch`) is bundled with this crate in `src/DaySearch.java`
-// and pulled into the app's Gradle build automatically via `[package.metadata.day.android]` — so the
-// piece carries its own backend Java without touching day-android. A TextWatcher dispatches edits
+// and pulled into the app's Gradle build automatically via `[package.metadata.day.android]`, so the
+// piece carries its backend Java without touching day-android. A TextWatcher dispatches edits
 // back to Rust via `DayBridge.nativeOnEvent(id, 1, …)` (kind 1 = TextChanged). It is a growing leaf:
 // `measure` fills the proposed width (see the webview grow-leaf note) with a natural single-line
 // height; `setSearchText` guards on equality so a programmatic sync is a no-op when unchanged.
@@ -17,7 +17,7 @@ use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
 use day_spec::{NodeId, Proposal, Size};
 
-/// This piece's OWN Java class (src/DaySearch.java, on the app classpath at build).
+/// This piece's Java class (src/DaySearch.java, on the app classpath at build).
 const SEARCH_CLASS: &str = "dev/daybrite/day/piece/searchfield/DaySearch";
 
 fn make(_backend: &mut Android, p: &SearchProps, id: NodeId) -> AHandle {
@@ -66,7 +66,7 @@ day_pieces::renderer!(day_android::RENDERERS, Android,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure);
 
-/// Non-generic anchor for the linker — called by `SearchField::build` (see lib.rs). Without a
+/// Non-generic anchor for the linker, called by `SearchField::build` (see lib.rs). Without a
 /// caller this module's object is never pulled out of the rlib, and the `renderer!` registration
 /// above never reaches the binary.
 pub(crate) fn anchor() {}

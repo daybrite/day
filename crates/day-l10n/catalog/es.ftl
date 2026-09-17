@@ -1,4 +1,4 @@
-# Day core UI catalog — Spanish (español).
+# Day core UI catalog: Spanish (español).
 day-ok = Aceptar
 day-cancel = Cancelar
 day-yes = Sí

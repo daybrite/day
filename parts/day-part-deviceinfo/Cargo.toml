@@ -8,17 +8,17 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for a snapshot of the
-# device's identity (model, OS name/version, simulator flag) via each platform's NATIVE API. Any Rust
-# code can depend on it and call `day_part_deviceinfo::get()`. Platform selection is by
-# `#[cfg(target_os)]`/`#[cfg(target_env)]` (device identity is an OS concern, not a widget-toolkit one),
-# so there are no backend features — it "just works" per target:
-#   macOS    — ProcessInfo.operatingSystemVersion (objc2-foundation) + sysctl hw.model (libc)
-#   iOS      — UIDevice model/systemName/systemVersion (objc2-ui-kit); simulator via target_abi/env
-#   Windows  — RtlGetVersion (ntdll, raw FFI)
-#   Linux    — /etc/os-release + DMI product_name (std only)
-#   HarmonyOS— native libdeviceinfo_ndk.so (deviceinfo.h), gated on target_env = "ohos"
-#   Android  — Build.* via the inline Java arm in src/android.rs (docs/bridge.md)
+# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for a snapshot of the
+# device's identity (model, OS name/version, simulator flag) via each platform's native API. Any
+# Rust code can depend on it and call `day_part_deviceinfo::get()`. Platform selection is by
+# `#[cfg(target_os)]`/`#[cfg(target_env)]` (device identity is an OS concern, not a widget-toolkit
+# one), so there are no backend features; it "just works" per target:
+#   macOS:     ProcessInfo.operatingSystemVersion (objc2-foundation) + sysctl hw.model (libc)
+#   iOS:       UIDevice model/systemName/systemVersion (objc2-ui-kit); simulator via target_abi/env
+#   Windows:   RtlGetVersion (ntdll, raw FFI)
+#   Linux:     /etc/os-release + DMI product_name (std only)
+#   HarmonyOS: native libdeviceinfo_ndk.so (deviceinfo.h), gated on target_env = "ohos"
+#   Android:   Build.* via the inline Java arm in src/android.rs (docs/bridge.md)
 # See docs/deviceinfo.md + docs/extending.md.
 
 [dependencies]
@@ -38,7 +38,7 @@ objc2-foundation = { version = "0.3", features = ["NSString"] }
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 # daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
-# dependency is Android-only too — every other target compiles exactly as it did before.
+# dependency is Android-only too; every other target compiles exactly as it did before.
 day-bridge = { workspace = true }
 
 [build-dependencies]

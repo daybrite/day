@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `cargo run -p day-part-prefs --example prefs [key] [value]` — a tiny persistent store from the
+//! `cargo run -p day-part-prefs --example prefs [key] [value]` is a tiny persistent store from the
 //! command line. `prefs greeting` reads the value stored under `greeting`; `prefs greeting hello`
 //! stores `hello` under `greeting`, then reads it back.
 //!
-//! Run it twice to see that the value PERSISTS across processes (macOS: `~/Library/Preferences`;
+//! Run it twice to see that the value persists across processes (macOS: `~/Library/Preferences`;
 //! Linux: `~/.config/day/day-part-prefs.store`). Demonstrates that any Rust code can depend on this
 //! crate and use the API with no Day framework at all.
 

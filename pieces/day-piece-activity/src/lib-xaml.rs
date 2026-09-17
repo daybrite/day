@@ -3,10 +3,10 @@
 
 // ---------------------------------------------------------------------------
 // XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) wrapping a
-// Windows.UI.Xaml.Controls.ProgressRing — the native UWP-XAML indeterminate spinner — boxed into a
-// day handle via day-xaml-sys's `day_xaml_box`/`day_xaml_unbox` seam (like the media/picker/
-// webview xaml pieces). `IsActive` maps to `.animating`; `.large` sets Width/Height. Windows-only;
-// written blind and built in CI.
+// Windows.UI.Xaml.Controls.ProgressRing (the native UWP-XAML indeterminate spinner), boxed into a
+// day handle via day-xaml-sys's `day_xaml_box`/`day_xaml_unbox` functions (like the
+// media/picker/webview xaml pieces). `IsActive` maps to `.animating`; `.large` sets Width/Height.
+// Windows-only; written blind and built in CI.
 // ---------------------------------------------------------------------------
 
 use super::*;

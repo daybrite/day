@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# Regenerate docs/coverage-matrix.md — WHICH PIECE KINDS each backend actually renders, and what
+# Regenerate docs/coverage-matrix.md: which piece kinds each backend renders, and what
 # each answers for every `Cap`. Companion to duty-matrix.sh: that one proves the Toolkit trait is
 # implemented, this one proves the vocabulary is. CI runs both and fails on drift.
 #
 # Why generate it: a backend with no renderer for a kind draws a `⟨kind⟩` placeholder, which no
 # screenshot and no other assertion can see. Prose tables tracking that went stale repeatedly
 # (docs/harmonyos.md claimed images were placeholders long after they were real nodes), so the
-# table is derived from the code instead — and dayscript's `assert_no_placeholders` allow-lists in
-# the showcase's dayscript/walkthrough.yaml (daybrite/Day-Showcase) is the runtime half of the same fact.
+# table is derived from the code instead, and dayscript's `assert_no_placeholders` allow-lists in
+# the showcase's dayscript/walkthrough.yaml (daybrite/Day-Showcase) is the runtime half of the
+# same fact.
 #
 #     scripts/ci/coverage-matrix.sh
 set -euo pipefail
@@ -54,9 +55,9 @@ def body_of(src: str, header: re.Pattern) -> str:
 
 REALIZE = re.compile(r"\bfn realize\s*\(")
 CAPABILITY = re.compile(r"\bfn capability\s*\(")
-# A kind named in the PLACEHOLDER fallback arm's pattern (`Some(Builtin::ListCell) |
-# Some(Builtin::Inspector) | … | None => { …placeholder… }`) is not handled — it falls
-# through by name because the match is exhaustive on purpose. Strip that pattern before
+# A kind named in the placeholder fallback arm's pattern (`Some(Builtin::ListCell) |
+# Some(Builtin::Inspector) | … | None => { …placeholder… }`) is not handled: it falls
+# through by name because the match is exhaustive. Strip that pattern before
 # searching, so only a real arm counts as support.
 FALLBACK_PATTERN = re.compile(
     r"Some\(Builtin::ListCell\)(?:\s*\|\s*Some\(Builtin::\w+\))*\s*(?:\|\s*None\s*)?=>"
@@ -67,7 +68,7 @@ realize_bodies = {
 cap_bodies = {n: body_of(sources[n], CAPABILITY) for n, _, _ in BACKENDS}
 
 # ---- built-in kinds ------------------------------------------------------------------------
-# Parsed from the `builtin_kinds!` table in day-spec — the single source the Builtin enum, the
+# Parsed from the `builtin_kinds!` table in day-spec, the single source the Builtin enum, the
 # wire keys, and the `kinds::*` constants are all generated from.
 kinds = re.findall(
     r'^\s*(\w+) = (\w+) => "([^"]+)",', body_of(spec, re.compile(r"\bbuiltin_kinds!\s*")), re.M

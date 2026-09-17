@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: this crate's shim (src/lib-qt-shim.cpp) — Compact date = QDateEdit with calendar popup,
+// Qt: this crate's shim (src/lib-qt-shim.cpp). Compact date = QDateEdit with calendar popup,
 // Inline date = QCalendarWidget, time = QTimeEdit (with a seconds field when asked; Qt has no
 // inline clock, so both time styles are the sectioned field). Values cross the flat C ABI as
 // epoch days / seconds-of-day; the wire's numeric `Event::Custom` path decodes them.

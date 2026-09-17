@@ -5,7 +5,7 @@
 // AppKit: an NSHostingView created by this crate's Swift shim (platform/apple/swift/DaySwiftUI.swift → the
 // generated DayPieces SwiftPM package, statically linked into the cargo binary by `day build`).
 // Rust calls the shim's flat C ABI and wraps the returned +1-retained NSView. The provider class
-// the shim resolves comes from the app's own Swift sources — zero project-file edits.
+// the shim resolves comes from the app's own Swift sources, with zero project-file edits.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -34,7 +34,7 @@ fn make(_backend: &mut AppKit, p: &SwiftUiProps, _id: NodeId) -> Retained<NSView
     // state intact, the new params applied) instead of creating a fresh one.
     let key = p.state_key.as_deref().and_then(|s| CString::new(s).ok());
     let key_ptr = key.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
-    // The shim returns a +1-retained hosting view (never null — a missing provider hosts a visible
+    // The shim returns a +1-retained hosting view (never null; a missing provider hosts a visible
     // error view instead); we take ownership.
     let ptr = unsafe { day_swiftui_make(name.as_ptr(), params_ptr, key_ptr) };
     unsafe { Retained::from_raw(ptr.cast::<NSView>()) }.expect("DaySwiftUI hosting view")

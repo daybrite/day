@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Predicates that cross a relation — over a to-many, a to-one, a self-referential tree and a
+//! Predicates that cross a relation: over a to-many, a to-one, a self-referential tree and a
 //! many-to-many, from both sides.
 //!
 //! The assertions that matter are the counting ones. Answering correctly while evaluating
-//! everything would miss the point: the claim is that a related column the predicate never
+//! everything would not satisfy them: the claim is that a related column the predicate never
 //! reads costs nothing, and that one the predicate does read moves exactly the rows it can.
 
 use std::cell::RefCell;
@@ -52,7 +52,7 @@ struct Lodging {
     id: u32,
     name: String,
     confirmed: bool,
-    /// Read by no predicate in this file — the column whose edits must cost nothing.
+    /// Read by no predicate in this file: the column whose edits must cost nothing.
     notes: String,
     trip: One<Trip>,
 }
@@ -282,7 +282,7 @@ fn a_related_predicate_column_moves_exactly_one_row() {
     );
     let _ = q.take_events();
 
-    // Unconfirming Oslo's only lodging takes Oslo out — one requery, one precise delta.
+    // Unconfirming Oslo's only lodging takes Oslo out: one requery, one precise delta.
     c.cache::<Lodging>().elem(12).confirmed().write(false);
     assert_eq!(q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(), [1]);
     assert!(
@@ -434,7 +434,7 @@ fn a_join_traverses_from_either_side() {
         .collect();
     assert_eq!(notes, [ModelId::<Note>::of(app.ids[0]).handle()]);
 
-    // Tags on a matching note — the same memberships, read the other way.
+    // Tags on a matching note: the same memberships, read the other way.
     let tags: Vec<u64> = app
         .c
         .query::<Tag>()
@@ -565,7 +565,7 @@ fn a_self_referential_relation_traverses_both_ways() {
         ids(Node::children().any(Node::name().eq("leaf".to_string()))),
         [2]
     );
-    // Children of a named parent — the same relation, the other direction.
+    // Children of a named parent: the same relation, the other direction.
     assert_eq!(
         ids(Node::parent().any(Node::name().eq("root".to_string()))),
         [2]
@@ -574,7 +574,7 @@ fn a_self_referential_relation_traverses_both_ways() {
     assert_eq!(ids(Node::children().is_empty()), [3, 4]);
 }
 
-// --- the honest limits -----------------------------------------------------------------------
+// --- the limits ------------------------------------------------------------------------------
 
 #[test]
 fn nesting_compiles_to_nested_exists_and_stays_live() {

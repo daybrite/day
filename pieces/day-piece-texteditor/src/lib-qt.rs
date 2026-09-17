@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: this crate's shim (src/lib-qt-shim.cpp) — a `QTextEdit` driven through a QTextCursor.
+// Qt: this crate's shim (src/lib-qt-shim.cpp), a `QTextEdit` driven through a QTextCursor.
 //
 // Qt document positions are QChar counts, which are UTF-16 code units, so this arm shares the
 // Apple arms' offset conversion rather than GTK's character one.
 //
-// Everything about how the attributes are applied — cursor rather than `setHtml`, one edit block
-// per sweep, formatting shortcuts swallowed — is in the shim's header comment, which is where the
+// Everything about how the attributes are applied (cursor rather than `setHtml`, one edit block
+// per sweep, formatting shortcuts swallowed) is in the shim's header comment, which is where the
 // reasoning belongs since it is C++ that has to hold it.
 // ---------------------------------------------------------------------------
 
@@ -97,7 +97,7 @@ day_core::tls_group! {
     /// The text each editor currently holds, by node.
     ///
     /// Qt reports selections in UTF-16 units and offers no way to read the document from the
-    /// callback, so the conversion back to bytes needs the string — and the C callback has only
+    /// callback, so the conversion back to bytes needs the string, and the C callback has only
     /// the node id to find it by. `on_text` keeps this current, which is exactly when it changes.
     static TEXT: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
 

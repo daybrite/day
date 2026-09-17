@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-local-notify — a HEADLESS cross-platform local-notification API. No UI; any Rust code
-//! can depend on this crate and post or schedule a notification through the platform's NATIVE API.
+//! day-part-local-notify: a headless cross-platform local-notification API. No UI; any Rust code
+//! can depend on this crate and post or schedule a notification through the platform's native API.
 //!
 //! ```no_run
 //! use day_part_local_notify::{Channel, Importance, Notification, Trigger};
@@ -18,11 +18,11 @@
 //!     .post();
 //! ```
 //!
-//! LOCAL only: this crate never talks to a server. Server-sent notifications are
+//! Local only: this crate never talks to a server. Server-sent notifications are
 //! `day-part-push-notify`, which layers on this one for display (docs/notify.md).
 //!
 //! Platform selection is purely `#[cfg(target_os)]`. What each backend can actually do differs, so
-//! an app asks [`capabilities`] rather than branching on a target name — most importantly
+//! an app asks [`capabilities`] rather than branching on a target name, especially
 //! [`Capabilities::schedule_while_dead`], which is false on Linux and the web, where a scheduled
 //! notification is lost if the process or tab goes away.
 
@@ -39,7 +39,7 @@ use std::time::{Duration, SystemTime};
 /// the decision up front on every platform.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Importance {
-    /// No sound, no badge, minimized in the shade.
+    /// Silent, without a badge, and minimized in the shade.
     Min,
     /// No sound.
     Low,
@@ -49,12 +49,12 @@ pub enum Importance {
     High,
     /// The most attention the platform allows short of a full-screen alarm. On Apple this is the
     /// time-sensitive interruption level, which needs the matching entitlement to break through
-    /// Focus — without it the system quietly downgrades it to `High`.
+    /// Focus; without it the system quietly downgrades it to `High`.
     Urgent,
 }
 
 impl Importance {
-    /// A stable ASCII id — locale-independent, so it is safe to assert on in dayscript and to log.
+    /// A stable ASCII id, locale-independent, so it is safe to assert on in dayscript and to log.
     pub fn as_str(self) -> &'static str {
         match self {
             Importance::Min => "min",
@@ -74,17 +74,17 @@ pub enum Trigger {
     /// After a delay. Where [`Capabilities::schedule_while_dead`] is true the OS holds it, so it
     /// fires even if the app exits; elsewhere it is an in-process timer and dies with the process.
     In(Duration),
-    /// At an absolute wall-clock instant — the alarm-clock form. Same holding rules as
+    /// At an absolute wall-clock instant, the alarm-clock form. Same holding rules as
     /// [`In`](Trigger::In). An instant already in the past fires immediately rather than erroring.
     ///
-    /// This is an INSTANT, not a civil time: "06:30 tomorrow" must be resolved to a `SystemTime`
+    /// This is an instant, not a civil time: "06:30 tomorrow" must be resolved to a `SystemTime`
     /// by the caller (a tzdb crate such as jiff has the zone arithmetic), and if the zone's rules change
-    /// between arming and firing, the fire moment does not move — re-derive and re-post to track
+    /// between arming and firing, the fire moment does not move; re-derive and re-post to track
     /// civil time, as clock apps re-arm on every foreground anyway.
     At(SystemTime),
 }
 
-/// A notification's identity. Posting again with the same id UPDATES the existing notification
+/// A notification's identity. Posting again with the same id updates the existing notification
 /// rather than stacking a second one, and [`cancel`] takes one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NotifId(pub u32);
@@ -107,7 +107,7 @@ pub struct Capabilities {
     pub icon: bool,
     /// Tapping routes into the app (docs/navigation.md).
     pub tap_route: bool,
-    /// A scheduled notification fires at its exact moment. False where the platform may delay it —
+    /// A scheduled notification fires at its exact moment. False where the platform may delay it:
     /// Android 12+ can withhold the exact-alarm grant, so the notification still arrives but may
     /// run late in Doze. Worth surfacing: a clock app that silently drifts looks broken.
     pub schedule_exact: bool,
@@ -139,7 +139,7 @@ impl std::error::Error for NotifyError {}
 /// A notification channel: a named group carrying an [`Importance`] and a sound preference.
 ///
 /// Register every channel before posting to it. Registration is idempotent, and on Android the
-/// importance is fixed the first time — see [`Importance`].
+/// importance is fixed the first time (see [`Importance`]).
 #[derive(Clone, Debug)]
 pub struct Channel {
     id: String,
@@ -197,10 +197,10 @@ impl Channel {
 
 /// A notification to post.
 ///
-/// Everything a scheduled notification renders is captured here, at post time — a `Trigger::In`
-/// notification may fire in a process that has no Day tree alive (the Android alarm receiver runs
-/// in a fresh process), so the content cannot be a signal or a closure. This is the one place Day's
-/// reactivity deliberately does not reach (docs/notify.md).
+/// Everything a scheduled notification renders is captured here, at post time, because a
+/// `Trigger::In` notification may fire in a process that has no Day tree alive (the Android alarm
+/// receiver runs in a fresh process), so the content cannot be a signal or a closure. This is the
+/// one place Day's reactivity does not reach (docs/notify.md).
 #[derive(Clone, Debug)]
 pub struct Notification {
     id: Option<NotifId>,
@@ -334,7 +334,7 @@ impl Notification {
         self.trigger
     }
     /// The delay in seconds, or 0 for immediate (including an [`Trigger::At`] instant already in
-    /// the past) — the form the Apple arm wants. Reading it consumes "now", so call it once per
+    /// the past), the form the Apple arm wants. Reading it consumes "now", so call it once per
     /// post.
     #[allow(dead_code)]
     pub(crate) fn delay_secs(&self) -> f64 {
@@ -349,7 +349,7 @@ impl Notification {
     }
 
     /// The absolute fire time in epoch milliseconds given the current wall clock, or `None` for an
-    /// immediate post — the form the Android arm wants (`AlarmManager.RTC_WAKEUP` takes absolute
+    /// immediate post, the form the Android arm wants (`AlarmManager.RTC_WAKEUP` takes absolute
     /// time, and the boot receiver has to know when, not "how long from some forgotten start").
     /// An [`Trigger::At`] instant in the past answers its real (past) millis; AlarmManager fires
     /// past alarms immediately, which is the alarm-clock semantic we want.
@@ -384,7 +384,7 @@ pub fn capabilities() -> Capabilities {
     imp::capabilities()
 }
 
-/// Whether local notifications work at all here — shorthand for `capabilities().post`.
+/// Whether local notifications work at all here, shorthand for `capabilities().post`.
 pub fn is_supported() -> bool {
     imp::capabilities().post
 }
@@ -410,7 +410,7 @@ pub fn deliver_tap(route: &str) {
 /// The registered channels, shared by every platform arm.
 ///
 /// Android has a real `NotificationChannel` registry and reads this only to build it; the other
-/// platforms have none, so this IS their channel model — the place a notification's importance and
+/// platforms have none, so this is their channel model, the place a notification's importance and
 /// sound are looked up at post time. Process-global rather than thread-local because a post can
 /// come from any thread.
 pub(crate) mod channels {
@@ -437,7 +437,7 @@ pub(crate) mod channels {
         });
     }
 
-    /// A channel's importance, defaulting to [`Importance::Default`] for one never registered —
+    /// A channel's importance, defaulting to [`Importance::Default`] for one never registered;
     /// posting to an unknown channel should still notify, not silently vanish.
     #[allow(dead_code)] // read by the Apple arm; Android asks the platform instead.
     pub(crate) fn importance(id: &str) -> Importance {
@@ -463,7 +463,7 @@ mod imp;
 #[path = "android.rs"]
 mod imp;
 
-// Linux and web-dom fall through to the honest stub for now; both are designed in docs/notify.md.
+// Linux and web-dom fall through to the stub for now; both are designed in docs/notify.md.
 // Their modules are added with their implementations rather than ahead of them, because declaring
 // a `mod` whose file does not exist breaks `cargo fmt --all` for the whole workspace.
 #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]

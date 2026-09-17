@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-network — a HEADLESS cross-platform network-connectivity API. No UI; any Rust code can
+//! day-part-network: a headless cross-platform network-connectivity API. No UI; any Rust code can
 //! depend on this crate and call [`status`] for a snapshot of the device's connectivity through the
-//! platform's NATIVE API.
+//! platform's native API.
 //!
 //! ```no_run
 //! if let Some(n) = day_part_network::status() {
@@ -17,16 +17,16 @@
 //! `libnet_connection.so`, and Android `ConnectivityManager` (via a Java shim staged by `day build`).
 //! Platforms without a connectivity API return `None`.
 //!
-//! Every field is **best-effort** — each OS reports a different slice of the truth. `kind` and
+//! Every field is **best-effort**: each OS reports a different slice of the truth. `kind` and
 //! `expensive` in particular vary per platform (macOS reachability carries no transport info, Linux
 //! infers the kind from interface names, only Android/HarmonyOS report meteredness); see the
-//! per-field docs and docs/network.md for the honest per-platform matrix.
+//! per-field docs and docs/network.md for the per-platform matrix.
 
-/// The transport class of the active network connection. Best-effort — not every platform can
+/// The transport class of the active network connection. Best-effort: not every platform can
 /// distinguish these (see [`NetworkStatus::kind`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum NetworkKind {
-    /// Wi-Fi (or, on iOS, any non-cellular transport — reachability can't tell Wi-Fi from wired).
+    /// Wi-Fi (or, on iOS, any non-cellular transport; reachability can't tell Wi-Fi from wired).
     Wifi,
     /// A cellular / mobile-data connection.
     Cellular,
@@ -43,8 +43,8 @@ pub enum NetworkKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NetworkStatus {
     /// Whether the device currently has a usable network connection. On Apple platforms this is
-    /// *reachability* of the default route (traffic would flow without user intervention) — it does
-    /// not probe the internet; Android reports the system's validated-connectivity verdict; Linux
+    /// *reachability* of the default route (traffic would flow without user intervention); it does
+    /// not probe the internet. Android reports the system's validated-connectivity verdict; Linux
     /// reports link-level "an interface is up".
     pub online: bool,
     /// The connection's transport class. Best-effort: exact on Android/HarmonyOS/Linux(-by-name);
@@ -58,7 +58,7 @@ pub struct NetworkStatus {
 }
 
 /// Read a connectivity snapshot via the platform's native API. Returns `None` when there is no
-/// connectivity API on the platform (or the reading failed) — distinct from a successful reading
+/// connectivity API on the platform (or the reading failed), as distinct from a successful reading
 /// that says offline (`Some` with `online: false`).
 pub fn status() -> Option<NetworkStatus> {
     imp::status()
@@ -121,7 +121,7 @@ mod tests {
     }
 
     // macOS always has SCNetworkReachability, and dev/CI hosts running the test suite are
-    // networked — so a real reading must come back and say online. (Tolerant of everything else:
+    // networked, so a reading must come back and say online. (Tolerant of everything else:
     // kind/expensive are best-effort.)
     #[cfg(target_os = "macos")]
     #[test]

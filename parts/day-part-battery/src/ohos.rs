@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // HarmonyOS / OpenHarmony: the native BasicServicesKit battery C API (`libohbattery_info.so`,
-// `ohbattery_info.h`, API 13+). Pure FFI, like macOS/iOS — no ArkTS bridge or Day runtime needed
+// `ohbattery_info.h`, API 13+). Pure FFI, like macOS/iOS; no ArkTS bridge or Day runtime needed
 // (unlike Android's BatteryManager, which rides day-android's JVM/Context). Reading battery needs
 // no permission. The native API exposes capacity + plugged type but no explicit charge state, so
 // the state is derived from the plugged type (charging when on external power).

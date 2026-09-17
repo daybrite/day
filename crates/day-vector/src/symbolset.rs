@@ -5,12 +5,12 @@
 //! "auto-symbolset on Apple" decision): a monochrome glyph gains native symbol behavior
 //! (tinting, baseline alignment) by being wrapped into the template form Xcode accepts.
 //!
-//! Apple's minimum template is the `Ultralight-S` / `Regular-S` / `Black-S` trio — the other
+//! Apple's minimum template is the `Ultralight-S` / `Regular-S` / `Black-S` trio; the other
 //! 24 weight/scale variants are derived by the system. The generated document reproduces the
 //! geometry every real template carries (measured from SF Symbols app exports): a 3300×2200
 //! artboard, the S-row capline at y 625.541 and baseline at y 696 (cap height 70.459), the
 //! `H-reference` glyph, and per-weight column centers. The input glyph is embedded three times
-//! (identical art per weight — weight differentiation needs true per-weight sources, a
+//! (identical art per weight; weight differentiation needs true per-weight sources, a
 //! template-form master's job), scaled so its box spans the cap height and centered on each
 //! column.
 
@@ -24,7 +24,7 @@ const COL_BLACK: f32 = 2933.4;
 /// The `H-reference` letterform every template carries (copied from the SF export format).
 const H_REFERENCE: &str = "M 54.9316 0 L 57.666 0 L 30.5664 -70.459 L 28.0762 -70.459 L 0.976562 0 L 3.66211 0 L 12.9395 -24.4629 L 45.7031 -24.4629 Z M 29.1992 -67.0898 L 29.4434 -67.0898 L 44.8242 -26.709 L 13.8184 -26.709 Z";
 
-/// Wrap a standalone glyph SVG into `(template_svg, contents_json)` — the two files of a
+/// Wrap a standalone glyph SVG into `(template_svg, contents_json)`, the two files of a
 /// `.symbolset` bundle (`<name>.svg` + `Contents.json`).
 pub fn wrap_symbolset(glyph_svg: &str, name: &str) -> Result<(String, String), String> {
     let doc = roxmltree::Document::parse(glyph_svg).map_err(|e| format!("glyph parse: {e}"))?;
@@ -116,8 +116,8 @@ mod tests {
 
     #[test]
     fn extracted_variant_fills_its_padded_box() {
-        // The extracted glyph is measured in CANVAS coordinates (the viewBox maps to origin):
-        // the content must sit inside the squared box and span most of it — proving the
+        // The extracted glyph is measured in canvas coordinates (the viewBox maps to origin):
+        // the content must sit inside the squared box and span most of it, which proves the
         // wrap-then-extract geometry (cap-height scale, column centering, padding) holds.
         let (template, _) = wrap_symbolset(GLYPH, "square").unwrap();
         let glyph = crate::extract_variant(&template, "Regular", "S").unwrap();

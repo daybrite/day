@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-swiftui — custom SwiftUI views inside a Day app, on macos-appkit + ios-uikit only.
+//! day-piece-swiftui: custom SwiftUI views inside a Day app, on macos-appkit + ios-uikit only.
 //!
 //! The native half resolves a provider class named `@objc(DayView_<name>)` (dots in `name` become
 //! underscores), asks it for a SwiftUI body, and hosts that body in an `NSHostingView` (macOS) or a
-//! `UIHostingController`'s view (iOS) — returned to Day as an ordinary native handle, framed and
+//! `UIHostingController`'s view (iOS), returned to Day as an ordinary native handle, framed and
 //! snapshotted like any built-in. Two ways in (docs/swiftui.md):
 //!
 //! - **Generated bindings** (the usual way): point `[package.metadata.day.ios/macos]`
@@ -13,7 +13,7 @@
 //!   emits `crate::swiftui::MyView(param1, param2)` constructors, while `day build` emits the
 //!   matching provider glue. Apps then never touch this crate's API beyond the Cargo dependency.
 //! - **The provider escape hatch**: subclass `DaySwiftUIProvider` in Swift, name it
-//!   `@objc(DayView_mything)`, and call `swiftui("mything")` — for views that need wiring the
+//!   `@objc(DayView_mything)`, and call `swiftui("mything")`, for views that need wiring the
 //!   binding subset can't express.
 //!
 //! Params ride as a JSON string. A reactive `.params(...)` re-invokes the provider's body on every
@@ -32,19 +32,19 @@ pub const KIND: &str = "day.piece.swiftui";
 /// body first receives (`None` when [`SwiftUi::params`] was never called).
 #[derive(Clone, Debug, PartialEq)]
 pub struct SwiftUiProps {
-    /// The provider name — class `DayView_<name>` with `.` mapped to `_`. Generated bindings use
+    /// The provider name: class `DayView_<name>` with `.` mapped to `_`. Generated bindings use
     /// `Module.View`; hand-written providers pick any dot-free name.
     pub name: String,
     /// The initial JSON params string.
     pub params: Option<String>,
-    /// The state-retention key ([`SwiftUi::state_key`]) — `None` hosts a fresh view per mount.
+    /// The state-retention key ([`SwiftUi::state_key`]); `None` hosts a fresh view per mount.
     pub state_key: Option<String>,
 }
 
-/// Sparse reconcile patch — only `params` changes after build (`name` is fixed).
+/// Sparse reconcile patch: only `params` changes after build (`name` is fixed).
 #[derive(Clone, Debug, PartialEq)]
 pub enum SwiftUiPatch {
-    /// New JSON params — pushed whenever the bound params source changes; the native half
+    /// New JSON params, pushed whenever the bound params source changes; the native half
     /// re-invokes the provider's body and replaces the hosting view's root.
     Params(String),
 }
@@ -57,7 +57,7 @@ pub struct SwiftUi {
     state_key: Option<String>,
 }
 
-/// `swiftui("Module.View")` — host the SwiftUI view exported as `@objc(DayView_Module_View)`.
+/// `swiftui("Module.View")`: host the SwiftUI view exported as `@objc(DayView_Module_View)`.
 pub fn swiftui(name: impl Into<String>) -> SwiftUi {
     SwiftUi {
         name: name.into(),
@@ -67,7 +67,7 @@ pub fn swiftui(name: impl Into<String>) -> SwiftUi {
 }
 
 impl SwiftUi {
-    /// The JSON params string — a constant, a `Signal<String>`, or a `Fn() -> String`. When it's
+    /// The JSON params string: a constant, a `Signal<String>`, or a `Fn() -> String`. When it's
     /// reactive the hosted view follows it live: each change re-invokes the provider's body with
     /// the new JSON (`@State` inside the view survives, see the crate docs).
     pub fn params<M>(mut self, params: impl IntoReactive<String, M>) -> Self {
@@ -78,8 +78,9 @@ impl SwiftUi {
     /// Keep the hosted view's SwiftUI state across unmount/remount. Without a key, leaving the
     /// piece's branch (a tab switch, a `when()` going false, a page navigation) disposes the
     /// hosting view and its `@State` with it; with one, the native half retains the hosting view
-    /// under `key` and hands the same instance back on the next mount — sliders, scroll positions,
-    /// `@State`/`@StateObject` all survive, and the mount's current params are re-applied.
+    /// under `key` and hands the same instance back on the next mount, so sliders, scroll
+    /// positions, `@State`/`@StateObject` all survive, and the mount's current params are
+    /// re-applied.
     ///
     /// The key pins one hosting view for the app's lifetime, so use it for the handful of views
     /// that want persistence, not per-row content. At most one live instance per key: two mounted
@@ -125,7 +126,7 @@ impl Piece for SwiftUi {
 }
 
 /// Whether this build hosts SwiftUI natively: `Native` on macos-appkit and ios-uikit, else
-/// `Unsupported`. The gate app code should branch on — never a backend-feature `cfg`.
+/// `Unsupported`. The gate app code should branch on, never a backend-feature `cfg`.
 pub fn support() -> day_spec::Support {
     #[cfg(any(
         all(feature = "appkit", target_os = "macos"),
@@ -143,7 +144,7 @@ pub fn support() -> day_spec::Support {
     }
 }
 
-/// Minimal JSON rendering for the params channel — enough for the generated bindings (flat objects
+/// Minimal JSON rendering for the params channel, enough for the generated bindings (flat objects
 /// of strings/numbers/bools) without a serde dependency. Hand-written params can use it too, or
 /// bring their own serializer.
 pub mod json {
@@ -235,7 +236,7 @@ pub mod json {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — AppKit + UIKit only. Each registers a `Renderer` link-time into
+// Per-toolkit native renderers, AppKit + UIKit only. Each registers a `Renderer` link-time into
 // its backend's `RENDERERS` slice; `#[cfg]` gates each to its feature + target.
 // ---------------------------------------------------------------------------
 

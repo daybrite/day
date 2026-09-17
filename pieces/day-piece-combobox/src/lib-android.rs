@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Android: AutoCompleteTextView — Android's real combo box (free-form text with a dropdown of
+// Android: AutoCompleteTextView, Android's combo box (free-form text with a dropdown of
 // suggestions). The Java factory (`dev.daybrite.day.piece.combobox.DayCombo`) is bundled with
-// This crate in `src/DayCombo.java` and pulled into the app's Gradle build automatically via
-// `[package.metadata.day.android]` — the piece carries its own backend Java without touching
+// this crate in `src/DayCombo.java` and pulled into the app's Gradle build automatically via
+// `[package.metadata.day.android]`, so the piece carries its own backend Java without touching
 // day-android. Typing and picking an item (the pick writes the text) report back through
 // `DayBridge.nativeOnEvent` as K_TEXT_CHANGED, like a built-in text field. It is a growing
 // leaf: `measure` fills the proposed width with a natural single-line height; the Java setters
@@ -18,7 +18,7 @@ use day_android::jni::objects::JValue;
 use day_android::{AHandle, Android, with_env};
 use day_spec::{NodeId, Proposal, Size};
 
-/// This piece's OWN Java class (src/DayCombo.java, on the app classpath at build).
+/// This piece's Java class (src/DayCombo.java, on the app classpath at build).
 const COMBO_CLASS: &str = "dev/daybrite/day/piece/combobox/DayCombo";
 
 fn make(_backend: &mut Android, p: &ComboProps, id: NodeId) -> AHandle {

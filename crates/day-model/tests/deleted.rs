@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! What a deleted row does to its readers: fields read `Default`, and `exists()` is the one
-//! TRACKED guard a page needs to degrade instead of panicking.
+//! tracked guard a page needs to degrade instead of panicking.
 
 use std::cell::Cell;
 use std::rc::Rc;

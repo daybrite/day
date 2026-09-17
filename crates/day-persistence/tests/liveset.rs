@@ -18,7 +18,7 @@ fn set(ids: &[u64]) -> ResultSet {
     s
 }
 
-/// Apply a delta list the way a list consumer does — sequentially.
+/// Apply a delta list the way a list consumer does: sequentially.
 fn apply(ids: &mut Vec<u64>, deltas: &[Delta]) {
     for d in deltas {
         match *d {
@@ -113,7 +113,7 @@ fn a_tangled_reorder_reloads_instead_of_guessing() {
 #[test]
 fn narrated_deltas_always_land_on_the_new_set() {
     // The property adopt() proves by simulation before answering: whatever the change, a
-    // Deltas answer applied in order equals the new set — across a large random sample.
+    // Deltas answer applied in order equals the new set, across a large random sample.
     let mut rng: u64 = 0x2026_0827;
     let mut next = move || {
         rng = rng
@@ -142,7 +142,7 @@ fn narrated_deltas_always_land_on_the_new_set() {
         let mut s = set(&old);
         match s.adopt(new.clone()) {
             SetChange::Same => assert_eq!(old, new),
-            SetChange::Reload => {} // honest
+            SetChange::Reload => {} // nothing to check
             SetChange::Deltas(d) => {
                 let mut ids = old.clone();
                 apply(&mut ids, &d);
@@ -206,7 +206,7 @@ fn a_long_edit_stream_mirrors_through_the_delta_feed() {
             2 => store.elem(key).notes().write(format!("note {step}")),
             _ => store.elem(key).name().write(format!("renamed {step}")),
         }
-        // Drain and mirror — the only information a list consumer gets.
+        // Drain and mirror: the only information a list consumer gets.
         match q.take_events() {
             QueryEvents::None => {}
             QueryEvents::Deltas(d) => apply(&mut mirror, &d),
@@ -224,7 +224,7 @@ fn a_long_edit_stream_mirrors_through_the_delta_feed() {
         );
     }
 
-    // And the final set equals a fresh fetch — the whole pipeline agrees with the engine.
+    // And the final set equals a fresh fetch: the whole pipeline agrees with the engine.
     let fresh = c
         .query::<Trip>()
         .filter(Pred::Eq("done", day_persistence::Value::Int(0)))

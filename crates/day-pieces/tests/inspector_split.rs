@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The composed inspector's trailing pane on a WIDE window: the pane follows the window's
+//! The composed inspector's trailing pane on a wide window: the pane follows the window's
 //! width (docs/inspector.md) and its panel is laid out inside it.
 
 use day_core::AnyPiece;

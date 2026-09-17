@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// iOS: CoreMotion's CMMotionManager is natively poll-friendly — start updates once, then read the
+// iOS: CoreMotion's CMMotionManager is natively poll-friendly: start updates once, then read the
 // `accelerometerData`/`gyroData`/`magnetometerData` properties (None until the first sample). Apple
 // recommends a single CMMotionManager per app, so one is kept in a static for the process lifetime.
 // Unlike UIDevice (battery), CMMotionManager is not MainThreadOnly, so no main-thread gate is needed;

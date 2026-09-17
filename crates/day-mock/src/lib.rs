@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-mock — the headless toolkit (DESIGN.md §3.2, §21.2 M0–M1).
+//! day-mock: the headless toolkit (DESIGN.md §3.2, §21.2 M0–M1).
 //!
 //! Records every toolkit call into a compact op log (golden-diffable), performs deterministic
 //! measurement (8pt/char × 16pt line labels, fixed control sizes), and lets tests inject
@@ -40,42 +40,42 @@ pub struct MockWidget {
     pub a11y: A11yProps,
     pub scroll_content: Size,
     /// The scroll offset after the last `scroll_to` (docs/scroll.md), computed with the same
-    /// minimal-reveal clamp every real backend applies — probe-visible for tests.
+    /// minimal-reveal clamp every real backend applies (probe-visible for tests).
     pub scroll_offset: Point,
     pub ops: Vec<DrawOp>,
     /// Surface style from a `background`/`corner_radius` decorator (probe-visible for tests).
     pub background: Option<Color>,
     pub corner_radius: f64,
     pub clips: bool,
-    /// Semantic theme-adaptive surface (a form section card) — probe-visible for tests.
+    /// Semantic theme-adaptive surface (a form section card), probe-visible for tests.
     pub surface_role: Option<day_spec::SurfaceRole>,
     /// A label's resolved font spec (probe-visible so tests can assert e.g. `Font::Custom` flow).
     pub font: Option<day_spec::FontSpec>,
     /// A label's styled spans (docs/text-runs.md). Probe-visible so a test can assert that the
-    /// Second word is bold — which no screenshot comparison can state and no `assert_text` can
+    /// second word is bold, which no screenshot comparison can state and no `assert_text` can
     /// see, since the plain text is identical either way.
     pub runs: Vec<day_spec::TextRun>,
-    /// Last focus state driven through the `focus` duty (docs/focus.md) — probe-visible.
+    /// Last focus state driven through the `focus` duty (docs/focus.md), probe-visible.
     pub focused: bool,
-    /// Last opacity applied via `set_opacity` (§8.4) — `None` until touched (probe-visible).
+    /// Last opacity applied via `set_opacity` (§8.4); `None` until touched (probe-visible).
     pub opacity: Option<f64>,
-    /// Last transform applied via `set_transform` (§8.4) — probe-visible.
+    /// Last transform applied via `set_transform` (§8.4), probe-visible.
     pub transform: Option<day_spec::Transform>,
-    /// The most recent animation intent seen on ANY seam for this widget (`update`/`set_frame`/
+    /// The most recent animation intent seen on any duty for this widget (`update`/`set_frame`/
     /// `set_opacity`/`set_transform`). Lets tests assert `with_animation` threaded the intent.
     pub last_anim: Option<AnimSpec>,
-    /// A NAV host's current presentation (docs/size-classes.md) — probe-visible so a test can
+    /// A nav host's current presentation (docs/size-classes.md), probe-visible so a test can
     /// assert which of the four a morph landed on. `flag` carries only split-ness, which cannot
     /// tell `Tabs` from `Rail` from `Stack`; both are kept because the older tests read `flag`.
     pub presentation: Option<day_spec::props::NavPresentation>,
     /// The resident detail page index a `NavPatch::Select` last chose (docs/navigation.md).
     /// `None` until the host is asked to select one, which only happens in a presentation whose
-    /// rows are chrome — a stacked host pushes and pops instead.
+    /// rows are chrome; a stacked host pushes and pops instead.
     pub selected_page: Option<usize>,
 }
 
-/// A secondary window opened through the `open_window` duty (docs/windows.md) —
-/// probe-visible for the seam tests.
+/// A secondary window opened through the `open_window` duty (docs/windows.md),
+/// probe-visible for the `open_window` tests.
 #[derive(Clone, Debug)]
 pub struct MockWindow {
     /// The content-container widget handle.
@@ -88,7 +88,7 @@ pub struct MockWindow {
     pub kind: String,
     pub open: bool,
     pub focused: bool,
-    /// The content size the window was FITTED to (`WindowOptions::size_to_fit`), or `None` if it
+    /// The content size the window was fitted to (`WindowOptions::size_to_fit`), or `None` if it
     /// kept the size it was opened at. Probe-visible so a test can assert that a preferences
     /// panel shrank to its rows rather than keeping the caller's ceiling.
     pub fit_size: Option<Size>,
@@ -103,53 +103,53 @@ pub struct MockState {
     /// being taken out.
     ///
     /// Taking it out is what a `Box<dyn Fn>` forces, and it is a trap: the whole dispatch of one
-    /// event — pump, handler, action, any completion a Toolkit duty raises along the way —
+    /// event (pump, handler, action, any completion a Toolkit duty raises along the way)
     /// happens inside that window, so a second event raised during the first found no sink and
     /// vanished. An image decode completing inside a button's action is exactly that shape
     /// (docs/images.md).
     pub sink: Option<Rc<dyn Fn(NodeId, Event)>>,
-    /// Decoded images by id (docs/images.md) — what `image_info` answers and `release_image`
+    /// Decoded images by id (docs/images.md): what `image_info` answers and `release_image`
     /// forgets, so a test can assert both that a decode landed and that dropping the handle
     /// released it.
     pub bitmaps: HashMap<u64, day_spec::BitmapInfo>,
     /// (kind, proposal) measure-call counter for the M1 bounded-measure tests.
     pub measure_calls: usize,
-    /// Recycling-list row-pull sources, keyed by LIST host handle (docs/list.md). A test drives
+    /// Recycling-list row-pull sources, keyed by list host handle (docs/list.md). A test drives
     /// the "viewport" through [`MockProbe::list_bind`], simulating what a native list would do.
     pub list_sources: HashMap<u64, ListSource>,
-    /// Hierarchical-tree row-pull sources, keyed by TREE host handle (docs/tree.md). A test
+    /// Hierarchical-tree row-pull sources, keyed by tree host handle (docs/tree.md). A test
     /// drives the "native tree" through the `MockProbe::tree_*` probes.
     pub tree_sources: HashMap<u64, day_spec::TreeSource>,
-    /// The app menu as last applied (docs/menus.md) — item titles, probe-visible.
+    /// The app menu as last applied (docs/menus.md): item titles, probe-visible.
     pub app_menu: Vec<String>,
-    /// Context menus by widget handle (docs/menus.md) — item titles per handle.
+    /// Context menus by widget handle (docs/menus.md): item titles per handle.
     pub context_menus: HashMap<u64, Vec<String>>,
-    /// Secondary windows (docs/windows.md), in open order — probe-visible.
+    /// Secondary windows (docs/windows.md), in open order, probe-visible.
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
     pub no_multi_window: bool,
-    /// `Cap::NavSplit` answers `Native` — the harness for split and re-presenting nav hosts
+    /// `Cap::NavSplit` answers `Native`: the harness for split and re-presenting nav hosts
     /// (docs/size-classes.md). Off by default, so the mock keeps modeling a phone.
     pub nav_split: bool,
-    /// `Cap::NavTabs` answers `Unsupported` — the harness for the DEGRADATION path, where an
+    /// `Cap::NavTabs` answers `Unsupported`: the harness for the degradation path, where an
     /// `Automatic` nav host falls back to the sidebar resolver (docs/navigation.md). Inverted
-    /// like `no_multi_window` because the capability is ON by default: a phone has a tab bar,
+    /// like `no_multi_window` because the capability is on by default: a phone has a tab bar,
     /// so a mock that models a phone must have one too, or the default resolution is a fiction.
     pub no_nav_tabs: bool,
-    /// `Cap::NavTabsAdaptive` answers `Unsupported` — the harness for a DESKTOP idiom, where a
+    /// `Cap::NavTabsAdaptive` answers `Unsupported`: the harness for a desktop idiom, where a
     /// narrow window collapses to a stack instead of growing a tab bar. Also inverted: the mock
     /// models a phone by default, and a phone adapts.
     pub desktop_idiom: bool,
-    /// What `Cap::NavContentList` answers (docs/navigation.md) — `Unsupported` by default (the
+    /// What `Cap::NavContentList` answers (docs/navigation.md): `Unsupported` by default (the
     /// composed path); a test opts into `Native` (persistent pane) or `Emulated` (merges into
-    /// the stack) with [`MockProbe::set_nav_content_list`]. Read during the BUILD.
+    /// the stack) with [`MockProbe::set_nav_content_list`]. Read during the build.
     pub nav_content_list: Support,
     /// `open_window` answers `Pending` (the async-completion test harness); the test
     /// finishes the open through [`MockProbe::complete_window`].
     pub pending_windows: bool,
     /// Parked `Pending` opens: (node, title, kind).
     pub pending_opens: Vec<(NodeId, String, String)>,
-    /// Formatters for patch types the mock does not know — see [`MockProbe::describe_patch`].
+    /// Formatters for patch types the mock does not know; see [`MockProbe::describe_patch`].
     #[allow(clippy::type_complexity)]
     pub describers: Vec<Box<dyn Fn(&dyn Any) -> Option<String>>>,
 }
@@ -198,9 +198,9 @@ impl MockProbe {
     /// Teach the op log to name a patch type the mock doesn't know.
     ///
     /// A standalone piece (docs/extending.md) defines its patch enum in its own crate, so the
-    /// toolkit seam sees `&dyn Any` and logs `update <kind> #n ?`. Install a describer and the
+    /// `update` duty sees `&dyn Any` and logs `update <kind> #n ?`. Install a describer and the
     /// log carries the variant instead, which is what makes "this write patched attributes and
-    /// did NOT replace the document" an assertion a test can make:
+    /// did not replace the document" an assertion a test can make:
     ///
     /// ```ignore
     /// probe.describe_patch::<EditorPatch>(|p| format!("{p:?}"));
@@ -254,7 +254,7 @@ impl MockProbe {
         f.map(|f| f()).unwrap_or(0)
     }
 
-    /// Simulate the native list binding row `index` into a physical `cell` — Day builds the row
+    /// Simulate the native list binding row `index` into a physical `cell`: Day builds the row
     /// the first time a cell is used and rebinds (slot-write) when it is recycled. Drives the real
     /// day-core driver, so tests exercise the whole recycling path. (The source Rc is cloned out
     /// before the call so the re-entrant `with_tree`/toolkit work holds no MockState borrow.)
@@ -270,7 +270,7 @@ impl MockProbe {
         }
     }
 
-    /// Simulate the native list pooling a physical `cell` that scrolled out of view — the
+    /// Simulate the native list pooling a physical `cell` that scrolled out of view, the
     /// `onViewRecycled` / prepare-for-reuse moment. Day parks the cell subtree's ids so the
     /// hidden row stops answering lookups; the next [`Self::list_bind`] of that cell restores
     /// them (docs/list.md).
@@ -287,8 +287,8 @@ impl MockProbe {
     }
 
     /// Consult the list's reorder guard the way a native validate hook would: the accepted
-    /// target index, or -1 when the guard denies. `i64::MIN` when the list has no reorder seam
-    /// (not `.reorderable()`).
+    /// target index, or -1 when the guard denies. `i64::MIN` when the list is not reorderable
+    /// (no `.reorderable()`).
     pub fn list_can_move(&self, host: MockHandle, from: usize, to: usize) -> i64 {
         let f = self
             .state
@@ -301,7 +301,7 @@ impl MockProbe {
 
     /// Consult the list's delete guard the way a native swipe would before offering its action:
     /// `Some(true)` to offer, `Some(false)` when the guard protects the row, `None` when the
-    /// list has no delete seam (not `.deletable()`).
+    /// list is not deletable (no `.deletable()`).
     pub fn list_can_delete(&self, host: MockHandle, index: usize) -> Option<bool> {
         let f = self
             .state
@@ -339,8 +339,8 @@ impl MockProbe {
     }
 
     /// Pull a row's swipe-action offer the way a native gesture would as the row starts to
-    /// slide (docs/list.md): `Some(actions)` — possibly empty — when the list has a swipe
-    /// seam, `None` when it has none (no `.swipe_leading()`/`.swipe_trailing()`).
+    /// slide (docs/list.md): `Some(actions)`, possibly empty, when the list is swipeable,
+    /// `None` when it is not (no `.swipe_leading()`/`.swipe_trailing()`).
     pub fn list_swipe_actions(
         &self,
         host: MockHandle,
@@ -357,8 +357,9 @@ impl MockProbe {
     }
 
     /// Simulate a native swipe activation: pull the offer and press button `action` (an index
-    /// into it), committing through the seam — which defers the app's handler to the event
-    /// drain, exactly as a native backend would. Returns whether an action was activated.
+    /// into it), committing through the source's `perform`, which defers the app's handler to
+    /// the event drain, exactly as a native backend would. Returns whether an action was
+    /// activated.
     pub fn list_swipe(
         &self,
         host: MockHandle,
@@ -418,7 +419,7 @@ impl MockProbe {
         true
     }
 
-    /// The tree's direct children of `parent` (`None` = the root level), as tokens — read
+    /// The tree's direct children of `parent` (`None` = the root level), as tokens, read
     /// straight from the injected `TreeSource` (docs/tree.md).
     pub fn tree_children(&self, host: MockHandle, parent: Option<u64>) -> Vec<u64> {
         let fns = self
@@ -455,7 +456,7 @@ impl MockProbe {
         f.map(|f| f(token)).unwrap_or_default()
     }
 
-    /// Simulate the native tree binding `token`'s row into a physical `cell` — build on first
+    /// Simulate the native tree binding `token`'s row into a physical `cell`: build on first
     /// use, rebind (slot-write) on recycle, exactly like [`Self::list_bind`]. (The source Rc
     /// is cloned out before the call so the re-entrant work holds no MockState borrow.)
     pub fn tree_bind(&self, host: MockHandle, token: u64, cell: MockHandle) {
@@ -471,7 +472,7 @@ impl MockProbe {
     }
 
     /// Consult the tree's move guard the way a native drag-validate hook would. `None` when
-    /// the tree has no move seam (not `.movable()`).
+    /// the tree is not movable (no `.movable()`).
     pub fn tree_can_move(
         &self,
         host: MockHandle,
@@ -538,41 +539,41 @@ impl MockProbe {
         self.state.borrow().windows.clone()
     }
 
-    /// Make `open_window` answer `Unsupported` — the cover-fallback test harness.
+    /// Make `open_window` answer `Unsupported`, the cover-fallback test harness.
     pub fn set_no_multi_window(&self, v: bool) {
         self.state.borrow_mut().no_multi_window = v;
     }
 
-    /// Make `Cap::NavSplit` answer `Native` — the harness for a nav host that presents as split
+    /// Make `Cap::NavSplit` answer `Native`, the harness for a nav host that presents as split
     /// panes and re-presents on a size-class change (docs/size-classes.md). Unlike the window
-    /// toggles this is read during the BUILD, so set it before launching.
+    /// toggles this is read during the build, so set it before launching.
     pub fn set_nav_split(&self, v: bool) {
         self.state.borrow_mut().nav_split = v;
     }
 
-    /// Make `Cap::NavTabs` answer `Unsupported` — the harness for an `Automatic` nav host on a
+    /// Make `Cap::NavTabs` answer `Unsupported`, the harness for an `Automatic` nav host on a
     /// toolkit that cannot draw a tab bar, which must degrade to the sidebar resolver rather
-    /// than to a hole (docs/navigation.md). Read during the BUILD, so set it before launching.
+    /// than to a hole (docs/navigation.md). Read during the build, so set it before launching.
     pub fn set_no_nav_tabs(&self, v: bool) {
         self.state.borrow_mut().no_nav_tabs = v;
     }
 
-    /// Model a DESKTOP toolkit: `Cap::NavTabs` stays on (a pinned tab bar still draws) but
+    /// Model a desktop toolkit: `Cap::NavTabs` stays on (a pinned tab bar still draws) but
     /// `Cap::NavTabsAdaptive` answers `Unsupported`, so an `Automatic` nav host collapses a
     /// narrow window to a stack rather than growing a tab bar (docs/navigation.md). Read during
-    /// the BUILD, so set it before launching.
+    /// the build, so set it before launching.
     pub fn set_desktop_idiom(&self, v: bool) {
         self.state.borrow_mut().desktop_idiom = v;
     }
 
-    /// What `Cap::NavContentList` answers (docs/navigation.md) — the content-list pane
+    /// What `Cap::NavContentList` answers (docs/navigation.md): the content-list pane
     /// harness. `Native` = persistent pane, `Emulated` = merges into the collapsed stack,
-    /// `Unsupported` (the default) = the nav host composes. Read during the BUILD.
+    /// `Unsupported` (the default) = the nav host composes. Read during the build.
     pub fn set_nav_content_list(&self, v: day_spec::Support) {
         self.state.borrow_mut().nav_content_list = v;
     }
 
-    /// Make `open_window` answer `Pending` — the async-completion test harness. Finish an
+    /// Make `open_window` answer `Pending`, the async-completion test harness. Finish an
     /// open with [`Self::complete_window`] + `day_core::finish_window_open`.
     pub fn set_pending_windows(&self, v: bool) {
         self.state.borrow_mut().pending_windows = v;
@@ -635,7 +636,7 @@ impl MockProbe {
         self.emit(node, Event::WindowClosed);
     }
 
-    /// The current op-log length — pair with [`Self::log_since`] to scope assertions.
+    /// The current op-log length; pair with [`Self::log_since`] to scope assertions.
     pub fn log_len(&self) -> usize {
         self.state.borrow().log.len()
     }
@@ -660,7 +661,7 @@ fn fmt_rect(r: Rect) -> String {
 /// The mock's line box: one line of text is this tall, whatever it says.
 pub const MOCK_LINE_H: f64 = 16.0;
 
-/// The synthetic pixel size every mock decode reports (docs/images.md) — deterministic, so a
+/// The synthetic pixel size every mock decode reports (docs/images.md): deterministic, so a
 /// test can predict the frame an `image(bytes)` measures to, exactly like the synthetic text
 /// metrics above.
 pub const MOCK_IMAGE_W: f64 = 64.0;
@@ -695,7 +696,7 @@ impl MockToolkit {
     /// Raise a completion through the installed sink (docs/images.md).
     ///
     /// Clones the `Rc` rather than taking the sink, so a completion raised while another event
-    /// is being dispatched still reaches day-core. A missing sink is LOGGED, not swallowed: a
+    /// is being dispatched still reaches day-core. A missing sink is logged, not swallowed: a
     /// dropped completion leaves a future parked forever, which reads as a hang rather than a
     /// failure.
     fn raise(&self, event: Event) {
@@ -718,21 +719,21 @@ impl Toolkit for MockToolkit {
             Cap::Snapshot => Support::Native,
             // The mock decodes by reading magic numbers and encodes a matching signature
             // (docs/images.md): no pixels, but the whole request → completion → release path a
-            // test needs. `Cap::ImageProperties` stays Unsupported in the default arm — the
+            // test needs. `Cap::ImageProperties` stays Unsupported in the default arm: the
             // mock reads no metadata, and pretending otherwise would let a test pass against a
             // capability no backend answers this way.
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
             // Records the shape per widget (probe-visible), so a test can assert it.
             Cap::Cursor => Support::Native,
-            // A fixed two-family list (`font_families` below) — composed, not read.
+            // A fixed two-family list (`font_families` below), composed, not read.
             Cap::FontList => Support::Emulated,
             // The mock answers `first_baseline` from its synthetic metrics (see below).
             Cap::BaselineAlignment => Support::Native,
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             // Styled runs land in `WidgetProbe::runs`, which is what a test asserts on
-            // (docs/text-runs.md). ACTIVATING a link is not modeled — nothing in the mock
-            // hit-tests text — so `Cap::TextLinks` stays Unsupported in the default arm; a test
+            // (docs/text-runs.md). Activating a link is not modeled (nothing in the mock
+            // hit-tests text), so `Cap::TextLinks` stays Unsupported in the default arm; a test
             // that wants the rail emits `Event::LinkActivated` itself.
             Cap::TextRuns => Support::Native,
             // The mock "runs" backend-executed animation by recording the intent (probe-visible).
@@ -740,12 +741,13 @@ impl Toolkit for MockToolkit {
             // Covers "present" by recording the patch (probe-visible); tests emit the
             // FrameChanged size report themselves, as the native surface would.
             Cap::Cover => Support::Native,
-            // The probe drives the whole guard → commit reorder seam (`list_can_move`/`list_move`).
+            // The probe drives the whole reorder sequence, guard then commit (`list_can_move`/
+            // `list_move`).
             Cap::ListReorder => Support::Native,
-            // The probe drives the whole tree seam (`tree_children`/`tree_bind`/`tree_move`).
+            // The probe drives every tree duty (`tree_children`/`tree_bind`/`tree_move`).
             Cap::Tree | Cap::TreeMove => Support::Native,
             // Off by default: the mock models a phone, so a nav host stacks unless a test opts in.
-            // A mock that can split can also re-present — it records the patch, which is exactly
+            // A mock that can split can also re-present: it records the patch, which is exactly
             // what the morph tests assert against.
             Cap::NavSplit | Cap::NavRepresent => {
                 if self.state.borrow().nav_split {
@@ -757,8 +759,8 @@ impl Toolkit for MockToolkit {
             // Unsupported by default (the composed path); a test opts into the pane shapes
             // (docs/navigation.md) with [`MockProbe::set_nav_content_list`].
             Cap::NavContentList => self.state.borrow().nav_content_list,
-            // ON by default (docs/navigation.md): the mock models a phone, and a phone has a tab
-            // bar. A test opts OUT to exercise the degradation path, where `Automatic` falls back
+            // On by default (docs/navigation.md): the mock models a phone, and a phone has a tab
+            // bar. A test opts out to exercise the degradation path, where `Automatic` falls back
             // to the sidebar resolver.
             Cap::NavTabs => {
                 if self.state.borrow().no_nav_tabs {
@@ -843,7 +845,7 @@ impl Toolkit for MockToolkit {
             w.flag = p.presentation.is_split();
             w.presentation = Some(p.presentation);
             // The content-list pane's realize-time state, so a test can see the shape the host
-            // was BUILT with — the pane's initial visibility is settled here, not by a patch.
+            // was built with; the pane's initial visibility is settled here, not by a patch.
             detail = match p.list_width {
                 Some(w) => format!(
                     " title={:?} presentation={:?} list_width={w} list_visible={}",
@@ -853,7 +855,7 @@ impl Toolkit for MockToolkit {
             };
         } else if let Some(p) = props.downcast_ref::<NavPageProps>() {
             w.text = p.title.clone();
-            // The page's PANE, not the presentation drawing it — a nav host's list page reads
+            // The page's pane, not the presentation drawing it: a nav host's list page reads
             // `sidebar` whether the host is split or stacked (docs/size-classes.md).
             w.flag = p.pane == day_spec::props::Pane::Sidebar;
             detail = format!(" title={:?} pane={:?}", p.title, p.pane);
@@ -889,7 +891,7 @@ impl Toolkit for MockToolkit {
         anim: Option<&AnimSpec>,
     ) {
         let mut s = self.state.borrow_mut();
-        // Ask the installed describers first — the borrow has to end before `widgets` is taken
+        // Ask the installed describers first; the borrow has to end before `widgets` is taken
         // mutably below.
         let described = s.describers.iter().find_map(|d| d(patch));
         let detail;
@@ -1045,7 +1047,7 @@ impl Toolkit for MockToolkit {
                         format!("nav presentation={p:?}")
                     }
                     // Resident-page switch (docs/navigation.md). A stacked host never receives
-                    // this — it gets `Pushed`/`Popped` instead — so recording it unconditionally
+                    // this (it gets `Pushed`/`Popped` instead), so recording it unconditionally
                     // is also what lets a test prove the pieces layer sent the right one.
                     NavPatch::Select(i) => {
                         w.selected_page = Some(*i);
@@ -1190,7 +1192,7 @@ impl Toolkit for MockToolkit {
     /// A synthetic first baseline (docs/baseline.md), modeling the one fact that matters for
     /// the layout math: text sits at different heights inside different widgets. The mock's
     /// line box is 16pt with a 12pt ascent, and a widget that frames its text (a field, a
-    /// button) insets it — so a label beside a text field must drop by exactly that inset for
+    /// button) insets it, so a label beside a text field must drop by exactly that inset for
     /// the two to share a line. Widgets with no text report `None`.
     fn first_baseline(&mut self, h: &MockHandle, kind: PieceKind, size: Size) -> Option<f64> {
         const ASCENT: f64 = 12.0;
@@ -1200,7 +1202,7 @@ impl Toolkit for MockToolkit {
         match kind {
             kinds::LABEL => (!w.text.is_empty() || size.height > 0.0).then_some(ASCENT),
             kinds::BUTTON | kinds::TEXT_FIELD | kinds::TEXT_AREA => Some(framed_inset(size.height)),
-            // No text, so no baseline — these are the children that keep centering.
+            // No text, so no baseline; these are the children that keep centering.
             _ => None,
         }
     }
@@ -1569,7 +1571,7 @@ impl Toolkit for MockToolkit {
 
     fn close_window(&mut self, host: &MockHandle) {
         // Model the native round-trip: mark closed, then confirm through the sink with
-        // `WindowClosed` — day-core tears down when the (queued) event drains.
+        // `WindowClosed`; day-core tears down when the (queued) event drains.
         let mut s = self.state.borrow_mut();
         let Some(w) = s.windows.iter_mut().find(|w| w.handle == host.0 && w.open) else {
             return;
@@ -1626,7 +1628,7 @@ impl Toolkit for MockToolkit {
     }
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
-        // No native UI; day-core's PENDING registry holds the spec. Log for op-log asserts;
+        // No native UI; day-core's `PENDING` registry holds the spec. Log for op-log asserts;
         // tests answer via day_core::respond_presentation / pending_presentation.
         self.state
             .borrow_mut()
@@ -1649,7 +1651,7 @@ impl Toolkit for MockToolkit {
             .log(format!("defer_system_gestures edges={:#06b}", edges.0));
     }
 
-    // The remaining duties, implemented observably so mock stays a COMPLETE conformance probe
+    // The remaining duties, implemented observably so mock stays a complete conformance probe
     // (a duty a piece exercises must never vanish into a trait default here).
 
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
@@ -1691,7 +1693,7 @@ impl Toolkit for MockToolkit {
     }
 
     fn ui_idle(&mut self) -> bool {
-        // No native transitions exist; idle is immediate — but log the poll so scripted runs
+        // No native transitions exist; idle is immediate, but log the poll so scripted runs
         // can assert dayscript's settle path touched it.
         self.state.borrow_mut().log("ui_idle".into());
         true

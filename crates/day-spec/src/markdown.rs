@@ -7,7 +7,7 @@
 //! run time: a translation picked from the locale bundle, a value from the network, text the user
 //! typed. A macro can only see literals, which is the least interesting case.
 //!
-//! The grammar is the inline subset — what fits in one label. Block constructs (headings, lists,
+//! The grammar is the inline subset: what fits in one label. Block constructs (headings, lists,
 //! quotes, tables) are layout, and layout is `column`/`form`/`list`, not a text attribute.
 
 use crate::{Color, Font, FontSpec, FontWeight, TextRun, Underline};
@@ -40,7 +40,7 @@ impl Styles {
 /// | `[text](url)` | a link run |
 /// | `\*` | the literal character |
 ///
-/// `base` is the font the styles vary from — pass the label's own, so a bold run inside a
+/// `base` is the font the styles vary from. Pass the label's font, so a bold run inside a
 /// `Footnote` paragraph stays footnote-sized.
 ///
 /// Anything unrecognized is text: an unclosed `**`, a stray `_` inside a word, a `[` with no
@@ -89,7 +89,7 @@ impl Parser<'_> {
             }
             let b = self.src[self.at];
             // A backslash escapes the next byte, which is always ASCII punctuation in this
-            // grammar — so pushing it raw cannot split a character.
+            // grammar, so pushing it raw cannot split a character.
             if b == b'\\'
                 && let Some(&next) = self.src.get(self.at + 1)
                 && next.is_ascii_punctuation()
@@ -119,8 +119,7 @@ impl Parser<'_> {
     }
 
     /// Copy one byte of source to the output. Bytes rather than chars: every marker in this
-    /// grammar is ASCII, so a multi-byte character simply arrives one byte at a time and lands
-    /// intact.
+    /// grammar is ASCII, so a multi-byte character arrives one byte at a time and lands intact.
     fn push_byte(&mut self) {
         // SAFETY-free equivalent: the byte is part of a valid UTF-8 string and is copied in
         // order, so `out` stays valid UTF-8. `push_str` on a subslice keeps that explicit.
@@ -184,14 +183,14 @@ impl Parser<'_> {
             self.at = mark_at;
             return false;
         }
-        // The nested text landed after `mark_out`, so the text still pending under the OUTER
+        // The nested text landed after `mark_out`, so the text still pending under the outer
         // styles is everything from `start` up to there. Flush it, then resume after the span.
         let outer_start = std::mem::replace(start, self.out.len());
         self.flush_range(outer_start, mark_out, outer, link);
         true
     }
 
-    /// Flush an explicit range under the OUTER styles (the ones in force before this span).
+    /// Flush an explicit range under the outer styles (the ones in force before this span).
     fn flush_range(&mut self, start: usize, end: usize, styles: Styles, link: Option<&String>) {
         if end <= start || styles.is_plain(link) {
             return;
@@ -395,7 +394,7 @@ mod tests {
     #[test]
     fn every_parse_produces_valid_runs() {
         // The parser's output feeds `label().runs()`, which rejects overlapping or misordered
-        // runs — so validity is the parser's contract, checked over a spread of shapes.
+        // runs, so validity is the parser's contract, checked over a spread of shapes.
         for md in [
             "",
             "plain",

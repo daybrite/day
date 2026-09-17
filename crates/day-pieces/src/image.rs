@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The `image` piece — loads a named asset (resolved from the dev asset root, the app bundle, or
+//! The `image` piece: loads a named asset (resolved from the dev asset root, the app bundle, or
 //! Android's `AssetManager`) with content-mode and aspect-ratio fitting.
 
 use day_core::*;
@@ -27,7 +27,7 @@ pub struct Image {
     decorative: bool,
 }
 
-/// Draw an image from any [`ImageSource`](day_spec::ImageSource) — a staged asset name, encoded
+/// Draw an image from any [`ImageSource`](day_spec::ImageSource): a staged asset name, encoded
 /// bytes, or a decoded [`Bitmap`](day_core::Bitmap).
 ///
 /// ```ignore
@@ -55,8 +55,8 @@ pub fn image<M>(source: impl IntoImageSource<M>) -> Image {
 /// under its own marker.
 ///
 /// A blanket `impl<S: Into<ImageSource>>` over the existing
-/// [`IntoReactive`](crate::IntoReactive) would be ambiguous for `ImageSource` itself — the
-/// static blanket and the converting one would both apply and leave the marker unconstrained —
+/// [`IntoReactive`](crate::IntoReactive) would be ambiguous for `ImageSource` itself (the
+/// static blanket and the converting one would both apply and leave the marker unconstrained),
 /// so the conversions are spelled per concrete type instead.
 pub trait IntoImageSource<M> {
     fn into_image_source(self) -> crate::Reactive<day_spec::ImageSource>;
@@ -84,16 +84,16 @@ image_source_from_value!(
     day_spec::ImageName,
     day_spec::VectorName,
     day_spec::BitmapId,
-    // An owned string is a runtime-computed NAME (`ImageName::dynamic`'s spelling), never bytes.
-    // `&str` is deliberately absent, so `image("typo")` still fails to compile.
+    // An owned string is a runtime-computed name (`ImageName::dynamic`'s spelling), never bytes.
+    // `&str` is absent so that `image("typo")` still fails to compile.
     String,
     Vec<u8>,
     std::sync::Arc<Vec<u8>>,
 );
 
 /// A decoded image draws by id, so several nodes (and the canvas) share one decode.
-/// A decoded handle. The piece keeps a CLONE alive for the node's life: the closure below owns
-/// it, the binding owns the closure, and the node's scope owns the binding — so the toolkit's
+/// A decoded handle. The piece keeps a clone alive for the node's life: the closure below owns
+/// it, the binding owns the closure, and the node's scope owns the binding, so the toolkit's
 /// image outlives the view that shows it however the app juggles its own handle. Without this an
 /// `image(&bitmap)` would carry only the id, and on the web the `<img>` would point at an object
 /// URL that `release_image` had already revoked.
@@ -195,7 +195,7 @@ impl Piece for Image {
 /// (§18.3: a VectorDrawable on Android, a catalog entry on Apple, an SVG on the web, a
 /// build-rasterized PNG where the toolkit has no vector path). Distinct from [`image`] on
 /// purpose: only a typed [`VectorName`](day_spec::VectorName) is accepted, and the modifiers
-/// are the vector-appropriate ones — [`tint`](Vector::tint) recolors a monochrome glyph where
+/// are the vector-appropriate ones: [`tint`](Vector::tint) recolors a monochrome glyph where
 /// the backend can (template rendering on Apple, drawable tint on Android, pixel recolor on
 /// GTK; backends without a tint path draw the authored colors).
 pub struct Vector {
@@ -236,7 +236,7 @@ impl Vector {
         self
     }
     /// Select the glyph's weight (template-form sources render true weights; plain SVGs
-    /// degrade to Regular — see [`VectorWeight`]).
+    /// degrade to Regular; see [`VectorWeight`]).
     pub fn weight(mut self, w: VectorWeight) -> Self {
         self.weight = w;
         self

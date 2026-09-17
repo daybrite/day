@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-sensors — a HEADLESS cross-platform motion-sensor API. No UI; any Rust code can
-//! depend on this crate and [`watch`] the device's motion sensors through the platform's NATIVE API.
+//! day-part-sensors is a headless cross-platform motion-sensor API. No UI; any Rust code can depend
+//! on this crate and [`watch`] the device's motion sensors through the platform's native API.
 //!
 //! ```no_run
 //! use day_part_sensors::SensorKind;
@@ -15,22 +15,22 @@
 //! Platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]` (a sensor is an OS concern,
 //! not a widget-toolkit one): iOS uses CoreMotion, Android `SensorManager` (via a Java shim staged by
 //! `day build`), HarmonyOS the native `libohsensor.so`, Linux the Industrial I/O sysfs tree, and the
-//! web `DeviceMotionEvent`. macOS has no public motion-sensor API and Windows is a stub for now —
+//! web `DeviceMotionEvent`. macOS has no public motion-sensor API and Windows is a stub for now;
 //! both report no sensors at all.
 //!
 //! # Why a stream
 //!
-//! Every platform's sensor API is already PUSH — `SensorEventListener`, CoreMotion handlers,
-//! `OH_Sensor_Subscribe`, `devicemotion` — so the older `read()` poll was an adapter in the wrong
+//! Every platform's sensor API already pushes (`SensorEventListener`, CoreMotion handlers,
+//! `OH_Sensor_Subscribe`, `devicemotion`), so the older `read()` poll was an adapter in the wrong
 //! direction: each per-OS arm had to cache the newest event purely so a caller could ask for it.
 //! [`watch`] removes that inversion, and "no sample yet" stops being a poll artifact.
 //!
 //! Delivery rate: the arms that cache a natively-pushed event are sampled at [`SAMPLE_MS`]; the
 //! pull-only arms (Linux sysfs, Windows) are read at the same cadence. A `watch` therefore delivers
-//! at a steady ~20 Hz rather than at the sensor's own rate — plenty for a readout or a chart, and it
-//! keeps a fast sensor from flooding an app's UI thread.
+//! at a steady ~20 Hz rather than at the sensor's rate, which is plenty for a readout or a chart
+//! and keeps a fast sensor from flooding an app's UI thread.
 //!
-//! `on_sample` runs on an unspecified BACKGROUND thread (never the UI thread), so deliver into UI
+//! `on_sample` runs on an unspecified background thread (never the UI thread), so deliver into UI
 //! state with a `day_reactive::Setter`, exactly as `day-part-http` documents for its completions.
 
 /// Which motion sensor to query.
@@ -46,8 +46,8 @@ pub enum SensorKind {
 
 /// One motion-sensor sample. Units are SI and depend on the [`SensorKind`]: m/s² for the
 /// accelerometer, rad/s for the gyroscope, µT for the magnetometer (iOS g's and any platform quirks
-/// are normalized by the per-OS impls). Axis sign conventions are the platform's own — e.g. a device
-/// lying face-up reads `z ≈ +9.8` on Android but `z ≈ -9.8` on iOS.
+/// are normalized by the per-OS impls). Axis sign conventions are the platform's: a device lying
+/// face-up reads `z ≈ +9.8` on Android but `z ≈ -9.8` on iOS.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SensorReading {
     /// Value along the device's x axis.
@@ -67,12 +67,12 @@ pub fn is_available(kind: SensorKind) -> bool {
     imp::is_available(kind)
 }
 
-/// Subscribe to a sensor. Samples arrive on an unspecified BACKGROUND thread roughly every
+/// Subscribe to a sensor. Samples arrive on an unspecified background thread roughly every
 /// [`SAMPLE_MS`] until the returned [`Watch`] is dropped.
 ///
 /// Nothing is delivered before the platform's first event, so a device that never reports (no such
-/// sensor, an emulator without passthrough) simply produces no samples — ask [`is_available`] to
-/// tell that apart from "not yet".
+/// sensor, an emulator without passthrough) produces no samples; ask [`is_available`] to tell
+/// that apart from "not yet".
 ///
 /// In a Day app, bind the handle to the page's scope so the subscription ends with it:
 ///
@@ -101,7 +101,7 @@ type Handler = Box<dyn FnMut(SensorReading) + Send>;
 
 /// Per-sensor state: the live watchers, and the flag their sampling thread checks.
 /// Each handler rides its own `Arc<Mutex<…>>` so [`deliver`] can snapshot the list and run
-/// the callbacks with the feeds lock RELEASED — a callback may call [`watch`] or drop a
+/// the callbacks with the feeds lock released: a callback may call [`watch`] or drop a
 /// [`Watch`], both of which re-enter [`lock_feeds`] and deadlocked when delivery held it.
 /// The per-handler mutex keeps the `FnMut` exclusive.
 #[derive(Default)]
@@ -149,7 +149,7 @@ fn subscribe(kind: SensorKind, handler: Handler) -> Watch {
         }
     };
 
-    // One feed per WATCHED SENSOR, not per watcher: the platform arm keeps a single native
+    // One feed per watched sensor, not per watcher: the platform arm keeps a single native
     // subscription either way, so a second watcher costs nothing but a callback.
     if let Some(flag) = start {
         start_feed(kind, flag);
@@ -159,7 +159,7 @@ fn subscribe(kind: SensorKind, handler: Handler) -> Watch {
 
 /// Push the platform's newest reading to everyone watching `kind`.
 ///
-/// The two feed drivers — a thread natively, the browser's timer on wasm — deliver through this one
+/// The two feed drivers (a thread natively, the browser's timer on wasm) deliver through this one
 /// path, so the fan-out logic exists once.
 pub(crate) fn deliver(kind: SensorKind) {
     let Some(reading) = imp::sample(kind) else {
@@ -171,10 +171,10 @@ pub(crate) fn deliver(kind: SensorKind) {
 /// Fan one reading out to every watcher of `kind` (split from [`deliver`] so hosts without
 /// sensors can still exercise the delivery locking in tests).
 fn fan_out(kind: SensorKind, reading: SensorReading) {
-    // Snapshot the handler list, then run the callbacks with the feeds lock RELEASED: a
+    // Snapshot the handler list, then run the callbacks with the feeds lock released: a
     // handler that calls `watch()` or drops a `Watch` re-enters `lock_feeds`, which
     // deadlocked when delivery held it across the calls. A watcher dropped mid-delivery
-    // may still receive the sample already in flight — one final callback, nothing after.
+    // may still receive the sample already in flight: one final callback, nothing after.
     let handlers: Vec<_> = {
         let feeds = lock_feeds();
         match feeds.get(&key(kind)) {
@@ -202,7 +202,7 @@ fn start_feed(kind: SensorKind, running: std::sync::Arc<std::sync::atomic::Atomi
     });
 }
 
-/// The browser has one thread — `std::thread::spawn` PANICS on wasm32 — so the feed is driven by a
+/// The browser has one thread (`std::thread::spawn` panics on wasm32), so the feed is driven by a
 /// timer inside the day-dom shim, which calls back into [`day_sensors_tick`].
 #[cfg(target_arch = "wasm32")]
 fn start_feed(kind: SensorKind, _running: std::sync::Arc<std::sync::atomic::AtomicBool>) {
@@ -247,7 +247,7 @@ fn unsubscribe(kind: SensorKind, id: u64) {
 
 // ---------------------------------------------------------------------------
 // Per-OS implementations. Each exposes `fn is_available(SensorKind) -> bool` and
-// `fn sample(SensorKind) -> Option<SensorReading>` — the newest reading the platform has, which
+// `fn sample(SensorKind) -> Option<SensorReading>`, the newest reading the platform has, which
 // the subscription loop above turns into a stream.
 // ---------------------------------------------------------------------------
 
@@ -305,7 +305,7 @@ mod tests {
     use super::*;
 
     /// The subscription registry is process-global, so the tests that inspect or perturb it must
-    /// not run concurrently — cargo runs them on parallel threads by default.
+    /// not run concurrently; cargo runs them on parallel threads by default.
     static REGISTRY: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn registry_guard() -> std::sync::MutexGuard<'static, ()> {
@@ -322,7 +322,7 @@ mod tests {
     ];
 
     // Querying must never panic, whether or not the host has sensors (dev machines and CI runners
-    // typically don't — the mac host always answers false/no samples).
+    // typically don't; the mac host always answers false/no samples).
     #[test]
     fn probing_never_panics() {
         for kind in KINDS {
@@ -385,7 +385,7 @@ mod tests {
         );
     }
 
-    /// A handler may re-enter the registry — subscribe a new watcher or drop its own `Watch`
+    /// A handler may re-enter the registry: subscribe a new watcher or drop its own `Watch`
     /// mid-callback. Delivery used to hold the feeds lock across the callbacks, so either
     /// re-entry deadlocked the sampling thread.
     #[test]

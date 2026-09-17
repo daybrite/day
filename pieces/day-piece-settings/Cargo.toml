@@ -8,9 +8,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A COMPOSE piece (DESIGN §8): the shared appearance + language settings rows every app's
-# preferences surface needs — persisted through day-part-prefs, applied live through
-# day-core's appearance/locale seams. Pure composition: NO native code, NO cargo features.
+# A compose piece (DESIGN.md §8): the shared appearance + language settings rows every app's
+# preferences surface needs, persisted through day-part-prefs and applied live through
+# day-core's set_appearance/set_locale. Pure composition, with no native code and no cargo
+# features.
 
 [dependencies]
 day-pieces = { workspace = true }

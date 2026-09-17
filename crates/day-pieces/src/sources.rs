@@ -12,7 +12,7 @@ use day_reactive::{Signal, bind_seeded};
 use day_spec::props::*;
 
 // ---------------------------------------------------------------------------
-// Text sources (§12.2's IntoText, M1 subset — Fluent joins at M6)
+// Text sources (§12.2's IntoText, M1 subset; Fluent joins at M6)
 // ---------------------------------------------------------------------------
 
 pub enum TextSource {
@@ -20,7 +20,7 @@ pub enum TextSource {
     Dyn(Rc<dyn Fn() -> String>),
 }
 
-// Clone so nav can keep a page title's SOURCE alongside its resolved snapshot: the live source
+// Clone so nav can keep a page title's source alongside its resolved snapshot: the live source
 // re-resolves on locale change and feeds `NavPatch::Title` (docs/navigation.md).
 impl Clone for TextSource {
     fn clone(&self) -> Self {
@@ -38,8 +38,8 @@ impl TextSource {
             TextSource::Dyn(f) => day_reactive::untrack(|| f()),
         }
     }
-    /// Resolve the current text, TRACKED: inside a reactive computation this subscribes to
-    /// whatever the source reads — a `Signal`, or the locale behind a localized string. The
+    /// Resolve the current text, tracked: inside a reactive computation this subscribes to
+    /// whatever the source reads (a `Signal`, or the locale behind a localized string). The
     /// nav host derive effects rely on this so native rows retitle on locale change.
     pub(crate) fn resolve(&self) -> String {
         match self {
@@ -105,7 +105,7 @@ impl<K: Copy + PartialEq + 'static> IntoFocusBinding<FocusGroupMark> for (Signal
                 if f {
                     sig.set(Some(key));
                 } else if sig.get_untracked() == Some(key) {
-                    // Only clear if the signal still names this control — when focus moved to a
+                    // Only clear if the signal still names this control. When focus moved to a
                     // sibling, the paired gain (dispatched first, docs/focus.md) already wrote
                     // the new value and the group signal never passes through `None`.
                     sig.set(None);
@@ -141,7 +141,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// Fraction sources — the read-only numeric analogue of TextSource, for `progress`.
+// Fraction sources: the read-only numeric analogue of TextSource, for `progress`.
 // ---------------------------------------------------------------------------
 
 pub enum FractionSource {
@@ -203,7 +203,7 @@ where
 // Two-way binding surface (§5.3)
 // ---------------------------------------------------------------------------
 
-// The trait moved down to day-reactive and took its shipped name — `Binding`, read/write/peek —
+// The trait moved down to day-reactive and took its shipped name (`Binding`, read/write/peek)
 // in the same pass (2026-08-22), so day-model can implement it for `Field` with every dependency
 // pointing downward; re-exported here so piece code needs no extra import.
 pub use day_reactive::Binding;

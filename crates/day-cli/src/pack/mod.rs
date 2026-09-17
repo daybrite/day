@@ -4,7 +4,7 @@
 //! `day pack` (DESIGN.md §16.5): build → sign → installable artifact, per target, with the
 //! hoppack-lineage stage order (build → assemble → sign → package → notarize → verify). Every
 //! artifact lands in `build/day/dist/` with a sha256 and a signing tier; the tier degrades
-//! LOUDLY (never silently) when release signing material is absent (§20).
+//! loudly (never silently) when release signing material is absent (§20).
 //!
 //! Per-target default formats:
 //!   macos-appkit → dmg · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
@@ -31,7 +31,7 @@ use crate::targets::Target;
 pub use settings::PackOptions;
 
 /// How an artifact ended up signed. `DevSigned` covers ad-hoc codesign, debug/CI-generated
-/// keystores and self-signed certs — installable for development, not distributable.
+/// keystores and self-signed certs: installable for development, not distributable.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SignTier {
     Unsigned,
@@ -85,7 +85,7 @@ impl PackError {
     }
 }
 
-/// The formats this target packs into, or day's own explanation of why it packs none — the answer
+/// The formats this target packs into, or day's explanation of why it packs none: the answer
 /// `day checkup` quotes when it reports a combo as build-only.
 pub(crate) fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
     Ok(match target.name {
@@ -224,7 +224,7 @@ pub fn run(
         }
     }
 
-    // The buildinfo sidecar records the machine, so it is deliberately not embedded: doing so
+    // The buildinfo sidecar records the machine, so it is not embedded: doing so
     // would make the artifact differ whenever a tool version differs (§20.3).
     let mut info = crate::provenance::collect_buildinfo(target, opts.profile.as_str());
     info.inputs = build_inputs(target);
@@ -270,7 +270,7 @@ pub fn run(
     }
 
     // Provenance sidecars are named after the artifact they describe, extension included
-    // (`day-showcase-macos-appkit.dmg.buildinfo.json`) — one set per artifact, because a release
+    // (`day-showcase-macos-appkit.dmg.buildinfo.json`), one set per artifact, because a release
     // directory merges every target's and a bare `day-sbom.cdx.json` there says nothing about
     // which download it belongs to (§20.4). A pack that produced both an .apk and an .aab
     // therefore writes both sets, with identical content.
@@ -352,7 +352,7 @@ pub(crate) fn windows_kit_tool_probe(tool: &str) -> Option<String> {
     msix::windows_kit_tool(tool).map(|p| p.display().to_string())
 }
 
-/// Doctor probe: locate an AppImage tool the same way [`appimage`] does — `DAY_<TOOL>` first, then
+/// Doctor probe: locate an AppImage tool the same way [`appimage`] does, `DAY_<TOOL>` first, then
 /// PATH. A bare PATH lookup would report `linuxdeploy` missing on the machines that set the
 /// override (CI downloads the AppImage into a scratch dir), contradicting the pack that succeeds.
 pub(crate) fn appimage_tool_probe(tool: &str) -> Option<String> {
@@ -377,7 +377,7 @@ pub fn sha256_file(path: &Path) -> Result<String, String> {
         }
         hasher.update(&buf[..n]);
     }
-    // sha2 0.11's digest output no longer implements `LowerHex` — hex-encode by hand.
+    // sha2 0.11's digest output no longer implements `LowerHex`, so hex-encode by hand.
     Ok(hasher
         .finalize()
         .iter()
@@ -456,8 +456,8 @@ pub(crate) fn reproducible_epoch() -> i64 {
 ///
 /// `filetime::set_symlink_file_times` stamps a symlink itself rather than its target: std has no
 /// equivalent (`File::set_times` follows links, and on Windows a directory cannot even be opened
-/// without `FILE_FLAG_BACKUP_SEMANTICS`). The walk is hand-rolled rather than pulling in `walkdir`
-/// — this is a tree Day just created, so a general walker's loop detection would be unused weight.
+/// without `FILE_FLAG_BACKUP_SEMANTICS`). The walk is hand-rolled rather than pulling in `walkdir`:
+/// this is a tree Day just created, so a general walker's loop detection would be unused weight.
 pub(crate) fn normalize_mtimes(root: &Path) -> Result<(), String> {
     let stamp = filetime::FileTime::from_unix_time(reproducible_epoch(), 0);
     let mut stack = vec![root.to_path_buf()];
@@ -491,7 +491,7 @@ pub(crate) fn normalize_mtimes(root: &Path) -> Result<(), String> {
 /// [`reproducible_epoch`] as a packed MS-DOS (date, time) pair, the form ZIP stores.
 ///
 /// DOS packs a date into 16 bits as `year-1980 << 9 | month << 5 | day`, and a time as
-/// `hour << 11 | minute << 5 | second/2` — hence the two-second resolution.
+/// `hour << 11 | minute << 5 | second/2`, hence the two-second resolution.
 fn dos_datetime() -> (u16, u16) {
     let secs = reproducible_epoch();
     let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
@@ -514,7 +514,7 @@ fn dos_datetime() -> (u16, u16) {
 
 /// Rewrite every timestamp in a ZIP archive to [`reproducible_epoch`], in place.
 ///
-/// For archives Day does not stage — hvigor emits the `.hap` itself — normalizing the source tree
+/// For archives Day does not stage (hvigor emits the `.hap` itself), normalizing the source tree
 /// is not an option, so the finished container is patched instead. Entry offsets and compressed
 /// data are untouched, so this cannot invalidate the archive; only the DOS date/time words in each
 /// local header and central-directory record change. Any run afterwards (hap signing) is unaffected
@@ -704,12 +704,12 @@ mod repro_tests {
     }
 }
 
-/// Environment inputs that decided the SHAPE of this artifact, resolved to what the build used.
+/// Environment inputs that decided the shape of this artifact, resolved to what the build used.
 ///
 /// Only variables whose default is machine-dependent belong here. `DAY_ANDROID_ABI` and
 /// `DAY_OHOS_ARCH` fall back to "whatever device is attached, else a fixed default", so a rebuild
 /// on a runner with nothing plugged in packs a different set of `.so`s than the CI machine that
-/// had an emulator running — the artifacts then differ structurally, for a reason no verdict could
+/// had an emulator running; the artifacts then differ structurally, for a reason no verdict could
 /// explain (§20.3).
 fn build_inputs(target: &'static Target) -> Vec<(String, String)> {
     match target.toolkit {
@@ -726,7 +726,7 @@ fn build_inputs(target: &'static Target) -> Vec<(String, String)> {
 }
 
 /// Where a target stages its compiled code before packaging, when it has such a place. `None` for
-/// the formats `day rebuild` can simply open (zip family, dmg).
+/// the formats `day rebuild` can open (zip family, dmg).
 fn payload_root_for(project: &Project, target: &'static Target) -> Option<PathBuf> {
     payload_root(&project.root, target)
 }

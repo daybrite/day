@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-pullrefresh — pull-to-refresh for any Day scrollable, modeled on SwiftUI's
+//! day-piece-pullrefresh: pull-to-refresh for any Day scrollable, modeled on SwiftUI's
 //! `refreshable(action:)` (DESIGN.md §15; docs/extending.md).
 //!
 //! ```ignore
@@ -22,12 +22,12 @@
 //! it on every backend.
 //!
 //! Tiers ([`support`]):
-//! - **Native** — iOS (`UIRefreshControl` attached to the descendant `UIScrollView`), Android
+//! - **Native**: iOS (`UIRefreshControl` attached to the descendant `UIScrollView`), Android
 //!   (this crate's `DayPullRefresh extends SwipeRefreshLayout`), HarmonyOS (`ARKUI_NODE_REFRESH`).
-//!   The piece is a CONTAINER: its realized native view hosts the scrollable as a Day child — the
+//!   The piece is a container: its realized native view hosts the scrollable as a Day child, the
 //!   first external piece to do so (the `cx.native` + fill-layout + `cx.under` recipe).
-//! - **Emulated** — everywhere else: a pure-composition spinner overlay (`when(refreshing, …)`),
-//!   with the pull GESTURE detected on AppKit (elastic-scroll overscroll) and GTK
+//! - **Emulated**, everywhere else: a pure-composition spinner overlay (`when(refreshing, …)`),
+//!   with the pull gesture detected on AppKit (elastic-scroll overscroll) and GTK
 //!   (`edge-overshot`); Qt and XAML are spinner + programmatic in v1.
 
 use std::rc::Rc;
@@ -53,7 +53,7 @@ pub enum RefreshPatch {
 
 /// How pull-to-refresh is realized on the compiled backend: `Native` (a real platform refresh
 /// control drives the gesture and indicator) or `Emulated` (composition overlay; gesture where the
-/// toolkit exposes overscroll). Never `Unsupported` — the emulated tier always works.
+/// toolkit exposes overscroll). Never `Unsupported`: the emulated tier always works.
 pub fn support() -> day_spec::Support {
     #[cfg(any(
         all(feature = "uikit", target_os = "ios"),
@@ -143,7 +143,7 @@ impl<P: Piece> Piece for PullRefresh<P> {
 }
 
 // ---------------------------------------------------------------------------
-// Native tier: the piece is a CONTAINER — its realized native view (passthrough host on iOS,
+// Native tier: the piece is a container; its realized native view (passthrough host on iOS,
 // SwipeRefreshLayout on Android, Refresh node on ArkUI) hosts the scrollable as a Day child.
 // FrameLayout places that single child at the container's full bounds; the native side owns the
 // refresh indicator. App-driven signal changes patch through (watch skips the initial value).
@@ -197,7 +197,7 @@ fn build_native<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
 }
 
 // ---------------------------------------------------------------------------
-// Emulated tier: pure composition — an overlay container whose first child is the scrollable
+// Emulated tier: pure composition, an overlay container whose first child is the scrollable
 // (optionally tweaked with per-backend overscroll observation) and whose second is a
 // `when(refreshing, spinner-chip)` overlay pinned top-center. No custom kind, no renderer: the
 // container is the same native panel as column/row, so this path works on every backend
@@ -234,12 +234,12 @@ fn build_emulated<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
         Boundary::No,
     );
     cx.under(node, |cx| {
-        // The scrollable (fills — it grows in both axes), with the backend's overscroll
+        // The scrollable (fills: it grows in both axes), with the backend's overscroll
         // observation attached where the toolkit exposes one (AppKit elastic scroll,
         // GTK edge-overshot). The tweak runs at mount with the realized scroll node. The glue
         // does not call into the reactive runtime from inside native dispatch: it emits a
-        // `pullrefresh:begin` Custom event on the host node through the backend's sink — queued,
-        // pumped at a safe point, and panic-contained — which `wire` below turns into the begin.
+        // `pullrefresh:begin` Custom event on the host node through the backend's sink (queued,
+        // pumped at a safe point, and panic-contained), which `wire` below turns into the begin.
         #[cfg(any(all(feature = "appkit", target_os = "macos"), feature = "gtk",))]
         {
             let host = day_core::rnode_to_id(node);
@@ -257,7 +257,7 @@ fn build_emulated<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
             let _ = child.build(cx);
         }
         // The refresh indicator: a floating chip with the native indeterminate spinner, shown
-        // while `refreshing` — the emulated stand-in for the platform refresh header.
+        // while `refreshing`, the emulated stand-in for the platform refresh header.
         let _ = when(
             move || refreshing.get(),
             || {
@@ -275,7 +275,7 @@ fn build_emulated<P: Piece>(piece: PullRefresh<P>, cx: &mut BuildCx) -> RNode {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers + emulated gesture glue — one file per backend, gated to its
+// Per-toolkit native renderers + emulated gesture glue: one file per backend, gated to its
 // feature + target (the webview convention).
 // ---------------------------------------------------------------------------
 

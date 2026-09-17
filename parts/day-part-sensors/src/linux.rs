@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Linux: the kernel's Industrial I/O subsystem exposes sensors under /sys/bus/iio/devices/ with
-// per-channel `in_<chan>_{x,y,z}_raw` files plus `_scale`/`_offset` — value = (raw + offset) × scale
-// (accelerometer m/s², gyroscope rad/s, magnetometer Gauss → ×100 for µT). Pure std, truly
-// poll-based (sysfs reads are cheap), no caching or subscription needed. Most desktops/CI runners
+// per-channel `in_<chan>_{x,y,z}_raw` files plus `_scale`/`_offset`; value = (raw + offset) × scale
+// (accelerometer m/s², gyroscope rad/s, magnetometer Gauss → ×100 for µT). Pure std, poll-based
+// (sysfs reads are cheap), no caching or subscription needed. Most desktops/CI runners
 // have no motion sensors → None; real coverage is laptops/tablets with rotation accelerometers.
 
 use std::fs;

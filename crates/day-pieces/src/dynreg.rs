@@ -5,22 +5,22 @@
 //! [day-lite](https://github.com/daybrite/day-lite)).
 //!
 //! The machine-readable surface of the piece layer: every registered constructor and
-//! modifier is invokable by NAME with loosely-typed [`DynValue`] arguments, which is what
+//! modifier is invokable by name with loosely-typed [`DynValue`] arguments, which is what
 //! lets an interpreted language (day-lite's JS/TS, or any other embedder) drive real pieces
 //! without compiling against the builder types. The registry ships the built-in vocabulary;
 //! extension crates join it at startup through [`register_piece`] / [`register_modifier`],
 //! so a superapp's compiled-in pieces become scriptable with no day-lite changes.
 //!
 //! Shape rules:
-//! - A constructor produces a [`DynPiece`] that stays CONCRETE (its builder type) until a
+//! - A constructor produces a [`DynPiece`] that stays concrete (its builder type) until a
 //!   generic `Decorate` modifier erases it. Type-specific modifiers (`spacing`, `font`,
 //!   `action`, …) therefore must precede generic ones (`padding`, `frame`, `id`, …) in a
-//!   chain — violating that is a [`DynError::LateTyped`], reported with both names so the
+//!   chain; violating that is a [`DynError::LateTyped`], reported with both names so the
 //!   script-side error is actionable.
-//! - Reactive arguments are [`DynValue::Fn`] callbacks (re-run under day-reactive tracking
-//!   — a `get()` on a bridged signal inside one registers a real dependency) or
+//! - Reactive arguments are [`DynValue::Fn`] callbacks (re-run under day-reactive tracking,
+//!   so a `get()` on a bridged signal inside one registers a real dependency) or
 //!   [`DynValue::Signal`] handles (typed at creation; see [`DynSignal`]).
-//! - Naming is **snake_case throughout** — constructors (`text_field`), modifiers
+//! - Naming is **snake_case throughout**: constructors (`text_field`), modifiers
 //!   (`corner_radius`), and string enum values alike (`large_title`, `top_leading`); the
 //!   dyn surface mirrors day's Rust API one-to-one rather than re-casing per language.
 //! - Everything is main-thread only, like the rest of the piece layer. The registry maps
@@ -581,7 +581,7 @@ fn builtin_ctors() -> HashMap<&'static str, CtorFn> {
         Ok(DynPiece::new(Inner::Image(image(str_arg(a, 0, "image")?))))
     });
     // Reactive structure: a conditional subtree and keyed reactive rows (§5.4). Rows are
-    // keyed by each item's serialized value, so a changed item RE-BUILDS its row — the
+    // keyed by each item's serialized value, so a changed item rebuilds its row, the
     // simple, correct default for scripted UIs (no stale-binding hazard).
     m.insert("when", |a| {
         let (Some(DynValue::Fn(cond)), Some(DynValue::Fn(build))) = (a.first(), a.get(1)) else {
@@ -747,7 +747,7 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
     };
 
     // Generic Decorate modifiers: erase, wrap, stay erased. The dyn surface has no static piece
-    // type to preserve, so each arm re-erases the `Decorated` a modifier now returns — `.any()`
+    // type to preserve, so each arm re-erases the `Decorated` a modifier now returns; `.any()`
     // on the erased inner piece is free (`AnyPiece::any` is inherent and returns `self`), so this
     // costs exactly the one box the old per-modifier chain cost.
     let p = inner.into_any();

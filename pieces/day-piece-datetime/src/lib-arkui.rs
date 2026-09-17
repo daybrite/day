@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // ArkUI (HarmonyOS): the NDK picker nodes via this crate's shim (src/datetime-arkui.cpp,
-// compiled by build.rs against OHOS_NDK_HOME — the pullrefresh pattern). Compact date =
+// compiled by build.rs against OHOS_NDK_HOME, the pullrefresh pattern). Compact date =
 // ARKUI_NODE_CALENDAR_PICKER (entry → calendar popup); Inline date = ARKUI_NODE_DATE_PICKER
 // wheels (native START/END bounds); time = ARKUI_NODE_TIME_PICKER wheels for both styles (the
 // wheels are HarmonyOS's embedded time UI). A null node (SDK without picker nodes) falls back

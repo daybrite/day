@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-deviceinfo — a HEADLESS cross-platform device-identity API. No UI; any Rust code can
+//! day-part-deviceinfo is a headless cross-platform device-identity API. No UI; any Rust code can
 //! depend on this crate and call [`get`] for a snapshot of the device model, OS name/version, and
-//! whether it is running on a simulator/emulator, through each platform's NATIVE API.
+//! whether it is running on a simulator/emulator, through each platform's native API.
 //!
 //! ```no_run
 //! let d = day_part_deviceinfo::get();
@@ -19,19 +19,19 @@
 //! [`get`] **never panics** and never returns an error: fields that a platform cannot report are
 //! filled with a sensible fallback (`"Unknown"`, or `system_name` set to the OS family name).
 
-/// A snapshot of the device's identity. Every field is best-effort — each OS reports a different
+/// A snapshot of the device's identity. Every field is best-effort: each OS reports a different
 /// slice of the truth, and unknown fields fall back to `"Unknown"` (see the per-platform notes in
 /// docs/deviceinfo.md).
 #[derive(Clone, Debug)]
 pub struct DeviceInfo {
-    /// The hardware model identifier — e.g. `"MacBookPro18,3"` (macOS `hw.model`), `"iPhone"`
+    /// The hardware model identifier, e.g. `"MacBookPro18,3"` (macOS `hw.model`), `"iPhone"`
     /// (iOS `UIDevice.model` reports the marketing class), `"Pixel 7"` (Android `Build.MODEL`), or
     /// the DMI `product_name` on Linux. `"Unknown"` when unreadable.
     pub model: String,
-    /// The operating-system family name — `"macOS"`, `"iOS"` / `"iPadOS"`, `"Windows"`, the Linux
+    /// The operating-system family name: `"macOS"`, `"iOS"` / `"iPadOS"`, `"Windows"`, the Linux
     /// distro `NAME`, `"OpenHarmony"` / `"HarmonyOS"`, or `"Android"`.
     pub system_name: String,
-    /// The OS version string — a dotted `major.minor[.patch]` on Apple/Windows, `VERSION_ID` on
+    /// The OS version string: a dotted `major.minor[.patch]` on Apple/Windows, `VERSION_ID` on
     /// Linux, `Build.VERSION.RELEASE` on Android, or the native display version on HarmonyOS.
     /// `"Unknown"` when unreadable.
     pub system_version: String,
@@ -76,8 +76,8 @@ mod imp;
 #[path = "android.rs"]
 mod imp;
 
-// Any other platform: no native device-identity API — report the compile-time OS family and leave
-// the rest unknown.
+// Any other platform: no native device-identity API, so report the compile-time OS family and
+// leave the rest unknown.
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",

@@ -3,19 +3,19 @@
 
 //! Build provenance: what an artifact was built from, and what it was built with (DESIGN.md §20.4).
 //!
-//! Two documents, deliberately separate, because they have opposite requirements.
+//! Two documents, kept separate because they have opposite requirements.
 //!
 //! The **SBOM** describes the software: the app, its source repository and commit, and its
 //! dependencies with SPDX license identifiers. Everything in it is a property of the source, so it
-//! is identical on every machine that builds a given commit — which is what lets it be embedded in
+//! is identical on every machine that builds a given commit, which is what lets it be embedded in
 //! the artifact without making that artifact environment-specific. It ships in both CycloneDX and
 //! SPDX form, and lands where the app can read it at runtime (§18.3 resource staging), so an app
 //! can show its own license notices.
 //!
 //! The **buildinfo** describes the machine: exact compiler, SDK, and packaging-tool versions. Those
-//! differ between machines by design, so embedding them would make the artifact differ too, and the
-//! reproducibility checks in §20.3 would never pass across environments. It is written next to the
-//! artifact as a sidecar instead. Debian's `.buildinfo` separates the two for the same reason.
+//! necessarily differ between machines, so embedding them would make the artifact differ too, and
+//! the reproducibility checks in §20.3 would never pass across environments. It is written next to
+//! the artifact as a sidecar instead. Debian's `.buildinfo` separates the two for the same reason.
 //!
 //! `day rebuild` reads the SBOM for *what to build* and the buildinfo for *what to build it with*.
 
@@ -38,7 +38,7 @@ pub struct ToolRecord {
     pub name: String,
     /// Version exactly as the tool reported it.
     pub version: String,
-    /// How to get this version. Never executed — printed for the reader to run.
+    /// How to get this version. Never executed; printed for the reader to run.
     pub install_hint: String,
 }
 
@@ -53,12 +53,12 @@ pub struct BuildInfo {
     pub tools: Vec<ToolRecord>,
     /// sha256 of each artifact this pack produced, keyed by file name.
     pub artifacts: Vec<(String, String)>,
-    /// Environment variables that SHAPE the artifact, resolved to what this build actually used.
+    /// Environment variables that shape the artifact, resolved to what this build actually used.
     /// `day rebuild` re-applies them, because their defaults depend on the machine: with no device
     /// attached, `DAY_ANDROID_ABI` resolves to `arm64-v8a` alone and `DAY_OHOS_ARCH` to the
     /// emulator's `x86_64`, so a rebuild silently packs a different set of `.so`s than shipped.
     pub inputs: Vec<(String, String)>,
-    /// sha256 of each staged payload file — the compiled code, before it goes into a container —
+    /// sha256 of each staged payload file (the compiled code, before it goes into a container),
     /// keyed by a path relative to the payload root. This is what makes the payload tier decidable
     /// for containers nothing on the verifying host can open (a `.flatpak` is an OSTree bundle; a
     /// `.msix` needs a working unzip). Debian's `.buildinfo` records built-file checksums for the
@@ -79,11 +79,11 @@ pub struct Sbom {
     /// Commit the build came from. `None` for a checkout with no commits.
     pub commit: Option<String>,
     /// Where the project sits inside that repository, as a slash-separated relative path
-    /// (`apps/example`; empty when the project IS the repository root). A repository may hold
-    /// several Day apps — plus scaffold templates that look like one — so a rebuild that only had
+    /// (`apps/example`; empty when the project is the repository root). A repository may hold
+    /// several Day apps, plus scaffold templates that look like one, so a rebuild that only had
     /// the commit would have to guess which directory to pack.
     pub project_path: Option<String>,
-    /// True when the working tree had uncommitted changes — a rebuild cannot match this artifact.
+    /// True when the working tree had uncommitted changes; a rebuild cannot match this artifact.
     pub dirty: bool,
     pub components: Vec<Component>,
 }
@@ -101,7 +101,7 @@ pub struct Component {
     pub ecosystem: String,
 }
 
-/// Run a tool and capture one line of version output. Returns `None` when the tool is absent —
+/// Run a tool and capture one line of version output. Returns `None` when the tool is absent:
 /// provenance records what a machine had, and a missing tool is a fact rather than an error.
 fn probe(bin: &str, args: &[&str]) -> Option<String> {
     let out = Command::new(bin).args(args).output().ok()?;
@@ -229,7 +229,7 @@ pub fn collect_sbom(project: &Project) -> Sbom {
 }
 
 /// Every tool `collect_buildinfo` may record, as (key, display name, how to install it). The
-/// VERSION is not here: it comes from `tool_version`, so the packing side and the verifying side
+/// version is not here: it comes from `tool_version`, so the packing side and the verifying side
 /// can never drift apart.
 fn tool_table(toolkit: &str) -> Vec<(&'static str, &'static str, &'static str)> {
     let mut t: Vec<(&str, &str, &str)> = vec![
@@ -321,14 +321,14 @@ fn tool_table(toolkit: &str) -> Vec<(&'static str, &'static str, &'static str)> 
 ///
 /// One function for both sides: `day pack` records what it returns, `day rebuild` compares against
 /// what it returns. They used to be separate probes in separate files, and a key present in one but
-/// not the other could never match — `ndk` and `ohos-sdk` were both recorded and then unverifiable
+/// not the other could never match: `ndk` and `ohos-sdk` were both recorded and then unverifiable
 /// on every machine, including the one that had just built the artifact.
 pub fn tool_version(key: &str) -> Option<String> {
     match key {
         "rust" => probe("rustc", &["--version"]),
         "cargo" => probe("cargo", &["--version"]),
-        // Carries the COMMIT, not just the branch (day-cli/build.rs): `day rebuild` compares these
-        // strings exactly, and every build of `main` used to record the same one — so two CLIs a
+        // Carries the commit as well as the branch (day-cli/build.rs): `day rebuild` compares these
+        // strings exactly, and every build of `main` used to record the same one, so two CLIs a
         // month apart verified as the same tool.
         "day" => Some(env!("DAY_VERSION_LONG").to_string()),
         "xcode" => probe("xcodebuild", &["-version"]),
@@ -336,7 +336,7 @@ pub fn tool_version(key: &str) -> Option<String> {
         // PATH's gradle, which is what `day build` runs unless the app carries a `./gradlew`
         // (`pack::android::gradle_program`). This function is keyed only by tool name and is shared
         // by `day pack` (record) and `day rebuild` (verify), so both sides probe the same thing and
-        // verification stays consistent — but for a project with a wrapper, the version recorded
+        // verification stays consistent. For a project with a wrapper, though, the version recorded
         // here is not necessarily the one that built the artifact. Fixing that means threading the
         // project into both sides.
         "gradle" => probe("gradle", &["--version"]).or_else(|| probe("gradle", &["-v"])),
@@ -361,7 +361,7 @@ pub fn collect_buildinfo(target: &Target, profile: &str) -> BuildInfo {
     let tools = tool_table(target.toolkit)
         .into_iter()
         .filter_map(|(key, name, hint)| {
-            // A tool that is not installed is simply not recorded: provenance states what a
+            // A tool that is not installed is not recorded: provenance states what a
             // machine had, and an absence is a fact rather than an error.
             Some(ToolRecord {
                 key: key.into(),
@@ -387,7 +387,7 @@ pub fn collect_buildinfo(target: &Target, profile: &str) -> BuildInfo {
 
 /// The OpenHarmony SDK's version, read from the `oh-uni-package.json` its toolchains ship.
 ///
-/// NOT the value of `OHOS_BASE_SDK_HOME`: that is a path on the machine that built the artifact
+/// Not the value of `OHOS_BASE_SDK_HOME`: that is a path on the machine that built the artifact
 /// (`/home/runner/ohos-ohsdk`), which no other machine can match and which says nothing about what
 /// was actually installed. The layout is `<base>/<api>/toolchains/oh-uni-package.json`; the highest
 /// api level present is the one a build resolves to.
@@ -458,7 +458,7 @@ pub fn cyclonedx(sbom: &Sbom) -> serde_json::Value {
 
 /// The SBOM as SPDX 2.3 JSON.
 pub fn spdx(sbom: &Sbom) -> serde_json::Value {
-    // `sourceInfo` carries the same source facts CycloneDX puts in properties — including which
+    // `sourceInfo` carries the same source facts CycloneDX puts in properties, including which
     // project in the repository this is, and its app id. Without them an SPDX-only SBOM could not
     // drive `day rebuild`, and `sbom = "sidecar spdx"` is a valid choice.
     let source_info = format!(
@@ -518,7 +518,7 @@ fn source_properties(sbom: &Sbom) -> Vec<serde_json::Value> {
         serde_json::json!({"name": "day:app-id", "value": sbom.app_id}),
         serde_json::json!({"name": "day:app-build", "value": sbom.app_build.to_string()}),
         serde_json::json!({"name": "day:dirty", "value": sbom.dirty.to_string()}),
-        // Named so a reader knows the gap is deliberate rather than an empty graph.
+        // Named so a reader can tell an uncollected graph from an empty one.
         serde_json::json!({"name": "day:native-deps", "value": "not-collected"}),
     ];
     if let Some(r) = &sbom.repository {
@@ -641,7 +641,7 @@ mod tests {
         assert_eq!(ohos_sdk_version("/nonexistent/sdk"), None);
         let _ = std::fs::remove_dir_all(&tmp);
 
-        // A real SDK, where one is configured, must parse too — the layout above is from
+        // A real SDK, where one is configured, must parse too: the layout above is from
         // OpenHarmony 5.1.0 and this is the only check that it still matches reality.
         if let Ok(real) = std::env::var("OHOS_BASE_SDK_HOME")
             && Path::new(&real).is_dir()
@@ -692,14 +692,14 @@ mod tests {
 // targets Day additionally emits a file in Debian's deb822 `.buildinfo` format (deb-buildinfo(5)),
 // because that is what Debian's reproducibility tooling and its maintainers already consume.
 //
-// It is a Debian-FORMAT file describing a build that is not a Debian source package: Day's Linux
+// It is a Debian-format file describing a build that is not a Debian source package: Day's Linux
 // artifact is a `.flatpak`, so `Source`/`Binary`/`Version` carry the app's identity rather than a
 // dpkg source package's. The fields are syntactically what deb-buildinfo(5) specifies; the values
 // describe a Day app.
 //
-// It does NOT take Debian's `${source}_${version}_${arch}.buildinfo` filename. That convention
+// It does not take Debian's `${source}_${version}_${arch}.buildinfo` filename. That convention
 // only means anything inside a Debian archive, and here the file ships as a release asset beside
-// artifacts from six other platforms — so it follows Day's own sidecar rule instead
+// artifacts from six other platforms, so it follows Day's sidecar rule instead
 // (`<artifact>.buildinfo.deb822`, §20.4), which says which download it describes and cannot be
 // confused with the JSON sidecar.
 
@@ -720,7 +720,7 @@ fn debian_arch() -> Option<&'static str> {
 /// `Installed-Build-Depends`: every configured package on the build host, with its exact version.
 ///
 /// Only meaningful on a dpkg system. Day builds on Fedora, Arch, and macOS too, and inventing this
-/// list there would be worse than omitting it — a maintainer would trust versions that were never
+/// list there would be worse than omitting it: a maintainer would trust versions that were never
 /// installed. Returns `None` when `dpkg-query` is absent or fails.
 fn dpkg_installed() -> Option<Vec<String>> {
     let out = Command::new("dpkg-query")

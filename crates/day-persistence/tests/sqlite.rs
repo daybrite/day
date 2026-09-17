@@ -120,7 +120,7 @@ fn a_backup_taken_mid_write_opens_clean() {
         });
     });
     container.save().expect("save");
-    // Edits still pending when the backup is asked for — backup_to flushes them first, so the
+    // Edits still pending when the backup is asked for: backup_to flushes them first, so the
     // snapshot is transactionally consistent and complete.
     container.set_autosave(false);
     store.elem(1).title().write("saved, then edited".into());

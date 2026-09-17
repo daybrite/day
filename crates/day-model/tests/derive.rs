@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The derive, at its call sites — simple struct, keyed collection, nesting.
+//! The derive, at its call sites: simple struct, keyed collection, nesting.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -29,7 +29,7 @@ pub struct Item {
     pub count: i64,
     pub done: bool,
     pub address: Address,
-    /// A field the UI never observes — no accessor, no path, no trigger.
+    /// A field the UI never observes, so it gets neither an accessor, a path nor a trigger.
     #[obs(skip)]
     pub cache: Option<Vec<u8>>,
 }
@@ -175,7 +175,7 @@ fn a_structural_change_wakes_the_list_but_not_a_field_reader() {
     assert_eq!(list_runs.get(), bl, "the list's shape did not change");
     assert_eq!(field_runs.get(), bf + 1);
 
-    // An insert DOES.
+    // An insert does.
     store.restructure("push", day_model::Op::Insert, 99, |k| {
         k.push(Item {
             id: 99,

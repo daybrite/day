@@ -4,7 +4,7 @@
 //! ArkUI (HarmonyOS) resource staging (§18.3).
 //!
 //! Both images and data go into `platform/harmony/entry/src/main/resources/rawfile/day/` (hvigor packages
-//! rawfile uncompressed, and the OpenHarmony NDK can only reach `rawfile` — not `media` — from native
+//! rawfile uncompressed, and the OpenHarmony NDK can only reach `rawfile`, not `media`, from native
 //! code). `day-arkui` sets an image node's src to `resource://RAWFILE/day/<name>.png` and its rawfile
 //! opener mmaps `day/<name>` for random-access data.
 
@@ -21,7 +21,7 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     let dir = harmony.join("entry/src/main/resources/rawfile/day");
     // Regenerate fresh so removed resources don't linger in the packaged rawfile tree.
     let _ = fs::remove_dir_all(&dir);
-    // Vector glyph SVGs (docs/vectors.md): staged beside the raster under the same stem —
+    // Vector glyph SVGs (docs/vectors.md): staged beside the raster under the same stem.
     // ArkUI's Image renders SVG natively and `NODE_IMAGE_FILL_COLOR` recolors it, so
     // day-arkui probes `day/<name>.svg` first and falls back to the png.
     let svgs: Vec<std::path::PathBuf> = super::vector_svg_dir(project)
@@ -39,7 +39,7 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
     // Fonts (§18.4): rawfile `day/fonts/<ident>.<ext>` plus a `day/fonts.json` manifest
     // ([{family, file}]) that the platform/harmony scaffold's EntryAbility feeds to ArkTS
-    // `font.registerFont` before the native UI loads — NODE_FONT_FAMILY then resolves the
+    // `font.registerFont` before the native UI loads; NODE_FONT_FAMILY then resolves the
     // family by name.
     if !fonts.is_empty() {
         let fdir = dir.join("fonts");

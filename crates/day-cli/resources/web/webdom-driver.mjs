@@ -9,11 +9,11 @@
 //
 // The engine comes from DAY_WEB_DRIVER_BROWSER (webkit | chromium | firefox), default WebKit.
 // Linux CI sets chromium: Playwright's Linux WebKit (the WPE port) ships no OPFS at all, so
-// day-part-fs — OPFS-only by design (docs/fs.md) — can only be exercised there under
+// day-part-fs, which is OPFS-only (docs/fs.md), can only be exercised there under
 // Chromium; macOS WebKit has OPFS and stays the local default.
 //
 // Playwright is resolved from DAY_WEB_DRIVER_PLAYWRIGHT (a directory whose node_modules holds
-// it), else from the working directory — it is a CI/dev dependency, deliberately not vendored.
+// it), else from the working directory; it is a CI/dev dependency and is not vendored.
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -44,7 +44,7 @@ if (!browserType) {
   process.exit(3);
 }
 
-// A THROWAWAY persistent profile, not the default ephemeral context: WebKit gives an
+// A throwaway persistent profile, not the default ephemeral context: WebKit gives an
 // ephemeral (private-browsing-style) session no OPFS backing, so every day-part-fs operation
 // fails with a generic UnknownError (playwright#18235). A fresh temp profile per run keeps
 // the isolation ephemeral contexts were giving us and real storage; removed again on /quit.
@@ -53,10 +53,10 @@ const dropProfile = () => {
   try {
     fs.rmSync(profile, { recursive: true, force: true });
   } catch {
-    /* best-effort — the OS temp dir reaps leftovers */
+    /* best-effort; the OS temp dir reaps leftovers */
   }
 };
-// Match the showcase's desktop window (1000×720) at 2× — the same pixel density the native
+// Match the showcase's desktop window (1000×720) at 2×, the same pixel density the native
 // macOS gallery captures have.
 const context = await browserType.launchPersistentContext(profile, {
   viewport: { width: 1000, height: 720 },
@@ -96,7 +96,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(Number(controlPort), '127.0.0.1');
 
 // An unexpected context close (crash, external kill) ends the driver with an error; the
-// /quit path above closes deliberately and must not be pre-empted by this handler.
+// /quit path above closes as requested and must not be pre-empted by this handler.
 let quitting = false;
 context.on('close', () => {
   if (quitting) return;

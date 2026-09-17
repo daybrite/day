@@ -1,12 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-searchfield — an EXTERNAL Day Piece (DESIGN.md §15): a NATIVE search input realized as a
-//! distinct search control per toolkit (NSSearchField / UISearchTextField / GtkSearchEntry / a
-//! QLineEdit search shim / an EditText styled for search / a XAML AutoSuggestBox), registered
+//! day-piece-searchfield: an external Day Piece (DESIGN.md §15), a native search input realized
+//! as a distinct search control per toolkit (NSSearchField / UISearchTextField / GtkSearchEntry /
+//! a QLineEdit search shim / an EditText styled for search / a XAML AutoSuggestBox), registered
 //! link-time into each backend's renderer slice without touching day.
 //!
-//! It is bound **two-way** to a `Signal<String>` — the same pattern as day-piece-picker: a native
+//! It is bound **two-way** to a `Signal<String>`, the same pattern as day-piece-picker: a native
 //! edit dispatches an `Event::TextChanged` back to Rust which `set`s the signal, and an external
 //! signal change patches the control with `SearchPatch::SetText`. A per-build echo guard remembers
 //! the last value that arrived from the native control so its own change is not written straight
@@ -47,7 +47,7 @@ pub struct SearchField<S: Binding<String>> {
     placeholder: Option<TextSource>,
 }
 
-/// `search_field(query)` — a native search input whose text mirrors `query` in both directions;
+/// `search_field(query)`: a native search input whose text mirrors `query` in both directions;
 /// `query` is a `Signal<String>` or any other two-way binding (a day-model `Field`).
 pub fn search_field<S: Binding<String>>(query: S) -> SearchField<S> {
     SearchField {
@@ -58,7 +58,7 @@ pub fn search_field<S: Binding<String>>(query: S) -> SearchField<S> {
 
 impl<S: Binding<String>> SearchField<S> {
     /// The empty-state prompt shown when the field has no text (a constant, `Signal<String>`, or
-    /// closure — evaluated once for the initial value; the placeholder is not reactive after build).
+    /// closure, evaluated once for the initial value; the placeholder is not reactive after build).
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
         self.placeholder = Some(t.into_text());
         self
@@ -111,24 +111,24 @@ impl<S: Binding<String>> Piece for SearchField<S> {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend. Every module registers a `Renderer`
+// Per-toolkit native renderers, one file per backend. Every module registers a `Renderer`
 // link-time into its backend's `RENDERERS` slice; the `#[cfg]` gates each to its feature + target,
 // and `#[path]` keeps the files grouped next to lib.rs (the day-piece-picker layout).
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
 
-/// Give this crate's backend module a CALLER, so the linker keeps it.
+/// Give this crate's backend module a caller, so the linker keeps it.
 ///
-/// `search_field` is generic over the binding, so it monomorphizes into the *calling* crate and
-/// leaves nothing in the app referring to `*_impl` — whose object is then never pulled out of this
+/// `search_field` is generic over the binding, so it monomorphizes into the calling crate and
+/// leaves nothing in the app referring to `*_impl`, whose object is then never pulled out of this
 /// rlib, taking the `renderer!` registration with it. The field still builds and still lays out;
 /// it just draws day's placeholder leaf, which is exactly the silent failure DESIGN.md §8.2 calls
 /// the dead-strip gamble. web-dom already avoids this by having the constructor call
-/// `dom_impl::register()` (see `glue_modules!`); this is the same trick for the backends that
+/// `dom_impl::register()` (see `glue_modules!`); this is the same mechanism for the backends that
 /// register at link time instead of at runtime.
 ///
-/// Non-generic on purpose: a generic anchor would monomorphize into the caller too and anchor
+/// Non-generic because a generic anchor would monomorphize into the caller too and anchor
 /// nothing.
 #[inline(never)]
 fn anchor_backend() {

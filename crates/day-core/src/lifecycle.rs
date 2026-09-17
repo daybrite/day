@@ -4,8 +4,9 @@
 //! App-lifecycle callbacks (docs/lifecycle.md). An app registers closures for [`day_spec::Lifecycle`]
 //! phases with [`on_lifecycle`]; each backend, at the matching moment in its native app/activity
 //! delegate, emits `Event::Lifecycle(phase)` (or day-core dispatches the launch phases uniformly),
-//! and the event pump routes it here to run the closures inside a reactive batch — the same rails as
-//! `Event::MenuAction`, so a lifecycle handler that writes signals updates the UI like any callback.
+//! and the event pump routes it here to run the closures inside a reactive batch, the same rails
+//! as `Event::MenuAction`, so a lifecycle handler that writes signals updates the UI like any
+//! callback.
 //!
 //! Not every platform has every phase (a desktop app doesn't really enter the background), so a
 //! handler registered for a phase the running backend doesn't deliver gets a one-time warning, and
@@ -29,7 +30,7 @@ day_reactive::tls_slots! {
         RefCell::new(std::collections::HashSet::new());
 }
 
-/// Forget every registered handler — a RE-MOUNT (docs/appearance.md): the app's `root()` is
+/// Forget every registered handler: a re-mount (docs/appearance.md). The app's `root()` is
 /// about to run again and re-register, and handlers left from the previous mount would fire a
 /// second time for every phase.
 pub fn reset_handlers() {
@@ -38,8 +39,9 @@ pub fn reset_handlers() {
 }
 
 /// Register `f` to run whenever the app reaches `phase`. Handlers run in registration order, in a
-/// reactive batch (signal writes coalesce into one UI update). Register early — before `launch`, or
-/// at the top of the root builder — so `WillLaunch`/`DidLaunch` handlers are in place when they fire.
+/// reactive batch (signal writes coalesce into one UI update). Register early (before `launch`, or
+/// at the top of the root builder) so `WillLaunch`/`DidLaunch` handlers are in place when they
+/// fire.
 ///
 /// If the running backend doesn't deliver `phase` (e.g. `DidEnterBackground` on desktop), the handler
 /// is kept but will never run, and a one-time warning is logged. Prefer guarding the registration with
@@ -64,9 +66,9 @@ pub fn dispatch_lifecycle(phase: Lifecycle) {
     day_reactive::batch(|| {
         for f in &handlers {
             // Lifecycle callbacks run inside native trampolines (applicationWillTerminate,
-            // GApplication::shutdown, the Android onDestroy JNI frame, …) that ABORT the process on
-            // unwind. Contain each handler like the event pump does (DESIGN.md §8.5): a panic here —
-            // classically an `eprintln!` hitting a closed stderr pipe during teardown — would
+            // GApplication::shutdown, the Android onDestroy JNI frame, …) that abort the process on
+            // unwind. Contain each handler like the event pump does (DESIGN.md §8.5): a panic here
+            // (classically an `eprintln!` hitting a closed stderr pipe during teardown) would
             // otherwise turn a clean exit into a spurious crash. `notify_contained_panic` runs
             // per-panic so a crash reporter (day-break) downgrades that handler's report to
             // contained, not fatal.
@@ -80,7 +82,7 @@ pub fn dispatch_lifecycle(phase: Lifecycle) {
             }
         }
     });
-    // Reset the reactive runtime after the batch closes — `recover_from_panic` rewrites the batch
+    // Reset the reactive runtime after the batch closes: `recover_from_panic` rewrites the batch
     // depth, so calling it mid-batch underflows the close.
     if any_panicked {
         day_reactive::recover_from_panic();
@@ -155,7 +157,7 @@ mod tests {
             static RAN: Cell<u32> = const { Cell::new(0) };
         }
         // A handler that panics (e.g. an `eprintln!` on a broken stderr pipe during teardown) must
-        // Not propagate — dispatch runs inside a native trampoline that would abort on unwind.
+        // not propagate; dispatch runs inside a native trampoline that would abort on unwind.
         on_lifecycle(Lifecycle::WillResignActive, || {
             panic!("boom in a lifecycle handler")
         });

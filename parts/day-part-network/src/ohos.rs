@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // HarmonyOS / OpenHarmony: the native NetworkKit connection-management C API (`libnet_connection.so`,
-// `net_connection.h`, API 11+). Pure FFI, like macOS/iOS — no ArkTS bridge or Day runtime needed
+// `net_connection.h`, API 11+). Pure FFI, like macOS/iOS: no ArkTS bridge or Day runtime needed
 // (unlike Android's ConnectivityManager, which rides day-android's JVM/Context). The app does need
 // the `ohos.permission.GET_NETWORK_INFO` permission declared in its module.json5 (a normal
 // permission, no user prompt); without it the calls fail with 201 and status() returns None.
@@ -54,7 +54,7 @@ unsafe extern "C" {
 
 pub fn status() -> Option<NetworkStatus> {
     let mut has_default: i32 = 0;
-    // Non-zero return = permission missing (201) or service unreachable — no reading at all.
+    // Non-zero return = permission missing (201) or service unreachable, so no reading at all.
     if unsafe { OH_NetConn_HasDefaultNet(&mut has_default) } != 0 {
         return None;
     }
@@ -66,7 +66,7 @@ pub fn status() -> Option<NetworkStatus> {
         });
     }
 
-    // A default network is activated; refine kind/expensive from its capabilities (best-effort —
+    // A default network is activated; refine kind/expensive from its capabilities (best-effort:
     // if the detail calls fail we still report online).
     let mut handle = NetConnNetHandle { net_id: 0 };
     let mut caps: NetConnNetCapabilities = unsafe { std::mem::zeroed() };

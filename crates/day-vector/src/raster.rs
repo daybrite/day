@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! SVG parsing + PNG rasterization — the render path both `day icon` and vector staging share.
+//! SVG parsing + PNG rasterization: the render path both `day icon` and vector staging share.
 
 use resvg::tiny_skia;
 use resvg::usvg;
@@ -21,7 +21,7 @@ pub fn render_png(tree: &usvg::Tree, px: u32) -> Result<Vec<u8>, String> {
 }
 
 /// Like [`render_png`], with `pad` (a fraction of the edge, e.g. `0.1` = 10 %) of transparent
-/// margin on every side — the macOS icon convention (art inset on the 1024 canvas).
+/// margin on every side, the macOS icon convention (art inset on the 1024 canvas).
 pub fn render_png_padded(tree: &usvg::Tree, px: u32, pad: f32) -> Result<Vec<u8>, String> {
     if px == 0 {
         return Err("zero-size render".into());
@@ -42,8 +42,9 @@ pub fn render_png_padded(tree: &usvg::Tree, px: u32, pad: f32) -> Result<Vec<u8>
     pixmap.encode_png().map_err(|e| e.to_string())
 }
 
-/// The tree content's absolute bounding box (strokes included), or `None` for empty art — the
-/// input for safe-zone validation (an Android adaptive foreground overflowing the 66/108 zone).
+/// The tree content's absolute bounding box (strokes included), or `None` for empty art. This
+/// is the input for safe-zone validation (an Android adaptive foreground overflowing the
+/// 66/108 zone).
 pub fn content_bbox(tree: &usvg::Tree) -> Option<tiny_skia::Rect> {
     let b = tree.root().abs_layer_bounding_box();
     tiny_skia::Rect::from_xywh(b.x(), b.y(), b.width(), b.height())

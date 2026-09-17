@@ -1,11 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-android — the android-mdc backend (DESIGN.md §9). jni + the DayBridge Java shim
-//! (java/dev/daybrite/day/bridge/ — the Java analogue of the Qt C++ shim; controls are Material 3
-//! components from com.google.android.material, M3 Expressive themed). `Handle = AHandle(GlobalRef)`. Coordinates: Day works in dp; `set_frame` scales
-//! by density to px and `measure` scales back. The JVM owns the main loop: `Platform::run`
-//! hands the pre-registered root straight to `ready` (the Activity already called `init`).
+//! day-android: the android-mdc backend (DESIGN.md §9). jni + the DayBridge Java shim
+//! (java/dev/daybrite/day/bridge/, the Java analogue of the Qt C++ shim; controls are Material 3
+//! components from com.google.android.material, M3 Expressive themed).
+//! `Handle = AHandle(GlobalRef)`. Coordinates: Day works in dp; `set_frame` scales by density to
+//! px and `measure` scales back. The JVM owns the main loop: `Platform::run` hands the
+//! pre-registered root straight to `ready` (the Activity already called `init`).
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -13,9 +14,9 @@
 pub use imp::*;
 
 /// Parity test for the event-kind wire table: the Java shim's `K_*` constants block in
-/// DayBridge.java must mirror `day_spec::bridge::BridgeKind` exactly. Host-runnable — pure
-/// text against the enum, no JNI — so a drifted or colliding kind fails `cargo test`
-/// anywhere, not just on a device.
+/// DayBridge.java must mirror `day_spec::bridge::BridgeKind` exactly. Host-runnable (pure
+/// text against the enum, no JNI), so a drifted or colliding kind fails `cargo test` on
+/// any host as well as on a device.
 #[cfg(test)]
 mod bridge_kinds_parity {
     #[test]
@@ -92,9 +93,9 @@ mod bridge_kinds_parity {
 /// The part↔Java payload convention (docs/extending.md, "The Android bridging contract"):
 /// One `byte[]` crosses JNI per call, laid out as
 /// `[0..4)` status `i32` BE · `[4..8)` meta-block length `i32` BE · meta `"k\nv\n…"` UTF-8 ·
-/// payload bytes. A NEGATIVE status is a transport-error sentinel and the meta block carries
+/// payload bytes. A negative status is a transport-error sentinel and the meta block carries
 /// the error message instead of pairs (each part defines its own sentinel values; day-part-http
-/// uses −1 timeout … −6 bad-url). Pure bytes — no JNI — so this compiles and tests on every
+/// uses −1 timeout … −6 bad-url). Pure bytes, no JNI, so this compiles and tests on every
 /// host; `DayEnvelope.java` is the Java twin and the two encode identically.
 pub mod envelope {
     /// A decoded (or to-be-encoded) bridge envelope.
@@ -103,7 +104,7 @@ pub mod envelope {
         /// Non-negative: the call's status (HTTP status, a handle, …). Negative: an error
         /// sentinel; `meta` is empty and [`Envelope::error_message`] holds the text.
         pub status: i32,
-        /// Key/value pairs (response headers, attributes) — empty for error envelopes.
+        /// Key/value pairs (response headers, attributes); empty for error envelopes.
         pub meta: Vec<(String, String)>,
         /// The body / result bytes (for errors, the raw message bytes).
         pub payload: Vec<u8>,
@@ -128,7 +129,7 @@ pub mod envelope {
             out
         }
 
-        /// Parse the wire layout. `Err` is a MALFORMED envelope (truncated), not a sentinel —
+        /// Parse the wire layout. `Err` is a malformed envelope (truncated), not a sentinel:
         /// sentinel statuses parse fine and are the caller's to interpret.
         pub fn decode(bytes: &[u8]) -> Result<Envelope, &'static str> {
             if bytes.len() < 8 {
@@ -248,8 +249,8 @@ mod imp {
     const ANDROID_LOG_ERROR: c_int = 6;
 
     /// Route the process's stdout (fd 1) and stderr (fd 2) into logcat under the tag
-    /// `Day` — Android sends both to /dev/null otherwise, so `println!`/`eprintln!`
-    /// (and Rust panics) would be invisible. stdout logs at INFO, stderr at ERROR, so
+    /// `Day`; Android sends both to /dev/null otherwise, so `println!`/`eprintln!`
+    /// (and Rust panics) would be invisible. stdout logs at `INFO`, stderr at `ERROR`, so
     /// the `Day` CLI can color them apart. Idempotent; safe to call once at startup.
     pub fn redirect_stdio_to_logcat() {
         static DONE: OnceLock<()> = OnceLock::new();
@@ -303,7 +304,7 @@ mod imp {
     use linkme::distributed_slice;
 
     /// A shared global reference to a native View. jni 0.22's `Global` is a bare `'static` ref that
-    /// is NOT `Clone` (cloning a global ref is a JNI call), so we wrap it in `Arc` — restoring the
+    /// is not `Clone` (cloning a global ref is a JNI call), so we wrap it in `Arc`, restoring the
     /// `Arc`-backed sharing `GlobalRef` had in 0.21, which `AHandle: Clone` (a day-core `Handle`)
     /// requires. The underlying JNI global ref is released when the last `Arc` owner drops.
     type Gref = std::sync::Arc<Global<JObject<'static>>>;
@@ -337,7 +338,7 @@ mod imp {
         fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>>;
         fn dstr(&self, s: &JString) -> jni::errors::Result<String>;
     }
-    /// After a failed JNI call, a Java exception may be PENDING on the env — and calling
+    /// After a failed JNI call, a Java exception may be pending on the env, and calling
     /// almost any further JNI function in that state is undefined behavior per the JNI
     /// spec. Every `DayEnv` wrapper funnels its error path through here (describe = stack
     /// trace to logcat, then clear), so an `Err` from `dcall`/`dcall_static`/`dfield` is
@@ -399,7 +400,7 @@ mod imp {
             sig: &str,
         ) -> jni::errors::Result<JValueOwned<'l>> {
             let sig = sig.parse::<RuntimeFieldSignature>()?;
-            // Same app-ClassLoader routing as dcall_static — see dfind.
+            // Same app-ClassLoader routing as dcall_static; see dfind.
             let cls = self.dfind(class)?;
             let r = self.get_static_field(&cls, JNIString::from(name), FieldSignature::from(&sig));
             if r.is_err() {
@@ -411,8 +412,8 @@ mod imp {
             match self.find_class(JNIString::from(name)) {
                 Ok(c) => Ok(c),
                 Err(e) => {
-                    // A Rust-spawned thread attaches with only the SYSTEM class loader, which
-                    // cannot see app classes — clear the pending ClassNotFoundException and
+                    // A Rust-spawned thread attaches with only the system class loader, which
+                    // cannot see app classes: clear the pending ClassNotFoundException and
                     // retry through the app loader cached at init.
                     self.exception_clear();
                     let Some(loader) = APP_CLASS_LOADER.get() else {
@@ -446,10 +447,10 @@ mod imp {
     };
 
     day_core::tls_group! {
-        /// Recycling list (docs/list.md): row-pull sources keyed by LIST node id (Java passes it
+        /// Recycling list (docs/list.md): row-pull sources keyed by list node id (Java passes it
         /// back in nativeListBind), and a stable GlobalRef per physical cell so day-core's cell
-        /// map keys consistently across ListView recycling. Cells are grouped BY LIST so that
-        /// releasing a list frees its cells' JNI global refs with it — a long session would
+        /// map keys consistently across ListView recycling. Cells are grouped by list so that
+        /// releasing a list frees its cells' JNI global refs with it; a long session would
         /// otherwise leak one global ref per physical cell toward the JNI table limit. Within a
         /// list, cells key by `identityHashCode`, the only stable identity the wire carries
         /// (nativeListBind sends `(hostId, position, cell)` and nothing else). Collisions are
@@ -462,7 +463,7 @@ mod imp {
         /// A realized NAV_MENU's rows, by its own view ptr: `(node, joined titles, joined icons)`.
         ///
         /// Recorded at realize, which is where the props are, and handed to the navigation suite
-        /// at INSERT — the first moment the menu is in a hierarchy whose ancestors reach the
+        /// at insert, the first moment the menu is in a hierarchy whose ancestors reach the
         /// suite. Where there is no suite above it (every presentation but `Tabs`) the handover
         /// finds nothing and the rows stay a list. Entries drop in `release`.
         static NAV_MENU_ROWS: std::cell::RefCell<
@@ -481,7 +482,7 @@ mod imp {
             std::collections::HashMap<i64, std::collections::HashMap<i32, Gref>>,
         > = std::cell::RefCell::new(std::collections::HashMap::new());
         /// Programmatic selection per list (docs/list.md `ListPatch::Selected`): the Java side
-        /// paints from this — at bind (nativeListIsSelected) and on a sync
+        /// paints from this at bind (nativeListIsSelected) and on a sync
         /// (listPaintSelection walking the visible holders).
         static LIST_SELECTED: std::cell::RefCell<
             std::collections::HashMap<i64, std::collections::BTreeSet<usize>>,
@@ -492,20 +493,20 @@ mod imp {
         static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
 
         /// Secondary DayWindowActivity roots (docs/windows.md): (day node, the root's
-        /// global ref — kept alive alongside the tree's own adopted ref).
+        /// global ref, kept alive alongside the tree's adopted ref).
         static SECONDARY: RefCell<Vec<(u64, Gref)>> = const { RefCell::new(Vec::new()) };
 
     }
 
     /// Row count, pulled by the Java adapter's getCount (reads the snapshot only; no tree).
-    /// A JNI up-call entry: the body is contained — a panic unwinding the frame would abort.
+    /// A JNI up-call entry: the body is contained, since a panic unwinding the frame would abort.
     pub fn list_len(host_id: i64) -> usize {
         day_spec::ffi_guard::contain(0, || {
             LIST_SOURCES.with(|m| m.borrow().get(&host_id).map(|s| (s.len)()).unwrap_or(0))
         })
     }
 
-    /// Fill a recycled cell — the Java adapter's getView calls this. A stable GlobalRef per
+    /// Fill a recycled cell; the Java adapter's getView calls this. A stable GlobalRef per
     /// physical cell (keyed by identityHashCode under its list) gives day-core a consistent
     /// cell key. A JNI up-call entry running app row builders: contained like `list_len`.
     pub fn list_bind(env: &mut Env, host_id: i64, position: i32, cell: JObject) {
@@ -522,8 +523,8 @@ mod imp {
             let gref = match cached {
                 Some(g) => g,
                 None => {
-                    // A failed global ref (JNI table exhausted) skips this bind — the next
-                    // bind retries — rather than panicking out of the up-call.
+                    // A failed global ref (JNI table exhausted) skips this bind (the next
+                    // bind retries) rather than panicking out of the up-call.
                     let Ok(g) = env.new_global_ref(&cell) else {
                         return;
                     };
@@ -546,7 +547,7 @@ mod imp {
     }
 
     /// A holder left the visible set (RecyclerView's onViewRecycled): clear the cell
-    /// subtree's dayscript ids so pooled rows stop answering lookups — day-core's
+    /// subtree's dayscript ids so pooled rows stop answering lookups, through day-core's
     /// `list_recycle_cell`, keyed by the same per-cell GlobalRef `list_bind` binds with.
     /// A JNI up-call entry: contained.
     pub fn list_recycle(env: &mut Env, host_id: i64, cell: JObject) {
@@ -568,7 +569,7 @@ mod imp {
         });
     }
 
-    /// Whether row `position` is in the list's programmatic selection — the Java bind path
+    /// Whether row `position` is in the list's programmatic selection; the Java bind path
     /// paints newly bound holders from this. A JNI up-call entry: contained.
     pub fn list_is_selected(host_id: i64, position: i32) -> bool {
         day_spec::ffi_guard::contain(false, || {
@@ -583,7 +584,7 @@ mod imp {
     /// The reorder guard's verdict for a hovered drop (docs/list.md), pulled synchronously by
     /// ItemTouchHelper's canDropOver. ItemTouchHelper cannot relocate the gap, so a Retarget
     /// verdict (accepted != proposed) reads as a deny for that hover. The source is cloned out
-    /// before the guard runs — no thread-local borrow held.
+    /// before the guard runs, so no thread-local borrow is held.
     pub fn list_can_drop(host_id: i64, from: i32, to: i32) -> bool {
         // JNI up-call entry (ItemTouchHelper's canDropOver): contain the app's guard.
         day_spec::ffi_guard::contain(false, || {
@@ -601,10 +602,10 @@ mod imp {
         })
     }
 
-    /// Commit one incremental ItemTouchHelper swap through the sync seam (rotates day's
-    /// snapshot, defers the app callback). Returns whether the swap was accepted.
+    /// Commit one incremental ItemTouchHelper swap through the source's synchronous `move_row`
+    /// (rotates day's snapshot, defers the app callback). Returns whether the swap was accepted.
     pub fn list_move(host_id: i64, from: i32, to: i32) -> bool {
-        // JNI up-call entry: contain the commit through the sync seam.
+        // JNI up-call entry: contain the synchronous commit.
         day_spec::ffi_guard::contain(false, || {
             if !list_can_drop(host_id, from, to) {
                 return false;
@@ -622,7 +623,7 @@ mod imp {
     }
 
     /// May this row be swiped away? Consulted from `getMovementFlags`, so a protected row
-    /// simply reports no swipe direction and never moves under the finger (docs/list.md).
+    /// reports no swipe direction and never moves under the finger (docs/list.md).
     pub fn list_can_delete(host_id: i64, index: i32) -> bool {
         // JNI up-call entry (getMovementFlags): contain the app's guard.
         day_spec::ffi_guard::contain(false, || {
@@ -636,10 +637,10 @@ mod imp {
         })
     }
 
-    /// Commit a swipe-to-delete through the sync seam (shortens day's snapshot, defers the app
-    /// callback). Returns whether the delete was accepted.
+    /// Commit a swipe-to-delete through the source's synchronous `delete_row` (shortens day's
+    /// snapshot, defers the app callback). Returns whether the delete was accepted.
     pub fn list_delete(host_id: i64, index: i32) -> bool {
-        // JNI up-call entry: contain the commit through the sync seam.
+        // JNI up-call entry: contain the synchronous commit.
         day_spec::ffi_guard::contain(false, || {
             if !list_can_delete(host_id, index) {
                 return false;
@@ -659,8 +660,8 @@ mod imp {
     pub struct AHandle(pub Gref);
 
     static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
-    /// GlobalRef to the DayBridge class: FindClass from spawned native threads uses the SYSTEM
-    /// class loader and cannot see app classes — cache the class on the main thread at init.
+    /// GlobalRef to the DayBridge class: FindClass from spawned native threads uses the system
+    /// class loader and cannot see app classes, so cache the class on the main thread at init.
     static BRIDGE_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
     /// GlobalRef to the app's ClassLoader (taken from the DayBridge class at init), so `dfind`
     /// can resolve app classes from Rust-spawned threads too: their `FindClass` sees only the
@@ -669,7 +670,7 @@ mod imp {
 
     // --- Bundled data resources via the NDK AAssetManager (§18.3) --------------------------------
     // `resource("name")` reads the APK asset `name` with a zero-copy pointer into the (uncompressed)
-    // asset via AAsset_getBuffer — the native AssetManager path the user asked for.
+    // asset via AAsset_getBuffer, the native AssetManager path the user asked for.
     #[allow(non_camel_case_types)]
     mod aasset {
         use std::os::raw::{c_char, c_int, c_void};
@@ -822,7 +823,7 @@ mod imp {
             .expect("attach_current_thread")
     }
 
-    /// Whether the JVM has been cached — i.e. whether [`with_env`] can run at all.
+    /// Whether the JVM has been cached, i.e. whether [`with_env`] can run at all.
     ///
     /// Public because a bridged part (docs/bridge.md) may be called before, or entirely outside, a
     /// Day app's `init`: a headless `day-part-*` crate is ordinary Rust that anyone can depend on.
@@ -842,8 +843,8 @@ mod imp {
     }
 
     /// View a `java.lang.String` object as a `JString`. String return values arrive as a
-    /// `JObject` from `JValueOwned::l()`; casting is safe — `JString` is a transparent wrapper over
-    /// the same `jobject`. Public: piece/part crates reading Java strings use it.
+    /// `JObject` from `JValueOwned::l()`; casting is safe because `JString` is a transparent
+    /// wrapper over the same `jobject`. Public: piece/part crates reading Java strings use it.
     pub fn as_jstring<'a>(obj: JObject<'a>) -> JString<'a> {
         // Safety: same repr (a jobject); caller guarantees the object is a java.lang.String.
         unsafe { std::mem::transmute(obj) }
@@ -852,7 +853,7 @@ mod imp {
     /// Call a DayBridge static returning a View, as a shared global ref (public helper).
     ///
     /// Never panics on a Java throw: this is the funnel for every builtin realize, and it
-    /// runs inside a JNI up-call — a panic unwinding out of that frame aborts the process,
+    /// runs inside a JNI up-call; a panic unwinding out of that frame aborts the process,
     /// which shipped as the "splash-only blank app" failure. On error the pending exception
     /// is described-and-cleared (stack trace in logcat, via the `DayEnv` wrappers) and a
     /// visible `⟨method⟩` placeholder label stands in, so one broken view cannot take down
@@ -929,7 +930,7 @@ mod imp {
         let mut flags = Vec::with_capacity(runs.len());
         let mut colors = Vec::with_capacity(runs.len());
         let mut backgrounds = Vec::with_capacity(runs.len());
-        // Relative size, in per-mille — an int array so it rides the same cheap `set_region`
+        // Relative size, in per-mille: an int array so it rides the same cheap `set_region`
         // path as the rest rather than needing a float array of its own.
         let mut scales = Vec::with_capacity(runs.len());
         let mut links: Vec<Option<String>> = Vec::with_capacity(runs.len());
@@ -962,7 +963,7 @@ mod imp {
             if r.background.is_some() {
                 f |= 32;
             }
-            // The underline STYLE rides bits 6-8: Android has one underline span, so a dotted or
+            // The underline style rides bits 6-8: Android has one underline span, so a dotted or
             // wavy request draws a plain line and the distinction is recorded for the day it can
             // be honored (an app's own diagnostic mark).
             if r.underline.is_on() {
@@ -993,7 +994,7 @@ mod imp {
         {
             return;
         }
-        // Link targets ride one joined string, as the canvas op stream already does — a Java
+        // Link targets ride one joined string, as the canvas op stream already does: a Java
         // object array through JNI costs a class lookup and a per-element store for a payload
         // that is empty in almost every label.
         let joined = links
@@ -1045,7 +1046,7 @@ mod imp {
         try_make_view_on(env, BRIDGE, method, sig, args)
     }
 
-    /// [`try_make_view`] against an arbitrary staged class: piece crates calling their OWN
+    /// [`try_make_view`] against an arbitrary staged class: piece crates calling their
     /// Java factory (docs/bridge.md) share the same non-panicking path.
     pub fn try_make_view_on(
         env: &mut Env,
@@ -1072,7 +1073,7 @@ mod imp {
             &[JValue::Object(&text)],
         )
         // The bridge itself cannot build a plain label: nothing can render. Aborting
-        // here is honest — and it is the only remaining panic on this path.
+        // here is warranted, and it is the only remaining panic on this path.
         .expect("day-android: DayBridge.makeLabel unavailable — bridge not staged?")
     }
 
@@ -1102,7 +1103,7 @@ mod imp {
     }
 
     /// Apply a `background`/`corner_radius` surface: a rounded `GradientDrawable` background +
-    /// `clipToOutline`. The radius is density-scaled here (Java takes px). Idempotent — used at
+    /// `clipToOutline`. The radius is density-scaled here (Java takes px). Idempotent; used at
     /// realize and on a reactive background patch.
     fn apply_surface(h: &AHandle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
         let d = DENSITY.with(|x| x.get());
@@ -1138,12 +1139,12 @@ mod imp {
     /// A JNI up-call entry: contained, so a startup failure logs instead of aborting.
     pub fn init(env: &mut Env, root: JObject, density_: f32, w: i32, h: i32) {
         day_spec::ffi_guard::contain((), || {
-            // A RE-MOUNT (docs/appearance.md): an activity recreation calls this a second time
-            // with a brand-new view hierarchy. Everything below maps a NATIVE VIEW POINTER (or a
+            // A re-mount (docs/appearance.md): an activity recreation calls this a second time
+            // with a brand-new view hierarchy. Everything below maps a native view pointer (or a
             // host id) to something owned by the tree that is going away, and `LIST_SOURCES` in
             // particular holds closures that captured the previous mount's state. Left in place,
-            // a callback from a stale view — or a recycled pointer that now means something else
-            // — dispatches into the old graph and reads signals that were disposed with it.
+            // a callback from a stale view (or a recycled pointer that now means something else)
+            // dispatches into the old graph and reads signals that were disposed with it.
             //
             // Cleared unconditionally rather than behind a "did we already start" flag: `init`
             // means "a tree is being mounted here", and on a first launch these are empty anyway.
@@ -1154,14 +1155,14 @@ mod imp {
             NAV_MENU_ROWS.with(|m| m.borrow_mut().clear());
             NAV_SUITES.with(|m| m.borrow_mut().clear());
             LABEL_NODE.with(|m| m.borrow_mut().clear());
-            // Secondary windows do not survive the primary's recreation — their activities were
+            // Secondary windows do not survive the primary's recreation: their activities were
             // torn down with it, so the day-side records are stale global refs.
             SECONDARY.with(|m| m.borrow_mut().clear());
             if let Ok(vm) = env.get_java_vm() {
                 let _ = JAVA_VM.set(vm);
             }
             if let Ok(cls) = env.dfind(BRIDGE) {
-                // Any app class's getClassLoader() yields the loader that can see ALL app classes;
+                // Any app class's getClassLoader() yields the loader that can see every app class;
                 // cache it here on the main thread, where FindClass still resolves app classes.
                 if let Ok(loader) = env
                     .dcall(&cls, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
@@ -1207,7 +1208,7 @@ mod imp {
     /// A secondary DayWindowActivity's first laid-out root (the `nativeStartWindow` JNI
     /// export lands here): adopt it as the parked day window's content
     /// (docs/windows.md). `false` ⇒ the window was closed before the activity finished
-    /// connecting — the activity finishes itself.
+    /// connecting, and the activity finishes itself.
     pub fn window_started(env: &mut Env, root: JObject, node: i64, w: i32, h: i32) -> bool {
         // JNI up-call entry (nativeStartWindow): contain the adoption + day-core completion.
         day_spec::ffi_guard::contain(false, || {
@@ -1243,7 +1244,7 @@ mod imp {
         })
     }
 
-    // The wire table (day_spec::bridge) as const match patterns — the Java side's K_* constants
+    // The wire table (day_spec::bridge) as const match patterns; the Java side's K_* constants
     // mirror these, and day-android's parity test holds the two files together.
     const K_PRESSED: i32 = bridge::BridgeKind::Pressed as i32;
     const K_TEXT_CHANGED: i32 = bridge::BridgeKind::TextChanged as i32;
@@ -1278,8 +1279,8 @@ mod imp {
     const K_KEY: i32 = bridge::BridgeKind::Key as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
-    /// numbers are `day_spec::bridge::BridgeKind` — the shared wire table. A JNI up-call
-    /// entry: the decode + dispatch is contained (`day_spec::ffi_guard`) — a panic
+    /// numbers are `day_spec::bridge::BridgeKind`, the shared wire table. A JNI up-call
+    /// entry: the decode + dispatch is contained (`day_spec::ffi_guard`), since a panic
     /// unwinding this frame would abort the process.
     pub fn dispatch_event(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
         day_spec::ffi_guard::contain((), || {
@@ -1316,7 +1317,7 @@ mod imp {
             K_LIST_ACTIVATED => Event::ListActivated(num as usize),
             // Navigation (docs/navigation.md): system back / gesture / toolbar up. num == 1.0
             // means the native FragmentManager already popped (predictive back commit, back
-            // button, up arrow) — Rust updates the path without re-issuing the pop.
+            // button, up arrow), so Rust updates the path without re-issuing the pop.
             K_NAV_BACK => Event::NavBack {
                 already_popped: num != 0.0,
             },
@@ -1376,7 +1377,7 @@ mod imp {
                 match num as i32 {
                     0 => Event::Tap(at),
                     // Hover (docs/canvas.md "Interaction"): a mouse or a stylus over the view.
-                    // A finger produces none of these — Android's hover events come from
+                    // A finger produces none of these: Android's hover events come from
                     // MotionEvent's HOVER_* actions, which touches do not generate.
                     10 => Event::Hover {
                         phase: day_spec::DragPhase::Began,
@@ -1448,12 +1449,12 @@ mod imp {
                 Some(phase) => Event::Lifecycle(phase),
                 None => return,
             },
-            // Root size change (px as "w,h" text): the safe-area root grew or shrank — a late
-            // inset pass, the soft keyboard, rotation, or a system-bar change. Routed to the
+            // Root size change (px as "w,h" text): the safe-area root grew or shrank (a late
+            // inset pass, the soft keyboard, rotation, or a system-bar change). Routed to the
             // root as a window resize so Day relayouts; same rail as appkit's windowDidResize.
-            // (18: the first free kind — 15 already carries file-picker answers.)
+            // (18: the first free kind; 15 already carries file-picker answers.)
             // Safe-area report (edge-to-edge mode, docs/layout.md): update the global insets
-            // signal; apps read `day::safe_area()`. Not an Event — nothing to route to a node.
+            // signal; apps read `day::safe_area()`. Not an Event: nothing to route to a node.
             K_SAFE_AREA => {
                 let text: String = env.dstr(jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
@@ -1469,7 +1470,7 @@ mod imp {
                 });
                 return;
             }
-            // Light/dark switch (DayActivity.onConfigurationChanged). Not an Event — nothing to
+            // Light/dark switch (DayActivity.onConfigurationChanged). Not an Event: nothing to
             // route to a node; day-core restyles what it owns and rebuilds app-painted surfaces.
             K_APPEARANCE_CHANGED => {
                 day_core::note_appearance_changed();
@@ -1500,7 +1501,7 @@ mod imp {
             K_SUBMITTED => Event::Submitted,
             unknown => {
                 // A silently dropped kind is how the kind-15 collision hid for weeks: say so
-                // once per kind in debug builds (release stays quiet — this is a dev signal).
+                // once per kind in debug builds (release stays quiet; this is a dev signal).
                 #[cfg(debug_assertions)]
                 {
                     use std::sync::{Mutex, OnceLock};
@@ -1582,7 +1583,7 @@ mod imp {
         })
     }
 
-    /// Mobile backends deliver the FULL lifecycle (docs/lifecycle.md). `const` for
+    /// Mobile backends deliver the full lifecycle (docs/lifecycle.md). `const` for
     /// `day::require_lifecycle!` compile-time guards.
     pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
         true
@@ -1590,7 +1591,7 @@ mod imp {
 
     /// Default label for a standard role left unlabeled by the app. (Android's own text-selection
     /// toolbar handles the actual Cut/Copy/Paste on editable views; a role in a day menu is shown
-    /// for parity and dispatches nothing — see docs/menus.md.)
+    /// for parity and dispatches nothing; see docs/menus.md.)
     fn android_role_label(role: day_spec::MenuRole) -> &'static str {
         use day_spec::MenuRole::*;
         match role {
@@ -1615,7 +1616,7 @@ mod imp {
     /// `kind \t action \t enabled \t checked \t label` per line, where kind ∈ {A action,
     /// S submenu-open, E submenu-close, `-` separator}. Roles become plain actions with action 0,
     /// and `checked` is -1 for a plain command or 0/1 for a checkable one.
-    /// The window toolbar as one record per item — `\u{1e}` between records, `\u{1f}` between
+    /// The window toolbar as one record per item: `\u{1e}` between records, `\u{1f}` between
     /// fields: id, kind, label, icon, enabled, action, extra. A menu item's extra is the app-menu
     /// spec `serialize_menu` writes (its own `\t`/`\n` never collide with these separators); a
     /// segmented item's is the selected index and the segment titles, `\u{1d}`-separated, each
@@ -1656,7 +1657,7 @@ mod imp {
                 }
                 K::Segmented { segments, selected } => {
                     // Each segment carries its title and its glyph (0x1C between them): the bar
-                    // shows the control as one icon button — the segment in force's glyph —
+                    // shows the control as one icon button (the segment in force's glyph)
                     // that opens the choices, so it needs every segment's art.
                     let mut e = selected.to_string();
                     for seg in segments {
@@ -1704,9 +1705,9 @@ mod imp {
     }
 
     /// The drawable name an item's icon resolves to on the Java side. A bundled image is named
-    /// after itself (docs/vectors.md); a `Symbol` names the toolkit's own glyph for it —
+    /// after itself (docs/vectors.md); a `Symbol` names the toolkit's glyph for it,
     /// `day_symbol_<snake_case>`, one Material Symbols vector per variant shipped in this crate's
-    /// `res/` — so a symbol-only item has an icon to show in the bar, the way an SF Symbol gives
+    /// `res/`, so a symbol-only item has an icon to show in the bar, the way an SF Symbol gives
     /// it one on Apple. A variant with no glyph resolves to nothing and lands as text.
     fn icon_name(icon: Option<&day_spec::Icon>) -> String {
         match icon {
@@ -1736,7 +1737,7 @@ mod imp {
         }
         // `kind \t action \t enabled \t checked \t label`. The label stays last so its own
         // spaces need no escaping, and every kind writes the full field count so the Java side
-        // can index it — `checked` is -1 for a plain command, 0/1 for a checkable one.
+        // can index it; `checked` is -1 for a plain command, 0/1 for a checkable one.
         for item in items {
             match item {
                 day_spec::MenuItem::Separator => out.push_str("-\t0\t1\t-1\t\n"),
@@ -1752,9 +1753,9 @@ mod imp {
                     enabled,
                     checked,
                     role,
-                    // The rest deliberately unread: Material's overflow menu is text-only by
-                    // convention (an app-bar ACTION carries the icon), so `icon` never applies
-                    // here, and `id` is the app's own name for a script rather than anything the
+                    // The rest go unread: Material's overflow menu is text-only by
+                    // convention (an app-bar action carries the icon), so `icon` never applies
+                    // here, and `id` is the app's name for a script rather than anything the
                     // native item needs.
                     ..
                 } => {
@@ -1774,9 +1775,10 @@ mod imp {
         }
     }
 
-    /// Size (in **sp** — scales with Settings ▸ Display ▸ Font size, the Android accessibility text
-    /// scale) + the style's inherent weight for a logical [`Font`]. Mobile scale, aligned with iOS.
-    /// Public for standalone pieces (docs/extending.md), which resolve the same scale.
+    /// Size (in **sp**, which scales with Settings ▸ Display ▸ Font size, the Android
+    /// accessibility text scale) + the style's inherent weight for a logical [`Font`]. Mobile
+    /// scale, aligned with iOS. Public for standalone pieces (docs/extending.md), which resolve
+    /// the same scale.
     pub fn font_style(f: Font) -> (f32, day_spec::FontWeight) {
         use day_spec::FontWeight::*;
         match f {
@@ -1796,7 +1798,7 @@ mod imp {
         }
     }
 
-    /// The bundled family name when the spec is `Font::Custom` (§18.4) — passed to Java as the
+    /// The bundled family name when the spec is `Font::Custom` (§18.4), passed to Java as the
     /// nullable `family` argument of `DayBridge.setLabelFont`, which resolves it to the
     /// `res/font/` resource `day build` staged from the project's `fonts/` directory.
     fn custom_family(spec: day_spec::FontSpec) -> Option<&'static str> {
@@ -1830,7 +1832,7 @@ mod imp {
     }
 
     /// Day `Color` (0–1 floats) → a packed `0xAARRGGBB` int for `android.graphics.Color`.
-    /// Per-row nav icon tints as an index-aligned joined string ("0" = untinted) — the
+    /// Per-row nav icon tints as an index-aligned joined string ("0" = untinted), the
     /// best-effort `setNavMenuTints` wire format (docs/vectors.md).
     fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
         tints
@@ -1841,7 +1843,7 @@ mod imp {
     }
 
     /// Per-row nav context menus (docs/menus.md) as one string: each row's
-    /// [`serialize_menu`] spec (empty = no menu), joined by U+001E — a separator the line
+    /// [`serialize_menu`] spec (empty = no menu), joined by U+001E, a separator the line
     /// format itself never contains. Ridden best-effort after makeNavMenu/updateNavMenu,
     /// like the tints.
     /// Move the sidebar's active indicator to `sel`, or clear it (`NavMenuProps::selected`).
@@ -1882,9 +1884,10 @@ mod imp {
 
     /// Warn once per kind that this backend has no registered renderer for `kind`, before falling
     /// back to a visible placeholder. A missing renderer usually means the piece's `mdc` feature
-    /// wasn't enabled (Tier A.2 derives it automatically under `day build`). The message goes to both
-    /// stderr (which `redirect_stdio_to_logcat` routes to logcat) and directly to logcat at ERROR, so
-    /// it surfaces even before the redirect installs. Deduped per kind so it doesn't spam the log.
+    /// wasn't enabled (Tier A.2 derives it automatically under `day build`). The message goes to
+    /// both stderr (which `redirect_stdio_to_logcat` routes to logcat) and directly to logcat at
+    /// `ERROR`, so it surfaces even before the redirect installs. Deduped per kind so it doesn't
+    /// spam the log.
     fn warn_missing_renderer(kind: PieceKind) {
         day_spec::placeholder::report(kind, "android");
     }
@@ -1961,7 +1964,7 @@ mod imp {
 
     /// Ask the bridge for a PNG of this app's window (docs/window-image.md).
     ///
-    /// The bytes come back as a Java `byte[]` and are copied out with `convert_byte_array` — no
+    /// The bytes come back as a Java `byte[]` and are copied out with `convert_byte_array`: no
     /// base64 round trip for what is already binary.
     fn android_window_image(chrome: bool) -> Result<Vec<u8>, String> {
         with_env(|env| {
@@ -1987,24 +1990,24 @@ mod imp {
             match cap {
                 // `View.setPointerIcon` with a system `PointerIcon` per view (docs/cursor.md).
                 Cap::Cursor => Support::Native,
-                // The families `fonts.xml` names — the ones `Typeface.create` resolves
+                // The families `fonts.xml` names, the ones `Typeface.create` resolves
                 // (docs/fonts.md).
                 Cap::FontList => Support::Native,
                 // `BitmapFactory` decodes every container Android reads, and `Bitmap.compress`
-                // writes back PNG and JPEG (docs/images.md). WebP DECODES here but is not
+                // writes back PNG and JPEG (docs/images.md). WebP decodes here but is not
                 // offered for encode: the modern `WEBP_LOSSY`/`WEBP_LOSSLESS` constants are
-                // API 30 and the scaffold's minSdk is 24. `Cap::ImageProperties` is deliberately
-                // absent — there is no metadata reader on this path, and an empty struct would
-                // read as "this file records nothing" rather than "nobody looked".
+                // API 30 and the scaffold's minSdk is 24. `Cap::ImageProperties` is
+                // absent because there is no metadata reader on this path, and an empty struct
+                // would read as "this file records nothing" rather than "nobody looked".
                 Cap::ImageDecode | Cap::ImageEncode => Support::Native,
                 // `View.draw(Canvas)` renders this app's own window into a bitmap
                 // (docs/window-image.md); surface-backed content is the documented gap.
                 Cap::Snapshot => Support::Native,
-                // An app-level light/dark override, through `UiModeManager` — API 31 and up.
-                // Answered from the DEVICE rather than pinned for the backend: below 31 the only
+                // An app-level light/dark override, through `UiModeManager` (API 31 and up).
+                // Answered from the device rather than pinned for the backend: below 31 the only
                 // route is AppCompat's delegate, which does not restyle the plain
-                // `FragmentActivity` Day runs in, so there the honest answer is that there is no
-                // such control — and `day-piece-settings` draws no appearance row rather than one
+                // `FragmentActivity` Day runs in, so there the answer is that there is no such
+                // control, and `day-piece-settings` draws no appearance row rather than one
                 // that does nothing.
                 Cap::Appearance => {
                     if with_env(|env| {
@@ -2032,21 +2035,21 @@ mod imp {
                 | Cap::Animation
                 | Cap::Cover
                 // The MaterialToolbar names the destination on every page (DayNavHost
-                // syncChrome) — content needn't repeat the title (docs/navigation.md).
+                // syncChrome), so content needn't repeat the title (docs/navigation.md).
                 | Cap::NavHeader
                 // The window toolbar goes in the nav host's app bar (docs/toolbars.md), as
                 // menu items shown as actions: one bar per window, at every width, with what
                 // the bar cannot fit folding into its overflow.
                 | Cap::Toolbar
                 // A SlidingPaneLayout hosts every `nav(Sidebar)`, so two panes are
-                // available wherever they fit — a tablet, a foldable open, a phone in landscape
+                // available wherever they fit: a tablet, a foldable open, a phone in landscape
                 // if the widths allow (docs/size-classes.md).
                 | Cap::NavSplit
                 | Cap::TextEditable
                 | Cap::TextSelectable
                 | Cap::TextSpellCheck
                 // ItemTouchHelper on the RecyclerView list: long-press lift, elevation,
-                // incremental swaps — the platform's own reorder (docs/list.md).
+                // incremental swaps: the platform's own reorder (docs/list.md).
                 | Cap::ListReorder
                 // ItemTouchHelper's swipe half, with the Material red field revealing behind
                 // the row (docs/list.md).
@@ -2054,24 +2057,24 @@ mod imp {
                 // Document-style DayWindowActivity instances (docs/windows.md): separate
                 // recents entries; side-by-side in split-screen/freeform/desktop windowing.
                 | Cap::MultiWindow
-                // View.getBaseline() — the platform's own answer (docs/baseline.md).
+                // View.getBaseline(), the platform's own answer (docs/baseline.md).
                 | Cap::BaselineAlignment
                 // The navigation suite (DayTabs): a BottomNavigationView, a NavigationRailView or
-                // a permanent NavigationView drawer over resident pages — Material's own
+                // a permanent NavigationView drawer over resident pages: Material's own
                 // destination chrome, in the form the width calls for (docs/navigation.md).
                 | Cap::NavTabs
                 // And Android should grow one as it narrows: a bottom bar is the idiomatic
                 // compact answer here, the way it is on iOS and unlike any desktop.
                 | Cap::NavTabsAdaptive => Support::Native,
-                // EMULATED: SlidingPaneLayout decides at MEASURE time whether both panes fit, so
+                // `Emulated`: SlidingPaneLayout decides at measure time whether both panes fit, so
                 // the platform owns the presentation and Day observes it through
                 // `Event::NavPresentationChanged` rather than pushing one in
                 // (docs/size-classes.md).
                 Cap::NavRepresent => Support::Emulated,
-                // The COMPOSED tree (docs/tree.md M2/M5): the piece flattens onto this
+                // The composed tree (docs/tree.md M2/M5): the piece flattens onto this
                 // backend's RecyclerView list; disclosure, indentation and row content are
                 // day pieces. No native drag wiring yet, so `Cap::TreeMove` stays
-                // Unsupported (`tree_move:` drives the seam synthetically).
+                // Unsupported (`tree_move:` drives the move synthetically).
                 Cap::Tree => Support::Emulated,
                 _ => Support::Unsupported,
             }
@@ -2273,11 +2276,11 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavProps>(kind, "android", props) else {
                         return realize_placeholder(kind);
                     };
-                    // Where the rows are the CHROME, the host is a navigation suite rather than a
+                    // Where the rows are the chrome, the host is a navigation suite rather than a
                     // pane layout: pages resident behind a bottom bar, a rail or a permanent
                     // drawer, whichever the width calls for (DayTabs). One container across every
                     // width is what lets the host report `Tabs` once and keep it, so day-core
-                    // holds the pages and drives them with `Select` instead of push/pop — the
+                    // holds the pages and drives them with `Select` instead of push/pop, the
                     // same contract `.tabSidebar` gives on iOS.
                     if p.presentation.rows_are_chrome() {
                         let host = with_env(|env| {
@@ -2298,8 +2301,8 @@ mod imp {
                         );
                         return host;
                     }
-                    // `Stack` in props is literal — a host that is a stack at every size (a
-                    // nested `nav_stack()` under a split host, docs/size-classes.md) — so it gets a
+                    // `Stack` in props is literal, a host that is a stack at every size (a
+                    // nested `nav_stack()` under a split host, docs/size-classes.md), so it gets a
                     // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
                     // nesting one inside a pane re-runs the whole tiling decision at pane width.
                     let adaptive = p.presentation != day_spec::props::NavPresentation::Stack;
@@ -2406,8 +2409,8 @@ mod imp {
                                 (idj, joined.clone(), joined_icons.clone()),
                             )
                         });
-                        // Per-row icon tints ride a best-effort follow-up (docs/vectors.md) —
-                        // decoration stays OFF makeNavMenu's critical path, so a tint problem
+                        // Per-row icon tints ride a best-effort follow-up (docs/vectors.md):
+                        // decoration stays off makeNavMenu's critical path, so a tint problem
                         // can never abort the tree build (the navhost lesson).
                         let st = jstr(env, &joined_tints);
                         let _ = env.dcall_static(
@@ -2429,7 +2432,7 @@ mod imp {
                                 JValue::Object(&sbt),
                             ],
                         );
-                        // The active indicator the model already carries — a rebuilt sidebar
+                        // The active indicator the model already carries: a rebuilt sidebar
                         // (a language change, a data-driven item set) has to come back marking
                         // the same page rather than blank.
                         nav_menu_select(env, &handle, p.selected);
@@ -2503,7 +2506,7 @@ mod imp {
                             );
                         }
                         // A label patch carries no node id, and a link's ClickableSpan needs one
-                        // to report through — so remember it here, where the id is in hand.
+                        // to report through, so remember it here, where the id is in hand.
                         LABEL_NODE
                             .with(|m| m.borrow_mut().insert(view.as_obj().as_raw() as usize, idj));
                         if !p.runs.is_empty() {
@@ -2670,7 +2673,7 @@ mod imp {
                         )),
                     })
                 }
-                // A recycled list cell is ADOPTED from the native list, never realized
+                // A recycled list cell is adopted from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
                 | Some(Builtin::Tree)
@@ -2765,7 +2768,7 @@ mod imp {
                 kinds::NAV_MENU => {
                     match patch.downcast_ref::<NavMenuPatch>() {
                         // A data-driven `.items(signal, …)` block re-derived: rebuild the native
-                        // rows so each click listener reports its current index — stale rows
+                        // rows so each click listener reports its current index; stale rows
                         // shift every selection after a removed item by one and drop the last
                         // row's selection entirely.
                         Some(NavMenuPatch::Items {
@@ -2850,7 +2853,7 @@ mod imp {
                         // The active indicator follows the model (docs/navigation.md). This
                         // used to be a no-op on the grounds that "mobile selection is transient
                         // (rows ripple, then push)", which was true of the hand-built list that
-                        // could not draw a resting state — a NavigationView can, and a sidebar
+                        // could not draw a resting state; a NavigationView can, and a sidebar
                         // beside its detail is exactly where that state means "you are here".
                         Some(NavMenuPatch::Selected(sel)) => {
                             with_env(|env| nav_menu_select(env, h, *sel));
@@ -3142,7 +3145,7 @@ mod imp {
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
                         // notifyDataSetChanged: getCount reads the snapshot, getView is deferred to
-                        // the next layout — safe inside a with_tree borrow.
+                        // the next layout, so it is safe inside a with_tree borrow.
                         call_void(
                             "listReload",
                             "(Landroid/view/View;)V",
@@ -3167,7 +3170,7 @@ mod imp {
                     Some(ListPatch::Selected(rows)) => {
                         // Record, then repaint the visible holders; newly bound holders pick
                         // the state up from nativeListIsSelected in the bind path. Paint
-                        // only — no selection event echoes back.
+                        // only; no selection event echoes back.
                         let key = h.0.as_obj().as_raw() as usize;
                         if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&key).copied()) {
                             LIST_SELECTED.with(|m| {
@@ -3202,7 +3205,7 @@ mod imp {
             }
         }
         fn release(&mut self, h: AHandle) {
-            // A released window root drops its SECONDARY record (docs/windows.md teardown;
+            // A released window root drops its `SECONDARY` record (docs/windows.md teardown;
             // the activity itself already finished or is finishing).
             with_env(|env| {
                 SECONDARY.with(|s| {
@@ -3213,8 +3216,8 @@ mod imp {
                 });
             });
             let key = h.0.as_obj().as_raw() as usize;
-            // One sweep drops this view's entry from every registered `SideTable` — present
-            // and future — so ptr-keyed side state cannot outlive the handle
+            // One sweep drops this view's entry from every registered `SideTable`, present
+            // and future, so ptr-keyed side state cannot outlive the handle
             // (day_spec::sidetable; the maps below predate it and stay manual).
             day_spec::sidetable::sweep(key);
             LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
@@ -3249,7 +3252,7 @@ mod imp {
             );
             // A nav menu now has ancestors: if one of them is a navigation suite, its rows are
             // that suite's chrome. Best-effort and after the insert, like every other decoration
-            // on this backend — a failure here must not abort the tree build.
+            // on this backend: a failure here must not abort the tree build.
             let rows = NAV_MENU_ROWS.with(|m| {
                 m.borrow()
                     .get(&(child.0.as_obj().as_raw() as usize))
@@ -3329,7 +3332,7 @@ mod imp {
                     p.width.unwrap_or(180.0),
                     (measure_call(h, "measureHeight") / d).max(24.0),
                 ),
-                // PICKER falls to the native measureWidth/measureHeight default below.
+                // `PICKER` falls to the native measureWidth/measureHeight default below.
                 kinds::TEXT_AREA => crate::textarea::measure_any(self, h, p),
                 kinds::TEXT_FIELD => Size::new(
                     p.width.unwrap_or(180.0),
@@ -3337,8 +3340,8 @@ mod imp {
                 ),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
                 kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
-                // A canvas has no content of its own to measure — `DayCanvasView` is a bare
-                // `View`, which measures 0×0 — so it takes what the layout offers, the way the
+                // A canvas has no content of its own to measure (`DayCanvasView` is a bare
+                // `View`, which measures 0×0), so it takes what the layout offers, the way the
                 // other toolkits' default arms already answer (`p.width.unwrap_or(natural)`).
                 // Without this a canvas in a form row got the row's height from `.height(…)`
                 // and no width at all: the Showcase's sensor strip charts drew nothing here
@@ -3361,7 +3364,7 @@ mod imp {
             }
         }
 
-        /// `View.getBaseline()` — the same answer `LinearLayout`'s `baselineAligned` uses
+        /// `View.getBaseline()`, the same answer `LinearLayout`'s `baselineAligned` uses
         /// (docs/baseline.md). TextView and everything built on it override it; the base View
         /// returns -1, which is "no baseline".
         fn first_baseline(&mut self, h: &AHandle, kind: PieceKind, size: Size) -> Option<f64> {
@@ -3446,7 +3449,7 @@ mod imp {
 
         fn set_selectable(&mut self, h: &AHandle, selectable: bool) -> Option<AHandle> {
             // A plain label is an android.widget.TextView; make its text selectable (long-press →
-            // copy, docs/text.md). A direct instance call — no DayBridge method needed.
+            // copy, docs/text.md). A direct instance call; no DayBridge method needed.
             with_env(|env| {
                 let _ = env.dcall(
                     h.0.as_obj(),
@@ -3527,7 +3530,7 @@ mod imp {
 
         fn focus(&mut self, h: &AHandle, _node: NodeId, focused: bool) {
             // DayBridge pairs the request with the IME (show on gain, hide on resign) and
-            // resigns to the focusable content root — Android focus is never "nowhere".
+            // resigns to the focusable content root, since Android focus is never "nowhere".
             call_void(
                 "focusView",
                 "(Landroid/view/View;Z)V",
@@ -3541,7 +3544,7 @@ mod imp {
 
         fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: day_spec::GestureKind) {
             // Pinch and pan are not delivered on this backend yet (docs/canvas.md "Zoom and
-            // pan") — and must NOT fall through to the tap wire below.
+            // pan"), and must not fall through to the tap wire below.
             if matches!(
                 kind,
                 day_spec::GestureKind::Pinch | day_spec::GestureKind::Pan
@@ -3667,7 +3670,7 @@ mod imp {
         }
 
         fn adopt(&mut self, raw: RawHandle) -> AHandle {
-            // A recycling ListView cell (a DayFixed) — Day fills/rebinds its row content in place.
+            // A recycling ListView cell (a DayFixed); Day fills/rebinds its row content in place.
             with_env(|env| {
                 let obj = unsafe { JObject::from_raw(env, raw as jni::sys::jobject) };
                 AHandle(std::sync::Arc::new(
@@ -3684,7 +3687,7 @@ mod imp {
             options: &day_spec::WindowOptions,
             kind: day_spec::WindowKind,
         ) -> day_spec::WindowOpenReply<AHandle> {
-            // Preferences stay modal on mobile (docs/windows.md) — the cover fallback is
+            // Preferences stay modal on mobile (docs/windows.md); the cover fallback is
             // the platform settings idiom; Normal windows become document activities.
             if kind == day_spec::WindowKind::Preferences {
                 return day_spec::WindowOpenReply::Unsupported;
@@ -3753,7 +3756,7 @@ mod imp {
                         );
                     }
                     // The primary is an ordinary window (docs/windows.md) and gets a recents
-                    // card of its own, so it takes a label like any other — it just has no
+                    // card of its own, so it takes a label like any other; it just has no
                     // `day.node` to be addressed by.
                     None => {
                         let _ = env.dcall_static(
@@ -3875,7 +3878,7 @@ mod imp {
         }
 
         /// Decode bytes with `BitmapFactory` (docs/images.md), which reads every container
-        /// Android knows — PNG, JPEG, WebP, GIF, BMP and HEIF on API 28+.
+        /// Android knows: PNG, JPEG, WebP, GIF, BMP and HEIF on API 28+.
         ///
         /// The reply is the same comma-joined shape `measureText` uses, because that is this
         /// backend's established way to bring a few numbers back across JNI.
@@ -3901,7 +3904,7 @@ mod imp {
             } else {
                 None
             };
-            // "w,h,alpha" — and unlike most backends here, the alpha answer is READ from the
+            // "w,h,alpha", and unlike most backends here, the alpha answer is read from the
             // decoded bitmap rather than inferred from the container format.
             let parsed = reply.and_then(|r| {
                 let mut it = r.split(',');
@@ -3914,7 +3917,7 @@ mod imp {
                 Some((w, h, has_alpha)) => {
                     let info = day_spec::BitmapInfo {
                         pixels: Size::new(w, h),
-                        // Decoded bytes carry no density — a PNG is simply its pixels.
+                        // Decoded bytes carry no density; a PNG is its pixels.
                         scale: 1.0,
                         format: day_spec::ImageFormat::sniff(bytes),
                         has_alpha,
@@ -3942,8 +3945,8 @@ mod imp {
             emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
         }
 
-        /// What `Bitmap.compress` WRITES under this scaffold's minSdk (24). Android READS more —
-        /// WebP among them — and the asymmetry is the platform's own: `WEBP_LOSSY` and
+        /// What `Bitmap.compress` writes under this scaffold's minSdk (24). Android reads more
+        /// (WebP among them), and the asymmetry is the platform's own: `WEBP_LOSSY` and
         /// `WEBP_LOSSLESS` arrived in API 30, and the pre-30 `WEBP` constant is deprecated there.
         fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
             use day_spec::ImageFormat::{Jpeg, Png};
@@ -3970,7 +3973,7 @@ mod imp {
             android_window_image(false)
         }
 
-        /// The decor view rather than the content view — the window with its action bar and
+        /// The decor view rather than the content view: the window with its action bar and
         /// system-bar backgrounds (docs/window-image.md).
         fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> {
             android_window_image(true)
@@ -4017,7 +4020,7 @@ mod imp {
         /// The system back, pressed (dayscript's `nav_back: { native: true }`): through the
         /// activity's `OnBackPressedDispatcher`, so the guard callback and the fragment
         /// manager's own pop run exactly as a gesture does (DayBridge.nativeBack). `false`
-        /// when nothing would pop — the dispatcher would finish the activity instead.
+        /// when nothing would pop, since the dispatcher would finish the activity instead.
         fn native_back(&mut self) -> bool {
             with_env(|env| {
                 env.dcall_static(
@@ -4032,7 +4035,7 @@ mod imp {
         }
 
         /// Whether native transitions have settled (dayscript screenshots wait on this):
-        /// currently the cover slide — a capture mid-present/mid-dismiss shows a half-slid
+        /// currently the cover slide, since a capture mid-present/mid-dismiss shows a half-slid
         /// surface (DayBridge.uiIdle / DayCover.slidesInFlight).
         fn ui_idle(&mut self) -> bool {
             with_env(|env| {
@@ -4045,9 +4048,9 @@ mod imp {
 
     /// Navigation persistence backed by the Activity's saved instance state (docs/navigation.md).
     /// The map lives on the Java side (`DayBridge.navState`) because that is where the platform
-    /// hands it out and takes it back — DayActivity restores it in `onCreate` before native
+    /// hands it out and takes it back: DayActivity restores it in `onCreate` before native
     /// starts, and writes it into the outgoing Bundle in `onSaveInstanceState`. Its lifetime is
-    /// the TASK: a process the system reclaims comes back on the page the user left, while a
+    /// the task's: a process the system reclaims comes back on the page the user left, while a
     /// cold launch, or a task the user swiped off Recents, starts clean.
     struct InstanceNavStore;
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# assert-pristine.sh [dir] — fail unless the checkout has no uncommitted changes (§20.4).
+# assert-pristine.sh [dir]: fail unless the checkout has no uncommitted changes (§20.4).
 #
 # `day pack` records HEAD and a `dirty` flag in the SBOM, and `day rebuild` refuses an artifact
 # whose flag is set: a commit cannot describe a tree that has extra files in it. So a packing job
-# must keep the checkout pristine — whatever it downloads or generates belongs in `$RUNNER_TEMP`,
-# not in the workspace, which on GitHub Actions IS the checkout.
+# must keep the checkout pristine: whatever it downloads or generates belongs in `$RUNNER_TEMP`,
+# not in the workspace, which on GitHub Actions is the checkout.
 #
 # Run this immediately before `day pack`, so a stray path names itself here instead of surfacing a
 # job later as "no rebuild can reproduce it" with nothing to point at.

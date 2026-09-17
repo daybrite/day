@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-geometry — plain `Copy` value types shared by layout, canvas, and the toolkit spec.
+//! day-geometry: plain `Copy` value types shared by layout, canvas, and the toolkit spec.
 //! Everything is in points (density-independent); backends convert to device pixels (§7.9).
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -124,7 +124,7 @@ impl Rect {
 
 /// A 2-D affine transform (CoreGraphics row-vector convention): a point `p` maps to
 /// `(a·p.x + c·p.y + tx, b·p.x + d·p.y + ty)`. Used by canvas transform ops for shape
-/// rotate/scale/offset — every native 2-D context concatenates it onto its CTM identically.
+/// rotate/scale/offset; every native 2-D context concatenates it onto its CTM identically.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Affine {
     pub a: f64,
@@ -306,7 +306,7 @@ impl Color {
         )
     }
 
-    /// From HSL — `h` in degrees (wraps mod 360), `s`/`l` in `0.0..=1.0`. `Color` is the one color
+    /// From HSL: `h` in degrees (wraps mod 360), `s`/`l` in `0.0..=1.0`. `Color` is the one color
     /// type every parameter accepts, so this makes HSL usable everywhere a color is.
     pub fn hsl(h: f64, s: f64, l: f64) -> Self {
         Color::hsla(h, s, l, 1.0)
@@ -331,7 +331,7 @@ impl Color {
         )
     }
 
-    /// From HSV/HSB — `h` degrees (wraps), `s`/`v` in `0.0..=1.0`.
+    /// From HSV/HSB: `h` degrees (wraps), `s`/`v` in `0.0..=1.0`.
     pub fn hsv(h: f64, s: f64, v: f64) -> Self {
         Color::hsva(h, s, v, 1.0)
     }
@@ -373,7 +373,7 @@ impl Color {
         (h.rem_euclid(360.0), s.clamp(0.0, 1.0), l)
     }
 
-    /// Decompose to `(hue°, saturation, value)` (HSV/HSB) — the model every native color picker's
+    /// Decompose to `(hue°, saturation, value)` (HSV/HSB), the model every native color picker's
     /// spectrum tab is built on, so this is what a renderer seeds its sliders from. Hue is `0.0`
     /// for grays. Inverse of [`Color::hsv`].
     pub fn to_hsv(&self) -> (f64, f64, f64) {
@@ -394,7 +394,7 @@ impl Color {
         (h.rem_euclid(360.0), d / max, max)
     }
 
-    /// The same color at a different opacity — what a picker's alpha slider produces, and what
+    /// The same color at a different opacity: what a picker's alpha slider produces, and what
     /// tinting a surface down to a wash needs (`palette.with_alpha(0.14)`).
     pub fn with_alpha(self, a: f64) -> Color {
         Color { a, ..self }
@@ -419,10 +419,10 @@ impl Color {
 
     /// Parse a color from either interchange form:
     ///
-    /// - **hex** — `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (the leading `#` optional). What a
+    /// - **hex**: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (the leading `#` optional). What a
     ///   person types, and what an 8-bit platform field (`<input type="color">`, `Windows.UI.Color`,
     ///   `android.graphics.Color`) hands back.
-    /// - **components** — 3 or 4 space-separated floats in `0.0..=1.0`, `"r g b"` / `"r g b a"`.
+    /// - **components**: 3 or 4 space-separated floats in `0.0..=1.0`, `"r g b"` / `"r g b a"`.
     ///   The lossless form, for the toolkits whose picker really is float-precision (`NSColor`,
     ///   `GdkRGBA`, `QColor::getRgbF`).
     ///
@@ -480,7 +480,7 @@ impl Color {
     }
 
     /// Interpolate toward `to` in HSL space, taking the shortest hue arc (`t` in `0.0..=1.0`). A
-    /// hue-space blend (red→green sweeps through yellow) rather than the muddy RGB straight line —
+    /// hue-space blend (red→green sweeps through yellow) rather than the muddy RGB straight line,
     /// used by the canvas / self-driven animation path (native widget color animation interpolates
     /// in the toolkit's own space).
     pub fn lerp_hsl(self, to: Color, t: f64) -> Color {
@@ -495,7 +495,7 @@ impl Color {
     }
 }
 
-/// The lossless interchange form — four space-separated components, exactly what
+/// The lossless interchange form: four space-separated components, exactly what
 /// [`Color::parse`] reads back. This is what crosses a JNI / C-ABI / JS boundary when a native
 /// color picker reports a pick, so the float precision `NSColor` and `GdkRGBA` really carry is
 /// not rounded to 8 bits on the way. For the form a person reads (and types into a dayscript
@@ -565,7 +565,7 @@ pub enum LayoutDirection {
 
 /// A cheap per-node visual transform (§8.4 animation): translation, uniform/non-uniform scale, and
 /// rotation about a unit anchor (`0.0..1.0` within the node's bounds; default center). Distinct
-/// from the layout frame — animating a `Transform` never triggers relayout, so it is the vehicle
+/// from the layout frame: animating a `Transform` never triggers relayout, so it is the vehicle
 /// for movement/scaling animation. Each backend composes it onto the node's laid-out frame via its
 /// native transform channel (CALayer/GskTransform/RenderTransform/NODE_TRANSFORM/…).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -620,7 +620,7 @@ impl Transform {
             ..Transform::IDENTITY
         }
     }
-    /// Whether this transform has no visual effect — backends skip applying it.
+    /// Whether this transform has no visual effect; backends skip applying it.
     #[inline]
     pub fn is_identity(&self) -> bool {
         *self == Transform::IDENTITY
@@ -629,7 +629,7 @@ impl Transform {
 
 /// Linear interpolation of animatable values (`t` in `0.0..1.0`). This drives the **canvas /
 /// self-driven** animation path (docs/shapes.md §5) and Qt's sampled spring; native-widget
-/// animation does not use it — the toolkit interpolates on its own compositor.
+/// animation does not use it; the toolkit interpolates on its own compositor.
 pub trait Animatable: Copy {
     fn lerp(self, to: Self, t: f64) -> Self;
 }
@@ -761,7 +761,7 @@ mod tests {
             Color::rgba(0.0, 0.0, 0.0, 0.0)
         );
         assert_eq!(Color::parse("#00000080").unwrap().a, 128.0 / 255.0);
-        // The lossless component form — what a native pick crosses a boundary as.
+        // The lossless component form, what a native pick crosses a boundary as.
         assert_eq!(Color::parse("1 0 0").unwrap(), Color::rgb(1.0, 0.0, 0.0));
         let c = Color::rgba(0.937_254_901, 0.4, 0.298, 0.6);
         assert_eq!(

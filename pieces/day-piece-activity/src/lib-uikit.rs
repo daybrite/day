@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// UIKit: UIActivityIndicatorView — the native iOS activity indicator. `.large` selects the Large
+// UIKit: UIActivityIndicatorView, the native iOS activity indicator. `.large` selects the Large
 // style (vs Medium); `startAnimating`/`stopAnimating` run/stop it. `hidesWhenStopped = false` keeps
 // a stopped indicator visible (a frozen indicator), mirroring the AppKit `displayedWhenStopped`
-// choice. objc2-ui-kit binds the whole control, so — unlike the media piece's hand-rolled
-// AVPlayerViewController — no `extern_class!` shim is needed.
+// choice. objc2-ui-kit binds the whole control, so, unlike the media piece's hand-rolled
+// AVPlayerViewController, no `extern_class!` shim is needed.
 // ---------------------------------------------------------------------------
 
 use super::*;

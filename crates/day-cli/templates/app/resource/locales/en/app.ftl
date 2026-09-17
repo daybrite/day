@@ -1,5 +1,5 @@
-# {{title}} — UI strings (https://daybrite.dev/docs/localization). Add a locale by dropping a
-# sibling folder (e.g. locales/fr/app.ftl) and translating — the generated
+# {{title}}: UI strings (https://daybrite.dev/docs/localization). Add a locale by dropping a
+# sibling folder (e.g. locales/fr/app.ftl) and translating; the generated
 # res::locales::install() in src/lib.rs picks up every locale directory by itself.
 #
 # The appearance and language rows on the Settings page label themselves from Day's own catalog,
@@ -12,7 +12,7 @@ nav_navigate = Navigate
 nav_settings = Settings
 
 # The Welcome page. `welcome_body` is rendered as markdown, so the emphasis lives here rather
-# than in the layout — a translation is free to stress a different word.
+# than in the layout, so a translation is free to stress a different word.
 # Each paragraph is one line: Fluent keeps the line breaks you write, so a value wrapped for the
 # editor's margin would be wrapped that way on screen too, mid-sentence.
 welcome_title = Welcome to Day

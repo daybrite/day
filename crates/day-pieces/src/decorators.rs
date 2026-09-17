@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `Decorate` — the chainable modifiers every piece inherits: padding and sizing, background and
+//! `Decorate`, the chainable modifiers every piece inherits: padding and sizing, background and
 //! corner radius, gestures (`on_tap`, drag), accessibility (`A11yBuilder`), and native-handle
-//! capture (`NativeRef`) — plus the `Modifier` / `IntoInsets` supporting traits.
+//! capture (`NativeRef`), plus the `Modifier` / `IntoInsets` supporting traits.
 //!
-//! Modifiers return [`Decorated<P>`], which keeps the decorated piece's OWN type, so a chain
+//! Modifiers return [`Decorated<P>`], which keeps the decorated piece's type, so a chain
 //! never stops reaching that piece's builder methods (§5.2).
 
 use std::cell::Cell;
@@ -38,27 +38,27 @@ impl IntoInsets for Insets {
 }
 
 /// A one-shot, by-value view transform (the SwiftUI `ViewModifier` analog): wrap a piece into a
-/// new one. Pure composition — no per-backend work. A plain `FnOnce(AnyPiece) -> AnyPiece` closure
-/// is a `Modifier` too (the blanket impl below), so the common case needs no new type. Apply one
-/// with [`Decorate::modifier`].
+/// new one. Pure composition, with no per-backend work. A plain `FnOnce(AnyPiece) -> AnyPiece`
+/// closure is a `Modifier` too (the blanket impl below), so the common case needs no new type.
+/// Apply one with [`Decorate::modifier`].
 ///
 /// **`AnyPiece` here is a trade, not a requirement.** It is not object safety: a `Modifier` is
 /// never stored as `dyn Modifier`, and [`Decorate::modifier`] takes `impl Modifier` and applies
 /// it on the spot. It is the closure impl below. A closure has one fixed parameter type, and
-/// Rust has no `for<P> FnOnce(P) -> _` bound — higher-ranked bounds range over lifetimes, not
-/// types — so making `apply` generic over the content (`fn apply<P: Piece>(self, c: P) ->
+/// Rust has no `for<P> FnOnce(P) -> _` bound (higher-ranked bounds range over lifetimes, not
+/// types), so making `apply` generic over the content (`fn apply<P: Piece>(self, c: P) ->
 /// Self::Out<P>`, which a named modifier can satisfy with a GAT) would leave no closure able to
 /// implement the trait at all. Pinning the input to the one piece type that accepts anything is
-/// what keeps `|p| …` a modifier, and the erasure is what that costs — which is why this is the
+/// what keeps `|p| …` a modifier, and the erasure is what that costs, which is why this is the
 /// single `Decorate` method that erases.
 ///
-/// If a modifier ever needs to preserve its content's type, parameterize the TRAIT rather than
+/// If a modifier ever needs to preserve its content's type, parameterize the trait rather than
 /// the method: `trait Modifier<P: Piece> { type Out: Piece; fn apply(self, c: P) -> Self::Out; }`.
 /// Closures survive that (`impl<P: Piece, O: Piece, F: FnOnce(P) -> O> Modifier<P> for F`, and
 /// their parameter still infers unannotated), while a named modifier such as day-piece-rating's
 /// `Card` becomes `impl<P: Piece> Modifier<P> for Card` with `type Out = Decorated<P>`. The bill
 /// is a `Decorate::modifier` whose return type varies per modifier, a generic impl for every
-/// named one, and a breaking change — not worth paying while the tree has two implementors.
+/// named one, and a breaking change: not worth paying while the tree has two implementors.
 pub trait Modifier {
     fn apply(self, content: AnyPiece) -> AnyPiece;
 }
@@ -72,18 +72,18 @@ where
     }
 }
 
-/// A liveness-checked reference to a mounted piece's realized node — the retained half of the
+/// A liveness-checked reference to a mounted piece's realized node: the retained half of the
 /// tweaks API (docs/tweaks.md). Capture one with [`Decorate::native_ref`], then reach the native
 /// widget later (from event handlers, timers) through a toolkit ext accessor. `node`/`with` yield
 /// `None` before mount and after the node's subtree is disposed, so async races are safe no-ops.
 ///
-/// Reads are REACTIVE: inside a binding or memo, `node()` subscribes to the ref's mount/clear
+/// Reads are reactive: inside a binding or memo, `node()` subscribes to the ref's mount/clear
 /// transitions (a `Trigger` underneath), so a label like
 /// `label(move || if r.node().is_some() { "live" } else { "cleared" })` updates when the
-/// referenced piece unmounts — the toggle demo on the showcase Tweaks page. (The `when`-arm's
-/// disposal lands at the turn boundary, after ordinary bindings re-ran — piggybacking on some
-/// other signal would read a stale mount state; the trigger fires at the actual transition.)
-/// Main-thread only, like every realized-tree type.
+/// referenced piece unmounts, as in the toggle demo on the showcase Tweaks page. (The
+/// `when`-arm's disposal lands at the turn boundary, after ordinary bindings re-ran;
+/// piggybacking on some other signal would read a stale mount state, while the trigger fires
+/// at the actual transition.) Main-thread only, like every realized-tree type.
 #[derive(Clone)]
 pub struct NativeRef {
     cell: Rc<std::cell::Cell<Option<day_core::RNode>>>,
@@ -144,16 +144,16 @@ fn layer_node(cx: &mut BuildCx) -> RNode {
 }
 
 // ---------------------------------------------------------------------------
-// Decorated — a piece plus its modifiers, with the piece's own type kept (§5.2)
+// Decorated: a piece plus its modifiers, with the piece's type kept (§5.2)
 // ---------------------------------------------------------------------------
 
 /// The build of a piece plus every modifier applied to it so far.
 type Build = Box<dyn FnOnce(&mut BuildCx) -> RNode>;
 
-/// A piece with modifiers chained onto it, keeping the decorated piece's OWN type (§5.2).
+/// A piece with modifiers chained onto it, keeping the decorated piece's type (§5.2).
 ///
 /// Every [`Decorate`] modifier returns one of these rather than erasing to [`AnyPiece`], which is
-/// what lets a chain keep reaching the piece's own builder methods — `label(…).padding(8.0)` is
+/// what lets a chain keep reaching the piece's builder methods: `label(…).padding(8.0)` is
 /// still a decorated `Label`, so `.font(…)` after it resolves. Modifiers applied to a `Decorated`
 /// append in place (the inherent methods below shadow the trait's), so a chain stays flat instead
 /// of nesting `Decorated<Decorated<…>>`.
@@ -186,7 +186,7 @@ impl<P: Piece> Decorated<P> {
         self
     }
 
-    /// Replace the undecorated piece, keeping the modifier chain — how a typed builder trait
+    /// Replace the undecorated piece, keeping the modifier chain: how a typed builder trait
     /// reaches through a decoration (docs/api-style.md "Typed builders"). `f` sees the piece as
     /// it was before any modifier, which is why modifier order stops mattering.
     pub fn map_inner<Q: Piece>(self, f: impl FnOnce(P) -> Q) -> Decorated<Q> {
@@ -426,7 +426,7 @@ fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) ->
         Box::new(move |cx| {
             let n = inner(cx);
             // Declare the intent as well as listening: a backend whose focused view would have
-            // to CLAIM the key from the platform's own dispatch checks this first.
+            // to claim the key from the platform's dispatch checks this first.
             day_spec::keys::mark(day_core::rnode_to_id(n));
             cx.on(n, move |ev| {
                 if let Event::Key(k) = ev {
@@ -440,10 +440,10 @@ fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) ->
 
 /// Declare toolbar items for the chrome this piece sits under (docs/toolbars.md).
 ///
-/// The chrome is resolved WHERE THE PIECE IS BUILT, not where the modifier was written: the
-/// innermost navigation page being built, or the window when there is none. That is the whole
-/// design — a command sits beside the content it acts on, and the app never says twice which bar
-/// it belongs to.
+/// The chrome is resolved where the piece is built, not where the modifier was written: the
+/// innermost navigation page being built, or the window when there is none. The design exists so
+/// that a command sits beside the content it acts on, and the app never says twice which bar it
+/// belongs to.
 fn op_toolbar(source: crate::ToolbarSource) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -471,9 +471,9 @@ fn op_focused(
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
-            // Echo cell: the control's focus state as last reported by the NATIVE side. An
+            // Echo cell: the control's focus state as last reported by the native side. An
             // apply whose desired state matches it is the echo of a native change (or already
-            // satisfied) and must not re-drive the toolkit — the nav host echo-cell rule.
+            // satisfied) and must not re-drive the toolkit: the nav host echo-cell rule.
             let native = Rc::new(Cell::new(false));
             {
                 let native = native.clone();
@@ -486,7 +486,7 @@ fn op_focused(
             }
             // Signal → native, deferred one turn (`on_main`): focus is async by contract, and
             // the deferral also lets a mount-time `Some(K::V)` land after the widget is in the
-            // window (dialog default focus). The initial `false` is not applied — resigning
+            // window (dialog default focus). The initial `false` is not applied, because resigning
             // focus the control never had would steal it from whoever has it.
             let first = Cell::new(true);
             bind(want, move |want: &bool| {
@@ -508,13 +508,13 @@ fn op_context_menu(items: Vec<MenuEntry>) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             // The overlay host places the decorated subtree at its own bounds and the
-            // composed-menu mount beside it (see `OverlayHost` — a plain sibling would sit
+            // composed-menu mount beside it (see `OverlayHost`; a plain sibling would sit
             // under a single-child layout, never placed).
             let w = cx.layout_only(Rc::new(OverlayHost), Flex::default(), Boundary::No);
             let mut n = w;
             cx.under(w, |cx| {
                 n = inner(cx);
-                // Scoped: the action closures die with the build scope, not the process —
+                // Scoped: the action closures die with the build scope, not the process;
                 // an unscoped registration here leaks one closure per remount.
                 let model = lower_menu_scoped(items);
                 with_tree(|t| t.set_context_menu(n, model.clone()));
@@ -523,7 +523,7 @@ fn op_context_menu(items: Vec<MenuEntry>) -> impl FnOnce(Build) -> Build {
                 let model = std::rc::Rc::new(model);
                 crate::menus::mount_composed_menu(cx, n, Rc::new(move |_p| (*model).clone()));
             });
-            // Later ops decorate the CONTENT node: ids, gestures and menus belong to it,
+            // Later ops decorate the content node: ids, gestures and menus belong to it,
             // while the wrapper only exists to keep the mount in the layout pass.
             n
         })
@@ -531,9 +531,9 @@ fn op_context_menu(items: Vec<MenuEntry>) -> impl FnOnce(Build) -> Build {
 }
 
 /// The `.context_menu*` wrapper's layout: the decorated subtree fills the wrapper; every
-/// other child (the composed menu's lazy mount) is layout-inert but must still be VISITED —
-/// a cover lays its content out from the size the backend reports, but only if the place
-/// pass reaches it at all.
+/// other child (the composed menu's lazy mount) is layout-inert but must still be visited,
+/// because a cover lays its content out from the size the backend reports, but only if the
+/// place pass reaches it at all.
 struct OverlayHost;
 
 impl Layout for OverlayHost {
@@ -592,7 +592,7 @@ fn op_context_menu_fn_body(
             let n = inner(cx);
             // Each summon lowers a fresh menu whose action closures live in their own scope,
             // disposed when the next summon replaces them (and with the build scope at
-            // teardown) — so per-click menus never accumulate registrations.
+            // teardown), so per-click menus never accumulate registrations.
             let last: Rc<std::cell::RefCell<Option<day_reactive::Scope>>> = Rc::default();
             {
                 let last = last.clone();
@@ -847,7 +847,7 @@ fn op_aspect_ratio(ratio: f64) -> impl FnOnce(Build) -> Build {
             let node = cx.layout_only(
                 Rc::new(AspectRatioLayout { ratio }),
                 Flex::default(),
-                // NOT a boundary: the child still measures itself, and the ratio only decides
+                // Not a boundary: the child still measures itself, and the ratio only decides
                 // the box it is offered.
                 Boundary::No,
             );
@@ -911,7 +911,7 @@ fn op_interactive_dismiss_disabled() -> impl FnOnce(Build) -> Build {
 
 // --- The chained modifier surface, on an already-decorated piece ---
 //
-// These INHERENT methods shadow the `Decorate` trait's (inherent wins method resolution), so a
+// These inherent methods shadow the `Decorate` trait's (inherent wins method resolution), so a
 // modifier applied to a `Decorated` appends to its op list instead of wrapping it in another
 // `Decorated`. Each is the same one-liner the trait method is; the bodies live in the `op_*`
 // functions above. Documentation stays on the trait, which is the surface every piece has.
@@ -944,7 +944,7 @@ impl<P: Piece> Decorated<P> {
         self.push(op_max_width(max))
     }
     /// Never narrower than `min`: a stretching control keeps a usable width, and a row that
-    /// cannot give it that overflows — so a `labeled` row stacks the control under its label
+    /// cannot give it that overflows, so a `labeled` row stacks the control under its label
     /// rather than squeezing it (docs/forms.md).
     pub fn min_width(self, min: f64) -> Self {
         self.push(op_min_width(min))
@@ -986,10 +986,10 @@ impl<P: Piece> Decorated<P> {
     pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
         self.push(op_context_menu(items))
     }
-    /// A context menu built AT SUMMON TIME (docs/menus.md "Dynamic context menus"): the
-    /// closure runs when the user summons the menu, with the location in this piece's own
-    /// coordinates, and whatever it returns is shown — so a canvas can select what is under
-    /// the pointer and offer commands for that selection. An empty result shows nothing.
+    /// A context menu built when the menu is summoned (docs/menus.md "Dynamic context menus"):
+    /// the closure runs at that moment, with the location in this piece's own coordinates, and
+    /// whatever it returns is shown, so a canvas can select what is under the pointer and offer
+    /// commands for that selection. An empty result shows nothing.
     pub fn context_menu_fn(self, f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static) -> Self {
         self.push(op_context_menu_fn(f))
     }
@@ -1005,10 +1005,10 @@ impl<P: Piece> Decorated<P> {
     /// The pointer moving over this piece: `Some(point)` in its own coordinates while inside,
     /// `None` when it leaves (docs/canvas.md "Interaction").
     ///
-    /// Pointer-only, which is the honest answer rather than a gap: every desktop delivers it, an
+    /// Pointer-only, which is not a gap: every desktop delivers it, an
     /// iPad does with a trackpad or pencil, an Android device with a mouse or stylus, and a
     /// touch-only phone delivers nothing at all. **Anything reachable by hover must also be
-    /// reachable by a tap** — wire `on_tap_at` alongside it, exactly as a chart's selection does.
+    /// reachable by a tap**: wire `on_tap_at` alongside it, exactly as a chart's selection does.
     pub fn on_hover(self, f: impl Fn(Option<day_spec::Point>) + 'static) -> Self {
         self.push(op_on_hover(f))
     }
@@ -1043,7 +1043,7 @@ impl<P: Piece> Decorated<P> {
     pub fn animation(self, anim: AnimSpec) -> Self {
         self.push(op_animation(anim))
     }
-    /// Erases, like [`Decorate::modifier`] — `Modifier` is defined over [`AnyPiece`].
+    /// Erases, like [`Decorate::modifier`]: `Modifier` is defined over [`AnyPiece`].
     pub fn modifier(self, m: impl Modifier) -> AnyPiece {
         m.apply(self.any())
     }
@@ -1099,11 +1099,11 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).id(id)
     }
 
-    /// Reactive element id — the id for rows inside a recycling [`list`](crate::list). A plain
-    /// [`id`](Self::id) is assigned once at build, but a recycled cell REBINDS to different
+    /// Reactive element id: the id for rows inside a recycling [`list`](crate::list). A plain
+    /// [`id`](Self::id) is assigned once at build, but a recycled cell rebinds to different
     /// items over its life (and drag-to-reorder rebinds eagerly), so a static item-derived id
     /// keeps naming the first-bound item. This variant re-registers whenever the closure's
-    /// value changes — read your `ItemSlot` inside it:
+    /// value changes; read your `ItemSlot` inside it:
     /// `.id_of(move || format!("row-remove-{}", slot.key()))`.
     fn id_of(self, id: impl Fn() -> String + 'static) -> Decorated<Self> {
         Decorated::new(self).id_of(id)
@@ -1116,13 +1116,13 @@ pub trait Decorate: Piece + Sized {
 
     /// Apply a **tweak**: `f` runs once at mount, after the native widget exists, with the
     /// realized node (docs/tweaks.md). Reach the typed native handle through the compiled
-    /// backend's ext accessor (`day_appkit::with_native`, `day_gtk::with_native`, …) — or apply
+    /// backend's ext accessor (`day_appkit::with_native`, `day_gtk::with_native`, …), or apply
     /// a packaged `day-tweak-*` crate's modifier instead of calling this directly. If the native
     /// change affects the widget's intrinsic size, follow it with
     /// [`day_core::invalidate_size`]. Day may overwrite *managed* properties (title, value,
     /// enabled, frame, a11y) on its next patch; unmanaged properties are stable.
     ///
-    /// Order it after any modifier that can rebuild the backing widget — today
+    /// Order it after any modifier that can rebuild the backing widget; today that is
     /// [`selectable`](Decorate::selectable), which on UIKit realizes the label as a different
     /// native class. Chained before it, the tweak runs against the widget the rebuild discards
     /// (Day warns at runtime); chained after, it sees the widget that ships.
@@ -1130,17 +1130,17 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).tweak(f)
     }
 
-    /// Make this piece's text **user-selectable** — the reader can select and copy it
-    /// (docs/text.md). Most useful on a [`label`](crate::label): text is NOT selectable by default
+    /// Make this piece's text **user-selectable**, so the reader can select and copy it
+    /// (docs/text.md). Most useful on a [`label`](crate::label): text is not selectable by default
     /// on any backend, matching each platform's native behavior.
     ///
     /// Every backend honors it on a label: most flip the native widget's selection affordance
-    /// (AppKit, GTK, Qt, XAML, HarmonyOS, Android, web); UIKit — whose `UILabel` has none —
+    /// (AppKit, GTK, Qt, XAML, HarmonyOS, Android, web); UIKit, whose `UILabel` has none,
     /// rebuilds the label as a read-only `UITextView` behind the same handle. On other widgets
     /// it is best-effort: a backing with no selection affordance leaves the text unselectable
     /// rather than erroring, and a container cascades only where the platform's affordance does
-    /// (the web) — prefer the label itself. Selection visuals and the copy shortcut are the
-    /// platform's own. Unmanaged — set once at mount, and it survives Day's text updates.
+    /// (the web), so prefer the label itself. Selection visuals and the copy shortcut are the
+    /// platform's own. Unmanaged: set once at mount, and it survives Day's text updates.
     fn selectable(self) -> Decorated<Self> {
         Decorated::new(self).selectable()
     }
@@ -1180,10 +1180,10 @@ pub trait Decorate: Piece + Sized {
     ///
     /// For a numeric readout beside a slider: `label(move || value()).reserving("100")` keeps the
     /// row still while the number changes, because the reservation is a real measurement of
-    /// `"100"` in this piece's own font — it scales with the platform's accessibility text size
+    /// `"100"` in this piece's own font: it scales with the platform's accessibility text size
     /// instead of being a point value that clips when someone turns text up.
     ///
-    /// Pass the WIDEST value the field can show (`"100"`, `"-99.9"`, `"88:88"`). Pair it with
+    /// Pass the widest value the field can show (`"100"`, `"-99.9"`, `"88:88"`). Pair it with
     /// tabular numbers so the digits themselves stop shifting inside the reservation.
     /// The sample never paints and never takes hit-testing area.
     fn reserving(self, sample: impl Into<String>) -> Decorated<Self> {
@@ -1194,15 +1194,15 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).frame(width, height)
     }
 
-    /// Fix this piece's WIDTH to `width` points while its height stays flexible (hugging its content
-    /// or filling on the cross axis). The single-axis complement to [`Self::frame`] — e.g. a
-    /// fixed-width sidebar pane in a `row` whose height fills the window.
+    /// Fix this piece's width to `width` points while its height stays flexible (hugging its
+    /// content or filling on the cross axis). The single-axis complement to [`Self::frame`], e.g.
+    /// a fixed-width sidebar pane in a `row` whose height fills the window.
     fn width(self, width: f64) -> Decorated<Self> {
         Decorated::new(self).width(width)
     }
 
-    /// Fix this piece's HEIGHT to `height` points while its width stays flexible. The single-axis
-    /// complement to [`Self::frame`] — e.g. a fixed-height header/toolbar bar that fills its width.
+    /// Fix this piece's height to `height` points while its width stays flexible. The single-axis
+    /// complement to [`Self::frame`], e.g. a fixed-height header/toolbar bar that fills its width.
     fn height(self, height: f64) -> Decorated<Self> {
         Decorated::new(self).height(height)
     }
@@ -1216,12 +1216,12 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).on_tap(f)
     }
 
-    /// [`on_tap`](Self::on_tap), told WHERE — the point in the piece's own coordinate space,
+    /// [`on_tap`](Self::on_tap), told where: the point in the piece's own coordinate space,
     /// origin at its top-leading corner.
     ///
     /// What a drawn control needs and a native one does not: a canvas showing a color wheel, a
     /// map, or a waveform has to turn "the user pressed here" into a value, and only the piece
-    /// knows how. Pair it with [`on_drag`](Self::on_drag) — which already reports a location — to
+    /// knows how. Pair it with [`on_drag`](Self::on_drag), which already reports a location, to
     /// track a press that turns into a drag; the two are idempotent together, so a backend that
     /// reports a tap as a zero-length drag costs nothing.
     ///
@@ -1234,20 +1234,20 @@ pub trait Decorate: Piece + Sized {
     /// Bind this control's keyboard focus to a signal (docs/focus.md), two-way like every other
     /// binding: native focus changes write the signal; writing the signal moves focus. Takes a
     /// `Signal<bool>` for one control, or `(Signal<Option<K>>, K::Variant)` binding one control
-    /// of a group — writing `false`/`None` resigns focus (dismissing the soft keyboard on
+    /// of a group; writing `false`/`None` resigns focus (dismissing the soft keyboard on
     /// mobile). Focus applies asynchronously: a write is a request, resolved on the next turn,
     /// and the signal always ends up reflecting what the platform actually did.
     fn focused<M>(self, binding: impl IntoFocusBinding<M>) -> Decorated<Self> {
         Decorated::new(self).focused(binding)
     }
 
-    /// Handle the non-text keys — the arrows — that reach this piece WHILE IT HAS FOCUS
+    /// Handle the non-text keys (the arrows) that reach this piece while it has focus
     /// (docs/menus.md). Keys follow focus, so pair it with [`Decorate::focused`] or with a
     /// piece the user can click into: a canvas takes focus on a press, and only the focused
     /// piece hears the keys, so a nudge handler can never fire while a text field, a list or a
     /// sidebar is the one being typed into.
     ///
-    /// Which pieces can hold focus is the platform's own question (docs/focus.md) — a `canvas`
+    /// Which pieces can hold focus is the platform's to answer (docs/focus.md): a `canvas`
     /// is focusable on the backends that draw one from a real view (appkit, web-dom today).
     fn on_key(self, f: impl Fn(&day_spec::KeyEvent) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_key(f)
@@ -1264,19 +1264,19 @@ pub trait Decorate: Piece + Sized {
     /// page.toolbar(move || vec![toolbar_button("undo", tr("undo")).enabled_when(can_undo)])
     /// ```
     ///
-    /// Which chrome carries them follows from where this piece is built — a destination page's
-    /// own bar, a content-list pane's, or the window's if it is under no page at all — and the
+    /// Which chrome carries them follows from where this piece is built (a destination page's
+    /// own bar, a content-list pane's, or the window's if it is under no page at all), and the
     /// items are withdrawn when this piece is disposed. Where on that chrome they sit is
     /// [`ToolbarEntry::placement`](crate::ToolbarEntry::placement).
     fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Decorated<Self> {
         Decorated::new(self).toolbar(content)
     }
 
-    /// Opt this piece into the platform's focus system (docs/focus.md) — the canvas contract
+    /// Opt this piece into the platform's focus system (docs/focus.md): the canvas contract
     /// for anything composed: it joins the key loop, takes focus on a press, reports through
     /// `.focused(…)`, and hears the arrows through `.on_key(…)` while focused. A composed
     /// list column is the motivating case (docs/navigation.md). On a backend without the
-    /// `set_focusable` duty the piece renders normally and simply never takes focus.
+    /// `set_focusable` duty the piece renders normally and never takes focus.
     fn focusable(self) -> Decorated<Self> {
         Decorated::new(self).focusable()
     }
@@ -1301,27 +1301,27 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Fire on each phase of a pinch/magnify over this piece (docs/canvas.md "Zoom and
-    /// pan"). Only backends with a native recognizer wired emit it — pair a zoom with
+    /// pan"). Only backends with a native recognizer wired emit it; pair a zoom with
     /// visible controls.
     fn on_pinch(self, f: impl Fn(Pinch) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_pinch(f)
     }
 
     /// Fire on each viewport-pan event over this piece (docs/canvas.md "Zoom and pan"):
-    /// trackpad two-finger scroll, two-finger touch pan. `delta` is incremental — apply it
+    /// trackpad two-finger scroll, two-finger touch pan. `delta` is incremental; apply it
     /// as it arrives.
     fn on_pan(self, f: impl Fn(Pan) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_pan(f)
     }
 
     /// The pointer moving over this piece: `Some(point)` in its own coordinates while inside,
-    /// `None` when it leaves (docs/canvas.md "Interaction"). Pointer-only — wire `on_tap_at`
+    /// `None` when it leaves (docs/canvas.md "Interaction"). Pointer-only; wire `on_tap_at`
     /// alongside it so a touch-only device can reach the same thing.
     fn on_hover(self, f: impl Fn(Option<day_spec::Point>) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_hover(f)
     }
 
-    /// Fill the piece's bounds with a solid color painted behind it — a message-bubble / card /
+    /// Fill the piece's bounds with a solid color painted behind it: a message-bubble / card /
     /// badge surface. Accepts a constant [`Color`], a `Signal<Color>`, or a `Fn() -> Color`; a
     /// reactive color repaints the surface when its source changes. Wraps the piece in a native
     /// container that carries the fill, so it composes with [`Self::corner_radius`] for a rounded
@@ -1344,7 +1344,7 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).opacity(opacity)
     }
 
-    /// Apply an animatable [`Transform`] (translate/scale/rotate about the center) — the cheap
+    /// Apply an animatable [`Transform`] (translate/scale/rotate about the center): the cheap
     /// movement/scaling channel that never triggers relayout (§8.4). Prefer this over `.offset`
     /// for animated motion.
     fn transform<M>(self, t: impl IntoReactive<Transform, M>) -> Decorated<Self> {
@@ -1362,7 +1362,7 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).rotation(degrees)
     }
 
-    /// Translate the piece by (`x`, `y`) points without relayout (animatable) — the
+    /// Translate the piece by (`x`, `y`) points without relayout (animatable): the
     /// animation-friendly sibling of `.offset`.
     fn translation<Mx, My>(
         self,
@@ -1372,26 +1372,26 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).translation(x, y)
     }
 
-    /// Attach an implicit animation (§8.4): changes to this piece's — and its descendants' —
+    /// Attach an implicit animation (§8.4): changes to this piece's (and its descendants')
     /// animatable properties animate with `anim` even outside a [`with_animation`]. SwiftUI's
     /// `.animation`. The ambient `with_animation` takes precedence when both apply.
     fn animation(self, anim: AnimSpec) -> Decorated<Self> {
         Decorated::new(self).animation(anim)
     }
 
-    /// Apply a [`Modifier`] — or, via the blanket impl, a plain `FnOnce(AnyPiece) -> AnyPiece`
-    /// closure — to this piece. Pure composition: `content.modifier(m) == m.apply(content.any())`.
+    /// Apply a [`Modifier`] (or, via the blanket impl, a plain `FnOnce(AnyPiece) -> AnyPiece`
+    /// closure) to this piece. Pure composition: `content.modifier(m) == m.apply(content.any())`.
     ///
-    /// The one modifier that ERASES: `Modifier` is defined over [`AnyPiece`], so the piece's own
+    /// The one modifier that erases: `Modifier` is defined over [`AnyPiece`], so the piece's own
     /// type cannot survive it.
     fn modifier(self, m: impl Modifier) -> AnyPiece {
         m.apply(self.any())
     }
 
-    /// Draw `over` on top of this piece, centered, without affecting layout size — a badge /
+    /// Draw `over` on top of this piece, centered, without affecting layout size: a badge /
     /// annotation overlay. `self` is the sizing content (bottom of the z-order); `over` is proposed
     /// `self`'s size and drawn on top. For an explicit alignment use [`Self::overlay_aligned`]; for
-    /// a stack that sizes to the UNION of its children use [`zstack`].
+    /// a stack that sizes to the union of its children use [`zstack`].
     fn overlay(self, over: impl Piece) -> Decorated<Self> {
         Decorated::new(self).overlay(over)
     }
@@ -1406,7 +1406,7 @@ pub trait Decorate: Piece + Sized {
     /// fits whatever the parent offers (SwiftUI's `.aspectRatio(_:contentMode: .fit)`).
     ///
     /// Pair it with [`Self::grow_w`] for a piece that takes the width available and derives its
-    /// height from it — a `canvas` whose drawing has to keep its proportions as the window
+    /// height from it: a `canvas` whose drawing has to keep its proportions as the window
     /// resizes, say. `image` has carried this since it shipped; this is the same layout, for any
     /// piece.
     ///
@@ -1416,7 +1416,7 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Expand to fill the available space on both axes (a filling pane / card that stretches to
-    /// its container). Wraps the piece in a layout-only node carrying grow [`Flex`] — the stack
+    /// its container). Wraps the piece in a layout-only node carrying grow [`Flex`]: the stack
     /// offers it the space and it fills; no native backing, so this is a pure layout change.
     fn grow(self) -> Decorated<Self> {
         Decorated::new(self).grow()
@@ -1438,7 +1438,7 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers set
-    /// facts on the node the grid sees: apply them last (outermost), like `.grow_w()` — an
+    /// facts on the node the grid sees: apply them last (outermost), like `.grow_w()`; an
     /// outer wrapper would hide the facts from the grid.
     fn grid_span(self, n: usize) -> Decorated<Self> {
         Decorated::new(self).grid_span(n)
@@ -1451,7 +1451,7 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// While this subtree is mounted, ask the OS to require a second swipe for its edge
-    /// gestures on `edges` (docs/cover.md) — the SwiftUI `defersSystemGestures(on:)`
+    /// gestures on `edges` (docs/cover.md), the SwiftUI `defersSystemGestures(on:)`
     /// analogue. Put it on a game or drawing surface whose touches run to the screen edge,
     /// so a swipe up from the bottom doesn't leave the app. iOS defers the chosen edges'
     /// system gestures; Android enters swipe-to-reveal immersive mode while any subtree
@@ -1461,14 +1461,14 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// While this subtree is mounted, the enclosing [`cover`] (or other modal surface) must
-    /// not be dismissed interactively — the SwiftUI `interactiveDismissDisabled()` analogue
+    /// not be dismissed interactively, the SwiftUI `interactiveDismissDisabled()` analogue
     /// (docs/cover.md). System back / sheet gestures are ignored; only programmatic writes
     /// (an explicit close control) dismiss it.
     fn interactive_dismiss_disabled(self) -> Decorated<Self> {
         Decorated::new(self).interactive_dismiss_disabled()
     }
 
-    /// Erase to a single [`AnyPiece`] — for a `PieceVec`, a `-> AnyPiece` signature, or any other
+    /// Erase to a single [`AnyPiece`]: for a `PieceVec`, a `-> AnyPiece` signature, or any other
     /// place one concrete type is required. [`AnyPiece::any`] is inherent and returns `self`, so
     /// erasing an already-erased piece costs nothing.
     fn any(self) -> AnyPiece {
@@ -1499,7 +1499,7 @@ impl A11yBuilder {
         self.0.role = r;
         self
     }
-    /// Hide this element from assistive tech (still visible on screen) — e.g. a redundant chrome
+    /// Hide this element from assistive tech (still visible on screen), e.g. a redundant chrome
     /// element already announced by its labeled sibling.
     pub fn hidden(mut self) -> Self {
         self.0.hidden = true;

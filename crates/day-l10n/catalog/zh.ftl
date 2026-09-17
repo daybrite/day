@@ -1,4 +1,4 @@
-# Day core UI catalog — Simplified Chinese (简体中文).
+# Day core UI catalog: Simplified Chinese (简体中文).
 day-ok = 确定
 day-cancel = 取消
 day-yes = 是

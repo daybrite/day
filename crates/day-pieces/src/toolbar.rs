@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Toolbar items: `toolbar_button`, `toolbar_toggle`, `toolbar_menu`, `toolbar_label`,
-//! `toolbar_segmented`, `toolbar_separator` — and [`Decorate::toolbar`], the one way to declare
+//! `toolbar_segmented`, `toolbar_separator`, and [`Decorate::toolbar`], the one way to declare
 //! them (docs/toolbars.md).
 //!
 //! Where an item appears is decided by the piece that declares it, so an app never says it twice:
@@ -11,13 +11,13 @@
 //! page of that window. [`day_spec::ToolbarPlacement`] then says where on that chrome the item
 //! sits.
 //!
-//! SEARCH is not here. It is declared on the navigation surface it filters
-//! (`Nav::searchable`, docs/search.md), which is what lets the platform move it — into the
-//! navigation list on a narrow window — without the app re-declaring anything.
+//! Search is not here. It is declared on the navigation surface it filters
+//! (`Nav::searchable`, docs/search.md), which is what lets the platform move it (into the
+//! navigation list on a narrow window) without the app re-declaring anything.
 //!
 //! A toolbar is chrome, not a piece: it is not laid out by day and does not live in the tree. It
 //! lowers to day_spec's toolkit-neutral [`day_spec::ToolbarItem`] model, which each backend
-//! realizes with its platform's own bar — `NSToolbar`, `AdwHeaderBar`, `QToolBar`, `CommandBar`,
+//! realizes with its platform's bar: `NSToolbar`, `AdwHeaderBar`, `QToolBar`, `CommandBar`,
 //! a `UINavigationItem`, a `MaterialToolbar` menu (docs/toolbars.md).
 //!
 //! ```ignore
@@ -93,7 +93,7 @@ pub fn toolbar_button<M>(id: impl Into<String>, label: impl IntoText<M>) -> Tool
 /// A row of mutually exclusive choices as one native control (docs/toolbars.md): the platform's
 /// segmented control, bound to `selected`.
 ///
-/// Reach for this instead of N toggles whenever exactly one choice is on at a time — a theme
+/// Reach for this instead of N toggles whenever exactly one choice is on at a time: a theme
 /// picker, a view mode. The platform then draws it as the single control it is, announces it as
 /// one, and keeps the exclusivity itself; three toggles leave all of that to the app.
 ///
@@ -168,7 +168,7 @@ pub fn toolbar_menu<M>(
     }
 }
 
-/// Static text in the bar — a status or a caption.
+/// Static text in the bar: a status or a caption.
 pub fn toolbar_label<M>(id: impl Into<String>, text: impl IntoText<M>) -> ToolbarEntry {
     ToolbarEntry {
         label: Some(text.into_text()),
@@ -176,7 +176,7 @@ pub fn toolbar_label<M>(id: impl Into<String>, text: impl IntoText<M>) -> Toolba
     }
 }
 
-/// A divider, where the platform draws one (macOS toolbars have none — AppKit renders it as a
+/// A divider, where the platform draws one (macOS toolbars have none, so AppKit renders it as a
 /// fixed gap; docs/toolbars.md).
 pub fn toolbar_separator() -> ToolbarEntry {
     entry("", Kind::Separator)
@@ -190,14 +190,14 @@ impl ToolbarEntry {
         self
     }
 
-    /// Draw a standard [`Symbol`], using the platform's own icon set — an SF Symbol on macOS, a
+    /// Draw a standard [`Symbol`], using the platform's icon set: an SF Symbol on macOS, a
     /// freedesktop icon name on GTK and Qt, a Fluent glyph on Windows.
     pub fn icon(mut self, symbol: Symbol) -> ToolbarEntry {
         self.icon = Some(Icon::Symbol(symbol));
         self
     }
 
-    /// Draw a bundled image from `resource/images` — for an icon only this app has. Prefer
+    /// Draw a bundled image from `resource/images`, for an icon only this app has. Prefer
     /// [`ToolbarEntry::icon`] for anything standard: one PNG cannot look native on four desktops.
     pub fn image(mut self, name: impl Into<day_spec::ImageName>) -> ToolbarEntry {
         self.icon = Some(Icon::Image(name.into().as_str().to_string()));
@@ -224,7 +224,7 @@ impl ToolbarEntry {
         self
     }
 
-    /// This item's role on the chrome carrying it (docs/toolbars.md) — leading, centered,
+    /// This item's role on the chrome carrying it (docs/toolbars.md): leading, centered,
     /// trailing, or first to fold away. It never names a surface: which chrome an item rides
     /// follows from the piece that declared it.
     pub fn placement(mut self, placement: day_spec::ToolbarPlacement) -> ToolbarEntry {
@@ -239,7 +239,7 @@ impl ToolbarEntry {
         self
     }
 
-    /// Draw this item in the platform's emphasized style — for the one action a chrome is
+    /// Draw this item in the platform's emphasized style, for the one action a chrome is
     /// really offering.
     pub fn prominent(mut self) -> ToolbarEntry {
         self.prominent = true;
@@ -259,15 +259,15 @@ pub enum ToolbarSource {
 ///
 /// The marker parameter `M` is what lets one method name take all three. A blanket impl over
 /// `Fn() -> Vec<ToolbarEntry>` and a concrete impl for `Vec<ToolbarEntry>` overlap as far as
-/// coherence can tell, since it will not assume `Vec` never gains an `Fn` impl — the same E0119
-/// dodge as [`IntoText`](crate::IntoText), and resolved the same way.
+/// coherence can tell, since it will not assume `Vec` never gains an `Fn` impl. This is the same
+/// E0119 dodge as [`IntoText`](crate::IntoText), and resolved the same way.
 pub trait ToolbarContent<M> {
     fn into_source(self) -> ToolbarSource;
 }
 
 /// Marker for a single [`ToolbarEntry`].
 pub struct OneMark;
-/// Marker for a list of entries — a `Vec` or an array.
+/// Marker for a list of entries: a `Vec` or an array.
 pub struct ManyMark;
 /// Marker for a closure that derives the list.
 pub struct DerivedMark;
@@ -296,8 +296,8 @@ impl<F: Fn() -> Vec<ToolbarEntry> + 'static> ToolbarContent<DerivedMark> for F {
     }
 }
 
-/// The item a sidebar host draws for itself: leading, the platform's own glyph, and no app
-/// action — the click drives that window's split directly.
+/// The item a sidebar host draws for itself: leading, the platform's glyph, and no app
+/// action, since the click drives that window's split directly.
 pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     toolbar_button(
         day_spec::SIDEBAR_TOGGLE_ID,
@@ -305,7 +305,7 @@ pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     )
     .icon(Symbol::Sidebar)
     .placement(day_spec::ToolbarPlacement::Navigation)
-    // The HOST rides in the closure: a second window's button toggles that window's own
+    // The host rides in the closure: a second window's button toggles that window's own
     // sidebar, never the first host the toolkit happens to find.
     .action(move || {
         day_core::toggle_sidebar(host);
@@ -320,11 +320,11 @@ pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
 /// a child scope the next pass disposes, so a re-derived bar leaves no binding writing patches at
 /// items that no longer exist.
 pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
-    // Whether the page carrying these is ON SCREEN. The toolkits that draw one bar per window
+    // Whether the page carrying these is on screen. The toolkits that draw one bar per window
     // are handed the showing pages' items already merged, and this is how day-core knows which
-    // those are — the same gate stack `register_nav` uses, so "showing" means one thing across
+    // those are: the same gate stack `register_nav` uses, so "showing" means one thing across
     // the navigation layer (docs/toolbars.md).
-    // Whether the page carrying these is ON SCREEN, from the page itself (docs/toolbars.md).
+    // Whether the page carrying these is on screen, from the page itself (docs/toolbars.md).
     let active = day_core::current_page_gate();
     let gate = active.clone();
     // Captured here, at the declaration site: a derived list re-runs long after this build, when
@@ -354,8 +354,8 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
             token
         }
     };
-    // Recompose when what is ON SCREEN changes. Reading the gate inside an effect subscribes to
-    // whatever it reads — the selection, the pushed path — so a tab switch or a push re-merges
+    // Recompose when what is on screen changes. Reading the gate inside an effect subscribes to
+    // whatever it reads (the selection, the pushed path), so a tab switch or a push re-merges
     // the window's bar without the navigation layer having to announce it.
     if let Some(gate) = gate {
         day_reactive::Effect::new(move || {
@@ -483,10 +483,10 @@ fn lower(
                 Kind::Separator => (ToolbarItemKind::Separator, 0),
             };
 
-            // SEED the item from the predicate, rather than leaving the declared default and
+            // Seed the item from the predicate, rather than leaving the declared default and
             // letting the binding correct it: the binding's first run happens here, inside
             // `lower`, and the model it patches is only stored by the `set_window_toolbar` this
-            // list is on its way to — so the correction landed on the previous bar (or nothing)
+            // list is on its way to, so the correction landed on the previous bar (or nothing)
             // and the new one installed enabled. A command that starts out unavailable then
             // lowered live and answered dayscript's `toolbar:` step.
             let enabled = match &enabled_when {

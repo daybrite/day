@@ -2,16 +2,16 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Android: an `EditText` subclass over its live `SpannableStringBuilder`, with the piece's OWN Java
+// Android: an `EditText` subclass over its live `SpannableStringBuilder`, with the piece's Java
 // (`dev.daybrite.day.piece.texteditor.DayTextEditor`, in `src/DayTextEditor.java`) pulled into
-// the app's Gradle build by `[package.metadata.day.android]` — no edits to day-android.
+// the app's Gradle build by `[package.metadata.day.android]`, with no edits to day-android.
 //
 // Runs cross as flat parallel int arrays, the shape day-android's own `setLabelRuns` uses: one JNI
 // call per patch rather than one per run, on a path a syntax highlighter runs on every keystroke.
-// The flag bits are deliberately the same ones the label path defines, so Android has one span
+// The flag bits are the same ones the label path defines, so Android has one span
 // vocabulary rather than two.
 //
-// Offsets are Java `char`s — UTF-16 code units — so this arm shares the Apple conversion.
+// Offsets are Java `char`s (UTF-16 code units), so this arm shares the Apple conversion.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -21,10 +21,10 @@ use day_android::{AHandle, Android, DayEnv, with_env};
 use day_spec::sidetable::SideTable;
 use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size};
 
-/// This piece's OWN Java class (src/DayTextEditor.java, on the app classpath at build).
+/// This piece's Java class (src/DayTextEditor.java, on the app classpath at build).
 const EDITOR_CLASS: &str = "dev/daybrite/day/piece/texteditor/DayTextEditor";
 
-/// One list level's indent, in dp — matching the Apple arms' points.
+/// One list level's indent, in dp, matching the Apple arms' points.
 const LEVEL_INDENT: f64 = 24.0;
 const MARKER_INDENT: f64 = 18.0;
 
@@ -166,7 +166,7 @@ fn apply_attributes(h: &AHandle, text: &str, runs: &[TextRun], paragraphs: &[Par
     })
 }
 
-/// Allocate and fill N Java int arrays, or `None` if any allocation or copy fails — a failed JNI
+/// Allocate and fill N Java int arrays, or `None` if any allocation or copy fails; a failed JNI
 /// array is not something to paper over halfway through a patch.
 fn int_arrays<'a, const N: usize>(
     env: &mut day_android::jni::Env<'a>,
@@ -187,7 +187,7 @@ fn make(_backend: &mut Android, p: &EditorProps, id: NodeId) -> AHandle {
         let text = env.new_string(&p.doc.text).expect("document text");
         let ph = env.new_string(&p.placeholder).expect("placeholder");
         // `try_make_view_on`, not `make_view`: the latter looks the factory up on DayBridge, and
-        // this piece's factory is its OWN staged class (docs/bridge.md).
+        // this piece's factory is a staged class of its own (docs/bridge.md).
         let made = day_android::try_make_view_on(
             env,
             EDITOR_CLASS,
@@ -252,7 +252,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &EditorPatch) {
         }
         EditorPatch::SetAttributes(attrs) => {
             // The patch carries the text too, so the cached copy never goes a keystroke stale
-            // under a live highlighter — which would style the wrong characters.
+            // under a live highlighter, which would style the wrong characters.
             STATE.with(|t| t.with(key(h), |st| st.text = attrs.text.clone()));
             apply_attributes(h, &attrs.text, &attrs.runs, &attrs.paragraphs);
         }
@@ -306,7 +306,7 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &EditorPatch) {
 }
 
 /// A growing leaf: fill the proposed width, and take a height from the line band. Android measures
-/// its own content, but a JNI measure per layout pass is the expensive way to ask — the band is
+/// its own content, but a JNI measure per layout pass is the expensive way to ask; the band is
 /// what the piece promises, and the EditText scrolls inside it.
 fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
     let avail_w = p.width.unwrap_or(320.0).max(120.0);

@@ -31,7 +31,7 @@ use day_spec::{Event, Proposal, Rect, Size, kinds};
 /// when(move || ok.get(), || label("Saved")).otherwise(|| label("Failed"))
 /// ```
 ///
-/// Prefer a binding to a flip when both arms are the same widget with different content —
+/// Prefer a binding to a flip when both arms are the same widget with different content:
 /// `label(move || if ok.get() { "Saved" } else { "Failed" })` keeps one native label alive and
 /// costs one setter call, where a `when` swap destroys and recreates native widgets.
 pub fn when<P: Piece>(
@@ -53,9 +53,9 @@ pub struct When {
 }
 
 impl When {
-    /// The arm built while the condition is FALSE. Without it, false means "no subtree".
+    /// The arm built while the condition is false. Without it, false means "no subtree".
     ///
-    /// The two arms need not return the same `Piece` type — each is erased to [`AnyPiece`] here.
+    /// The two arms need not return the same `Piece` type; each is erased to [`AnyPiece`] here.
     /// Exactly one arm is mounted at a time, in its own child scope, so flipping disposes the
     /// outgoing arm's signals, bindings, and handlers before the incoming arm builds (§4.3).
     pub fn otherwise<P: Piece>(mut self, build_arm: impl Fn() -> P + 'static) -> Self {
@@ -75,9 +75,9 @@ impl Piece for When {
             Boundary::No,
         );
         let state: Rc<RefCell<Option<Scope>>> = Rc::new(RefCell::new(None));
-        // The scope this `when` is BUILT in, captured here because `mount` below runs from a
-        // reaction, and a reaction re-runs with no scope of its own — `Scope::child()` there
-        // would parent the incoming arm to the ROOT scope. That misplaces the arm in two ways:
+        // The scope this `when` is built in, captured here because `mount` below runs from a
+        // reaction, and a reaction re-runs with no scope of its own, so `Scope::child()` there
+        // would parent the incoming arm to the root scope. That misplaces the arm in two ways:
         // it is no longer owned by the subtree it visually belongs to, and an ambient value an
         // ancestor provided is no longer above it, so `environment`/`Ambient::ambient` inside a
         // re-mounted arm cannot see it (docs/state.md).
@@ -91,7 +91,7 @@ impl Piece for When {
         let mount = {
             let state = state.clone();
             move |on: bool| {
-                // Same lifetime hazard as `each`'s sync, and the same answer — see the note there.
+                // Same lifetime hazard as `each`'s sync, and the same answer; see the note there.
                 if !with_tree(|t| t.node_exists(anchor)) {
                     return;
                 }
@@ -138,7 +138,7 @@ impl Piece for When {
     }
 }
 
-/// A `Copy` handle to one keyed item's state — the unified `each`/`list` contract (§5.4).
+/// A `Copy` handle to one keyed item's state: the unified `each`/`list` contract (§5.4).
 pub struct ItemSlot<T: 'static, K: 'static> {
     sig: Signal<T>,
     key: Signal<K>,
@@ -152,8 +152,8 @@ impl<T: 'static, K: 'static> Clone for ItemSlot<T, K> {
 impl<T: 'static, K: 'static> Copy for ItemSlot<T, K> {}
 
 impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
-    /// Tracked whole-item read. **Read it inside a reactive closure** — e.g.
-    /// `label(move || slot.get())` — not eagerly. A recycling [`list`] rebinds one physical row to
+    /// Tracked whole-item read. **Read it inside a reactive closure**, e.g.
+    /// `label(move || slot.get())`, not eagerly. A recycling [`list`] rebinds one physical row to
     /// many items, and only bindings that read the slot reactively update on rebind; an eager
     /// `let name = slot.get()` freezes the row at its first item.
     pub fn get(self) -> T {
@@ -174,12 +174,12 @@ impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
 }
 
 // ---------------------------------------------------------------------------
-// Row sources — where `each` and `list` get their rows (§5.4, docs/list.md)
+// Row sources: where `each` and `list` get their rows (§5.4, docs/list.md)
 // ---------------------------------------------------------------------------
 
 /// Where a collection's rows come from. [`each`]`(source, row)` and [`list`]`(source, row)`
-/// accept anything implementing this: plain data via [`items`]`(closure, key_of)`, or — with
-/// the `model` feature — a day-model store directly (collection order) or
+/// accept anything implementing this: plain data via [`items`]`(closure, key_of)`, or (with
+/// the `model` feature) a day-model store directly (collection order) or
 /// `store.rows(projection)` (a tracked display projection of key ids).
 pub trait RowSource {
     /// What a row builder receives.
@@ -196,8 +196,8 @@ pub trait RowConn: 'static {
     type Slot: Copy + 'static;
     type Ref: 'static;
 
-    /// Refresh the snapshot and return the display rows as identity tokens. TRACKED: the
-    /// enclosing watch re-runs exactly when something this read depends on changes — for a
+    /// Refresh the snapshot and return the display rows as identity tokens. A tracked read: the
+    /// enclosing watch re-runs exactly when something this read depends on changes; for a
     /// store source that is the collection's shape (or the projection's own reads), never the
     /// fields a row merely displays.
     fn refresh(&self) -> Vec<u64>;
@@ -208,23 +208,23 @@ pub trait RowConn: 'static {
     }
     /// Identity token of row `index` in the current snapshot.
     fn token_at(&self, index: usize) -> u64;
-    /// The current tokens, no refresh and no tracking — the reorder/delete echo compares these.
+    /// The current tokens, no refresh and no tracking; the reorder/delete echo compares these.
     fn tokens_now(&self) -> Vec<u64>;
     /// A fresh slot for row `index` (`None` on a stale mid-animation pull). Call inside the
     /// row's scope: plain-data slots allocate their signals here.
     fn slot_at(&self, index: usize) -> Option<Self::Slot>;
-    /// Point an existing slot at row `index` — the recycle write.
+    /// Point an existing slot at row `index`: the recycle write.
     fn rebind(&self, slot: &Self::Slot, index: usize);
     /// The selection currency for row `index`.
     fn select_ref(&self, index: usize) -> Option<Self::Ref>;
-    /// Whether row VALUES reach existing rows only through reload→rebind. Plain-data rows say
+    /// Whether row values reach existing rows only through reload→rebind. Plain-data rows say
     /// true (their slots hold copies); store rows say false (values flow through the store's
-    /// own per-field notifications), which lets `list` skip the native reload entirely when
-    /// the row SET is unchanged.
+    /// per-field notifications), which lets `list` skip the native reload entirely when the
+    /// row set is unchanged.
     fn values_flow_by_reload(&self) -> bool;
-    /// What changed since the last refresh, if the source can say precisely — sequential
+    /// What changed since the last refresh, if the source can say precisely: sequential
     /// row deltas a host can animate. `None` means unknown: the list reloads, which is
-    /// always honest. Only sources that maintain their set incrementally (a live query)
+    /// always correct. Only sources that maintain their set incrementally (a live query)
     /// answer `Some`.
     fn take_row_events(&self) -> Option<Vec<day_spec::props::RowDelta>> {
         None
@@ -235,7 +235,7 @@ pub trait RowConn: 'static {
     fn commit_delete(&self, index: usize);
 }
 
-/// Plain-data rows: an items closure plus a key function —
+/// Plain-data rows: an items closure plus a key function, as in
 /// `list(items(model::ordered, |i: &Item| i.id), row_view)`.
 pub fn items<T, K>(
     f: impl Fn() -> Vec<T> + 'static,
@@ -309,7 +309,7 @@ impl<T: Clone + 'static, K: Clone + Hash + 'static> RowConn for ItemsConn<T, K> 
     }
     fn rebind(&self, slot: &ItemSlot<T, K>, index: usize) {
         let Some(item) = self.snapshot.borrow().get(index).cloned() else {
-            return; // stale recycle index — skip, the next bind corrects it
+            return; // stale recycle index: skip, the next bind corrects it
         };
         slot.key.set((self.key_of)(&item));
         slot.sig.set(item);
@@ -365,8 +365,8 @@ where
             },
             Boundary::No,
         );
-        // The scope this `each` is BUILT in. `sync` below runs from a reaction, where
-        // `Scope::child()` would parent a new row to the ROOT scope instead of to this piece —
+        // The scope this `each` is built in. `sync` below runs from a reaction, where
+        // `Scope::child()` would parent a new row to the root scope instead of to this piece;
         // see the same capture in `When::build` for why that matters (docs/state.md).
         let owner = Scope::current();
         let conn = Rc::new(source.connect());
@@ -381,8 +381,8 @@ where
                 // The reaction driving this closure can outlive the subtree it builds into: a
                 // page swapped out of a nav, a `when` arm closed above us, and the anchor is gone
                 // while the reaction is still subscribed. Building into a removed parent panics in
-                // `Tree::attach`, and that panic is contained at the native event boundary — which
-                // ABANDONS THE REST OF THE DRAIN, so every reaction queued behind it is skipped
+                // `Tree::attach`, and that panic is contained at the native event boundary, which
+                // abandons the rest of the drain, so every reaction queued behind it is skipped
                 // and the UI stops updating until something rebuilds it. An anchor that is no
                 // longer in the tree has nothing to sync, so leave quietly.
                 if !with_tree(|t| t.node_exists(anchor)) {
@@ -445,7 +445,7 @@ where
 }
 
 // ---------------------------------------------------------------------------
-// `list` — native recycling list (docs/list.md, §10)
+// `list`: native recycling list (docs/list.md, §10)
 // ---------------------------------------------------------------------------
 
 /// Stable u64 identity token for a key, for the native list's diffing.
@@ -487,7 +487,7 @@ pub struct List<S: RowSource> {
 type SelectionFn<R> = Rc<dyn Fn(Vec<R>)>;
 
 /// A row's swipe-action offer, aliased for the fields above: called with the row index at
-/// GESTURE time, so the actions reflect the row's current state (docs/list.md).
+/// gesture time, so the actions reflect the row's current state (docs/list.md).
 type SwipeProvider = Rc<dyn Fn(usize) -> Vec<SwipeAction>>;
 
 /// One button in a row's swipe-action offer (docs/list.md): what the platform reveals as the
@@ -501,7 +501,7 @@ pub struct SwipeAction {
     handler: Rc<dyn Fn()>,
 }
 
-/// Build a swipe action with `label` (localized by the app — `res::str::…` formatted to a
+/// Build a swipe action with `label` (localized by the app: `res::str::…` formatted to a
 /// `String`). Chain [`destructive`](SwipeAction::destructive) or [`tint`](SwipeAction::tint)
 /// for styling and [`action`](SwipeAction::action) for the work; an action without a handler
 /// still reveals and dismisses, but does nothing.
@@ -528,7 +528,7 @@ impl SwipeAction {
         self.tint = Some(color);
         self
     }
-    /// A glyph for the button where the platform draws one — above the label on macOS, in
+    /// A glyph for the button where the platform draws one: above the label on macOS, in
     /// place of it on iOS (docs/list.md). The label still matters: it is the accessibility
     /// name, and the platforms without a glyph slot show it alone.
     pub fn symbol(mut self, symbol: day_spec::Symbol) -> Self {
@@ -603,7 +603,7 @@ impl<S: RowSource + 'static> List<S> {
         self
     }
 
-    /// Called with the selected row when the native list reports a selection — the key for a
+    /// Called with the selected row when the native list reports a selection: the key for a
     /// plain-data source, the row's `Elem` handle for a store source.
     pub fn on_select(mut self, f: impl Fn(S::Ref) + 'static) -> Self {
         self.on_select = Some(Rc::new(f));
@@ -611,13 +611,13 @@ impl<S: RowSource + 'static> List<S> {
     }
     /// Allow selecting several rows at once, where the toolkit supports it (docs/list.md has
     /// the matrix; single-selection backends fall back to one row at a time). Every selection
-    /// change calls [`Self::on_selection`] with the FULL set of selected rows.
+    /// change calls [`Self::on_selection`] with the full set of selected rows.
     pub fn multi_select(mut self, on: bool) -> Self {
         self.multi_select = on;
         self
     }
     /// Called with the full set of selected rows (row order, empty = cleared) whenever the
-    /// selection changes — the multi-select analogue of [`Self::on_select`]. Also fired by
+    /// selection changes: the multi-select analogue of [`Self::on_select`]. Also fired by
     /// single-selection backends with a one-element (or empty) set.
     pub fn on_selection(mut self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self {
         self.on_selection = Some(Rc::new(f));
@@ -625,12 +625,12 @@ impl<S: RowSource + 'static> List<S> {
     }
     /// Reactively sync the native selection to `rows` (row indices; empty clears). Re-runs
     /// whenever the closure's tracked reads change; the toolkit applies the sync without
-    /// re-emitting a selection event — drive it from app state to build "Clear selection".
+    /// re-emitting a selection event. Drive it from app state to build "Clear selection".
     pub fn selected_rows(mut self, rows: impl Fn() -> Vec<usize> + 'static) -> Self {
         self.selected_rows = Some(Rc::new(rows));
         self
     }
-    /// Scroll the list so its last row is fully visible whenever `trigger` fires — e.g. a chat
+    /// Scroll the list so its last row is fully visible whenever `trigger` fires, e.g. a chat
     /// timeline sticking to the newest message. Fire it with [`day_reactive::Trigger::notify`]
     /// after appending. No-op while the list is empty. The scroll targets the native list
     /// (`NSTableView`/`UITableView`/`GtkListView`/`QListView`/`RecyclerView`), so it respects the
@@ -649,7 +649,7 @@ impl<S: RowSource + 'static> List<S> {
     }
 
     /// Programmatic scroll-to-row (docs/list.md): set the signal to `Some(row)` and the native
-    /// list scrolls that row into view, realizing it if it was virtualized away — the row rail's
+    /// list scrolls that row into view, realizing it if it was virtualized away: the row rail's
     /// counterpart to `scroll(...).scroll_target(...)`. The signal is left as written; setting
     /// the same row again re-fires.
     pub fn scroll_to_row(mut self, sig: Signal<Option<usize>>) -> Self {
@@ -657,8 +657,8 @@ impl<S: RowSource + 'static> List<S> {
         self
     }
 
-    /// Let the user drag rows into a new order with the platform's native mechanism — the
-    /// macOS drop gap, the iOS long-press lift, Android's `ItemTouchHelper` — where the backend
+    /// Let the user drag rows into a new order with the platform's native mechanism (the
+    /// macOS drop gap, the iOS long-press lift, Android's `ItemTouchHelper`) where the backend
     /// supports it (probe `Cap::ListReorder`; docs/list.md has the matrix). Pair with
     /// [`on_reorder`](Self::on_reorder) so the app's data follows the move, and optionally
     /// [`reorder_guard`](Self::reorder_guard) to veto or retarget drops.
@@ -668,7 +668,7 @@ impl<S: RowSource + 'static> List<S> {
     }
 
     /// A committed move: row `from` now sits at row `to`. Apply the same rotation to the backing
-    /// data (`let it = v.remove(from); v.insert(to, it);`) — and persist it if the order should
+    /// data (`let it = v.remove(from); v.insert(to, it);`), and persist it if the order should
     /// survive a relaunch. Runs on the main thread at the next event drain, never inside the
     /// native drop callback.
     pub fn on_reorder(mut self, f: impl Fn(usize, usize) + 'static) -> Self {
@@ -680,21 +680,21 @@ impl<S: RowSource + 'static> List<S> {
     /// validate hook with `(from, proposed_to)`. Return [`Reorder::Deny`] to refuse,
     /// [`Reorder::Retarget`] to accept at a different index (a "pinned rows" pattern), or
     /// [`Reorder::Allow`] to accept as proposed (the default when no guard is set). Keep it
-    /// pure — read state, decide, return; it runs inside the platform's drag callback.
+    /// pure (read state, decide, return); it runs inside the platform's drag callback.
     pub fn reorder_guard(mut self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self {
         self.reorder_guard = Some(Rc::new(g));
         self
     }
 
-    /// Let the user delete rows with the platform's own delete gesture — the iOS trailing swipe
-    /// action, Android's `ItemTouchHelper` swipe, ArkUI's `ListItem` swipe action — where the
+    /// Let the user delete rows with the platform's delete gesture (the iOS trailing swipe
+    /// action, Android's `ItemTouchHelper` swipe, ArkUI's `ListItem` swipe action) where the
     /// backend supports it (probe `Cap::ListDelete`; docs/list.md has the matrix). Pair with
     /// [`on_delete`](Self::on_delete) so the app's data follows, and optionally
     /// [`delete_guard`](Self::delete_guard) to protect individual rows.
     ///
-    /// The DESKTOP toolkits answer `Unsupported` (macOS's row actions don't carry the delete
+    /// The desktop toolkits answer `Unsupported` (macOS's row actions don't carry the delete
     /// affordance yet; the rest have no swipe idiom), so a list that must be editable
-    /// everywhere pairs this with an explicit control — a menu item or a button — rather than
+    /// everywhere pairs this with an explicit control (a menu item or a button) rather than
     /// leaving desktop users with no way to delete.
     pub fn deletable(mut self, on: bool) -> Self {
         self.deletable = on;
@@ -710,7 +710,7 @@ impl<S: RowSource + 'static> List<S> {
     }
 
     /// A committed delete: row `index` is gone. Apply the same removal to the backing data
-    /// (`v.remove(index)`) — and persist it if the change should survive a relaunch. Runs on the
+    /// (`v.remove(index)`), and persist it if the change should survive a relaunch. Runs on the
     /// main thread at the next event drain, never inside the native swipe callback.
     pub fn on_delete(mut self, f: impl Fn(usize) + 'static) -> Self {
         self.on_delete = Some(Rc::new(f));
@@ -719,18 +719,18 @@ impl<S: RowSource + 'static> List<S> {
 
     /// Protect individual rows: called synchronously before the affordance is offered, so a row
     /// that answers `false` shows no delete action rather than one that fails on use. Keep it
-    /// pure — it runs inside the platform's swipe callback.
+    /// pure; it runs inside the platform's swipe callback.
     pub fn delete_guard(mut self, g: impl Fn(usize) -> bool + 'static) -> Self {
         self.delete_guard = Some(Rc::new(g));
         self
     }
 
-    /// Offer swipe actions on the row's LEADING edge — the reading-direction start, where the
+    /// Offer swipe actions on the row's leading edge, the reading-direction start, where the
     /// platform reveals them as the user drags the row aside (probe `Cap::ListSwipeActions`;
-    /// docs/list.md has the matrix — a backend without the affordance shows nothing, so pair
-    /// each action with an explicit control for the rest). `provider` runs at GESTURE time
+    /// docs/list.md has the matrix; a backend without the affordance shows nothing, so pair
+    /// each action with an explicit control for the rest). `provider` runs at gesture time
     /// with the row index, so the offer can reflect the row's current state ("Mark as Read"
-    /// vs "Mark as Unread"). Keep it pure and fast — it runs inside the platform's swipe
+    /// vs "Mark as Unread"). Keep it pure and fast; it runs inside the platform's swipe
     /// callback; the actions' handlers run later, at the event drain. A full swipe across
     /// activates the edge's first action.
     pub fn swipe_leading(mut self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
@@ -738,7 +738,7 @@ impl<S: RowSource + 'static> List<S> {
         self
     }
 
-    /// Offer swipe actions on the row's TRAILING edge — the reading-direction end. Same
+    /// Offer swipe actions on the row's trailing edge, the reading-direction end. Same
     /// contract as [`swipe_leading`](Self::swipe_leading).
     pub fn swipe_trailing(
         mut self,
@@ -748,12 +748,12 @@ impl<S: RowSource + 'static> List<S> {
         self
     }
 
-    /// Draw a separator under each row — the HOST's, at the row boundary, never row content
-    /// (docs/list.md): it aligns with the native selection and stays put while a macOS/iOS
-    /// swipe slides the row past it, exactly as Mail's separators do. Unset, each platform
-    /// keeps its own default (iOS draws them, the desktops don't). A backend without a
-    /// separator mechanism ignores this (the docs matrix says which) — don't re-create the
-    /// old hand-drawn hairline there; rows separate by their pitch.
+    /// Draw a separator under each row. It is the host's separator, drawn at the row boundary
+    /// and never by row content (docs/list.md): it aligns with the native selection and stays
+    /// put while a macOS/iOS swipe slides the row past it, exactly as Mail's separators do.
+    /// Unset, each platform keeps its default (iOS draws them, the desktops don't). A backend
+    /// without a separator mechanism ignores this (the docs matrix says which); don't
+    /// re-create the old hand-drawn hairline there. Rows separate by their pitch.
     pub fn separators(mut self, on: bool) -> Self {
         self.separators = Some(on);
         self
@@ -791,7 +791,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
         let conn = Rc::new(self.source.take().expect("List built once").connect());
         // After a committed native move/delete, the token order the app's own data update is
         // expected to echo back. When the refresh below sees exactly this order, the native rows
-        // already sit in it (the gesture animated them there) — take the data, skip the reload.
+        // already sit in it (the gesture animated them there): take the data, skip the reload.
         let pending_echo: Rc<RefCell<Option<Vec<u64>>>> = Rc::new(RefCell::new(None));
 
         if let Some(activate) = self.on_activate.clone() {
@@ -857,8 +857,8 @@ impl<S: RowSource + 'static> Piece for List<S> {
         }
 
         // An activated swipe action, deferred to the event drain. The handlers live in
-        // `SwipeAction`s the provider builds fresh per gesture, so RE-PULL the offer here to
-        // find the one the user pressed — the provider is the single source of both the offer
+        // `SwipeAction`s the provider builds fresh per gesture, so re-pull the offer here to
+        // find the one the user pressed. The provider is the single source of both the offer
         // and its handlers, and a state change between reveal and activation resolves to the
         // action the row now offers at that position.
         if self.swipe_leading.is_some() || self.swipe_trailing.is_some() {
@@ -935,7 +935,8 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 },
             }),
             reorder: self.reorderable.then(|| ListReorderDriver {
-                // The guard's verdict, encoded for the sync seam: accepted index or -1.
+                // The guard's verdict, encoded for the synchronous `can_move` callback:
+                // accepted index or -1.
                 can_move: {
                     let guard = self.reorder_guard.clone();
                     Box::new(move |from, to| match guard.as_ref().map(|g| g(from, to)) {
@@ -961,7 +962,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
             }),
             swipe: (self.swipe_leading.is_some() || self.swipe_trailing.is_some()).then(|| {
                 ListSwipeDriver {
-                    // The offer, stripped to data: labels + styling cross the seam; the
+                    // The offer, stripped to data: labels + styling go to the toolkit; the
                     // handlers stay here, found again by index when the activation drains.
                     actions_at: {
                         let (leading, trailing) =
@@ -1007,8 +1008,8 @@ impl<S: RowSource + 'static> Piece for List<S> {
         install_list(node, driver);
 
         // Keep the snapshot current and tell the native host to re-query on changes. The compute
-        // is the TRACKED refresh; for a store source whose values flow through per-field
-        // notifications, an unchanged row set skips the native reload entirely — a field edit
+        // is the tracked refresh; for a store source whose values flow through per-field
+        // notifications, an unchanged row set skips the native reload entirely: a field edit
         // costs the one control it patched, not a visible-rows rebind.
         {
             let (conn, echo, stick) = (conn.clone(), pending_echo.clone(), self.stick_to_bottom);
@@ -1016,11 +1017,11 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 let conn = conn.clone();
                 day_reactive::untrack(move || conn.refresh())
             };
-            // The native host attached against an EMPTY snapshot (install_list ran before this
-            // prime), so tell it the real row set now — reload, deliberately without the
-            // auto-scroll a later sticky change gets. Skipping this rendered every list blank
-            // until its first data CHANGE, while the synthetic rail kept passing: the
-            // walkthrough drove the driver directly and never noticed.
+            // The native host attached against an empty snapshot (install_list ran before this
+            // prime), so tell it the real row set now: reload, without the auto-scroll a later
+            // sticky change gets. Skipping this rendered every list blank until its first data
+            // change, while the synthetic rail kept passing: the walkthrough drove the driver
+            // directly and never noticed.
             list_reload(node);
             let last: RefCell<Vec<u64>> = RefCell::new(initial);
             let conn2 = conn.clone();
@@ -1060,7 +1061,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
         }
 
         // Programmatic scroll-to-row: every `Some(row)` write scrolls that row into view
-        // (`watch` fires per write — repeats of the same row re-fire; the initial build never
+        // (`watch` fires per write, so repeats of the same row re-fire; the initial build never
         // scrolls).
         if let Some(sig) = self.scroll_to_row {
             watch(
@@ -1096,7 +1097,7 @@ mod model_rows {
 
     /// One recycled row's connection to its store: the slot a model list's row builder
     /// receives. `Copy`, and a day-model [`Source`], so `#[derive(Observable)]` accessors hang
-    /// off it — `text_field(slot.name())` binds two-way and FOLLOWS the slot to its next row
+    /// off it. `text_field(slot.name())` binds two-way and follows the slot to its next row
     /// when the cell recycles, because the slot resolves its row on every operation.
     pub struct ModelSlot<T: 'static> {
         store: Store<Keyed<T>>,
@@ -1111,7 +1112,7 @@ mod model_rows {
     impl<T> Copy for ModelSlot<T> {}
 
     impl<T: Identified + Clone + 'static> ModelSlot<T> {
-        /// A slot pointed at `key` — for ROW SOURCES implemented outside this crate (a live
+        /// A slot pointed at `key`, for row sources implemented outside this crate (a live
         /// query). Application code receives slots from `list`/`each` instead.
         pub fn for_key(store: Store<Keyed<T>>, key: u64) -> ModelSlot<T> {
             ModelSlot {
@@ -1126,14 +1127,14 @@ mod model_rows {
     }
 
     impl<T: Identified + 'static> ModelSlot<T> {
-        /// The row's key right now — TRACKED, so a closure reading it follows recycling
+        /// The row's key right now, tracked, so a closure reading it follows recycling
         /// (a context-menu action captures the slot and acts on whichever row the cell shows
         /// when it runs).
         pub fn key(self) -> u64 {
             self.cur.get()
         }
-        /// The current row as a plain element handle — for `exists()` guards or handing to
-        /// code outside the row. TRACKED via the slot, so it follows recycling too.
+        /// The current row as a plain element handle, for `exists()` guards or handing to
+        /// code outside the row. Tracked via the slot, so it follows recycling too.
         pub fn item(self) -> Elem<T> {
             self.store.elem(self.cur.get())
         }
@@ -1143,7 +1144,7 @@ mod model_rows {
     }
 
     impl<T: Identified + 'static> Source<T> for ModelSlot<T> {
-        // The whole point: the slot's location is wherever the cell currently sits.
+        // The slot's location is wherever the cell currently sits, hence `DYNAMIC`.
         const DYNAMIC: bool = true;
         fn track_extra(self) {
             self.cur.track();
@@ -1183,7 +1184,7 @@ mod model_rows {
     }
 
     /// A display projection over a store: `store.rows(move || ordered_keys())`. The projection
-    /// is a TRACKED read of key ids — read only the fields the ORDER depends on, and a write to
+    /// is a tracked read of key ids: read only the fields the order depends on, and a write to
     /// any other field cannot re-run it.
     pub struct Rows<T: 'static> {
         store: Store<Keyed<T>>,
@@ -1203,7 +1204,7 @@ mod model_rows {
         }
     }
 
-    /// `store.rows(projection)` — the display-ordered row source for [`list`]/[`each`].
+    /// `store.rows(projection)`: the display-ordered row source for [`list`]/[`each`].
     pub trait StoreRows<T: 'static> {
         fn rows(self, f: impl Fn() -> Vec<u64> + 'static) -> Rows<T>;
     }
@@ -1217,7 +1218,7 @@ mod model_rows {
         }
     }
 
-    /// The store connection: its snapshot is the display KEYS — no item is ever cloned.
+    /// The store connection: its snapshot is the display keys; no item is ever cloned.
     pub struct StoreConn<T: 'static> {
         store: Store<Keyed<T>>,
         rows: Option<Rc<dyn Fn() -> Vec<u64>>>,
@@ -1284,14 +1285,14 @@ mod model_rows {
     }
 
     /// A hierarchy over a store: `store.tree(children_of)` (docs/tree.md). The projection
-    /// maps a parent KEY (`None` = the root) to its ordered child keys — a TRACKED read, so
+    /// maps a parent key (`None` = the root) to its ordered child keys, a tracked read, so
     /// re-parenting or re-ordering writes re-run it; tokens are the store's keys.
     pub struct StoreTree<T: 'static> {
         store: Store<Keyed<T>>,
         children: Rc<dyn Fn(Option<u64>) -> Vec<u64>>,
     }
 
-    /// `store.tree(children_of)` — the hierarchical source for [`super::tree`].
+    /// `store.tree(children_of)`: the hierarchical source for [`super::tree`].
     pub trait StoreTrees<T: 'static> {
         fn tree(self, children: impl Fn(Option<u64>) -> Vec<u64> + 'static) -> StoreTree<T>;
     }
@@ -1572,7 +1573,7 @@ impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for D
 }
 
 // ---------------------------------------------------------------------------
-// `tree` — native hierarchical tree (docs/tree.md)
+// `tree`: native hierarchical tree (docs/tree.md)
 // ---------------------------------------------------------------------------
 
 pub use day_spec::MoveVerdict;
@@ -1583,7 +1584,7 @@ pub use day_spec::MoveVerdict;
 pub trait NodeSource {
     /// What a row builder receives.
     type Slot: Copy + 'static;
-    /// The app's identity currency — what selection, moves and expansion speak.
+    /// The app's identity currency: what selection, moves and expansion speak.
     type Key: Clone + Hash + Eq + 'static;
     type Conn: TreeConn<Slot = Self::Slot, Key = Self::Key>;
     fn connect(self) -> Self::Conn;
@@ -1595,9 +1596,9 @@ pub trait TreeConn: 'static {
     type Slot: Copy + 'static;
     type Key: Clone + Hash + Eq + 'static;
 
-    /// Refresh the snapshot and return the tree's SHAPE — `(token, parent)` pairs in walk
-    /// order. TRACKED: the enclosing watch re-runs exactly when something this read depends
-    /// on changes.
+    /// Refresh the snapshot and return the tree's shape: `(token, parent)` pairs in walk
+    /// order. A tracked read: the enclosing watch re-runs exactly when something this read
+    /// depends on changes.
     fn refresh(&self) -> Vec<(u64, Option<u64>)>;
     /// Every token in the current snapshot, walk order, no refresh and no tracking.
     fn tokens_now(&self) -> Vec<u64>;
@@ -1606,20 +1607,20 @@ pub trait TreeConn: 'static {
     /// `Some(parent)` for a known token (`Some(None)` = a root row), `None` for an unknown one.
     fn parent_of(&self, token: u64) -> Option<Option<u64>>;
     fn key_of(&self, token: u64) -> Option<Self::Key>;
-    /// The token a key maps to (pure — no snapshot lookup).
+    /// The token a key maps to (pure: no snapshot lookup).
     fn token_of(&self, key: &Self::Key) -> u64;
     /// A fresh slot for `token` (`None` on a stale mid-animation pull). Call inside the
     /// row's scope: plain-data slots allocate their signals here.
     fn slot_for(&self, token: u64) -> Option<Self::Slot>;
-    /// Point an existing slot at `token` — the recycle write.
+    /// Point an existing slot at `token`: the recycle write.
     fn rebind(&self, slot: &Self::Slot, token: u64);
     /// Whether row VALUES reach existing rows only through reload→rebind (see
     /// [`RowConn::values_flow_by_reload`]).
     fn values_flow_by_reload(&self) -> bool;
 }
 
-/// Plain-data tree rows: a flat items closure, a key per item, and a PARENT key per item
-/// (`None` = a root row) — `tree(branches(model::all, |n| n.id, |n| n.parent), row_view)`.
+/// Plain-data tree rows: a flat items closure, a key per item, and a parent key per item
+/// (`None` = a root row), as in `tree(branches(model::all, |n| n.id, |n| n.parent), row_view)`.
 /// Children keep the items' own relative order; an item whose parent key is absent from the
 /// set is treated as a root row rather than dropped.
 pub fn branches<T, K>(
@@ -1757,7 +1758,7 @@ impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> TreeConn for BranchesCo
     }
     fn rebind(&self, slot: &ItemSlot<T, K>, token: u64) {
         let Some(idx) = self.shape.borrow().index_of.get(&token).copied() else {
-            return; // stale recycle token — skip, the next bind corrects it
+            return; // stale recycle token: skip, the next bind corrects it
         };
         let Some(item) = self.snapshot.borrow().get(idx).cloned() else {
             return;
@@ -1772,7 +1773,7 @@ impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> TreeConn for BranchesCo
 
 /// A native hierarchical tree (docs/tree.md): rows nest, disclose, and drag to a new parent.
 /// The platform widget owns scrolling, disclosure and cell reuse; Day builds each visible row
-/// once and *rebinds* it as cells recycle — [`list`]'s contract, token-addressed. Gate its UI
+/// once and *rebinds* it as cells recycle ([`list`]'s contract, token-addressed). Gate its UI
 /// on `Cap::Tree`: a backend without tree support renders nothing.
 pub struct TreePiece<S: NodeSource> {
     source: Option<S>,
@@ -1846,15 +1847,15 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self
     }
     /// The app-owned expansion set (docs/tree.md): the user's disclosure clicks update it,
-    /// and the app writing it discloses/collapses the native rows. Persist it (or don't) —
+    /// and the app writing it discloses/collapses the native rows. Persist it (or don't);
     /// it is plain state.
     pub fn expanded(mut self, sig: Signal<HashSet<S::Key>>) -> Self {
         self.expanded = Some(sig);
         self
     }
-    /// Which rows can hold children at all — what draws (or omits) the disclosure, and which
-    /// rows a drop may land ON. Defaults to "has children right now", which draws no
-    /// disclosure on an EMPTY group; a source with real branch/leaf kinds should say so.
+    /// Which rows can hold children at all: what draws (or omits) the disclosure, and which
+    /// rows a drop may land on. Defaults to "has children right now", which draws no
+    /// disclosure on an empty group; a source with real branch/leaf kinds should say so.
     pub fn expandable(mut self, f: impl Fn(&S::Key) -> bool + 'static) -> Self {
         self.expandable = Some(Rc::new(f));
         self
@@ -1866,7 +1867,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self.selected = Some(Rc::new(f));
         self
     }
-    /// Called with the FULL selected key set (empty = cleared) whenever the user changes the
+    /// Called with the full selected key set (empty = cleared) whenever the user changes the
     /// selection.
     pub fn on_selection(mut self, f: impl Fn(Vec<S::Key>) + 'static) -> Self {
         self.on_selection = Some(Rc::new(f));
@@ -1885,15 +1886,15 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self
     }
     /// A committed move: `key` now sits under `parent` (`None` = the root) at `index`
-    /// (`None` = dropped onto the parent — append). Apply the same re-parent to the backing
+    /// (`None` = dropped onto the parent: append). Apply the same re-parent to the backing
     /// data; its refresh reloads the tree. Runs at the next event drain, never inside the
     /// native drop callback.
     pub fn on_move(mut self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
         self.on_move = Some(Rc::new(f));
         self
     }
-    /// Veto drops while the drag is live. The structural refusals — a row into itself, into
-    /// its own descendant, into a leaf — are built in; this guard adds the app's own. Keep it
+    /// Veto drops while the drag is live. The structural refusals (a row into itself, into
+    /// its own descendant, into a leaf) are built in; this guard adds the app's own. Keep it
     /// pure: it runs inside the platform's drag callback.
     pub fn move_guard(
         mut self,
@@ -1902,7 +1903,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self.move_guard = Some(Rc::new(g));
         self
     }
-    /// The row's type-ahead string (docs/tree.md) — what native type-select matches against.
+    /// The row's type-ahead string (docs/tree.md): what native type-select matches against.
     /// Unset rows don't participate.
     pub fn type_ahead(mut self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
         self.type_ahead = Some(Rc::new(f));
@@ -1915,14 +1916,14 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self
     }
     /// A dayscript element id per row, from its key (docs/tree.md): re-applied on every
-    /// recycle, so `tap`/`assert_text` address the row wherever its cell currently sits —
-    /// and what the `expand:`/`tree_move:` steps resolve rows by.
+    /// recycle, so `tap`/`assert_text` address the row wherever its cell currently sits. It
+    /// is also what the `expand:`/`tree_move:` steps resolve rows by.
     pub fn row_id(mut self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
         self.row_id = Some(Rc::new(f));
         self
     }
-    /// A per-row context menu, built AT SUMMON TIME (docs/menus.md "Dynamic context
-    /// menus") — right-click on desktop, long-press on touch. The closure receives the
+    /// A per-row context menu, built when the menu is summoned (docs/menus.md "Dynamic context
+    /// menus"): right-click on desktop, long-press on touch. The closure receives the
     /// row's key and returns the menu to show; it may adjust the app's selection first (the
     /// convention: a summon outside the current selection selects that row). An empty
     /// result shows nothing for that row.
@@ -1931,12 +1932,12 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self
     }
 
-    /// The COMPOSED tree (docs/tree.md M2): on a backend without a native tree widget, the
-    /// same piece flattens its visible rows onto [`list`] — indentation and the disclosure
+    /// The composed tree (docs/tree.md M2): on a backend without a native tree widget, the
+    /// same piece flattens its visible rows onto [`list`]; indentation and the disclosure
     /// chevron are day pieces inside each row, and selection rides the list's own machinery.
     /// The [`TreeDriver`] still installs on the returned node, so the dayscript
     /// `expand:`/`tree_move:` steps drive the composed tree exactly as they drive a native
-    /// one (`attach_tree` is the no-op default off the native path — nothing pulls cells).
+    /// one (`attach_tree` is the no-op default off the native path; nothing pulls cells).
     fn build_composed(mut self, cx: &mut BuildCx) -> RNode {
         /// Disclosure column width, and the default per-depth indent where the platform
         /// offers no native step to inherit.
@@ -1945,7 +1946,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
 
         let conn = Rc::new(self.source.take().expect("TreePiece built once").connect());
         // Expansion state: the app's key set when it owns one, else this token set. Both are
-        // signals, so the flattener below re-runs on every disclosure however it arrives —
+        // signals, so the flattener below re-runs on every disclosure however it arrives:
         // a chevron tap, the app writing its set, or a synthetic `expand:` step.
         let open_sig: Signal<HashSet<u64>> = Signal::new(HashSet::new());
         let expanded_sig = self.expanded;
@@ -1996,8 +1997,8 @@ impl<S: NodeSource + 'static> TreePiece<S> {
             })
         };
 
-        // The visible rows, in display order: a refresh (the TRACKED shape read) plus a DFS
-        // that descends only into expanded rows — the list's row set.
+        // The visible rows, in display order: a refresh (the tracked shape read) plus a DFS
+        // that descends only into expanded rows. This is the list's row set.
         fn visible<C: TreeConn + ?Sized>(
             conn: &C,
             is_open: &dyn Fn(u64) -> bool,
@@ -2046,8 +2047,8 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                     let expandable_tap = expandable_of.clone();
                     crate::label(move || {
                         let t = slot.get().0;
-                        // The FULL-size triangles (U+25BC/25B6), not the small ▾/▸ forms:
-                        // HarmonyOS Sans ships no glyph for the small ones — they rendered
+                        // The full-size triangles (U+25BC/25B6), not the small ▾/▸ forms:
+                        // HarmonyOS Sans ships no glyph for the small ones; they rendered
                         // as nothing at all on harmony-arkui.
                         if expandable_of(t) {
                             if is_open(t) { "▼" } else { "▶" }
@@ -2095,8 +2096,8 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                 });
                 match &row_menu {
                     // The ordinary decorator: the dom backend arms its listener, and the
-                    // composed presenter answers the summon — key read AT SUMMON TIME, so a
-                    // recycled cell asks about the row it currently shows.
+                    // composed presenter answers the summon. The key is read when the menu is
+                    // summoned, so a recycled cell asks about the row it currently shows.
                     Some(f) => {
                         let (conn, f) = (conn.clone(), f.clone());
                         AnyPiece::new(shell.context_menu_fn(move |_p| {
@@ -2323,9 +2324,9 @@ struct TreeRowShell {
 
 impl Piece for TreeRowShell {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        // NATIVE, not layout-only: the row's dayscript id and its `.context_menu_fn` listener
+        // Native, not layout-only: the row's dayscript id and its `.context_menu_fn` listener
         // both need a realized element to land on (a11y identifier; the dom's `contextmenu`
-        // arm) — a transparent container, like the decorators' layer nodes.
+        // arm). A transparent container, like the decorators' layer nodes.
         let w = cx.native(
             kinds::CONTAINER,
             &ContainerProps {
@@ -2353,8 +2354,8 @@ impl Piece for TreeRowShell {
 
 impl<S: NodeSource + 'static> Piece for TreePiece<S> {
     fn build(mut self, cx: &mut BuildCx) -> RNode {
-        // No native tree widget → the COMPOSED tree: the same piece contract flattened onto
-        // [`list`] (docs/tree.md M2). `Emulated` and `Unsupported` both take this path — the
+        // No native tree widget → the composed tree: the same piece contract flattened onto
+        // [`list`] (docs/tree.md M2). `Emulated` and `Unsupported` both take this path; the
         // composition needs nothing beyond the list machinery every backend carries.
         if day_core::capability(day_spec::Cap::Tree) != day_spec::Support::Native {
             return self.build_composed(cx);
@@ -2378,8 +2379,8 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
 
         let conn = Rc::new(self.source.take().expect("TreePiece built once").connect());
 
-        // The driver's (and flattener's) view of expansion: TOKEN-keyed, updated from native
-        // disclosure events and from every programmatic patch this piece issues — so it is
+        // The driver's (and flattener's) view of expansion: token-keyed, updated from native
+        // disclosure events and from every programmatic patch this piece issues, so it is
         // right whether or not the app owns an expansion signal.
         let open_tokens: Rc<RefCell<HashSet<u64>>> = Rc::new(RefCell::new(HashSet::new()));
 
@@ -2397,10 +2398,10 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                 Event::TreeExpanded { token, expanded } => {
                     match &expanded_sig {
                         // The app's set follows the disclosure, and the expansion watch
-                        // derives the patch. The record deliberately does NOT move here:
-                        // for a native click the patch is a redundant no-op, and for a
-                        // synthetic event (the dayscript `expand:` step) it is the very
-                        // thing that discloses the row — pre-moving the record swallowed it.
+                        // derives the patch. The record does not move here: for a native
+                        // click the patch is a redundant no-op, and for a synthetic event
+                        // (the dayscript `expand:` step) it is the very thing that discloses
+                        // the row; pre-moving the record swallowed it.
                         Some(sig) => {
                             if let Some(key) = conn_ev.key_of(*token) {
                                 sig.update(|set| {
@@ -2517,7 +2518,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
             },
             row_menu: self.row_menu.clone().map(|f| {
                 // Per-summon lowering in its own scope, disposed when the next summon (or
-                // the tree's teardown) replaces it — the `context_menu_fn` rule.
+                // the tree's teardown) replaces it: the `context_menu_fn` rule.
                 let conn = conn.clone();
                 let last: Rc<RefCell<Option<Scope>>> = Rc::default();
                 {
@@ -2657,7 +2658,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                 let conn = conn.clone();
                 day_reactive::untrack(move || conn.refresh())
             };
-            // The native host attached against an EMPTY snapshot: tell it the real node set
+            // The native host attached against an empty snapshot: tell it the real node set
             // now, then disclose the initially-expanded rows (see the list's prime for why
             // skipping this renders blank while the synthetic rail keeps passing).
             tree_reload(node);
@@ -2702,7 +2703,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
         }
 
         // Programmatic selection sync (`watch`, so the initial build doesn't clobber a
-        // toolkit-default selection — the prime above already applied it once).
+        // toolkit-default selection; the prime above already applied it once).
         if let Some(sel) = self.selected.clone() {
             let conn = conn.clone();
             watch(

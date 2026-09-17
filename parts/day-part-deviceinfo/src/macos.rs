@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // macOS: the OS version comes from Foundation's ProcessInfo.operatingSystemVersion (an
-// NSOperatingSystemVersion struct of major/minor/patch — the honest running version, unlike the
+// NSOperatingSystemVersion struct of major/minor/patch: the running version as it is, unlike the
 // deprecated Gestalt/sw_vers paths), read through objc2-foundation. The hardware model identifier
 // (e.g. "MacBookPro18,3", "Macmini9,1") comes from the BSD `sysctl` node "hw.model" via libc.
 // There is no simulator concept on macOS, so is_simulator is always false.

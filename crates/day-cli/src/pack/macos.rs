@@ -6,7 +6,7 @@
 //! (hoppack lineage, DESIGN.md §16.5). Ad-hoc signing remains the default when no identity is
 //! configured. The bundle arrives complete from `day build` (§17.4): identity and version from
 //! the xcconfig conveyance, the compiled appiconset, and resources staged into
-//! `Contents/Resources` by the `day xcode-backend stage-resources` phase — this packer copies
+//! `Contents/Resources` by the `day xcode-backend stage-resources` phase. This packer copies
 //! it, re-signs it, and wraps it; it assembles nothing.
 
 use std::path::{Path, PathBuf};
@@ -39,7 +39,7 @@ pub fn pack(
         .unwrap_or_else(|| project.manifest.app.name.clone());
 
     // --- stage --------------------------------------------------------------
-    // A COPY of the built bundle, renamed to the display title (that is what /Applications
+    // A copy of the built bundle, renamed to the display title (that is what /Applications
     // shows): signing mutates the bundle, and the build output must stay reusable.
     let stage = project.root.join("build/day/pack/macos-appkit");
     let app = stage.join(format!("{title}.app"));
@@ -145,9 +145,10 @@ fn resolved_identity(project: &Project) -> Result<Option<String>, String> {
 }
 
 /// Sign the bundle inside-out: nested code first (Frameworks, non-main executables), the bundle
-/// last. Never `--deep` — Apple's guidance, and the class of bug that bit macdeployqt/Tauri.
+/// last. Never `--deep`: Apple's guidance, and the class of bug that bit macdeployqt/Tauri.
 fn sign_app(project: &Project, app: &Path) -> Result<SignTier, String> {
-    // Finder metadata xattrs make codesign fail with "resource fork, Finder information..." — strip.
+    // Finder metadata xattrs make codesign fail with "resource fork, Finder information...", so
+    // strip them.
     let _ = Command::new("xattr").args(["-crs"]).arg(app).status();
 
     let identity = resolved_identity(project)?;
@@ -201,13 +202,13 @@ fn sign_app(project: &Project, app: &Path) -> Result<SignTier, String> {
 
 /// Nested code that must be signed before the bundle: dylibs and frameworks under
 /// Contents/Frameworks, and helper executables in Contents/MacOS beyond the main binary.
-/// Today's Day bundles carry none of these — the walk future-proofs piece-contributed dylibs.
+/// Today's Day bundles carry none of these; the walk future-proofs piece-contributed dylibs.
 fn nested_signables(app: &Path) -> Vec<PathBuf> {
     let mut items = Vec::new();
     let frameworks = app.join("Contents/Frameworks");
     if let Ok(entries) = std::fs::read_dir(&frameworks) {
         for e in entries.flatten() {
-            items.push(e.path()); // dylib or .framework — codesign handles either
+            items.push(e.path()); // dylib or .framework; codesign handles either
         }
     }
     items
@@ -228,7 +229,7 @@ fn notarize(project: &Project, opts: &PackOptions, dmg: &Path) -> Result<(), Pac
         );
         return Ok(());
     };
-    // Missing notary secrets degrade to "signed but not notarized" (§20) — loudly, never fatally.
+    // Missing notary secrets degrade to "signed but not notarized" (§20): loudly, never fatally.
     let resolved = (
         resolve_degradable(&not.key_id, "signing.macos.notarize.key-id")
             .map_err(PackError::Sign)?,
@@ -280,7 +281,7 @@ fn notarize(project: &Project, opts: &PackOptions, dmg: &Path) -> Result<(), Pac
     }
     let notary_status = json["status"].as_str().unwrap_or("");
     if notary_status != "Accepted" {
-        // Pull the notary log into the error — the status alone ("Invalid") is undiagnosable.
+        // Pull the notary log into the error; the status alone ("Invalid") is undiagnosable.
         let log = Command::new("xcrun")
             .args(["notarytool", "log", &id])
             .args(["--key", &key_path, "--key-id", &key_id, "--issuer", &issuer])

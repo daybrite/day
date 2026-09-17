@@ -4,14 +4,14 @@
 // The day-sql worker (docs/persistence.md, docs/web.md): SQLite over real OPFS, serving the
 // main thread synchronously.
 //
-// This is the second instantiation of the app's own wasm module — the day-sqlite-worker crate
+// This is the second instantiation of the app's wasm module: the day-sqlite-worker crate
 // linked into it exports `day_sql_exec`, and everything UI-shaped is stubbed out. OPFS sync
 // access handles exist only in workers like this one, so file I/O here is plain synchronous
 // JS (`day_sql_fs_*` below), and the main thread reaches the engine over a SharedArrayBuffer:
 // it writes a request, `Atomics.notify`, and spins the few microseconds until the reply state
 // flips. Chunking makes the fixed buffer hold any size in either direction.
 //
-// Access handles are async to OBTAIN but sync to USE, so a POOL of `.day-sql/pool-<i>` files
+// Access handles are async to obtain but sync to use, so a pool of `.day-sql/pool-<i>` files
 // is pre-opened and database names map onto pool entries via `.day-sql/map.json` (rewritten
 // synchronously through its own handle). The pool grows between requests when it runs low.
 
@@ -33,7 +33,7 @@ const wstr = (p, n) => utf8dec.decode(new Uint8Array(wasm.memory.buffer, p, n));
 
 // Sized once at boot: the serve loop below never returns to the worker's event loop (WebKit
 // does not schedule worker tasks while the page's main thread blocks in a sql call), so the
-// pool cannot grow later — async handle acquisition would never resolve mid-serve. 64 entries
+// pool cannot grow later: async handle acquisition would never resolve mid-serve. 64 entries
 // ≈ dozens of documents plus their transient journals; exhaustion errors loudly as CANTOPEN.
 const POOL_SIZE = 64;
 let dir = null;                                     // .day-sql directory handle
@@ -60,7 +60,7 @@ function persistMap() {
 }
 
 // WebKit materializes a handle's write path lazily, through brokering that stalls while the
-// page's main thread spins inside a sql call — so touch every handle now, off the hot path,
+// page's main thread spins inside a sql call, so touch every handle now, off the hot path,
 // preserving any existing content.
 function warm(h) {
   if (h.getSize() === 0) {
@@ -74,10 +74,10 @@ function warm(h) {
   h.flush();
 }
 
-// Access handles are EXCLUSIVE, and a reload's previous worker releases its handles only as
-// the browser reaps it — racing that is normal, so acquisition retries briefly. A handle that
+// Access handles are exclusive, and a reload's previous worker releases its handles only as
+// the browser reaps it; racing that is normal, so acquisition retries briefly. A handle that
 // never frees (a second live tab of the same app) exhausts the retries and boot reports dead:
-// that tab runs memory-only, honestly.
+// that tab runs memory-only.
 async function acquireHandle(fileHandle) {
   const deadline = Date.now() + 10000;
   for (;;) {
@@ -117,7 +117,7 @@ const fsEnv = {
       if (!create) return -1;
     }
     const i = slots.findIndex((s) => s.name === null && s.refs === 0);
-    if (i < 0) return -1;                            // pool exhausted (POOL_SIZE) — CANTOPEN
+    if (i < 0) return -1;                            // pool exhausted (POOL_SIZE): CANTOPEN
     slots[i].handle.truncate(0);
     slots[i].refs = 1;
     if (name) { slots[i].name = name; persistMap(); }
@@ -184,11 +184,11 @@ const fsEnv = {
 // The channel loop
 // ---------------------------------------------------------------------------
 
-// Block until the state word equals one of `vs`; answers the observed value. DELIBERATELY
-// never yields to the event loop: WebKit does not schedule worker tasks (timers, message
-// continuations) while the page's main thread is blocked spinning in a sql call — a wait
-// loop built on them deadlocks there. Plain `Atomics.wait` needs nothing from the event
-// loop; the main thread's `Atomics.notify` after every state store wakes it directly.
+// Block until the state word equals one of `vs`; answers the observed value. Never yields to
+// the event loop: WebKit does not schedule worker tasks (timers, message continuations) while
+// the page's main thread is blocked spinning in a sql call, so a wait loop built on them
+// deadlocks there. Plain `Atomics.wait` needs nothing from the event loop; the main thread's
+// `Atomics.notify` after every state store wakes it directly.
 function waitFor(...vs) {
   for (;;) {
     const cur = Atomics.load(I, STATE);
@@ -206,13 +206,13 @@ function callWasm(req) {
   return new Uint8Array(wasm.memory.buffer, out + 4, len).slice();
 }
 
-// The serve loop is fully synchronous and never returns (see waitFor). Everything it needs —
-// the SAB, the handles, the wasm instance — was acquired before it started.
+// The serve loop is fully synchronous and never returns (see waitFor). Everything it needs
+// (the SharedArrayBuffer, the handles, the wasm instance) was acquired before it started.
 function serve() {
   for (;;) {
-    // QUIT arrives from the page's pagehide: close every handle now, so the next page load
+    // `QUIT` arrives from the page's pagehide: close every handle now, so the next page load
     // (a reload, a navigation back) can acquire them without waiting for the browser to reap
-    // this thread — WebKit releases a parked worker's handles too slowly to rely on.
+    // this thread. WebKit releases a parked worker's handles too slowly to rely on.
     if (waitFor(REQ, QUIT) === QUIT) {
       for (const s of slots) { try { s.handle.close(); } catch { /* already gone */ } }
       try { mapHandle.close(); } catch { /* already gone */ }
@@ -231,7 +231,7 @@ function serve() {
       Atomics.notify(I, STATE);
       waitFor(REQ);
     }
-    // Execute. A trapped instance stays trapped — every later request gets the same error,
+    // Execute. A trapped instance stays trapped: every later request gets the same error,
     // and the driver surfaces it; the loop itself never dies.
     let reply;
     try {
@@ -257,9 +257,9 @@ function serve() {
       if (off >= reply.length) break;
       waitFor(REPLY_ACK);
     }
-    // The main thread stores IDLE and may store the next request's REQ before this thread
-    // observes either — accepting both closes the missed-transition window (REQ implies the
-    // IDLE happened); the loop top then takes the request immediately.
+    // The main thread stores `IDLE` and may store the next request's `REQ` before this thread
+    // observes either. Accepting both closes the missed-transition window (`REQ` implies the
+    // `IDLE` happened); the loop top then takes the request immediately.
     waitFor(IDLE, REQ);
   }
 }
@@ -277,8 +277,8 @@ onmessage = async (e) => {
           : () => 0),
     });
     // The page compiled the module once; this instantiation is cheap. Import modules besides
-    // `env` (unreached wasm-bindgen placeholders a dependency drags in — the page shim's
-    // `foreignStubs` has the full story) get loud throw-on-call stubs so instantiation succeeds.
+    // `env` (unreached wasm-bindgen placeholders a dependency drags in; see the page shim's
+    // `foreignStubs`) get loud throw-on-call stubs so instantiation succeeds.
     const imports = { env };
     for (const im of WebAssembly.Module.imports(module)) {
       if (im.module === 'env') continue;

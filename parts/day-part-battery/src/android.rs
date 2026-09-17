@@ -4,17 +4,17 @@
 // Android, whole: the Java that reads BatteryManager, the declaration that binds it, and the
 // mapping into `BatteryStatus`. Nothing about this platform appears anywhere else in the crate.
 //
-// Android is the one target whose battery API cannot be reached from Rust — `BatteryManager` needs
-// a `Context` and the sticky ACTION_BATTERY_CHANGED broadcast, with no C entry point — so it is
+// Android is the one target whose battery API cannot be reached from Rust (`BatteryManager` needs
+// a `Context` and the sticky ACTION_BATTERY_CHANGED broadcast, with no C entry point), so it is
 // this crate's only foreign arm (docs/bridge.md). The other five arms stay Rust: IOKit,
 // GetSystemPowerStatus, sysfs and libohbattery_info are C APIs, and a bridge there would add a
 // toolchain and buy nothing.
 //
 // Before daybridge this file did the JNI call by hand against a checked-in `DayBattery.java`, and
-// the two halves agreed on a packed `i64` — `(state << 8) | levelByte`, 255 meaning unknown —
+// the two halves agreed on a packed `i64` (`(state << 8) | levelByte`, 255 meaning unknown),
 // written twice and kept in agreement by comment. Both halves now come from one declaration, so
 // the packing is gone. (A `#[day_bridge::data]` struct would collapse the two calls back into one;
-// POD struct returns are after v1.)
+// plain-data struct returns are after v1.)
 
 use super::{BatteryState, BatteryStatus};
 
@@ -93,8 +93,8 @@ day_bridge::bridge! {
     );
 
     // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so these
-    // are never actually compiled — they satisfy the rule that a bridge always has an answer for
-    // an unclaimed target, which matters when the block sits in a file every target compiles.
+    // are never compiled; they satisfy the rule that a bridge always has an answer for an
+    // unclaimed target, which matters when the block sits in a file every target compiles.
     #[day_bridge::impl(rust, platforms = [other])]
     fn level_native() -> Result<i32, day_bridge::Error> {
         Err(day_bridge::Error::Unsupported)

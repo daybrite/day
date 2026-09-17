@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: `NSColorWell` — the swatch control macOS has for exactly this — wired to the shared
+// AppKit: `NSColorWell`, the swatch control macOS has for exactly this, wired to the shared
 // `NSColorPanel`, which is the full system chooser (wheel, sliders, palettes, image spectrum,
 // crayons, and the screen eyedropper).
 //
@@ -20,7 +20,7 @@
 //   system color has no red component at all, and `-redComponent` on one raises. Every read goes
 //   through `colorUsingColorSpace:sRGBColorSpace` first, which is also what pins the numbers to
 //   sRGB rather than to whatever space the display is in. Colors that cannot convert (a pattern
-//   color — an IMAGE, which AppKit lets the user drag into a well) are dropped: there is nothing
+//   color, an image that AppKit lets the user drag into a well) are dropped: there is nothing
 //   in Day's `Color` to put one in. docs/color.md carries that gap.
 // ---------------------------------------------------------------------------
 
@@ -143,8 +143,8 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, _p: Proposal) -> Size {
 
 /// Drop the retained target when the well goes away.
 ///
-/// Without this the map grows by one entry per realized well, and — worse — its key is the view's
-/// ADDRESS, which the allocator reuses: a later view landing on a freed address would inherit the
+/// Without this the map grows by one entry per realized well, and, worse, its key is the view's
+/// address, which the allocator reuses: a later view landing on a freed address would inherit the
 /// dead node's target and report picks against a node that no longer exists.
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     TARGETS.with(|m| {

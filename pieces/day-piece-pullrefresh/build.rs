@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Compiles this piece's OWN ArkUI native shim when the `arkui` feature is on — the
+//! Compiles this piece's ArkUI native shim when the `arkui` feature is on: the
 //! bring-your-own-native recipe (docs/extending.md), mirroring day-tweak-slider-tickmarks'
 //! build.rs: the OpenHarmony NDK's clang against the sysroot headers. day-arkui-sys already links
-//! the ArkUI libs; this object only ADDS calls (creating an `ARKUI_NODE_REFRESH` node).
+//! the ArkUI libs; this object only adds calls (creating an `ARKUI_NODE_REFRESH` node).
 
 use std::path::PathBuf;
 

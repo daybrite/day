@@ -9,7 +9,7 @@
 //! "wrap an externally-owned handle" record as the primary root and the list cell
 //! anchors), so bindings, `find_by_id`, and dayscript work across windows unchanged.
 //! Close is asynchronous everywhere: the platform (or the cover's hide transition)
-//! confirms, and teardown runs then — one path for native and programmatic closes.
+//! confirms, and teardown runs then: one path for native and programmatic closes.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -26,14 +26,14 @@ use crate::tree::{RNode, WindowRootReply, id_to_rnode, rnode_to_id, with_tree};
 enum Tier {
     /// A live native OS window; the root's handle is its content container.
     Native,
-    /// The toolkit answered `Pending` — native creation is in flight; the content builds
+    /// The toolkit answered `Pending`: native creation is in flight; the content builds
     /// when the backend calls [`finish_window_open`].
     PendingNative {
         build: Option<Box<dyn FnOnce() -> AnyPiece>>,
         title: String,
     },
-    /// No native window — the content presents as a fullscreen cover in the primary
-    /// window; `cover` is the COVER node, `closing` gates the dismiss transition.
+    /// No native window: the content presents as a fullscreen cover in the primary
+    /// window; `cover` is the cover node, `closing` gates the dismiss transition.
     Cover {
         cover: RNode,
         closing: Rc<Cell<bool>>,
@@ -79,13 +79,13 @@ day_reactive::tls_slots! {
 
     /// What the app asked `launch` for, so a window opened later can describe itself the same
     /// way (docs/windows.md). Title above all: every platform's automatic window management
-    /// keys on it — the macOS Window menu and tab bar, the iPad app switcher, the Android
-    /// recents card — and an untitled window is simply absent from all of them.
+    /// keys on it (the macOS Window menu and tab bar, the iPad app switcher, the Android
+    /// recents card), and an untitled window is absent from all of them.
     static LAUNCH_OPTIONS: RefCell<Option<WindowOptions>> = const { RefCell::new(None) };
 }
 
 /// Record what the app handed `launch`, for [`open_new_window`] to inherit. Called once by
-/// `launch_with` with the options it is about to open the primary window with — already
+/// `launch_with` with the options it is about to open the primary window with, already
 /// title-decorated, which is idempotent (`tag_title`).
 pub fn set_launch_options(options: &WindowOptions) {
     LAUNCH_OPTIONS.with(|o| *o.borrow_mut() = Some(options.clone()));
@@ -121,7 +121,7 @@ impl WindowHandle {
         });
         match action {
             Some(CloseAction::Native) => with_tree(|t| t.close_native_window(root)),
-            // Parked pending: nothing native to wait for — tear down now; the backend's
+            // Parked pending: nothing native to wait for, so tear down now; the backend's
             // later `finish_window_open` finds the record gone and drops its window.
             Some(CloseAction::Immediate) => teardown(root),
             Some(CloseAction::Cover(cover)) => {
@@ -169,13 +169,13 @@ impl WindowHandle {
         }
     }
 
-    /// Whether the window is still open (its record exists — a `Pending` open counts).
+    /// Whether the window is still open (its record exists; a `Pending` open counts).
     pub fn is_open(&self) -> bool {
         let root = self.root;
         WINDOWS.with(|w| w.borrow().iter().any(|r| r.root == root))
     }
 
-    /// Run `f` after the window has closed and its content is disposed — any close path
+    /// Run `f` after the window has closed and its content is disposed, on any close path
     /// (title-bar, platform gesture, [`WindowHandle::close`]). No-op if already closed.
     pub fn on_close(&self, f: impl Fn() + 'static) {
         let root = self.root;
@@ -194,10 +194,10 @@ enum CloseAction {
     None,
 }
 
-/// Open a secondary window (docs/windows.md). `key` names the LOGICAL window: when a
+/// Open a secondary window (docs/windows.md). `key` names the logical window: when a
 /// window with this key is already open it is focused and returned instead of duplicated
 /// (the preferences pattern); `None` always opens a new one. Where the toolkit cannot
-/// open windows (`Cap::MultiWindow` = `Unsupported` — probe it to adapt chrome) the
+/// open windows (`Cap::MultiWindow` = `Unsupported`; probe it to adapt chrome) the
 /// content presents as a fullscreen cover in the primary window instead, closable the
 /// same way.
 pub fn open_window<P: Piece>(
@@ -213,7 +213,7 @@ pub fn open_window<P: Piece>(
         existing.focus();
         return existing;
     }
-    // A secondary window carries the same debug tag as the primary — with several windows of
+    // A secondary window carries the same debug tag as the primary: with several windows of
     // several builds open, that is what tells them apart.
     options.title = crate::decorate_window_title(&options.title);
 
@@ -240,11 +240,11 @@ pub fn open_window<P: Piece>(
             });
             if options.size_to_fit {
                 // Measured after the first layout, because that is the only point where the
-                // content's real height is known — it depends on the user's text size, their
+                // content's real height is known; it depends on the user's text size, their
                 // language, and which rows the app decided to show.
                 //
-                // The content root has exactly one child — the piece the builder returned — and
-                // its laid-out frame IS the content's natural height.
+                // The content root has exactly one child (the piece the builder returned), and
+                // its laid-out frame is the content's natural height.
                 let fitted = with_tree(|t| {
                     t.first_child(root)
                         .and_then(|c| t.node_frame(c))
@@ -306,7 +306,7 @@ pub fn focused_window() -> Option<WindowHandle> {
     })
 }
 
-/// The scope owning the content of the window that currently has FOCUS — the scope an
+/// The scope owning the content of the window that currently has focus: the scope an
 /// app-wide command should resolve per-window state through (docs/state.md).
 ///
 /// Falls back to the app's primary window, which is the same rule [`focused_window`] states:
@@ -317,8 +317,8 @@ pub fn focused_window() -> Option<WindowHandle> {
 pub fn focused_scope() -> Option<Scope> {
     WINDOWS.with(|w| {
         let windows = w.borrow();
-        // A cover on its way out (dismiss requested, `CoverHidden` not yet back — the phone
-        // animates it) is no longer the front window: the one behind it is. Its record stays
+        // A cover on its way out (dismiss requested, `CoverHidden` not yet back because the
+        // phone animates it) is no longer the front window: the one behind it is. Its record stays
         // registered until the hide confirms, so without this a command issued during the
         // animation resolves to a sheet that is gone and acts on nothing.
         let focused = windows.iter().find(|r| r.focused && !r.closing());
@@ -329,7 +329,7 @@ pub fn focused_scope() -> Option<Scope> {
     })
 }
 
-/// The tree root of the window registered under `key` — day-script's snapshot target.
+/// The tree root of the window registered under `key`: day-script's snapshot target.
 pub fn window_root_by_key(key: &str) -> Option<RNode> {
     WINDOWS.with(|w| {
         w.borrow()
@@ -345,9 +345,9 @@ pub fn window_root_by_key(key: &str) -> Option<RNode> {
 }
 
 /// Backend-facing: complete a `Pending` window open (docs/windows.md). `id` is the node
-/// the backend's `open_window` received; `raw` is the new window's CONTENT container;
-/// `size` its content size in points. `false` ⇒ the window was closed before completion —
-/// the backend should drop the native window it just created.
+/// the backend's `open_window` received; `raw` is the new window's content container;
+/// `size` its content size in points. `false` ⇒ the window was closed before completion,
+/// and the backend should drop the native window it just created.
 pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> bool {
     let root = id_to_rnode(id);
     let pending = WINDOWS.with(|w| {
@@ -370,7 +370,7 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
         return false;
     }
     with_tree(|t| t.set_native_window_title(root, &title));
-    // This window's own size class, before its content builds (docs/size-classes.md) — a second
+    // This window's size class, before its content builds (docs/size-classes.md): a second
     // window can sit in a different class from the first, which is why the signal is per-window.
     crate::ambient::set_window_size_class(
         root,
@@ -395,13 +395,13 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
 fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier: Tier) {
     WINDOWS.with(|w| {
         let mut windows = w.borrow_mut();
-        // A window that just opened IS the key window — every platform orders it front. Seeding
-        // that here rather than waiting for `Event::WindowFocused` is what makes it TRUE for the
+        // A window that just opened is the key window; every platform orders it front. Seeding
+        // that here rather than waiting for `Event::WindowFocused` is what makes it true for the
         // first one: the toolkit makes the window key while creating it, which on AppKit fires
         // `windowDidBecomeKey` before `wire_window_events` has installed a handler to hear it.
         // Without this, a window opened by File ▸ New Window is never marked focused, and
-        // `focused_scope` — how an app-wide menu command finds the front window's state
-        // (docs/state.md) — resolves to the primary until the user clicks away and back.
+        // `focused_scope` (how an app-wide menu command finds the front window's state,
+        // docs/state.md) resolves to the primary until the user clicks away and back.
         for r in windows.iter_mut() {
             r.focused = false;
         }
@@ -419,8 +419,8 @@ fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier
 }
 
 /// The per-window event rail (native + pending tiers): resize relayouts that window,
-/// focus updates the registry, close tears down — DEFERRED one main-loop hop so the
-/// disposal never runs inside the platform's own close callback (a released view inside
+/// focus updates the registry, close tears down, deferred one main-loop hop so the
+/// disposal never runs inside the platform's close callback (a released view inside
 /// `windowWillClose`/`close-request`/`closeEvent` is the top reentrancy hazard).
 fn wire_window_events(root: RNode) {
     with_tree(|t| {
@@ -461,8 +461,8 @@ fn wire_window_events(root: RNode) {
     });
 }
 
-/// How many REGISTERED windows keep the app alive (docs/windows.md close policy). The initial
-/// window is not among them — see [`initial_primary_open`].
+/// How many registered windows keep the app alive (docs/windows.md close policy). The initial
+/// window is not among them; see [`initial_primary_open`].
 pub fn primary_window_count() -> usize {
     WINDOWS.with(|w| {
         w.borrow()
@@ -480,7 +480,7 @@ fn app_has_primary_window() -> bool {
 /// Whether closing the last primary window ends the process on this platform.
 ///
 /// macOS says no, and means it: an app with no windows stays running with its menu bar live,
-/// and ⌘N reopens one — `applicationShouldTerminateAfterLastWindowClosed` defaults to false
+/// and ⌘N reopens one; `applicationShouldTerminateAfterLastWindowClosed` defaults to false
 /// for exactly this. Quitting there would be the framework overriding a platform convention
 /// its users rely on. Every other desktop treats the last window as the app.
 fn last_primary_close_quits() -> bool {
@@ -489,9 +489,9 @@ fn last_primary_close_quits() -> bool {
 
 /// End the app because its last [`WindowRole::Primary`] window has closed.
 ///
-/// One place, for every backend: dispose whatever is still open — a settings panel does not
-/// keep an app alive, however long it has been up — deliver `WillTerminate` once, and then
-/// ask the toolkit for the platform's own exit.
+/// One place, for every backend: dispose whatever is still open (a settings panel does not
+/// keep an app alive, however long it has been up), deliver `WillTerminate` once, and then
+/// ask the toolkit for the platform's exit.
 fn quit_after_last_primary() {
     if !last_primary_close_quits() {
         return;
@@ -532,7 +532,7 @@ fn teardown(root: RNode) {
             with_tree(|t| t.remove_window_root(root));
         }
         Tier::Cover { cover, .. } => {
-            // The cover node lives under the primary root — drop its independent layout
+            // The cover node lives under the primary root: drop its independent layout
             // entry, then the ordinary subtree removal takes its content with it.
             with_tree(|t| {
                 t.drop_extra_layout_root(cover);
@@ -555,8 +555,8 @@ fn teardown(root: RNode) {
 }
 
 /// Reverse a cover dismissal that has not yet been confirmed. Close is asynchronous on this
-/// tier — the hide transition runs for a quarter second, and the record stays registered until
-/// `CoverHidden` comes back — so a keyed window reopened inside that window is the same window
+/// tier (the hide transition runs for a quarter second, and the record stays registered until
+/// `CoverHidden` comes back), so a keyed window reopened inside that window is the same window
 /// arriving again, not a second one. Without this the reopen returns a handle to content the
 /// pending confirmation is about to dispose, and the surface the caller asked for goes blank
 /// (docs/windows.md). Clearing `closing` is also what makes that confirmation a no-op when it
@@ -588,7 +588,7 @@ fn revive_if_dismissing(root: RNode) {
 }
 
 /// The fallback tier: present the window content as a fullscreen cover in the primary
-/// window (docs/cover.md semantics — NavBack dismisses, `Event::CoverHidden` confirms).
+/// window (docs/cover.md semantics: NavBack dismisses, `Event::CoverHidden` confirms).
 fn open_as_cover(
     key: Option<&str>,
     kind: WindowKind,
@@ -609,7 +609,7 @@ fn open_as_cover(
     };
     with_tree(|t| t.add_extra_layout_root(cover, Size::new(0.0, 0.0)));
     let closing: Rc<Cell<bool>> = Rc::default();
-    // The window root IS the cover node on this tier — one id for close/teardown.
+    // The window root is the cover node on this tier: one id for close/teardown.
     register(
         cover,
         key,
@@ -645,7 +645,7 @@ fn open_as_cover(
                             with_tree(|t| t.patch(cover, Box::new(CoverPatch::Dismiss), false));
                         }
                     }
-                    // The hide transition finished — now the content can go.
+                    // The hide transition finished; now the content can go.
                     Event::CoverHidden if closing.get() => {
                         day_reactive::on_main(move || teardown(cover));
                     }
@@ -688,7 +688,7 @@ type PrefsRegistration = (Rc<dyn Fn() -> AnyPiece>, WindowOptions);
 /// The singleton key every preferences window opens under.
 pub const PREFERENCES_KEY: &str = "day.preferences";
 
-/// Declare the app's preferences piece (docs/windows.md) — once, in `root()`, ideally
+/// Declare the app's preferences piece (docs/windows.md): once, in `root()`, ideally
 /// before `app_menu`. Enables the desktop Preferences window (singleton, primary+`,`),
 /// the auto Settings…/Preferences menu item, and [`open_preferences`] everywhere (cover
 /// fallback where the toolkit cannot open windows). The window titles itself with
@@ -697,10 +697,10 @@ pub fn register_preferences<P: Piece>(build: impl Fn() -> P + 'static) {
     register_preferences_with(
         WindowOptions {
             title: "Settings".into(),
-            // The width a settings panel wants, and a CEILING for the height rather than the
+            // The width a settings panel wants, and a ceiling for the height rather than the
             // height itself: `size_to_fit` shrinks the window to whatever the rows actually
             // measure. A fixed 640 either clips the last row or leaves a band of empty panel
-            // under it, and which one depends on the user's text size — so nobody can pick a
+            // under it, and which one depends on the user's text size, so nobody can pick a
             // number that is right for everyone.
             size: Size::new(520.0, 640.0),
             min_size: None,
@@ -733,7 +733,7 @@ pub fn register_preferences_with<P: Piece>(
 }
 
 /// Open-or-focus the preferences surface (docs/windows.md): a `WindowKind::Preferences`
-/// singleton window on desktop, the cover fallback elsewhere — one call for menu items and
+/// singleton window on desktop, the cover fallback elsewhere: one call for menu items and
 /// toolbar gears alike. `false` = no preferences piece is registered (logged).
 pub fn open_preferences() -> bool {
     let Some((build, options)) = PREFS.with(|p| p.borrow().clone()) else {
@@ -790,7 +790,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
             app_name: launch.as_ref().and_then(|o| o.app_name.clone()),
             // Secondary windows: the app-launch ceremony belongs to `launch` alone.
             locales: None,
-            // Already resolved into `title` above — calling it again would re-run app code
+            // Already resolved into `title` above; calling it again would re-run app code
             // outside the launch sequence it was written for.
             title_fn: None,
         },
@@ -799,8 +799,8 @@ pub fn open_new_window() -> Option<WindowHandle> {
     ))
 }
 
-/// Bind the title of the window this piece is BUILDING into to a reactive closure
-/// (docs/windows.md) — how a window comes to be named after what it shows.
+/// Bind the title of the window this piece is building into to a reactive closure
+/// (docs/windows.md). This is how a window comes to be named after what it shows.
 ///
 /// The window-level counterpart to a navigation title. It matters more than it looks: the macOS
 /// Window menu, the tab bar, Mission Control, the iPad app switcher and the Android recents card
@@ -816,7 +816,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
 /// ```
 ///
 /// Reactive like any binding: the title follows what the closure reads. Which window it targets
-/// is resolved once, here, for the same reason `toolbar_reactive` captures it — the binding
+/// is resolved once, here, for the same reason `toolbar_reactive` captures it: the binding
 /// re-runs long after this build, when "the window being built" is no longer this one.
 pub fn window_title(f: impl Fn() -> String + 'static) {
     let root = crate::toolbar::window_being_built();
@@ -832,7 +832,7 @@ pub fn preferences_action_id() -> u64 {
     PREFS_ACTION.with(|c| c.get())
 }
 
-/// The dispatch id of the New Window action (0 = unregistered) — `MenuRole::NewWindow`
+/// The dispatch id of the New Window action (0 = unregistered), used by `MenuRole::NewWindow`
 /// lowering and the backends' tab-bar "+" wiring.
 pub fn new_window_action_id() -> u64 {
     NEW_WINDOW_ACTION.with(|c| c.get())
@@ -853,16 +853,16 @@ pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
     })
 }
 
-/// Reset the registry + registrations (tests — pairs with `uninstall_tree`).
+/// Reset the registry + registrations (tests; pairs with `uninstall_tree`).
 pub fn reset_windows() {
-    // Deliberately does not dispose each record's content scope, which is a change that was
-    // made and then REVERTED after it broke navigation (docs/appearance.md "What was tried").
+    // Does not dispose each record's content scope, which is a change that was
+    // made and then reverted after it broke navigation (docs/appearance.md "What was tried").
     //
-    // Disposing looks right — the reactive graph a window built otherwise outlives it, and on an
+    // Disposing looks right: the reactive graph a window built otherwise outlives it, and on an
     // Android re-mount that showed up as the previous window's navigation host re-registering
     // over the new one's ("two routed one-of-N surfaces … at the same navigation level"). But
     // the disposal cascade runs app cleanup that reads signals the same cascade has already
-    // disposed; the panic is contained, the disposal stops half-way, and the REBUILD that
+    // disposed; the panic is contained, the disposal stops half-way, and the rebuild that
     // follows registers no routes at all. The symptom is an app whose tab bar draws and whose
     // tabs do nothing.
     //
@@ -873,7 +873,7 @@ pub fn reset_windows() {
     crate::toolbar::reset_toolbars();
     PREFS.with(|p| *p.borrow_mut() = None);
     NEW_WINDOW.with(|p| *p.borrow_mut() = None);
-    // Action ids stay registered (the closures are inert without a builder) — cheap, and
+    // Action ids stay registered (the closures are inert without a builder); that is cheap, and
     // re-registration reuses them.
 }
 
@@ -881,7 +881,7 @@ pub fn reset_windows() {
 /// than a privileged one (docs/windows.md close policy).
 ///
 /// Called once at boot with the root container the backend handed back. `scope` owns the root
-/// content, so closing this window disposes exactly its own tree and nothing else — which is
+/// content, so closing this window disposes exactly its tree and nothing else, which is
 /// why the caller builds that content in a child of the root scope rather than in the root
 /// scope itself. State an app wants to outlive its windows still does: `Signal::global` lives
 /// on the root scope, above this one.
@@ -892,7 +892,7 @@ pub fn adopt_initial_window(root: RNode, scope: Scope) {
 }
 
 /// A handle to the app's first window, once adopted. `None` before boot completes, and after
-/// that window closes — it is an ordinary window and can be closed like any other.
+/// that window closes; it is an ordinary window and can be closed like any other.
 pub fn initial_window() -> Option<WindowHandle> {
     let root = INITIAL_WINDOW.with(|c| c.get())?;
     WINDOWS.with(|w| {

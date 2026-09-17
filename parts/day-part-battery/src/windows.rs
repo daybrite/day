@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Windows: GetSystemPowerStatus (kernel32) fills a SYSTEM_POWER_STATUS. Raw FFI — no dependencies.
+// Windows: GetSystemPowerStatus (kernel32) fills a SYSTEM_POWER_STATUS. Raw FFI, no dependencies.
 // Written blind (no Windows host); compiled only on the windows target.
 
 use super::{BatteryState, BatteryStatus};

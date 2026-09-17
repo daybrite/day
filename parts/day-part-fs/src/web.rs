@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// The web (web-dom): the browser's Origin Private File System through the day-dom shim — an
+// The web (web-dom): the browser's Origin Private File System through the day-dom shim, an
 // origin-scoped real file hierarchy, surviving reloads like localStorage but sized for data.
 // OPFS only, no fallback store: a context without it (a pre-OPFS browser, or a
 // private-browsing/ephemeral session, which WebKit gives no storage backing) answers
@@ -11,7 +11,7 @@
 // The bridge is the day-part-http callback-id pattern: `day_dom_fs_start` carries the
 // operation out under a numeric id; the shim awaits the OPFS promises and re-enters wasm
 // Exactly once per id through the exports below. Blocking entry points cannot exist on the
-// single browser thread (main-thread OPFS is promise-only), so they return `Unsupported` —
+// single browser thread (main-thread OPFS is promise-only), so they return `Unsupported`;
 // the async twins and futures are the web surface. Like the other shim-bridged parts, using
 // this crate on wasm outside a day-dom host page fails at instantiation.
 // ---------------------------------------------------------------------------
@@ -128,7 +128,7 @@ fn complete(id: u32, result: BytesResult) {
 }
 
 // ---------------------------------------------------------------------------
-// Exports the shim calls back into — the day-part-http alloc-and-consume convention.
+// Exports the shim calls back into, following the day-part-http alloc-and-consume convention.
 // ---------------------------------------------------------------------------
 
 /// Allocate `len` bytes inside wasm memory for the shim to write a completion buffer into

@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The search-field piece's OWN Android factory — bundled with the day-piece-searchfield crate and
+// The search-field piece's Android factory, bundled with the day-piece-searchfield crate and
 // pulled into the app's Gradle build automatically (via [package.metadata.day.android] →
-// day-pieces.json), with ZERO edits to day-android. It uses only day-android's PUBLIC Java surface:
+// day-pieces.json), with no edits to day-android. It uses only day-android's public Java surface:
 // DayBridge.ctx (the Android Context) and DayBridge.nativeOnEvent (the event trampoline). This is the
 // reference pattern for a standalone two-way piece carrying both its front-end (Rust) and backend (Java).
 package dev.daybrite.day.piece.searchfield;

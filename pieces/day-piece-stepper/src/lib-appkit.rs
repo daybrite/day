@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: an `NSTextField` + `NSStepper` composite — macOS has no combined control, and the
+// AppKit: an `NSTextField` + `NSStepper` composite: macOS has no combined control, and the
 // side-by-side pair is the platform's own idiom (every Keynote/Xcode inspector row). The
 // container view is the action target for both: a stepper click syncs the field, a field
 // commit (Return, or focus loss via `sendsActionOnEndEditing`) syncs the stepper, and both
@@ -76,7 +76,7 @@ impl DayStepperField {
         stepper.setAutorepeat(true);
         stepper.setDoubleValue(p.value);
         field.setStringValue(&NSString::from_str(&fmt_value(p.value, p.decimals)));
-        // Commit on focus loss too, not only Return — the way an inspector field behaves.
+        // Commit on focus loss too, not only Return, the way an inspector field behaves.
         if let Some(cell) = field.cell() {
             let _: () = unsafe { msg_send![&cell, setSendsActionOnEndEditing: true] };
         }

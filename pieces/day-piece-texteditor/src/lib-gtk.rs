@@ -5,13 +5,13 @@
 // GTK: a `GtkTextView` over a `GtkTextBuffer`, in a scrolled window with the same placeholder
 // overlay the built-in text area uses.
 //
-// GTK styles text with TAGS, not attributes: a tag is an object in the buffer's tag table, applied
+// GTK styles text with tags, not attributes: a tag is an object in the buffer's tag table, applied
 // over an iter range. Two consequences shape this arm:
 //
 // - **Tags are interned.** A syntax highlighter re-applies attributes on every keystroke, and a
 //   fresh `GtkTextTag` per run per keystroke would grow the tag table without bound. Each distinct
 //   `RunStyle` becomes one tag, keyed by a canonical string, and is reused for the buffer's life.
-// - **Offsets are CHARACTERS.** `TextIter` counts characters, not bytes and not UTF-16 units, so
+// - **Offsets are characters.** `TextIter` counts characters, not bytes and not UTF-16 units, so
 //   every range crosses through `char_range` / `byte_of_char`.
 //
 // GTK has no typing-attributes concept, and this arm needs none: the piece applies a pending
@@ -32,7 +32,7 @@ use gtk4::prelude::*;
 const MARGIN_V: i32 = 4;
 const MARGIN_H: i32 = 6;
 const PAD: f64 = (2 * MARGIN_V) as f64;
-/// The pixels one list level and one list marker indent by — the AppKit arm's figures, in px.
+/// The pixels one list level and one list marker indent by: the AppKit arm's figures, in px.
 const LEVEL_INDENT: f64 = 24.0;
 const MARKER_INDENT: f64 = 18.0;
 
@@ -45,7 +45,7 @@ struct EdState {
     suppress: Rc<Cell<bool>>,
     /// Interned tags, keyed by [`style_key`] / [`paragraph_key`].
     tags: Rc<RefCell<HashMap<String, gtk4::TextTag>>>,
-    /// The point size a run's relative scale multiplies — the base font resolved once.
+    /// The base font's point size, resolved once, which a run's relative scale multiplies.
     base_points: f64,
     line_h: f64,
     min_lines: u32,
@@ -99,7 +99,7 @@ fn style_key(s: &RunStyle, base_points: f64) -> String {
 }
 
 fn paragraph_key(p: &day_spec::ParagraphStyle) -> String {
-    // Only whether there IS a marker matters to the layout — the bullet or number itself is the
+    // Only whether there is a marker matters to the layout; the bullet or number itself is the
     // app's text, not a tag property.
     format!(
         "p|{}|{}|{:.1}|{:.1}|{:.1}|{}",
@@ -160,7 +160,7 @@ fn para_tag(st: &EdState, p: &day_spec::ParagraphStyle) -> gtk4::TextTag {
         MARKER_INDENT
     };
     // GTK's `indent` is the first line's offset relative to the left margin, so the marker's
-    // hanging indent is a negative first-line offset against a wider margin — the inverse of the
+    // hanging indent is a negative first-line offset against a wider margin, the inverse of the
     // way Apple spells the same layout.
     tag.set_left_margin(MARGIN_H + (indent + marker) as i32);
     tag.set_indent(-(marker as i32));
@@ -221,7 +221,7 @@ fn make(_backend: &mut Gtk, p: &EditorProps, id: NodeId) -> gtk4::Widget {
     textview.set_left_margin(MARGIN_H);
     textview.set_right_margin(MARGIN_H);
     // GtkTextView ships no spell-checker at all (that is gspell, a separate library), so the prop
-    // has nothing to drive here — `Cap::TextSpellCheck` already answers `Unsupported` on GTK.
+    // has nothing to drive here; `Cap::TextSpellCheck` already answers `Unsupported` on GTK.
     let buffer = textview.buffer();
 
     let ctx = textview.pango_context();
@@ -312,7 +312,7 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &EditorPatch) {
         m.with(key(h), |st| match patch {
             EditorPatch::SetDocument(doc) => set_document(st, doc),
             EditorPatch::SetAttributes(attrs) => {
-                // Same characters: re-tag over the text the BUFFER holds, never a stale copy.
+                // Same characters: re-tag over the text the buffer holds, never a stale copy.
                 let text = buffer_text(&st.buffer);
                 st.suppress.set(true);
                 apply_attributes(st, &text, &attrs.runs, &attrs.paragraphs);
@@ -327,13 +327,13 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &EditorPatch) {
                     st.buffer.iter_at_offset(cs as i32),
                     st.buffer.iter_at_offset((cs + cl) as i32),
                 );
-                // Suppressed: this IS the app's own write, and echoing it back would fight the
+                // Suppressed: this is the app's own write, and echoing it back would fight the
                 // signal that produced it.
                 st.suppress.set(true);
                 st.buffer.select_range(&a, &z);
                 st.suppress.set(false);
             }
-            // GTK has no typing attributes (see the header) — the piece styles the inserted
+            // GTK has no typing attributes (see the header); the piece styles the inserted
             // characters in its model instead, and the next `SetAttributes` paints them.
             EditorPatch::SetTypingStyle(_) => {}
             EditorPatch::SetEditable(v) => st.textview.set_editable(*v),

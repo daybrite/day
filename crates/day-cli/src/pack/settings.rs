@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Pack settings: CLI options + `${ENV}` interpolation for Day.toml `signing:` values (§17.3).
-//! Interpolation happens at USE time, never at parse time, and missing variables are reported by
-//! NAME only — secret values must never appear in output or errors (§16.5).
+//! Interpolation happens when a value is used, never at parse time, and missing variables are
+//! reported by name only: secret values must never appear in output or errors (§16.5).
 
 use crate::cli::Profile;
 
@@ -54,7 +54,7 @@ impl PackOptions {
     }
 }
 
-/// A `${VAR}` reference that couldn't resolve. `MissingEnv` is DEGRADABLE per the §20 CI
+/// A `${VAR}` reference that couldn't resolve. `MissingEnv` is degradable per the §20 CI
 /// contract: absent secrets lower the signing tier loudly, they never fail the pack.
 /// `Malformed` is a Day.toml mistake and always an error.
 pub enum InterpolateError {
@@ -74,7 +74,7 @@ impl InterpolateError {
 }
 
 /// Replace every `${VAR}` in `raw` with the value of the environment variable `VAR`.
-/// A missing variable is an error naming the VARIABLE (never echoing any resolved value).
+/// A missing variable is an error naming the variable (never echoing any resolved value).
 /// An env var that is set-but-empty counts as missing: CI materializes absent repository
 /// secrets as empty strings (`${{ secrets.X }}`), and the §20 contract wants those to degrade.
 pub fn interpolate_full(raw: &str) -> Result<String, InterpolateError> {
@@ -115,7 +115,7 @@ pub fn interpolate_opt(raw: Option<&String>) -> Result<Option<String>, String> {
 }
 
 /// Degradable resolve for pack (§20): a missing/empty env var warns (naming `what` and the
-/// variable) and yields None — the caller falls back to its dev tier. Malformed syntax errors.
+/// variable) and yields None; the caller falls back to its dev tier. Malformed syntax errors.
 pub fn resolve_degradable(raw: &str, what: &str) -> Result<Option<String>, String> {
     match interpolate_full(raw) {
         Ok(v) => Ok(Some(v)),

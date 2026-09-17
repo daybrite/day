@@ -1,14 +1,14 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-toolchain — one place that knows where host toolchains and SDKs live, shared by the
+//! day-toolchain is the one place that knows where host toolchains and SDKs live, shared by the
 //! `day` CLI and by crate build scripts (day-xaml-sys, every `day-piece-*`/`day-tweak-*` that
 //! compiles its own native shim, and the scaffolds `day new` generates).
 //!
 //! Two rules govern every lookup here (docs/environment.md):
 //!   1. **An environment variable always wins.** Each function documents its override(s).
 //!   2. **No literal install paths.** Default locations are derived from the platform's own
-//!      environment (`%ProgramFiles%`, `$HOME`, `%LOCALAPPDATA%`) — never a hardwired `C:\…`,
+//!      environment (`%ProgramFiles%`, `$HOME`, `%LOCALAPPDATA%`), never a hardwired `C:\…`,
 //!      so relocated installs (Windows Kits on `D:`, a portable SDK) work by setting one var.
 //!
 //! Functions that are meant to be called from build scripts have `_for_build_script` variants
@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 ///
 /// Overrides: `DAY_WINDOWS_KITS_ROOT` (the `…\Windows Kits\10` directory itself), then the
 /// MS-standard `WindowsSdkDir` (set by Visual Studio developer shells). Fallbacks derive from
-/// `%ProgramFiles(x86)%` / `%ProgramFiles%` — the env vars, not literal `C:\` paths.
+/// `%ProgramFiles(x86)%` / `%ProgramFiles%`, the env vars, not literal `C:\` paths.
 pub fn windows_kits_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
     if let Ok(v) = std::env::var("DAY_WINDOWS_KITS_ROOT") {
@@ -46,7 +46,7 @@ pub fn windows_kits_roots() -> Vec<PathBuf> {
 /// The newest `Include\<version>\cppwinrt` directory (the C++/WinRT projection headers), for
 /// compiling XAML shims with `cc`.
 ///
-/// Overrides: `DAY_CPPWINRT` (the exact cppwinrt include dir — highest priority), then the
+/// Overrides: `DAY_CPPWINRT` (the exact cppwinrt include dir, highest priority), then the
 /// roots from [`windows_kits_roots`]. Validated by `winrt/base.h`.
 pub fn cppwinrt_include() -> Option<PathBuf> {
     if let Ok(v) = std::env::var("DAY_CPPWINRT") {
@@ -152,11 +152,12 @@ pub fn makensis() -> Option<PathBuf> {
             }
         }
     }
-    // Chocolatey (`choco install nsis`) — the way CI and most Windows devs get it. Its shim lands
-    // in the chocolatey bin dir, which IS on the machine PATH, but a PATH edit made by an install
-    // does not reach an ALREADY-RUNNING process: GitHub Actions hands every step the environment
-    // captured when the job started, so `choco install` in one step leaves the next step's PATH
-    // untouched. Probing the location directly is what makes the install usable in the same job.
+    // Chocolatey (`choco install nsis`), the way CI and most Windows devs get it. Its shim lands
+    // in the chocolatey bin dir, which is on the machine PATH, but a PATH edit made by an install
+    // does not reach a process that is already running: GitHub Actions hands every step the
+    // environment captured when the job started, so `choco install` in one step leaves the next
+    // step's PATH untouched. Probing the location directly is what makes the install usable in
+    // the same job.
     let choco = std::env::var("ChocolateyInstall")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(r"C:\ProgramData\chocolatey"));
@@ -190,7 +191,7 @@ pub fn makensis() -> Option<PathBuf> {
 ///
 /// Overrides: `ANDROID_HOME`, then `ANDROID_SDK_ROOT` (both standard). Falls back to each
 /// platform's default install location: `~/Library/Android/sdk` (macOS),
-/// `%LOCALAPPDATA%\Android\Sdk` (Windows), `~/Android/Sdk` (Linux — Android Studio's default).
+/// `%LOCALAPPDATA%\Android\Sdk` (Windows), `~/Android/Sdk` (Linux, Android Studio's default).
 pub fn android_sdk_dir() -> PathBuf {
     if let Ok(v) = std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT")) {
         return PathBuf::from(v);
@@ -211,10 +212,10 @@ pub fn android_sdk_dir() -> PathBuf {
 /// The `adb` this machine should use: the SDK's own copy first, then whatever is on PATH.
 ///
 /// PATH alone is not enough, and the failure it produces is invisible rather than loud. A GitHub
-/// Linux runner sets `ANDROID_HOME` but does NOT put `platform-tools` on PATH, so every `adb` call
-/// returns "not found" — and code that reads `adb devices` to see whether a device exists then
+/// Linux runner sets `ANDROID_HOME` but does not put `platform-tools` on PATH, so every `adb` call
+/// returns "not found", and code that reads `adb devices` to see whether a device exists then
 /// concludes there is none. A CI boot waited out its full ten minutes reporting "adb sees it: no"
-/// while the emulator sat there fully booted, because the question was never actually asked.
+/// while the emulator sat there fully booted, because the question was never asked.
 pub fn adb_bin() -> String {
     let exe = if cfg!(windows) { "adb.exe" } else { "adb" };
     let in_sdk = android_sdk_dir().join("platform-tools").join(exe);
@@ -225,20 +226,20 @@ pub fn adb_bin() -> String {
 }
 
 /// A JDK home for the Gradle/AGP build. AGP 9's minimum is JDK 17, and Gradle must support the
-/// exact version — Gradle 9.6 runs on 17…26 (verified: the day scaffold builds on 17, 21 and 26
+/// exact version. Gradle 9.6 runs on 17…26 (verified: the day scaffold builds on 17, 21 and 26
 /// alike, so the old "21 exactly / 22+ breaks the jdk-image transform" restriction was an AGP-8-era
 /// carryover and no longer holds).
 ///
-/// Overrides: `JAVA_HOME` (trusted as-is — Gradle's own contract). Fallbacks: macOS's
+/// Overrides: `JAVA_HOME` (trusted as-is, which is Gradle's contract). Fallbacks: macOS's
 /// `/usr/libexec/java_home -v 17+` registry (the newest install ≥ 17), then a Homebrew `openjdk`
-/// keg — the unversioned latest first, then pinned 17+ kegs (both Apple-Silicon and Intel
+/// keg, the unversioned latest first, then pinned 17+ kegs (both Apple-Silicon and Intel
 /// prefixes). Callers export the result as `JAVA_HOME` for the Gradle child process.
 pub fn jdk_home() -> Option<PathBuf> {
     if let Ok(v) = std::env::var("JAVA_HOME") {
         return Some(PathBuf::from(v));
     }
     if cfg!(target_os = "macos") {
-        // The canonical macOS JDK registry (also finds Temurin/Zulu installs, not just brew).
+        // The canonical macOS JDK registry (also finds Temurin/Zulu installs, beyond brew's).
         if let Ok(out) = std::process::Command::new("/usr/libexec/java_home")
             .args(["-v", "17+"])
             .output()
@@ -273,7 +274,7 @@ pub enum WasmCc {
     /// A cc-rs compiler variable is set. cc-rs will run this program whatever it is, so the
     /// resolver reports it unprobed and callers must not override it.
     Env(String),
-    /// Plain `clang` on PATH has the wasm32 backend — cc-rs's default works untouched.
+    /// Plain `clang` on PATH has the wasm32 backend; cc-rs's default works untouched.
     PathClang,
     /// A wasm-capable clang found outside PATH. Callers export it as
     /// `CC_wasm32_unknown_unknown` on the cargo child process for cc-rs to use it.
@@ -285,12 +286,12 @@ pub enum WasmCc {
 /// The C compiler a web-dom build's `cc`-built dependencies will use for
 /// `wasm32-unknown-unknown`.
 ///
-/// Overrides: the `cc` crate's own variables, in its order — `CC_wasm32-unknown-unknown`,
+/// Overrides: the `cc` crate's variables, in its order: `CC_wasm32-unknown-unknown`,
 /// `CC_wasm32_unknown_unknown`, `TARGET_CC`, `CC`. With none set, plain `clang` is probed
-/// ([`emits_wasm32`] — Apple's Xcode clang has no wasm32 backend, the usual macOS miss), then
+/// ([`emits_wasm32`]; Apple's Xcode clang has no wasm32 backend, the usual macOS miss), then
 /// installs that don't put clang on PATH: Homebrew LLVM kegs (keg-only, so `brew install llvm`
-/// alone is enough) and swift.org toolchains — a deliberately installed LLVM before one that
-/// rode in with Swift.
+/// alone is enough) and swift.org toolchains, so an LLVM the user installed comes before one
+/// that rode in with Swift.
 pub fn wasm_cc() -> WasmCc {
     for var in [
         "CC_wasm32-unknown-unknown",
@@ -359,11 +360,11 @@ pub fn emits_wasm32(cc: &Path) -> bool {
 
 /// The rustup toolchain to use for cross-std builds (mobile targets need rustup's target std;
 /// a Homebrew/system rustc has none), as `(cargo_path, bin_dir)`. The bin dir is prepended to
-/// `PATH` so the toolchain's own `rustc` — not one earlier on `PATH` — is what cargo invokes.
+/// `PATH` so the toolchain's `rustc`, not one earlier on `PATH`, is what cargo invokes.
 ///
 /// Overrides: `RUSTUP_HOME` (standard; default `~/.rustup`). Among installed toolchains a
-/// `stable-*` one is preferred, then the lexicographically first — deterministic where the old
-/// first-directory-wins behavior depended on filesystem order.
+/// `stable-*` one is preferred, then the lexicographically first, which is deterministic where
+/// the old first-directory-wins behavior depended on filesystem order.
 pub fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
     let rustup_home = std::env::var("RUSTUP_HOME")
         .map(PathBuf::from)
@@ -400,7 +401,7 @@ fn on_path(tool: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// True when `dir` looks like a usable directory (exists and is a dir) — small helper for
+/// True when `dir` looks like a usable directory (exists and is a dir); a small helper for
 /// callers validating overrides.
 pub fn is_dir(dir: &Path) -> bool {
     dir.is_dir()
@@ -450,8 +451,8 @@ mod tests {
         unsafe { std::env::remove_var("DAY_MAKENSIS") };
     }
 
-    /// The layouts `choco install nsis` can leave behind. Each is built for real under a temp
-    /// `ChocolateyInstall` so the probe is exercised rather than assumed — this is the lookup that
+    /// The layouts `choco install nsis` can leave behind. Each is created on disk under a temp
+    /// `ChocolateyInstall` so the probe is exercised rather than assumed; this is the lookup that
     /// failed a release build after NSIS had actually been installed.
     #[test]
     fn makensis_found_in_chocolatey_layouts() {
@@ -483,7 +484,7 @@ mod tests {
         std::fs::create_dir_all(deep.parent().unwrap()).unwrap();
         std::fs::write(&deep, b"").unwrap();
 
-        // The earlier probes must not answer first, or this proves nothing — and on a machine that
+        // The earlier probes must not answer first, or this proves nothing, and on a machine that
         // really has NSIS in Program Files they would. Saved and put back below: PATH in particular
         // is process-global, and leaving it empty would poison every test that runs after this one.
         let (path, pf, pf86) = (

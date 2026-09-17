@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! ios-uikit → App Store .ipa via `xcodebuild archive` + `-exportArchive` (arm64-only device
-//! build; automatic signing with an App Store Connect API key — the Tauri/Flutter CI path).
-//! Without `signing.ios` config this degrades LOUDLY to an UNSIGNED device .ipa
+//! build; automatic signing with an App Store Connect API key, the Tauri/Flutter CI path).
+//! Without `signing.ios` config this degrades loudly to an unsigned device .ipa
 //! (`-unsigned.ipa`): a real `-sdk iphoneos` Release build with code signing disabled,
-//! packaged as `Payload/<App>.app`. It cannot launch as-is — the developer signs it
+//! packaged as `Payload/<App>.app`. It cannot launch as-is; the developer signs it
 //! (codesign / Xcode's Devices window) or sideloads it with AltStore/SideStore, which re-sign
 //! every binary with the user's own Apple ID anyway (§16.5).
 
@@ -73,7 +73,7 @@ pub fn pack(
             ));
         }
     };
-    // Without the ASC key, Automatic signing leans on the local Xcode account session — which
+    // Without the ASC key, Automatic signing leans on the local Xcode account session, which
     // exists on a developer's Mac and never on a CI runner, where the archive can only end in
     // "No Accounts". A resolved team with an unresolved key trio on CI is therefore not a
     // signing configuration, it is half of one: degrade to the unsigned device .ipa the same
@@ -123,7 +123,7 @@ pub fn pack(
         .arg("-derivedDataPath")
         .arg(build_dir.join("archive-dd"))
         .arg("-allowProvisioningUpdates")
-        // The scaffold pbxproj disables signing for simulator development — the archive build
+        // The scaffold pbxproj disables signing for simulator development; the archive build
         // re-enables it from the command line (command-line settings override the project).
         .arg("CODE_SIGNING_ALLOWED=YES")
         .arg("CODE_SIGN_STYLE=Automatic")
@@ -151,7 +151,7 @@ pub fn pack(
     run_tool(&mut cmd, "xcodebuild archive").map_err(PackError::Sign)?;
 
     // --- export (.ipa) -------------------------------------------------------
-    // Manual over an installed App Store profile when there is one: an AUTOMATIC export asks
+    // Manual over an installed App Store profile when there is one: an automatic export asks
     // Xcode's cloud-managed signing for the distribution certificate, which an App Manager
     // API key is not allowed to use ("Cloud signing permission error", then "No profiles for
     // '<id>' were found" even with one installed). A profile the developer created and
@@ -263,9 +263,9 @@ pub(crate) fn export_options(
     )
 }
 
-/// `xcodebuild archive` needs a scheme (targets aren't archivable). The scaffold ships none — the
-/// pbxproj carries stable synthetic ids, so generate a shared Runner scheme on demand, parsing the
-/// native-target id and product name out of the pbxproj.
+/// `xcodebuild archive` needs a scheme (targets aren't archivable). The scaffold ships none, but
+/// the pbxproj carries stable synthetic ids, so generate a shared Runner scheme on demand, parsing
+/// the native-target id and product name out of the pbxproj.
 fn ensure_shared_scheme(project: &Project) -> Result<(), String> {
     let xcodeproj = project.root.join("platform/ios/DayApp.xcodeproj");
     let scheme = xcodeproj.join("xcshareddata/xcschemes/Runner.xcscheme");
@@ -331,26 +331,26 @@ fn find_native_target_id(pbxproj: &str) -> Option<String> {
 /// Build settings that keep the shipped iOS binary reproducible (DESIGN.md §20.3).
 ///
 /// Without these, `ld` leaves a debug map in the linked Mach-O: one `N_OSO` stab per object file,
-/// each holding that `.o`'s ABSOLUTE path under `SYMROOT`. `SYMROOT` derives from the project root,
-/// so the same commit built in two different directories yields two different binaries — 267
+/// each holding that `.o`'s absolute path under `SYMROOT`. `SYMROOT` derives from the project root,
+/// so the same commit built in two different directories yields two different binaries: 267
 /// differing entries for the showcase app. Stripping the debug map removes them (and ~700 KB).
 ///
 /// Xcode runs `dsymutil` before `strip`, so the `.dSYM` is still produced and crash symbolication
-/// is unaffected — the debug info moves out of the shipped binary rather than being discarded.
+/// is unaffected: the debug info moves out of the shipped binary rather than being discarded.
 /// `STRIP_STYLE=debugging` keeps the dynamic symbol table intact, so backtraces still resolve
 /// exported frames.
 /// The second half is the ObjC nav host stubs, and it fixes a different failure. Xcode 14 added a
-/// size optimization where the compiler emits `_objc_msgSend$<nav host>` references and the LINKER
-/// synthesizes an `__objc_stubs` section for them. That leaves the binary with two `__got` slots for
-/// `_objc_msgSend` — one for the classic `__stubs` path, one for `__objc_stubs` — and which
+/// size optimization where the compiler emits `_objc_msgSend$<nav host>` references and the linker
+/// synthesizes an `__objc_stubs` section for them. That leaves the binary with two `__got` slots
+/// for `_objc_msgSend` (one for the classic `__stubs` path, one for `__objc_stubs`), and which
 /// consumer gets which slot is not stable: two CI builds of the same commit differed in exactly
 /// those 404 bytes, every `__objc_stubs` entry pointing at slot 1528 in one and 1536 in the other,
 /// with byte-identical GOT contents. The binaries were equivalent; the linker just flipped a coin.
 /// Turning the optimization off leaves one slot, so there is no coin to flip.
 ///
-/// Both flags are needed — `OTHER_CFLAGS` alone was measured to leave the section in place, because
+/// Both flags are needed: `OTHER_CFLAGS` alone was measured to leave the section in place, because
 /// the references come from Swift here, not from ObjC sources. For this app the flag also makes the
-/// binary ~9.7 KB SMALLER: the stub table is overhead when little of the code is ObjC.
+/// binary ~9.7 KB smaller: the stub table is overhead when little of the code is ObjC.
 const REPRODUCIBLE_BUILD_SETTINGS: [&str; 5] = [
     "DEPLOYMENT_POSTPROCESSING=YES",
     "STRIP_INSTALLED_PRODUCT=YES",
@@ -359,9 +359,9 @@ const REPRODUCIBLE_BUILD_SETTINGS: [&str; 5] = [
     "OTHER_SWIFT_FLAGS=$(inherited) -Xcc -fno-objc-msgsend-selector-stubs",
 ];
 
-/// The unsigned fallback: a real DEVICE build (`-sdk iphoneos`, Release) with code signing
+/// The unsigned fallback: a real device build (`-sdk iphoneos`, Release) with code signing
 /// disabled, packaged as `Payload/<App>.app` inside a `-unsigned.ipa`. It cannot launch until
-/// signed — AltStore/SideStore re-sign it with the user's own Apple ID on install, or the
+/// signed; AltStore/SideStore re-sign it with the user's own Apple ID on install, or the
 /// developer signs it directly (codesign / Xcode's Devices window).
 fn unsigned_ipa(
     project: &Project,

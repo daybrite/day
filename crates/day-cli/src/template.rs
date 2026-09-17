@@ -10,15 +10,15 @@
 //! with placeholders, not code that prints projects).
 //!
 //! Conventions, applied uniformly to built-in and user templates:
-//! * Every UTF-8 file is rendered with handlebars — `{{name}}`, `{{title}}`, `{{id}}`, … — in
-//!   its CONTENT and in its PATH (so `src/{{name}}.rs` works). Strict mode: a typo'd
+//! * Every UTF-8 file is rendered with handlebars (`{{name}}`, `{{title}}`, `{{id}}`, …) in
+//!   both its content and its path (so `src/{{name}}.rs` works). Strict mode: a typo'd
 //!   placeholder is an error, not silent empty output.
 //! * Non-UTF-8 files (icons, jars) are copied verbatim.
-//! * A trailing `.hbs` on a filename is stripped after rendering — used where the literal name
+//! * A trailing `.hbs` on a filename is stripped after rendering; used where the literal name
 //!   would confuse tooling scanning the template tree (`Cargo.toml.hbs` keeps cargo from
 //!   treating the template as a nested package).
 //! * A file named `_gitignore` becomes `.gitignore` (a real dot-file inside the template would
-//!   be APPLIED by git and `cargo package` instead of shipped).
+//!   be applied by git and `cargo package` instead of shipped).
 
 use std::path::Path;
 use std::process::Command;
@@ -158,8 +158,8 @@ pub fn filter_for_targets(files: Vec<TemplateFile>, targets: &[String]) -> Vec<T
         .collect()
 }
 
-/// The `platform/<os>/` subtrees belonging to `targets` — what `day app add-toolkit` adds to
-/// an existing project (the target-agnostic files already exist there) — plus the `store/`
+/// The `platform/<os>/` subtrees belonging to `targets`, which is what `day app add-toolkit` adds
+/// to an existing project (the target-agnostic files already exist there), plus the `store/`
 /// listing skeleton when any of them ships to a store: an app scaffolded desktop-only never
 /// got one, and gaining its first store target is exactly when it becomes needed. (The caller
 /// never overwrites, so a project that already has `store/` keeps it untouched.)
@@ -225,14 +225,14 @@ mod tests {
     fn ctx() -> BTreeMap<&'static str, String> {
         let mut m = BTreeMap::new();
         m.insert("name", "hello-world".to_string());
-        // The REPOSITORY name, which keeps the case the user typed (new.rs `Repl::repo`).
+        // The repository name, which keeps the case the user typed (new.rs `Repl::repo`).
         m.insert("repo", "Hello-World".to_string());
         m.insert("ident", "hello_world".to_string());
         m.insert("snake", "hello_world".to_string());
         m.insert("pascal", "HelloWorld".to_string());
         m.insert("title", "Hello World".to_string());
         m.insert("id", "dev.example.hello_world".to_string());
-        // The app id's organization segment — what website/site.toml builds its Pages host from.
+        // The app id's organization segment, which website/site.toml builds its Pages host from.
         m.insert("org", "example".to_string());
         m.insert("scheme", "helloworld".to_string());
         m.insert("day_dep", "day = { version = \"0.0.0\" }".to_string());
@@ -315,7 +315,7 @@ mod tests {
         assert!(!gtk.iter().any(|f| f.path.starts_with("platform/")));
 
         // add-toolkit's view: the new target's subtree plus (for a store target) the store/
-        // listing skeleton — nothing else agnostic.
+        // listing skeleton, and nothing else agnostic.
         let add = platform_files_for_targets(files, &["android-mdc".to_string()]);
         assert!(!add.is_empty());
         assert!(

@@ -7,10 +7,10 @@
 #   scripts/build-api-docs.sh --out website/dist/api   # also copy the bundle into a site dir
 #
 # The crate list lives in website/src/data/api-crates.json (the same file the /docs/api bridge page
-# reads), so the reference and the page never drift. Every crate documents PORTABLY — no native
-# toolkit, no cross-compiler: the core crates need no features and the `day` umbrella uses its headless
-# `mock` backend — so this runs on a stock Linux CI runner. A small "back to Day docs" pill is injected
-# into every rustdoc page via rustdoc's stable --html-in-header / --html-after-content.
+# reads), so the reference and the page never drift. Every crate documents portably, with no native
+# toolkit and no cross-compiler: the core crates need no features and the `day` umbrella uses its
+# headless `mock` backend, so this runs on a stock Linux CI runner. A small "back to Day docs" pill
+# is injected into every rustdoc page via rustdoc's stable --html-in-header / --html-after-content.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,8 +30,9 @@ done
 
 # --- a back-to-Day link injected into every rustdoc page via rustdoc's stable html-in-header /
 # html-after-content hooks. It is `position: fixed`, so it is removed from rustdoc's CSS-grid body
-# layout (a flow element would land in a stray grid track) and floats as a small corner pill — robust
-# across rustdoc versions. Links are root-relative → same origin the /api bundle is served from.
+# layout (a flow element would land in a stray grid track) and floats as a small corner pill, which
+# holds across rustdoc versions. Links are root-relative → same origin the /api bundle is served
+# from.
 hdr="$(mktemp)"; after="$(mktemp)"
 trap 'rm -f "$hdr" "$after"' EXIT
 cat > "$hdr" <<'CSS'

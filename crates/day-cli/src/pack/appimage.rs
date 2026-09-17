@@ -2,26 +2,26 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! linux-gtk / linux-qt → a single-file `.appimage`: one executable that runs on any glibc Linux
-//! with no installer, no package manager, and no root.
+//! without an installer, a package manager, or root.
 //!
 //! It is the sibling of the `.flatpak`, not a replacement, and the split is about where the
 //! toolkit comes from. A flatpak gets GTK/Qt from a runtime the user's flatpak installation
-//! resolves — correct, sandboxed, and several hundred megabytes on first install. An AppImage
-//! carries what it needs itself, so `curl … && chmod +x && ./app` really is the whole procedure.
+//! resolves: correct, sandboxed, and several hundred megabytes on first install. An AppImage
+//! carries what it needs itself, so `curl … && chmod +x && ./app` is the whole procedure.
 //! Releases ship both, and the one-line launcher (daybrite/actions) reaches for the AppImage.
 //!
 //! Day does not implement the bundling: `linuxdeploy` walks the binary's `DT_NEEDED` closure and
-//! copies it in, its `gtk`/`qt` plugin adds the parts a naive `ldd` walk misses (GdkPixbuf
+//! copies it in, its `gtk`/`qt` plugin adds the parts a plain `ldd` walk misses (GdkPixbuf
 //! loaders, GIO modules, GSettings schemas; Qt's platform plugins), and `--output appimage` seals
-//! the result. Reimplementing that here would be reimplementing it badly — the failure modes are
+//! the result. Reimplementing that here would be reimplementing it badly: the failure modes are
 //! all in the parts an `ldd` closure does not see.
 //!
 //! Without the toolkit plugin the AppImage is still produced and still runs, on a machine that
-//! already has that toolkit. That is a real degradation, so it is reported LOUDLY rather than
+//! already has that toolkit. That is a degradation, so it is reported loudly rather than
 //! discovered by a user whose desktop happens to differ (§20).
 //!
 //! `day rebuild` cannot open an AppImage (an ELF with a squashfs appended), so its payload verdict
-//! comes from the recorded digests — of the FLATPAK stage, which the same pack produced from the
+//! comes from the recorded digests of the flatpak stage, which the same pack produced from the
 //! same compiled binary (`pack::payload_root`, §20.3). One recorded payload therefore covers both
 //! Linux artifacts, and neither has to be extractable for the code to be verified.
 
@@ -60,7 +60,7 @@ pub fn pack(
         .clone()
         .unwrap_or_else(|| project.manifest.app.name.clone());
 
-    // AppDir layout: AppRun, <id>.desktop and <id>.png at the ROOT, everything else under usr/.
+    // AppDir layout: AppRun, <id>.desktop and <id>.png at the root, everything else under usr/.
     // linuxdeploy fills in usr/lib; Day stages the rest.
     let work = project.root.join("build/day/appimage").join(target.name);
     let appdir = work.join("AppDir");
@@ -92,7 +92,7 @@ pub fn pack(
     }
     let env: Vec<_> = defaults.into_iter().map(|d| (d.name, d.value)).collect();
 
-    // `$0` is AppRun itself, and `readlink -f` resolves the symlink the host may have made — so
+    // `$0` is AppRun itself, and `readlink -f` resolves the symlink the host may have made, so
     // Here is the AppDir root wherever the image mounted this run.
     let apprun = appdir.join("AppRun");
     std::fs::write(
@@ -171,7 +171,7 @@ pub fn pack(
         // An AppImage embeds a build timestamp unless told otherwise; the reproducible epoch is
         // the same clock every other container in this pack uses (§20.3).
         .env("SOURCE_DATE_EPOCH", super::reproducible_epoch().to_string())
-        // linuxdeploy runs appimagetool, which is itself an AppImage — and a CI container has no
+        // linuxdeploy runs appimagetool, which is itself an AppImage, and a CI container has no
         // FUSE. This is the documented escape hatch.
         .env("APPIMAGE_EXTRACT_AND_RUN", "1");
     if let Some(p) = plugin
@@ -193,7 +193,7 @@ pub fn pack(
         path: out,
         kind: "appimage",
         // An AppImage carries no signature of its own. Detached signing (the `.AppImage.zsync`
-        // / GPG convention) is not wired up, so the tier is honest about that rather than
+        // / GPG convention) is not wired up, so the tier records that rather than
         // inheriting the flatpak's.
         sha256: String::new(),
         tier: SignTier::Unsigned,
@@ -209,7 +209,7 @@ fn toolkit_plugin(toolkit: &str) -> Option<&'static str> {
     }
 }
 
-/// Locate a tool, honoring a `DAY_<TOOL>` override before PATH — the linuxdeploy releases are
+/// Locate a tool, honoring a `DAY_<TOOL>` override before PATH; the linuxdeploy releases are
 /// downloaded AppImages rather than packaged, so they often live outside PATH. Shared with
 /// `day doctor`'s probes ([`super::appimage_tool_probe`]) so both answer the same question.
 pub(super) fn tool(name: &str) -> Option<PathBuf> {
@@ -226,7 +226,7 @@ pub(super) fn tool(name: &str) -> Option<PathBuf> {
 }
 
 /// The CPU architecture in the artifact name. AppImages are per-arch, and a release may carry
-/// several — the same reason the flatpak bundle names one.
+/// several, the same reason the flatpak bundle names one.
 fn arch() -> &'static str {
     if cfg!(target_arch = "aarch64") {
         "aarch64"

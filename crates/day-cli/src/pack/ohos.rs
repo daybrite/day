@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! harmony-arkui → .hap. With `signing.ohos` config the hvigor-built UNSIGNED hap is release-signed
+//! harmony-arkui → .hap. With `signing.ohos` config the hvigor-built unsigned hap is release-signed
 //! via the SDK's hap-sign-tool (localSign, user keystore + release cert + provisioning profile);
-//! without it the dev path stands (the CLI's embedded sign-hap.mjs + the public OpenHarmony cert —
+//! without it the dev path stands (the CLI's embedded sign-hap.mjs + the public OpenHarmony cert;
 //! emulator installs only, dev tier).
 
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ pub fn pack(
     opts: &PackOptions,
     dist: &Path,
 ) -> Result<Artifact, PackError> {
-    // Build assembles + dev-signs (build_ohos). The unsigned hap stays behind in entry/build —
+    // Build assembles + dev-signs (build_ohos). The unsigned hap stays behind in entry/build;
     // release signing re-signs that, never the dev-signed one.
     let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
     let out = dist.join(super::naming::artifact_file(
@@ -53,7 +53,7 @@ pub fn pack(
             let signed = project.root.join("build/day/pack/ohos-release.hap");
             std::fs::create_dir_all(signed.parent().unwrap())
                 .map_err(|e| PackError::Other(e.to_string()))?;
-            // hvigor emits this zip itself, so there is no staging tree to stamp — patch the
+            // hvigor emits this zip itself, so there is no staging tree to stamp: patch the
             // archive's timestamps instead, before signing so the signature covers final bytes.
             super::normalize_zip_mtimes(&unsigned).map_err(PackError::Other)?;
             release_sign(&m, &unsigned, &signed).map_err(PackError::Sign)?;
@@ -93,7 +93,7 @@ struct OhosMaterial {
 }
 
 /// Resolve the release material; any unresolved secret degrades the whole section (None).
-/// A RESOLVED path that doesn't exist is a real misconfiguration and errors.
+/// A resolved path that doesn't exist is a misconfiguration and errors.
 fn resolve_material(
     project: &Project,
     cfg: &crate::meta::OhosSigning,
@@ -174,7 +174,7 @@ fn release_sign(m: &OhosMaterial, unsigned: &Path, signed: &Path) -> Result<(), 
     )
 }
 
-/// hap-sign-tool.jar lives in the SDK's toolchains/lib — probe from the NDK location upward
+/// hap-sign-tool.jar lives in the SDK's toolchains/lib; probe from the NDK location upward
 /// (OHOS_NDK_HOME points at `<sdk>/native`; toolchains is its sibling).
 fn find_hap_sign_tool() -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();

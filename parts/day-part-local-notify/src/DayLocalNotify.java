@@ -1,21 +1,21 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-part-local-notify's OWN Android backend — a headless capability shim (no UI). Bundled with
-// the crate and folded into the app's Gradle build via [package.metadata.day.android], with ZERO
-// edits to day-android. The Android twin of parts/day-part-local-notify/src/apple.rs.
+// day-part-local-notify's Android backend: a headless capability shim (no UI). Bundled with the
+// crate and folded into the app's Gradle build via [package.metadata.day.android], with no edits
+// to day-android. The Android twin of parts/day-part-local-notify/src/apple.rs.
 //
-// NO GOOGLE DEPENDENCY. This is the platform NotificationManager and AlarmManager only — no Play
-// services, no Firebase — so it runs unchanged on AOSP, GrapheneOS, or a Kindle. That is a design
-// requirement of docs/notify.md, not an accident.
+// No Google dependency. This is the platform NotificationManager and AlarmManager only, with no
+// Play services or Firebase, so it runs unchanged on AOSP, GrapheneOS, or a Kindle. That is a
+// design requirement of docs/notify.md.
 //
-// WHY ALARMMANAGER FOR SCHEDULING. Android has no notification scheduler: unlike Apple's
+// Why AlarmManager for scheduling. Android has no notification scheduler: unlike Apple's
 // UNTimeIntervalNotificationTrigger, nothing in the OS will hold a notification for you. A delayed
 // notification is therefore an alarm that wakes DayNotifyAlarmReceiver, which rebuilds and posts it
-// from data persisted here — in a fresh process with no Day tree alive, which is why the payload is
+// from data persisted here, in a fresh process with no Day tree alive, which is why the payload is
 // snapshotted at schedule time rather than read from app state at fire time.
 //
-// PERMISSIONS. This shim never requests one. POST_NOTIFICATIONS (API 33+) is asked for through
+// Permissions. This shim never requests one. POST_NOTIFICATIONS (API 33+) is asked for through
 // day-part-permissions; a missing grant surfaces as ERR_DENIED rather than a silent no-op.
 package dev.daybrite.day.notify;
 
@@ -68,9 +68,9 @@ public final class DayLocalNotify {
     }
 
     /**
-     * Create (or leave alone) a channel. Importance is IMMUTABLE after the first registration —
-     * Android hands the setting to the user at that point — so re-registering with a different
-     * level deliberately does nothing rather than appearing to work.
+     * Create (or leave alone) a channel. Importance is immutable after the first registration
+     * (Android hands the setting to the user at that point), so re-registering with a different
+     * level does nothing rather than appearing to work.
      */
     public static void createChannel(String id, String name, int importance, boolean sound) {
         NotificationManager nm = manager();
@@ -113,7 +113,7 @@ public final class DayLocalNotify {
     }
 
     /**
-     * The small icon must be a MONOCHROME silhouette — a full-color drawable renders as a white
+     * The small icon must be a monochrome silhouette; a full-color drawable renders as a white
      * square. The crate ships ic_day_notify as the default; an app overrides it by name. Resolved
      * with getIdentifier because a piece cannot know the app's R class (docs/extending.md).
      */
@@ -128,7 +128,7 @@ public final class DayLocalNotify {
     }
 
     /**
-     * Tapping opens the app at {@code route}. The intent carries the route as its DATA URI rather
+     * Tapping opens the app at {@code route}. The intent carries the route as its data URI rather
      * than an extra, because that is the rail day-android already reads on both paths: a cold start
      * reads getIntent().getData() into DAY_DEEPLINK, and a warm tap arrives at onNewIntent, which
      * turns the same URI into a deep-link event. No day-android change is needed.
@@ -174,7 +174,7 @@ public final class DayLocalNotify {
      *
      * Exact alarms are increasingly restricted: SCHEDULE_EXACT_ALARM is auto-granted but revocable
      * on 12–13 and withheld by default on 14+; a clock app gets an install-time grant by declaring
-     * USE_EXACT_ALARM itself (docs/notify.md). All three exact paths — including setAlarmClock —
+     * USE_EXACT_ALARM itself (docs/notify.md). All three exact paths (including setAlarmClock)
      * need the grant, so a missing one falls back to an inexact alarm rather than dropping it; the
      * caller is told which it got by the canScheduleExact capability flag.
      */
@@ -248,7 +248,7 @@ public final class DayLocalNotify {
         p.edit().clear().apply();
     }
 
-    /** Whether an exact alarm would actually be exact — the honest input to the capability flag. */
+    /** Whether an exact alarm would fire exactly; the input to the capability flag. */
     public static boolean canScheduleExact() {
         Context ctx = DayBridge.ctx;
         if (ctx == null) return false;

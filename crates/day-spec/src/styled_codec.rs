@@ -3,14 +3,14 @@
 
 //! Import and export for [`StyledText`]: Markdown, HTML, and RTF (docs/texteditor.md).
 //!
-//! All three are **lossy on purpose**, in one direction each way. Reading, anything Day's model
-//! cannot hold is dropped rather than approximated — a table, an image, a stylesheet. Writing,
-//! Day emits only what it can read back, so `parse(write(doc)) == doc` for every document Day
-//! itself produced. That round-trip is the contract these are tested against; matching Word or
-//! a browser byte for byte is not one.
+//! All three are lossy, in one direction each way. Reading, anything Day's model cannot hold is
+//! dropped rather than approximated: a table, an image, a stylesheet. Writing, Day emits only
+//! what it can read back, so `parse(write(doc)) == doc` for every document Day itself produced.
+//! That round-trip is the contract these are tested against; matching Word or a browser byte for
+//! byte is not one.
 //!
 //! Hand-rolled, with no new dependency. Each format is a few hundred lines because the subset is
-//! deliberately small (docs/texteditor.md §RTF scope), and because a text codec that panics or
+//! kept small (docs/texteditor.md §RTF scope), and because a text codec that panics or
 //! loops on hostile input is worse than one that misses a control word.
 
 use crate::{
@@ -18,7 +18,7 @@ use crate::{
     StyledText, TextRun, Underline, coalesce_runs, paragraph_bounds,
 };
 
-/// A document's base style — the font a run says nothing about, and the size everything else is
+/// A document's base style: the font a run says nothing about, and the size everything else is
 /// relative to. Import needs it to place headings and code; export needs it to know what not to
 /// write.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -63,9 +63,9 @@ fn heading_scale(level: u8) -> f64 {
 
 /// Which heading level a whole-line scale came from, if any.
 ///
-/// `1.0` is deliberately not one: h4 is body-sized in every browser's default ramp, so a run at
+/// `1.0` answers `None`: h4 is body-sized in every browser's default ramp, so a run at
 /// scale 1.0 is indistinguishable from ordinary bold text. An imported `#### x` therefore comes
-/// back out as `**x**` — the documented loss (docs/texteditor.md), and the alternative would be
+/// back out as `**x**`, the documented loss (docs/texteditor.md); the alternative would be
 /// exporting every bold word in the document as a heading.
 fn heading_level_for(scale: f64) -> Option<u8> {
     if (scale - 1.0).abs() < 1e-6 {
@@ -79,7 +79,7 @@ fn heading_level_for(scale: f64) -> Option<u8> {
 // ===========================================================================
 
 /// Parse markdown into a styled document: the inline grammar
-/// ([`crate::markdown`](crate::markdown)) plus the block constructs a document editor needs —
+/// ([`crate::markdown`](crate::markdown)) plus the block constructs a document editor needs:
 /// ATX headings, `>` quotes, and `-`/`1.` lists.
 ///
 /// Headings become a **run** (bold at [`heading_scale`]) rather than a paragraph attribute,
@@ -473,7 +473,7 @@ fn escape_html(s: &str, out: &mut String) {
 ///
 /// A tag-soup reader, not a browser: it tracks the inline tags and inline `style` properties Day
 /// can express and ignores everything else, including `<script>`/`<style>` contents, which it
-/// skips wholesale. Unknown tags are transparent — their TEXT survives, their meaning does not.
+/// skips wholesale. Unknown tags are transparent: their text survives, their meaning does not.
 pub fn html_to_styled(html: &str, style: DocStyle) -> StyledText {
     let mut p = HtmlParser {
         src: html.as_bytes(),
@@ -636,7 +636,7 @@ impl HtmlParser<'_> {
             }
             if name == "ul" {
                 self.list_ordinal.push(0);
-                // A bullet list is marked by a ZERO ordinal slot, which `li` reads as "no number".
+                // A bullet list is marked by a zero ordinal slot, which `li` reads as "no number".
                 if let Some(last) = self.list_ordinal.last_mut() {
                     *last = 0;
                 }
@@ -942,9 +942,9 @@ pub fn styled_to_rtf(doc: &StyledText, style: DocStyle) -> String {
                 continue;
             };
             body.push('{');
-            // Every control word below needs a delimiter, and in RTF a single space after one IS
-            // that delimiter. But a run with NO control words must not get one, or the space
-            // becomes literal text — which is how "bold italic" came back as "bold  italic".
+            // Every control word below needs a delimiter, and in RTF a single space after one is
+            // that delimiter. But a run with no control words must not get one, or the space
+            // becomes literal text, which is how "bold italic" came back as "bold  italic".
             let attrs_at = body.len();
             if s.bold() {
                 body.push_str("\\b");
@@ -1164,7 +1164,7 @@ impl RtfParser<'_> {
         }
         self.pending_utf16.push(unit);
         let decoded: String = String::from_utf16_lossy(&self.pending_utf16);
-        // A lone high surrogate decodes lossily, so hold it for its partner — but only for one
+        // A lone high surrogate decodes lossily, so hold it for its partner, but only for one
         // more unit, or an unpaired surrogate would swallow the rest of the document.
         if !decoded.contains('\u{fffd}') || self.pending_utf16.len() >= 2 {
             self.doc.text.push_str(&decoded);
@@ -1195,7 +1195,7 @@ impl RtfParser<'_> {
         self.run_start = end;
     }
 
-    /// Consume the rest of the current group without producing text — for the tables, whose
+    /// Consume the rest of the current group without producing text, for the tables, whose
     /// contents this reader parses from the source directly.
     fn skip_group(&mut self) {
         let mut depth = 1i32;
@@ -1221,7 +1221,7 @@ impl RtfParser<'_> {
             return;
         }
         let b = self.src[self.at];
-        // `\'hh` — a raw byte in the document's codepage, read as Latin-1, which is what an
+        // `\'hh` is a raw byte in the document's codepage, read as Latin-1, which is what an
         // `\ansi` document means and the only codepage this subset promises.
         if b == b'\'' {
             let hex = self
@@ -1237,7 +1237,7 @@ impl RtfParser<'_> {
             return;
         }
         // `\*` is RTF's own "skip this destination if you do not know it", and knowing it is
-        // exactly what a subset reader does not. Marking the GROUP rather than guessing at the
+        // exactly what a subset reader does not. Marking the group rather than guessing at the
         // control word after it is what keeps `{\*\expandedcolortbl;;}` and every future
         // destination from leaking punctuation into the text.
         if b == b'*' {
@@ -1378,7 +1378,7 @@ impl RtfParser<'_> {
             "sa" => self.para.space_after = param.unwrap_or(0) as f64 / 20.0,
             _ => {}
         }
-        // The tables are read from the SOURCE rather than as body text, because a group marked
+        // The tables are read from the source rather than as body text, because a group marked
         // `skip` produces none. Each leaves the cursor inside its group; `skip_group` then walks
         // to the matching brace so `run` never sees the contents.
         if word == "colortbl" {
@@ -1447,7 +1447,7 @@ impl RtfParser<'_> {
         }
     }
 
-    /// `{\f1 Courier New;}` entries — only which indices are monospaced, which is all the model
+    /// `{\f1 Courier New;}` entries: only which indices are monospaced, which is all the model
     /// can carry. Reads to the end of the enclosing group without consuming its closing brace;
     /// `skip_group` does that.
     fn read_font_table(&mut self) {
@@ -1545,7 +1545,7 @@ impl RtfParser<'_> {
 fn color_at(colors: &[Color], param: Option<i64>) -> Option<Color> {
     // `\cf0` is "the document's default color", i.e. nothing to say. The table's leading `;`
     // terminates that default entry, so the parsed vector holds it at index 0 and `\cfN` indexes
-    // straight in — which is the off-by-one this indexed past when it subtracted.
+    // straight in, which is the off-by-one this indexed past when it subtracted.
     let i = param?;
     if i <= 0 {
         return None;

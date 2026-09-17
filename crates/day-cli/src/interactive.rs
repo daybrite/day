@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Interactive terminal prompts for `day new` (DESIGN.md §8). These are the *fallback* branch of the
+//! Interactive terminal prompts for `day new` (DESIGN.md §8). These are the fallback branch of the
 //! `day new` flag resolvers: when a value is not supplied on the command line and a terminal is
-//! present, the corresponding question below fills it in. That is the whole flag↔dialog link — there
-//! is no separate "wizard" code path that could drift from the flags (see `new.rs`).
+//! present, the corresponding question below fills it in. That is the entire flag↔dialog link;
+//! there is no separate "wizard" code path that could drift from the flags (see `new.rs`).
 //!
 //! The prompts are driven by [`inquire`](https://github.com/mikaelmello/inquire): free text
 //! ([`Text`]), single-choice ([`Select`]), and a checkbox multi-select ([`MultiSelect`], with
@@ -80,7 +80,7 @@ impl Prompt {
         resolve(picked.map(|opt| opt.index), || start)
     }
 
-    /// Multi choice — a checkbox list (space toggles, arrows move, typing filters). `preselected`
+    /// Multi choice: a checkbox list (space toggles, arrows move, typing filters). `preselected`
     /// indices start ticked. Returns the chosen indices (deduped, in menu order). An empty selection
     /// is allowed (mandatory callers reject it themselves). Disabled ⇒ returns `preselected`.
     pub fn choose_multi(

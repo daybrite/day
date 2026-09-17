@@ -3,18 +3,18 @@
 
 //! iOS and macOS: CoreLocation's `CLLocationManager` with a delegate.
 //!
-//! Unlike an authorization READ — which `day-part-permissions` polls, because a delegate needs a
-//! run loop it cannot assume — position updates have no polling equivalent worth the trade: the
-//! `location` property only refreshes while updates are running anyway, so this arm installs a real
+//! Unlike an authorization read (which `day-part-permissions` polls, because a delegate needs a
+//! run loop it cannot assume), position updates have no polling equivalent worth the trade: the
+//! `location` property only refreshes while updates are running anyway, so this arm installs a
 //! delegate with `objc2::define_class!`. It is the first part in the tree to define an Objective-C
 //! class; pieces do it routinely.
 //!
 //! # The run-loop requirement, stated plainly
 //!
-//! CoreLocation delivers to the run loop of the thread the manager was created on. `start` therefore
-//! creates it on the MAIN thread when called from there — which is where a Day app calls it — and
-//! best-effort elsewhere. In a plain `main` or under `cargo test` with no run loop, no fix is ever
-//! delivered; `is_available` still answers true, because CoreLocation exists.
+//! CoreLocation delivers to the run loop of the thread the manager was created on. `start`
+//! therefore creates it on the main thread when called from there (which is where a Day app calls
+//! it) and best-effort elsewhere. In a plain `main` or under `cargo test` with no run loop, no fix
+//! is ever delivered; `is_available` still answers true, because CoreLocation exists.
 //!
 //! Raw `objc2` + `msg_send!` throughout: this needs `CLLocationManager`, `CLLocation` and one
 //! delegate, which is not worth a framework wrapper crate (see the crate's dependency note).
@@ -31,7 +31,7 @@ use crate::{Accuracy, Fix, LocationError};
 #[link(name = "CoreLocation", kind = "framework")]
 unsafe extern "C" {}
 
-/// `CLLocationCoordinate2D` — two doubles, returned by value from `-[CLLocation coordinate]`.
+/// `CLLocationCoordinate2D`: two doubles, returned by value from `-[CLLocation coordinate]`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Coordinate {
@@ -51,7 +51,7 @@ unsafe impl RefEncode for Coordinate {
 
 define_class!(
     #[unsafe(super(NSObject))]
-    // Creatable from any thread: `start` runs wherever the app called it — the main thread in a
+    // Creatable from any thread: `start` runs wherever the app called it, the main thread in a
     // Day app, which is also the run loop CoreLocation then delivers on.
     #[thread_kind = AllocAnyThread]
     #[name = "DayLocationDelegate"]
@@ -59,7 +59,7 @@ define_class!(
     struct Delegate;
 
     /// The `CLLocationManagerDelegate` methods this arm needs. Objective-C dispatches through
-    /// `respondsToSelector:`, so implementing the selectors is enough — no formal conformance
+    /// `respondsToSelector:`, so implementing the selectors is enough; no formal conformance
     /// declaration (and no framework wrapper crate) is required.
     impl Delegate {
         #[unsafe(method(locationManager:didUpdateLocations:))]
@@ -94,7 +94,7 @@ impl Delegate {
     }
 }
 
-/// Read every field of a `CLLocation`. CoreLocation signals "not measured" with a NEGATIVE accuracy
+/// Read every field of a `CLLocation`. CoreLocation signals "not measured" with a negative accuracy
 /// and with `-1` for speed and course, so those become `None` rather than nonsense numbers.
 unsafe fn read_fix(loc: *mut AnyObject) -> Fix {
     unsafe {
@@ -140,7 +140,7 @@ fn map_error(error: *mut AnyObject) -> LocationError {
 
 thread_local! {
     /// The live manager and its delegate. Both must outlive the updates, and neither is `Send`, so
-    /// they live in the thread that started them — the main thread in a Day app.
+    /// they live in the thread that started them, the main thread in a Day app.
     static ACTIVE: RefCell<Option<(Retained<AnyObject>, Retained<Delegate>)>> =
         const { RefCell::new(None) };
 }

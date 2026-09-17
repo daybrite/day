@@ -8,8 +8,9 @@
 use std::rc::Rc;
 
 // ---------------------------------------------------------------------------
-// Menus — the app-side builder over day_spec's toolkit-neutral MenuItem model. Lowering registers each
-// item's action closure with day-core (which dispatches `Event::MenuAction`) and assigns its id.
+// Menus: the app-side builder over day_spec's toolkit-neutral MenuItem model. Lowering registers
+// each item's action closure with day-core (which dispatches `Event::MenuAction`) and assigns its
+// id.
 // ---------------------------------------------------------------------------
 
 /// A menu entry under construction. Build a command with [`menu_item`], a nested submenu with
@@ -48,7 +49,7 @@ impl MenuEntry {
     }
 
     /// A standard [`Symbol`](day_spec::Symbol) beside the item's title, drawn with the
-    /// platform's own glyph — the same vocabulary toolbars take. Menus carry icons on macOS,
+    /// platform's glyph, the same vocabulary toolbars take. Menus carry icons on macOS,
     /// Windows, GNOME, KDE and Android; a backend whose menus are text-only ignores it, so an
     /// icon is always an addition to a menu that already reads correctly without one.
     pub fn icon(mut self, s: day_spec::Symbol) -> MenuEntry {
@@ -56,7 +57,7 @@ impl MenuEntry {
         self
     }
 
-    /// A bundled image from `resource/images`, for an item the standard set has no glyph for —
+    /// A bundled image from `resource/images`, for an item the standard set has no glyph for:
     /// an app's own vocabulary (a shape, a brand). Same rule as [`MenuEntry::icon`].
     pub fn image(mut self, name: impl Into<String>) -> MenuEntry {
         self.icon = Some(day_spec::Icon::Image(name.into()));
@@ -73,7 +74,7 @@ impl MenuEntry {
         self
     }
     /// Convenience: the platform's primary modifier (⌘ / Ctrl) + `key`. This sets the item's
-    /// SHORTCUT — to name the item, use [`MenuEntry::id`].
+    /// shortcut; to name the item, use [`MenuEntry::id`].
     pub fn key(mut self, key: impl Into<String>) -> MenuEntry {
         self.shortcut = Some(day_spec::Shortcut::new(key));
         self
@@ -84,20 +85,20 @@ impl MenuEntry {
     /// has no native menus.
     ///
     /// A label cannot do that job. It is localized, so it changes with the run's language, and an
-    /// item that shows its own state changes it whenever the state moves — which is exactly the
+    /// item that shows its own state changes it whenever the state moves, which is exactly the
     /// case [`MenuEntry::checked`] creates. Give an id to any item a script drives.
     pub fn id(mut self, id: impl Into<String>) -> MenuEntry {
         self.id = Some(id.into());
         self
     }
 
-    /// Draw this item with the platform's check mark, on or off — for a setting the menu toggles
+    /// Draw this item with the platform's check mark, on or off, for a setting the menu toggles
     /// or one of several mutually exclusive choices. An item that never calls this is a plain
     /// command and reserves no room for a mark.
     ///
     /// Choosing the item still runs its [`action`](MenuEntry::action); no backend flips the mark
     /// by itself. The app owns the state, so install the menu with [`app_menu_reactive`] and read
-    /// the signal here — the mark then follows the state instead of tracking it separately.
+    /// the signal here; the mark then follows the state instead of tracking it separately.
     ///
     /// ```ignore
     /// menu_item(tr("view-grid")).id("view-grid").checked(grid.get()).action(move || grid.set(!grid.get()))
@@ -131,7 +132,7 @@ pub fn sub_menu(label: impl Into<String>, items: Vec<MenuEntry>) -> MenuEntry {
 }
 
 /// Claim one of the platform's standard menu-bar slots for this submenu: the backend places it
-/// where that menu belongs and does NOT add its own stock version. Without a role, a submenu is
+/// where that menu belongs and does not add its stock version. Without a role, a submenu is
 /// an app menu and sits between the standard ones.
 ///
 /// ```ignore
@@ -153,8 +154,9 @@ pub fn menu_separator() -> MenuEntry {
 }
 
 /// A standard/system command (`MenuRole::Copy`, `MenuRole::Quit`, …) rendered with the platform's
-/// NATIVE item — correct label, default shortcut, focus-targeting, and automatic enable/disable — so
-/// default menu items (Edit ▸ Cut/Copy/Paste, the app's Quit/About) work without re-implementation.
+/// native item (correct label, default shortcut, focus-targeting, and automatic enable/disable),
+/// so default menu items (Edit ▸ Cut/Copy/Paste, the app's Quit/About) work without
+/// re-implementation.
 pub fn menu_role(role: day_spec::MenuRole) -> MenuEntry {
     MenuEntry {
         role: Some(role),
@@ -184,10 +186,10 @@ fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
 }
 
 /// Lower app-side entries to the spec model, registering action closures with day-core. A standard
-/// `role` item with no explicit label gets its label from the localized core catalog here — so the
+/// `role` item with no explicit label gets its label from the localized core catalog here, so the
 /// backends receive a ready, locale-correct label instead of each hardcoding English (day-l10n).
 ///
-/// This variant registers PROCESS-lived closures — correct for the app menu and toolbars, whose
+/// This variant registers process-lived closures, correct for the app menu and toolbars, whose
 /// ids day-core manages by shape-rebinding and explicit sweeps. Menus owned by a piece build
 /// (a `.context_menu`, a nav row's menu) go through [`lower_menu_scoped`] instead, so their
 /// closures are reclaimed when the registering scope is disposed rather than leaking per remount.
@@ -220,7 +222,7 @@ fn lower_menu_with(
                 let mut enabled = e.enabled;
                 let mut shortcut = e.shortcut;
                 // Window roles have no native selector on any platform: an action-less item
-                // lowers to the registered day dispatcher (docs/windows.md) — live when the
+                // lowers to the registered day dispatcher (docs/windows.md): live when the
                 // app registered a builder/preferences piece, disabled otherwise.
                 if action == 0 {
                     match e.role {
@@ -233,9 +235,9 @@ fn lower_menu_with(
                         // too, for toolkits whose role items come back as plain menu actions
                         // (Android's app-bar menu, the iOS menu, web context menus). Toolkits
                         // with a native responder route ignore the action and keep their selector
-                        // — see each backend's menu build. Each also takes the platform-neutral
-                        // STANDARD shortcut (primary+Z/X/C/V/A, shift for redo) unless the app
-                        // set its own — AppKit's native items already carry these, so this is
+                        // (see each backend's menu build). Each also takes the platform-neutral
+                        // standard shortcut (primary+Z/X/C/V/A, shift for redo) unless the app
+                        // set its own. AppKit's native items already carry these, so this is
                         // what gives GTK/Qt/web the same accelerators.
                         Some(day_spec::MenuRole::Undo) => {
                             action = day_core::undo_action_id(false);
@@ -287,9 +289,10 @@ fn lower_menu_with(
         .collect()
 }
 
-/// Install the application menu — the native menu bar on desktop, the app-bar overflow on Android, the
-/// UIMenuBuilder main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(...)`s (the
-/// menu-bar menus). Call at startup or whenever the menu changes; it replaces any previous app menu.
+/// Install the application menu: the native menu bar on desktop, the app-bar overflow on Android,
+/// the UIMenuBuilder main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(...)`s
+/// (the menu-bar menus). Call at startup or whenever the menu changes; it replaces any previous
+/// app menu.
 ///
 /// Labels resolve once, in the install-time locale; an app whose language can change at
 /// runtime (a preferences language picker) should use [`app_menu_reactive`] instead.
@@ -298,7 +301,7 @@ pub fn app_menu(menus: Vec<MenuEntry>) {
 }
 
 /// [`app_menu`] that re-lowers and re-installs whenever a locale-tracked read inside the
-/// builder changes — `menu_role` labels, `res::str` titles, and `day::tr` all read the
+/// builder changes. `menu_role` labels, `res::str` titles, and `day::tr` all read the
 /// locale signal, so a runtime language switch rebuilds the menu in the new language
 /// (docs/menus.md). Replacement drops the previous install's action closures (context
 /// menus are unaffected). The binding lives in a root-owned scope: install once, at startup.
@@ -423,7 +426,7 @@ fn composed_menu_host(
 }
 
 /// One flattened item row per entry. Submenus inline as a dimmed header plus indented
-/// children — the composed panel has no flyout (docs/menus.md).
+/// children, since the composed panel has no flyout (docs/menus.md).
 fn composed_menu_rows(
     items: &[day_spec::MenuItem],
     indent: f64,
@@ -489,7 +492,7 @@ fn composed_menu_rows(
 }
 
 /// Places the catcher over the full window and the panel at the summon point, pulled back
-/// inside the bounds when the point sits too close to an edge.
+/// inside the bounds when the summon point sits too close to an edge.
 struct MenuPlace {
     at: day_spec::Point,
 }
@@ -515,8 +518,8 @@ impl day_core::Layout for MenuPlace {
         }
         if let Some(&c) = children.get(1) {
             let s = cx.measure_child(c, day_spec::Proposal::new(Some(COMPOSED_MENU_W), None));
-            // Pull the panel back inside the window when the summon point sits near an edge
-            // — unless bounds are degenerate (a pass before the backend reported the size).
+            // Pull the panel back inside the window when the summon point sits near an edge,
+            // unless bounds are degenerate (a pass before the backend reported the size).
             let (x, y) = if bounds.size.width > 1.0 && bounds.size.height > 1.0 {
                 (
                     self.at.x.min(bounds.size.width - s.width).max(0.0),
@@ -560,8 +563,8 @@ impl day_core::Piece for ComposedMenuHost {
 mod tests {
     use super::*;
 
-    /// The role items every Edit menu carries take the STANDARD accelerators when the app
-    /// sets none — what gives GTK/Qt/web the shortcuts AppKit's native items always had.
+    /// The role items every Edit menu carries take the standard accelerators when the app
+    /// sets none, which is what gives GTK/Qt/web the shortcuts AppKit's native items always had.
     #[test]
     fn role_items_take_standard_shortcuts() {
         use day_spec::{MenuItem, MenuRole};

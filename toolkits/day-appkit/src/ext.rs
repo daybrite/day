@@ -6,7 +6,7 @@
 //! `with_native` clones the retained handle out of the realized tree (a retain, not a transfer)
 //! and hands it to `f` together with the concrete native **class name** and the `MainThreadMarker`
 //! AppKit calls want. The class is the realized view's runtime class (`object_getClass`), so a
-//! tweak can branch on it instead of guessing — this matters when Day realizes a piece with a
+//! tweak can branch on it instead of guessing. This matters when Day realizes a piece with a
 //! *conditional* backing (e.g. a plain `label` as `NSTextField`, a rich-text one as `NSTextView`).
 //! Downcast to the concrete class for widget-specific API:
 //!
@@ -46,8 +46,8 @@ pub fn with_native<R>(
     Some(f(&h, class, mtm))
 }
 
-/// Run `f` with one named SUBCONTROL of `node`'s composite backing (docs/tree.md,
-/// docs/tweaks.md): `Host` is the node's own handle (what [`with_native`] reaches),
+/// Run `f` with one named subcontrol of `node`'s composite backing (docs/tree.md,
+/// docs/tweaks.md): `Host` is the node's handle (what [`with_native`] reaches),
 /// `Content` the widget inside its scroller (`NSOutlineView`, `NSTableView`, `NSTextView`),
 /// `Header` its header view where one exists. An unknown subcontrol resolves to `None`,
 /// never to the host.
@@ -88,7 +88,7 @@ pub trait AppKitExt: Decorate + Sized {
         })
     }
 
-    /// The subcontrol form: tweak one named widget of a composite backing —
+    /// The subcontrol form: tweak one named widget of a composite backing.
     /// `.appkit_subcontrol(Subcontrol::Content, |view, class, mtm| …)` reaches a tree's
     /// `NSOutlineView` where `.appkit` reaches its scroller (docs/tree.md).
     fn appkit_subcontrol(

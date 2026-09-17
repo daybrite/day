@@ -1,17 +1,17 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day localize` — one locale set, every surface (DESIGN.md §16.5). A conventional Day project
-//! spells its locales in four places: `resource/locales/<tag>/` (the app's own Fluent
+//! `day localize`: one locale set, every surface (DESIGN.md §16.5). A conventional Day project
+//! spells its locales in four places: `resource/locales/<tag>/` (the app's Fluent
 //! translations), `store/<tag>/` (the listing text, docs/store.md), the Xcode project's
 //! `knownRegions` list, and `website/site.toml`'s `locales` array. Added by hand in one place,
-//! a locale silently drifts out of the other three — so [`add`]/[`remove`] edit every surface
+//! a locale silently drifts out of the other three, so [`add`]/[`remove`] edit every surface
 //! the project has at once, and [`survey`]/[`sync_findings`] give `day lint` the drift check.
 //!
-//! Everything here speaks DAY tags — strict BCP 47 (`en`, `fr-CA`, `zh-CN`). Each downstream
+//! Everything here speaks Day tags: strict BCP 47 (`en`, `fr-CA`, `zh-CN`). Each downstream
 //! namespace converts at its own emission point: the stores' spellings at fastlane generation
 //! (store.rs), Xcode's via [`xcode_region`] here, and Android's resource qualifiers
-//! (`values-iw`, `values-in`) where android resources are emitted — never earlier, so no
+//! (`values-iw`, `values-in`) where android resources are emitted, never earlier, so no
 //! checked-in tree carries a second spelling of the same locale.
 
 use std::collections::BTreeSet;
@@ -27,7 +27,7 @@ use anstream::eprintln;
 /// (`zh-CN` / `zh-TW`); every other tag passes through. This covers only the `knownRegions`
 /// namespace: the stores' spellings (Apple's `zh-Hans`, Play's legacy `iw-IL`) are converted
 /// at fastlane emission by store.rs, and Android's resource qualifiers (`values-iw`,
-/// `values-in`) are yet another namespace, converted where android resources are emitted —
+/// `values-in`) are yet another namespace, converted where android resources are emitted,
 /// not here.
 pub fn xcode_region(tag: &str) -> String {
     match tag {
@@ -37,7 +37,7 @@ pub fn xcode_region(tag: &str) -> String {
     }
 }
 
-/// The Day tag for an Xcode region — the inverse of [`xcode_region`], so the survey speaks Day
+/// The Day tag for an Xcode region: the inverse of [`xcode_region`], so the survey speaks Day
 /// tags no matter which spelling the file stores.
 fn day_region(region: &str) -> String {
     match region {
@@ -57,7 +57,7 @@ fn shape_err(tag: &str) -> String {
 
 /// Check a Day locale tag: `language(-Script)?(-REGION)?`, with a 2–3 letter lowercase
 /// language, an optional titlecase four-letter script, and an optional region (two uppercase
-/// letters or three digits). Hand-rolled — a regex crate would be a new dependency for a
+/// letters or three digits). Hand-rolled, because a regex crate would be a new dependency for a
 /// twenty-line check.
 ///
 /// The legacy ISO-639 codes `iw`/`in`/`ji` are valid-shaped but rejected by name: every Day
@@ -108,8 +108,8 @@ pub fn validate_tag(tag: &str) -> Result<(), String> {
 
 /// The locale set of each surface, in Day tags. `None` = that surface is absent from the
 /// project (no `store/`, no iOS host project, no website `locales` key), so it takes no part
-/// in the sync contract. Fluent is the app's own translations and always surveyed — a project
-/// without `resource/locales/` simply reports an empty list.
+/// in the sync contract. Fluent is the app's translations and always surveyed; a project
+/// without `resource/locales/` reports an empty list.
 pub struct LocaleSurvey {
     pub fluent: Vec<String>,
     pub store: Option<Vec<String>>,
@@ -128,8 +128,8 @@ pub fn survey(project_root: &Path) -> LocaleSurvey {
 }
 
 /// The locale subdirectories of `dir`, or `None` when the directory itself is absent. The
-/// pseudolocales (`-XA`) are a development aid and never join the sync contract — the same exclusion
-/// store.rs applies to listings.
+/// pseudolocales (`-XA`) are a development aid and never join the sync contract, the same
+/// exclusion store.rs applies to listings.
 fn dir_locales(dir: &Path) -> Option<Vec<String>> {
     let entries = std::fs::read_dir(dir).ok()?;
     let mut v: Vec<String> = entries
@@ -142,7 +142,7 @@ fn dir_locales(dir: &Path) -> Option<Vec<String>> {
     Some(v)
 }
 
-/// The scaffold's iOS project file — `day new app` writes exactly this path, and
+/// The scaffold's iOS project file: `day new app` writes exactly this path, and
 /// `knownRegions` is the only locale list Xcode keeps in it.
 fn pbxproj_path(project_root: &Path) -> PathBuf {
     project_root.join("platform/ios/DayApp.xcodeproj/project.pbxproj")
@@ -152,9 +152,9 @@ const PBX_REL: &str = "platform/ios/DayApp.xcodeproj/project.pbxproj";
 
 /// Byte range of the entries between `knownRegions = (` and its closing `);`.
 ///
-/// Textual on purpose: the block is the only part of the file locale work touches, and a full
-/// pbxproj parser would be a dependency for a ten-line list. Assumes Xcode's own layout — one
-/// entry per line — which is also what the scaffold ships.
+/// Textual, because the block is the only part of the file locale work touches, and a full
+/// pbxproj parser would be a dependency for a ten-line list. Assumes Xcode's layout (one
+/// entry per line), which is also what the scaffold ships.
 fn pbx_block(text: &str) -> Option<(usize, usize)> {
     let start = text.find("knownRegions = (")?;
     let after = start + "knownRegions = (".len();
@@ -166,7 +166,7 @@ fn pbx_block(text: &str) -> Option<(usize, usize)> {
 ///
 /// Xcode quotes any entry that is not a bare word, which is every hyphenated region
 /// (`"zh-Hans"`, `"pt-BR"`). The quotes are pbxproj syntax rather than part of the tag, so they
-/// come off here and go back on in [`pbx_quoted`] — otherwise a hyphenated region never compares
+/// come off here and go back on in [`pbx_quoted`]; otherwise a hyphenated region never compares
 /// equal to its Day tag and reads as both missing and unknown at once.
 fn pbx_entries(text: &str) -> Vec<String> {
     let Some((a, b)) = pbx_block(text) else {
@@ -190,7 +190,7 @@ fn pbx_unquote(entry: &str) -> &str {
 
 /// `region` spelled the way it must appear in the file: quoted unless it is a bare word.
 ///
-/// Matches Xcode's own rule, which is what keeps the block round-trippable — the project opens
+/// Matches Xcode's rule, which is what keeps the block round-trippable: the project opens
 /// without Xcode rewriting the list on save.
 fn pbx_quoted(region: &str) -> String {
     if region
@@ -271,7 +271,7 @@ fn pbx_without_region(text: &str, region: &str) -> Option<String> {
     removed.then_some(out)
 }
 
-/// True when a site.toml line assigns `key` (`key = …`, ignoring leading whitespace) — a
+/// True when a site.toml line assigns `key` (`key = …`, ignoring leading whitespace); a
 /// commented-out `# key = …` example does not match.
 fn is_key_line(line: &str, key: &str) -> bool {
     let t = line.trim_start();
@@ -300,7 +300,7 @@ fn parse_locales_line(line: &str) -> Result<(usize, usize, Vec<String>), String>
 
 /// `website/site.toml`'s `locales` array, when the site has one. `None` both when there is no
 /// website and when the key is absent: without the key the site derives its locale set from
-/// `store/` at render time (daysite), so there is nothing to hold in sync — the array is
+/// `store/` at render time (daysite), so there is nothing to hold in sync; the array is
 /// created by the first `day localize add`.
 fn website_locales(project_root: &Path) -> Option<Vec<String>> {
     let text = std::fs::read_to_string(project_root.join("website/site.toml")).ok()?;
@@ -316,7 +316,7 @@ fn website_locales(project_root: &Path) -> Option<Vec<String>> {
 }
 
 /// The site.toml text with `tag` in its `locales` array, or `None` when already listed. The
-/// array is created — right under the required `host =` key, seeded with the default locale —
+/// array is created (right under the required `host =` key, seeded with the default locale)
 /// the first time a locale is added: creation is the moment the website opts into the sync
 /// contract (before that the site derives its locales from `store/` at render time).
 fn site_with_locale(text: &str, tag: &str, default: &str) -> Result<Option<String>, String> {
@@ -491,7 +491,7 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
     let default = crate::store::default_locale(&s.fluent).unwrap_or_else(|| "en".to_string());
     let mut done = Vec::new();
 
-    // Fluent — the app's own translations. New content is the default locale's files with a
+    // Fluent, the app's translations. New content is the default locale's files with a
     // translate-me header: a complete-but-untranslated locale the fluent lints then track,
     // rather than an empty directory nothing checks.
     let fluent_dir = project_root.join("resource/locales");
@@ -512,8 +512,8 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
         ));
     }
 
-    // Store listing text — only when the project keeps one at all (store.rs's own rule: an app
-    // that never ships to a store is not nagged about listings). Copied VERBATIM: a
+    // Store listing text, only when the project keeps one at all (store.rs's rule: an app
+    // that never ships to a store is not nagged about listings). Copied verbatim: a
     // translate-me header in listing text would upload.
     if s.store.is_some() {
         let store_dir = project_root.join("store");
@@ -526,7 +526,7 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
         }
     }
 
-    // Xcode's knownRegions — its own spelling, inserted before `Base`.
+    // Xcode's knownRegions, in its own spelling, inserted before `Base`.
     let pbx = pbxproj_path(project_root);
     if pbx.is_file() {
         let text = std::fs::read_to_string(&pbx).map_err(|e| format!("{}: {e}", pbx.display()))?;
@@ -552,9 +552,9 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
     Ok(done)
 }
 
-/// Remove `tag` from every surface — the inverse of [`add`]. The default locale is refused:
+/// Remove `tag` from every surface: the inverse of [`add`]. The default locale is refused:
 /// it is the root of the fallback chain (`res::locales::DEFAULT`) and the source `add` copies
-/// from, so removing it strands every other locale — and the only locale is by definition it.
+/// from, so removing it strands every other locale, and the only locale is by definition it.
 pub fn remove(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
     let s = survey(project_root);
     if crate::store::default_locale(&s.fluent).as_deref() == Some(tag) {
@@ -594,9 +594,9 @@ pub fn remove(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
     Ok(done)
 }
 
-/// Compare every PRESENT surface against the union of all of them: each (message, advice)
-/// pair is one locale one surface lacks. The advice is per-surface and concrete — fixable
-/// without opening the docs — and `day localize add` is always the one-command form.
+/// Compare every present surface against the union of all of them: each (message, advice)
+/// pair is one locale one surface lacks. The advice is per-surface and concrete (fixable
+/// without opening the docs), and `day localize add` is always the one-command form.
 pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
     let default = crate::store::default_locale(&survey.fluent).unwrap_or_else(|| "en".to_string());
     let mut present: Vec<(&str, &[String])> = vec![("resource/locales/", &survey.fluent)];
@@ -666,7 +666,7 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
 // `day localize …`
 // ---------------------------------------------------------------------------
 
-/// `day localize list` — each surface's locales, then the drift warnings. Informational: the
+/// `day localize list`: each surface's locales, then the drift warnings. Informational: the
 /// exit code is 0 even with findings (`day lint --strict` is the enforcing form).
 fn list(project: &Project) {
     let s = survey(&project.root);
@@ -703,7 +703,7 @@ fn list(project: &Project) {
 }
 
 /// Apply [`add`] or [`remove`] to each requested tag, narrating what changed. The first
-/// failing tag stops the run with exit 1; surfaces already updated stay updated — both
+/// failing tag stops the run with exit 1; surfaces already updated stay updated, and both
 /// operations are idempotent, so re-running completes the rest.
 fn edit(
     project: &Project,
@@ -791,7 +791,7 @@ mod tests {
         for bad in ["EN", "english", "zh_CN", "en-us", "fr-", "a", ""] {
             assert!(validate_tag(bad).is_err(), "{bad}");
         }
-        // The legacy ISO codes are rejected by NAME, pointing at the modern tag.
+        // The legacy ISO codes are rejected by name, pointing at the modern tag.
         for (legacy, modern) in [("iw", "he"), ("in", "id"), ("ji", "yi"), ("in-ID", "id")] {
             let err = validate_tag(legacy).expect_err(legacy);
             assert!(err.contains(&format!("{modern:?}")), "{err}");
@@ -884,7 +884,7 @@ mod tests {
                 .any(|(m, a)| m.contains("website/site.toml") && a.contains("locales array"))
         );
 
-        // A tag the stores cannot spell is drift too — but only when store/ exists at all.
+        // A tag the stores cannot spell is drift too, but only when store/ exists at all.
         let s = LocaleSurvey {
             fluent: v(&["en", "kl"]),
             store: Some(v(&["en", "kl"])),
@@ -930,7 +930,7 @@ mod tests {
         assert!(add(&root, "fr").expect("re-add").is_empty());
 
         // Chinese takes the script-subtag spelling in the pbxproj and maps back in the survey.
-        // Hyphenated, so it lands quoted — `fr` above is a bare word and does not.
+        // Hyphenated, so it lands quoted; `fr` above is a bare word and does not.
         add(&root, "zh-CN").expect("add zh-CN");
         let pbx = std::fs::read_to_string(pbxproj_path(&root)).expect("pbx");
         assert!(
@@ -956,7 +956,7 @@ mod tests {
         let site = std::fs::read_to_string(root.join("website/site.toml")).expect("site");
         assert!(!site.contains("\"fr\""), "{site}");
 
-        // The default locale is refused — everything else falls back to it.
+        // The default locale is refused; everything else falls back to it.
         assert!(remove(&root, "en").is_err());
         let _ = std::fs::remove_dir_all(&root);
     }

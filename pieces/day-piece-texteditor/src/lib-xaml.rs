@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — a `RichEditBox` driven through
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp), a `RichEditBox` driven through
 // its Text Object Model document. Positions are UTF-16 code units, so this arm shares the Apple
 // conversion; colors cross packed as 0xAARRGGBB, as they do to the Qt shim.
 //
@@ -95,7 +95,7 @@ struct EdState {
 
 day_core::tls_group! {
     static STATE: SideTable<EdState> = SideTable::new();
-    /// The text each editor holds, by node — the selection callback has only the node id, and
+    /// The text each editor holds, by node: the selection callback has only the node id, and
     /// UTF-16 offsets cannot be turned back into bytes without the string.
     static TEXT: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
 

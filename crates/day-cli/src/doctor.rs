@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day doctor — development-environment diagnosis, grouped by toolkit (DESIGN.md §16.5).
+//! day doctor: development-environment diagnosis, grouped by toolkit (DESIGN.md §16.5).
 //!
 //! Default (`day doctor`): checks the core toolchain plus every toolkit buildable on this host. A
-//! missing OPTIONAL toolkit dependency is a WARNING (yellow) and doctor still exits 0 — you only need
-//! the toolkits you actually build. Core (rust) failures are always errors.
+//! missing optional toolkit dependency is a warning (yellow) and doctor still exits 0, because
+//! you only need the toolkits you build. Core (rust) failures are always errors.
 //!
 //! Focused (`day doctor --toolkit qt --toolkit android`): the named toolkits' checks become hard
 //! ERRORS (a missing piece exits non-zero), and detailed per-OS setup instructions are printed for
@@ -23,17 +23,17 @@ use crate::targets::host_os;
 /// toolkits it can build and which it can package (see [`readiness`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Need {
-    /// Required to compile for this toolkit — a miss is an error when the toolkit is focused.
+    /// Required to compile for this toolkit; a miss is an error when the toolkit is focused.
     Build,
     /// Build-time but optional: the build still produces a working app, degraded (a skipped
     /// resource blob, a Swift contribution that no dependency makes).
     BuildOptional,
-    /// Required by `day pack` for this toolkit's formats — never needed to build.
+    /// Required by `day pack` for this toolkit's formats; never needed to build.
     Pack,
     /// Packaging still succeeds without it, with a less portable artifact (the linuxdeploy
     /// plugins: without one the AppImage needs a machine that already has the toolkit).
     PackOptional,
-    /// A launch-time prerequisite (a booted simulator/emulator, hdc) — not needed to compile.
+    /// A launch-time prerequisite (a booted simulator/emulator, hdc); not needed to compile.
     Launch,
 }
 
@@ -99,8 +99,8 @@ fn run_line(cmd: &str, args: &[&str]) -> Option<String> {
     })
 }
 
-/// Full stdout of a command (not just the first line) — for probes that must scan multi-line
-/// output, e.g. `rustc -vV`'s `host:` line.
+/// Full stdout of a command, every line rather than the first, for probes that must scan
+/// multi-line output, e.g. `rustc -vV`'s `host:` line.
 fn run_out(cmd: &str, args: &[&str]) -> Option<String> {
     Command::new(cmd).args(args).output().ok().and_then(|o| {
         o.status
@@ -109,7 +109,7 @@ fn run_out(cmd: &str, args: &[&str]) -> Option<String> {
     })
 }
 
-/// `Some(dir)` if `dir` exists and is a directory — for env-var / SDK-path probes.
+/// `Some(dir)` if `dir` exists and is a directory; for env-var / SDK-path probes.
 fn existing_dir(dir: &Path) -> Option<String> {
     dir.is_dir().then(|| dir.display().to_string())
 }
@@ -134,12 +134,12 @@ fn have_any_rust_target(triples: &[&str]) -> Option<String> {
     triples.iter().find_map(|t| have_rust_target(t))
 }
 
-/// The JDK the Gradle build will use, if it's a version AGP accepts (17 or newer — AGP 9's
-/// minimum). Resolves via `day_toolchain::jdk_home()` — the same `$JAVA_HOME`-first resolution the
-/// gradle builds use, so doctor diagnoses what the build will actually run. Because the build
-/// TRUSTS `$JAVA_HOME`, a `$JAVA_HOME` pointing at a too-old JDK is a real miss even when a newer
-/// one is installed elsewhere. The major version is parsed from `java -version` (which prints
-/// `openjdk version "26.0.1" …` — or bare `"21"` — to stderr).
+/// The JDK the Gradle build will use, if it's a version AGP accepts (17 or newer, AGP 9's
+/// minimum). Resolves via `day_toolchain::jdk_home()`, the same `$JAVA_HOME`-first resolution the
+/// gradle builds use, so doctor diagnoses what the build will run. Because the build trusts
+/// `$JAVA_HOME`, a `$JAVA_HOME` pointing at a too-old JDK is a miss even when a newer one is
+/// installed elsewhere. The major version is parsed from `java -version` (which prints
+/// `openjdk version "26.0.1" …`, or bare `"21"`, to stderr).
 fn have_jdk() -> Option<String> {
     let java = day_toolchain::jdk_home()?.join("bin").join("java");
     let out = Command::new(&java).arg("-version").output().ok()?;
@@ -156,7 +156,7 @@ fn have_jdk() -> Option<String> {
     (major >= 17).then(|| text.lines().next().unwrap_or("").trim().to_string())
 }
 
-/// The C compiler the web build's SQLite compile will use — [`day_toolchain::wasm_cc`], the
+/// The C compiler the web build's SQLite compile will use: [`day_toolchain::wasm_cc`], the
 /// Same resolution `day build -p web-dom` applies, so doctor reports what the build will run.
 /// A set cc-rs variable is the one case that still gets probed here: the build honors it
 /// blindly, and doctor's job is to say whether that program can actually emit wasm.
@@ -297,9 +297,9 @@ fn uikit_group() -> Group {
             // Orientation (`day devices boot --orientation`, docs/screenshots.md) is the one
             // thing that needs an Xcode floor rather than just "an Xcode": simulators became
             // drivable through `devicectl` in 26.6, and there is no other way to turn one
-            // without a GUI session. Advisory, not required — everything else works below it.
+            // without a GUI session. Advisory, not required; everything else works below it.
             //
-            // This looks for a SIMULATED device rather than asking `--help` or grepping for the
+            // This looks for a simulated device rather than asking `--help` or grepping for the
             // `"devices"` key, both of which passed on a CI runner that could not turn a
             // simulator: `--help` only proves the binary exists, and `"devices"` matches the empty
             // array a CoreDevice without simulator support returns. Each weaker form reported ✓
@@ -344,7 +344,7 @@ fn uikit_group() -> Group {
 const GTK4_MIN: (u32, u32) = (4, 10);
 const LIBADWAITA_MIN: (u32, u32) = (1, 5);
 
-/// Is `found` — a pkg-config `--modversion` string like `4.8.3` — at least `min`?
+/// Is `found` (a pkg-config `--modversion` string like `4.8.3`) at least `min`?
 ///
 /// Major and minor only: every minimum day states is a feature level, and those land on minor
 /// releases. A trailing packaging suffix (`4.8.3-1`) is ignored, and a version too malformed to
@@ -402,7 +402,7 @@ fn gtk_group() -> Group {
                 LIBADWAITA_MIN,
                 "install libadwaita (`brew install libadwaita` · `apt install libadwaita-1-dev`)",
             ),
-            // Optional: resource staging (§18.3) is best-effort — a missing `glib-compile-resources`
+            // Optional: resource staging (§18.3) is best-effort; a missing `glib-compile-resources`
             // just skips the gresource blob and day loads images from the filesystem roots. So a
             // miss is a warning, not an error (MSYS2 windows-gtk doesn't ship it on PATH).
             Probe::new(
@@ -420,7 +420,7 @@ fn gtk_group() -> Group {
             .need(Need::Pack),
             // The other half of `day pack -p linux-gtk`: the .appimage (§16.5). Without the gtk
             // plugin an AppImage still builds, but carries no GdkPixbuf loaders or GSettings
-            // schemas — so both are probed, and the plugin is the optional one.
+            // schemas, so both are probed, and the plugin is the optional one.
             Probe::new(
                 "linuxdeploy",
                 crate::pack::appimage_tool_probe("linuxdeploy"),
@@ -466,9 +466,9 @@ fn qt_group() -> Group {
                     .or_else(|| run_line("qmake", &["-query", "QT_VERSION"])),
                 "install Qt 6 (`brew install qt` · `apt install qt6-base-dev` · MSYS2 mingw-w64-qt6-base)",
             ),
-            // Optional: like glib-compile-resources, `rcc` staging is best-effort — a miss skips the
-            // qresource blob (day loads images from the filesystem roots), so it's a warning, not an
-            // error (MSYS2 windows-qt doesn't ship `rcc` on PATH).
+            // Optional: like glib-compile-resources, `rcc` staging is best-effort; a miss skips
+            // the qresource blob (day loads images from the filesystem roots), so it's a warning,
+            // not an error (MSYS2 windows-qt doesn't ship `rcc` on PATH).
             Probe::new(
                 "rcc",
                 find_rcc().map(|p| p.display().to_string()),
@@ -484,7 +484,7 @@ fn qt_group() -> Group {
             .need(Need::Pack),
             // The other half of `day pack -p linux-qt`: the .appimage (§16.5). Without the qt
             // plugin the image carries no platform plugin, so it cannot open a window on a machine
-            // without Qt — hence probing the plugin, not just the tool.
+            // without Qt, hence probing the plugin as well as the tool.
             Probe::new(
                 "linuxdeploy",
                 crate::pack::appimage_tool_probe("linuxdeploy"),
@@ -522,9 +522,10 @@ fn xaml_group() -> Group {
             Probe::new(
                 "msvc-toolchain",
                 // The default rustc must target *-windows-msvc (xaml builds with cl.exe + the SDK).
-                // Scan the FULL `rustc -vV` output for the `host:` line — `run_line` returns only line 1
-                // (`rustc <version>`), which is why the old check false-negatived on a valid msvc host
-                // (and its `bash`+`grep` fallback isn't reliably resolvable from a native process).
+                // Scan the full `rustc -vV` output for the `host:` line; `run_line` returns only
+                // line 1 (`rustc <version>`), which is why the old check false-negatived on a valid
+                // msvc host (and its `bash`+`grep` fallback isn't reliably resolvable from a native
+                // process).
                 run_out("rustc", &["-vV"]).and_then(|s| {
                     s.lines()
                         .find_map(|l| l.strip_prefix("host: "))
@@ -533,7 +534,7 @@ fn xaml_group() -> Group {
                 }),
                 "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
             ),
-            // Only `day pack -p windows-xaml` needs these (§16.5) — makeappx/signtool ship with
+            // Only `day pack -p windows-xaml` needs these (§16.5): makeappx/signtool ship with
             // the Windows SDK, makensis via `choco install nsis`.
             Probe::new(
                 "makeappx (Windows SDK)",
@@ -546,7 +547,7 @@ fn xaml_group() -> Group {
                 // The same lookup `day pack` uses (DAY_MAKENSIS → PATH → %ProgramFiles%\NSIS →
                 // chocolatey), not a PATH-only `which`: a bare `which` reports missing for the
                 // usual `choco install nsis`, whose shim directory a running process's PATH does
-                // not pick up — so doctor would contradict the pack that then succeeds, or miss
+                // not pick up, so doctor would contradict the pack that then succeeds, or miss
                 // the one that then fails.
                 day_toolchain::makensis().map(|p| p.display().to_string()),
                 "choco install nsis (for `day pack` setup.exe)",
@@ -734,8 +735,8 @@ fn all_groups() -> Vec<Group> {
 // --- structured readiness (what `day checkup` asks) ------------------------
 
 /// The doctor group id for a target's toolkit. Two mobile toolkits are spelled differently in the
-/// two vocabularies — the target table names the backend feature (`mdc`, `arkui`), doctor groups
-/// by OS toolchain (`android`, `harmonyos`) — and every caller that bridges them (`day new`'s
+/// two vocabularies (the target table names the backend feature (`mdc`, `arkui`), doctor groups
+/// by OS toolchain (`android`, `harmonyos`)), and every caller that bridges them (`day new`'s
 /// next-steps hint, `day checkup`'s selection) must bridge them the same way.
 pub fn group_id(toolkit: &str) -> &str {
     match toolkit {
@@ -752,7 +753,7 @@ pub struct Missing {
     pub fix: String,
 }
 
-/// What a toolkit is missing, split by the stage the miss blocks — the answer `day checkup` needs
+/// What a toolkit is missing, split by the stage the miss blocks: the answer `day checkup` needs
 /// to decide whether it can build a combo, package it, or must skip it with a reason.
 /// [`Need::BuildOptional`] / [`Need::PackOptional`] misses are left out: they degrade a stage that
 /// still succeeds, so failing or skipping on them would be wrong.
@@ -764,14 +765,14 @@ pub struct Readiness {
 
 impl Readiness {
     /// Whether every prerequisite for compiling this toolkit is present. (Packaging asks about
-    /// `missing_pack` directly — it reports which tool is absent rather than just whether one is.)
+    /// `missing_pack` directly; it reports which tool is absent rather than just whether one is.)
     pub fn can_build(&self) -> bool {
         self.missing_build.is_empty()
     }
 }
 
 /// Run one toolkit group's probes and report what is missing, by stage. `None` for an id that is
-/// not a builtin group (an externally declared toolkit — day has no house knowledge of it).
+/// not a builtin group (an externally declared toolkit; day has no house knowledge of it).
 ///
 /// This runs the same probes `day doctor` prints, so a checkup's skip reason is doctor's own
 /// diagnosis rather than a second, drifting copy of it.
@@ -797,7 +798,7 @@ pub fn readiness(group: &str) -> Option<Readiness> {
 
 // --- rendering -------------------------------------------------------------
 
-// The palette lives in one place now — `crate::term` (anstyle styles; printed through anstream,
+// The palette lives in one place now, `crate::term` (anstyle styles; printed through anstream,
 // which strips the escapes when stderr isn't a color terminal).
 use crate::term::{BOLD, DIM, ERROR, ERROR_BOLD, SUCCESS, SUCCESS_BOLD, WARN};
 use anstream::eprintln;
@@ -851,7 +852,7 @@ fn eprint_setup(g: &Group) {
 }
 
 /// `day doctor [--toolkit <id>]…`. `focus` holds the requested toolkit ids (empty = default scan).
-/// The Ok value is the report's verdict code: 0, or exit 3 when errors were tallied — the report
+/// The Ok value is the report's verdict code: 0, or exit 3 when errors were tallied. The report
 /// itself already printed, so a non-zero verdict is not an extra `error:` line.
 pub fn run(
     focus: &[String],
@@ -919,8 +920,9 @@ pub fn run(
     }
 
     // Externally declared toolkits (docs/extending.md): one line per declaration, running the
-    // crate's own probe where it gave one. The probe is the crate author's claim about what the
-    // toolkit needs; day has no house knowledge of it, which is the point of the seam.
+    // crate's probe where it gave one. The probe is the crate author's claim about what the
+    // toolkit needs; day has no house knowledge of it, and the declaration exists so it never
+    // needs any.
     for e in external {
         let focused = focus
             .iter()
@@ -998,7 +1000,7 @@ mod tests {
         }
     }
 
-    /// Every toolkit group states at least one BUILD prerequisite. A group whose probes were all
+    /// Every toolkit group states at least one build prerequisite. A group whose probes were all
     /// reclassified as optional would report "ready" on a machine with nothing installed, and
     /// `day checkup` would select it and fail deep inside cargo instead of skipping with a fix.
     #[test]
@@ -1015,7 +1017,7 @@ mod tests {
         }
     }
 
-    /// An unknown id is `None`, not a panic or an empty (= "ready") report — externally declared
+    /// An unknown id is `None`, not a panic or an empty (= "ready") report; externally declared
     /// toolkits reach `readiness` by name.
     #[test]
     fn unknown_group_has_no_readiness() {
@@ -1028,7 +1030,7 @@ mod tests {
         assert!(!version_at_least("4.8.3", (4, 10)));
         assert!(version_at_least("4.10.0", (4, 10)));
         assert!(version_at_least("4.22.4", (4, 10)));
-        // 10 is not "less than 8" — a string compare would say it is.
+        // 10 is not "less than 8"; a string compare would say it is.
         assert!(version_at_least("4.10", (4, 8)));
         assert!(version_at_least("5.0.0", (4, 10)));
         // A packaging suffix is not part of the version.
@@ -1038,7 +1040,7 @@ mod tests {
         assert!(!version_at_least("unknown", (4, 10)));
     }
 
-    /// The minimums doctor reports are the ones the BUILD will enforce, so they have to track
+    /// The minimums doctor reports are the ones the build will enforce, so they have to track
     /// `toolkits/day-gtk/Cargo.toml`. Bumping the crate feature without this constant would leave
     /// doctor calling a machine ready for a build that then fails in `gdk4-sys`.
     #[test]

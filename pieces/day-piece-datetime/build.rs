@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Compiles this piece's OWN native shims when their feature is on — an external Day Piece
+//! Compiles this piece's native shims when their feature is on: an external Day Piece
 //! carrying native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim,
 //! the day-piece-picker recipe). Qt uses `cc` + pkg-config; XAML uses `cc` (MSVC) + the Windows
 //! SDK cppwinrt projection; ArkUI uses the OpenHarmony NDK's clang against the sysroot headers
-//! (day-arkui-sys already links the ArkUI libs — this object only ADDS picker-node calls).
+//! (day-arkui-sys already links the ArkUI libs; this object only adds picker-node calls).
 
 use std::path::PathBuf;
 
@@ -47,7 +47,7 @@ fn build_qt() {
 
 fn build_xaml() {
     // Same recipe as day-xaml-sys: the cppwinrt projection headers live under the SDK's
-    // Include\<ver>\cppwinrt (not on the default INCLUDE path); C++20 + /bigobj + /EHsc.
+    // Include\<ver>\cppwinrt (not on the default `INCLUDE` path); C++20 + /bigobj + /EHsc.
     let cppwinrt = day_toolchain::cppwinrt_include_for_build_script().expect(
         "Windows 10/11 SDK cppwinrt headers not found. Install the Windows SDK \
          (Visual Studio 'Desktop development with C++'), or point DAY_CPPWINRT / \
@@ -64,7 +64,7 @@ fn build_xaml() {
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
     build.compile("daydatetimexamlshim");
-    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox seam are already linked by
+    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox functions are already linked by
     // day-xaml-sys; nothing extra to link here.
 }
 

@@ -1,4 +1,4 @@
-# Day core UI catalog — French (français).
+# Day core UI catalog: French (français).
 day-ok = OK
 day-cancel = Annuler
 day-yes = Oui

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! web-dom build + launch (DESIGN.md §9, docs/web.md). Build compiles the app's lib crate as a
-//! wasm32 cdylib and assembles a self-contained `dist/` — host page + shim + stylesheet
+//! wasm32 cdylib and assembles a self-contained `dist/`: host page + shim + stylesheet
 //! (embedded from `resources/web/` at CLI compile time), the wasm module, bundled
 //! images, and fonts with a `fonts.json` manifest the shim pre-loads. Launch serves `dist/`
 //! over loopback (browsers won't instantiate wasm from `file:`) and opens the default browser.
@@ -21,7 +21,7 @@ use crate::targets::Target;
 // this crate (not next to `toolkits/day-dom`, whose `extern "C"` block shim.js implements)
 // because `include_str!` may not reach outside the package: `cargo package` copies only this
 // directory, so a path into the workspace vanishes on crates.io and `cargo install day-cli`
-// fails to compile — which is exactly what shipped in 0.0.15. Editing shim.js means rebuilding
+// fails to compile, which is exactly what shipped in 0.0.15. Editing shim.js means rebuilding
 // the CLI, and `day-dom`'s crate docs point here.
 const HOST_INDEX: &str = include_str!("../resources/web/index.html");
 const HOST_SHIM: &str = include_str!("../resources/web/shim.js");
@@ -32,7 +32,7 @@ const HOST_CSS: &str = include_str!("../resources/web/day.css");
 const HOST_SQL_WORKER: &str = include_str!("../resources/web/day-sql-worker.js");
 // The DAY_WEB_DRIVER page-driver (`day web driver`, docs/web.md): the Playwright browser
 // day-cli spawns for scripted web runs. Embedded like the shim, so the driver protocol
-// (screenshot + quit on the control port) always matches the CLI that speaks it — CI installs
+// (screenshot + quit on the control port) always matches the CLI that speaks it. CI installs
 // playwright, asks `day web driver` for this script's path, and sets DAY_WEB_DRIVER to it.
 const WEB_DRIVER: &str = include_str!("../resources/web/webdom-driver.mjs");
 
@@ -77,15 +77,15 @@ pub fn build_web(
     // A `persistence` app compiles the bundled SQLite through cc-rs, whose default `clang`
     // cannot emit wasm on a Mac (Apple's has no wasm32 backend). Resolve a capable compiler
     // the same way doctor reports it and export it; a set CC variable is cc-rs's to honor,
-    // and a Missing resolution is not an error here — a UI-only app compiles no C at all.
+    // and a Missing resolution is not an error here: a UI-only app compiles no C at all.
     if let day_toolchain::WasmCc::Fallback(cc) = day_toolchain::wasm_cc() {
         status("Using", &format!("{} (wasm32 C compiler)", cc.display()));
         cmd.env("CC_wasm32_unknown_unknown", &cc);
     }
     // Route entropy to day-dom's getrandom bridge (docs/web.md): the raw-wasm pipeline has no
-    // wasm-bindgen runtime, so getrandom v0.3's own `wasm_js` backend cannot work here — the
+    // wasm-bindgen runtime, so getrandom v0.3's own `wasm_js` backend cannot work here; the
     // `custom` backend cfg points it at `__getrandom_v03_custom`, which day-dom answers from
-    // the shim's `crypto.getRandomValues`. APPENDED to an inherited RUSTFLAGS (CI sets one);
+    // the shim's `crypto.getRandomValues`. Appended to an inherited RUSTFLAGS (CI sets one);
     // inert for app graphs that never pull getrandom.
     let mut rustflags = std::env::var("RUSTFLAGS").unwrap_or_default();
     if !rustflags.is_empty() {
@@ -98,11 +98,11 @@ pub fn build_web(
         // from a stripped build; keep the shipped module small.
         cmd.args(["--", "-Cstrip=symbols"]);
     } else {
-        // Debug keeps the NAME section (browser backtraces read it) but drops DWARF, which
-        // no browser reads and which multiplies the module several times over — the page AND
+        // Debug keeps the `name` section (browser backtraces read it) but drops DWARF, which
+        // no browser reads and which multiplies the module several times over; the page and
         // the day-sql worker each decode this module, so its size is boot time twice.
         //
-        // KNOWN LIMIT: a DEBUG persistence app can die opening its store on WebKit only —
+        // Known limit: a debug persistence app can die opening its store on WebKit only, with
         // "RangeError: Maximum call stack size exceeded" from the day-sql worker. Unoptimized
         // SQLite open recurses deeper than WebKit's machine stack allows for wasm frames (a
         // VM budget `-zstack-size` cannot raise; Chromium copes, release fits everywhere).
@@ -120,9 +120,9 @@ pub fn build_web(
         ));
     }
 
-    // Assemble dist/. The wasm artifact is named after the LIB TARGET — `dayapp.wasm` for a
+    // Assemble dist/. The wasm artifact is named after the lib target: `dayapp.wasm` for a
     // scaffolded app, whose `[lib] name` is pinned to that constant (DESIGN.md §17.5). Deriving
-    // it from the PACKAGE name is what broke this build when the pin landed.
+    // it from the package name is what broke this build when the pin landed.
     let wasm = cargo_dir
         .join("wasm32-unknown-unknown")
         .join(profile.as_str())
@@ -139,7 +139,7 @@ pub fn build_web(
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
     // Vector glyphs (docs/vectors.md): the SVG is what day-dom asks for and what the browser
-    // renders at display size, so only the raster FALLBACKS land beside the images — art the
+    // renders at display size, so only the raster fallbacks land beside the images: art the
     // vector pipeline could not express. Every browser that can run a wasm app renders SVG, so
     // a second PNG copy of a convertible glyph is weight that would also hide a broken vector
     // path behind art that still looks right. The page learns which names are vectors via
@@ -214,7 +214,7 @@ pub fn build_web(
             .replace("[/*day:bridges*/]", &format!("[{bridges_json}]")),
     )
     .map_err(|e| format!("index: {e}"))?;
-    // Bundled images, flat under assets/images/ — the paths day-dom writes into `src` attrs.
+    // Bundled images, flat under assets/images/, the paths day-dom writes into `src` attrs.
     let images_src = project.root.join("resource/images");
     if images_src.is_dir() {
         let images = dist.join("assets/images");
@@ -230,7 +230,7 @@ pub fn build_web(
         }
     }
 
-    // Bundled data assets, the whole TREE (§18.5), under assets/data/ — same-origin URLs for
+    // Bundled data assets, the whole tree (§18.5), under assets/data/: same-origin URLs for
     // anything that browses them (the inline web view's `assets/data/<site>/…` base above all).
     let data_src = project.root.join("resource/assets");
     if data_src.is_dir() {
@@ -238,7 +238,7 @@ pub fn build_web(
     }
 
     // Bundled fonts + the fonts.json manifest (family name from the font's own name table, the
-    // same resolution day-build codegen uses) — the shim registers each FontFace before the
+    // same resolution day-build codegen uses); the shim registers each FontFace before the
     // first layout so custom families measure correctly.
     let fonts = crate::resources::scan_fonts(project)?;
     if !fonts.is_empty() {
@@ -277,7 +277,7 @@ pub fn build_web(
 
 // ---------------------------------------------------------------------------
 // Home screen and offline (docs/web.md): the web app manifest, the icon set, the head tags,
-// and the service worker — what makes "Add to Home Screen" install a real app: its own name
+// and the service worker, what makes "Add to Home Screen" install a real app: its own name
 // and icon, no browser chrome, and a launch that works with the network away.
 // ---------------------------------------------------------------------------
 
@@ -579,7 +579,7 @@ fn attr_escape(s: &str) -> String {
     text_escape(s).replace('"', "&quot;")
 }
 
-/// Every file under `dist` as `(relative path with '/' separators, bytes)`, sorted by path —
+/// Every file under `dist` as `(relative path with '/' separators, bytes)`, sorted by path:
 /// the service worker's precache list and the input to its cache version. `sw.js` itself is
 /// left out: a worker never caches its own script.
 fn dist_files(dist: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
@@ -613,7 +613,7 @@ fn dist_files(dist: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
 }
 
 /// The service worker for a dist: a cache named by a digest of every file, filled with all of
-/// them at install, and served network-first — the network's answer when there is one (and
+/// them at install, and served network-first: the network's answer when there is one (and
 /// the cache refreshed from it), the cache's when there is not, `index.html` for any
 /// navigation neither can answer. Same-origin GETs inside the worker's scope only; the
 /// dayscript socket and every other origin pass through untouched. A rebuild changes the
@@ -686,7 +686,7 @@ self.addEventListener('fetch', (event) => {{
     )
 }
 
-/// Percent-encode a query key/value: keep unreserved characters (RFC 3986), escape the rest —
+/// Percent-encode a query key/value: keep unreserved characters (RFC 3986), escape the rest.
 /// `URLSearchParams` on the page decodes them back.
 fn query_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
@@ -707,7 +707,7 @@ fn query_escape(s: &str) -> String {
 /// `?theme=`), and every other `--env` pair as `?<key>=<value>` for `day::env` to read back;
 /// the session's dayscript invitation rides as `?dayscript=<token>`, and the
 /// server bridges the page's `/dayscript` WebSocket to the plain TCP protocol the runner
-/// speaks on `DAYSCRIPT_PORT` — `--script` and `day drive` work unchanged (docs/web.md).
+/// speaks on `DAYSCRIPT_PORT`, so `--script` and `day drive` work unchanged (docs/web.md).
 pub fn launch_web(
     project: &Project,
     outcome: &BuildOutcome,
@@ -755,12 +755,12 @@ pub fn launch_web(
     if let Some(script_port) = env_of("DAYSCRIPT_PORT").and_then(|p| p.parse::<u16>().ok()) {
         start_runner_bridge(script_port)?;
     }
-    // Drop the PREVIOUS launch's bridge endpoints before opening this page (capture matrix:
+    // Drop the previous launch's bridge endpoints before opening this page (capture matrix:
     // several launches share one process and one bridge). The old page's socket is closed but
-    // still WRITABLE — TCP buffers the first write after a peer close and errors only on the
-    // next — so a stale PAGE_WS swallows the new run's first step whole: forwarded "successfully",
-    // no reply ever, the runner burns its whole window and reports the engine lost. Cleared
-    // slots make forward_to_page genuinely wait for this page's registration instead.
+    // still writable (TCP buffers the first write after a peer close and errors only on the
+    // next), so a stale PAGE_WS swallows the new run's first step whole: forwarded
+    // "successfully", no reply ever, the runner burns its whole window and reports the engine
+    // lost. Cleared slots make forward_to_page wait for this page's registration instead.
     {
         *PAGE_WS.lock().expect("page slot") = None;
         *RUNNER.lock().expect("runner slot") = None;
@@ -777,7 +777,7 @@ pub fn launch_web(
 }
 
 /// Open the page: through the `DAY_WEB_DRIVER` command when set (a scripted/CI browser that
-/// also answers screenshot requests — see [`driver_screenshot`]), else the default browser.
+/// also answers screenshot requests; see [`driver_screenshot`]), else the default browser.
 /// The driver is spawned as `<cmd…> <url> <control-port>` and serves `GET /screenshot` (PNG)
 /// and `GET /quit` on the control port.
 fn open_page(url: &str) -> Result<(), String> {
@@ -793,7 +793,7 @@ fn open_page(url: &str) -> Result<(), String> {
         .port();
     let mut words = driver.split_whitespace();
     let program = words.next().ok_or("DAY_WEB_DRIVER is empty")?;
-    // A previous variant's browser (capture matrix) shows the old page — retire it first, or
+    // A previous variant's browser (capture matrix) shows the old page: retire it first, or
     // its control port would keep answering screenshot requests with stale pixels.
     stop_driver();
     let child = Command::new(program)
@@ -821,7 +821,7 @@ fn open_in_browser(url: &str) {
 }
 
 /// Answer one HTTP request: static GETs resolved strictly inside `dist`, plus the two dynamic
-/// paths — the `/dayscript` WebSocket and the `/day-http-ok` echo endpoint.
+/// paths, the `/dayscript` WebSocket and the `/day-http-ok` echo endpoint.
 fn serve_one(mut stream: TcpStream, dist: &Path) {
     let mut buf = [0u8; 4096];
     let n = match stream.read(&mut buf) {
@@ -837,15 +837,15 @@ fn serve_one(mut stream: TcpStream, dist: &Path) {
         .next()
         .unwrap_or("/");
     if path == "/dayscript" {
-        // The page's dayscript WebSocket (docs/web.md) — this thread becomes its pump.
+        // The page's dayscript WebSocket (docs/web.md); this thread becomes its pump.
         serve_dayscript_ws(stream, &buf[..n]);
         return;
     }
     if path == "/day-http-ok" {
         // day-part-http's same-origin demo endpoint (docs/web.md): a browser tab can host no
         // loopback listener, so apps whose HTTP demo would spin one (the showcase's Platform
-        // services page) fetch this path instead. Same bodies as that native one-shot server —
-        // GET answers `day-http-ok`, any other method echoes `day-http-ok:<METHOD>` — so
+        // services page) fetch this path instead. Same bodies as that native one-shot server
+        // (GET answers `day-http-ok`, any other method echoes `day-http-ok:<METHOD>`), so
         // walkthrough asserts are byte-identical on web.
         let method = head.split_whitespace().next().unwrap_or("GET");
         let body = if method == "GET" {
@@ -927,20 +927,20 @@ static PAGE_WS: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None
 static RUNNER: std::sync::Mutex<Option<TcpStream>> = std::sync::Mutex::new(None);
 /// The `DAY_WEB_DRIVER` control port + child of the current launch. A `Mutex<Option<…>>`, not a
 /// `OnceLock`: a capture-matrix launch (`--themes`/`--locales`) opens the page once per variant
-/// IN ONE PROCESS, and a once-only slot would leave every later screenshot request talking to
-/// the first variant's browser — silently capturing the wrong theme and locale.
+/// in one process, and a once-only slot would leave every later screenshot request talking to
+/// the first variant's browser, silently capturing the wrong theme and locale.
 #[allow(clippy::type_complexity)]
 static DRIVER: std::sync::Mutex<Option<(u16, std::process::Child)>> = std::sync::Mutex::new(None);
 
 /// Ports this process already runs a dayscript bridge on. The bridge listener is a forever
 /// thread; a second launch on the same port in the same process (again: the capture matrix)
-/// must REUSE it — rebinding is EADDRINUSE — and the accept loop already hands each new runner
+/// must reuse it (rebinding is EADDRINUSE), and the accept loop already hands each new runner
 /// connection and page WebSocket to the current slots.
 static BRIDGED: std::sync::Mutex<Option<std::collections::HashSet<u16>>> =
     std::sync::Mutex::new(None);
 
 /// Accept runner connections on the dayscript port and forward each request line to the
-/// page's WebSocket (waiting for the page to connect — it is still loading when the runner's
+/// page's WebSocket (waiting for the page to connect; it is still loading when the runner's
 /// first step arrives).
 fn start_runner_bridge(port: u16) -> Result<(), String> {
     {
@@ -1055,7 +1055,7 @@ fn ws_read_loop(mut stream: TcpStream, mut pending: Vec<u8>) {
             len = u64::from_be_bytes(ext);
         }
         if len > 16 * 1024 * 1024 {
-            return; // a reply line should never be this large — refuse
+            return; // a reply line should never be this large; refuse
         }
         let mut mask = [0u8; 4];
         if masked && ws_read_exact(&mut stream, &mut mask, &mut pending).is_err() {

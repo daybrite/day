@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-fs — app-local file storage with one API on every target (docs/fs.md). No UI; any
+//! day-part-fs: app-local file storage with one API on every target (docs/fs.md). No UI; any
 //! Rust code can depend on this crate and call [`read`]/[`write`]/[`list`]/[`remove`].
 //!
 //! ```no_run
@@ -12,13 +12,13 @@
 //!
 //! Files live under a private per-app root: a real directory on the native targets (the mobile
 //! hosts pass it as `DAY_DATA_DIR`; desktops use the platform's data-dir convention), and the
-//! browser's Origin Private File System on web-dom. Paths are **relative and sandboxed** — an
-//! absolute path or a `.`/`..` segment is [`FsError::BadPath`] — and `write` creates missing
+//! browser's Origin Private File System on web-dom. Paths are **relative and sandboxed** (an
+//! absolute path or a `.`/`..` segment is [`FsError::BadPath`]), and `write` creates missing
 //! parent directories.
 //!
-//! **Threading.** The blocking calls run where you call them — keep them off the UI thread for
-//! large files, and on web they return [`FsError::Unsupported`] (one thread, no blocking waits
-//! — the day-part-http rule). The `*_async` twins and futures work on every target; completions
+//! **Threading.** The blocking calls run where you call them, so keep them off the UI thread
+//! for large files; on web they return [`FsError::Unsupported`] (one thread, no blocking waits:
+//! the day-part-http rule). The `*_async` twins and futures work on every target; completions
 //! arrive on an unspecified background thread natively and on the sole browser thread on web,
 //! so deliver into UI state with a `Setter` or await under `day::task` (docs/async.md).
 
@@ -52,7 +52,7 @@ impl std::fmt::Display for FsError {
 
 impl std::error::Error for FsError {}
 
-/// Reject absolute paths and `.`/`..`/empty segments — the same rule the day CLI's web server
+/// Reject absolute paths and `.`/`..`/empty segments, the same rule the day CLI's web server
 /// applies to request paths. Every entry point funnels through this before touching a backend.
 fn check_path(path: &str) -> Result<(), FsError> {
     if path.is_empty()
@@ -68,21 +68,21 @@ fn check_path(path: &str) -> Result<(), FsError> {
     Ok(())
 }
 
-/// Read a file's bytes. BLOCKING; [`FsError::Unsupported`] on web — use [`read_async`] or
+/// Read a file's bytes. Blocking; [`FsError::Unsupported`] on web, so use [`read_async`] or
 /// [`read_future`] there (they work everywhere).
 pub fn read(path: &str) -> Result<Vec<u8>, FsError> {
     check_path(path)?;
     imp::read(path)
 }
 
-/// Write `bytes` to `path` (create or truncate), creating missing parent directories. BLOCKING;
+/// Write `bytes` to `path` (create or truncate), creating missing parent directories. Blocking;
 /// [`FsError::Unsupported`] on web.
 pub fn write(path: &str, bytes: &[u8]) -> Result<(), FsError> {
     check_path(path)?;
     imp::write(path, bytes)
 }
 
-/// Remove a file (or an empty directory). BLOCKING; [`FsError::Unsupported`] on web. Removing a
+/// Remove a file (or an empty directory). Blocking; [`FsError::Unsupported`] on web. Removing a
 /// missing path is [`FsError::NotFound`].
 pub fn remove(path: &str) -> Result<(), FsError> {
     check_path(path)?;
@@ -90,7 +90,7 @@ pub fn remove(path: &str) -> Result<(), FsError> {
 }
 
 /// List the entry names directly under `dir` (`""` = the storage root), sorted. Directories are
-/// listed with a trailing `/`. BLOCKING; [`FsError::Unsupported`] on web.
+/// listed with a trailing `/`. Blocking; [`FsError::Unsupported`] on web.
 pub fn list(dir: &str) -> Result<Vec<String>, FsError> {
     if !dir.is_empty() {
         check_path(dir)?;
@@ -143,7 +143,7 @@ pub fn list_async(dir: &str, on_done: impl FnOnce(ListResult) + Send + 'static) 
 
 // ---------------------------------------------------------------------------
 // Futures: oneshot plumbing over the async completions, awaitable under any executor
-// (`day::task`, or a test's block_on) — the day-part-http shape without the cancel grip
+// (`day::task`, or a test's block_on): the day-part-http shape without the cancel grip
 // (storage operations are short; v1 has no cancellation).
 // ---------------------------------------------------------------------------
 

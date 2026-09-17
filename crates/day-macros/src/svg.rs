@@ -68,9 +68,9 @@ impl<'a> Scanner<'a> {
             }
         }
     }
-    /// One SVG number. Deliberately hand-scanned rather than split-then-parse: SVG allows
-    /// numbers to run together with no separator when the sign or a second dot ends the previous
-    /// one (`1.5.5`, `10-5`), which splitting on whitespace gets wrong.
+    /// One SVG number. Hand-scanned rather than split-then-parse: SVG allows numbers to run
+    /// together with no separator when the sign or a second dot ends the previous one
+    /// (`1.5.5`, `10-5`), which splitting on whitespace gets wrong.
     fn number(&mut self) -> Result<f64, ParseError> {
         self.skip_ws();
         let start = self.i;
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn numbers_may_run_together() {
-        // `.5.5` is two numbers, and `10-5` is 10 then -5 — SVG's implicit separators.
+        // `.5.5` is two numbers, and `10-5` is 10 then -5: SVG's implicit separators.
         let segs = parse("M .5.5 L 10-5").unwrap();
         assert_eq!(segs, vec![Seg::Move(0.5, 0.5), Seg::Line(10.0, -5.0)]);
     }
@@ -458,7 +458,7 @@ mod tests {
     }
 
     /// Starting with something other than a moveto is out of spec, but every renderer treats the
-    /// current point as the origin and so does this — rejecting it would fail on real-world data
+    /// current point as the origin and so does this; rejecting it would fail on real-world data
     /// for no benefit.
     #[test]
     fn a_missing_initial_moveto_starts_at_the_origin() {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: NSSearchField (a rounded search NSTextField with a magnifier + clear button for free). A
+// AppKit: NSSearchField (a rounded search NSTextField with a magnifier + clear button built in). A
 // per-node delegate implements NSControlTextEditingDelegate::controlTextDidChange: and dispatches
 // Event::TextChanged; programmatic setStringValue does not fire that delegate, so no echo guard is
 // needed on this backend (update only writes when the value actually differs).
@@ -100,8 +100,8 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
 
 /// Drop the retained delegate when the view goes away.
 ///
-/// Without this the map grows by one entry per realized search field, and — worse — its key is
-/// the view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// Without this the map grows by one entry per realized search field, and, worse, its key is
+/// the view's address, which the allocator reuses: a later view landing on a freed address would
 /// inherit the dead node's delegate and misroute its events.
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     TARGETS.with(|m| {
@@ -114,7 +114,7 @@ day_pieces::renderer!(day_appkit::RENDERERS, AppKit,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure, release: release);
 
-/// Non-generic anchor for the linker — called by `SearchField::build` (see lib.rs). Without a
+/// Non-generic anchor for the linker, called by `SearchField::build` (see lib.rs). Without a
 /// caller this module's object is never pulled out of the rlib, and the `renderer!` registration
 /// above never reaches the binary.
 pub(crate) fn anchor() {}

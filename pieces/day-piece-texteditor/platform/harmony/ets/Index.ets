@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-texteditor — the HarmonyOS half of the piece (docs/extending.md, docs/texteditor.md).
+// day-piece-texteditor: the HarmonyOS half of the piece (docs/extending.md, docs/texteditor.md).
 //
-// The ArkUI **C** node API has no rich editor: `native_node.h` stops at ARKUI_NODE_TEXT_AREA, which
+// The ArkUI C node API has no rich editor: `native_node.h` stops at ARKUI_NODE_TEXT_AREA, which
 // is plain text. `RichEditor` exists only in ArkTS, so the component is declared here, built into a
 // BuilderNode, and handed to Day as a FrameNode the native tree mounts like any other node. `day
 // build` stages this file into the app's hvigor project through `[package.metadata.day.ohos]`.
@@ -13,10 +13,10 @@
 // survive a syntax highlighter), `setTypingStyle` is native, and `setSelection`/`getSelection`
 // speak the same offsets the styles do.
 //
-// Everything crosses as strings, because that is the whole piece channel: `make` takes one props
+// Everything crosses as strings, because that is the piece channel: `make` takes one props
 // string, `update` takes a (cmd, arg) pair, and reports go back through `pieceEvent`, which reaches
-// Rust as `Event::Custom`. The editor's two reports are therefore prefixed — `txt <text>` and
-// `sel <start> <end>` — which is exactly what the piece's TEXT_PREFIX / SEL_PREFIX name.
+// Rust as `Event::Custom`. The editor's two reports are therefore prefixed (`txt <text>` and
+// `sel <start> <end>`), which is exactly what the piece's TEXT_PREFIX / SEL_PREFIX name.
 //
 // Offsets are ArkTS string indices, which are UTF-16 code units, so the Rust side converts with
 // the same helpers the Apple arms use.
@@ -29,7 +29,7 @@ const SEP: string = '\u001F';
 const RUN_SEP: string = '\u001E';
 
 // One live editor: its BuilderNode (which owns the component), its controller, and the text it
-// currently holds — the last so a change report and an offset conversion never need a round trip.
+// currently holds; the last so a change report and an offset conversion never need a round trip.
 class DayEditorInstance {
   node: BuilderNode<[DayEditorParams]>;
   params: DayEditorParams;
@@ -82,13 +82,13 @@ function dayEditorBuilder(params: DayEditorParams) {
     .placeholder(params.placeholder, { font: { size: params.basePt } })
 }
 
-/// The plain text of every span, in order — RichEditor has no `getText`.
+/// The plain text of every span, in order; RichEditor has no `getText`.
 function currentText(controller: RichEditorController): string {
   const spans: Array<RichEditorImageSpanResult | RichEditorTextSpanResult> =
     controller.getSpans({ start: 0, end: -1 });
   let out: string = '';
   for (let i = 0; i < spans.length; i++) {
-    // The results are INTERFACES, so `instanceof` is not available: the discriminator is the
+    // The results are interfaces, so `instanceof` is not available: the discriminator is the
     // property itself. An image span carries `valuePixelMap`/`valueResourceStr` and no `value`;
     // this editor never inserts one, but a paste could.
     const text: RichEditorTextSpanResult = spans[i] as RichEditorTextSpanResult;
@@ -102,7 +102,7 @@ function currentText(controller: RichEditorController): string {
 const instances: Map<number, DayEditorInstance> = new Map();
 
 // `props` is `basePt<US>editable<US>spellcheck<US>minLines<US>maxLines<US>placeholder<US>text`,
-// with the TEXT last so a document containing the separator still arrives intact (everything
+// with the text last so a document containing the separator still arrives intact (everything
 // after the sixth separator is text).
 function make(ui: UIContext, id: number, props: string): FrameNode | undefined {
   const parts: string[] = props.split(SEP);
@@ -129,7 +129,7 @@ function colorOf(argb: number): string {
   return '#' + hex;
 }
 
-// One run: `start,end,flags,color,background,scale` — all numbers, so nothing here needs escaping.
+// One run: `start,end,flags,color,background,scale`. All numbers, so nothing here needs escaping.
 // The flag bits are the ones the whole piece shares: 1 bold, 2 italic, 4 monospace,
 // 8 strikethrough, 16 color, 32 background, 64 underline.
 function applyRuns(live: DayEditorInstance, arg: string): void {
@@ -173,7 +173,7 @@ function applyRuns(live: DayEditorInstance, arg: string): void {
       style.textBackgroundStyle = { color: colorOf(Number(f[4])) };
     }
     // ArkUI carries one decoration per span, so an underlined strikethrough keeps the
-    // strikethrough (the rarer, more meaningful mark) — recorded in docs/texteditor.md.
+    // strikethrough (the rarer, more meaningful mark); recorded in docs/texteditor.md.
     if ((flags & 8) !== 0) {
       style.decoration = { type: TextDecorationType.LineThrough };
     } else if ((flags & 64) !== 0) {
@@ -245,7 +245,7 @@ function update(id: number, cmd: string, arg: string): void {
     live.params.controller.setSelection(Number(f[0]), Number(f[1]));
     live.params.suppress = false;
   } else if (cmd === 'typing') {
-    // Native typing style — one of only three backends that has the concept.
+    // Native typing style: one of only three backends that has the concept.
     const f: string[] = arg.split(',');
     const flags: number = Number(f[0]);
     const scale: number = Number(f[3]) / 1000;

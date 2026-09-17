@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-reactive — the reactive core (DESIGN.md §3.3, §4).
+//! day-reactive: the reactive core (DESIGN.md §3.3, §4).
 //!
 //! Build-once / bind-forever: signals, memos, effects, `bind`, and `watch` over a thread-local
 //! generational arena. All handles are `Copy` and `!Send`; the only cross-thread door is
@@ -16,21 +16,21 @@
 //! ```
 
 // ---------------------------------------------------------------------------------------------
-// `tls_group!` — one pthread key for a module's whole set of thread-locals.
+// `tls_group!`: one pthread key for a module's whole set of thread-locals.
 //
 // On Android, Rust's `thread_local!` has no native-TLS path (`rustc --print cfg
-// --target aarch64-linux-android` emits no `target_thread_local`), so EVERY `thread_local!`
+// --target aarch64-linux-android` emits no `target_thread_local`), so every `thread_local!`
 // static takes one of bionic's 128 `pthread_key_create` slots, allocated on first touch and
 // never released. day plus its dependencies declares far more than that, so a long-running app
-// exhausts the table as more of its code runs first — and the next library to ask for a key
+// exhausts the table as more of its code runs first, and the next library to ask for a key
 // fails. Android's WebView is the usual casualty: its browser startup takes several keys, gets
 // none, and traps with no message at all.
 //
 // This macro takes `thread_local!`'s syntax and gives back the same names with the same `.with`,
 // but backs all of them with one key: the slots become fields of a single per-module struct and
 // each name becomes a zero-sized handle that borrows its field. Call sites do not change.
-// Cell/RefCell conveniences (`set`/`get`/`replace`) are deliberately absent — go through `.with`,
-// which is what the field itself offers.
+// Cell/RefCell conveniences (`set`/`get`/`replace`) are absent: go through `.with`, which is
+// what the field itself offers.
 #[macro_export]
 macro_rules! tls_group {
     ($( $(#[$attr:meta])* $vis:vis static $name:ident : $ty:ty = $init:expr ; )+) => {
@@ -64,16 +64,16 @@ macro_rules! tls_group {
 }
 
 // ---------------------------------------------------------------------------------------------
-// `tls_root!` / `tls_slots!` — one pthread key for a whole crate.
+// `tls_root!` / `tls_slots!`: one pthread key for a whole crate.
 //
 // `tls_group!` above already collapses a module's statics to one key. These two go the last step:
 // each module declares its slots as a plain struct (`tls_slots!`) and the crate root gathers them
 // into a single thread-local (`tls_root!`). A crate then costs one key no matter how many modules
 // keep state, and the root is also the natural place to hang teardown.
 //
-// Call sites are unchanged — the names still answer `.with`. The cost is one line per module
+// Call sites are unchanged: the names still answer `.with`. The cost is one line per module
 // naming its field in the root, and `tls_root!` listing the modules. `crate::tls_root` resolves
-// in the EXPANDING crate, so each crate keeps its own root.
+// in the expanding crate, so each crate keeps its own root.
 #[macro_export]
 macro_rules! tls_root {
     ($( $(#[$attr:meta])* $field:ident : $ty:ty ),+ $(,)?) => {
@@ -93,9 +93,9 @@ macro_rules! tls_root {
 }
 
 /// One module's slots, stored as `$field` of the crate's [`tls_root!`].
-// `crate::tls_root` is deliberate, and `$crate` would be wrong: the root belongs to the crate
-// EXPANDING this macro, not to day-reactive. That resolution is the whole point — each crate
-// keeps its own root — so the lint is describing the intent rather than a mistake.
+// `crate::tls_root` is correct here, and `$crate` would be wrong: the root belongs to the crate
+// expanding this macro, not to day-reactive. That resolution is what gives each crate a root of
+// its own, so the lint is describing the intent rather than a mistake.
 #[allow(clippy::crate_in_macro_def)]
 #[macro_export]
 macro_rules! tls_slots {
@@ -153,7 +153,7 @@ enum NodeState {
 enum NodeKind {
     Signal,
     Memo,
-    /// Effects, binds, watches — anything with a re-runnable reaction closure.
+    /// Effects, binds, watches: anything with a re-runnable reaction closure.
     Reaction,
 }
 
@@ -167,21 +167,21 @@ type MemoEq = fn(&dyn Any, &dyn Any) -> bool;
 /// done by taking the value out of the node and putting it back afterwards, which had two costs: a
 /// re-entrant read of the same signal found the hole and reported "disposed", and a panic inside
 /// the closure lost the value permanently. Sharing the cell instead lets a reader clone it out
-/// cheaply, so concurrent reads simply work and the value is never in limbo.
+/// cheaply, so concurrent reads work and the value is never in limbo.
 type NodeValue = Rc<RefCell<Box<dyn Any>>>;
 
 struct Node {
     kind: NodeKind,
     state: NodeState,
     value: Option<NodeValue>,
-    /// Memo recompute (returns boxed new value) — compared with `eq`.
+    /// Memo recompute (returns boxed new value), compared with `eq`.
     memo_compute: Option<Rc<dyn Fn() -> Box<dyn Any>>>,
     memo_eq: Option<MemoEq>,
     /// Reaction closure (effect/bind/watch body).
     reaction: Option<Rc<dyn Fn()>>,
     sources: Vec<NodeKey>,
     /// Callbacks an external dependency registry (day-model's trigger claims) hangs on this
-    /// computation's current run — drained when the run's sources clear (re-track or disposal),
+    /// computation's current run, drained when the run's sources clear (re-track or disposal),
     /// mirroring the per-run lifetime of `sources` itself. Run outside the runtime borrow.
     run_cleanups: Vec<Box<dyn FnOnce()>>,
     observers: Vec<NodeKey>,
@@ -268,7 +268,7 @@ const RERUN_CAP: u32 = 100;
 
 /// Per-turn cap on drain→turn-end rounds ([`flush_sync`]): same panic/warn split as
 /// [`RERUN_CAP`]. Two rounds settle the normal case (a turn-end hook scheduling reactive
-/// work — day-persistence's deferred requeries); reaching the cap means hooks are feeding
+/// work, such as day-persistence's deferred requeries); reaching the cap means hooks are feeding
 /// each other every round.
 const TURN_ROUND_CAP: u32 = 8;
 
@@ -417,7 +417,7 @@ fn refresh_memo(key: NodeKey) {
     }
     with_rt(|rt| rt.observers.push(Some(key)));
     let new_value = {
-        // Popped on unwind too — see `run_reaction`.
+        // Popped on unwind too; see `run_reaction`.
         let _g = RtGuard(|rt: &mut Runtime| {
             rt.observers.pop();
         });
@@ -437,7 +437,7 @@ fn refresh_memo(key: NodeKey) {
         node.last_run = tick;
         node.state = NodeState::Clean;
         if changed {
-            // Install a NEW cell rather than writing through the old one: a read in flight keeps
+            // Install a new cell rather than writing through the old one: a read in flight keeps
             // reading the value it borrowed, for the duration of its closure, instead of panicking.
             node.value = Some(Rc::new(RefCell::new(new_value)));
             node.last_changed = tick;
@@ -494,7 +494,7 @@ fn run_reaction(key: NodeKey) {
         }
         cleanups
     });
-    // Released claims must drop before the fresh run tracks — and outside the borrow.
+    // Released claims must drop before the fresh run tracks, and outside the borrow.
     for f in cleanups {
         f();
     }
@@ -516,14 +516,14 @@ fn run_reaction(key: NodeKey) {
     });
 }
 
-/// Drain the pending queue to fixpoint, then run turn-end callbacks (§3.3 steps 2–3) —
-/// REPEATING both until the turn is truly quiescent. A turn-end callback may schedule new
+/// Drain the pending queue to fixpoint, then run turn-end callbacks (§3.3 steps 2–3),
+/// repeating both until the turn is quiescent. A turn-end callback may schedule new
 /// reactive work (day-persistence's autosave flush re-derives live queries and diffs the
-/// answers into signals); that work belongs to this turn — §3.3 step 2's "writes made
+/// answers into signals); that work belongs to this turn: §3.3 step 2's "writes made
 /// during the drain extend the current drain", extended across the turn-end boundary.
 /// Left pending instead, every cross-row readout (a query-fed list, a derived bound)
-/// would render one turn stale. Round two drains the deltas and re-runs the hooks —
-/// autosave then finds nothing dirty — so a settled app exits after two rounds;
+/// would render one turn stale. Round two drains the deltas and re-runs the hooks, and
+/// autosave then finds nothing dirty, so a settled app exits after two rounds;
 /// [`TURN_ROUND_CAP`] stops turn-end hooks that feed each other forever.
 pub fn flush_sync() {
     let already = with_rt(|rt| {
@@ -539,14 +539,14 @@ pub fn flush_sync() {
     let mut round = 0u32;
     'turn: loop {
         round += 1;
-        // Fresh per round: the re-run cap is per DRAIN (§4.2), and each round is one drain.
+        // Fresh per round: the re-run cap is per drain (§4.2), and each round is one drain.
         let mut run_counts: HashMap<NodeKey, u32> = HashMap::new();
         loop {
             let mut batch = with_rt(|rt| std::mem::take(&mut rt.pending));
             if batch.is_empty() {
                 break;
             }
-            // (priority, scope-depth, creation-seq) — owners before descendants.
+            // (priority, scope-depth, creation-seq): owners before descendants.
             with_rt(|rt| {
                 batch.sort_by_key(|&k| {
                     rt.nodes
@@ -597,7 +597,7 @@ pub fn flush_sync() {
         for cb in turn_end {
             cb();
         }
-        // Quiescent — or a nested flush inside a callback already settled everything.
+        // Quiescent, or a nested flush inside a callback already settled everything.
         let more = with_rt(|rt| {
             if rt.pending.is_empty() {
                 return false;
@@ -610,7 +610,7 @@ pub fn flush_sync() {
         }
         if round >= TURN_ROUND_CAP {
             // The callbacks' first write posted a scheduled drain (draining was false
-            // then), so the deferred work still runs next turn — same recovery shape as
+            // then), so the deferred work still runs next turn, the same recovery shape as
             // the re-run cap.
             with_rt(|rt| rt.draining = false);
             if cfg!(debug_assertions) {
@@ -628,11 +628,12 @@ pub fn flush_sync() {
     }
 }
 
-/// Reset the runtime to a clean idle state after a panic unwound through a drain or batch — e.g. a
-/// reactive-cycle assertion ([`RERUN_CAP`]) that tripped inside a native event callback which the
-/// backend *contained* (rather than letting it abort the process across the C ABI — a GTK/Qt signal
-/// trampoline can't unwind). The in-flight `pending` work and the observer stack are dropped (the next
-/// interaction re-derives them); persistent registrations (effects, memos, turn-end hooks) are kept.
+/// Reset the runtime to a clean idle state after a panic unwound through a drain or batch,
+/// e.g. a reactive-cycle assertion ([`RERUN_CAP`]) that tripped inside a native event callback
+/// which the backend *contained* (rather than letting it abort the process across the C ABI; a
+/// GTK/Qt signal trampoline can't unwind). The in-flight `pending` work and the observer stack
+/// are dropped (the next interaction re-derives them); persistent registrations (effects, memos,
+/// turn-end hooks) are kept.
 pub fn recover_from_panic() {
     with_rt(|rt| {
         rt.draining = false;
@@ -696,11 +697,11 @@ fn signal_write_boxed(key: NodeKey, apply: impl FnOnce(&mut Box<dyn Any>) -> boo
 // ---------------------------------------------------------------------------
 
 /// Run `f` in a batch: writes coalesce; the synchronous fixpoint drain runs at batch close.
-/// Restores a piece of runtime state when it goes out of scope — on the normal path and on an
-/// unwind. day-core deliberately CONTAINS panics at its trampoline boundaries (`pump_events`,
-/// posted tasks, lifecycle) so a panicking app callback degrades the UI instead of aborting the
-/// process; that guarantee is only worth anything if the reactive runtime is still coherent
-/// afterwards. Restoring after `f()` returns is not enough, because that line is skipped on unwind.
+/// Restores a piece of runtime state when it goes out of scope, on the normal path and on an
+/// unwind. day-core contains panics at its trampoline boundaries (`pump_events`, posted tasks,
+/// lifecycle) so a panicking app callback degrades the UI instead of aborting the process; that
+/// guarantee is only worth anything if the reactive runtime is still coherent afterwards.
+/// Restoring after `f()` returns is not enough, because that line is skipped on unwind.
 struct RtGuard<F: FnMut(&mut Runtime)>(F);
 
 impl<F: FnMut(&mut Runtime)> Drop for RtGuard<F> {
@@ -712,10 +713,10 @@ impl<F: FnMut(&mut Runtime)> Drop for RtGuard<F> {
 pub fn batch<R>(f: impl FnOnce() -> R) -> R {
     with_rt(|rt| rt.batch_depth += 1);
     let r = {
-        // Runs on unwind too, so a contained panic can't strand `batch_depth` above zero — which
+        // Runs on unwind too, so a contained panic can't strand `batch_depth` above zero, which
         // would stop every later write from scheduling a drain (a silently frozen UI). Saturating:
         // if `recover_from_panic` already zeroed the depth mid-unwind, a plain `-= 1` here would
-        // underflow — a panic inside this Drop, which is a process abort.
+        // underflow: a panic inside this Drop, which is a process abort.
         let _g = RtGuard(|rt: &mut Runtime| rt.batch_depth = rt.batch_depth.saturating_sub(1));
         f()
     };
@@ -727,11 +728,11 @@ pub fn batch<R>(f: impl FnOnce() -> R) -> R {
 }
 
 /// Force a synchronous fixpoint drain **now**, even inside an open [`batch`]. Event dispatch wraps
-/// handlers in a batch (day-core), so a handler that needs its writes to drain immediately — namely
-/// `with_animation`, whose ambient animation must be live *while* the resulting patches apply —
-/// cannot rely on the batch's own close (that runs later, after the scope ends). This temporarily
-/// drops the batch depth so [`flush_sync`] runs, then restores it. No-op if a drain is already in
-/// progress (the writes fold into it); harmless if nothing is pending.
+/// handlers in a batch (day-core), so a handler that needs its writes to drain immediately
+/// (namely `with_animation`, whose ambient animation must be live *while* the resulting patches
+/// apply) cannot rely on the batch's close (that runs later, after the scope ends). This
+/// temporarily drops the batch depth so [`flush_sync`] runs, then restores it. No-op if a drain
+/// is already in progress (the writes fold into it); harmless if nothing is pending.
 pub fn flush_now() {
     let saved = with_rt(|rt| std::mem::replace(&mut rt.batch_depth, 0));
     // Restored on unwind too: the debug rerun-cap panic can cross here under an event-dispatch
@@ -753,18 +754,18 @@ pub fn untrack<R>(f: impl FnOnce() -> R) -> R {
 
 /// The identity of one reactive computation (a reaction or a memo) across its lifetime.
 /// Opaque; `Copy + Eq + Hash`, so an external dependency registry can key per-computation
-/// bookkeeping on it. Slotmap-generational underneath — a recycled slot is a new `RunId`.
+/// bookkeeping on it. Slotmap-generational underneath: a recycled slot is a new `RunId`.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct RunId(NodeKey);
 
-/// The computation currently tracking reads — `None` at top level and under [`untrack`].
+/// The computation currently tracking reads: `None` at top level and under [`untrack`].
 pub fn active_run() -> Option<RunId> {
     with_rt(|rt| rt.observers.last().copied().flatten()).map(RunId)
 }
 
-/// Hang `f` on the ACTIVE computation's current run: it fires when that computation next
-/// re-tracks (a re-run clears its sources first) or is disposed — the seam that lets an
-/// external dependency registry (day-model's trigger claims) mirror this graph's own per-run
+/// Hang `f` on the active computation's current run: it fires when that computation next
+/// re-tracks (a re-run clears its sources first) or is disposed. This is the hook that lets an
+/// external dependency registry (day-model's trigger claims) mirror this graph's per-run
 /// source bookkeeping. Returns `false`, registering nothing, when no computation is tracking.
 pub fn on_run_retrack(f: impl FnOnce() + 'static) -> bool {
     with_rt(|rt| {
@@ -793,8 +794,8 @@ pub type LocalBoxFuture = Pin<Box<dyn Future<Output = ()> + 'static>>;
 type Spawner = Rc<dyn Fn(LocalBoxFuture) -> Box<dyn FnOnce()>>;
 
 /// Install the async-spawn door: `spawn` runs a future on the app's main-loop executor and
-/// returns an ABORT closure (remove + drop the future). The abort must be a no-op once the
-/// task has completed — [`Resource`] stores it after an eager first poll, so a synchronously
+/// returns an abort closure (remove + drop the future). The abort must be a no-op once the
+/// task has completed: [`Resource`] stores it after an eager first poll, so a synchronously
 /// ready future has already finished by then. day-core's `launch_with` wires this to
 /// `day::task` / `TaskHandle::abort`; call it once at startup (docs/async.md).
 pub fn install_spawner(spawn: impl Fn(LocalBoxFuture) -> Box<dyn FnOnce()> + 'static) {
@@ -827,7 +828,7 @@ pub fn install_main_poster(post: impl Fn(Box<dyn FnOnce() + Send>) + Send + Sync
     let _ = MAIN_POSTER.set(Box::new(post));
 }
 
-/// Whether a backend has installed the main poster yet — i.e. whether [`on_main`] would work
+/// Whether a backend has installed the main poster yet, i.e. whether [`on_main`] would work
 /// rather than panic. Platform glue that can be called before launch (a notification tap that
 /// cold-starts the process) probes this and buffers instead of posting. The poster is set once
 /// and never cleared, so a `false` can only become `true`: a caller that buffers on a false
@@ -854,7 +855,7 @@ pub fn install_delayed_poster(
     let _ = DELAYED_POSTER.set(Box::new(post));
 }
 
-/// Schedule `f` on the UI thread after (at least) `ms` milliseconds — the rail behind
+/// Schedule `f` on the UI thread after (at least) `ms` milliseconds, the rail behind
 /// `day::sleep` (docs/async.md).
 pub fn on_main_delayed(ms: u32, f: impl FnOnce() + Send + 'static) {
     match DELAYED_POSTER.get() {
@@ -916,7 +917,7 @@ impl Scope {
         }
     }
 
-    /// A scope owned by nobody — dispose it manually.
+    /// A scope owned by nobody; dispose it manually.
     pub fn detached() -> Scope {
         let key = with_rt(|rt| {
             rt.scopes.insert(ScopeData {
@@ -1001,7 +1002,7 @@ impl Scope {
                 // Pending entries for removed nodes are skipped at pop (generational key check).
             }
         });
-        // A dying computation's per-run claims drop like a re-track would drop them — outside
+        // A dying computation's per-run claims drop like a re-track would drop them: outside
         // the borrow, before the scope's own cleanups (which may release scope-level claims).
         for f in run_cleanups {
             f();
@@ -1065,9 +1066,9 @@ impl<T: 'static> Signal<T> {
         Self::new_in(Scope::current(), value)
     }
 
-    /// A process-global signal: allocated in the ROOT scope regardless of where the call
+    /// A process-global signal: allocated in the root scope regardless of where the call
     /// runs, so it never dies with a transient caller. **Every lazily-initialized global
-    /// registry must use this, not [`Signal::new`]** — a lazy global first touched inside a
+    /// registry must use this, not [`Signal::new`]**, because a lazy global first touched inside a
     /// presented cover / pushed page / `when` arm otherwise inherits that scope and is
     /// disposed with it, and every later read panics (the day-l10n locale signal was the
     /// observed case).
@@ -1379,7 +1380,7 @@ fn create_reaction(f: Rc<dyn Fn()>, priority: u8) -> NodeKey {
     with_rt(|rt| rt.observers.push(Some(key)));
     let reaction = with_rt(|rt| rt.nodes[key].reaction.clone());
     {
-        // Popped on unwind too — see `run_reaction`.
+        // Popped on unwind too; see `run_reaction`.
         let _g = RtGuard(|rt: &mut Runtime| {
             rt.observers.pop();
         });
@@ -1398,7 +1399,7 @@ fn create_reaction(f: Rc<dyn Fn()>, priority: u8) -> NodeKey {
 }
 
 /// The binding primitive (§4.2): compute (tracked) + apply (untracked), equality-gated.
-/// Structural priority — bindings drain before plain effects. `apply` receives the new value
+/// Structural priority: bindings drain before plain effects. `apply` receives the new value
 /// by reference so `V` needs only `PartialEq` (no `Clone`).
 #[track_caller]
 pub fn bind<V: PartialEq + 'static>(
@@ -1439,7 +1440,7 @@ pub fn bind_seeded<V: PartialEq + 'static>(
     );
 }
 
-/// `bind` for payloads without `PartialEq` — applies on every recompute.
+/// `bind` for payloads without `PartialEq`, applying on every recompute.
 #[track_caller]
 pub fn bind_always<V: 'static>(compute: impl Fn() -> V + 'static, apply: impl Fn(V) + 'static) {
     create_reaction(
@@ -1514,14 +1515,14 @@ pub trait Binding<T: 'static>: Clone + 'static {
     fn peek(&self) -> T;
     /// Write the value, waking whatever tracks it.
     fn write(&self, v: T);
-    /// A LIVE write mid-gesture (`Event::ValueChanged`): readers must follow, but nothing
-    /// durable should key off it. Defaults to [`Binding::write`] — a plain signal has no
+    /// A live write mid-gesture (`Event::ValueChanged`): readers must follow, but nothing
+    /// durable should key off it. Defaults to [`Binding::write`]: a plain signal has no
     /// notion of "durable", and a degraded backend that never commits stays correct.
     fn write_preview(&self, v: T) {
         self.write(v);
     }
     /// The settled value that ends a gesture (`Event::ValueCommitted`). Defaults to
-    /// [`Binding::write`]; a day-model field seals its preview session here — one change
+    /// [`Binding::write`]; a day-model field seals its preview session here: one change
     /// record, one undo unit, one UPDATE for the whole drag.
     fn write_commit(&self, v: T) {
         self.write(v);
@@ -1607,10 +1608,10 @@ impl FetchState {
     }
 }
 
-/// Declarative async data loading (§4.5): a TRACKED `source` whose value feeds an async
+/// Declarative async data loading (§4.5): a tracked `source` whose value feeds an async
 /// `fetcher`; the result lands in a `Signal<Load<T>>`. The source re-runs when its tracked
 /// reads change; an unchanged source value refetches nothing, [`Resource::refetch`] always
-/// does. Latest wins: a source change supersedes the in-flight fetch (aborting its task —
+/// does. Latest wins: a source change supersedes the in-flight fetch (aborting its task;
 /// dropping any `FetchFuture` inside cancels the platform request) and a stale completion
 /// writes nothing. Scope disposal aborts the in-flight fetch the same way.
 ///
@@ -1637,7 +1638,7 @@ impl<T> Copy for Resource<T> {}
 impl<T: 'static> Resource<T> {
     /// Start loading: `source` runs tracked (its signal reads become dependencies) and its
     /// value moves into `fetcher`'s future, which runs on the main-loop executor via the
-    /// installed spawner — so no `Send` bound anywhere, and the future may read/write signals
+    /// installed spawner, so no `Send` bound anywhere, and the future may read/write signals
     /// after its awaits. Infallible fetchers use `E = std::convert::Infallible`.
     #[track_caller]
     pub fn new<S, Fut, E>(
@@ -1659,8 +1660,8 @@ impl<T: 'static> Resource<T> {
         let prev: RefCell<Option<(S, u64)>> = RefCell::new(None);
         create_reaction(
             Rc::new(move || {
-                // Tracked reads FIRST: the refetch counter and the source. Everything else runs
-                // untracked — the fetcher may read signals without making them dependencies.
+                // Tracked reads first: the refetch counter and the source. Everything else runs
+                // untracked: the fetcher may read signals without making them dependencies.
                 let count = refetch_count.get();
                 let s = source();
                 let fs = reaction_fs.clone();
@@ -1683,7 +1684,7 @@ impl<T: 'static> Resource<T> {
                     let abort = spawn_local(Box::pin(async move {
                         let result = fut.await;
                         if done.generation.get() != my_generation {
-                            return; // superseded while in flight — latest wins
+                            return; // superseded while in flight; latest wins
                         }
                         done.abort.borrow_mut().take(); // completed: the stored abort is dead
                         match result {
@@ -1692,7 +1693,7 @@ impl<T: 'static> Resource<T> {
                         }
                     }));
                     // Eager-poll ordering: the spawner polls once before returning, so a
-                    // synchronously-ready fetcher has already completed here — storing its
+                    // synchronously-ready fetcher has already completed here; storing its
                     // abort is harmless only because the spawner contract makes aborting a
                     // finished task a no-op (this line is why that contract exists).
                     *fs.abort.borrow_mut() = Some(abort);
@@ -1701,7 +1702,7 @@ impl<T: 'static> Resource<T> {
             1,
         );
         // Disposal: supersede + abort the in-flight task. (A completion that slipped through
-        // would write to disposed signals — the defined no-op — but aborting frees the platform
+        // would write to disposed signals, the defined no-op, but aborting frees the platform
         // request immediately.)
         let cleanup_fs = fs;
         Scope::current().on_cleanup(move || {
@@ -1737,7 +1738,7 @@ impl<T: 'static> Resource<T> {
         self.with(Load::is_loading)
     }
 
-    /// Whether a value is ready (tracked) — `when(move || r.ready(), …)`.
+    /// Whether a value is ready (tracked): `when(move || r.ready(), …)`.
     pub fn ready(self) -> bool {
         self.with(Load::is_ready)
     }
@@ -1946,7 +1947,7 @@ mod tests {
         assert_eq!(b.get(), 1);
     }
 
-    // Debug-only: release deliberately warns-and-defers instead of panicking (the release
+    // Debug-only: release warns-and-defers instead of panicking (the release
     // side is pinned by `unwind_safety_tests::rerun_cap_defers_instead_of_killing_the_binding`).
     #[cfg(debug_assertions)]
     #[test]
@@ -2004,7 +2005,7 @@ mod tests {
         let s = Signal::new(0);
         let order: Rc<RefCell<Vec<&'static str>>> = Rc::new(RefCell::new(Vec::new()));
         let o1 = order.clone();
-        // Plain effect created first (lower seq) — priority must still put the bind first.
+        // Plain effect created first (lower seq); priority must still put the bind first.
         Effect::new(move || {
             s.track();
             o1.borrow_mut().push("effect");
@@ -2023,8 +2024,8 @@ mod resource_tests {
     use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
     // ---- test executor: mirrors day::task's shape (eager first poll; abort = remove+drop;
-    // pump() re-polls whatever is still pending). ABORTED records aborts of still-pending
-    // tasks — the probe the latest-wins/disposal tests read. All thread-local: each #[test]
+    // pump() re-polls whatever is still pending). `ABORTED` records aborts of still-pending
+    // tasks, the probe the latest-wins/disposal tests read. All thread-local: each #[test]
     // thread gets a fresh Runtime and a fresh executor.
 
     thread_local! {
@@ -2109,7 +2110,7 @@ mod resource_tests {
 
     type Slot<T> = Rc<RefCell<Option<Result<T, TestErr>>>>;
 
-    /// A future the test resolves by hand (fill the slot, then `pump()`); no waker wiring —
+    /// A future the test resolves by hand (fill the slot, then `pump()`); no waker wiring, since
     /// pump re-polls everything.
     fn manual_future<T: 'static>(slot: Slot<T>) -> impl Future<Output = Result<T, TestErr>> {
         std::future::poll_fn(move |_| match slot.borrow_mut().take() {
@@ -2187,7 +2188,7 @@ mod resource_tests {
         let f = fetches.clone();
         let r = Resource::new(
             move || {
-                let _ = b.get(); // tracked but not part of the source VALUE
+                let _ = b.get(); // tracked but not part of the source value
                 a.get()
             },
             move |v| {
@@ -2216,7 +2217,7 @@ mod resource_tests {
             },
         );
         assert_eq!(fetches.get(), 1);
-        batch(|| r.refetch()); // same source value — the refetch counter forces it past the gate
+        batch(|| r.refetch()); // same source value; the refetch counter forces it past the gate
         assert_eq!(fetches.get(), 2);
     }
 
@@ -2284,7 +2285,7 @@ mod resource_tests {
     #[test]
     #[should_panic(expected = "no spawner installed")]
     fn spawner_missing_panics() {
-        // Deliberately not installing the test spawner: this test thread's Runtime has none.
+        // No test spawner installed: this test thread's Runtime has none.
         let _r = Resource::new(|| (), |_| async { Ok::<_, std::convert::Infallible>(1) });
     }
 }
@@ -2319,7 +2320,7 @@ mod unwind_safety_tests {
     /// A panic inside `untrack` must pop its `None` observer, or dependency tracking stays off
     /// for the rest of the process and nothing ever updates again.
     /// A panic inside an effect's own closure (contained by a backend trampoline) must pop
-    /// the effect's observer frame during unwind — a stranded frame would attribute every
+    /// the effect's observer frame during unwind; a stranded frame would attribute every
     /// later read to the dead run, even through a user's own `catch_unwind`, without any
     /// call to `recover_from_panic`.
     #[test]
@@ -2398,7 +2399,7 @@ mod unwind_safety_tests {
         );
     }
 
-    /// Two different signals read inside one another's closures — the ordinary case, and the
+    /// Two different signals read inside one another's closures: the ordinary case, and the
     /// reason the closure must run with the runtime borrow released.
     #[test]
     fn nested_reads_of_distinct_signals_succeed() {
@@ -2431,8 +2432,8 @@ mod unwind_safety_tests {
     }
 
     /// Release builds must survive a reactive cycle: the capped effect is skipped for the
-    /// rest of the drain but re-arms on the next source write — it must not be permanently
-    /// disabled. Release-only because the same cycle panics (by design) under
+    /// rest of the drain but re-arms on the next source write; it must not be permanently
+    /// disabled. Release-only because the same cycle panics under
     /// `debug_assertions`; run via `cargo test --release -p day-reactive`.
     #[cfg(not(debug_assertions))]
     #[test]

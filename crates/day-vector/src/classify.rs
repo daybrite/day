@@ -7,14 +7,14 @@
 //! generators) is one big annotated SVG: a `#Notes` group of documentation, a `#Guides` group
 //! of caplines/baselines/margins, and a `#Symbols` group holding one child group per
 //! `Weight-Scale` variant (`Ultralight-S` … `Black-L`). Day's canonical glyph for non-Apple
-//! targets is one variant (Regular-M by default — the plan's "Regular only" decision), cut out
+//! targets is one variant (Regular-M by default, the plan's "Regular only" decision), cut out
 //! textually: usvg normalizes document structure away, so the variant's markup is sliced from
 //! the original XML by byte range and re-wrapped with a tight, squared viewBox measured by a
 //! probe parse. Textual slicing keeps whatever the variant contains (paths, primitives,
 //! transforms) byte-for-byte.
 
 /// What a `resource/vectors/` SVG file is. (`.symbolset` bundles are a directory form the
-/// caller unpacks — their inner template SVG classifies here as [`SourceKind::SfTemplate`].)
+/// caller unpacks; their inner template SVG classifies here as [`SourceKind::SfTemplate`].)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceKind {
     /// Any ordinary SVG: the whole document is the glyph.
@@ -63,7 +63,7 @@ pub fn classify(xml: &str) -> SourceKind {
 /// Cut one `Weight-Scale` variant out of an SF Symbol template as a standalone glyph SVG.
 ///
 /// Preference order: the exact `weight-scale` requested, then the same weight at any scale,
-/// then any variant at all — a sparse third-party template still yields a glyph. The output
+/// then any variant at all, so a sparse third-party template still yields a glyph. The output
 /// viewBox is the variant's measured bounding box, padded ~6 % and squared (icon slots are
 /// square; centering the short axis keeps optical alignment).
 pub fn extract_variant(xml: &str, weight: &str, scale: &str) -> Result<String, String> {

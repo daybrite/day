@@ -1,13 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Bundled resources — efficient random read-only access to app-declared data, backed by each
-//! toolkit's native resource mechanism (DESIGN §18.3).
+//! Bundled resources: efficient random read-only access to app-declared data, backed by each
+//! toolkit's native resource mechanism (DESIGN.md §18.3).
 //!
 //! `day build` stages the files declared under a project's `assets/` (and `images/`) into each
 //! platform's native resource store, **uncompressed where possible** so the runtime can hand back a
 //! zero-copy view. At runtime `resource("name")` returns a [`Resource`] whose bytes are borrowed
-//! directly from that store — an mmap of a bundle file on Apple, the NDK `AAssetManager` buffer on
+//! directly from that store: an mmap of a bundle file on Apple, the NDK `AAssetManager` buffer on
 //! Android, `g_resources_lookup_data` on GTK, `QResource::data` on Qt, the rawfile fd on ArkUI.
 //!
 //! The active backend registers its opener once via [`set_resource_opener`]; if none is registered
@@ -25,8 +25,8 @@ use std::sync::OnceLock;
 // `image(...)`, `resource(...)`, and `Font::custom(...)` take these newtypes rather than a bare
 // `&str`. Every value is meant to come from a generated `res::images/assets/fonts::…` constant
 // (`day-build`), so referencing a resource that isn't bundled is a compile error and the available
-// names autocomplete. A string *literal* deliberately does not coerce — that is what turns "present"
-// from a convention into a guarantee; a name only known at runtime uses the explicit `::dynamic`
+// names autocomplete. A string *literal* does not coerce, which is what turns "present" from a
+// convention into a guarantee; a name only known at runtime uses the explicit `::dynamic`
 // escape hatch (or, for images/assets, `From<String>`).
 // ---------------------------------------------------------------------------
 
@@ -51,7 +51,7 @@ macro_rules! resource_name {
             }
         }
 
-        // Owned strings convert (dynamic names); a `&str` literal intentionally does not, so
+        // Owned strings convert (dynamic names); a `&str` literal does not, so
         // `image("typo")` / `resource("typo")` fail to compile.
         impl From<String> for $name {
             fn from(s: String) -> Self {
@@ -80,16 +80,16 @@ resource_name!(
     "bundled-asset name"
 );
 resource_name!(
-    /// A bundled-asset DIRECTORY (§18.5): a folder's path relative to `resource/assets/`,
+    /// A bundled-asset directory (§18.5): a folder's path relative to `resource/assets/`,
     /// `/`-separated, no trailing slash. The generated `res::assets::…` tree carries one
-    /// constant per folder, sharing its module's name — `res::assets::web::minisite` is the
+    /// constant per folder, sharing its module's name: `res::assets::web::minisite` is the
     /// `AssetDir` and `res::assets::web::minisite::index_html` a file within it.
     AssetDir,
     "bundled-asset directory"
 );
 
 impl AssetDir {
-    /// Name a file under this directory, for [`resource`] — the escape hatch for paths
+    /// Name a file under this directory, for [`resource`]: the escape hatch for paths
     /// composed at runtime (`dir.join("posts/1.html")`); prefer the generated file constants
     /// where the path is known.
     pub fn join(&self, rel: &str) -> AssetName {
@@ -99,14 +99,14 @@ impl AssetDir {
 resource_name!(
     /// The bundled-vector name that [`vector`](crate::resource) callers resolve by (docs/vectors.md):
     /// the stem of a `resource/vectors/` SVG (or `.symbolset` bundle). Vectors and images share one
-    /// per-backend resolution namespace — staging guarantees every vector name resolves as whatever
+    /// per-backend resolution namespace; staging guarantees every vector name resolves as whatever
     /// form that backend loads natively (a VectorDrawable, a catalog entry, a rasterized PNG).
     VectorName,
     "bundled-vector name"
 );
 
 /// Vector and image names resolve through the same per-backend channel (nav-item icons, the
-/// toolbar's `.image(…)`, `bar_action` — all name-based); this conversion is that shared
+/// toolbar's `.image(…)`, `bar_action`, all name-based); this conversion is that shared
 /// namespace made explicit.
 impl From<VectorName> for ImageName {
     fn from(v: VectorName) -> ImageName {
@@ -121,7 +121,7 @@ impl From<VectorName> for ImageName {
 pub struct FontFamily(&'static str);
 
 impl FontFamily {
-    /// A font family known at compile time — the form the generated `res::fonts::…` constants use.
+    /// A font family known at compile time: the form the generated `res::fonts::…` constants use.
     pub const fn from_static(family: &'static str) -> Self {
         FontFamily(family)
     }
@@ -141,7 +141,7 @@ impl std::fmt::Display for FontFamily {
 ///
 /// The bytes stay valid for the lifetime of the `Resource`: it owns a guard (an mmap, a native
 /// `GBytes`/`QResource`/`AAsset` handle, or an owned buffer) that keeps the backing store alive.
-/// `Resource` is neither `Send` nor `Sync` — like the rest of the day runtime it is used on the
+/// `Resource` is neither `Send` nor `Sync`; like the rest of the day runtime it is used on the
 /// main/UI thread.
 pub struct Resource {
     ptr: *const u8,
@@ -165,7 +165,7 @@ impl Resource {
         }
     }
 
-    /// Build a `Resource` from owned bytes — the copy fallback for backends that cannot expose a
+    /// Build a `Resource` from owned bytes: the copy fallback for backends that cannot expose a
     /// stable pointer into their store (or when a native API only offers a read-into-buffer call).
     pub fn from_vec(bytes: Vec<u8>) -> Resource {
         let boxed: Box<[u8]> = bytes.into_boxed_slice();
@@ -198,7 +198,7 @@ impl Resource {
 
     /// Random-access read: copy up to `buf.len()` bytes starting at `offset` into `buf`, returning
     /// the number of bytes copied (0 if `offset >= len`). A direct `memcpy` from the backing store,
-    /// no allocation — the efficient primitive for seeking around a large embedded blob.
+    /// no allocation: the efficient primitive for seeking around a large embedded blob.
     pub fn read_at(&self, offset: usize, buf: &mut [u8]) -> usize {
         let data = self.as_slice();
         if offset >= data.len() {
@@ -230,7 +230,7 @@ pub fn set_resource_opener(opener: ResourceOpener) {
 
 /// Open a bundled resource by name for efficient random read-only access.
 ///
-/// Returns `None` if the backend has no resource with that name. Takes an [`AssetName`] — pass a
+/// Returns `None` if the backend has no resource with that name. Takes an [`AssetName`]: pass a
 /// generated `res::assets::…` constant (e.g. `resource(res::assets::stations_json)`) for a checked,
 /// guaranteed-present reference, or [`AssetName::dynamic`] for a name known only at runtime.
 pub fn resource(name: impl Into<AssetName>) -> Option<Resource> {
@@ -277,7 +277,7 @@ fn resolve_resource_path(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Resolve a data-asset FILE (a `/`-relative path under `resource/assets/`) to its on-disk
+/// Resolve a data-asset file (a `/`-relative path under `resource/assets/`) to its on-disk
 /// location, for consumers that must hand a native API a path rather than bytes: lottie-ios
 /// takes a filepath, and its by-name initializer would otherwise look only at the bundle root,
 /// where Day stages nothing. Same probe order as [`resource`]: `DAY_ASSET_ROOT` (dev /
@@ -286,8 +286,8 @@ pub fn resolve_asset_file(name: &str) -> Option<PathBuf> {
     resolve_resource_path(name)
 }
 
-/// Resolve a data-asset DIRECTORY (an [`AssetDir`]'s `/`-relative path) to its on-disk
-/// location — for consumers whose local-content channel is a file URL, like the inline web
+/// Resolve a data-asset directory (an [`AssetDir`]'s `/`-relative path) to its on-disk
+/// location, for consumers whose local-content channel is a file URL, like the inline web
 /// view on the Apple backends (day-piece-webview's docs/webview.md). Same probe order as file
 /// resolution: `DAY_ASSET_ROOT` (dev / `day launch`), then the bundle-relative roots.
 pub fn resolve_asset_dir(rel: &str) -> Option<PathBuf> {
@@ -321,7 +321,7 @@ pub const WEIGHT_SUFFIXES: [&str; 2] = ["__light", "__bold"];
 /// The base glyph a weight-suffixed name aliases, or `None` if the name carries no suffix.
 ///
 /// Only SF-template sources have true per-weight art, so only they stage `__light`/`__bold`
-/// assets. A plain SVG stages once and every weight resolves back to it here — which is what
+/// assets. A plain SVG stages once and every weight resolves back to it here, which is what
 /// keeps `.weight(…)` from 404-ing on art that has no weight axis, without staging a byte-identical
 /// copy of every glyph per weight. (Before this, 38 of Day-Showcase's 39 sources were staged three
 /// times over as identical copies.)
@@ -339,8 +339,9 @@ pub fn weight_alias(name: &str) -> Option<&str> {
 /// name through their own store and do not use this.
 pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
-    // DAY_VECTOR_RASTER_ROOT: the build-time raster cache for `resource/vectors/` (docs/vectors.md)
-    // — how the file-loading desktop backends resolve a vector name with no native vector pipeline.
+    // DAY_VECTOR_RASTER_ROOT: the build-time raster cache for `resource/vectors/`
+    // (docs/vectors.md), which is how the file-loading desktop backends resolve a vector name
+    // with no native vector pipeline.
     for var in ["DAY_IMAGE_ROOT", "DAY_VECTOR_RASTER_ROOT", "DAY_ASSET_ROOT"] {
         if let Ok(v) = std::env::var(var) {
             roots.push(PathBuf::from(v));
@@ -350,8 +351,8 @@ pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
         && let Some(dir) = exe.parent()
     {
         // Packed layouts (docs/vectors.md): `day pack` stages the vector raster cache under
-        // `vectors/raster` — inside `Contents/Resources` for a .app, beside the exe for the
-        // flat Windows payload — ordered after `images` to mirror the env-root precedence.
+        // `vectors/raster` (inside `Contents/Resources` for a .app, beside the exe for the
+        // flat Windows payload), ordered after `images` to mirror the env-root precedence.
         for rel in [
             "../Resources/images",
             "../Resources/vectors/raster",
@@ -364,13 +365,13 @@ pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
         }
     }
     // A weight-suffixed name probes its own art first, then the base glyph it aliases
-    // (`weight_alias`) — the raster half of the same fallback the SVG resolver does.
+    // (`weight_alias`): the raster half of the same fallback the SVG resolver does.
     let names: Vec<&str> = match weight_alias(name) {
         Some(base) => vec![name, base],
         None => vec![name],
     };
     let has_ext = std::path::Path::new(name).extension().is_some();
-    // Name-major, not root-major: a REAL variant found in any root beats the base glyph found in
+    // Name-major, not root-major: a staged variant found in any root beats the base glyph found in
     // a higher-precedence one, so a template's own `__bold` art is never shadowed by its Regular.
     for (name, root) in names
         .iter()
@@ -392,8 +393,8 @@ pub fn resolve_image_file(name: &str) -> Option<PathBuf> {
     None
 }
 
-/// Resolve a vector NAME to its staged glyph SVG, for backends that render SVG natively
-/// (docs/vectors.md): `DAY_VECTOR_SVG_ROOT` under `day launch`, else the packed layouts —
+/// Resolve a vector name to its staged glyph SVG, for backends that render SVG natively
+/// (docs/vectors.md): `DAY_VECTOR_SVG_ROOT` under `day launch`, else the packed layouts:
 /// `Contents/Resources/vectors/svg` in a .app, `vectors/svg` beside a flat-layout exe.
 /// `None` (name isn't a vector, or the layout carries no SVGs) means fall back to
 /// [`resolve_image_file`]'s raster resolution.
@@ -423,8 +424,8 @@ pub fn resolve_vector_svg(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// Resolve a vector NAME to its staged XAML geometry (docs/vectors.md), the form day-xaml draws
-/// as real `Path` geometry — vector at any size, and tintable by brush at runtime.
+/// Resolve a vector name to its staged XAML geometry (docs/vectors.md), the form day-xaml draws
+/// as real `Path` geometry: vector at any size, and tintable by brush at runtime.
 /// `DAY_VECTOR_XAML_ROOT` under `day launch`, else `vectors/xaml` beside a flat-layout exe.
 /// `None` (name isn't a vector, the art was outside the convertible subset, or the layout
 /// carries no geometry) means fall back to [`resolve_image_file`]'s raster resolution.
@@ -454,7 +455,7 @@ pub fn resolve_vector_xaml(name: &str) -> Option<PathBuf> {
 
 /// Day's own drawing of `sym`, written to a cache file and answered as a path.
 ///
-/// Backends that load icons FROM FILES (Qt's SVG icon engine, gdk-pixbuf) can then use the shared
+/// Backends that load icons from files (Qt's SVG icon engine, gdk-pixbuf) can then use the shared
 /// fallback through the loader they already have, instead of each growing a way to rasterize a
 /// path string. Written once per symbol per process; a failure to write answers `None` and the
 /// caller falls back to a label.
@@ -523,7 +524,7 @@ mod tests {
         // A miss stays a miss: the alias must not invent art for a name with no base either.
         assert_eq!(resolve_image_file("missing__bold"), None);
 
-        // The SVG resolver aliases the same way, and a REAL variant still wins over its base.
+        // The SVG resolver aliases the same way, and a staged variant still wins over its base.
         let svgs = dir.join("svg");
         std::fs::create_dir_all(&svgs).unwrap();
         std::fs::write(svgs.join("plain.svg"), b"<svg/>").unwrap();

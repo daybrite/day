@@ -3,14 +3,14 @@
 
 //! SVG → Android VectorDrawable (docs/vectors.md §per-backend emission).
 //!
-//! The usvg tree after normalization — paths with absolute transforms, resolved paints — maps
+//! The usvg tree after normalization (paths with absolute transforms, resolved paints) maps
 //! almost 1:1 onto VectorDrawable's model, which is why this is a small emitter and not a
 //! project. The supported subset: solid fills and strokes, both fill rules, nested plain groups,
 //! and linear/radial gradients on fill and stroke. Anything VD cannot express faithfully (clips,
 //! masks, filters, embedded rasters, partial group opacity) returns [`Unsupported`] and the
-//! caller stages a rasterized PNG ladder instead — a *loud* fallback, never wrong art.
+//! caller stages a rasterized PNG ladder instead: a loud fallback, never wrong art.
 //!
-//! Gradients ride `aapt:attr`, which VectorDrawable has understood since **API 24** — exactly the
+//! Gradients ride `aapt:attr`, which VectorDrawable has understood since **API 24**, exactly the
 //! `minSdk` the Android scaffold sets, so they cost no compatibility. usvg does the work that
 //! makes this tractable: by the time the tree exists, `gradientUnits` is resolved (coordinates are
 //! in user space) and `href` stop inheritance is flattened, which is the fiddly half of Android's
@@ -19,8 +19,8 @@
 //! One limit is geometric rather than incidental. A VD gradient carries no transform: a linear one
 //! is two points with its bands perpendicular to them, a radial one is a true circle. An SVG
 //! `gradientTransform` (or an enclosing non-uniform transform) can shear a gradient into bands
-//! that are not perpendicular, or a radial into an ellipse — neither of which VD can say. So the
-//! transform is baked into the emitted coordinates only when it is a SIMILARITY (rotation, uniform
+//! that are not perpendicular, or a radial into an ellipse, neither of which VD can say. So the
+//! transform is baked into the emitted coordinates only when it is a similarity (rotation, uniform
 //! scale, translation); skew and non-uniform scale fall back to the raster. Android Studio's own
 //! `SvgGradientNode` carries a standing TODO for the same case and emits wrong art instead.
 
@@ -63,7 +63,7 @@ enum VdPaint {
 struct VdGradient {
     /// `linear` or `radial`.
     kind: &'static str,
-    /// Positional attributes in emission order — `startX`/`endY` for linear, `centerX`/
+    /// Positional attributes in emission order: `startX`/`endY` for linear, `centerX`/
     /// `gradientRadius` for radial. Kept as a list so both shapes share one writer.
     coords: Vec<(&'static str, f32)>,
     tile: &'static str,
@@ -81,7 +81,7 @@ pub fn to_vector_drawable(tree: &usvg::Tree) -> Result<String, Unsupported> {
     let size = tree.size();
     let (vw, vh) = (size.width(), size.height());
     // The aapt namespace is declared only when something uses it: a gradient is an `aapt:attr`
-    // CHILD of the path, not an attribute value, and an unused namespace on every icon is noise.
+    // child of the path, not an attribute value, and an unused namespace on every icon is noise.
     let has_gradient = paths.iter().any(|p| {
         matches!(&p.fill, Some((VdPaint::Gradient(_), _)))
             || matches!(&p.stroke, Some(s) if matches!(s.paint, VdPaint::Gradient(_)))
@@ -92,7 +92,7 @@ pub fn to_vector_drawable(tree: &usvg::Tree) -> Result<String, Unsupported> {
     if has_gradient {
         xml.push_str("    xmlns:aapt=\"http://schemas.android.com/aapt\"\n");
     }
-    // 24 dp intrinsic size — the Material icon convention; Day layouts size the view anyway.
+    // 24 dp intrinsic size, the Material icon convention; Day layouts size the view anyway.
     xml.push_str("    android:width=\"24dp\"\n    android:height=\"24dp\"\n");
     xml.push_str(&format!(
         "    android:viewportWidth=\"{}\"\n    android:viewportHeight=\"{}\">\n",
@@ -184,8 +184,8 @@ fn collect(group: &usvg::Group, out: &mut Vec<VdPath>) -> Result<(), Unsupported
     if !group.filters().is_empty() {
         return Err(Unsupported("filter".into()));
     }
-    // Partial group opacity composites the GROUP, not each path; folding it per-path is wrong
-    // for overlapping art, so it is out of the subset.
+    // Partial group opacity composites the group as a whole, not each path; folding it per-path
+    // is wrong for overlapping art, so it is out of the subset.
     if group.opacity().get() < 1.0 {
         return Err(Unsupported("group opacity".into()));
     }
@@ -253,8 +253,8 @@ fn vd_path(p: &usvg::Path) -> Result<Option<VdPath>, Unsupported> {
 
 /// `#AARRGGBB` for a color, a [`VdGradient`] for a gradient VD can express, else Unsupported.
 ///
-/// `ts` is the path's absolute transform — already baked into the path data, so the gradient's
-/// coordinates must travel through it too, combined with the gradient's own `gradientTransform`.
+/// `ts` is the path's absolute transform, already baked into the path data, so the gradient's
+/// coordinates must travel through it too, combined with the gradient's `gradientTransform`.
 fn paint_of(
     paint: &usvg::Paint,
     opacity: f32,
@@ -311,15 +311,15 @@ fn argb(c: usvg::Color, opacity: f32) -> String {
     format!("#{:02X}{:02X}{:02X}{:02X}", a, c.red, c.green, c.blue)
 }
 
-/// Whether a linear gradient survives `m` intact: VD's color bands are always PERPENDICULAR to
+/// Whether a linear gradient survives `m` intact: VD's color bands are always perpendicular to
 /// the start→end vector, so the transform must keep them that way. The bands run along `rot90(d)`
 /// in gradient space, so the test is that the two stay perpendicular after `m`.
 ///
-/// This is deliberately weaker than [`similarity_scale`], and the difference matters: usvg
-/// expresses `gradientUnits="objectBoundingBox"` AS a scale by the bounding box, so every ordinary
+/// This is weaker than [`similarity_scale`], and the difference matters: usvg expresses
+/// `gradientUnits="objectBoundingBox"` as a scale by the bounding box, so every ordinary
 /// `x1/y1/x2/y2` gradient on a non-square shape arrives carrying a non-uniform transform. Judging
-/// those by the similarity test would refuse the single most common gradient in existence —
-/// which is exactly what it did to `day_mark` on the first run of this code.
+/// those by the similarity test would refuse the single most common gradient in existence, which
+/// is exactly what it did to `day_mark` on the first run of this code.
 fn keeps_bands_square(m: &tiny_skia::Transform, dx: f32, dy: f32) -> bool {
     let lin = |x: f32, y: f32| (m.sx * x + m.kx * y, m.ky * x + m.sy * y);
     let axis = lin(dx, dy);
@@ -368,7 +368,7 @@ fn tile_mode(s: usvg::SpreadMethod) -> &'static str {
     }
 }
 
-/// Gradient stops, with the fill/stroke opacity folded into each stop's alpha — VD has no
+/// Gradient stops, with the fill/stroke opacity folded into each stop's alpha. VD has no
 /// per-gradient alpha, and this is what Android's own converter does.
 fn stops_of(stops: &[usvg::Stop], opacity: f32) -> Result<Vec<(f32, String)>, Unsupported> {
     if stops.is_empty() {
@@ -391,7 +391,7 @@ fn stops_of(stops: &[usvg::Stop], opacity: f32) -> Result<Vec<(f32, String)>, Un
     Ok(out)
 }
 
-/// Serialize a (transformed) tiny-skia path as SVG path grammar — exactly what
+/// Serialize a (transformed) tiny-skia path as SVG path grammar, exactly what
 /// `android:pathData` accepts.
 fn path_data(path: &tiny_skia::Path) -> String {
     use tiny_skia::PathSegment;
@@ -448,7 +448,7 @@ mod tests {
         assert!(xml.contains("android:fillColor=\"#FF102030\""));
         assert!(xml.contains("android:fillType=\"evenOdd\""));
         assert!(xml.contains("android:pathData=\"M"));
-        // Well-formed XML (roxmltree accepts it — same parser class aapt2 uses).
+        // Well-formed XML (roxmltree accepts it; same parser class aapt2 uses).
         roxmltree::Document::parse(&xml).unwrap();
     }
 
@@ -522,8 +522,8 @@ mod tests {
 
     #[test]
     fn a_rotated_gradient_is_baked_rather_than_refused() {
-        // A rotation IS a similarity, so the endpoints travel through it and the gradient stays
-        // a vector — this is the case that would be lost by refusing every gradientTransform.
+        // A rotation is a similarity, so the endpoints travel through it and the gradient stays
+        // a vector; this is the case that would be lost by refusing every gradientTransform.
         let t = tree(
             "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'>\
              <defs><linearGradient id='g' gradientTransform='rotate(45 5 5)'>\

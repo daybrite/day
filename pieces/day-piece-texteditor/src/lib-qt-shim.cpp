@@ -1,23 +1,23 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-texteditor's OWN Qt shim (the day-piece-colorpicker recipe): a `QTextEdit` — Qt's rich
-// text editor, as opposed to the `QPlainTextEdit` the built-in text area uses — behind a flat C ABI.
+// day-piece-texteditor's Qt shim (the day-piece-colorpicker recipe): a `QTextEdit` (Qt's rich
+// text editor, as opposed to the `QPlainTextEdit` the built-in text area uses) behind a flat C ABI.
 //
-// Attributes are applied through a QTextCursor rather than through `setHtml`, and that is the whole
-// design of this file. `setHtml` would be one call for a whole document, but it REPLACES the
+// Attributes are applied through a QTextCursor rather than through `setHtml`, and that is the
+// design of this file. `setHtml` would be one call for a whole document, but it replaces the
 // document: the caret jumps, and the undo stack is cleared. A syntax highlighter re-styling on
 // every keystroke would be unusable. Selecting a range and calling `setCharFormat` keeps both, and
 // `beginEditBlock`/`endEditBlock` around the sweep collapses it into a single undo step and a
 // single relayout.
 //
-// Positions are QChar counts — UTF-16 code units, the same unit the Apple arms use — so Rust sends
+// Positions are QChar counts (UTF-16 code units, the same unit the Apple arms use), so Rust sends
 // UTF-16 offsets and nothing here converts.
 //
 // Colors cross as packed 0xAARRGGBB. Unlike the color picker's shim, which passes doubles because
-// it IS the color source, a text color is a rendering input and Qt stores it 8-bit per channel.
+// it is the color source, a text color is a rendering input and Qt stores it 8-bit per channel.
 //
-// The editor's own formatting shortcuts (Ctrl+B/I/U) are Qt's, and they are turned OFF: attributes
+// The editor's formatting shortcuts (Ctrl+B/I/U) are Qt's, and they are turned off: attributes
 // belong to Day (see the crate docs), and a shortcut that changed them behind Day's back would be
 // repainted away by the next patch.
 
@@ -89,9 +89,9 @@ QTextCharFormat runFormat(double pt, int weight, int italic, int mono, int under
     f.setFontWeight(weight);
     f.setFontItalic(italic != 0);
     if (mono != 0) {
-        // NOT the generic "monospace": Qt's rich text does not resolve a generic family from a
+        // Not the generic "monospace": Qt's rich text does not resolve a generic family from a
         // char format (day-qt's label path hit the same wall and worked around it with <code>).
-        // `QFontDatabase::systemFont(FixedFont)` is the real fixed face the desktop ships.
+        // `QFontDatabase::systemFont(FixedFont)` is the fixed face the desktop ships.
         static const QString fixed = QFontDatabase::systemFont(QFontDatabase::FixedFont).family();
         f.setFontFamilies({fixed});
     }
@@ -105,7 +105,7 @@ QTextCharFormat runFormat(double pt, int weight, int italic, int mono, int under
         case 4:
             f.setUnderlineStyle(QTextCharFormat::WaveUnderline);
             break;
-        // Qt draws no double rule, so a double underline degrades to a single one — stated in
+        // Qt draws no double rule, so a double underline degrades to a single one; stated in
         // docs/texteditor.md next to GTK's dotted, which degrades the same way.
         default:
             f.setUnderlineStyle(QTextCharFormat::SingleUnderline);
@@ -153,7 +153,7 @@ void *day_texteditor_new(uint64_t id, int editable, double base_pt, const char *
 }
 
 // Replace the text, keeping the caret where the user left it. Signals are blocked throughout: this
-// IS Day's own write, and the piece already knows the resulting text.
+// is Day's own write, and the piece already knows the resulting text.
 void day_texteditor_set_text(void *ptr, const char *utf8) {
     DayTextEditor *w = static_cast<DayTextEditor *>(ptr);
     const QString t = QString::fromUtf8(utf8 ? utf8 : "");
@@ -238,7 +238,7 @@ void day_texteditor_set_selection(void *ptr, int start, int len) {
     w->suppress = false;
 }
 
-// Qt's typing style is the nicest of the eight: with a collapsed cursor, the current char format IS
+// Qt's typing style is the nicest of the eight: with a collapsed cursor, the current char format is
 // what the next character takes.
 void day_texteditor_set_typing(void *ptr, double pt, int weight, int italic, int mono, int underline,
                                int strike, int has_fg, uint32_t fg, int has_bg, uint32_t bg) {
@@ -252,7 +252,7 @@ void day_texteditor_set_editable(void *ptr, int editable) {
 }
 
 // Content-driven height for the proposed width, clamped to the line band (`max_lines == 0` =
-// unbounded) — the same shape as the built-in text area's measure.
+// unbounded), the same shape as the built-in text area's measure.
 void day_texteditor_measure(void *ptr, double avail_w, uint32_t min_lines, uint32_t max_lines,
                             double *out_w, double *out_h) {
     DayTextEditor *w = static_cast<DayTextEditor *>(ptr);

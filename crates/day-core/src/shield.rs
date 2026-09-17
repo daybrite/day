@@ -6,8 +6,8 @@
 //! pushes an entry while its subtree is alive; the union of entries is the app's current request.
 //!
 //! Gesture deferral flows straight to the backend (`Toolkit::defer_system_gestures`) on every
-//! change. Dismiss-disabled is a *query*: the `cover` piece reads it — reactively, via the
-//! change [`Trigger`] — when deciding whether a native back may close it and when patching the
+//! change. Dismiss-disabled is a *query*: the `cover` piece reads it (reactively, via the
+//! change [`Trigger`]) when deciding whether a native back may close it and when patching the
 //! presented surface's `isModalInPresentation`-style flag.
 
 use std::cell::{Cell, RefCell};

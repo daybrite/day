@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-downloads — a download manager over day-part-http (docs/downloads.md).
+//! day-part-downloads is a download manager over day-part-http (docs/downloads.md).
 //!
 //! [`Downloads`] queues transfers and runs a few at a time. Each download writes to a partial
 //! file beside a journal, so a pause, a transport failure or a relaunch resumes where it stopped:

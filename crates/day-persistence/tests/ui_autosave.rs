@@ -70,7 +70,7 @@ fn keystrokes_into_a_container_store_keep_patching_the_row_label() {
     for ch in "Renamed task".chars() {
         text.push(ch);
         store.elem(1).name().write(text.clone());
-        flush_sync(); // one turn per keystroke — autosave flushes SQL between each
+        flush_sync(); // one turn per keystroke; autosave flushes SQL between each
     }
 
     assert_eq!(
@@ -92,7 +92,7 @@ fn keystrokes_into_a_container_store_keep_patching_the_row_label() {
 }
 
 /// `list(query, row)`: a predicate flip arrives at the native host as an animatable row
-/// delta, not a reload — and a column the query never mentions produces neither.
+/// delta, not a reload, and a column the query never mentions produces neither.
 #[cfg(feature = "pieces")]
 #[test]
 fn a_query_backed_list_splices_instead_of_reloading() {
@@ -150,7 +150,7 @@ fn a_query_backed_list_splices_instead_of_reloading() {
             .collect::<Vec<_>>()
     );
 
-    // A value edit that stays in the set and in place: no splice, no reload.
+    // A value edit that stays in the set and in place produces neither a splice nor a reload.
     let (r, s) = (count(&probe, "list reload"), count(&probe, "list splice"));
     store.elem(1).name().write("Task 1 edited".into());
     flush_sync();

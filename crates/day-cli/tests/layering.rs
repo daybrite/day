@@ -3,7 +3,7 @@
 
 //! The extension-dependency layering rule (docs/extending.md §4): pieces may depend on parts;
 //! parts must not depend on day-pieces or any day-piece-*; tweaks may depend on day-pieces
-//! (the built-ins they configure — `Decorate::tweak` lives there) but not on any satellite
+//! (the built-ins they configure; `Decorate::tweak` lives there) but not on any satellite
 //! day-piece-* or day-part-*. Enforced over `cargo metadata` so a violating edge fails
 //! `cargo test` on the host instead of quietly knotting the graph.
 

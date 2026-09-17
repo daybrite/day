@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: NSToolbar (docs/toolbars.md). The window's real title-bar toolbar in the macOS 11
-// unified style — not a strip of buttons drawn under the title bar. Items are real
-// NSToolbarItems, so they get the overflow menu, the ⌘-drag reorder, and the system's own
+// AppKit: NSToolbar (docs/toolbars.md). The window's title-bar toolbar in the macOS 11
+// unified style, not a strip of buttons drawn under the title bar. Items are
+// NSToolbarItems, so they get the overflow menu, the ⌘-drag reorder, and the system's
 // spacing and control sizes; search is an NSSearchToolbarItem, which is what collapses to a
 // magnifier when the window narrows, and a menu item is an NSMenuToolbarItem, which draws the
 // pull-down chevron.
@@ -31,7 +31,7 @@ use objc2_foundation::{NSArray, NSCopying, NSNotification, NSObject, NSString};
 
 use crate::{AppKit, Handle, emit};
 
-/// The SF Symbol each standard symbol draws as — the shared Apple table (day-spec), so the
+/// The SF Symbol each standard symbol draws as: the shared Apple table (day-spec), so the
 /// menu items in day-uikit and the toolbar items here never drift apart.
 fn sf_symbol(s: Symbol) -> &'static str {
     day_spec::sf_symbol_name(s)
@@ -58,7 +58,7 @@ pub(crate) fn image_for(
         //
         // The glyph SVG comes first, exactly as the sidebar's `resolve_nav_icons` does it: on this
         // backend a `resource/vectors/` asset stages as an SVG and nothing else, so looking only
-        // for a raster found nothing and the item silently fell back to drawing its LABEL — a
+        // for a raster found nothing and the item silently fell back to drawing its label, a
         // toolbar button reading "Star" where a star belonged. NSImage renders the SVG at whatever
         // size the bar asks for, which is the better result anyway.
         Icon::Image(name) => {
@@ -235,7 +235,7 @@ impl BarDelegate {
 /// One window's live toolbar.
 struct WinToolbar {
     toolbar: Retained<NSToolbar>,
-    /// The toolbar holds its delegate weakly, and each item holds its target weakly — both
+    /// The toolbar holds its delegate weakly, and each item holds its target weakly, so both
     /// must be owned here for the window's lifetime.
     _delegate: Retained<BarDelegate>,
     /// The window's whole bar, as Day composed it (docs/toolbars.md).
@@ -244,9 +244,9 @@ struct WinToolbar {
 }
 
 day_core::tls_group! {
-    /// WINDOW ptr → its live toolbar. A [`SideTable`]: the release path sweeps a closing
+    /// Window ptr → its live toolbar. A [`SideTable`]: the release path sweeps a closing
     /// secondary window's key, so the WinToolbar (items, targets, retained NSToolbar and
-    /// delegate) goes with the window — installing an empty bar used to be the only removal.
+    /// delegate) goes with the window. Installing an empty bar used to be the only removal.
     static BARS: SideTable<WinToolbar> = SideTable::with_teardown(|w: WinToolbar| {
         // NSToolbar holds its delegate weakly; detach before the owned delegate drops.
         w.toolbar.setDelegate(None);
@@ -260,9 +260,9 @@ day_core::tls_group! {
 /// from the items' placements (docs/toolbars.md).
 ///
 /// The app no longer writes spacers. `Navigation` items lead, a flexible space follows them, a
-/// `Principal` item sits between two more, and everything trailing packs to the right — which is
+/// `Principal` item sits between two more, and everything trailing packs to the right, which is
 /// the packing every desktop toolbar wants and the one apps used to spell out by hand, wrongly as
-/// often as not. A window whose navigation host asked for one opens with AppKit's own
+/// often as not. A window whose navigation host asked for one opens with AppKit's
 /// `NSToolbarToggleSidebarItem`: the system glyph, the localized name, the position beside the
 /// split's divider, and the `toggleSidebar:` action `NSSplitViewController` implements.
 fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
@@ -283,13 +283,13 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
             out.push(unsafe {
                 objc2_app_kit::NSToolbarSidebarTrackingSeparatorItemIdentifier.copy()
             });
-            // The CONTENT-LIST column, and a second separator pinned to its divider — the one
+            // The content-list column, and a second separator pinned to its divider: the one
             // Day builds itself, because AppKit only vends the sidebar's.
             if has(C::List) {
                 column_items(&mut out, &w.items, C::List, true);
                 out.push(NSString::from_str(LIST_SEPARATOR_ID));
             }
-            // The DETAIL column, and the window's own items with it: side by side, a command
+            // The detail column, and the window's items with it: side by side, a command
             // that acts on the whole window belongs over the content it is looking at.
             column_items(&mut out, &w.items, C::Detail, true);
             column_items(&mut out, &w.items, C::Window, true);
@@ -302,7 +302,7 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
 }
 
 /// One column's items in bar order, with a flexible space where the packing turns around:
-/// leading roles first, then the space, then the trailing ones — so the prominent action sits at
+/// leading roles first, then the space, then the trailing ones, so the prominent action sits at
 /// that column's right edge rather than adrift in the middle of it.
 fn column_items(
     out: &mut Vec<Retained<NSString>>,
@@ -337,19 +337,19 @@ fn column_items(
 }
 
 /// The identifier of the tracking separator Day pins to the content-list divider. AppKit vends
-/// one for the SIDEBAR divider only, so a three-pane window builds its second here.
+/// one for the sidebar divider only, so a three-pane window builds its second here.
 const LIST_SEPARATOR_ID: &str = "day.toolbar.list-separator";
 
 fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
     // The sidebar affordance a `nav(Sidebar)` contributes for itself resolves to AppKit's
-    // OWN item (docs/toolbars.md): the system glyph, the localized name, the position beside the
+    // item (docs/toolbars.md): the system glyph, the localized name, the position beside the
     // split's divider, and the `toggleSidebar:` action `NSSplitViewController` implements. Day's
-    // button is never built — one affordance, the platform's.
+    // button is never built: one affordance, the platform's.
     if item.id == day_spec::SIDEBAR_TOGGLE_ID {
         return unsafe { objc2_app_kit::NSToolbarToggleSidebarItemIdentifier.copy() };
     }
     match item.kind {
-        // macOS toolbars have no separator: a fixed gap is the honest stand-in, and the one
+        // macOS toolbars have no separator: a fixed gap is the stand-in, and the one
         // the system itself uses between groups.
         ToolbarItemKind::Separator => unsafe { NSToolbarSpaceItemIdentifier.copy() },
         _ => NSString::from_str(&item.id),
@@ -361,7 +361,7 @@ fn identifier_of(item: &ToolbarItem) -> Retained<NSString> {
 fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<NSToolbarItem>> {
     // The content-list divider's tracking separator. AppKit builds the sidebar's from its own
     // identifier but has none for a third pane, so Day binds this one to the split itself
-    // (docs/toolbars.md) — the items after it then sit over the detail, and the ones before it
+    // (docs/toolbars.md); the items after it then sit over the detail, and the ones before it
     // over the list, at whatever width the user drags the dividers to.
     if ident == LIST_SEPARATOR_ID {
         let _ = mtm;
@@ -468,7 +468,7 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
                 control.setTrackingMode(objc2_app_kit::NSSegmentSwitchTracking::SelectOne);
                 for (i, seg) in segments.iter().enumerate() {
                     let i = i as isize;
-                    // An icon segment shows the icon ALONE, like every other item in this bar;
+                    // An icon segment shows only the icon, like every other item in this bar;
                     // the title stays as the segment's accessible name and its tooltip.
                     match seg
                         .icon
@@ -575,10 +575,10 @@ impl AppKit {
 
         let existing = BARS.with(|b| b.contains(key));
         if existing {
-            // Reuse the live NSToolbar — replacing it flashes the title bar — but rebuild its
+            // Reuse the live NSToolbar (replacing it flashes the title bar) but rebuild its
             // items (see below). A full replace is rare: the builder re-runs on a locale change or
-            // a change in the bar's shape, never on a keystroke — typing patches the item in place
-            // through `day_core::patch_toolbar` — so the focus this costs is not focus in use.
+            // a change in the bar's shape, never on a keystroke (typing patches the item in place
+            // through `day_core::patch_toolbar`), so the focus this costs is not focus in use.
             BARS.with(|b| {
                 b.with(key, |w| {
                     w.items = items.to_vec();
@@ -588,8 +588,8 @@ impl AppKit {
             let toolbar = BARS.with(|b| b.with(key, |w| w.toolbar.clone()));
             if let Some(toolbar) = toolbar {
                 let ids = identifiers(key);
-                // Clear first, then set. `setItemIdentifiers` diffs BY IDENTIFIER: it inserts the
-                // new ones, removes the departed, and leaves every other item exactly as it was —
+                // Clear first, then set. `setItemIdentifiers` diffs by identifier: it inserts the
+                // new ones, removes the departed, and leaves every other item exactly as it was,
                 // still carrying the previous model's label and, worse, the previous `ItemTarget`,
                 // whose action id day-core had already swept. That is why a locale switch left the
                 // search field dead (its input dispatched into nothing) and the labels in the old

@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The `canvas` immediate-mode drawing surface — record a `Draw` display list that backends
-//! replay natively, with `frame_clock` for per-frame animation — plus the general `Reactive<T>`
+//! The `canvas` immediate-mode drawing surface (record a `Draw` display list that backends
+//! replay natively, with `frame_clock` for per-frame animation), plus the general `Reactive<T>`
 //! (value / `Signal` / closure) abstraction that pieces accept for animatable inputs.
 
 use std::cell::RefCell;
@@ -28,7 +28,7 @@ pub struct Draw {
 
 impl Draw {
     /// An empty recorder, for a test that calls a draw function directly and asserts on what
-    /// it records — the same list the canvas replays.
+    /// it records: the same list the canvas replays.
     pub fn new() -> Self {
         Draw::default()
     }
@@ -93,21 +93,21 @@ impl PathBuilder {
     /// true circle is under a thousandth of the radius, which is well inside a pixel at any size
     /// a UI draws.
     /// Append a circular arc: `sweep_deg` of a circle of `radius` about `center`, starting at
-    /// `start_deg`. Degrees, `0` = the +x axis, positive sweeping CLOCKWISE — the same convention
+    /// `start_deg`. Degrees, `0` = the +x axis, positive sweeping clockwise, the same convention
     /// [`Shape::Arc`] and [`PathBuilder::circle`] already use, so the crate has one.
     ///
     /// A *segment*, not a shape: the arc joins whatever came before it, which is what lets a
     /// donut wedge, a rounded gauge or a pie slice with a hole be one closed path. Without it
-    /// every such figure is hand-rolled from cubics — `day-piece-charts` carried forty lines of
+    /// every such figure is hand-rolled from cubics; `day-piece-charts` carried forty lines of
     /// exactly this to draw a wedge.
     ///
-    /// Emitted as cubics rather than as an arc op on the wire, deliberately. Every rasterizer
-    /// under Day has its own rule for joining an arc to the line before it, and its own
-    /// flattening tolerance; the same beziers everywhere means the same pixels everywhere.
+    /// Emitted as cubics rather than as an arc op on the wire. Every rasterizer under Day has its
+    /// own rule for joining an arc to the line before it, and its own flattening tolerance; the
+    /// same beziers everywhere means the same pixels everywhere.
     ///
-    /// A cubic cannot BE a circle, so this is an approximation, and the quarter turns it splits
+    /// A cubic cannot be a circle, so this is an approximation, and the quarter turns it splits
     /// into are where that is cheapest: the radial error of a cubic quarter-circle peaks at
-    /// 2.7 × 10⁻⁴ of the radius — a quarter of a pixel on a circle a thousand points across, and
+    /// 2.7 × 10⁻⁴ of the radius, a quarter of a pixel on a circle a thousand points across, and
     /// proportionally less on anything smaller. Splitting finer would halve nothing anyone can
     /// see and double the segment count. It is the same tradeoff Core Graphics, cairo and every
     /// SVG renderer make.
@@ -175,7 +175,7 @@ impl PathBuilder {
             )
             .close()
     }
-    /// A contour through `pts` as a CATMULL-ROM spline converted to cubics — the smooth line a
+    /// A contour through `pts` as a Catmull-Rom spline converted to cubics: the smooth line a
     /// chart wants through its data points, without the caller doing bezier arithmetic.
     ///
     /// The curve passes through every point (unlike a plain bezier fit), and the tangent at each
@@ -218,7 +218,7 @@ impl PathBuilder {
 /// platform's own face.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextStyle {
-    /// Absolute canvas points — no accessibility scale (docs/canvas.md "Text").
+    /// Absolute canvas points, with no accessibility scale (docs/canvas.md "Text").
     pub size: f64,
     pub color: Color,
     pub anchor: day_spec::TextAnchor,
@@ -239,11 +239,11 @@ impl Default for TextStyle {
 
 impl Draw {
     /// Fill a shape with a solid color or a [`LinearGradient`] (both convert to [`Paint`];
-    /// gradient unit points resolve against the shape's bounding box — docs/shapes.md §3.2).
+    /// gradient unit points resolve against the shape's bounding box, docs/shapes.md §3.2).
     pub fn fill(&mut self, shape: Shape, paint: impl Into<Paint>) {
         self.ops.push(DrawOp::Fill(shape, paint.into()));
     }
-    /// Stroke a shape with a solid color at `width` — the everyday case.
+    /// Stroke a shape with a solid color at `width`, the everyday case.
     pub fn stroke(&mut self, shape: Shape, color: Color, width: f64) {
         self.ops.push(DrawOp::Stroke(
             shape,
@@ -256,16 +256,16 @@ impl Draw {
         self.ops
             .push(DrawOp::Stroke(shape, paint.into(), style.clone()));
     }
-    /// Draw `shape` once at every position in `at` — one op for the whole batch.
+    /// Draw `shape` once at every position in `at`: one op for the whole batch.
     ///
-    /// The template is authored around the ORIGIN and each copy is it translated by one point, so
+    /// The template is authored around the origin and each copy is it translated by one point, so
     /// a 6-point dot is `Shape::Ellipse(Rect::new(-3.0, -3.0, 6.0, 6.0))`. Order is drawing order.
     ///
     /// Reach for this the moment a drawing has more marks than it has kinds of mark. A scatter of
     /// fifty thousand points drawn one `fill` at a time is fifty thousand ops to build, compare
     /// and clone on every frame that re-records; as one stamp it is one op and a flat array of
     /// coordinates, and a backend can put every copy into a single path (docs/canvas.md
-    /// "Stamping"). Every copy shares the shape, size and paint — group by whatever varies.
+    /// "Stamping"). Every copy shares the shape, size and paint, so group by whatever varies.
     pub fn stamp(&mut self, shape: Shape, at: Vec<Point>, paint: impl Into<Paint>) {
         self.ops.push(DrawOp::Stamp(Box::new(day_spec::Stamp {
             shape,
@@ -294,7 +294,7 @@ impl Draw {
     /// Draw a decoded image into `rect` (docs/images.md).
     ///
     /// Takes a decoded [`Bitmap`](day_core::Bitmap), not bytes: the draw closure re-records on
-    /// every tracked read, and a buffer here would be compared — and re-decoded — every frame.
+    /// every tracked read, and a buffer here would be compared (and re-decoded) every frame.
     /// Decode once with `day::decode_image`, hold the handle, and draw it as often as you like.
     ///
     /// ```ignore
@@ -417,8 +417,8 @@ pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> impl Piece {
 ///
 /// Backend-executed vsync: Day re-arms the platform's display link (a ~16 ms timer on the desktop
 /// toolkits and HarmonyOS) only while a `frame_clock` (or other consumer) is live and stops when
-/// the last one unmounts — no idle wakeups. The delta is clamped (≤100 ms) so a backgrounded
-/// window can't deliver a huge jump. Inert on the mock backend.
+/// the last one unmounts, so there are no idle wakeups. The delta is clamped (≤100 ms) so a
+/// backgrounded window can't deliver a huge jump. Inert on the mock backend.
 ///
 /// ```ignore
 /// zstack((
@@ -440,7 +440,7 @@ pub fn frame_clock(tick: impl FnMut(std::time::Duration) + 'static) -> impl Piec
 }
 
 // ---------------------------------------------------------------------------
-// Reactive<T>: a value, a Signal, or a closure — the generalization of IntoText/IntoFraction.
+// Reactive<T>: a value, a Signal, or a closure; the generalization of IntoText/IntoFraction.
 // ---------------------------------------------------------------------------
 
 /// A parameter that is either a constant or a reactive source. `get()` is a tracked read, so any
@@ -531,7 +531,7 @@ mod arc_tests {
     }
 
     /// The property that matters: every point of the emitted curve is on the circle. Pinning the
-    /// control points instead would pin the construction rather than the result — and it is the
+    /// control points instead would pin the construction rather than the result, and it is the
     /// result a rasterizer draws.
     #[test]
     fn an_arc_stays_on_its_circle() {
@@ -546,11 +546,11 @@ mod arc_tests {
                 .iter()
                 .map(|q| ((q.x - c.x).powi(2) + (q.y - c.y).powi(2)).sqrt() - r)
                 .fold(0.0f64, |m, e| m.max(e.abs()));
-            // The known peak for a cubic quarter-circle, with a little headroom. Asserting the
-            // real figure rather than a loose one is the point: if a future change split the
-            // sweep differently or got a handle length wrong, this is what would notice.
+            // The known peak for a cubic quarter-circle, with a little headroom. The assertion
+            // uses the real figure rather than a loose one so that a future change that split the
+            // sweep differently or got a handle length wrong is noticed here.
             assert!(worst < r * 2.8e-4, "sweep {sweep}: off by {worst}");
-            // …and it is genuinely that good, not accidentally better — a construction that
+            // ...and it is that good rather than accidentally better: a construction that
             // silently started flattening to line segments would pass a one-sided bound.
             if sweep.abs() >= 90.0 {
                 assert!(
@@ -561,7 +561,7 @@ mod arc_tests {
         }
     }
 
-    /// Degrees, 0 = +x, positive CLOCKWISE — the same convention `Shape::Arc` and `circle` use.
+    /// Degrees, 0 = +x, positive clockwise, the same convention `Shape::Arc` and `circle` use.
     /// A wrong sign here is the kind of thing that only shows up as a donut drawn inside out.
     #[test]
     fn arc_endpoints_follow_the_clockwise_degree_convention() {
@@ -575,7 +575,7 @@ mod arc_tests {
             let pts = sample(&p.segs, 1);
             (*pts.first().unwrap(), *pts.last().unwrap())
         };
-        // 0° is +x; a quarter turn clockwise lands on +y, which is DOWN in canvas space.
+        // 0° is +x; a quarter turn clockwise lands on +y, which is down in canvas space.
         let (a, b) = ends(0.0, 90.0);
         assert!(near(a, Point::new(10.0, 0.0)), "{a:?}");
         assert!(near(b, Point::new(0.0, 10.0)), "{b:?}");
@@ -584,7 +584,7 @@ mod arc_tests {
         assert!(near(b, Point::new(0.0, -10.0)), "{b:?}");
     }
 
-    /// An arc JOINS what came before — that is the whole reason it is a segment and not a shape.
+    /// An arc joins what came before, which is why it is a segment and not a shape.
     #[test]
     fn an_arc_joins_the_current_subpath_but_starts_a_fresh_one_after_close() {
         let c = Point::new(0.0, 0.0);

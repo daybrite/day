@@ -1,4 +1,4 @@
-# Day core UI catalog — German (Deutsch).
+# Day core UI catalog: German (Deutsch).
 day-ok = OK
 day-cancel = Abbrechen
 day-yes = Ja

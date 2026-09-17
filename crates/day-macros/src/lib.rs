@@ -20,7 +20,7 @@ use proc_macro::TokenStream;
 ///
 /// The whole SVG 1.1 path grammar is accepted: absolute and relative commands, `H`/`V`, the
 /// smooth forms `S`/`T`, elliptical arcs, implicit command repetition, and SVG's number syntax
-/// (`1e2`, `.5.5`, `10-5`). Malformed data is a COMPILE error naming the offending character,
+/// (`1e2`, `.5.5`, `10-5`). Malformed data is a compile error naming the offending character,
 /// not a path that silently draws nothing.
 ///
 /// The result is a `PathBuilder`, so the fill rule and any further segments still chain on:
@@ -30,7 +30,7 @@ use proc_macro::TokenStream;
 /// ```
 ///
 /// Arcs are converted to cubics here, once, rather than by each of the nine backends at draw
-/// time — an arc is the one command with no counterpart in the 2-D APIs Day draws through.
+/// time, because an arc is the one command with no counterpart in the 2-D APIs Day draws through.
 ///
 /// Everything is evaluated at compile time, so a path costs the same at runtime as writing the
 /// method chain by hand: there is no string left in the binary and no parsing on the draw path.
@@ -100,7 +100,7 @@ fn string_literal(input: TokenStream) -> Result<String, String> {
         proc_macro::TokenTree::Literal(l) => l.to_string(),
         other => return Err(format!("expected a string literal, found `{other}`")),
     };
-    // `Literal::to_string` gives the SOURCE spelling, quotes and escapes included, so a plain
+    // `Literal::to_string` gives the source spelling, quotes and escapes included, so a plain
     // literal has to be unescaped by hand. A raw string does not (that is what raw means).
     let trimmed = text.trim();
     if let Some(rest) = trimmed.strip_prefix('r') {
@@ -124,7 +124,7 @@ fn string_literal(input: TokenStream) -> Result<String, String> {
 
 /// Expand Rust's string escapes.
 ///
-/// The LINE CONTINUATION is the one that matters here: `\` at end of line eats the newline and
+/// The line continuation is the one that matters here: `\` at end of line eats the newline and
 /// the next line's leading whitespace, which is how a long path stays readable across several
 /// source lines. Without this the backslash reaches the path parser and fails the build on
 /// exactly the paths most worth writing that way.
@@ -172,23 +172,23 @@ fn compile_error(message: &str) -> TokenStream {
     format!("compile_error!({message:?});")
         .parse()
         .unwrap_or_else(|_| {
-            // Unreachable in practice: the message is a formatted Rust string literal.
+            // Unreachable: the message is a formatted Rust string literal.
             TokenStream::new()
         })
 }
 
-/// Per-property observation for a struct — see day-model's crate docs and `docs/model.md`.
+/// Per-property observation for a struct; see day-model's crate docs and `docs/model.md`.
 ///
 /// Generates typed field accessors on every `Source` of the struct (`store.name()`,
 /// `store.elem(id).name()`, nested `item.address().city()`), `Identified` from the field marked
-/// `#[obs(key)]` (always explicit), and `OBSERVED_FIELDS`. `#[obs(skip)]` leaves a field out:
-/// no accessor, no path, no trigger.
+/// `#[obs(key)]` (always explicit), and `OBSERVED_FIELDS`. `#[obs(skip)]` leaves a field out,
+/// with no accessor, path or trigger.
 #[proc_macro_derive(Observable, attributes(obs, model))]
 pub fn observable(input: TokenStream) -> TokenStream {
     obs::observable(input)
 }
 
-/// A persistable model — everything [`macro@Observable`] generates, plus `impl
+/// A persistable model: everything [`macro@Observable`] generates, plus `impl
 /// day_persistence::Model`: table name, column list, row↔struct mappers and the default row.
 /// See day-persistence's crate docs and `docs/persistence.md`.
 ///

@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The picker piece's OWN Android factory — bundled with the day-piece-picker crate and pulled into
-// the app's Gradle build automatically (via [package.metadata.day.android] → day-pieces.json), with
-// ZERO edits to day-android. It uses only day-android's PUBLIC Java surface: DayBridge.ctx (the
-// Android Context) and DayBridge.nativeOnEvent (the event trampoline). This is the reference pattern
-// for a standalone piece that carries both its front-end (Rust) and its backend (Java) toolkit code.
+// The picker piece's Android factory, bundled with the day-piece-picker crate and pulled into the
+// app's Gradle build automatically (via [package.metadata.day.android] → day-pieces.json), with no
+// edits to day-android. It uses only day-android's public Java surface: DayBridge.ctx (the Android
+// Context) and DayBridge.nativeOnEvent (the event trampoline). This is the reference pattern for a
+// standalone piece that carries both its front-end (Rust) and its backend (Java) toolkit code.
 package dev.daybrite.day.piece.picker;
 
 import android.view.View;
@@ -33,11 +33,11 @@ public final class DayPicker {
             final int[] fired = {0};
             sp.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 public void onItemSelected(android.widget.AdapterView<?> p, View v, int pos, long i) {
-                    // The first fire is the initial selection above. Later, a PROGRAMMATIC
+                    // The first fire is the initial selection above. Later, a programmatic
                     // setSelection (setPickerSelected, Day moving the mark it already holds)
                     // fires this exactly like a tap would; the tag it leaves says so, and that
-                    // one echo is swallowed — reporting it would write the app's binding a
-                    // second time (a second undo unit in a drawing app).
+                    // one echo is swallowed, because reporting it would write the app's binding
+                    // a second time (a second undo unit in a drawing app).
                     if (ECHO.equals(p.getTag())) { p.setTag(null); return; }
                     if (fired[0]++ > 0) DayBridge.nativeOnEvent(id, 4, pos, null);
                 }

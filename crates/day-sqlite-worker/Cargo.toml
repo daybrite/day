@@ -5,9 +5,9 @@
 name = "day-sqlite-worker"
 publish = false
 version.workspace = true
-# Edition 2021, deliberately: src/bindings.rs is rust-bindgen output (pre-2024 `extern "C"`
-# blocks) vendored from sqlite-wasm-rs, and staying on 2021 means a future regeneration drops
-# in without editing generated code.
+# Edition 2021 because src/bindings.rs is rust-bindgen output (pre-2024 `extern "C"` blocks)
+# vendored from sqlite-wasm-rs, and staying on 2021 means a future regeneration drops in
+# without editing generated code.
 edition = "2021"
 rust-version.workspace = true
 description.workspace = true
@@ -19,8 +19,8 @@ license.workspace = true
 # OPFS access-handle imports the day-sql worker page provides, and the statement protocol the
 # main thread speaks to it over the SharedArrayBuffer channel. One wasm, two instantiations:
 # the app instance uses only `Connection` on `:memory:` databases; the worker instance runs
-# `day_sql_exec` against real OPFS files. Compiles and tests on native hosts too — the OPFS
-# imports swap for an in-memory fake — so the whole engine path is unit-testable without a
+# `day_sql_exec` against real OPFS files. Compiles and tests on native hosts too (the OPFS
+# imports swap for an in-memory fake), so the whole engine path is unit-testable without a
 # browser.
 
 [dependencies]

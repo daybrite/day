@@ -31,8 +31,8 @@ pub enum VAlign {
     Center,
     Bottom,
     /// Sit the children's text on one line rather than centering their boxes
-    /// (docs/baseline.md) — what a label beside a bordered field or a larger-type value wants,
-    /// since those put their text at different heights inside their own boxes. A child with no
+    /// (docs/baseline.md), which is what a label beside a bordered field or a larger-type value
+    /// wants, since those put their text at different heights inside their boxes. A child with no
     /// text (an image, a slider) has no baseline and stays centered. Rows only; on a `column`
     /// it reads as `Center`.
     FirstBaseline,
@@ -67,7 +67,7 @@ impl<C: PieceSeq> Column<C> {
     }
 }
 
-/// [`Column`]'s own builders, reachable through a decoration (§5.2) — see [`LabelBuilder`] for the
+/// [`Column`]'s builders, reachable through a decoration (§5.2); see [`LabelBuilder`] for the
 /// pattern. `column(…).padding(8.0).spacing(4.0)` resolves.
 pub trait ColumnBuilder: Sized {
     fn spacing(self, s: f64) -> Self;
@@ -115,7 +115,7 @@ impl<C: PieceSeq> Piece for Column<C> {
 ///
 /// A row's children negotiate one line; the fit policy is what happens when that line is
 /// wider than the space the row is given. Every policy keeps the same children and the same
-/// call shape — `row((…)).fit(…)` — so a page can move between them as its needs change.
+/// call shape, `row((…)).fit(…)`, so a page can move between them as its needs change.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum RowFit {
     /// One line at natural sizes; what does not fit lands offscreen. The default, and the
@@ -123,13 +123,13 @@ pub enum RowFit {
     /// container, naming the dayscript ids in reach.
     #[default]
     Clip,
-    /// Break onto additional lines where the next child would overflow, like wrapped text —
+    /// Break onto additional lines where the next child would overflow, like wrapped text:
     /// the shape a chip row or button strip wants. `run_spacing` is the vertical gap between
     /// lines. Wrapping replaces main-axis negotiation, so `.grow()` and `spacer()` are inert.
     Wrap { run_spacing: f64 },
-    /// Wrap into aligned COLUMNS rather than ragged lines: every cell takes the widest
+    /// Wrap into aligned columns rather than ragged lines: every cell takes the widest
     /// child's width, and each line holds as many as the window fits. The tidier arm of
-    /// [`Wrap`](RowFit::Wrap) — same wrapping, but the lines stack into a grid, which is what
+    /// [`Wrap`](RowFit::Wrap): same wrapping, but the lines stack into a grid, which is what
     /// a set of peer choices (a keypad, a palette, evenly-weighted chips) wants. The column
     /// count follows the available width. When any child grows (`.grow_w()`), the widest child
     /// becomes the narrowest a column gets and the columns stretch to share the whole width,
@@ -139,7 +139,7 @@ pub enum RowFit {
     /// per-cell spans is [`grid`]'s job instead (docs/grid.md).
     WrapColumns { run_spacing: f64 },
     /// Re-arrange into a leading-aligned column while the window's [`WidthClass`] is at or
-    /// below the given one — the shape a label-plus-control-plus-result line wants, where
+    /// below the given one: the shape a label-plus-control-plus-result line wants, where
     /// wrapping members independently would tear apart what reads as one sentence. The
     /// `size_class()` read is tracked, so crossing the breakpoint re-arranges it live; app
     /// state lives in signals and survives the rebuild.
@@ -205,7 +205,7 @@ impl<C: PieceSeq> Row<C> {
     }
 }
 
-/// [`Row`]'s own builders, reachable through a decoration (§5.2) — see [`LabelBuilder`] for the
+/// [`Row`]'s builders, reachable through a decoration (§5.2); see [`LabelBuilder`] for the
 /// pattern.
 pub trait RowBuilder: Sized {
     fn spacing(self, s: f64) -> Self;
@@ -273,7 +273,7 @@ impl<C: PieceSeq> Piece for Row<C> {
             }
             RowFit::Scroll => {
                 // The row keeps its natural one-line measure inside a horizontal scroll
-                // viewport. `grow_h` stays OFF — the strip is as tall as the row, not as
+                // viewport. `grow_h` stays off: the strip is as tall as the row, not as
                 // tall as whatever pane it happens to sit in.
                 let strip = cx.native(
                     kinds::SCROLL,
@@ -304,8 +304,8 @@ pub struct Grid<C: PieceSeq> {
     align: Alignment,
 }
 
-/// A SwiftUI-style eager grid (docs/grid.md): columns are inferred from [`grid_row`] children —
-/// a column is as wide as its widest cell, a `grow_w` cell makes its column share the leftover
+/// A SwiftUI-style eager grid (docs/grid.md): columns are inferred from [`grid_row`] children.
+/// A column is as wide as its widest cell, a `grow_w` cell makes its column share the leftover
 /// width evenly, and a non-row child becomes a full-width cell spanning every column. `spacer()`
 /// inside a row is an inert empty cell that still occupies its column (a grid has explicit
 /// gutters, so stack-style push-apart spacers don't apply). Cells opt into spans and per-cell
@@ -365,8 +365,8 @@ pub struct GridRow<C: PieceSeq> {
 }
 
 /// One row of a [`grid`]: each child is a cell, assigned to columns left to right. Outside a
-/// grid a row degrades gracefully to a plain [`row`]. Rows are transparent carriers — the grid
-/// places their cells directly — so decorating a `grid_row` itself is unsupported (decorate the
+/// grid a row degrades gracefully to a plain [`row`]. Rows are transparent carriers (the grid
+/// places their cells directly), so decorating a `grid_row` itself is unsupported (decorate the
 /// cells, or the grid).
 pub fn grid_row<C: PieceSeq>(children: C) -> GridRow<C> {
     GridRow {
@@ -391,7 +391,7 @@ impl<C: PieceSeq> GridRow<C> {
 impl<C: PieceSeq> Piece for GridRow<C> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         // A layout-only node whose StackLayout only runs when the row is not inside a grid
-        // (the graceful-degrade path) — a grid introspects the cells and places them itself.
+        // (the graceful-degrade path); a grid introspects the cells and places them itself.
         let node = cx.layout_only(
             Rc::new(StackLayout {
                 axis: Axis::Horizontal,
@@ -441,7 +441,7 @@ impl<P: Piece> Scroll<P> {
     }
 
     /// Programmatic scrolling (docs/scroll.md): each `Some(target)` written to `sig` scrolls
-    /// there (animated), then the signal resets to `None` — write-and-forget, so the same
+    /// there (animated), then the signal resets to `None`. Write-and-forget, so the same
     /// target can be sent twice in a row.
     ///
     /// ```ignore
@@ -479,7 +479,7 @@ impl<P: Piece> Piece for Scroll<P> {
                 move |now, _| {
                     if let Some(t) = now.clone() {
                         // Deferred one main-loop turn: this watch runs inside the reactive
-                        // flush, before the turn-end layout that resizes the scroll content —
+                        // flush, before the turn-end layout that resizes the scroll content;
                         // an edge target (Bottom/Trailing) computed now would land on the
                         // stale content size.
                         day_reactive::on_main(move || {
@@ -487,7 +487,7 @@ impl<P: Piece> Piece for Scroll<P> {
                                 tr.scroll_to_target(node, &t, true);
                             });
                         });
-                        sig.set(None); // consumed — ready for the next command
+                        sig.set(None); // consumed, ready for the next command
                     }
                 },
             );
@@ -498,7 +498,7 @@ impl<P: Piece> Piece for Scroll<P> {
 
 /// A z-stack: children are layered back-to-front (the first child sits at the bottom), all
 /// sharing the container bounds and positioned by the stack's [`Alignment`]. The stack sizes to
-/// the UNION (max width/height) of its children — contrast [`Decorate::overlay`], which sizes to
+/// the union (max width/height) of its children; contrast [`Decorate::overlay`], which sizes to
 /// its content and treats the overlaid piece as a non-sizing annotation. Pure composition: it is
 /// the same native panel as [`column`]/[`row`], so there is no per-backend work.
 pub struct ZStack<C: PieceSeq> {

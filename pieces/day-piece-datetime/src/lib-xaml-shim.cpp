@@ -1,16 +1,16 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The datetime piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. Compact date =
+// The datetime piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. Compact date =
 // CalendarDatePicker (button → calendar flyout); inline date = CalendarView; time = TimePicker
-// flyout for both styles (XAML has no inline clock — documented fallback, docs/datepicker.md).
+// flyout for both styles (XAML has no inline clock; a documented fallback, docs/datepicker.md).
 // Values cross the flat C ABI as epoch days / seconds-of-day; DateTime conversion pins to the
 // Windows 1601 epoch offset so civil dates never shift. Elements are boxed into Day handles via
-// the day_xaml_box/day_xaml_unbox seam day-xaml-sys exports — zero edits to day's toolkit
-// crates. Windows-only; compiled by build.rs, built in CI, not verified locally.
+// the day_xaml_box/day_xaml_unbox functions day-xaml-sys exports, with zero edits to day's
+// toolkit crates. Windows-only; compiled by build.rs, built in CI, not verified locally.
 
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Foundation.Collections.h> // IVector/IObservableVector methods — else C3779
+#include <winrt/Windows.Foundation.Collections.h> // IVector/IObservableVector methods; else C3779
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
@@ -21,7 +21,7 @@ using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 
-// The boxing seam, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 

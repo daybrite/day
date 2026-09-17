@@ -1,8 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `cargo run -p day-part-deviceinfo --example deviceinfo` — print the current device identity.
-//! Demonstrates that any Rust code can depend on this crate and use the API with no Day framework at all.
+//! `cargo run -p day-part-deviceinfo --example deviceinfo` prints the current device identity. It
+//! demonstrates that any Rust code can depend on this crate and use the API with no Day framework
+//! at all.
 
 fn main() {
     let d = day_part_deviceinfo::get();

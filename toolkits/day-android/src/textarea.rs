@@ -4,13 +4,13 @@
 // ---------------------------------------------------------------------------
 // Android: a multi-line EditText (inputType textMultiLine|textCapSentences, gravity top) that grows
 // between minLines and maxLines and scrolls internally past maxLines. The Java factory
-// (`dev.daybrite.day.piece.textarea.DayTextArea`) is bundled with this crate under `android/java` and
-// pulled into the app's Gradle build automatically via `[package.metadata.day.android]` — so the piece
-// carries its own backend Java without touching day-android. A TextWatcher dispatches edits back to
-// Rust via `DayBridge.nativeOnEvent(id, 1, …)` (kind 1 = TextChanged). `measure` fills the proposed
-// width (grow_w leaf) and asks the EditText for its content height (in dp), already clamped to the line
-// band by EditText.onMeasure; `setTextAreaText` guards on equality so a programmatic sync is a no-op
-// when unchanged.
+// (`dev.daybrite.day.piece.textarea.DayTextArea`) is bundled with this crate under `android/java`
+// and pulled into the app's Gradle build automatically via `[package.metadata.day.android]`, so
+// the piece carries its backend Java without touching day-android. A TextWatcher dispatches edits
+// back to Rust via `DayBridge.nativeOnEvent(id, 1, …)` (kind 1 = TextChanged). `measure` fills the
+// proposed width (grow_w leaf) and asks the EditText for its content height (in dp), already
+// clamped to the line band by EditText.onMeasure; `setTextAreaText` guards on equality so a
+// programmatic sync is a no-op when unchanged.
 // ---------------------------------------------------------------------------
 
 use crate::DayEnv;
@@ -19,13 +19,13 @@ use crate::{AHandle, Android, with_env};
 use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use day_spec::{NodeId, Proposal, Size};
 
-/// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
+/// This piece's Java class (in the crate's android/java, on the app classpath at build).
 const TA_CLASS: &str = "dev/daybrite/day/piece/textarea/DayTextArea";
 
 fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
     with_env(|env| {
         // Same rule as the picker: a Java throw in realize must degrade to a placeholder,
-        // never panic — the panic would unwind the JNI up-call and abort the process.
+        // never panic; the panic would unwind the JNI up-call and abort the process.
         let made = env.new_string(&p.placeholder).ok().and_then(|ph| {
             let init = env.new_string(&p.text).ok()?;
             crate::try_make_view_on(
@@ -113,7 +113,7 @@ pub(crate) fn realize_any(
     id: day_spec::NodeId,
 ) -> crate::AHandle {
     // A props-type mismatch degrades to the visible placeholder (day_spec::props_of reports
-    // it) — this runs inside a JNI up-call, where a panic is a process kill.
+    // it); this runs inside a JNI up-call, where a panic is a process kill.
     match day_spec::props_of::<TextProps>(day_spec::kinds::TEXT_AREA, "android", props) {
         Some(p) => make(b, p, id),
         None => with_env(|env| AHandle(crate::placeholder_view(env, "text_area"))),

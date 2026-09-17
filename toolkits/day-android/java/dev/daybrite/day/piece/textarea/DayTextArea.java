@@ -1,12 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The textarea piece's OWN Android factory — bundled with the day-piece-textarea crate and pulled into
-// the app's Gradle build automatically (via [package.metadata.day.android] → day-pieces.json), with ZERO
-// edits to day-android. It uses only day-android's PUBLIC Java surface: DayBridge.ctx (the Android
-// Context) and DayBridge.nativeOnEvent (the event trampoline). A multi-line EditText that grows between
-// minLines and maxLines and scrolls internally past maxLines — the Android reference for a message
-// composer field.
+// The textarea piece's Android factory, bundled with the day-piece-textarea crate and pulled into
+// the app's Gradle build automatically (via [package.metadata.day.android] → day-pieces.json), with
+// no edits to day-android. It uses only day-android's public Java surface: DayBridge.ctx (the
+// Android Context) and DayBridge.nativeOnEvent (the event trampoline). A multi-line EditText that
+// grows between minLines and maxLines and scrolls internally past maxLines: the Android reference
+// for a message composer field.
 package dev.daybrite.day.piece.textarea;
 
 import android.text.Editable;
@@ -129,9 +129,9 @@ public final class DayTextArea {
         }
     }
 
-    // Content-driven height for the proposed width, in dp (density-independent points — day works in dp,
-    // so the density conversion happens here). The EditText's own onMeasure honors minLines/maxLines, so
-    // the result is already clamped to the growing band.
+    // Content-driven height for the proposed width, in dp (density-independent points; day works
+    // in dp, so the density conversion happens here). The EditText's onMeasure honors
+    // minLines/maxLines, so the result is already clamped to the growing band.
     public static int measureHeight(View v, int wDp) {
         float dens = v.getResources().getDisplayMetrics().density;
         int wPx = Math.round(wDp * dens);

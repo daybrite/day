@@ -1,19 +1,20 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! HarmonyOS / OpenHarmony (`harmony-arkui`) pipeline — the OHOS analogue of mobile.rs's android/iOS
-//! pipelines. `build_ohos` cross-compiles the app to `libentry.so`, then packages + signs a `.hap`
-//! via the ArkTS host project under `<project>/platform/harmony/`; `launch_ohos` installs + starts it on a
-//! connected emulator/device over `hdc`.
+//! HarmonyOS / OpenHarmony (`harmony-arkui`) pipeline: the OHOS analogue of mobile.rs's
+//! android/iOS pipelines. `build_ohos` cross-compiles the app to `libentry.so`, then packages +
+//! signs a `.hap` via the ArkTS host project under `<project>/platform/harmony/`; `launch_ohos`
+//! installs + starts it on a connected emulator/device over `hdc`.
 //!
-//! The reference emulator is the openharmony-rs `emulator-action` Oniro QEMU image: an **x86_64**,
-//! NETWORKED hdc target — KVM-accelerated where `/dev/kvm` exists (x86_64 Linux CI), else TCG — so every hdc call carries `-t <connect-key>`
-//! (default `127.0.0.1:55555`; override with `DAY_OHOS_TARGET`). Building a `.hap` needs `hvigor` +
-//! `ohpm` on PATH (from the OpenHarmony command-line-tools), the SDK via `OHOS_BASE_SDK_HOME` /
-//! `OHOS_NDK_HOME` (e.g. from `openharmony-rs/setup-ohos-sdk`), and a JDK for signing. Two OHOS-only
-//! gotchas the code accounts for (see the CI research): `aa start` exits 0 even when the launch is
-//! refused (so we parse its output for `Error Code:`), and `snapshot_display` writes JPEG (so the
-//! screenshot path prefers `uitest screenCap`, which writes PNG). See docs/harmonyos.md.
+//! The reference emulator is the openharmony-rs `emulator-action` Oniro QEMU image: an x86_64,
+//! networked hdc target (KVM-accelerated where `/dev/kvm` exists, i.e. x86_64 Linux CI, else
+//! TCG), so every hdc call carries `-t <connect-key>` (default `127.0.0.1:55555`; override with
+//! `DAY_OHOS_TARGET`). Building a `.hap` needs `hvigor` + `ohpm` on PATH (from the OpenHarmony
+//! command-line-tools), the SDK via `OHOS_BASE_SDK_HOME` / `OHOS_NDK_HOME` (e.g. from
+//! `openharmony-rs/setup-ohos-sdk`), and a JDK for signing. Two OHOS-only quirks the code
+//! accounts for (see the CI research): `aa start` exits 0 even when the launch is refused (so we
+//! parse its output for `Error Code:`), and `snapshot_display` writes JPEG (so the screenshot
+//! path prefers `uitest screenCap`, which writes PNG). See docs/harmonyos.md.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -28,7 +29,7 @@ use crate::ops::{
 use crate::targets::Target;
 
 /// The HarmonyOS host project's directory: `platform/harmony` (matching the target
-/// identifier `harmony-arkui`, like every other platform dir — docs/harmonyos.md). An older
+/// identifier `harmony-arkui`, like every other platform dir; docs/harmonyos.md). An older
 /// scaffold's `platform/ohos` still resolves, with a one-time rename hint; a project with
 /// neither answers the modern path (scaffolding, error messages).
 pub fn harmony_dir(project: &Project) -> PathBuf {
@@ -52,9 +53,10 @@ pub fn harmony_dir(project: &Project) -> PathBuf {
 }
 
 /// Bring up the Oniro/OpenHarmony QEMU emulator as a native window (the OHOS analogue of
-/// `skip android emulator launch`). No VNC, no Screen Sharing: on macOS the QEMU `cocoa` backend
-/// opens a real window; `--headless` uses no display (hdc-only, for CI). Self-contained — it builds
-/// the QEMU command itself, so it doesn't depend on the emulator distribution's shell launcher.
+/// `skip android emulator launch`). On macOS the QEMU `cocoa` backend opens a native window
+/// directly, with no VNC or Screen Sharing in between; `--headless` uses no display (hdc-only,
+/// for CI). Self-contained: it builds the QEMU command itself, so it doesn't depend on the
+/// emulator distribution's shell launcher.
 ///
 /// The image directory is `DAY_OHOS_EMULATOR` (a dir holding `bzImage`, `ramdisk.img`, `system.img`,
 /// `vendor.img`, `updater.img`, `userdata.img`) or the default `~/ohos/emulator/images`. The host
@@ -88,8 +90,8 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     // Host hdc port from the connect key (guest hdc always listens on 55555). Kill any stale hdc
     // server first so it can't hold the host port before QEMU binds the forward.
     let _ = Command::new(hdc_bin()).arg("kill").output();
-    // The requested port is often ALREADY OCCUPIED — GitHub's macOS runners hold 55555, and so
-    // do some local services — and QEMU then dies instantly ("Could not set up host forwarding
+    // The requested port is often already occupied (GitHub's macOS runners hold 55555, and so
+    // do some local services), and QEMU then dies instantly ("Could not set up host forwarding
     // rule"), leaving no reachable target. Probe and slide to the first free port; the chosen
     // key is tconn'ed below (so `hdc list targets` discovery finds it) and exported through
     // GITHUB_ENV so later CI steps target it too.
@@ -127,8 +129,8 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
     let display: &[&str] = if headless {
         &["-display", "none"]
     } else if cfg!(target_os = "macos") {
-        // Plain cocoa: launching with zoom-to-fit=on stalls the GUEST's display bring-up
-        // (bootevent.wms.fullscreen.ready never fires — three consecutive boots). To enlarge
+        // Plain cocoa: launching with zoom-to-fit=on stalls the guest's display bring-up
+        // (bootevent.wms.fullscreen.ready never fires; three consecutive boots). To enlarge
         // the window, toggle View → Zoom To Fit once booted and drag-resize.
         &["-display", "cocoa"]
     } else {
@@ -143,14 +145,14 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
                   ohos.required_mount.misc=/dev/block/vda@/misc@none@none=@wait,required";
     let hostfwd = format!("user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:55555");
     let gpu = "virtio-gpu-pci,xres=360,yres=720,max_outputs=1,addr=08.0";
-    // vCPU count (DAY_OHOS_SMP, default 6). On a BUSY host fewer vCPUs boot more reliably:
+    // vCPU count (DAY_OHOS_SMP, default 6). On a busy host fewer vCPUs boot more reliably:
     // TCG vCPU threads that lose the CPU while holding a guest spinlock leave the other vCPUs
-    // spinning (guest load explodes, WMS/boot services stall) — classic lock-holder preemption.
+    // spinning (guest load explodes, WMS/boot services stall), classic lock-holder preemption.
     let smp = std::env::var("DAY_OHOS_SMP").unwrap_or_else(|_| "6".into());
 
     // Accelerator: the Oniro guest is x86_64, so on a same-arch host that exposes `/dev/kvm`
     // (an x86_64 Linux CI runner with nested virtualization) it runs KVM-accelerated at
-    // near-native speed instead of TCG software emulation — cutting the boot + walkthrough from
+    // near-native speed instead of TCG software emulation, cutting the boot + walkthrough from
     // ~tens of minutes to minutes. macOS/dev hosts have no `/dev/kvm`, so they stay on TCG.
     // `DAY_OHOS_ACCEL` overrides (e.g. `tcg,thread=multi` to force software, or `kvm`).
     // `-cpu host` (full passthrough) pairs with KVM; TCG needs the emulated `-cpu max`.
@@ -250,7 +252,7 @@ pub fn ohos_target() -> String {
 }
 
 /// The `hdc` executable: on PATH if present, else resolved from the SDK install's sibling
-/// `toolchains/` dir (the public SDK ships it there, next to the `native` NDK) — so
+/// `toolchains/` dir (the public SDK ships it there, next to the `native` NDK), so
 /// `day launch -p harmony-arkui` works from GUI-launched editors whose environment has neither the
 /// variable nor the PATH entry.
 fn hdc_bin() -> &'static str {
@@ -273,8 +275,8 @@ fn hdc_bin() -> &'static str {
     })
 }
 
-/// Whether `hdc` can actually be run, so a listing can say "not installed" rather than "nothing
-/// connected" — two very different answers for someone wondering where their device went.
+/// Whether `hdc` can be run, so a listing can say "not installed" rather than "nothing
+/// connected", two very different answers for someone wondering where their device went.
 pub(crate) fn hdc_available() -> bool {
     Command::new(hdc_bin())
         .arg("-v")
@@ -288,12 +290,12 @@ pub fn hdc() -> Command {
 }
 
 /// Forward host `tcp:port` → the app's dayscript engine on the launched target (hdc's
-/// `adb forward`). Pinned to the device this run launched on, else the first DISCOVERED one — the
+/// `adb forward`). Pinned to the device this run launched on, else the first discovered one: the
 /// emulator's connect key may have auto-slid off an occupied default port (see
-/// [`emulator_launch`]), so the env/default key can be stale. The forward intermittently fails with "[Fail]TCP Port listen failed" when the
-/// host-side hdc server is in a bad state — recycle the server and retry (bounded); a recycled
-/// server has forgotten networked targets, so re-`tconn` before every attempt (harmless for USB
-/// keys, which are auto-discovered).
+/// [`emulator_launch`]), so the env/default key can be stale. The forward intermittently fails
+/// with "[Fail]TCP Port listen failed" when the host-side hdc server is in a bad state, so recycle
+/// the server and retry (bounded); a recycled server has forgotten networked targets, so
+/// re-`tconn` before every attempt (harmless for USB keys, which are auto-discovered).
 pub(crate) fn fport_engine(port: u16) {
     let key = ohos_devices()
         .first()
@@ -329,8 +331,9 @@ fn hdc_for(key: &str) -> Command {
     c
 }
 
-/// A connected OpenHarmony target: its `hdc` connect key + the arch it runs (queried via `uname -m`,
-/// mapped to the Rust triple + hap ABI dir). An emulator is x86_64; a device is arm64 — we ask.
+/// A connected OpenHarmony target: its `hdc` connect key + the arch it runs (queried via
+/// `uname -m`, mapped to the Rust triple + hap ABI dir). An emulator is x86_64; a device is
+/// arm64; the query tells them apart.
 pub(crate) struct OhosDevice {
     pub key: String,
     pub triple: &'static str,
@@ -397,12 +400,12 @@ fn ohos_arch_override(v: &str) -> (&'static str, &'static str) {
 /// The (triple, abi) set to build for: an explicit `DAY_OHOS_ARCH`, else the distinct arches of the
 /// connected targets, else the emulator default so `day build` still produces a hap.
 ///
-/// The override is checked first, and that ordering is the point. Probing devices first meant a
-/// distribution `day pack` changed shape depending on what happened to be plugged in — CI packs
+/// The override is checked first, and that ordering matters. Probing devices first meant a
+/// distribution `day pack` changed shape depending on what happened to be plugged in: CI packs
 /// with `DAY_OHOS_ARCH=arm64` but boots an x86_64 emulator for the walkthrough first, so the hap
-/// shipped x86_64 and the same commit packed elsewhere shipped arm64. A pack must not be steered by
-/// an attached device (§20.3). Dev flows are unaffected: they leave the variable unset and still get
-/// every connected target's arch.
+/// shipped x86_64 and the same commit packed elsewhere shipped arm64. A pack must not be steered
+/// by an attached device (§20.3). Dev flows are unaffected: they leave the variable unset and
+/// still get every connected target's arch.
 /// Just the ABI names of `ohos_build_arches`, for the provenance record.
 pub(crate) fn build_abis() -> Vec<String> {
     ohos_build_arches()
@@ -458,7 +461,7 @@ pub(crate) fn find_ohos_ndk() -> Result<String, String> {
 ///
 /// iOS reads its identity through a generated xcconfig and Android through a generated
 /// properties file; OHOS's toolchain offers no such indirection, so the committed values are
-/// rewritten in place instead. Idempotent, and it touches only the two fields — a checkout that
+/// rewritten in place instead. Idempotent, and it touches only the two fields: a checkout that
 /// already agrees with Day.toml is left byte-identical, so hvigor's up-to-date checks stay warm.
 fn sync_ohos_identity(project: &Project) -> Result<(), String> {
     let resolved = project.manifest.resolve("harmony-arkui");
@@ -486,8 +489,8 @@ fn sync_ohos_identity(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
-/// Replace every `"<key>": "<value>"` in a JSON5 document, preserving the file's own spacing.
-/// Deliberately textual: these files are hand-editable JSON5 with comments, and a parse →
+/// Replace every `"<key>": "<value>"` in a JSON5 document, preserving the file's spacing.
+/// Textual because these files are hand-editable JSON5 with comments, and a parse →
 /// re-serialize round trip would reformat everything around the one field being set.
 fn replace_json5_string(text: &str, key: &str, value: &str) -> String {
     let needle = format!("\"{key}\"");
@@ -496,7 +499,7 @@ fn replace_json5_string(text: &str, key: &str, value: &str) -> String {
     while let Some(at) = rest.find(&needle) {
         let (head, tail) = rest.split_at(at + needle.len());
         out.push_str(head);
-        // `: "…"` — skip the colon and any spacing, then swap the quoted value whole.
+        // `: "…"`: skip the colon and any spacing, then swap the quoted value whole.
         let after_colon = tail.trim_start();
         let Some(after_colon) = after_colon.strip_prefix(':') else {
             rest = tail;
@@ -527,9 +530,9 @@ fn replace_json5_string(text: &str, key: &str, value: &str) -> String {
 /// Write the declared permissions into `module.json5`, and their reasons into the module's string
 /// resources.
 ///
-/// HarmonyOS requires a user_grant permission's `reason` to be a `$string:` RESOURCE reference, not
-/// literal text — so the two files are written together. Both writers are idempotent and touch only
-/// what Day owns: a marker region in `module.json5`, and the `day_perm_reason_` prefix in
+/// HarmonyOS requires a user_grant permission's `reason` to be a `$string:` resource reference,
+/// not literal text, so the two files are written together. Both writers are idempotent and touch
+/// only what Day owns: a marker region in `module.json5`, and the `day_perm_reason_` prefix in
 /// `string.json`.
 fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
     let module = harmony_dir(project).join("entry/src/main/module.json5");
@@ -546,8 +549,8 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
         }
     }
 
-    // The ability the permissions are used by — the scaffold has exactly one. Omitting `abilities`
-    // is safer than naming one that doesn't exist, which hvigor rejects.
+    // The ability the permissions are used by; the scaffold has exactly one. Omitting
+    // `abilities` is safer than naming one that doesn't exist, which hvigor rejects.
     let ability = std::fs::read_to_string(&module)
         .ok()
         .filter(|s| s.contains("\"name\": \"EntryAbility\""))
@@ -574,7 +577,7 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
         std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
     // Nothing to manage and no region yet: leave the file alone rather than stamping an empty one
     // in. Materializing it would rewrite a file the scaffold ships and the app has not touched,
-    // which fails the pristine check every packing job runs — the artifact has to be rebuildable
+    // which fails the pristine check every packing job runs: the artifact has to be rebuildable
     // from its commit, and a build that edits tracked files means it is not. An app that already
     // Has a region still falls through, so removing the last permission still empties it.
     if entries.is_empty() && !before.contains("// day:permissions-begin") {
@@ -592,7 +595,7 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
 
 /// Merge the generated `day_perm_reason_*` entries into the module's `string.json`s, preserving
 /// every other entry in its existing order: the default locale into `base/`, and every locale
-/// the catalogs translate into its own qualifier directory (`zh_CN/`, `fr/` — the tag with the
+/// the catalogs translate into its own qualifier directory (`zh_CN/`, `fr/`: the tag with the
 /// hyphen HarmonyOS does not allow replaced), created when missing.
 fn write_ohos_reason_strings(
     project: &Project,
@@ -663,7 +666,7 @@ fn merge_day_strings(
         kept.push((k.clone(), v.clone()));
     }
 
-    // Hand-rolled to match the scaffold's exact layout — `to_string_pretty` uses a different one,
+    // Hand-rolled to match the scaffold's exact layout; `to_string_pretty` uses a different one,
     // which would rewrite the whole file on the first build.
     let mut out = String::from("{ \"string\": [\n");
     for (i, (name, value)) in kept.iter().enumerate() {
@@ -724,7 +727,7 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
             module.display()
         ));
     }
-    // The scheme the `uris` skill registered — read from the module so conveyance can't drift
+    // The scheme the `uris` skill registered, read from the module so conveyance can't drift
     // from registration. Absent (no deep-link skill): the want carries the bare route, which
     // `route_of_url` passes through unchanged.
     let scheme = text
@@ -774,7 +777,7 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
         std::fs::write(&module, after).map_err(|e| format!("{}: {e}", module.display()))?;
     }
 
-    // Labels per locale — `base` carries the default locale, others get their qualifier dir
+    // Labels per locale: `base` carries the default locale, others get their qualifier dir
     // (created on first use; `merge_day_strings` preserves anything an app put there itself).
     for loc in shortcuts[0].labels.keys() {
         let mut entries = std::collections::BTreeMap::new();
@@ -793,7 +796,7 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
 }
 
 /// Stage the framework's ArkTS host and the pieces' ArkTS into the hvigor project without
-/// building — what `day prepare -p harmony-arkui` and `day open -p harmony-arkui` run so DevEco
+/// building: what `day prepare -p harmony-arkui` and `day open -p harmony-arkui` run so DevEco
 /// Studio opens a project with its abilities and pages in place on a fresh clone (they are
 /// gitignored; docs/harmonyos.md). A project with no HarmonyOS host is left alone.
 pub fn stage_host(project: &Project) -> Result<(), String> {
@@ -826,17 +829,18 @@ pub fn build_ohos(
     //    and a piece's Rust renderer is useless without its ArkTS half.
     crate::pieces::write_ohos_pieces(project, &harmony)?;
 
-    // 1) Cross-compile the app to a cdylib for each connected target's arch (an emulator is x86_64,
-    //    a device arm64 — the hap carries both so it installs on either), staging each as
-    //    entry/libs/<abi>/libentry.so — the .so the ArkTS host imports (its NAPI module is "entry").
-    //    Uses the OHOS NDK cross-linker (OHOS_NDK_HOME) + a rustup toolchain (Homebrew rustc ships no
-    //    OHOS std) and `feature_selection("arkui")` (the arkui toolkit feature + every standalone
-    //    piece's `<pkg>/arkui` renderer feature, Tier A.2), exactly like the android/iOS legs.
+    // 1) Cross-compile the app to a cdylib for each connected target's arch (an emulator is
+    //    x86_64, a device arm64; the hap carries both so it installs on either), staging each as
+    //    entry/libs/<abi>/libentry.so, the .so the ArkTS host imports (its NAPI module is
+    //    "entry"). Uses the OHOS NDK cross-linker (OHOS_NDK_HOME) + a rustup toolchain (Homebrew
+    //    rustc ships no OHOS std) and `feature_selection("arkui")` (the arkui toolkit feature +
+    //    every standalone piece's `<pkg>/arkui` renderer feature, Tier A.2), exactly like the
+    //    android/iOS legs.
     let ndk = find_ohos_ndk()?;
     let (cargo, bin) = rustup_cargo()?;
     let name = project.manifest.app.name.clone();
     // Drop any previously staged arch before restaging. hvigor packs whatever `entry/libs` holds,
-    // and these directories are never otherwise cleaned — so an earlier x86_64 emulator build left
+    // and these directories are never otherwise cleaned, so an earlier x86_64 emulator build left
     // its .so behind and rode into the hap alongside (or instead of) the arch just built. The hap
     // must contain exactly what this invocation produced (§20.3).
     let libs_root = harmony.join("entry/libs");
@@ -872,11 +876,11 @@ pub fn build_ohos(
             .env("CARGO_TARGET_DIR", &target_dir)
             .env(&linker_var, format!("{ndk}/llvm/bin/{triple}-clang"))
             // day-arkui-sys's build.rs compiles the C++ shim with the NDK clang and reads this
-            // variable itself — export the RESOLVED path so auto-detected local installs work even
+            // variable itself; export the resolved path so auto-detected local installs work even
             // when the parent environment (a GUI-launched editor) never set it.
             .env("OHOS_NDK_HOME", &ndk)
             // cc-rs (used by build scripts of C-carrying deps, e.g. ring under day-part-http's
-            // fallback TLS) picks the CROSS compiler from these per-target vars; without them it
+            // fallback TLS) picks the cross compiler from these per-target vars; without them it
             // falls back to the host `cc`, which can't target ohos.
             .env(
                 format!("CC_{}", triple.replace('-', "_")),
@@ -886,10 +890,10 @@ pub fn build_ohos(
                 format!("AR_{}", triple.replace('-', "_")),
                 format!("{ndk}/llvm/bin/llvm-ar"),
             )
-            // bindgen (rquickjs-sys under daybrite/day-lite, its docs/lite.md §13) runs the HOST
-            // libclang, which inherits neither the CC_* wrapper nor its sysroot — feed it the same
-            // flags the NDK's `<triple>-clang` wrapper script passes (`-unknown` dropped from the
-            // clang -target, per the wrapper).
+            // bindgen (rquickjs-sys under daybrite/day-lite, its docs/lite.md §13) runs the host
+            // libclang, which inherits neither the CC_* wrapper nor its sysroot, so feed it the
+            // same flags the NDK's `<triple>-clang` wrapper script passes (`-unknown` dropped from
+            // the clang -target, per the wrapper).
             .env(
                 format!("BINDGEN_EXTRA_CLANG_ARGS_{}", triple.replace('-', "_")),
                 format!(
@@ -915,7 +919,7 @@ pub fn build_ohos(
         }
         run_logged(&mut cmd, &format!("cargo (ohos {abi})"))?;
         // The cdylib is `lib<[lib].name>.so` (libentry.so for a crate whose `[lib] name = "entry"`,
-        // else lib<crate>.so) — find the single produced .so and stage it AS libentry.so.
+        // else lib<crate>.so), so find the single produced .so and stage it as libentry.so.
         let out_dir = target_dir.join(triple).join(profile.as_str());
         let so = std::fs::read_dir(&out_dir)
             .map_err(|e| format!("reading {}: {e}", out_dir.display()))?
@@ -927,12 +931,12 @@ pub fn build_ohos(
         std::fs::create_dir_all(&libs).map_err(|e| format!("mkdir {}: {e}", libs.display()))?;
         std::fs::copy(&so, libs.join("libentry.so"))
             .map_err(|e| format!("stage libentry.so: {e}"))?;
-        // libentry.so links the NDK's SHARED libc++ (the day-arkui-sys C++ shim), which OpenHarmony
-        // does not provide on-device for apps — an unbundled hap dies at load with MUSL-LDSO's
-        // "Error loading shared library libc++_shared.so". Stage it next to libentry.so so hvigor
-        // packs it into the hap (the exact analogue of the Android jniLibs bundling). The NDK's
-        // per-arch lib dir uses the CLANG triple (`x86_64-linux-ohos`), not the Rust triple — drop
-        // the `unknown-` vendor field.
+        // libentry.so links the NDK's shared libc++ (the day-arkui-sys C++ shim), which
+        // OpenHarmony does not provide on-device for apps: an unbundled hap dies at load with
+        // MUSL-LDSO's "Error loading shared library libc++_shared.so". Stage it next to
+        // libentry.so so hvigor packs it into the hap (the exact analogue of the Android jniLibs
+        // bundling). The NDK's per-arch lib dir uses the clang triple (`x86_64-linux-ohos`), not
+        // the Rust triple, so drop the `unknown-` vendor field.
         let clang_triple = triple.replace("unknown-", "");
         let libcxx = PathBuf::from(&ndk)
             .join("llvm/lib")
@@ -954,7 +958,7 @@ pub fn build_ohos(
 
     // 1a2) Day.toml identity → the two committed files that spell it out. HarmonyOS has no
     //      include/properties channel like the xcconfig or day-app.properties, so the values are
-    //      kept in step in place — the same way permissions and shortcuts already are.
+    //      kept in step in place, the same way permissions and shortcuts already are.
     sync_ohos_identity(project)?;
 
     // 1b) Declared permissions → module.json5 + the $string: reason resources they reference
@@ -979,7 +983,7 @@ pub fn build_ohos(
         .status();
 
     let mode = profile.as_str();
-    // A missing hvigor otherwise surfaces as a bare spawn ENOENT — check up front and say what to
+    // A missing hvigor otherwise surfaces as a bare spawn ENOENT, so check up front and say what to
     // install (it is not part of the public SDK; the `native` NDK alone only covers the Rust step).
     let hvigor_on_path = std::env::var("PATH")
         .is_ok_and(|p| std::env::split_paths(&p).any(|d| d.join("hvigorw").is_file()));
@@ -1007,8 +1011,8 @@ pub fn build_ohos(
     crate::mobile::run_logged_within(&mut hv, "hvigorw assembleHap", crate::ops::BUILD_TIMEOUT)?;
 
     // 3) Patch + sign the assembled (unsigned) .hap via sign-hap.mjs: it rewrites module.json's
-    //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification — see the script)
-    //    then signs with the OpenHarmony public release material.
+    //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification; see the
+    //    script) then signs with the OpenHarmony public release material.
     let hap = sign_hap(project, &harmony, &ndk)?;
     status("Built", &format!("{} → {}", target.name, hap.display()));
     Ok(BuildOutcome {
@@ -1018,7 +1022,7 @@ pub fn build_ohos(
     })
 }
 
-/// The hvigor-built UNSIGNED hap of `project` (release re-signing input — pack/ohos.rs).
+/// The hvigor-built unsigned hap of `project` (the release re-signing input; pack/ohos.rs).
 pub(crate) fn find_unsigned_hap(project: &crate::meta::Project) -> Option<PathBuf> {
     find_hap(&harmony_dir(project).join("entry/build"), |n| {
         n.contains("unsigned")
@@ -1048,13 +1052,13 @@ fn find_hap(dir: &Path, pred: impl Fn(&str) -> bool) -> Option<PathBuf> {
 }
 
 /// The dev-tier patch + sign script (`node sign-hap.mjs <unsigned> <signed>`, cwd = the hvigor
-/// project, which it reads AppScope/app.json5 from). The CLI's own — it is tooling, not app
+/// project, which it reads AppScope/app.json5 from). The CLI's own: it is tooling, not app
 /// code, so it ships embedded here and is written under `build/day/harmony/` when a build needs
 /// it; a project that still carries a `platform/harmony/sign-hap.mjs` of its own (the
 /// pre-2026-09 scaffold) keeps using that one.
 const SIGN_HAP_MJS: &str = include_str!("../resources/harmony/sign-hap.mjs");
 
-/// Patch + sign the hvigor-built unsigned hap via `sign-hap.mjs <unsigned> <signed>` (Node —
+/// Patch + sign the hvigor-built unsigned hap via `sign-hap.mjs <unsigned> <signed>` (Node;
 /// hvigor already requires it). The script rewrites module.json's compileSdkType to
 /// "OpenHarmony" so the emulator skips code-sign verification (the public release cert's code
 /// signature is otherwise rejected with 9568393), then signs with the SDK's release material.
@@ -1082,7 +1086,7 @@ fn sign_hap(project: &Project, harmony: &Path, ndk: &str) -> Result<PathBuf, Str
         .arg(&unsigned)
         .arg(&signed)
         // The script locates the SDK signing material relative to the NDK (its findLib probes
-        // OHOS_NDK_HOME first) — hand it the resolved path, like the cargo step.
+        // OHOS_NDK_HOME first), so hand it the resolved path, like the cargo step.
         .env("OHOS_NDK_HOME", ndk)
         .current_dir(harmony);
     run_logged(&mut cmd, "sign-hap.mjs")?;
@@ -1100,11 +1104,11 @@ fn combined(out: &std::process::Output) -> String {
 
 /// Is `bundle` installed on the target? `hdc install`/`bm install` can print `error: failed to
 /// execute your command` yet still install (and yet exit 0), so verify the end state with
-/// `bm dump -a` — the flat list of every installed bundle name — a clean membership test (unlike
+/// `bm dump -a`, the flat list of every installed bundle name: a clean membership test (unlike
 /// `bm dump -n <bundle>`, whose per-bundle JSON can itself contain the words "error"/"failed").
 fn bundle_installed_on(bundle: &str, key: &str) -> bool {
     // Bounded: `bm dump` against a wedged guest waits like every other hdc call, and this runs
-    // inside the install retry loop — an unanswered probe reads as "not installed yet".
+    // inside the install retry loop; an unanswered probe reads as "not installed yet".
     crate::ops::output_within(
         hdc_for(key).args(["shell", "bm", "dump", "-a"]),
         LAUNCH_TIMEOUT,
@@ -1141,7 +1145,7 @@ pub fn launch_ohos(
     if let [only] = devices.as_slice() {
         crate::ops::remember_ohos_key(only.key.clone());
     }
-    // The dayscript runner drives one target over the hdc-forwarded port — the default key — so a
+    // The dayscript runner drives one target over the hdc-forwarded port (the default key), so a
     // scripted run stays deterministic even with several targets attached.
     let multi = devices.len() > 1;
     let mut log_threads = Vec::new();
@@ -1180,7 +1184,7 @@ fn install_and_start(
 ) -> Result<(), String> {
     // Keep the screen awake + in never-doze power mode so it doesn't re-lock mid-run (best-effort).
     // The timeout override is i32::MAX (~24 days), not a session-sized number: once the display
-    // sleeps the keyguard returns, `uitest screenCap` captures black frames, and — worse — a
+    // sleeps the keyguard returns, `uitest screenCap` captures black frames, and, worse, a
     // long-idle guest refuses the unlock swipe outright ("developer mode … cannot be unlocked
     // automatically"), stranding every later `aa start` until the emulator is rebooted.
     let _ = hdc_for(key)
@@ -1228,9 +1232,9 @@ fn install_and_start(
         ));
     }
 
-    // The `aa start` args: the dayscript engine port/token + locale as `--ps` string parameters (all
-    // shell-safe single tokens). EntryAbility.ets applies them to the process env (via the native
-    // `setEnv`) before `start()` runs the engine — mirrors Android's intent extras.
+    // The `aa start` args: the dayscript engine port/token + locale as `--ps` string parameters
+    // (all shell-safe single tokens). EntryAbility.ets applies them to the process env (via the
+    // native `setEnv`) before `start()` runs the engine; this mirrors Android's intent extras.
     let mut args: Vec<String> = ["shell", "aa", "start", "-a", "EntryAbility", "-b", bundle]
         .iter()
         .map(|s| s.to_string())
@@ -1248,20 +1252,20 @@ fn install_and_start(
     }
 
     status("Launching", &format!("harmony-arkui ({bundle}) on {key}"));
-    // Kill any RUNNING instance first: the ability is a singleton, so a bare `aa start` would
-    // just foreground it — with the old run's dayscript port/token, while this run's engine
+    // Kill any running instance first: the ability is a singleton, so a bare `aa start` would
+    // just foreground it, with the old run's dayscript port/token, while this run's engine
     // params ride the new want. A fresh process re-reads them in onCreate (docs/harmonyos.md).
     let _ = hdc_for(key)
         .args(["shell", "aa", "force-stop", bundle])
         .status();
     std::thread::sleep(Duration::from_secs(2));
-    // The emulator boots with the keyguard up, and the keyguard RETURNS whenever the display
+    // The emulator boots with the keyguard up, and the keyguard returns whenever the display
     // sleeps; `aa start` is refused while it shows (Error 10106102: "developer mode … cannot be
-    // unlocked automatically" — there is no hdc force-unlock). But the lock screen is
+    // unlocked automatically"; there is no hdc force-unlock). But the lock screen is
     // slide-to-unlock, so a synthetic swipe dismisses it (see `unlock_keyguard`). Retry,
-    // re-waking + re-swiping between tries. `aa start` also EXITS 0 even WHEN REFUSED, so we
+    // re-waking + re-swiping between tries. `aa start` also exits 0 even when refused, so we
     // inspect its output for the failure markers.
-    // 40 tries × 3s ≈ 2 min of retries: a FRESH userdata's first boot renders the keyguard
+    // 40 tries × 3s ≈ 2 min of retries: a fresh userdata's first boot renders the keyguard
     // late on a slow TCG guest (CI), and `aa start` is refused until the swipe can land.
     let mut last = String::new();
     for attempt in 1..=40u32 {
@@ -1294,8 +1298,8 @@ fn install_and_start(
 /// emulator's guest display is 360×720 (the launcher's virtio-gpu xres/yres); on an unlocked
 /// screen the swipe is a harmless scroll. Verified headlessly: after `power-shell wakeup` the
 /// lock screen shows "Please slide to unlock", and this swipe lands on the home screen. Both
-/// injection drivers are tried — `uitest uiInput` (test daemon; slow to spin up on a cold TCG
-/// guest) and `uinput` (kernel-level, no daemon) — because a slow first boot can leave the
+/// injection drivers are tried, `uitest uiInput` (test daemon; slow to spin up on a cold TCG
+/// guest) and `uinput` (kernel-level, no daemon), because a slow first boot can leave the
 /// daemon unready while the keyguard is already up.
 fn unlock_keyguard(key: &str) {
     let _ = hdc_for(key)
@@ -1340,7 +1344,7 @@ mod identity_tests {
     use super::replace_json5_string;
 
     /// The rewrite touches the one field and leaves the comments, trailing commas and spacing
-    /// a hand-edited JSON5 file carries — the reason this is textual rather than a parse.
+    /// a hand-edited JSON5 file carries, which is why this is textual rather than a parse.
     #[test]
     fn only_the_named_field_moves() {
         let src = "{\n  \"app\": {\n    // the app's id\n    \"bundleName\": \"dev.example.old\",\n    \"vendor\": \"example\",\n  }\n}\n";

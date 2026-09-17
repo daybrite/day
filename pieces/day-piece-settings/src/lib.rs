@@ -1,13 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-settings — the shared appearance + language settings rows every app's
+//! day-piece-settings: the shared appearance + language settings rows every app's
 //! preferences surface needs (docs/windows.md), persisted through `day-part-prefs` and
-//! applied live through day-core's appearance/locale seams. A COMPOSE piece: pure
+//! applied live through day-core's `set_appearance` and `set_locale`. A compose piece: pure
 //! composition, no native code, works on every backend.
 //!
-//! The rows match the pattern Day-Skies/Day-Trader/Day-Matrix each hand-rolled — one place
-//! now — including the fixed element ids (`theme-picker`, `language-picker`) their
+//! The rows match the pattern Day-Skies/Day-Trader/Day-Matrix each hand-rolled, now in one
+//! place, including the fixed element ids (`theme-picker`, `language-picker`) their
 //! walkthroughs assert. Labels come from the core catalog (`day-settings-*`,
 //! `day-theme-*`), so the rows localize with zero app keys.
 //!
@@ -29,12 +29,12 @@ use std::cell::OnceCell;
 use day_pieces::prelude::*;
 use day_reactive::{Signal, watch};
 
-/// A `(tag, autonym)` locale table — the shape of a generated `res::locales::ALL`.
+/// A `(tag, autonym)` locale table, the shape of a generated `res::locales::ALL`.
 pub type LocaleTable = &'static [(&'static str, &'static str)];
 
 day_core::tls_group! {
-    /// The locale the app STARTED in (system or `--locale`), captured by [`apply_startup`]
-    /// before any stored override applies — what the language picker's "System" entry
+    /// The locale the app started in (system or `--locale`), captured by [`apply_startup`]
+    /// before any stored override applies: what the language picker's "System" entry
     /// restores.
     static SYSTEM_LOCALE: OnceCell<String> = const { OnceCell::new() };
 
@@ -46,13 +46,13 @@ fn system_locale() -> String {
         .unwrap_or_else(|| day_fluent::locale().get_untracked())
 }
 
-/// Apply the persisted appearance + language overrides at boot — call once from `root()`,
+/// Apply the persisted appearance + language overrides at boot. Call once from `root()`,
 /// right after the locale catalog installs and before the first page builds.
 ///
-/// The launch environment WINS over persistence: a `DAY_THEME` run keeps its forced theme
+/// The launch environment wins over persistence: a `DAY_THEME` run keeps its forced theme
 /// and a `DAY_LOCALE`/`--locale` run keeps its locale, so CI variant loops and `day launch`
 /// overrides stay deterministic no matter what an earlier run persisted. Live picker
-/// changes still apply after boot — user intent beats the environment once the app runs.
+/// changes still apply after boot: user intent beats the environment once the app runs.
 pub fn apply_startup(theme_key: &'static str, locale_key: &'static str) {
     SYSTEM_LOCALE.with(|c| {
         let _ = c.set(day_fluent::locale().get_untracked());
@@ -75,11 +75,11 @@ pub fn apply_startup(theme_key: &'static str, locale_key: &'static str) {
 }
 
 /// The Light / Dark / System appearance row (id `theme-picker`): a labeled segmented
-/// picker, present only where the backend honors a runtime override (`Cap::Appearance`) —
+/// picker, present only where the backend honors a runtime override (`Cap::Appearance`) and
 /// an empty piece otherwise. Selection applies live (`set_appearance`) and persists under
 /// `prefs_key` (`"light"` / `"dark"`; absent = system).
-/// Erases because it BRANCHES between two piece types at build time (docs/api-style.md) —
-/// the empty column or the row — and its sibling [`language_picker`] matches it so the two
+/// Erases because it branches between two piece types at build time (docs/api-style.md),
+/// the empty column or the row, and its sibling [`language_picker`] matches it so the two
 /// stay interchangeable as section rows.
 pub fn appearance_picker(prefs_key: &'static str) -> AnyPiece {
     if day_core::capability(day_spec::Cap::Appearance) == day_spec::Support::Unsupported {
@@ -124,7 +124,7 @@ pub fn appearance_picker(prefs_key: &'static str) -> AnyPiece {
 }
 
 /// The language row (id `language-picker`): "System" plus every bundled locale under its
-/// own name. Selection applies live (`set_locale` — strings re-resolve; layout direction
+/// own name. Selection applies live (`set_locale`: strings re-resolve; layout direction
 /// applies on relaunch, docs/localization.md) and persists the tag under `prefs_key`
 /// (absent = system). `locales` is the app's generated `res::locales::ALL`.
 pub fn language_picker(prefs_key: &'static str, locales: LocaleTable) -> AnyPiece {
@@ -159,7 +159,7 @@ pub fn language_picker(prefs_key: &'static str, locales: LocaleTable) -> AnyPiec
 }
 
 /// The whole minimal preferences body: one section carrying both labeled rows (each row
-/// labels itself — a titled section per row would just repeat the words), ready to drop
+/// labels itself; a titled section per row would just repeat the words), ready to drop
 /// into a `form((...,))`. Use the rows individually to compose your own sections.
 pub fn settings_sections(
     theme_key: &'static str,

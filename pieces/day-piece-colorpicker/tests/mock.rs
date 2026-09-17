@@ -3,13 +3,13 @@
 
 //! Mock e2e for the color picker (the day-pieces mock_e2e pattern), across both idioms.
 //!
-//! NATIVE: the piece realizes its kind, a native pick (`Event::Custom` carrying the component
+//! Native: the piece realizes its kind, a native pick (`Event::Custom` carrying the component
 //! form) and dayscript's `input:` step (`Event::TextChanged` carrying hex) both drive the bound
 //! signal, an app write patches through to the well, and `.alpha(false)` refuses to let a picker
 //! clear the app's opacity.
 //!
-//! COMPOSED: the panel realizes no native kind at all — it is ordinary pieces — so what these
-//! assert instead is that the well is a real control, that the panel mounts on press and its
+//! Composed: the panel realizes no native kind at all (it is ordinary pieces), so what these
+//! assert instead is that the well is a control, that the panel mounts on press and its
 //! canvases and buttons come with it, and that Cancel puts back the color the panel opened on.
 
 use std::cell::Cell;
@@ -104,7 +104,7 @@ fn app_writes_patch_native() {
 #[test]
 fn opaque_picker_cannot_clear_alpha() {
     // `.alpha(false)` is the default, and the promise it makes is that the bound color stays
-    // opaque no matter what a backend reports — an arm whose native control has a stray alpha
+    // opaque no matter what a backend reports: an arm whose native control has a stray alpha
     // channel must not be able to make an app's brand color half-transparent.
     let (probe, color, node) = with_picker(Color::hex(0xE86A3C), false);
     probe.emit(node, Event::custom(PICK_TAG, "0.2 0.4 0.6 0.25"));
@@ -115,7 +115,7 @@ fn opaque_picker_cannot_clear_alpha() {
 // --- the composed idiom -----------------------------------------------------
 
 /// Boot a composed picker and hand back its well's handle (for reading what it draws) and node
-/// (for pressing it). Closed, the picker is exactly one canvas — the drawn swatch.
+/// (for pressing it). Closed, the picker is exactly one canvas, the drawn swatch.
 fn with_composed(
     initial: Color,
     alpha: bool,
@@ -220,10 +220,10 @@ fn cancel_restores_the_color_the_panel_opened_on() {
     let (probe, color, _handle, well) = with_composed(start, false);
     press_well(&probe, well);
 
-    // Press the top-leading corner of the shade field: saturation 0, brightness 1 — white,
-    // whatever the hue is. That is a change no rounding can mistake for the starting color, and
-    // it only lands because `on_tap_at` reports where the press was. The field is the second
-    // canvas; the first is the well itself.
+    // Press the top-leading corner of the shade field: saturation 0, brightness 1, which is
+    // white whatever the hue is. That is a change no rounding can mistake for the starting
+    // color, and it only lands because `on_tap_at` reports where the press was. The field is
+    // the second canvas; the first is the well itself.
     let shade = probe.find_by_kind("day.canvas")[1].1.node;
     probe.emit(NodeId(shade), Event::Tap(Point::new(0.0, 0.0)));
     flush_sync();
@@ -250,7 +250,7 @@ fn cancel_restores_the_color_the_panel_opened_on() {
 fn done_keeps_the_pick() {
     let (probe, color, _handle, well) = with_composed(Color::hex(0xE86A3C), false);
     press_well(&probe, well);
-    // The hue strip is the THIRD canvas (well, shade field, hue): press partway along it, which
+    // The hue strip is the third canvas (well, shade field, hue): press partway along it, which
     // moves the hue while keeping the field's saturation and brightness.
     let hue = probe.find_by_kind("day.canvas")[2].1.node;
     probe.emit(NodeId(hue), Event::Tap(Point::new(90.0, 10.0)));

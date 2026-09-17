@@ -7,11 +7,11 @@
 //
 // The one thing iOS has that macOS doesn't is `allowsEditingTextAttributes`, which puts B/I/U into
 // the selection's edit menu and lets the user change attributes Day would never learn about. It is
-// OFF here for the same reason the macOS font panel is: attributes travel Day → native, and the
-// app's own toolbar writes them through the bound signal.
+// off here for the same reason the macOS font panel is: attributes travel Day → native, and the
+// app's toolbar writes them through the bound signal.
 //
-// `UITextView` IS a scroll view, so unlike AppKit there is nothing to wrap it in — but that also
-// means `sizeThatFits:` reports the CONTENT height, which is what `measure` wants anyway.
+// `UITextView` is a scroll view, so unlike AppKit there is nothing to wrap it in, but that also
+// means `sizeThatFits:` reports the content height, which is what `measure` wants anyway.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -72,7 +72,7 @@ define_class!(
             ffi_guard::contain((), || {
                 let text = tv.text().to_string();
                 let r = sel_range(tv);
-                // UTF-16 back to BYTES — see the AppKit arm; the units diverge at the first emoji.
+                // UTF-16 back to bytes; see the AppKit arm. The units diverge at the first emoji.
                 let start = byte_of_utf16(&text, r.location);
                 let end = byte_of_utf16(&text, r.location + r.length);
                 day_uikit::emit(
@@ -117,7 +117,7 @@ fn key(v: &Retained<UIView>) -> usize {
 
 // `selectedRange` / `setSelectedRange:` carry a deprecation in the newest SDK, superseded by the
 // multi-range `selectedRanges` that only the newest systems answer. Day's iOS floor is 15, where
-// sending `selectedRanges` is an unrecognized selector — so the single-range pair is the correct
+// sending `selectedRanges` is an unrecognized selector, so the single-range pair is the correct
 // call here, and the two accessors below are the only place the allow is needed.
 #[allow(deprecated)]
 fn sel_range(tv: &UITextView) -> NSRange {
@@ -129,7 +129,7 @@ fn set_sel_range(tv: &UITextView, r: NSRange) {
     tv.setSelectedRange(r);
 }
 
-/// The `UIFont` a run resolves to — `FontSpec::resolved_points` applies the relative scale, so the
+/// The `UIFont` a run resolves to. `FontSpec::resolved_points` applies the relative scale, so the
 /// editor sizes text exactly as this backend's labels do.
 fn run_font(spec: day_spec::FontSpec) -> Retained<UIFont> {
     let pts = spec.resolved_points(FONT_SIZE);
@@ -146,8 +146,9 @@ fn run_font(spec: day_spec::FontSpec) -> Retained<UIFont> {
     if !spec.italic {
         return base;
     }
-    // Italic is a descriptor trait on iOS. Ask for it ON TOP of the traits the font already has,
-    // so bold+italic stays bold — and fall back to the upright face if the family has no italic.
+    // Italic is a descriptor trait on iOS. Ask for it in addition to the traits the font already
+    // has, so bold+italic stays bold, and fall back to the upright face if the family has no
+    // italic.
     let desc = unsafe { base.fontDescriptor() };
     let want = unsafe { desc.symbolicTraits() } | UIFontDescriptorSymbolicTraits::TraitItalic;
     match desc.fontDescriptorWithSymbolicTraits(want) {
@@ -156,7 +157,7 @@ fn run_font(spec: day_spec::FontSpec) -> Retained<UIFont> {
     }
 }
 
-/// `Underline` as an `NSUnderlineStyle` bitmask — identical to AppKit's, the constants are shared.
+/// `Underline` as an `NSUnderlineStyle` bitmask, identical to AppKit's; the constants are shared.
 fn underline_bits(u: Underline) -> i64 {
     match u {
         Underline::None => 0,
@@ -171,7 +172,7 @@ fn uicolor(c: day_spec::Color) -> Retained<UIColor> {
     UIColor::colorWithRed_green_blue_alpha(c.r, c.g, c.b, c.a)
 }
 
-/// Build the attributed string for a document — the single place runs become UIKit attributes.
+/// Build the attributed string for a document: the single place runs become UIKit attributes.
 fn attributed(doc: &StyledText, base: Font) -> Retained<NSAttributedString> {
     let ns = NSString::from_str(&doc.text);
     let s = NSMutableAttributedString::initWithString(NSMutableAttributedString::alloc(), &ns);
@@ -271,7 +272,7 @@ fn attributed(doc: &StyledText, base: Font) -> Retained<NSAttributedString> {
     s.into_super()
 }
 
-/// The typing attributes a `RunStyle` becomes — what UIKit applies to the next typed character.
+/// The typing attributes a `RunStyle` becomes: what UIKit applies to the next typed character.
 fn typing_attributes(style: &RunStyle) -> Retained<NSDictionary<NSString, objc2::runtime::AnyObject>>
 {
     let mut keys: Vec<&NSString> = Vec::new();
@@ -302,9 +303,9 @@ fn typing_attributes(style: &RunStyle) -> Retained<NSDictionary<NSString, objc2:
     }
 }
 
-/// Replace the attributed text while KEEPING the caret. The live-highlighting case: fresh runs on
+/// Replace the attributed text while keeping the caret. The live-highlighting case: fresh runs on
 /// every keystroke, and a plain `setAttributedText:` would drop the caret to the document start
-/// each time — and on iOS also dismiss the keyboard's inline candidate bar.
+/// each time, and on iOS also dismiss the keyboard's inline candidate bar.
 fn set_attributed_preserving_selection(tv: &UITextView, s: &NSAttributedString) {
     let sel = sel_range(tv);
     let storage = tv.textStorage();
@@ -344,7 +345,7 @@ fn make(backend: &mut Uikit, p: &EditorProps, id: NodeId) -> Retained<UIView> {
         set_attributed_preserving_selection(&tv, &attributed(&p.doc, p.base));
     }
     // SAFETY: the dictionary holds exactly the value types UIKit documents for these attribute
-    // keys (a UIFont, UIColors, NSNumbers) — which is the whole of what makes this setter unsafe.
+    // keys (a UIFont, UIColors, NSNumbers), which is all that makes this setter unsafe.
     unsafe { tv.setTypingAttributes(&typing_attributes(&RunStyle::plain(p.base))) };
     let line_h = unsafe { base_font.lineHeight() };
 
@@ -394,7 +395,7 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &EditorPatch) {
                 st.placeholder.setHidden(!doc.is_empty());
             }
             EditorPatch::SetAttributes(attrs) => {
-                // Same characters: rebuild over the text the VIEW holds, so a document one edit
+                // Same characters: rebuild over the text the view holds, so a document one edit
                 // stale can never replace what the user just typed.
                 let doc = StyledText {
                     text: st.tv.text().to_string(),
@@ -410,7 +411,7 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &EditorPatch) {
                 };
                 set_sel_range(&st.tv, NSRange::new(start, len));
             }
-            // SAFETY: as at realize — `typing_attributes` builds only documented pairings.
+            // SAFETY: as at realize; `typing_attributes` builds only documented pairings.
             EditorPatch::SetTypingStyle(style) => unsafe {
                 st.tv.setTypingAttributes(&typing_attributes(style))
             },

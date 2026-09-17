@@ -49,7 +49,7 @@ pub fn stem(project: &Project, target: &Target, opts: &PackOptions) -> String {
 
 /// The full file name for one packaged artifact.
 ///
-/// `extra` are the tokens that distinguish artifacts sharing a target and extension — `setup` for
+/// `extra` are the tokens that distinguish artifacts sharing a target and extension: `setup` for
 /// the NSIS installer, the CPU arch for a flatpak, `unsigned` for an ipa packed without signing
 /// material. They follow the target so the combo stays a contiguous, greppable token.
 pub fn artifact_file(
@@ -87,7 +87,7 @@ mod tests {
     use super::*;
     use crate::meta::slug;
 
-    /// A project that exists only in memory — naming is pure string work, so nothing here needs
+    /// A project that exists only in memory: naming is pure string work, so nothing here needs
     /// a directory on disk.
     fn fixture(title: Option<&str>, artifact: Option<&str>) -> Project {
         let mut day = String::from("schema = 1\n[app]\nid = \"dev.example.showcase\"\n");
@@ -113,7 +113,7 @@ mod tests {
     fn slug_folds_to_a_filename_safe_token() {
         assert_eq!(slug("Day Showcase"), "day-showcase");
         assert_eq!(slug("day-showcase"), "day-showcase");
-        // Runs of separators collapse, and the edges are trimmed — never `--` or a leading `-`.
+        // Runs of separators collapse, and the edges are trimmed: never `--` or a leading `-`.
         assert_eq!(slug("  Day   Skies!! "), "day-skies");
         assert_eq!(slug("Trader 2.0"), "trader-2-0");
         // Non-ASCII folds to the separator rather than reaching a URL unescaped (and here the
@@ -123,7 +123,7 @@ mod tests {
         assert_eq!(slug("!!!"), "app", "a name that folds away still needs one");
     }
 
-    /// The whole point of the change: one pattern, whatever the format.
+    /// Every format follows the same pattern.
     #[test]
     fn every_format_lands_on_the_same_pattern() {
         let project = fixture(Some("Day Showcase"), None);

@@ -4,22 +4,23 @@
 //! Best-effort "is there a newer day-cli on crates.io?" check.
 //!
 //! [`spawn`] kicks off the crates.io query on a background thread the moment the CLI starts, so it
-//! runs concurrently with whatever command the user asked for. [`finish`] is called right before the
-//! process exits: it polls the result without blocking — if the reply already landed (i.e. the command
-//! took long enough) and a newer stable release exists, it prints a one-line yellow nudge; if the reply
-//! isn't back yet it just returns, and the detached worker thread is torn down by process exit. So the
-//! check never delays the CLI: a slow command "pays" for it for free, a fast one simply skips it.
+//! runs concurrently with whatever command the user asked for. [`finish`] is called right before
+//! the process exits: it polls the result without blocking. If the reply already landed (i.e. the
+//! command took long enough) and a newer stable release exists, it prints a one-line yellow nudge;
+//! if the reply isn't back yet it just returns, and the detached worker thread is torn down by
+//! process exit. So the check never delays the CLI: a slow command absorbs it at no extra cost, a
+//! fast one skips it.
 //!
-//! Silent (and makes NO network call) on debug builds, when the `DAY_NO_UPDATE_CHECK` env var is set
-//! — the opt-out for anyone who wants day to stay fully offline, since this is its only outbound call
-//! — and whenever `spawn` is called with `enabled = false` (the build-system plumbing callbacks and
-//! `--format json` machine output opt out — see `cli::run`).
+//! Silent (and makes no network call) on debug builds, when the `DAY_NO_UPDATE_CHECK` env var is
+//! set (the opt-out for anyone who wants day to stay fully offline, since this is its only outbound
+//! call), and whenever `spawn` is called with `enabled = false` (the build-system plumbing
+//! callbacks and `--format json` machine output opt out; see `cli::run`).
 
 use std::sync::mpsc::Receiver;
 
 use crate::term::WARN;
 
-/// Set this env var (to any non-empty value) to skip the update check entirely — and with it day's
+/// Set this env var (to any non-empty value) to skip the update check entirely, and with it day's
 /// only outbound network call. Follows the `NO_COLOR` convention: present + non-empty ⇒ disabled.
 const DISABLE_ENV: &str = "DAY_NO_UPDATE_CHECK";
 
@@ -31,15 +32,15 @@ struct CratesResp {
 }
 #[derive(serde::Deserialize)]
 struct CrateInfo {
-    /// Newest NON-prerelease, non-yanked version — exactly what a `cargo install day-cli` would pick.
+    /// Newest non-prerelease, non-yanked version: exactly what a `cargo install day-cli` would pick.
     max_stable_version: Option<String>,
 }
 
-/// Start the background crates.io check, returning a channel [`finish`] polls at exit. Returns `None`
-/// (no check, no thread — so no network call at all) on debug builds, when `DAY_NO_UPDATE_CHECK` is
-/// set, or when `enabled` is false.
+/// Start the background crates.io check, returning a channel [`finish`] polls at exit. Returns
+/// `None` (nothing is checked or spawned, so no network call at all) on debug builds, when
+/// `DAY_NO_UPDATE_CHECK` is set, or when `enabled` is false.
 pub fn spawn(enabled: bool) -> Option<Receiver<String>> {
-    // Presence (non-empty) opts out — the NO_COLOR convention. Lets anyone stop day from touching the
+    // Presence (non-empty) opts out, the NO_COLOR convention. Lets anyone stop day from touching the
     // network at all, since this check is its only outbound call.
     let opted_out = std::env::var_os(DISABLE_ENV).is_some_and(|v| !v.is_empty());
     if cfg!(debug_assertions) || !enabled || opted_out {
@@ -73,7 +74,7 @@ pub fn finish(rx: Option<Receiver<String>>) {
 
 /// GET the crate metadata from crates.io with a descriptive User-Agent (crates.io rejects generic
 /// ones), returning its newest stable version. Any failure (offline, timeout, 404 before the crate is
-/// published, malformed JSON) yields `None` — the check is best-effort and never surfaces errors.
+/// published, malformed JSON) yields `None`; the check is best-effort and never surfaces errors.
 ///
 /// Also the resolver behind `--day-version latest` (`new::DaySource::parse`), where a `None` IS
 /// reported: there the answer decides what gets built, so guessing would be worse than failing.

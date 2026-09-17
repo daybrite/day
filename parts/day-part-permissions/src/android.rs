@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Android: `Context.checkSelfPermission`, and `requestPermissions` through this crate's Java
-//! shim (`src/DayPermissions.java`) — staged into the app's Gradle build by `day build`
+//! shim (`src/DayPermissions.java`), staged into the app's Gradle build by `day build`
 //! through `[package.metadata.day.android]`, exactly like the UI pieces but registering no renderer.
 //!
 //! One portable permission can map to several native ids (location is fine + coarse; photos on API
 //! 33+ is images + video), so every query folds the per-id answers with [`crate::merge`] and every
-//! request submits the whole set in one array — which is also what makes Android show its
+//! request submits the whole set in one array, which is also what makes Android show its
 //! precise/approximate location dialog.
 //!
 //! Permission lists cross JNI as one `\u{1f}`-joined string and answers come back as a bitmask, so
@@ -52,7 +52,7 @@ fn sdk_int() -> i32 {
 
 /// The native permission ids a portable permission maps to on this device's API level.
 ///
-/// An empty list means "nothing to ask for here" — the capability is either ungated (motion below
+/// An empty list means "nothing to ask for here": the capability is either ungated (motion below
 /// API 29) or handled by a non-permission API (notifications below API 33).
 fn native_ids(perm: Permission) -> Vec<&'static str> {
     let sdk = sdk_int();
@@ -81,7 +81,7 @@ fn native_ids(perm: Permission) -> Vec<&'static str> {
             if sdk >= 33 {
                 vec!["android.permission.POST_NOTIFICATIONS"]
             } else {
-                Vec::new() // areNotificationsEnabled() is the whole story below 33
+                Vec::new() // areNotificationsEnabled() answers this on its own below 33
             }
         }
         Permission::Photos => {
@@ -164,8 +164,8 @@ fn id_status(id: &str) -> Status {
 
 pub fn gate(perm: Permission) -> Gate {
     match perm {
-        // The user can still switch notifications off in Settings below API 33 — the OS keeps a
-        // consent record even though no dialog exists — so this is `Prompts` with `can_prompt`
+        // The user can still switch notifications off in Settings below API 33 (the OS keeps a
+        // consent record even though no dialog exists), so this is `Prompts` with `can_prompt`
         // answering false, not `Ungated`.
         Permission::Notifications => Gate::Prompts,
         // Motion below API 29 is install-time: nothing gates it at runtime.
@@ -207,7 +207,7 @@ pub fn can_prompt(perm: Permission) -> bool {
         return false;
     }
     // `Prompt` covers both never-asked and permanently-denied (Day keeps no state to tell them
-    // apart) — asking in the permanent case simply resolves `Denied` without a dialog.
+    // apart); asking in the permanent case resolves `Denied` without a dialog.
     matches!(status(perm), Status::Prompt | Status::Denied) && gate(perm) == Gate::Prompts
 }
 
@@ -259,7 +259,7 @@ pub fn request(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
         .is_ok()
     });
     if !launched {
-        // The shim never got the call, so nativeResult will never fire — resolve here instead of
+        // The shim never got the call, so nativeResult will never fire; resolve here instead of
         // leaving the future pending forever.
         let entry = pending_lock().as_mut().and_then(|m| m.remove(&token));
         if let Some((perm, _, cb)) = entry {

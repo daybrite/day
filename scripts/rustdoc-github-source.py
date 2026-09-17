@@ -21,7 +21,8 @@ import shutil
 import subprocess
 import sys
 
-# ../src/<crate>/<path>.rs.html#<start>[-<end>]  — always relative (at least one ../) from an item page.
+# ../src/<crate>/<path>.rs.html#<start>[-<end>], always relative (at least one ../) from an item
+# page.
 LINK = re.compile(r'(?:\.\./)+src/([A-Za-z0-9_]+)/(.+?\.rs)\.html#(\d+)(?:-(\d+))?')
 
 
@@ -83,7 +84,8 @@ def main():
                 files += 1
                 links += n
 
-    # The local source viewer is now unreferenced — drop it (and its file index) to keep the bundle lean.
+    # The local source viewer is now unreferenced; drop it (and its file index) to keep the bundle
+    # lean.
     shutil.rmtree(os.path.join(args.doc_dir, "src"), ignore_errors=True)
     try:
         os.remove(os.path.join(args.doc_dir, "src-files.js"))

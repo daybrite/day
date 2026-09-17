@@ -9,9 +9,9 @@ repository.workspace = true
 license.workspace = true
 build = "build.rs"
 
-# An EXTERNAL Day Piece (DESIGN.md §15): a NATIVE search input — NSSearchField / UISearchTextField /
-# GtkSearchEntry / a QLineEdit search shim / an EditText styled for search / a XAML AutoSuggestBox.
-# Bound TWO-WAY to a `Signal<String>` (native edits set the signal; a signal change patches the
+# An external Day Piece (DESIGN.md §15): a native search input (NSSearchField / UISearchTextField /
+# GtkSearchEntry / a QLineEdit search shim / an EditText styled for search / a XAML AutoSuggestBox).
+# Bound two-way to a `Signal<String>` (native edits set the signal; a signal change patches the
 # control). Carries both its cross-platform front-end (Rust) and its per-toolkit backend (objc2 /
 # C++ shim / Android Java / gtk-rs) without touching any core day crate. See docs/searchfield.md.
 
@@ -22,15 +22,16 @@ qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (Q
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the DaySearch Java factory
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (an AutoSuggestBox boxed via day-xaml-sys's
-# day_xaml_box seam, like the picker/media xaml pieces). Windows-only, built in CI, not verified
-# locally. mock has no renderer — its feature exists so apps can enable `day-piece-searchfield/mock`
-# uniformly; the searchfield kind then falls back to day's placeholder leaf.
+# day_xaml_box functions, like the picker/media xaml pieces). Windows-only, built in CI, not
+# verified locally. mock has no renderer; its feature exists so apps can enable
+# `day-piece-searchfield/mock` uniformly; the searchfield kind then falls back to day's placeholder
+# leaf.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
-# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
-# no per-backend feature fan-out in its own Cargo.toml.
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
+# and no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
 
@@ -62,13 +63,13 @@ cc = "1"
 day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the day CLI reads this from
-# `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
-# Java (dev.daybrite.day.piece.searchfield.DaySearch), without touching day-android. A plain
+# `cargo metadata` and folds it into the app's Gradle build. The piece carries its backend
+# Java (dev.daybrite.day.piece.searchfield.DaySearch) without touching day-android. A plain
 # EditText needs no Gradle dependency or manifest permission.
 [package.metadata.day.android]
 # Java/Kotlin sources, relative to this crate root: dirs, or single files linked in by package.
 java = ["src/DaySearch.java"]
-# Gradle dependency coordinates added to the app module (none — EditText is a framework widget).
+# Gradle dependency coordinates added to the app module (none: EditText is a framework widget).
 gradle-dependencies = []
 # Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().
 gradle-repositories = []

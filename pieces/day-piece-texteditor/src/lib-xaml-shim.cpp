@@ -1,33 +1,33 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-texteditor's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. A `RichEditBox`,
+// day-piece-texteditor's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. A `RichEditBox`,
 // XAML's rich text editor, driven through its Text Object Model document (`ITextDocument`, the
 // same model RichEdit has carried since Win32).
 //
 // The TOM shape this arm relies on:
 //
 // - `Document.GetRange(start, end)` takes character positions, which for RichEdit are UTF-16 code
-//   units — the same unit the Apple, Android and Qt arms use, so Rust converts once and every one
+//   units, the same unit the Apple, Android and Qt arms use, so Rust converts once and every one
 //   of them takes it.
 // - `range.CharacterFormat` is the run's attributes; assigning a whole `ITextCharacterFormat` to a
 //   range applies it in one call, which is what keeps a per-keystroke re-highlight to O(runs)
 //   rather than O(characters).
-// - `Document.Selection` with a COLLAPSED range is the typing format — native, like Qt's, and
+// - `Document.Selection` with a collapsed range is the typing format: native, like Qt's, and
 //   unlike GTK's and the web's.
 // - `Document.SetText(TextSetOptions::None, …)` replaces the characters. `BatchDisplayUpdates` /
 //   `ApplyDisplayUpdates` bracket a sweep so the control lays out once.
 //
-// What this shim does NOT do is read attributes back. Day owns them (see the crate docs), so
+// What this shim does not do is read attributes back. Day owns them (see the crate docs), so
 // `IsSpellCheckEnabled` and the characters are the only things the control decides. `Ctrl+B` and
 // friends are RichEditBox's own and would change formatting behind Day's back, so they are
-// swallowed — the same call the Qt shim makes for the same reason.
+// swallowed, the same call the Qt shim makes for the same reason.
 //
-// Windows-only; compiled by build.rs, built in CI, NOT verified locally. docs/texteditor.md lists
+// Windows-only; compiled by build.rs, built in CI, not verified locally. docs/texteditor.md lists
 // what a check on Windows has to confirm.
 
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Foundation.Collections.h> // IVector methods — else C3779
+#include <winrt/Windows.Foundation.Collections.h> // IVector methods, else C3779
 #include <winrt/Windows.System.h>  // VirtualKey
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Core.h> // CoreWindow, CoreVirtualKeyStates
@@ -56,7 +56,7 @@ namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 namespace WUXI = winrt::Windows::UI::Xaml::Input;
 namespace WUXM = winrt::Windows::UI::Xaml::Media;
 
-// The boxing seam, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 
@@ -82,9 +82,9 @@ std::string narrow(winrt::hstring const &h) {
     return out;
 }
 
-/// day's sizes cross as XAML DIPs (1/96 in) — `FontSize` takes them verbatim everywhere else in
+/// day's sizes cross as XAML DIPs (1/96 in); `FontSize` takes them verbatim everywhere else in
 /// this backend, which is what fixes one number to one rendered size across a window. RichEdit's
-/// TOM is typographic POINTS (1/72 in), so handing it the same number drew this editor's text a
+/// TOM is typographic points (1/72 in), so handing it the same number drew this editor's text a
 /// third larger than every label beside it. Convert on the way in; ranges and the typing style go
 /// through here too, so a run's own size lands on the same scale as the base.
 float tom_points(double dip) {
@@ -118,7 +118,7 @@ std::shared_ptr<EditorState> state_of(void *handle) {
     return it == g_state.end() ? nullptr : it->second;
 }
 
-/// The document's plain text — what Rust diffs a keystroke out of.
+/// The document's plain text, what Rust diffs a keystroke out of.
 std::string document_text(WUXC::RichEditBox const &box) {
     winrt::hstring text;
     box.Document().GetText(WUT::TextGetOptions::None, text);
@@ -127,12 +127,12 @@ std::string document_text(WUXC::RichEditBox const &box) {
     while (!s.empty() && (s.back() == '\r' || s.back() == '\n')) s.pop_back();
     // RichEdit's paragraph mark is a CR, and a Shift+Enter line break a VT. Every other toolkit
     // reports a line ending as LF, and Day's model is the one text an app splits, searches and
-    // diffs, so it has to read the same on all eight — a `\n` the app looks for is simply not
-    // there otherwise, on Windows alone.
+    // diffs, so it has to read the same on all eight; a `\n` the app looks for is not there
+    // otherwise, on Windows alone.
     //
     // Rewritten in place, one code unit for one: these offsets are the ones the selection and
     // every attribute range are expressed in, so collapsing anything here (a pair to a single
-    // LF) would shift every position after it by one per line — the class of bug the
+    // LF) would shift every position after it by one per line, the class of bug the
     // walkthrough's select-a-word assertion exists to catch.
     for (char &c : s) {
         if (c == '\r' || c == '\v') c = '\n';
@@ -154,7 +154,7 @@ void *day_texteditor_xaml_new(uint64_t id, int editable, int spellcheck, double 
     box.IsReadOnly(editable == 0);
     box.IsSpellCheckEnabled(spellcheck != 0);
     box.PlaceholderText(winrt::hstring(wide(placeholder)));
-    // A paste keeps its characters and takes the surrounding style — the same call every arm
+    // A paste keeps its characters and takes the surrounding style, the same call every arm
     // makes, so what a paste means is one behavior across the eight.
     box.Document().DefaultTabStop(36.0f);
     box.Document().UndoLimit(100);
@@ -237,15 +237,15 @@ void day_texteditor_xaml_begin_attrs(void *handle) {
     all.CharacterFormat(fmt);
     auto para = all.ParagraphFormat();
     para.Alignment(WUT::ParagraphAlignment::Left);
-    // `LeftIndent` and `FirstLineIndent` are READ-ONLY on ITextParagraphFormat — the TOM writes the
+    // `LeftIndent` and `FirstLineIndent` are read-only on ITextParagraphFormat; the TOM writes the
     // three indents together, as SetIndents(start, left, right), where `start` is the first line's
     // offset relative to `left`.
     para.SetIndents(0.0f, 0.0f, 0.0f);
     all.ParagraphFormat(para);
 }
 
-// `underline`: 0 none, 1 single, 2 double, 3 dotted, 4 wavy — Day's `Underline`, and the one arm
-// of the eight whose toolkit has a distinct spelling for every variant.
+// `underline`: 0 none, 1 single, 2 double, 3 dotted, 4 wavy (Day's `Underline`). This is the one
+// arm of the eight whose toolkit has a distinct spelling for every variant.
 void day_texteditor_xaml_apply_run(void *handle, int start, int end, double pt, int bold, int italic,
                                    int mono, int underline, int strike, int has_fg, uint32_t fg,
                                    int has_bg, uint32_t bg) {
@@ -312,7 +312,7 @@ void day_texteditor_xaml_set_selection(void *handle, int start, int end) {
     st->suppress = false;
 }
 
-// The typing style: a collapsed selection's character format IS what the next character takes —
+// The typing style: a collapsed selection's character format is what the next character takes;
 // native here, as it is on Qt and HarmonyOS.
 void day_texteditor_xaml_set_typing(void *handle, double pt, int bold, int italic, int mono,
                                     int underline, int strike, int has_fg, uint32_t fg, int has_bg,

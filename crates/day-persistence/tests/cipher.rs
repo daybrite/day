@@ -79,7 +79,7 @@ fn encrypt_open_decrypt_round_trips() {
     let encrypted = temp_db("encrypted");
     let decrypted = temp_db("decrypted");
 
-    // A plaintext database (cipher builds open those too — an empty key is plaintext)…
+    // A plaintext database (cipher builds open those too; an empty key is plaintext)…
     {
         let container = ModelContainer::open(Sqlite::at(&plain), schema![Note]).expect("open");
         add_note(&container, 1, "travels");

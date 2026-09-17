@@ -11,8 +11,8 @@ build = "build.rs"
 
 # A styled-text editor (docs/texteditor.md): `text_editor(Signal<StyledText>)` edits the same
 # `Vec<TextRun>` labels render and `.markdown()` produces, in each platform's own rich-text view.
-# All EIGHT toolkits have one — NSTextView, UITextView, GtkTextView, QTextEdit, EditText over a
-# SpannableStringBuilder, RichEditBox, the ArkTS RichEditor, and a contenteditable element — so
+# All eight toolkits have one (NSTextView, UITextView, GtkTextView, QTextEdit, EditText over a
+# SpannableStringBuilder, RichEditBox, the ArkTS RichEditor, and a contenteditable element), so
 # unlike day-piece-colorpicker this piece has no composed tier and must not have one: a hand-rolled
 # editor loses IME, bidi, undo, dictation and the accessibility tree.
 
@@ -22,14 +22,14 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QTextEdit)
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]           # + [package.metadata.day.android] carries DayTextEditor.java
-# XAML: build.rs compiles src/lib-xaml-shim.cpp — a RichEditBox driven through its TOM
+# XAML: build.rs compiles src/lib-xaml-shim.cpp, a RichEditBox driven through its TOM
 # ITextDocument. Windows-only, built in CI, not verified locally.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 # HarmonyOS: the ArkUI C node API has no rich editor, so the component is this crate's own ArkTS.
 arkui = ["dep:day-arkui"]
 # web-dom: a contenteditable element, which is the browser's own rich text editing.
 dom = ["dep:day-dom"]
-# No renderer — the feature exists so an app can enable `day-piece-texteditor/mock` uniformly.
+# No renderer; the feature exists so an app can enable `day-piece-texteditor/mock` uniformly.
 mock = []
 
 [package.metadata.day.piece]

@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The combo piece's OWN Qt shim behind a flat C ABI: an EDITABLE QComboBox — Qt's real combo
+// The combo piece's Qt shim behind a flat C ABI: an editable QComboBox, Qt's combo
 // box (free text + a dropdown of items). editTextChanged fires on typing and when picking an
 // item (the pick writes the edit text), so it is the single change path back to Rust (UTF-8,
 // valid only during the callback; Rust copies it). Programmatic setters are wrapped in
@@ -25,8 +25,8 @@ void *day_combo_new(const char *items_joined, const char *text, const char *plac
     c->addItems(QString::fromUtf8(items_joined).split(QChar('\n'), Qt::SkipEmptyParts));
     if (c->lineEdit())
         c->lineEdit()->setPlaceholderText(QString::fromUtf8(placeholder));
-    // The TEXT is the value: nothing pre-selected (addItems auto-selects item 0 on an editable
-    // combo, writing it into the edit — undo that), then seed the entry.
+    // The text is the value: nothing pre-selected (addItems auto-selects item 0 on an editable
+    // combo, writing it into the edit; undo that), then seed the entry.
     c->setCurrentIndex(-1);
     c->setEditText(QString::fromUtf8(text));
     QObject::connect(c, &QComboBox::editTextChanged, [id, cb](const QString &t) {
@@ -40,7 +40,7 @@ void day_combo_set_items(void *w, const char *items_joined) {
     QComboBox *c = static_cast<QComboBox *>(w);
     const QString keep = c->currentText(); // the text is the value; it survives the list swap
     c->blockSignals(true);
-    c->clear(); // clears the edit text too — restored below
+    c->clear(); // clears the edit text too; restored below
     c->addItems(QString::fromUtf8(items_joined).split(QChar('\n'), Qt::SkipEmptyParts));
     c->setCurrentIndex(-1);
     c->setEditText(keep);

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: NSComboBox — the platform's real combo box (a text field with a dropdown button and
+// AppKit: NSComboBox, the platform's combo box (a text field with a dropdown button and
 // item list). One delegate serves both halves: typing arrives per keystroke through
 // NSControlTextEditingDelegate::controlTextDidChange:, and picking an item posts
 // NSComboBoxDelegate::comboBoxSelectionDidChange:. The selection notification fires before the
-// control writes the pick into its own stringValue, so that handler reads the SELECTED ITEM's
+// control writes the pick into its stringValue, so that handler reads the selected item's
 // string and emits it. Programmatic setStringValue fires neither (no echo guard needed); an
 // Items patch's removeAllItems can fire a selection change with index -1, which is dropped.
 // ---------------------------------------------------------------------------
@@ -118,7 +118,7 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &ComboPatch) {
         return;
     };
     match patch {
-        // The text is the value and lives apart from the list — an items swap keeps it.
+        // The text is the value and lives apart from the list, so an items swap keeps it.
         ComboPatch::Items(items) => apply_items(combo, items),
         ComboPatch::SetText(t) => {
             if combo.stringValue().to_string() != *t {
@@ -137,8 +137,8 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
 
 /// Drop the retained delegate when the view goes away.
 ///
-/// Without this the map grows by one entry per realized combo box, and — worse — its key is the
-/// view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// Without this the map grows by one entry per realized combo box, and, worse, its key is the
+/// view's address, which the allocator reuses: a later view landing on a freed address would
 /// inherit the dead node's delegate and misroute its events.
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     TARGETS.with(|m| {

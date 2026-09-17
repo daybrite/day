@@ -15,7 +15,7 @@ import android.widget.FrameLayout;
  *  while unpresented it sits (zero-sized) wherever the Day tree put it; present() re-homes
  *  it to the content root with a slide-up, dismissCover() slides it out, reports
  *  K_COVER_HIDDEN, and detaches. System back is reported to Rust as NavBack (kind 5) while
- *  presented and not dismiss-disabled — Rust answers with the Dismiss patch. */
+ *  presented and not dismiss-disabled; Rust answers with the Dismiss patch. */
 public class DayCover extends FrameLayout {
     final DayFixed content;
     final long node;
@@ -27,7 +27,8 @@ public class DayCover extends FrameLayout {
 
     /** A modal surface must own touches its descendants do not handle (labels, spacers,
      *  padding and safe-area margins). An opaque FrameLayout alone is not a touch barrier:
-     *  returning false on DOWN lets the activity root try the sibling underneath the cover.
+     *  returning false on `ACTION_DOWN` lets the activity root try the sibling underneath the
+     *  cover.
      *  Consume here, after normal child dispatch, so buttons, scrolling and canvas gestures
      *  keep their streams. Do not intercept children or make the shell a clickable a11y node. */
     @Override public boolean onTouchEvent(MotionEvent event) {
@@ -37,7 +38,7 @@ public class DayCover extends FrameLayout {
     public DayCover(android.content.Context ctx, final long node) {
         super(ctx);
         this.node = node;
-        // An OPAQUE surface by default (the theme's window background): the shell overlays
+        // An opaque surface by default (the theme's window background): the shell overlays
         // the whole UI, and a transparent shell composites the presented app over the page
         // beneath it. An app-specified color (CoverPatch::Present) overrides this.
         android.util.TypedValue tv = new android.util.TypedValue();
@@ -86,11 +87,11 @@ public class DayCover extends FrameLayout {
 
     /** Attach over everything and slide up. Idempotent while already presented.
      *
-     *  Re-presenting a shell whose dismissal is still sliding REVERSES it: Rust reopens a
+     *  Re-presenting a shell whose dismissal is still sliding reverses it: Rust reopens a
      *  keyed window that has not finished closing as the same window (windows.rs), and the
-     *  slide picks up from where the view actually is rather than dropping it back to the
-     *  bottom edge first. The out-slide's completion callback goes with it — `slide` drops
-     *  the old animator's listeners before cancelling — so no K_COVER_HIDDEN follows. */
+     *  slide picks up from where the view currently is rather than dropping it back to the
+     *  bottom edge first. The out-slide's completion callback goes with it (`slide` drops
+     *  the old animator's listeners before cancelling), so no K_COVER_HIDDEN follows. */
     void present(boolean dismissDisabled) {
         this.dismissDisabled = dismissDisabled;
         ViewGroup root = ((android.app.Activity) DayBridge.ctx)
@@ -111,7 +112,7 @@ public class DayCover extends FrameLayout {
         if (backCb == null) {
             backCb = new androidx.activity.OnBackPressedCallback(!dismissDisabled) {
                 @Override public void handleOnBackPressed() {
-                    // Not popped natively — Rust decides and answers with the Dismiss patch.
+                    // Not popped natively: Rust decides and answers with the Dismiss patch.
                     DayBridge.nativeOnEvent(node, DayBridge.K_NAV_BACK, 0.0, "");
                 }
             };
@@ -128,10 +129,10 @@ public class DayCover extends FrameLayout {
 
     /** Slide out, hide, and report K_COVER_HIDDEN so Rust can dispose the content.
      *
-     *  The shell is HIDDEN (View.GONE), never detached: the next present()'s content can
+     *  The shell is hidden (View.GONE), never detached: the next present()'s content can
      *  include fragment hosts (a miniapp's nav stack), and a fragment commit resolves its
-     *  container id against the ATTACHED hierarchy — a detached shell made every
-     *  re-present throw "No view found for id" from FragmentStateManager. A GONE view
+     *  container id against the attached hierarchy; a detached shell made every
+     *  re-present throw "No view found for id" from FragmentStateManager. A `GONE` view
      *  neither lays out nor draws, so hiding costs nothing. */
     void dismissCover() {
         if (backCb != null) {
@@ -153,10 +154,10 @@ public class DayCover extends FrameLayout {
 
     /** The one slide driver. A dedicated ValueAnimator (never the view's shared
      *  ViewPropertyAnimator, which any other animate() user can cancel) with the end
-     *  callback in onAnimationEnd — invoked on both natural end and cancellation, so the
+     *  callback in onAnimationEnd, invoked on both natural end and cancellation, so the
      *  terminal state (hidden + K_COVER_HIDDEN, or settled at 0) can never be lost. */
     private android.animation.ValueAnimator slideAnim;
-    /** Cover slides in flight, all shells — dayscript's ui_idle gate (DayBridge.uiIdle). */
+    /** Cover slides in flight, all shells: dayscript's ui_idle gate (DayBridge.uiIdle). */
     static int slidesInFlight;
 
     private void slide(float from, float to, final Runnable done) {

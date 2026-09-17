@@ -5,7 +5,7 @@
 //! committed `DayApp.xcconfig` beside each `DayApp.xcodeproj`, and the Day.toml-derived
 //! identity (bundle id, version, build number) is written to a gitignored
 //! `build/day/xcconfig/<platform>.xcconfig` that the committed file `#include?`s after its
-//! own settings — so Day.toml stays authoritative once `day build` has run, while a fresh
+//! own settings, so Day.toml stays authoritative once `day build` has run, while a fresh
 //! checkout still builds in the Xcode IDE from the committed fallback lines. A second
 //! `#include?` follows it for `DayApp.local.xcconfig`, the gitignored per-checkout file
 //! carrying a developer's signing team and anything else that should not be committed.
@@ -15,21 +15,21 @@
 //!
 //! [`ensure_split`] migrates a pre-split scaffold in place: it extracts the current values
 //! from the pbxproj, writes `DayApp.xcconfig` from the embedded template with those values
-//! substituted (a hand-raised deployment target survives the move), and rewires the pbxproj
-//! — file reference, group entry, `baseConfigurationReference` on every configuration, the
+//! substituted (a hand-raised deployment target survives the move), and rewires the pbxproj:
+//! file reference, group entry, `baseConfigurationReference` on every configuration, the
 //! moved settings stripped. The edits anchor on the scaffold template's deterministic object
 //! ids; a hand-restructured project degrades to a warning and keeps its old behavior, never
-//! a half-edit — the whole transform happens in memory and is written only when complete.
+//! a half-edit, because the whole transform happens in memory and is written only when complete.
 
 use crate::meta::Project;
 use crate::ops::status;
 
-/// The pbxproj object id of the `DayApp.xcconfig` file reference — from the same reserved
+/// The pbxproj object id of the `DayApp.xcconfig` file reference, from the same reserved
 /// `DA…` space as every other scaffold-stamped id.
 const REF_ID: &str = "DA0000000000000000000006";
 
 /// The settings that move out of the pbxproj. Stripping them is what lets the xcconfig
-/// (and the Xcode Build Settings editor, and the generated include) take effect — a value
+/// (and the Xcode Build Settings editor, and the generated include) take effect; a value
 /// left in a target's `buildSettings` would override all of those.
 const MOVED: [&str; 8] = [
     "CODE_SIGNING_ALLOWED",
@@ -53,21 +53,21 @@ fn target_for(platform: &str) -> &'static str {
     }
 }
 
-/// Write `build/day/xcconfig/<platform>.xcconfig` — the Day-managed values the committed
+/// Write `build/day/xcconfig/<platform>.xcconfig`, the Day-managed values the committed
 /// `DayApp.xcconfig` includes last. Rewritten (when changed) on every build so the bundle
 /// id, version, and build number always track Day.toml.
 pub fn write_generated(project: &Project, platform: &str) -> Result<(), String> {
     let resolved = project.manifest.resolve(target_for(platform));
     let win = &project.manifest.window;
-    // Day.toml `[window]`'s minimum rides here as a build SETTING, and the checked-in Info.plist
-    // references it as `$(DAY_WINDOW_MIN_WIDTH)` — the same mechanism `DAY_URL_SCHEME` above has
+    // Day.toml `[window]`'s minimum rides here as a build setting, and the checked-in Info.plist
+    // references it as `$(DAY_WINDOW_MIN_WIDTH)`, the same mechanism `DAY_URL_SCHEME` above has
     // always used. day-uikit reads the resolved numbers back out of the built bundle and applies
     // them to `UIWindowScene.sizeRestrictions` (docs/screenshots.md, docs/size-classes.md).
     //
     // Not written into the plist, which is where this started. That file is tracked, so a build
-    // that rewrites it leaves the working tree dirty and CI refuses to pack from it — and every
+    // that rewrites it leaves the working tree dirty and CI refuses to pack from it, and every
     // later edit to `[window]` would dirty it again. `INFOPLIST_KEY_*` is not the alternative
-    // either: those apply only when Xcode GENERATES the plist, and the scaffold ships a real one
+    // either: those apply only when Xcode generates the plist, and the scaffold ships a real one
     // (`GENERATE_INFOPLIST_FILE = NO`). Variable substitution is, and it costs the plist one
     // stable reference instead of a value that goes stale.
     let out = format!(
@@ -109,7 +109,7 @@ struct Extracted {
 }
 
 /// Migrate `platform/<platform>/` to the xcconfig split if it hasn't been already.
-/// Returns `Ok` (with a warning) when the project can't be migrated automatically — the
+/// Returns `Ok` (with a warning) when the project can't be migrated automatically: the
 /// pre-split layout keeps working, so an unrecognized pbxproj must not fail the build.
 pub fn ensure_split(project: &Project, platform: &str) -> Result<(), String> {
     let dir = project.root.join("platform").join(platform);
@@ -124,7 +124,7 @@ pub fn ensure_split(project: &Project, platform: &str) -> Result<(), String> {
     if wired && xcc_path.exists() {
         return Ok(());
     }
-    // A project that wired its OWN xcconfig gets left alone — a second base configuration
+    // A project that wired its own xcconfig gets left alone; a second base configuration
     // would silently displace theirs.
     if !wired && pbx.contains("baseConfigurationReference") {
         status(

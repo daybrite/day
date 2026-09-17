@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: NSDatePicker for both pieces — Compact → textFieldAndStepper, Inline → clockAndCalendar
+// AppKit: NSDatePicker for both pieces. Compact → textFieldAndStepper, Inline → clockAndCalendar
 // (the graphical month grid / analog clock); date-only resp. time-only element flags (seconds adds
 // HourMinuteSecond). The control's calendar/timeZone are pinned to proleptic-Gregorian GMT so Day's
-// civil DayDate/DayTime map 1:1 onto NSDate epoch seconds regardless of the user's zone — the
-// LOCALE stays the user's, so month/weekday names render localized.
+// civil DayDate/DayTime map 1:1 onto NSDate epoch seconds regardless of the user's zone; the
+// locale stays the user's, so month/weekday names render localized.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -120,10 +120,10 @@ fn measure_picker(h: &Retained<NSView>) -> Size {
     Size::new(s.width.ceil().max(60.0), s.height.ceil().max(22.0))
 }
 
-/// Drop the retained target when the picker goes away (shared by both renderers — the map is).
+/// Drop the retained target when the picker goes away (shared by both renderers, as the map is).
 ///
-/// Without this the map grows by one entry per realized picker, and — worse — its key is the
-/// view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// Without this the map grows by one entry per realized picker, and, worse, its key is the
+/// view's address, which the allocator reuses: a later view landing on a freed address would
 /// inherit the dead node's target.
 fn release(_backend: &mut AppKit, h: &Retained<NSView>) {
     TARGETS.with(|m| {

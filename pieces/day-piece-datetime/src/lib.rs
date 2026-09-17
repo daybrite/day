@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-datetime — native date & time pickers for every Day backend (docs/datepicker.md;
+//! day-piece-datetime: native date & time pickers for every Day backend (docs/datepicker.md;
 //! DESIGN.md §15 tier 1+shim).
 //!
 //! ```ignore
@@ -15,16 +15,16 @@
 //! ))
 //! ```
 //!
-//! Two pieces — [`date_picker`] and [`time_picker`] — rather than one combined date-time piece: a
+//! Two pieces, [`date_picker`] and [`time_picker`], rather than one combined date-time piece: a
 //! single combined control exists on only 3 of the 7 toolkits (`NSDatePicker`,
 //! `UIDatePicker.dateAndTime`, `QDateTimeEdit`), while separate date and time controls realize
-//! natively on ALL of them. Each piece maps a small style intent ([`Style::Compact`] /
-//! [`Style::Inline`]) to the platform's closest idiomatic control — never promising identical
+//! natively on all of them. Each piece maps a small style intent ([`Style::Compact`] /
+//! [`Style::Inline`]) to the platform's closest idiomatic control, never promising identical
 //! chrome (Android's Material chooser is a modal dialog, iOS's a popover, Qt's a calendar popup;
-//! that difference IS the platform, docs/datepicker.md has the full table).
+//! that difference is the platform, docs/datepicker.md has the full table).
 //!
-//! The bound signal is TWO-WAY: a user pick sets it; the app setting it updates the native
-//! control. Values are civil (zoneless) [`DayDate`]/[`DayTime`] — time zones are the app's
+//! The bound signal is two-way: a user pick sets it; the app setting it updates the native
+//! control. Values are civil (zoneless) [`DayDate`]/[`DayTime`]; time zones are the app's
 //! business. The piece's node also accepts `Event::TextChanged` carrying an ISO value
 //! (`"2026-07-18"` / `"09:30"`) as a synthetic set, so dayscript's existing `input:` step drives
 //! any picker on any backend.
@@ -37,7 +37,7 @@ pub const DATE_KIND: &str = "day.piece.datepicker";
 pub const TIME_KIND: &str = "day.piece.timepicker";
 
 // ---------------------------------------------------------------------------
-// Values: proleptic-Gregorian civil date + wall-clock time. No chrono dependency — ISO-8601
+// Values: proleptic-Gregorian civil date + wall-clock time. No chrono dependency: ISO-8601
 // strings and epoch days / seconds-of-day are the interchange forms across native boundaries.
 // ---------------------------------------------------------------------------
 
@@ -62,7 +62,7 @@ impl Default for DayDate {
 
 /// Seconds since the Unix epoch, from whatever clock this target has.
 ///
-/// `SystemTime::now()` TRAPS on `wasm32-unknown-unknown` — the target has no clock, and the trap
+/// `SystemTime::now()` traps on `wasm32-unknown-unknown`: the target has no clock, and the trap
 /// is not a panic that can be caught, it aborts the module. So a `DayDate::today()` anywhere on
 /// the startup path took the whole web app down with `RuntimeError: Unreachable code`. The web
 /// build reads the host's clock through the same JS shim day-dom imports everything else from.
@@ -83,8 +83,8 @@ fn now_epoch_secs() -> i64 {
     }
 }
 
-// The attribute makes this a wasm IMPORT from the instantiation's `env` object (shim.js supplies
-// it) rather than a link-time-resolved symbol — without it rust-lld reports it undefined.
+// The attribute makes this a wasm import from the instantiation's `env` object (shim.js supplies
+// it) rather than a link-time-resolved symbol; without it rust-lld reports it undefined.
 #[cfg(target_arch = "wasm32")]
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
@@ -93,7 +93,7 @@ unsafe extern "C" {
 }
 
 impl DayDate {
-    /// A validated date (`month` 1–12, `day` within the month, leap-aware) — `None` otherwise.
+    /// A validated date (`month` 1–12, `day` within the month, leap-aware); `None` otherwise.
     pub fn new(year: i32, month: u8, day: u8) -> Option<Self> {
         if (1..=12).contains(&month) && day >= 1 && day <= days_in_month(year, month) {
             Some(DayDate { year, month, day })
@@ -103,7 +103,7 @@ impl DayDate {
     }
 
     /// Today's date derived from the system clock in UTC (Day carries no time-zone database; an
-    /// app that must roll the date at LOCAL midnight should compute it with its own zone source).
+    /// app that must roll the date at local midnight should compute it with its own zone source).
     pub fn today() -> Self {
         Self::from_epoch_days(now_epoch_secs().div_euclid(86_400))
     }
@@ -203,7 +203,7 @@ pub struct DayTime {
 }
 
 impl DayTime {
-    /// A validated time (`hour` 0–23, `minute`/`second` 0–59) — `None` otherwise.
+    /// A validated time (`hour` 0–23, `minute`/`second` 0–59); `None` otherwise.
     pub fn new(hour: u8, minute: u8, second: u8) -> Option<Self> {
         if hour < 24 && minute < 60 && second < 60 {
             Some(DayTime {
@@ -216,15 +216,15 @@ impl DayTime {
         }
     }
 
-    /// The current time of day from the system clock in UTC — the twin of [`DayDate::today`],
-    /// and carrying the same caveat: Day ships no time-zone database, so an app that needs LOCAL
+    /// The current time of day from the system clock in UTC, the twin of [`DayDate::today`],
+    /// and carrying the same caveat: Day ships no time-zone database, so an app that needs local
     /// wall-clock time should apply its own offset. Pair the two for a timestamp
     /// (`Day-Showcase-2026-08-12-14-23-05.png`).
     pub fn now() -> Self {
         Self::from_seconds_of_day(now_epoch_secs().rem_euclid(86_400))
     }
 
-    /// Seconds since midnight — the numeric interchange form across native boundaries.
+    /// Seconds since midnight, the numeric interchange form across native boundaries.
     pub fn seconds_of_day(self) -> i64 {
         self.hour as i64 * 3600 + self.minute as i64 * 60 + self.second as i64
     }
@@ -284,14 +284,14 @@ impl std::fmt::Display for DayTime {
 
 /// The canonical stored forms and the named alternatives, for `#[derive(Model)]` fields.
 ///
-/// Canonical — what a bare field of the type stores:
+/// Canonical, what a bare field of the type stores:
 /// [`DayDate`] → `INTEGER` epoch days, [`DayTime`] → `INTEGER` seconds-of-day: the same numeric
 /// interchange forms the pickers already speak across native boundaries, and both sort
 /// chronologically as plain integers.
 ///
-/// Named — pick per field with `#[model(with = …)]`:
+/// Named, picked per field with `#[model(with = …)]`:
 /// [`Iso8601`] stores `TEXT` in the form `Display` writes (readable in any sqlite tool, and
-/// lexicographic order IS chronological order — ISO-8601's design goal); [`EpochSeconds`] and
+/// lexicographic order is chronological order, ISO-8601's design goal); [`EpochSeconds`] and
 /// [`EpochMillis`] store the `INTEGER` a server that speaks Unix time expects, midnight-of-day
 /// for a [`DayDate`].
 #[cfg(feature = "persistence")]
@@ -348,7 +348,7 @@ mod codecs {
         }
     }
 
-    /// `INTEGER` seconds since 1970-01-01T00:00Z — midnight of the day, for a [`DayDate`].
+    /// `INTEGER` seconds since 1970-01-01T00:00Z; midnight of the day, for a [`DayDate`].
     pub struct EpochSeconds;
 
     impl ValueCodec<DayDate> for EpochSeconds {
@@ -361,7 +361,7 @@ mod codecs {
         }
     }
 
-    /// `INTEGER` milliseconds since the same epoch — for interop that expects it.
+    /// `INTEGER` milliseconds since the same epoch, for interop that expects it.
     pub struct EpochMillis;
 
     impl ValueCodec<DayDate> for EpochMillis {
@@ -383,20 +383,20 @@ pub use codecs::{EpochMillis, EpochSeconds, Iso8601};
 // ---------------------------------------------------------------------------
 
 /// How the picker presents (docs/datepicker.md has the per-toolkit table). Like `PickerStyle`,
-/// each intent maps to the platform's closest idiomatic control — chrome differs by design.
+/// each intent maps to the platform's closest idiomatic control, so chrome differs per platform.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Style {
-    /// The platform default — [`Style::Compact`] everywhere today.
+    /// The platform default: [`Style::Compact`] everywhere today.
     #[default]
     Automatic,
     /// A field/button showing the value that summons a transient chooser (NSDatePicker
     /// textFieldAndStepper / UIDatePicker .compact / a Material dialog launcher / QDateEdit with
     /// calendar popup / CalendarDatePicker flyout / GtkMenuButton+calendar popover /
-    /// ARKUI CalendarPicker).
+    /// ArkUI CalendarPicker).
     Compact,
     /// An embedded calendar / clock / wheels (NSDatePicker graphical / UIDatePicker .inline /
     /// framework DatePicker+TimePicker widgets / QCalendarWidget / CalendarView / GtkCalendar /
-    /// ARKUI DatePicker wheels).
+    /// ArkUI DatePicker wheels).
     Inline,
 }
 
@@ -421,8 +421,8 @@ pub enum DatePatch {
 pub struct TimeProps {
     pub time: DayTime,
     pub style: Style,
-    /// Show/edit seconds — honored on AppKit and Qt (the toolkits whose controls have a seconds
-    /// field); a documented no-op elsewhere.
+    /// Show/edit seconds; honored on AppKit and Qt (the toolkits whose controls have a seconds
+    /// field), a documented no-op elsewhere.
     pub seconds: bool,
 }
 
@@ -431,9 +431,9 @@ pub enum TimePatch {
     SetTime(DayTime),
 }
 
-/// How the pickers are realized on the compiled backend: `Native` (a real platform picker
-/// control) or `Emulated` (GTK — GTK4/libadwaita have no stock date/time picker, so the renderer
-/// composes native primitives: GtkCalendar in a popover, linked spin buttons; also mock).
+/// How the pickers are realized on the compiled backend: `Native` (a platform picker
+/// control) or `Emulated` (GTK, where GTK4/libadwaita have no stock date/time picker, so the
+/// renderer composes native primitives: GtkCalendar in a popover, linked spin buttons; also mock).
 pub fn support() -> day_spec::Support {
     if cfg!(any(
         all(feature = "appkit", target_os = "macos"),
@@ -457,11 +457,11 @@ pub struct DatePicker<S: Binding<DayDate>> {
     max: Option<DayDate>,
 }
 
-/// `date_picker(date)` — a field summoning the platform's chooser; `.inline()` embeds it.
+/// `date_picker(date)`: a field summoning the platform's chooser; `.inline()` embeds it.
 /// `date` is a `Signal<DayDate>` or any other two-way binding (a day-model `Field`, mapped).
 pub fn date_picker<S: Binding<DayDate>>(date: S) -> DatePicker<S> {
-    // web-dom's registry is populated at RUNTIME (no `linkme` on wasm), and a constructor always
-    // runs before the node it returns is realized — so this is where the arm registers itself.
+    // web-dom's registry is populated at runtime (no `linkme` on wasm), and a constructor always
+    // runs before the node it returns is realized, so this is where the arm registers itself.
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
     dom_impl::register();
     DatePicker {
@@ -560,7 +560,7 @@ pub struct TimePicker<S: Binding<DayTime>> {
     seconds: bool,
 }
 
-/// `time_picker(time)` — a field summoning the platform's chooser; `.inline()` embeds it.
+/// `time_picker(time)`: a field summoning the platform's chooser; `.inline()` embeds it.
 pub fn time_picker<S: Binding<DayTime>>(time: S) -> TimePicker<S> {
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
     dom_impl::register();
@@ -584,7 +584,7 @@ impl<S: Binding<DayTime>> TimePicker<S> {
         self.style = style;
         self
     }
-    /// Show/edit seconds — honored on AppKit and Qt; a documented no-op elsewhere
+    /// Show/edit seconds; honored on AppKit and Qt, a documented no-op elsewhere
     /// (docs/datepicker.md).
     pub fn seconds(mut self, seconds: bool) -> Self {
         self.seconds = seconds;
@@ -638,7 +638,7 @@ impl<S: Binding<DayTime>> Piece for TimePicker<S> {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend (the day-piece-picker convention). Every
+// Per-toolkit native renderers, one file per backend (the day-piece-picker convention). Every
 // module registers `Renderer`s link-time into its backend's `RENDERERS` slice; the `#[cfg]` gates
 // each to its feature + target.
 // ---------------------------------------------------------------------------

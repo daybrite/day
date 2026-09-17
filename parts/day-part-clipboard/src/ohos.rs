@@ -4,7 +4,7 @@
 // HarmonyOS / OpenHarmony: the native Pasteboard C API (`libpasteboard.so`, oh_pasteboard.h,
 // API 13+) with content typed through UDMF (`libudmf.so`): a plain-text write is an
 // OH_UdsPlainText inside an OH_UdmfRecord inside an OH_UdmfData handed to OH_Pasteboard_SetData;
-// a read is OH_Pasteboard_GetData + OH_UdmfData_GetPrimaryPlainText. Pure FFI, like macOS/iOS —
+// a read is OH_Pasteboard_GetData + OH_UdmfData_GetPrimaryPlainText. Pure FFI, like macOS/iOS;
 // no ArkTS bridge or Day runtime needed (unlike Android's ClipboardManager, which rides
 // day-android's JVM/Context). Reading the pasteboard needs no permission.
 
@@ -29,9 +29,9 @@ struct OhUdsPlainText {
     _opaque: [u8; 0],
 }
 
-/// UDMF_META_PLAIN_TEXT (udmf_meta.h) — the plain-text uniform type id.
+/// UDMF_META_PLAIN_TEXT (udmf_meta.h), the plain-text uniform type id.
 const PLAIN_TEXT_TYPE: &CStr = c"general.plain-text";
-/// ERR_OK / UDMF_E_OK — both APIs return 0 on success.
+/// ERR_OK / UDMF_E_OK: both APIs return 0 on success.
 const OK: c_int = 0;
 
 #[link(name = "pasteboard")]
@@ -115,7 +115,7 @@ pub fn get_text() -> Option<String> {
                 let uds = OH_UdsPlainText_Create();
                 if !uds.is_null() {
                     if OH_UdmfData_GetPrimaryPlainText(data, uds) == OK {
-                        // GetContent borrows from the uds object — copy before destroying it.
+                        // GetContent borrows from the uds object; copy before destroying it.
                         let content = OH_UdsPlainText_GetContent(uds);
                         if !content.is_null() {
                             out = Some(CStr::from_ptr(content).to_string_lossy().into_owned());

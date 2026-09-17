@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The day-piece-activity crate's Android backend — bundled here and folded into the app's Gradle
-// build via [package.metadata.day.android], with ZERO edits to day-android. It uses only
-// day-android's PUBLIC Java surface: DayBridge.ctx (the Context). android.widget.ProgressBar's
+// The day-piece-activity crate's Android backend, bundled here and folded into the app's Gradle
+// build via [package.metadata.day.android], with no edits to day-android. It uses only
+// day-android's public Java surface: DayBridge.ctx (the Context). android.widget.ProgressBar's
 // default style is a circular indeterminate spinner, so the piece adds no Gradle dependencies and no
 // permissions. See docs/extending.md + docs/activity.md.
 package dev.daybrite.day.piece.activity;
@@ -32,10 +32,10 @@ public final class DayActivity {
     }
 
     /**
-     * A default indeterminate circular ProgressBar always animates while VISIBLE. The closest to a
-     * stopped-but-present spinner is INVISIBLE, which keeps the view's layout box (so surrounding
-     * layout does not jump) while hiding the animation. setFrame never forces visibility, so this
-     * sticks across relayouts.
+     * A default indeterminate circular ProgressBar always animates while `VISIBLE`. The closest to
+     * a stopped-but-present spinner is `INVISIBLE`, which keeps the view's layout box (so
+     * surrounding layout does not jump) while hiding the animation. setFrame never forces
+     * visibility, so this sticks across relayouts.
      */
     public static void setActivityAnimating(View view, boolean animating) {
         if (!(view instanceof ProgressBar)) {

@@ -8,17 +8,17 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): keep the screen on while something is showing. Any
+# A headless day-ecosystem crate (no UI Piece): keep the screen on while something is showing. Any
 # Rust code can depend on it and hold `day_part_wakelock::keep_screen_on()`. Platform selection is by
 # `#[cfg(target_os)]` (screen sleep is an OS concern, not a widget-toolkit one), so there are no
 # backend features:
-#   iOS       — UIApplication.isIdleTimerDisabled
-#   macOS     — an IOKit power assertion (PreventUserIdleDisplaySleep)
-#   Windows   — SetThreadExecutionState
-#   Android   — FLAG_KEEP_SCREEN_ON on the activity's window, Java arm in src/lib.rs (docs/bridge.md)
-#   HarmonyOS — Window.setWindowKeepScreenOn, ArkTS arm in src/lib.rs
-#   web       — the Screen Wake Lock API, JavaScript arm in src/lib.rs
-#   Linux     — none yet (is_supported() is false)
+#   iOS:       UIApplication.isIdleTimerDisabled
+#   macOS:     an IOKit power assertion (PreventUserIdleDisplaySleep)
+#   Windows:   SetThreadExecutionState
+#   Android:   FLAG_KEEP_SCREEN_ON on the activity's window, Java arm in src/lib.rs (docs/bridge.md)
+#   HarmonyOS: Window.setWindowKeepScreenOn, ArkTS arm in src/lib.rs
+#   web:       the Screen Wake Lock API, JavaScript arm in src/lib.rs
+#   Linux:     none yet (is_supported() is false)
 # See docs/wakelock.md.
 
 [dependencies]

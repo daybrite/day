@@ -1,12 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-arkui — the HarmonyOS Next **ArkUI** backend (target `harmony-arkui`; DESIGN.md §9).
+//! day-arkui: the HarmonyOS Next **ArkUI** backend (target `harmony-arkui`; DESIGN.md §9).
 //!
 //! HarmonyOS has no AOSP layer; its UI framework is ArkUI. Day drives it through the **ArkUI Native
 //! NodeAPI** (`day-arkui-sys`): every Piece becomes a real `ArkUI_NodeHandle` (Text / Button /
 //! TextInput / Toggle / Slider / Stack), built natively and mounted into an ArkTS `NodeContent` slot.
-//! Architecturally it mirrors `day-android` — a managed UI runtime (ArkTS) hosts the window, native
+//! Architecturally it mirrors `day-android`: a managed UI runtime (ArkTS) hosts the window, native
 //! code (Rust) builds the tree over a thin bridge, and **day owns absolute layout**: containers are
 //! `ARKUI_NODE_STACK` and each child gets an explicit position + size (in vp = day points).
 //!
@@ -58,16 +58,16 @@ mod imp {
         static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// Keys whose NavDestination already disappeared (`day_arkui_nav_popped`) while the
-        /// page is still mounted — its Remove must not touch the torn-down ArkTS content.
+        /// page is still mounted; its Remove must not touch the torn-down ArkTS content.
         static NAV_POPPED_KEYS: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
-        /// Keys whose next `navPopped` acknowledges a DAY-initiated pop (must not sync back
+        /// Keys whose next `navPopped` acknowledges a Day-initiated pop (must not sync back
         /// as a native back). Keyed, not counted: a page pushed and popped within one frame
-        /// never mounts, so ArkUI fires NO disappear for it — a counter would wait forever
+        /// never mounts, so ArkUI fires no disappear for it, and a counter would wait forever
         /// on an acknowledgment that never comes (the CI post-stack blank-screenshot wedge).
         static NAV_EXPECT_POP: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
-        /// Rust's own order of pushed page keys — what a `NavPatch::Popped` pops, so the pop
+        /// Rust's order of pushed page keys: what a `NavPatch::Popped` pops, so the pop
         /// handler knows which key it retired (ArkTS only reports keys on disappear).
         static NAV_STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
         /// NAV_PAGE node ptr → day NodeId (recorded at realize; consumed by insert/push).
@@ -76,21 +76,21 @@ mod imp {
         /// The window root Stack + content size, set by [`init`] before `run`.
         static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
         static DENSITY: Cell<f64> = const { Cell::new(1.0) };
-        /// Dark mode (docs/localization + theming): resolved once at init — DAY_THEME (the CI
+        /// Dark mode (docs/localization + theming): resolved once at init. DAY_THEME (the CI
         /// forced theme) wins, else DAY_ARKUI_DARK (the system color mode the ArkTS host reports
-        /// via setEnv before start()). ArkUI's C-API nodes do NOT re-theme hardcoded colors, so
-        /// every neutral day-arkui paints branches on this flag.
+        /// via setEnv before start()). ArkUI's C-API nodes do not re-theme hardcoded colors, so
+        /// every neutral day-arkui paint branches on this flag.
         static IS_DARK: Cell<bool> = const { Cell::new(false) };
         /// Slider node ptr → (min, max), so ArkUI's 0..100 maps back to day's range.
         static SLIDER_RANGE: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
         /// ArkTS-built piece nodes (docs/extending.md): FrameNode ptr → day NodeId. Release sends
-        /// the ArkTS side its disposal and skips the native dispose — ArkTS owns these nodes.
+        /// the ArkTS side its disposal and skips the native dispose, since ArkTS owns these nodes.
         static PIECE_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         // Text-area (min_lines, max_lines) by handle, for the measure band (docs/textarea.md).
         static TEXTAREA_LINES: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
         /// plain NODE_ON_CLICK, so we register it against a fresh synthetic id and translate the
-        /// click back into `SelectionChanged(index)` against the MENU host (day-android does the
+        /// click back into `SelectionChanged(index)` against the menu host (day-android does the
         /// same with a per-row listener). See [`day_arkui_on_event`].
         static MENU_ROWS: RefCell<HashMap<u64, (NodeId, i64)>> = RefCell::new(HashMap::new());
         /// NAV_MENU scroll node ptr → its day NodeId, so `NavMenuPatch::Items` (which only gets
@@ -100,24 +100,24 @@ mod imp {
         /// Monotonic synthetic-id counter for menu rows (kept out of day's NodeId space by using the
         /// high bit, which day-core never allocates).
         static SYNTH: Cell<u64> = const { Cell::new(1u64 << 63) };
-        /// LIST host node ptr → its day NodeId, so `attach_list` (which only gets the handle) can
+        /// List host node ptr → its day NodeId, so `attach_list` (which only gets the handle) can
         /// key the source by the id the native adapter callbacks report.
         static LIST_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
-        /// LIST host NodeId → its injected row-pull source (docs/list.md).
+        /// List host NodeId → its injected row-pull source (docs/list.md).
         /// Programmatic selection per list (docs/list.md `ListPatch::Selected`): the shim
-        /// paints from this — at bind and on a sync (`day_ark_list_paint_selection`).
+        /// paints from this at bind and on a sync (`day_ark_list_paint_selection`).
         static LIST_SELECTED: RefCell<HashMap<u64, std::collections::BTreeSet<usize>>> =
             RefCell::new(HashMap::new());
         /// Lists with a posted reload not yet run (see the Reload arm): one data change often
         /// fires several watches (shape + expansion + selection), and back-to-back
-        /// ReloadAllItems bursts dropped adapter ADDs — coalesce to one per drain.
+        /// ReloadAllItems bursts dropped adapter ADDs, so coalesce to one per drain.
         static LIST_RELOAD_PENDING: RefCell<std::collections::HashSet<usize>> =
             RefCell::new(std::collections::HashSet::new());
         /// Control handle → day node, for the echo cells below (a patch sees only the handle;
         /// the echoed event carries only the node).
         static CTRL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
-        /// Programmatic-set echo cells (§4.4): ArkUI fires onChange for PROGRAMMATIC sets
-        /// too, so a value day just wrote comes straight back as a change event — and a
+        /// Programmatic-set echo cells (§4.4): ArkUI fires onChange for programmatic sets
+        /// too, so a value day just wrote comes straight back as a change event, and a
         /// two-way binding then re-writes the app state (on Day-Sketch, phantom "style"
         /// undo units on every selection change). The cell holds the last programmatic
         /// value; a matching event is the echo and is swallowed, a differing one is the
@@ -127,8 +127,8 @@ mod imp {
         static LIST_SOURCES: RefCell<HashMap<u64, day_spec::ListSource>> =
             RefCell::new(HashMap::new());
         /// Node ids with a Tap gesture (docs/shapes.md): a NODE_ON_CLICK on these emits `Event::Tap`
-        /// (not `Event::Pressed`) — how a canvas/shape `.on_tap` (e.g. day-piece-rating's stars)
-        /// receives taps on ArkUI. See [`Toolkit::enable_gesture`] + [`day_arkui_on_event`].
+        /// (not `Event::Pressed`), which is how a canvas/shape `.on_tap` (e.g. day-piece-rating's
+        /// stars) receives taps on ArkUI. See [`Toolkit::enable_gesture`] + [`day_arkui_on_event`].
         static TAP_NODES: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
         /// Tap-node handle ptr → its node id, so `release` (which only gets the handle) can drop the
@@ -138,21 +138,21 @@ mod imp {
         /// native-owned (full window while presented), so `set_frame` skips these.
         static COVER_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// A cover's current native parent (the tree slot it was parked in, or the window
-        /// root while presented) — presenting re-homes it, so removals must target this.
+        /// root while presented). Presenting re-homes it, so removals must target this.
         static COVER_PARENTS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
-        /// Covers currently PRESENTED (topped on the window root). Separate from
-        /// COVER_PARENTS — that records the parked tree slot, which on the cover-fallback
-        /// tier (docs/windows.md) is the root itself, so parent-comparison cannot stand in
-        /// for presented-ness.
+        /// Covers currently presented (topped on the window root). Separate from
+        /// COVER_PARENTS, which records the parked tree slot; on the cover-fallback
+        /// tier (docs/windows.md) that slot is the root itself, so parent-comparison cannot
+        /// stand in for presented-ness.
         static COVER_PRESENTED: RefCell<std::collections::HashSet<usize>> =
             RefCell::new(std::collections::HashSet::new());
-        /// The window root Stack + its size, KEPT for the app's lifetime (unlike [`ROOT`],
-        /// which `run` consumes) — covers re-home onto it while presented.
+        /// The window root Stack + its size, kept for the app's lifetime (unlike [`ROOT`],
+        /// which `run` consumes); covers re-home onto it while presented.
         static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
         /// Nav transitions in flight, for [`Toolkit::ui_idle`] (dayscript screenshots wait on
         /// it): pushed page keys awaiting their destination's first area report, and popped
         /// page keys awaiting their `navPopped` acknowledgment. Both hold only keys whose
-        /// native event is actually COMING: a pop retires its own pending-push entry (a
+        /// native event is still coming: a pop retires its own pending-push entry (a
         /// never-mounted page reports neither), and only lands in the pending-pop set when
         /// the page had mounted.
         static NAV_PENDING_PUSH: RefCell<std::collections::HashSet<u64>> =
@@ -162,14 +162,14 @@ mod imp {
         /// Each `scroll()`'s shim-owned content Stack (scroll ptr → stack ptr), sized by
         /// `set_scroll_content`. Day's content nodes are layout-only (no native child of
         /// their own), and an ArkUI Scroll whose children are absolutely-placed leaves
-        /// measures a content extent of 0 — offsets clamp to nothing and neither touch nor
+        /// measures a content extent of 0, so offsets clamp to nothing and neither touch nor
         /// programmatic scrolling moves. `insert`/`remove` re-route the scroll's day
         /// children into the container so the Scroll measures the real extent.
         static SCROLL_CONTENT: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
         /// Monotonic base for frame-clock timestamps (§8.4).
         static FRAME_EPOCH: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
 
-        /// Each picker wheel's live selection, so a change of OPTIONS can keep it — the
+        /// Each picker wheel's live selection, so a change of options can keep it: the
         /// range attribute is set whole, and the selected index goes with it. A
         /// [`SideTable`], so the backend's release sweep drops a dead picker's entry.
         static PICKER_SELECTED: day_spec::sidetable::SideTable<usize> =
@@ -180,27 +180,27 @@ mod imp {
         static NAV_SUITE: RefCell<Option<NavSuite>> = const { RefCell::new(None) };
 
         /// Secondary window roots (docs/windows.md): (day node, the window's Stack node
-        /// pointer) — the multiton DayWindowAbility instances' content.
+        /// pointer): the multiton DayWindowAbility instances' content.
         static SECONDARY: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
 
     }
 
-    /// Build a NAV_MENU: a scrollable column of CONVENTIONAL navigation rows — an optional
-    /// leading icon, leading-aligned label, trailing chevron, hairline separators (the
-    /// HarmonyOS settings-list idiom) — not buttons. Each row's tap becomes a synthetic click
+    /// Build a NAV_MENU: a scrollable column of conventional navigation rows (an optional
+    /// leading icon, leading-aligned label, trailing chevron, hairline separators, the
+    /// HarmonyOS settings-list idiom), not buttons. Each row's tap becomes a synthetic click
     /// that [`day_arkui_on_event`] translates to `SelectionChanged(index)` against `menu`.
     ///
     /// Icons (docs/vectors.md): a vector name resolves to its staged rawfile SVG
-    /// (`day/<name>.svg`), which ArkUI renders natively and `NODE_IMAGE_FILL_COLOR` recolors —
-    /// the row's own tint when given, else a secondary theme foreground. A raster name falls
+    /// (`day/<name>.svg`), which ArkUI renders natively and `NODE_IMAGE_FILL_COLOR` recolors:
+    /// the row's tint when given, else a secondary theme foreground. A raster name falls
     /// back to `day/<name>.png`, drawn as authored (fill color has no effect on rasters).
-    /// Height of the composed bottom bar, in vp — HarmonyOS's own tab-bar metric.
+    /// Height of the composed bottom bar, in vp (HarmonyOS's tab-bar metric).
     const NAV_BAR_H: f64 = 56.0;
 
     /// The navigation suite (`NavPresentation::Tabs`): resident pages over a bottom bar.
     ///
-    /// ArkUI's NATIVE node set has no tab container — `ARKUI_NODE_TABS` is an ArkTS-only
-    /// component, and the NDK exposes a swiper at most — so the bar is composed from the same
+    /// ArkUI's native node set has no tab container (`ARKUI_NODE_TABS` is an ArkTS-only
+    /// component, and the NDK exposes a swiper at most), so the bar is composed from the same
     /// primitives every other Day piece is built from (docs/navigation.md). One implementation,
     /// the platform's own metrics, and the rows keep their meaning: a bar item reports through
     /// the same synthetic-click table a sidebar row uses, so a tap is one event either way.
@@ -208,9 +208,9 @@ mod imp {
         host: usize,
         pages: AHandle,
         bar: AHandle,
-        /// Destination pages in bar order — index i IS the `Select(i)` index.
+        /// Destination pages in bar order; index i is the `Select(i)` index.
         items: Vec<(AHandle, NodeId)>,
-        /// The bar's own item nodes, so a rebuild can take the old ones out first.
+        /// The bar's item nodes, so a rebuild can take the old ones out first.
         bar_items: Vec<AHandle>,
         selected: usize,
         /// The pages area, so a page joining later can be sized without waiting for a resize.
@@ -218,7 +218,7 @@ mod imp {
     }
 
     /// Build the bar's items from the host's rows: an icon over a label per destination, each
-    /// registering a synthetic click that reports `SelectionChanged(i)` against the MENU node.
+    /// registering a synthetic click that reports `SelectionChanged(i)` against the menu node.
     fn suite_fill_bar(menu: NodeId, items: &[String], icons: &[Option<String>], selected: usize) {
         NAV_SUITE.with(|c| {
             let mut c = c.borrow_mut();
@@ -283,7 +283,7 @@ mod imp {
     /// Lay the suite out inside `size` and tell every page how much room it has.
     ///
     /// The pages area and the bar are sized here rather than by day-core, which sees one host
-    /// node and gives it one frame — the same division of labor every other backend's native
+    /// node and gives it one frame: the same division of labor every other backend's native
     /// nav container performs for itself.
     fn suite_layout(size: Size) {
         let reports: Vec<(NodeId, Size)> = NAV_SUITE.with(|c| {

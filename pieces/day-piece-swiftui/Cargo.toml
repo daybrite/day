@@ -8,7 +8,7 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A standalone Day Piece hosting CUSTOM SWIFTUI VIEWS — macos-appkit + ios-uikit only. The Rust
+# A standalone Day Piece hosting custom SwiftUI views, on macos-appkit + ios-uikit only. The Rust
 # front-end mounts a leaf by view name; the native half resolves an @objc(DayView_<name>) provider
 # class and wraps its SwiftUI body in NSHostingView (macOS) / UIHostingController (iOS). Apps
 # usually never call `swiftui(...)` directly: they point [package.metadata.day.*] swift-packages at
@@ -20,8 +20,8 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-foundation", "dep:objc2-ui-kit"]
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
-# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
-# no per-backend feature fan-out in its own Cargo.toml. (SwiftUI hosting is Apple-native only.)
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
+# and no per-backend feature fan-out in its own Cargo.toml. (SwiftUI hosting is Apple-native only.)
 [package.metadata.day.piece]
 backends = ["appkit", "uikit"]
 

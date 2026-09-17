@@ -4,11 +4,11 @@
 //! The declaration table in `day_build::permissions` names each permission's Rust variant so
 //! `day lint` can map `Permission::Camera` in an app's source back to a `Day.toml` declaration.
 //! That spelling is a duplicate of the real enum in `day-part-permissions`, and a rename on either
-//! side would silently break the lint rather than fail a build — so this test pins them together.
+//! side would silently break the lint rather than fail a build, so this test pins them together.
 //!
 //! It reads the part's source rather than `include_str!`ing it: an `include_str!` across package
 //! boundaries breaks `cargo publish` (the file is not in day-cli's package), and a checkout that
-//! doesn't contain the part — a published crate's own test run — simply skips.
+//! doesn't contain the part (a published crate's test run) skips.
 
 use std::path::PathBuf;
 

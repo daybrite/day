@@ -73,7 +73,7 @@ fn matches_answers_through_the_generated_index() {
         .live();
     assert_eq!(q.ids(), [1, 2]);
 
-    // Composable with ordinary predicates — the memory remainder narrows FTS candidates.
+    // Composable with ordinary predicates: the memory remainder narrows FTS candidates.
     let q2 = c
         .query::<Post>()
         .filter(Post::fts().matches("kyoto OR osaka"))
@@ -93,7 +93,7 @@ fn the_index_follows_edits_through_the_triggers() {
         .live();
     assert_eq!(q.ids(), [3]);
 
-    // Editing an INDEXED column re-queries after the flush lands (triggers run in it)…
+    // Editing an indexed column re-queries after the flush lands (triggers run in it)…
     store.elem(1).body().write("chasing fjords someday".into());
     c.save().expect("flush");
     let mut ids = q.ids_untracked();
@@ -163,7 +163,7 @@ fn within_filters_and_follows_a_moved_pin() {
     store.elem(1).lat().write(52.0);
     assert_eq!(q.ids_untracked(), [2]);
 
-    // The R*Tree shadow answers the same box directly — proving the triggers kept it true.
+    // The R*Tree shadow answers the same box directly, which shows the triggers kept it true.
     c.save().expect("flush");
     let mut rtree_ids: Vec<i64> = Vec::new();
     c.with_connection(|conn| {
@@ -184,7 +184,7 @@ fn within_filters_and_follows_a_moved_pin() {
 
 #[test]
 fn a_hand_written_row_reaches_the_indexes_too() {
-    // The triggers run for ANY writer — the coexistence promise extended to the shadows.
+    // The triggers run for any writer: the coexistence promise extended to the shadows.
     let c = seeded();
     c.with_connection(|conn| {
         conn.execute(
@@ -303,7 +303,7 @@ fn a_declared_tokenizer_reaches_the_shadow_and_folds_diacritics() {
         .live();
     assert_eq!(q.ids(), [10]);
 
-    // And the DDL carries the declaration — proven against the file.
+    // And the DDL carries the declaration, checked against the file.
     let mut ddl = String::new();
     c.with_connection(|conn| {
         conn.query(
@@ -323,8 +323,8 @@ fn a_declared_tokenizer_reaches_the_shadow_and_folds_diacritics() {
 
 #[test]
 fn a_match_inside_a_relation_predicate_searches_the_target_table() {
-    // The cross-model search shape: books whose chapters match — the FTS shadow lookup must
-    // resolve the TARGET's table, not the EXISTS alias it travels under.
+    // The cross-model search shape: books whose chapters match. The FTS shadow lookup must
+    // resolve the target's table, not the EXISTS alias it travels under.
     let c = library();
     let books: Vec<u64> = c
         .query::<Book>()

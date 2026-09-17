@@ -11,7 +11,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crate::meta;
 use crate::ops;
 
-/// Which failure a [`CliError`] reports — and the one place a kind maps to an exit code
+/// Which failure a [`CliError`] reports, and the one place a kind maps to an exit code
 /// (§16.2/§16.3). Everything [`run`] renders funnels through [`ErrKind::exit_code`]; command
 /// code that reports a verdict itself (lint findings, icon drift, script failures) quotes the
 /// same map instead of a literal, so no code is ever assigned twice.
@@ -52,7 +52,7 @@ impl ErrKind {
 
 /// A command failure: the message the old code printed at its ~40 call sites, plus the kind
 /// that picks its exit code. Command entry points return `Result<_, CliError>` and [`run`]
-/// renders once — `error: <message>` on stderr, exit code from the kind.
+/// renders once: `error: <message>` on stderr, exit code from the kind.
 ///
 /// `Debug` so a test can `.expect()` on a `Result<_, CliError>` and read what went wrong.
 #[derive(Debug)]
@@ -128,7 +128,7 @@ pub enum Profile {
 }
 
 impl Profile {
-    /// The spelling the flag accepts — also the build-directory name and the `DAY_PROFILE` value.
+    /// The spelling the flag accepts; also the build-directory name and the `DAY_PROFILE` value.
     pub fn as_str(self) -> &'static str {
         match self {
             Profile::Debug => "debug",
@@ -165,7 +165,7 @@ pub(crate) struct Cli {
     format: OutputFormat,
     /// Forward every sub-command's raw output (cargo, gradle, xcodebuild, hvigor, adb, codesign, …)
     /// to the terminal as it runs, instead of capturing it and showing only day's own status lines.
-    /// `DAY_VERBOSE=1` in the environment does the same — the way CI turns a whole workflow
+    /// `DAY_VERBOSE=1` in the environment does the same, which is how CI turns a whole workflow
     /// verbose without threading the flag through every generated command.
     #[arg(long, global = true)]
     verbose: bool,
@@ -177,11 +177,11 @@ pub(crate) struct Cli {
 enum Cmd {
     /// Print the version, build profile (`*` = debug), and the git ref it was built from
     Version,
-    /// Scaffold a new Day project — an app, a piece, or a part (interactive when run bare)
+    /// Scaffold a new Day project: an app, a piece, or a part (interactive when run bare)
     New {
         #[command(subcommand)]
         what: Option<NewKind>,
-        /// Print the questions a GUI must ask — every field, its options and the flag it fills —
+        /// Print the questions a GUI must ask (every field, its options and the flag it fills)
         /// as a versioned JSON document, and exit. Output is JSON by definition, so no
         /// `--format` is needed. Nothing is scaffolded.
         #[arg(long)]
@@ -194,8 +194,8 @@ enum Cmd {
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
         /// Build against a different `day` for this build only: a path to a day checkout, or a
-        /// git URL with an optional `@<REF>`. Nothing in the project is written — unlike
-        /// `day patch`, which is a mode you stay in — so the next build without the flag resolves
+        /// git URL with an optional `@<REF>`. Nothing in the project is written (unlike
+        /// `day patch`, which is a mode you stay in), so the next build without the flag resolves
         /// the app's declared dependency. Each day-src keeps its own build tree, so comparing two
         /// of them is an incremental rebuild each way.
         #[arg(long = "day-src", value_name = "PATH|URL[@REF]")]
@@ -205,8 +205,8 @@ enum Cmd {
     Icon {
         /// Master file (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
         master: Option<PathBuf>,
-        /// Verify the outputs still match the master without writing anything — the CI drift
-        /// gate; exits 5 and lists the drift when they don't
+        /// Verify the outputs still match the master without writing anything (the CI drift
+        /// gate); exits 5 and lists the drift when they don't
         #[arg(long, conflicts_with = "generate")]
         check: bool,
         /// Limit generation to these targets' icon families (repeatable; default: all)
@@ -216,7 +216,7 @@ enum Cmd {
         /// `resource/icons/icon.svg`, and regenerate every output from it
         #[arg(long, conflicts_with = "master")]
         generate: bool,
-        /// Seed for --generate: an integer, or any string (hashed — the `day new` app-id
+        /// Seed for --generate: an integer, or any string (hashed, the `day new` app-id
         /// convention). Default: fresh entropy; the seed used is always printed
         #[arg(long, requires = "generate")]
         seed: Option<String>,
@@ -224,13 +224,13 @@ enum Cmd {
         #[arg(long, requires = "generate")]
         overwrite: bool,
         /// Preview mode for --generate: write the master SVG (plus a 512 px PNG beside it) to
-        /// this path instead of the project, touching nothing else — no project required
+        /// this path instead of the project, touching nothing else; no project required
         #[arg(long, requires = "generate", value_name = "FILE.svg")]
         out: Option<PathBuf>,
     },
     /// Build + launch on one or more targets (in parallel)
     Launch {
-        /// Targets to launch. Omit it to launch the HOST's default desktop target — appkit on
+        /// Targets to launch. Omit it to launch the host's default desktop target: appkit on
         /// macOS, XAML on Windows, and on Linux the toolkit matching the running desktop (Qt
         /// under Plasma/LXQt, GTK otherwise).
         #[arg(short = 'p', long = "platform")]
@@ -238,7 +238,7 @@ enum Cmd {
         /// Repository to run instead of a project on this machine: clone it, find the Day project
         /// inside it, and launch that. `<URL>@<REF>` picks a branch, tag, or commit (`#<REF>` is
         /// accepted too); without one, the remote's default branch. The checkout is cached per
-        /// URL and ref, so a later run fetches and fast-forwards rather than starting over — and
+        /// URL and ref, so a later run fetches and fast-forwards rather than starting over, and
         /// its build tree is reused. `day launch --git https://github.com/daybrite/Day-Rise.git`
         /// is the whole of trying an app. In a repository holding several Day projects,
         /// `--project` names one by its path inside the repo. This builds and runs code from a
@@ -249,7 +249,7 @@ enum Cmd {
         #[arg(long, requires = "git", value_name = "DIR")]
         dir: Option<PathBuf>,
         /// Launch against a different `day` for this run only: a path to a day checkout, or a
-        /// git URL with an optional `@<REF>` — how you put a PR branch of the framework under an
+        /// git URL with an optional `@<REF>`: how you put a PR branch of the framework under an
         /// app and look at it. Nothing in the project is written, unlike `day patch`. Each
         /// day-src keeps its own build tree and its own binary, so two of them can run at once
         /// and switching between them is an incremental rebuild.
@@ -264,12 +264,12 @@ enum Cmd {
         #[arg(long = "env")]
         envs: Vec<String>,
         /// Physical iPhone/iPad to launch on, by name or UDID (`xcrun devicectl list devices`).
-        /// Naming one switches the iOS BUILD to the device SDK and signs it against the
+        /// Naming one switches the iOS build to the device SDK and signs it against the
         /// provisioning profile installed for this app.
         #[arg(long = "ios-device", value_name = "NAME|UDID")]
         ios_device: Option<String>,
         /// Booted iOS simulator to launch on, by name or UDID. Without it every booted simulator
-        /// gets the app — right for a capture sweep, wrong when you mean one.
+        /// gets the app, which is right for a capture sweep and wrong when you mean one.
         #[arg(long = "ios-simulator", alias = "device", value_name = "NAME|UDID")]
         ios_simulator: Option<String>,
         /// Android device or emulator to launch on, by adb serial (`adb devices`). Without it
@@ -281,7 +281,7 @@ enum Cmd {
         /// the app. Takes precedence over `DAY_OHOS_TARGET`.
         #[arg(long = "ohos-device", value_name = "KEY")]
         ohos_device: Option<String>,
-        /// Build, launch, and exit — leaving the apps running in the background. `day` streams no
+        /// Build, launch, and exit, leaving the apps running in the background. `day` streams no
         /// logs and owns nothing afterwards, so there is no Ctrl-C to take them down with it;
         /// stop them later with `day stop`. Also accepted as `--detached`.
         #[arg(long, alias = "detached")]
@@ -292,7 +292,7 @@ enum Cmd {
         keep_alive: bool,
         /// Record the user's actions to a replayable dayscript at PATH for the app's lifetime
         /// (§14.6): tap, type, and navigate the app yourself, then replay the file with `--script`.
-        /// Combine with a desktop target you drive by hand — the file is rewritten continuously, so
+        /// Combine with a desktop target you drive by hand; the file is rewritten continuously, so
         /// it survives a kill.
         #[arg(long = "record", value_name = "PATH")]
         record: Option<PathBuf>,
@@ -302,33 +302,33 @@ enum Cmd {
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
         /// Screenshot set name: saves shots under `build/day/screenshots/<target>/<variant>/`
-        /// instead of the locale-derived default — for capturing themed/localized variations
+        /// instead of the locale-derived default, for capturing themed/localized variations
         /// of the same script run (e.g. `--variant dark --env DAY_THEME=dark`)
         #[arg(long)]
         variant: Option<String>,
         /// Device slug for the capture tree: saves shots under
         /// `build/day/screenshots/<target>/<device>/<variant>/` instead of omitting the level.
-        /// What lets one target's captures come from more than one FORM FACTOR without
-        /// colliding — an iPhone run and an iPad run of the same script write disjoint paths,
+        /// What lets one target's captures come from more than one form factor without
+        /// colliding: an iPhone run and an iPad run of the same script write disjoint paths,
         /// and the published gallery gives each its own column (docs/screenshots.md).
         /// Orthogonal to `--variant`: theme and locale still vary underneath it.
         ///
-        /// A LABEL, not a device nav host — `--ios-simulator` picks what to launch on, and
+        /// A label, not a device nav host: `--ios-simulator` picks what to launch on, and
         /// already answers to `--device`, which is why this one is spelled out.
         #[arg(long = "device-slug")]
         device: Option<String>,
         /// Reuse the previous build's artifact instead of building (errors if none exists).
-        /// For runs whose variants share one binary — theme and locale are runtime inputs —
+        /// For runs whose variants share one binary (theme and locale are runtime inputs),
         /// e.g. CI capture loops that pay xcodebuild/hvigor once, then launch per variant.
         #[arg(long)]
         skip_build: bool,
         /// Run the script(s) once per locale (comma- or space-separated; repeatable). Each run
-        /// passes `--locale <l>` and saves screenshots under variant `<l>` — the capture
+        /// passes `--locale <l>` and saves screenshots under variant `<l>`, the capture
         /// convention app CIs use. Builds once; later runs reuse the artifact.
         #[arg(long = "locales", requires = "scripts")]
         locales: Vec<String>,
         /// Cross the scripted runs with forced themes (sets DAY_THEME per run). Variants become
-        /// `<theme>` for `en` and `<theme>-<locale>` otherwise — the day-CI / gallery
+        /// `<theme>` for `en` and `<theme>-<locale>` otherwise, the day-CI / gallery
         /// convention (website/gallery.config.mjs variant ids).
         #[arg(long = "themes", requires = "scripts")]
         themes: Vec<String>,
@@ -348,7 +348,7 @@ enum Cmd {
         /// CI wants this: an unopenable container means the code went unverified.
         #[arg(long)]
         strict: bool,
-        /// Rebuild from this project directory instead of cloning the commit the SBOM records —
+        /// Rebuild from this project directory instead of cloning the commit the SBOM records,
         /// for artifacts whose source is not in git, e.g. a freshly scaffolded project in CI.
         /// Tool gating still applies when a .buildinfo.json sits beside the artifact.
         #[arg(long = "from-dir", value_name = "DIR")]
@@ -425,10 +425,10 @@ enum Cmd {
         /// Keep the scaffolded projects instead of deleting them
         #[arg(long)]
         keep: bool,
-        /// Scaffold `day` deps from the git remote — passed through to `day new`
+        /// Scaffold `day` deps from the git remote (passed through to `day new`)
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io — passed through to `day new`
+        /// Scaffold versioned `day` deps from crates.io (passed through to `day new`)
         #[arg(long)]
         registry: bool,
         /// Which `day` to check: a release (`0.2.0`), `latest` (the newest published day-cli),
@@ -448,7 +448,7 @@ enum Cmd {
     },
     /// Machine-readable project metadata: app identity, targets, per-target overrides, and
     /// the target catalog. IDE tooling (day-vscode) consumes `--json` instead of parsing
-    /// Day.toml itself — the envelope is versioned and grow-only.
+    /// Day.toml itself; the envelope is versioned and grow-only.
     Metadata {
         /// Emit the versioned JSON envelope instead of the human summary
         #[arg(long)]
@@ -466,8 +466,8 @@ enum Cmd {
         /// `day::lint::store-placeholder`. Still reported; never fails `--strict`. Repeatable.
         #[arg(long = "allow", value_name = "CODE")]
         allow: Vec<String>,
-        /// Emit the versioned JSON envelope — every finding with its file, line and proposed fix
-        /// — instead of the human report. Same as the global `--format json`.
+        /// Emit the versioned JSON envelope (every finding with its file, line and proposed fix)
+        /// instead of the human report. Same as the global `--format json`.
         #[arg(long)]
         json: bool,
         /// Apply the fixes the rules proposed, reporting each one. Only findings whose repair is
@@ -475,14 +475,14 @@ enum Cmd {
         #[arg(long)]
         fix: bool,
     },
-    /// Build a standalone app against a LOCAL day checkout (writes .cargo/config.toml), and
+    /// Build a standalone app against a local day checkout (writes .cargo/config.toml), and
     /// verify no day crate is still resolving from git
     Patch {
         /// A checkout to build against (repeatable): the day framework, or an external piece or
         /// part repository. Omit everything to only verify the current resolution.
         #[arg(long, value_name = "CHECKOUT")]
         local: Vec<std::path::PathBuf>,
-        /// A fork of the day repository to build against, as `URL[@REF]`; REF is a branch, a
+        /// A fork of the day repository to build against, as `URL[@REF]`; `REF` is a branch, a
         /// 40-hex commit, or an explicit `tag=`/`branch=`/`rev=`. Written for the whole graph, so
         /// external pieces follow the fork too. Meant to be committed.
         #[arg(long, value_name = "URL[@REF]")]
@@ -493,15 +493,15 @@ enum Cmd {
         check: bool,
     },
     /// Render the derived host files (icon catalogs, launcher mipmaps, HarmonyOS media) under
-    /// build/day/host from resource/icons/icon.svg — what the Xcode, Gradle, and hvigor projects
-    /// reference, and never checked in (docs/icons.md) — and stage the HarmonyOS host's ArkTS
+    /// build/day/host from resource/icons/icon.svg (what the Xcode, Gradle, and hvigor projects
+    /// reference, and never checked in; docs/icons.md), and stage the HarmonyOS host's ArkTS
     /// from the day-arkui crate. Every build runs this itself; run it by hand before opening a
     /// native project on a fresh clone
     Prepare {
         /// Limit to these targets' families (repeatable; default: every target in Day.toml)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// Verify the host files are present and current without writing — exits 5 and lists
+        /// Verify the host files are present and current without writing; exits 5 and lists
         /// what is missing or stale (CI's gate, and what the editor asks before opening Xcode)
         #[arg(long, conflicts_with = "migrate")]
         check: bool,
@@ -512,8 +512,8 @@ enum Cmd {
         #[arg(long)]
         migrate: bool,
     },
-    /// Open a target's native project in its IDE — Xcode for ios-uikit and macos-appkit,
-    /// Android Studio for android-mdc, DevEco Studio for harmony-arkui — after `day prepare`,
+    /// Open a target's native project in its IDE (Xcode for ios-uikit and macos-appkit,
+    /// Android Studio for android-mdc, DevEco Studio for harmony-arkui) after `day prepare`,
     /// so the generated catalogs and media the project references are in place
     Open {
         /// The target whose host project to open
@@ -556,7 +556,7 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
-    /// Stop, rebuild, and relaunch targets — "apply my code changes"
+    /// Stop, rebuild, and relaunch targets: "apply my code changes"
     Relaunch {
         /// Target(s) to relaunch (repeatable); omit with --all-running
         #[arg(short = 'p', long = "platform")]
@@ -570,7 +570,7 @@ enum Cmd {
         #[arg(long)]
         locale: Option<String>,
     },
-    /// Execute dayscript steps against a RUNNING app (see docs/agent.md)
+    /// Execute dayscript steps against a running app (see docs/agent.md)
     Drive {
         /// The target whose live session to drive
         #[arg(short = 'p', long = "platform")]
@@ -605,16 +605,16 @@ enum Cmd {
     },
 }
 
-/// `day new <piece|part|app>` — scaffold an extension crate or app; `day new` (bare) walks an
+/// `day new <piece|part|app>` scaffolds an extension crate or app; `day new` (bare) walks an
 /// interactive dialog. Every value-carrying flag has an equivalent question in the dialog (the dialog
-/// is the fallback branch of the flags — see `new.rs`), so a value not passed on the command line is
+/// is the fallback branch of the flags; see `new.rs`), so a value not passed on the command line is
 /// asked for when a terminal is present, and defaulted (or reported as required) when it is not. The
-/// meta flags `--local` (CI) and `--no-input` have no dialog fallback by design.
+/// meta flags `--local` (CI) and `--no-input` have no dialog fallback.
 ///
-/// Scaffolds default to REMOTE (git) day dependencies so they are self-contained; the hidden
+/// Scaffolds default to remote (git) day dependencies so they are self-contained; the hidden
 /// `--local <path>` (or `DAY_LOCAL` env) redirects to a local day checkout for CI checks of a
 /// freshly-scaffolded project against the day tree under test.
-/// `day store …` — the canonical listing under `store/`, and the fastlane trees it generates.
+/// `day store …`: the canonical listing under `store/`, and the fastlane trees it generates.
 #[derive(Subcommand)]
 pub enum StoreCmd {
     /// Write `store/<locale>/` skeletons for every locale the app ships (never overwrites)
@@ -627,7 +627,7 @@ pub enum StoreCmd {
     },
 }
 
-/// `day localize …` — the four places a conventional project spells its locale set
+/// `day localize …`: the four places a conventional project spells its locale set
 /// (`resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`), kept in step.
 #[derive(Subcommand)]
 pub enum WebCmd {
@@ -639,7 +639,7 @@ pub enum WebCmd {
 
 #[derive(Subcommand)]
 pub enum ScreenshotCmd {
-    /// Merge captured screenshot trees into gallery.json — the published machine-readable
+    /// Merge captured screenshot trees into gallery.json, the published machine-readable
     /// index of every capture (URL, localized title/caption, theme, locale, platform,
     /// dimensions, byte size, sha-256), which app sites serve at /gallery/gallery.json
     Index {
@@ -665,31 +665,32 @@ pub enum LocalizeCmd {
 
 #[derive(Subcommand)]
 enum NewKind {
-    /// Scaffold a Day PIECE crate (a reusable widget). No `--toolkits` ⇒ a COMPOSITE piece.
+    /// Scaffold a Day piece crate (a reusable widget). No `--toolkits` ⇒ a composite piece.
     Piece {
         /// Crate name (prompted if omitted in an interactive terminal).
         name: Option<String>,
-        /// Comma-separated toolkits for a NATIVE piece (appkit,gtk,qt,uikit,mdc,xaml).
-        /// Omit for a COMPOSITE piece (pure composition; works on every backend with no per-backend code).
+        /// Comma-separated toolkits for a native piece (appkit,gtk,qt,uikit,mdc,xaml). Omit for a
+        /// composite piece (pure composition; works on every backend with no per-backend code).
         #[arg(long)]
         toolkits: Option<String>,
-        /// Force a COMPOSITE piece even if `--toolkits` is given.
+        /// Force a composite piece even if `--toolkits` is given.
         #[arg(long)]
         composite: bool,
-        /// Package id (reverse-DNS); default `dev.example.<name>`. Also the piece KIND + Java package.
+        /// Package id (reverse-DNS); default `dev.example.<name>`. Also the piece kind + Java
+        /// package.
         #[arg(long)]
         id: Option<String>,
-        /// Scaffold `day` deps from the git remote — currently the DEFAULT (the day framework
+        /// Scaffold `day` deps from the git remote, currently the default (the day framework
         /// crates are not yet on crates.io); kept for forward compatibility.
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version — for
+        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version; for use
         /// once the day framework crates are published.
         #[arg(long)]
         registry: bool,
         /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
         /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
-        /// — a git tag/branch/rev today, or the crates.io version with `--registry`.
+        /// (a git tag/branch/rev today, or the crates.io version with `--registry`).
         #[arg(long = "day-version", value_name = "SPEC")]
         day_version: Option<String>,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
@@ -712,7 +713,7 @@ enum NewKind {
         )]
         java_in_src: Option<bool>,
     },
-    /// Scaffold a Day PART crate (a headless, UI-less capability).
+    /// Scaffold a Day part crate (a headless, UI-less capability).
     Part {
         /// Crate name (prompted if omitted in an interactive terminal).
         name: Option<String>,
@@ -722,17 +723,17 @@ enum NewKind {
         /// Package id (reverse-DNS); default `dev.example.<name>`. Also the Java package.
         #[arg(long)]
         id: Option<String>,
-        /// Scaffold `day` deps from the git remote — currently the DEFAULT (the day framework
+        /// Scaffold `day` deps from the git remote, currently the default (the day framework
         /// crates are not yet on crates.io); kept for forward compatibility.
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version — for
+        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version; for use
         /// once the day framework crates are published.
         #[arg(long)]
         registry: bool,
         /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
         /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
-        /// — a git tag/branch/rev today, or the crates.io version with `--registry`.
+        /// (a git tag/branch/rev today, or the crates.io version with `--registry`).
         #[arg(long = "day-version", value_name = "SPEC")]
         day_version: Option<String>,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
@@ -778,7 +779,7 @@ enum NewKind {
         /// placeholders in contents and paths (see the docs for the full list + conventions).
         #[arg(long)]
         template: Option<String>,
-        /// Skip the website/ scaffold (site.toml + theme.css — the config the daysite template
+        /// Skip the website/ scaffold (site.toml + theme.css, the config the daysite template
         /// and the shared CI workflow turn into a GitHub Pages site).
         #[arg(long = "no-website")]
         no_website: bool,
@@ -787,23 +788,23 @@ enum NewKind {
         #[arg(long = "locales")]
         locales: Vec<String>,
         /// Seed for the generated app icon (docs/icons.md#generate): an integer or any
-        /// string. Default: the app id — the same id always scaffolds the same icon.
+        /// string. Default: the app id, so the same id always scaffolds the same icon.
         #[arg(long = "icon-seed", value_name = "SEED")]
         icon_seed: Option<String>,
         /// Back-compat: comma-separated target list (prefer repeated --toolkit).
         #[arg(long, hide = true)]
         targets: Option<String>,
-        /// Scaffold `day` deps from the git remote — currently the DEFAULT (the day framework
+        /// Scaffold `day` deps from the git remote, currently the default (the day framework
         /// crates are not yet on crates.io); kept for forward compatibility.
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version — for
+        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version; for use
         /// once the day framework crates are published.
         #[arg(long)]
         registry: bool,
         /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
         /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
-        /// — a git tag/branch/rev today, or the crates.io version with `--registry`.
+        /// (a git tag/branch/rev today, or the crates.io version with `--registry`).
         #[arg(long = "day-version", value_name = "SPEC")]
         day_version: Option<String>,
         /// Use `path` deps rooted at a local day checkout (CI / framework development).
@@ -829,7 +830,7 @@ pub enum AppCmd {
         template: Option<String>,
     },
     /// Move the Xcode projects' user-adjustable build settings into DayApp.xcconfig files
-    /// (platform/ios, platform/macos) — what `day new` scaffolds and `day build` migrates
+    /// (platform/ios, platform/macos): what `day new` scaffolds and `day build` migrates
     /// automatically; this runs the same migration without building.
     #[command(name = "split-xcconfig")]
     SplitXcconfig,
@@ -848,12 +849,12 @@ pub enum DevicesCmd {
         /// Which target's device to start
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// The device's id from `day devices list` — a simulator UDID or an AVD name.
+        /// The device's id from `day devices list`: a simulator UDID or an AVD name.
         /// Omit it and name the device with `--device` instead.
         #[arg(value_name = "ID")]
         id: Option<String>,
-        /// Pick the device by NAME PREFIX instead of by id: `--device "iPad Pro"` takes the
-        /// first iPad Pro the machine has. What CI wants — runner images retire exact device
+        /// Pick the device by name prefix instead of by id: `--device "iPad Pro"` takes the
+        /// first iPad Pro the machine has. What CI wants, since runner images retire exact device
         /// names every few months, and a pinned one starts failing the day the image moves.
         /// A `*` stands for any run of characters and the newest model wins, so
         /// `--device "iPhone * Pro Max"` is the largest iPhone whatever its model year.
@@ -867,7 +868,7 @@ pub enum DevicesCmd {
         /// been asked for. What a script that installs onto it next needs.
         #[arg(long)]
         wait: bool,
-        /// Start the simulator in this orientation (`portrait` or `landscape`) — the form factor
+        /// Start the simulator in this orientation (`portrait` or `landscape`), the form factor
         /// half of a capture profile (docs/screenshots.md). iOS simulators only.
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
@@ -881,7 +882,7 @@ pub enum DevicesCmd {
         /// Which target's device to stop
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// The device to stop: a simulator's UDID or name, or — for Android — either the
+        /// The device to stop: a simulator's UDID or name, or, for Android, either the
         /// emulator's adb serial or the name of the AVD it is running.
         #[arg(value_name = "ID")]
         id: String,
@@ -891,7 +892,7 @@ pub enum DevicesCmd {
         /// Target this device belongs to (only `android-mdc` has AVDs to create)
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// Device profile id from `avdmanager list device` — `pixel_7`, `Nexus 7 2013`
+        /// Device profile id from `avdmanager list device`: `pixel_7`, `Nexus 7 2013`
         #[arg(long, value_name = "PROFILE")]
         device: String,
         /// API level: `36`, `API 36` or `android-36`
@@ -910,7 +911,7 @@ pub enum DevicesCmd {
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
         /// Panel density in dpi, overriding the profile's. The pixel panel is unchanged, so a
-        /// screenshot keeps its size and the LAYOUT gets more points: `Nexus 7 2013` at
+        /// screenshot keeps its size and the layout gets more points: `Nexus 7 2013` at
         /// `--density 240` captures 1920x1200 laid out as 1280x800 points
         #[arg(long, value_name = "DPI")]
         density: Option<u32>,
@@ -934,7 +935,7 @@ pub enum OhosCmd {
 pub enum EmulatorCmd {
     /// Launch the Oniro/OpenHarmony QEMU emulator as a native window (no VNC/password)
     Launch {
-        /// No window (hdc-only) — for CI / headless hosts.
+        /// No window (hdc-only), for CI / headless hosts.
         #[arg(long)]
         headless: bool,
     },
@@ -945,7 +946,7 @@ pub fn run() -> i32 {
     // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
     // `DAY_VERBOSE` is the environment spelling of the same switch ("1"/"true" = on): an
     // explicit `--verbose` always wins, and the variable covers the invocations a flag cannot
-    // reach — nested launches a dayscript runner generates, or a whole CI job's worth of
+    // reach: nested launches a dayscript runner generates, or a whole CI job's worth of
     // commands turned verbose from one `env:` line.
     if !cli.verbose {
         cli.verbose = matches!(
@@ -977,7 +978,7 @@ pub fn run() -> i32 {
 }
 
 /// The command dispatch. Each arm yields the command's verdict code (usually 0) or a
-/// [`CliError`]; nothing in here prints an `error:` line — [`run`] does that once.
+/// [`CliError`]; nothing in here prints an `error:` line; [`run`] does that once.
 fn dispatch(cli: Cli) -> Result<i32, CliError> {
     match cli.command {
         Cmd::Version => {
@@ -1104,7 +1105,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         }),
         Cmd::Metadata { json, schema } => {
             if schema {
-                // Static — the schema needs no project; usable before one exists.
+                // Static: the schema needs no project; usable before one exists.
                 println!("{}", include_str!("../resources/day-toml.schema.json"));
                 return Ok(0);
             }
@@ -1123,7 +1124,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         }),
         Cmd::Patch { local, git, check } => {
             // A piece or part crate is a cargo package with no Day.toml, and it depends on day
-            // from git exactly like an app — so `day patch` takes any cargo package root, and
+            // from git exactly like an app, so `day patch` takes any cargo package root, and
             // only falls back to the Day-project search when the directory is not one.
             let root = match meta::find_project(cli.project.as_deref()) {
                 Ok(project) => project.root,
@@ -1530,7 +1531,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             match crate::icon::run(project, &opts) {
                 Ok(n) => {
                     // The HarmonyOS host's ArkTS is staged from the day-arkui crate, not
-                    // checked in (docs/harmonyos.md) — put it in place too, so the project
+                    // checked in (docs/harmonyos.md); put it in place too, so the project
                     // DevEco Studio opens on a fresh clone has its abilities and pages. A
                     // `--check` writes nothing.
                     let harmony = platforms.is_empty()
@@ -1670,7 +1671,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             with_project(start.as_deref(), |project| {
                 use_day_src(day_src.as_deref(), project)?;
                 crate::patch::verify_graph(project).map_err(CliError::usage)?;
-                // No `-p`: run what this machine natively is. Announced rather than assumed — the
+                // No `-p`: run what this machine natively is. Announced rather than assumed: the
                 // chosen target decides which toolkit gets built, so a silent pick would be a
                 // surprising several-minute build of something the caller did not name.
                 let platforms = if platforms.is_empty() {
@@ -1704,23 +1705,23 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     // Attachment follows `--detach` alone, not whether a script runs: a scripted
                     // launch streams the app's console output the same as a plain launch. (A
                     // `--keep-alive` scripted run additionally keeps `day` in the foreground after the
-                    // script so that output stays visible while the app lives — see below.)
+                    // script so that output stays visible while the app lives; see below.)
                     attached: !detach,
                 };
                 // Ctrl-C during an attached run must take the launched apps and their log
-                // watchers (simctl / adb logcat) down too — not leave them orphaned.
+                // watchers (simctl / adb logcat) down too, not leave them orphaned.
                 if spec.attached {
                     crate::signals::install();
                 }
-                // The debug window-title tag (docs/windows.md): which build, which toolkit, and —
-                // when a script is driving — which script. The app reads these off the environment
+                // The debug window-title tag (docs/windows.md): which build, which toolkit, and,
+                // when a script is driving, which script. The app reads these off the environment
                 // and only shows them in a debug build.
                 //
                 // Under `--day-src` the version carries the day-src too (`0.1.0+main-2d77edbf`),
-                // which is the whole point of the flag: two builds of the same app, running at
-                // once, are otherwise two identical title bars. It rides the version rather than a
-                // new variable deliberately — the framework version being compared may predate
-                // any variable added today, and every `day` already reads this one.
+                // which is what the flag exists for: two builds of the same app, running at
+                // once, are otherwise two identical title bars. It rides the version rather than
+                // a new variable because the framework version being compared may predate any
+                // variable added today, and every `day` already reads this one.
                 spec.envs.push((
                     "DAY_APP_VERSION".into(),
                     match crate::patch::day_src_tag() {
@@ -1730,8 +1731,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 ));
                 // `--record` (§14.6): the app's `day_script::init` reads `DAY_RECORD` and starts a
                 // headless recorder that flushes a replayable dayscript to the path for its lifetime.
-                // Absolutize against the invoking CWD — the app process runs from the project root, so
-                // a relative path would otherwise land somewhere the user did not mean.
+                // Absolutize against the invoking CWD: the app process runs from the project root,
+                // so a relative path would otherwise land somewhere the user did not mean.
                 if let Some(path) = &record {
                     let abs = if path.is_absolute() {
                         path.clone()
@@ -1745,7 +1746,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 }
                 if script_mode {
                     // A scripted run is unattended, so a panic's backtrace has to be in the log the
-                    // first time — nobody is there to re-run it with RUST_BACKTRACE set. The app's
+                    // first time; nobody is there to re-run it with RUST_BACKTRACE set. The app's
                     // stderr is already streamed, so this is what turns "thread panicked at …" into
                     // a stack. An explicit `--env RUST_BACKTRACE=…` wins (it is in `envs` already).
                     if !envs.iter().any(|kv| kv.starts_with("RUST_BACKTRACE=")) {
@@ -1766,7 +1767,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 }
                 let token = crate::script::make_token();
                 // The capture matrix (--themes × --locales): the scripted runs each target performs,
-                // with the variant names both CI shapes already produce — the day-CI/gallery
+                // with the variant names both CI shapes already produce: the day-CI/gallery
                 // `<theme>`/`<theme>-<locale>` convention and the app-CI `<locale>` convention are
                 // preserved byte-for-byte so existing artifact layouts survive the move from YAML
                 // loops into the CLI. No flags = one run with the plain --locale/--variant.
@@ -1776,21 +1777,21 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 let mut launched: Vec<(&'static crate::targets::Target, std::time::SystemTime)> =
                     Vec::new();
                 let mut script_failures = 0usize;
-                // Engine losses across the whole run — the cap that keeps a dead app from
+                // Engine losses across the whole run: the cap that keeps a dead app from
                 // relaunching once per variant until the job's own timeout kills it.
                 let mut losses = 0usize;
                 for (ti, p) in platforms.iter().enumerate() {
                     let port = crate::script::pick_port(ti);
                     // The dayscript engine rides every launch (loopback, token-gated): scripted runs
                     // drive it immediately, and interactive launches stay drivable later via the
-                    // session registry (`day drive` / `day relaunch` / agents — docs/agent.md).
+                    // session registry (`day drive` / `day relaunch` / agents; docs/agent.md).
                     spec.envs
                         .retain(|(k, _)| k != "DAYSCRIPT_PORT" && k != "DAYSCRIPT_TOKEN");
                     spec.envs.push(("DAYSCRIPT_PORT".into(), port.to_string()));
                     spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
                     let target =
                         crate::external::find_target(project, p).map_err(CliError::usage)?;
-                    // The lock guard is scoped to the BUILD, not to the run: the app may stay up
+                    // The lock guard is scoped to the build, not to the run: the app may stay up
                     // for a long time afterwards, and the project's Cargo.lock should be correct
                     // again the moment the compiler is done with it.
                     let built = {
@@ -1817,7 +1818,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         let mut attempt = 0u32;
                         loop {
                             if ri > 0 || attempt > 0 {
-                                // The previous run's app still holds the engine port — stop it the
+                                // The previous run's app still holds the engine port; stop it the
                                 // way `day stop` does before the next instance binds.
                                 crate::script::terminate(project, target);
                             }
@@ -1857,10 +1858,10 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 keep_alive,
                                 spec.attached,
                             ) {
-                                // A single RETRYABLE failure and nothing else: the shape a race
+                                // A single retryable failure and nothing else: the shape a race
                                 // leaves behind (an element not realized yet, an assert that lost
                                 // to a transition or a page load) rather than a broken app. Re-run
-                                // the variant once — the same budget the app-death arm below has
+                                // the variant once, the same budget the app-death arm below has
                                 // always had, extended to the other way a flake presents. Two
                                 // failures, or one the engine called final, is a verdict: report
                                 // it. The retry is announced, so a green run that needed one is
@@ -1902,7 +1903,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     break;
                                 }
                                 // The iOS simulator's known app-death flake: the engine died with
-                                // ZERO failed steps. Retry the (idempotent) run once — the logic
+                                // zero failed steps. Retry the (idempotent) run once, the logic
                                 // both CI workflows used to grep logs for, now typed. A loss after
                                 // a failed step is a failing run that then died: report it.
                                 Err(crate::script::ScriptError::EngineLost {
@@ -1928,7 +1929,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     attempt += 1;
                                 }
                                 // An engine loss that survived the retry policy: count it and
-                                // move to the next matrix run instead of abandoning the rest —
+                                // move to the next matrix run instead of abandoning the rest;
                                 // the CI loops this replaced continued per variant (OHOS relies
                                 // on it under TCG), and the final exit code still reports failure.
                                 Err(crate::script::ScriptError::EngineLost {
@@ -1950,13 +1951,14 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     let device_lost = !crate::script::device_alive(target);
                                     script_failures += steps_failed.max(1);
                                     losses += 1;
-                                    // A CRASH ends the run. Every remaining variant would relaunch a
-                                    // build that just died and fail the same way, minutes at a time —
-                                    // which is how a crashed walkthrough used to run out the job's
-                                    // timeout instead of reporting the crash it had already found.
-                                    // A loss with no crash artifact stays per-variant (a slow emulator
-                                    // drops the connection and the next variant often passes), but not
-                                    // forever: two in a row is a pattern, not a hiccup.
+                                    // A crash ends the run. Every remaining variant would relaunch
+                                    // a build that just died and fail the same way, minutes at a
+                                    // time, which is how a crashed walkthrough used to run out the
+                                    // job's timeout instead of reporting the crash it had already
+                                    // found. A loss with no crash artifact stays per-variant (a
+                                    // slow emulator drops the connection and the next variant often
+                                    // passes), but not forever: two in a row is a pattern, not a
+                                    // hiccup.
                                     if crashed || device_lost || losses >= 2 {
                                         let why = if crashed {
                                             "the app crashed"
@@ -1987,7 +1989,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         }
                     }
                 }
-                // A scripted run returns once its script(s) finish — except an attached
+                // A scripted run returns once its script(s) finish, except an attached
                 // `--keep-alive` run, which stays in the foreground streaming the app's console
                 // output until the app exits or the run is stopped (so output is visible during and
                 // after the script, exactly like a plain attached launch). Detached scripted runs
@@ -1997,7 +1999,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 //
                 // Reap the tracked children first (`--keep-alive` is what asks for the app to stay
                 // running). Returning without this leaves the log pumps (`adb logcat`, `simctl
-                // launch --console`) orphaned holding the inherited stdout/stderr — in CI the step's
+                // launch --console`) orphaned holding the inherited stdout/stderr; in CI the step's
                 // pipe then never reaches EOF and the job hangs after the final "steps passed" line.
                 if script_mode && !(spec.attached && keep_alive) {
                     crate::signals::kill_all();
@@ -2022,7 +2024,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         code = code.max(one);
                     }
                     // A target that exited on its own leaves its siblings' log watchers (and
-                    // any child that outlives its stream) running — reap them before we go.
+                    // any child that outlives its stream) running; reap them before we go.
                     crate::signals::kill_all();
                     Ok(if script_mode && script_failures > 0 {
                         ErrKind::Script.exit_code()
@@ -2047,7 +2049,7 @@ fn with_project(
 
 /// Resolve `--day-src` and make it this run's framework, if it was given.
 ///
-/// Everything downstream — the cargo invocations and the build paths — reads it back from
+/// Everything downstream (the cargo invocations and the build paths) reads it back from
 /// [`crate::patch`] rather than being handed it, the way `--verbose` works, so no builder's
 /// signature changes for a flag that does not change what it does.
 fn use_day_src(day_src: Option<&str>, project: &meta::Project) -> Result<(), CliError> {
@@ -2086,11 +2088,11 @@ fn print_pack_json(outcomes: &[crate::pack::PackOutcome]) {
 
 /// The `build` result event.
 ///
-/// A desktop target also carries a `launch` object — the exact program, working directory, and
-/// environment `day launch` would spawn it with — so a caller that starts the binary itself gets
+/// A desktop target also carries a `launch` object (the exact program, working directory, and
+/// environment `day launch` would spawn it with), so a caller that starts the binary itself gets
 /// the same app Day would have started. That is what the VS Code extension hands to lldb when it
-/// delegates a debug session; without the environment the app comes up with no resources, no
-/// vectors, and no identity, and the difference is invisible until something is missing on screen.
+/// delegates a debug session; without the environment the app comes up with no resources,
+/// vectors, or identity, and the difference is invisible until something is missing on screen.
 /// Device and browser runtimes have no local program to name, so they carry no `launch`.
 fn print_result_json(
     command: &str,
@@ -2106,7 +2108,7 @@ fn print_result_json(
             });
             if target.kind == crate::targets::TargetKind::Desktop {
                 // Best-effort: the build itself succeeded, and the only way the plan fails is a
-                // `.app` with nothing under Contents/MacOS — which the launch path diagnoses far
+                // `.app` with nothing under Contents/MacOS, which the launch path diagnoses far
                 // better than a truncated result event could.
                 let spec = ops::LaunchSpec {
                     locale: None,
@@ -2155,7 +2157,7 @@ struct CaptureRun {
     variant: Option<String>,
 }
 
-/// Accept both `--themes light,dark` and `--themes "light dark"` — the CI matrix variables are
+/// Accept both `--themes light,dark` and `--themes "light dark"`: the CI matrix variables are
 /// space-separated and pass through as one argument. Shared with the other list-valued flags
 /// (`day new app --locales`, `day localize add/remove`) so every list splits the same way.
 pub(crate) fn split_list(raw: &[String]) -> Vec<String> {
@@ -2170,14 +2172,14 @@ pub(crate) fn split_list(raw: &[String]) -> Vec<String> {
 /// Expand `--themes` × `--locales` into runs, preserving both existing artifact conventions
 /// byte-for-byte (they predate this flag and live on in the gallery config and the app CIs):
 ///
-/// - locales alone → one run per locale, `--locale <l>` passed for every locale INCLUDING the
-///   default, variant `<l>` — what the app CIs' shell loops produced.
+/// - locales alone → one run per locale, `--locale <l>` passed for every locale including the
+///   default, variant `<l>` (what the app CIs' shell loops produced).
 /// - themes × locales → variant `<theme>` when the locale is `en` (run in the default locale,
-///   no `--locale` flag), `<theme>-<locale>` otherwise — the day-CI / gallery convention
+///   no `--locale` flag), `<theme>-<locale>` otherwise, the day-CI / gallery convention
 ///   (website/gallery.config.mjs lists exactly these ids).
 ///
-/// The `en` asymmetry between the modes is deliberate compatibility, not design: renaming
-/// artifact directories would break every consumer that globs them.
+/// The `en` asymmetry between the modes is kept for compatibility: renaming artifact
+/// directories would break every consumer that globs them.
 fn capture_matrix(
     themes_raw: &[String],
     locales_raw: &[String],
@@ -2247,8 +2249,8 @@ fn capture_matrix(
 mod error_tests {
     use super::*;
 
-    /// The exit-code contract, one assertion per kind. These numbers are frozen — CI
-    /// walkthroughs assert them — so a change here is a breaking change, not a refactor.
+    /// The exit-code contract, one assertion per kind. These numbers are frozen (CI
+    /// walkthroughs assert them), so a change here is a breaking change, not a refactor.
     #[test]
     fn every_kind_maps_to_its_frozen_code() {
         assert_eq!(ErrKind::Failure.exit_code(), 1);
@@ -2261,8 +2263,8 @@ mod error_tests {
         assert_eq!(ErrKind::Lint.exit_code(), 10);
     }
 
-    /// A bare String converts to the generic failure (exit 1) with its text intact — the
-    /// gradual-conversion path for `Result<T, String>` helpers — and the constructors pick
+    /// A bare String converts to the generic failure (exit 1) with its text intact (the
+    /// gradual-conversion path for `Result<T, String>` helpers), and the constructors pick
     /// the specific kinds.
     #[test]
     fn strings_convert_and_constructors_pick_kinds() {
@@ -2327,7 +2329,7 @@ mod error_tests {
         }
     }
 
-    /// `--git` needs no `-p` and no project on disk — that is the whole point of it. `--dir`
+    /// `--git` exists so that neither `-p` nor a project on disk is needed. `--dir`
     /// without it is meaningless, and clap rejects the pair rather than silently ignoring one.
     #[test]
     fn git_parses_without_a_platform_and_dir_requires_it() {
@@ -2385,7 +2387,7 @@ mod capture_matrix_tests {
         items.iter().map(|s| s.to_string()).collect()
     }
 
-    /// The day-CI shape: themes × locales, with `en` implicit — the exact variant ids the
+    /// The day-CI shape: themes × locales, with `en` implicit; the exact variant ids the
     /// gallery config lists.
     #[test]
     fn themes_cross_locales_the_gallery_way() {

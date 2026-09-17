@@ -3,7 +3,7 @@
 
 //! Ambient animation intent (§8.4). [`with_animation`] sets a thread-local `AnimSpec` for the
 //! duration of a state mutation; the tree's `patch` / layout's `set_frame` read it (via
-//! `Tree::resolve_anim`) and hand it to the backend as *backend-executed* animation intent — Day
+//! `Tree::resolve_anim`) and hand it to the backend as *backend-executed* animation intent: Day
 //! passes intent, the toolkit animates. A node-scoped `.animation(anim)` stores its own `AnimSpec`
 //! on the node (`NodeData::implicit_anim`); the ambient one wins when both are present.
 
@@ -36,18 +36,18 @@ pub(crate) fn with_current_anim<R>(spec: AnimSpec, f: impl FnOnce() -> R) -> R {
     f()
 }
 
-/// Explicitly animate every state change made in `f` — Day's equivalent of SwiftUI's
+/// Explicitly animate every state change made in `f`, Day's equivalent of SwiftUI's
 /// `withAnimation`. The mutation runs inside a [`day_reactive::batch`]; that batch's synchronous
 /// fixpoint drain (bindings → `patch`, plus the turn-end layout → `set_frame`) executes while
 /// `spec` is ambient, so the resulting native updates carry the animation intent and the toolkit
 /// animates them on its own compositor. Nesting overrides; the previous ambient restores after.
 ///
-/// Edge case: if called from *inside* an in-progress drain (rare — mutating within a reactive
+/// Edge case: if called from *inside* an in-progress drain (rare: mutating within a reactive
 /// effect), the batch defers to the ongoing drain and the intent is not captured; the change then
 /// applies instantly. This matches SwiftUI's transaction boundaries.
 pub fn with_animation<R>(spec: AnimSpec, f: impl FnOnce() -> R) -> R {
     with_current_anim(spec, || {
-        // Coalesce the writes, then force the drain to run now — while `spec` is still ambient —
+        // Coalesce the writes, then force the drain to run now, while `spec` is still ambient,
         // rather than deferring to the enclosing batch's close (event dispatch runs handlers inside
         // a batch, so that close happens after this scope ends and the intent would be lost).
         let r = day_reactive::batch(f);

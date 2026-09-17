@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The undo stack: units are turns, inverted — and preview sessions, whose sixty writes cost
+//! The undo stack: units are turns, inverted; and preview sessions, whose sixty writes cost
 //! one record. All headless, against the plain in-memory store (persistence is optional to
 //! undo, not the other way around).
 
@@ -313,7 +313,7 @@ fn transient_context_rides_the_history() {
         );
     }
 
-    // Select 1, edit it; select 2, edit it — the selection changes themselves are no units.
+    // Select 1, edit it; select 2, edit it. The selection changes themselves are no units.
     *selection.borrow_mut() = vec![1];
     store.elem(1).count().write(11);
     day_reactive::flush_sync();
@@ -321,7 +321,7 @@ fn transient_context_rides_the_history() {
     store.elem(2).count().write(22);
     day_reactive::flush_sync();
 
-    // Undo lands on the point after item 1's edit — where 1 was selected, not 2.
+    // Undo lands on the state after item 1's edit, where 1 was selected, not 2.
     assert!(stack.undo());
     assert_eq!(*selection.borrow(), vec![1]);
     assert_eq!(store.elem(2).count().peek(), 20);
@@ -331,7 +331,7 @@ fn transient_context_rides_the_history() {
     assert_eq!(*selection.borrow(), vec![2]);
     assert_eq!(store.elem(2).count().peek(), 22);
 
-    // Transient means transient: a selection change after the last unit is not history —
+    // Transient means transient: a selection change after the last unit is not history, so
     // the sealed snapshot wins on the next undo.
     *selection.borrow_mut() = vec![1, 2];
     assert!(stack.undo());

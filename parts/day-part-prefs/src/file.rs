@@ -10,7 +10,7 @@
 // A process-wide mutex serializes load-modify-save cycles (the file is shared mutable state). Every
 // read tolerates a missing, unreadable, or corrupt file by treating the store as empty, so a partial
 // write or a hand-edit can never panic a caller. Writes are best-effort atomic: write a sibling temp
-// file, then rename it over the target. Pure std — no extra dependencies.
+// file, then rename it over the target. Pure std, with no extra dependencies.
 
 use std::collections::BTreeMap;
 use std::fs;

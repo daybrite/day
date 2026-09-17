@@ -7,18 +7,18 @@
 //! each platform's native font location (Android `res/font/`, the iOS DayPieces bundle +
 //! `UIAppFonts`, ArkUI rawfile, loose `Resources/fonts` on the desktops) and each backend
 //! registers them at startup so `Font::Custom("Family", pt)` resolves by the font's **family
-//! name** — the name baked into the file's `name` table (what Font Book / fontconfig report), not
+//! name**, the name baked into the file's `name` table (what Font Book / fontconfig report), not
 //! its file name.
 //!
-//! This module is the single source of truth shared by the CLI (staging-time family extraction,
+//! This module is the one implementation shared by the CLI (staging-time family extraction,
 //! identifier naming) and the runtimes (startup registration, family → file resolution):
 //!
-//! * [`parse_font_names`] — a minimal sfnt `name`-table reader for `.ttf`/`.otf`/`.ttc`.
-//! * [`font_dir`] / [`bundled_fonts`] — locate the staged font files at runtime (`DAY_FONT_ROOT`
+//! * [`parse_font_names`]: a minimal sfnt `name`-table reader for `.ttf`/`.otf`/`.ttc`.
+//! * [`font_dir`] / [`bundled_fonts`]: locate the staged font files at runtime (`DAY_FONT_ROOT`
 //!   under `day launch`, bundle-relative `Resources/fonts` when packed).
-//! * [`resolve_font_file`] — map a requested family name to one of the bundled files, for
+//! * [`resolve_font_file`]: map a requested family name to one of the bundled files, for
 //!   backends whose native API wants a file path rather than a registered family (XAML).
-//! * [`font_ident`] — the identifier both the Android/ArkUI stagers and their runtimes derive
+//! * [`font_ident`]: the identifier both the Android/ArkUI stagers and their runtimes derive
 //!   from a family name (`"Special Elite"` → `special_elite`), so lookup needs no side table.
 
 use std::path::PathBuf;
@@ -29,10 +29,10 @@ pub const FONT_EXTS: [&str; 3] = ["ttf", "otf", "ttc"];
 /// The names a font file reports for itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontNames {
-    /// The (typographic) family name — name ID 16, falling back to 1. This is what
+    /// The (typographic) family name: name ID 16, falling back to 1. This is what
     /// `Font::Custom` matches on.
     pub family: String,
-    /// The PostScript name (name ID 6), when present — some platform APIs resolve by it.
+    /// The PostScript name (name ID 6), when present; some platform APIs resolve by it.
     pub postscript: Option<String>,
 }
 
@@ -45,7 +45,7 @@ fn u32be(data: &[u8], off: usize) -> Option<u32> {
 }
 
 /// Read the family and PostScript names from a raw font file (`.ttf`, `.otf`, or the first face
-/// of a `.ttc`). A tiny sfnt reader — only the table directory and the `name` table are touched,
+/// of a `.ttc`). A tiny sfnt reader: only the table directory and the `name` table are touched,
 /// so it is safe to run on untrusted bytes (every access is bounds-checked).
 pub fn parse_font_names(data: &[u8]) -> Option<FontNames> {
     // Font collections ('ttcf') front an array of face offsets; take the first face.
@@ -102,10 +102,10 @@ pub fn parse_font_names(data: &[u8]) -> Option<FontNames> {
             // Windows (3) and Unicode (0): UTF-16BE. American English first among Windows.
             3 | 0 => {
                 // `as_chunks::<2>` rather than `chunks_exact(2)`: it yields `&[u8; 2]`, which
-                // `from_be_bytes` takes directly — no rebuilding the pair by index, and no bounds
-                // check on a length the type already carries. `.1` is the odd trailing byte of a
-                // malformed record, which a UTF-16 decode has nothing to do with, so it is dropped
-                // exactly as `chunks_exact` dropped it.
+                // `from_be_bytes` takes directly, with no rebuilding the pair by index and no
+                // bounds check on a length the type already carries. `.1` is the odd trailing byte
+                // of a malformed record, which a UTF-16 decode has nothing to do with, so it is
+                // dropped exactly as `chunks_exact` dropped it.
                 let units: Vec<u16> = bytes
                     .as_chunks::<2>()
                     .0
@@ -122,7 +122,7 @@ pub fn parse_font_names(data: &[u8]) -> Option<FontNames> {
                 };
                 (s, score)
             }
-            // Macintosh Roman: treat as Latin-1 (ASCII in practice).
+            // Macintosh Roman: treat as Latin-1 (nearly always ASCII).
             1 if encoding == 0 => (bytes.iter().map(|&b| b as char).collect(), 0),
             _ => continue,
         };

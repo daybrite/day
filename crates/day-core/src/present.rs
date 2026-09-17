@@ -5,7 +5,7 @@
 //! (`task`) plus the pending-request registry that routes a `present(spec).await` through
 //! the tree to the backend and its `Event::PresentResult` answer back to the future.
 //!
-//! Everything is thread-local and `!Send` — Day has one UI thread. The executor is std-only
+//! Everything is thread-local and `!Send`: Day has one UI thread. The executor is std-only
 //! (no async runtime): tasks are boxed futures polled on the main loop; a presentation
 //! future parks a `Waker` that re-polls its task through `day_reactive::on_main`.
 
@@ -31,11 +31,11 @@ day_reactive::tls_slots! {
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
 }
 
-/// An app-writable scratch directory (docs/files.md) — re-exported from `day_spec::present` so
+/// An app-writable scratch directory (docs/files.md), re-exported from `day_spec::present` so
 /// `day_core::app_temp_dir()` keeps working for the pieces layer's file-save staging.
 pub use day_spec::present::app_temp_dir;
 
-/// Resolve after (at least) `ms` milliseconds, on the UI thread — the portable delay for
+/// Resolve after (at least) `ms` milliseconds, on the UI thread: the portable delay for
 /// `day::task` flows (docs/async.md). Rides `Platform::post_delayed`, so it works on
 /// single-threaded hosts (web) where `std::thread::sleep` + `Setter` cannot.
 pub fn sleep(ms: u32) -> Sleep {
@@ -116,22 +116,22 @@ impl TaskHandle {
     /// Remove and drop the task's future. An in-flight `.await` cancels via `Drop` (e.g. a
     /// `FetchFuture` inside cancels its platform request). No-op if the task already finished.
     pub fn abort(self) {
-        // Take the future OUT of the map and drop it after the RefCell borrow ends: a future
+        // Take the future out of the map and drop it after the RefCell borrow ends: a future
         // whose Drop re-enters the executor (spawns a task, aborts another handle) would
-        // otherwise hit a live borrow. If the task is mid-poll its slot was taken (`None`) —
+        // otherwise hit a live borrow. If the task is mid-poll its slot was taken (`None`);
         // removing the entry then makes `poll_task`'s Pending put-back find nothing, and the
         // future drops there instead.
         let fut = TASKS.with(|t| t.borrow_mut().remove(&self.id));
         drop(fut);
     }
 
-    /// Whether the task no longer runs — completed or aborted.
+    /// Whether the task no longer runs (completed or aborted).
     pub fn is_finished(self) -> bool {
         !TASKS.with(|t| t.borrow().contains_key(&self.id))
     }
 }
 
-/// Spawn an async flow onto Day's main-loop executor. This is the opt-in seam for actions
+/// Spawn an async flow onto Day's main-loop executor. This is the opt-in entry point for actions
 /// that open modals or pickers: `button.action(|| day::task(async move { … .await … }))`.
 /// The future is polled once before this returns; the returned handle can [`TaskHandle::abort`]
 /// it and is freely discardable.
@@ -264,7 +264,7 @@ pub fn resolve_presentation(req: u64, result: PresentResult) {
 }
 
 /// Answer a still-open modal programmatically (dayscript). Resolves with the given result
-/// First (removing the pending request), then dismisses the native control — so the native
+/// First (removing the pending request), then dismisses the native control, so the native
 /// dismissal's own completion event finds nothing pending and is a no-op. False = no such
 /// pending request.
 pub fn respond_presentation(req: u64, result: PresentResult) -> bool {
@@ -303,7 +303,7 @@ mod task_tests {
         day_reactive::install_main_poster(|f| f());
     }
 
-    /// Sets its flag when dropped — observes whether an aborted future was actually destroyed.
+    /// Sets its flag when dropped; observes whether an aborted future was destroyed.
     struct DropFlag(Rc<Cell<bool>>);
     impl Drop for DropFlag {
         fn drop(&mut self) {
@@ -351,7 +351,7 @@ mod task_tests {
     }
 
     /// A task that aborts itself from inside `poll`: the slot is already taken (`None`), abort
-    /// removes the map entry, and the `Pending` put-back finds nothing — the future must drop
+    /// removes the map entry, and the `Pending` put-back finds nothing. The future must drop
     /// exactly once, after the poll returns, with no `RefCell` re-borrow.
     #[test]
     fn abort_self_while_polling() {

@@ -9,22 +9,22 @@ repository.workspace = true
 license.workspace = true
 build = "build.rs"
 
-# A numeric STEPPER FIELD (docs/stepper.md): `stepper(value)` is a text field with
-# increment/decrement arrows, bound two-way to any `Binding<f64>` — an inspector's "stroke
-# width", a quantity, a font size.
+# A numeric stepper field (docs/stepper.md): `stepper(value)` is a text field with
+# increment/decrement arrows, bound two-way to any `Binding<f64>` (an inspector's "stroke
+# width", a quantity, a font size).
 #
-# NATIVE realizes a leaf where the platform ships the widget: an NSTextField + NSStepper
+# `Native` realizes a leaf where the platform ships the widget: an NSTextField + NSStepper
 # composite on AppKit (macOS has no combined control), GtkSpinButton, and a QDoubleSpinBox
-# shim. COMPOSED builds the same field from ordinary Day pieces (− / field / +), so it behaves
+# shim. `Composed` builds the same field from ordinary Day pieces (− / field / +), so it behaves
 # identically on every other target. The default is native where an arm exists and composed
-# where none does — uikit, mdc, arkui, dom and xaml appear in no [features] list below and no
+# where none does; uikit, mdc, arkui, dom and xaml appear in no [features] list below and no
 # `backends` entry: they need no code of their own.
 
 [features]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QDoubleSpinBox)
-# No renderer — the feature exists so an app can enable `day-piece-stepper/mock` uniformly;
+# No renderer: the feature exists so an app can enable `day-piece-stepper/mock` uniformly;
 # the composed field carries mock, like every backend without an arm.
 mock = []
 

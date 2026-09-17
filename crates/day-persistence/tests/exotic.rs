@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The corner-case hunt: interleaved sessions, undo against vanished rows, id reuse, unicode
-//! and megabyte payloads, malformed FTS syntax, sentinel keys, container churn — the places a
+//! and megabyte payloads, malformed FTS syntax, sentinel keys, container churn: the places a
 //! design is usually under-specified, pinned as behavior.
 
 use day_macros::Model;
@@ -102,7 +102,7 @@ fn undo_against_a_row_another_author_deleted_degrades_quietly() {
     store.elem(1).rank_no().write(99);
     day_reactive::flush_sync();
     // Another author removes the row after the edit was captured (capture suppressed so the
-    // stack does not learn about it — the "another writer" shape).
+    // stack does not learn about it, the "another writer" shape).
     day_model::with_author("importer", || {
         store.restructure("remove", Op::Delete, 1, |v| {
             v.remove(1);
@@ -200,7 +200,7 @@ fn unicode_survives_the_whole_pipeline() {
         .live();
     assert_eq!(q.ids(), [1]);
 
-    // FTS over CJK: the default tokenizer is unicode61 — treats CJK as one token per run,
+    // FTS over CJK: the default tokenizer is unicode61, which treats CJK as one token per run,
     // so a whole-run query matches and a partial does not. Pinned so a future tokenizer
     // change is a visible decision.
     let q = c
@@ -257,7 +257,7 @@ fn sentinel_adjacent_keys_work_and_the_top_bit_is_reserved() {
     let store = c.cache::<Doc>();
     // The integer keyspace ends below 1 << 63: the top bit is the wide-key handle space
     // (identity derived from data belongs in a Uuid or String key now), and SQLite's own
-    // INTEGER tops out at i64::MAX anyway — the old contract only "stored" larger keys by
+    // INTEGER tops out at i64::MAX anyway; the old contract only "stored" larger keys by
     // silently wrapping them negative. Debug builds refuse the top bit at the key itself.
     let near_top = (1u64 << 63) - 2;
     store.restructure("add", Op::Insert, near_top, |v| {
@@ -269,14 +269,14 @@ fn sentinel_adjacent_keys_work_and_the_top_bit_is_reserved() {
     });
     let sql = c.record_sql(|| {}).expect("save");
     assert_eq!(sql.len(), 1, "near-top keys persist normally: {sql:?}");
-    // u64::MAX itself is day-model's STRUCTURE sentinel — inside the reserved half.
+    // u64::MAX itself is day-model's `STRUCTURE` sentinel, inside the reserved half.
     assert_eq!(day_model::STRUCTURE, u64::MAX);
 }
 
 #[test]
 fn wholesale_emptying_the_cache_deletes_nothing() {
-    // The lazy contract: the cache is a WORKING SET, so rewriting it wholesale upserts what
-    // it holds and never infers deletions from absence — rows the rewrite never saw are not
+    // The lazy contract: the cache is a working set, so rewriting it wholesale upserts what
+    // it holds and never infers deletions from absence; rows the rewrite never saw are not
     // its to delete. Emptying the table is an explicit act, row by row, through the log.
     let c = open_seeded();
     let store = c.cache::<Doc>();
@@ -344,7 +344,7 @@ fn a_viewport_with_inverted_bounds_matches_nothing() {
             lat: "rank_no",
             lon: "rank_no",
             min_lat: 5.0,
-            max_lat: 1.0, // inverted on purpose
+            max_lat: 1.0, // inverted: max below min
             min_lon: 0.0,
             max_lon: 10.0,
         })

@@ -1,17 +1,17 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day rebuild <artifact>` — rebuild a shipped artifact from its own provenance and compare
+//! `day rebuild <artifact>`: rebuild a shipped artifact from its provenance and compare
 //! (DESIGN.md §20.4).
 //!
-//! The point is to make verification a single command. Given an artifact someone is about to
+//! It makes verification a single command. Given an artifact someone is about to
 //! install, read the SBOM for *what* it was built from and the buildinfo sidecar for *what it was
 //! built with*, check this machine matches, rebuild from source, and report whether the result
 //! agrees.
 //!
-//! Two things this deliberately does NOT do. It never installs a toolchain: a verification tool
+//! Two things this does not do. It never installs a toolchain: a verification tool
 //! that mutates the machine it is verifying on is a poor trade, so a version mismatch prints the
-//! command to run and stops. And it does not promise byte equality — signatures and Mach-O build
+//! command to run and stops. And it does not promise byte equality: signatures and Mach-O build
 //! IDs cannot be reproduced by a third party (§20.3), so it reports a payload verdict and a
 //! container verdict separately and fails only on the former.
 
@@ -27,7 +27,7 @@ pub enum Verdict {
     Identical,
     /// Differs, with a human-readable reason.
     Differs(String),
-    /// Not checkable here — the format could not be opened on this host.
+    /// Not checkable here: the format could not be opened on this host.
     Unchecked(String),
 }
 
@@ -47,7 +47,7 @@ struct Provenance {
     commit: String,
     dirty: bool,
     /// Where the project sat inside the repository (`apps/example`, or empty at the root).
-    /// Absent in artifacts packed before this was recorded — see `find_project_dir`.
+    /// Absent in artifacts packed before this was recorded; see `find_project_dir`.
     project: Option<String>,
     /// The app id the artifact declares, used to identify the project when `project` is absent.
     app_id: Option<String>,
@@ -85,7 +85,7 @@ fn read_json(path: &Path) -> Option<serde_json::Value> {
 }
 
 /// What the SBOM says about the source: repository, commit, dirty flag, project path, app id.
-/// The last two are optional — older artifacts predate them.
+/// The last two are optional, because older artifacts predate them.
 #[derive(Debug, PartialEq)]
 struct SourceFacts {
     repository: String,
@@ -119,7 +119,7 @@ fn source_facts(doc: &serde_json::Value) -> Option<SourceFacts> {
         repository: field("repository")?,
         commit: field("commit")?,
         dirty: info.contains("dirty=true"),
-        // An empty prefix is the repository root, which is a real answer — keep it as Some("").
+        // An empty prefix is the repository root, which is a real answer, so keep it as Some("").
         project: info
             .split_whitespace()
             .find_map(|kv| kv.strip_prefix("project="))
@@ -152,8 +152,8 @@ fn cyclonedx_props(doc: &serde_json::Value) -> Option<SourceFacts> {
 /// Find an SBOM either beside the artifact or inside it.
 ///
 /// A sidecar is named after the artifact (`<artifact>.sbom-cdx.json`, §20.4), so it is looked up
-/// exactly rather than by scanning the directory — a release directory holds every target's.
-/// The bare `day-sbom.*.json` names are the EMBEDDED spelling, and are also what packs before
+/// exactly rather than by scanning the directory, since a release directory holds every target's.
+/// The bare `day-sbom.*.json` names are the embedded spelling, and are also what packs before
 /// this naming existed wrote beside the artifact; both fall back to them.
 fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, String> {
     let dir = artifact.parent().unwrap_or(Path::new("."));
@@ -168,7 +168,8 @@ fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, Str
             return Ok(doc);
         }
     }
-    // Not beside it — look inside. Every container Day produces except .dmg and .flatpak is a zip.
+    // Not beside it, so look inside. Every container Day produces except .dmg and .flatpak is a
+    // zip.
     let inner = scratch.join("extracted");
     std::fs::create_dir_all(&inner).map_err(|e| e.to_string())?;
     let ext = artifact
@@ -214,7 +215,7 @@ fn locate_sbom(artifact: &Path, scratch: &Path) -> Result<serde_json::Value, Str
 /// refuses an image that is already attached, and macOS records no payload digests to fall back on
 /// (`pack::payload_root`), so an attachment left behind by a killed run turns the payload verdict
 /// Unchecked and `--strict` then fails a build that was fine. That is what reddened macos-appkit.
-/// The second attempt is not a retry against flakiness — it removes that one cause and asks again.
+/// The second attempt is not a retry against flakiness: it removes that one cause and asks again.
 fn mount_dmg(dmg: &Path, dest: &Path) -> Result<(), String> {
     let mnt = dest.join("_mnt");
     std::fs::create_dir_all(&mnt).map_err(|e| e.to_string())?;
@@ -256,7 +257,7 @@ fn mount_dmg(dmg: &Path, dest: &Path) -> Result<(), String> {
     if !detached {
         detach_image(dmg);
     }
-    // A partial copy would surface as missing members, i.e. as "the compiled code differs" — so a
+    // A partial copy would surface as missing members, i.e. as "the compiled code differs", so a
     // ditto that exits non-zero is an error here, not a silently smaller tree.
     match copied {
         Ok(s) if s.success() => Ok(()),
@@ -286,7 +287,7 @@ fn detach_image(dmg: &Path) {
 /// `image-path`, and the first `/dev/diskN` under it is the image itself (the volumes beneath are
 /// `…sN` slices), so detaching that one releases the whole attachment. Paths are canonicalized on
 /// both sides because the report mixes the two spellings of a temp dir (`/var/…` on `image-path`,
-/// `/private/var/…` on `image-alias`) — and `image-alias` must NOT match, or a shadowed image
+/// `/private/var/…` on `image-alias`), and `image-alias` must not match, or a shadowed image
 /// would be detached out from under whoever attached it.
 fn image_dev_node(info: &str, dmg: &Path) -> Option<String> {
     let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
@@ -313,7 +314,7 @@ fn image_dev_node(info: &str, dmg: &Path) -> Option<String> {
 ///
 /// `symlink_metadata`, not `is_dir`: a mounted `.dmg` contains an `Applications` symlink pointing
 /// at `/Applications`, and following it walks every app installed on the machine. An unreadable
-/// directory is skipped rather than ending the search — one bad entry should not hide the file.
+/// directory is skipped rather than ending the search; one bad entry should not hide the file.
 fn find_file(root: &Path, name: &str) -> Option<PathBuf> {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -348,7 +349,7 @@ struct Sidecar {
     payload: Vec<(String, String)>,
 }
 
-/// Read the buildinfo sidecar next to the artifact. It is always a sidecar, by design: embedding
+/// Read the buildinfo sidecar next to the artifact. It is always a sidecar, because embedding
 /// tool versions would make the artifact differ per machine (§20.3). Without it a rebuild still
 /// works, minus tool gating.
 ///
@@ -589,7 +590,7 @@ fn checkout(repository: &str, commit: &str, dest: &Path) -> Result<(), String> {
 /// no use for; `build`, `target`, and `node_modules` are build products, and a stale artifact or
 /// object file carried into the copy would poison the rebuild it is meant to check. `.gradle` and
 /// `.kotlin` are Gradle's and Kotlin's per-project caches: a copied configuration cache records the
-/// ORIGINAL project's absolute paths, so Gradle reuses it, finds the original's outputs up to date,
+/// original project's absolute paths, so Gradle reuses it, finds the original's outputs up to date,
 /// and never writes an APK into the copy.
 const COPY_EXCLUDES: [&str; 6] = [
     ".git",
@@ -677,7 +678,7 @@ fn compare(
     let (ua, ub) = (scratch.join("cmp/a"), scratch.join("cmp/b"));
     let _ = std::fs::remove_dir_all(scratch.join("cmp"));
     if let Err(why) = unpack(original, &ua).and_then(|()| unpack(rebuilt, &ub)) {
-        // The container could not be opened here — a `.flatpak` is an OSTree bundle whose import
+        // The container could not be opened here: a `.flatpak` is an OSTree bundle whose import
         // wants privileges the runner does not have, and a `.msix` needs a working unzip. The
         // payload tier is still decidable: the original recorded the digest of every staged
         // payload file, so hash what this build staged and compare that.
@@ -703,8 +704,8 @@ fn compare(
         Ok((diffs, _)) => {
             // Name the first actual difference. Without it a verdict of "these XML files differ"
             // sends the next person guessing at a package they cannot open on their own host.
-            // Text members quote the line; the compiled binary — the member that actually fails
-            // this check — names the Mach-O region instead, since a hex dump would say nothing.
+            // Text members quote the line; the compiled binary (the member that actually fails
+            // this check) names the Mach-O region instead, since a hex dump would say nothing.
             let hint = diffs
                 .first()
                 .and_then(|rel| {
@@ -738,7 +739,7 @@ pub struct Options {
     /// Treat an unverifiable payload as a failure. CI sets this: a format this host cannot open
     /// means the compiled code went uncompared, and reporting that as success is a false pass.
     pub strict: bool,
-    /// Rebuild from this project directory instead of cloning the commit the SBOM records — for
+    /// Rebuild from this project directory instead of cloning the commit the SBOM records, for
     /// artifacts whose source is not in git, e.g. a freshly scaffolded project in CI. The SBOM
     /// and the dirty check are skipped (the caller vouches for the tree); tool gating still
     /// applies when a `.buildinfo.json` sits beside the artifact.
@@ -833,8 +834,8 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     pack.current_dir(&project_dir)
         .args(["pack", "-p", target.name, "--profile", &profile])
         .arg("--no-version-in-name");
-    // Re-apply the build inputs the artifact recorded. Their defaults are machine-dependent — with
-    // no device attached, the ABI set collapses to one — so without this the rebuild packs a
+    // Re-apply the build inputs the artifact recorded. Their defaults are machine-dependent (with
+    // no device attached, the ABI set collapses to one), so without this the rebuild packs a
     // structurally different artifact and the comparison reports a difference that is ours.
     for (k, v) in &prov.inputs {
         status("Input", &format!("{k}={v}"));
@@ -853,7 +854,7 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     // `day pack` names the artifact exactly as it ships, so the rebuild normally lands on the same
     // file name. The one exception is iOS: pack marks a build with no signing material
     // `…-unsigned.ipa`, and release CI strips that so the published asset keeps one name either
-    // way. A verifying machine has no signing config, so it packs the marked name — accept it,
+    // way. A verifying machine has no signing config, so it packs the marked name; accept it,
     // rather than report a rebuild that in fact ran.
     if !rebuilt.is_file()
         && let Some(stem) = name.to_str().and_then(|n| n.strip_suffix(".ipa"))
@@ -911,7 +912,7 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
 ///
 /// `recorded` is the path the SBOM carries (`apps/example`, or empty for the repository root) and
 /// is authoritative: the packing run knew exactly where it stood. `app_id` identifies the project
-/// in artifacts packed before that was recorded — a search, but one that checks the id it finds
+/// in artifacts packed before that was recorded: a search, but one that checks the id it finds
 /// rather than taking the first `Day.toml` it trips over.
 fn find_project_dir(
     root: &Path,
@@ -952,7 +953,7 @@ fn find_project_dir(
             projects
                 .iter()
                 .map(|p| {
-                    // Repo-relative with forward slashes on every host — the notation the
+                    // Repo-relative with forward slashes on every host: the notation the
                     // SBOM's `day:project` field records (git's show-prefix form), not the
                     // OS separator (Windows would print `apps\example`).
                     p.strip_prefix(root)
@@ -1044,13 +1045,13 @@ fn zero_macho_uuid(buf: &mut [u8]) -> usize {
 
 /// Strip the build-path-derived metadata from a file so the comparison sees code.
 ///
-/// This is where Day's reproducibility guarantee is defined, so state it plainly: a rebuild is NOT
+/// This is where Day's reproducibility guarantee is defined, so state it plainly: a rebuild is not
 /// promised to be byte-identical to the original artifact. It is promised to be identical after
-/// Whether `head` is a Mach-O — thin, or a fat/universal archive.
+/// Whether `head` is a Mach-O, thin or a fat/universal archive.
 ///
 /// The fat magic needs more than its four bytes, because `0xCAFEBABE` is also the Java class-file
 /// magic; Java chose it knowingly, and the two formats have collided ever since. An APK is full of
-/// class files, and `kotlinx-coroutines`' `DebugProbesKt.bin` is one of them under a `.bin` name —
+/// class files, and `kotlinx-coroutines`' `DebugProbesKt.bin` is one of them under a `.bin` name,
 /// enough for the android scaffold check to take it for a universal binary, run `codesign` on it,
 /// and fail the whole reproducibility check on a Linux runner that has no `codesign` at all.
 ///
@@ -1065,7 +1066,7 @@ fn looks_macho(head: &[u8]) -> bool {
         head.get(at..at + 4)
             .map(|b| u32::from_be_bytes(b.try_into().unwrap_or_default()))
     };
-    // Thin Mach-O, either endianness and either width — distinctive enough on its own.
+    // Thin Mach-O, either endianness and either width: distinctive enough on its own.
     if matches!(
         u32::from_le_bytes(head[0..4].try_into().unwrap_or_default()),
         0xFEED_FACF | 0xFEED_FACE | 0xCFFA_EDFE | 0xCEFA_EDFE
@@ -1091,21 +1092,21 @@ fn looks_macho(head: &[u8]) -> bool {
     (1..=32).contains(&archs) && be(8).is_some_and(|cpu| CPU_TYPES.contains(&cpu))
 }
 
-/// normalization — once the parts that describe the machine and the moment, rather than the
+/// normalization, once the parts that describe the machine and the moment, rather than the
 /// compiled program, are removed. Toolchains that embed a signature, a build id, or a path to
 /// their own scratch directory would otherwise make the check impossible to pass without pinning
 /// the build directory, which is a worse guarantee than the one being made here.
 ///
 /// What comes off, and why each is irrelevant to "is this the same code":
 ///
-/// * the code signature — computed over the bytes below, so it cannot survive their normalization,
+/// * the code signature: computed over the bytes below, so it cannot survive their normalization,
 ///   and identity/timestamp are the packager's, not the program's;
-/// * the Mach-O `LC_UUID` — a per-link build id, deliberately unique per link;
-/// * the debug map (`N_OSO` stabs) — absolute paths to the object files the linker consumed.
+/// * the Mach-O `LC_UUID`: a per-link build id, unique per link;
+/// * the debug map (`N_OSO` stabs): absolute paths to the object files the linker consumed.
 ///
-/// What deliberately does NOT come off is everything that decides what the program does: the text
-/// and data, the symbol table proper, the load commands, the linked libraries. A change in any of
-/// those still fails the check, which is the point.
+/// What stays on is everything that decides what the program does: the text and data, the
+/// symbol table proper, the load commands, the linked libraries. A change in any of those still
+/// fails the check, which is what the check is for.
 fn normalize(path: &Path) -> Result<(), String> {
     let Ok(head) = std::fs::read(path) else {
         return Ok(());
@@ -1115,7 +1116,7 @@ fn normalize(path: &Path) -> Result<(), String> {
     }
     // The ad-hoc signature covers the UUID, so it has to go first or it will not match either.
     //
-    // Its result is CHECKED for the same reason `strip`'s is below: the signature hashes the very
+    // Its result is checked for the same reason `strip`'s is below: the signature hashes the very
     // bytes this function goes on to change, so a silent refusal leaves a blob that cannot match
     // and the run reports "differs after normalization" on a difference that describes the
     // packager rather than the program. `--remove-signature` exits 0 on a binary that was never
@@ -1145,16 +1146,16 @@ fn normalize(path: &Path) -> Result<(), String> {
         Err(e) => return Err(format!("running `codesign` on {}: {e}", path.display())),
         Ok(_) => {}
     }
-    // Then the debug map. ld records an ABSOLUTE path to every object file it consumed in the
-    // `N_OSO` stabs — into SYMROOT, into cargo's output, into the SwiftPM package's build dir —
-    // so two builds of one commit from two directories carry different strings AND different
+    // Then the debug map. ld records an absolute path to every object file it consumed in the
+    // `N_OSO` stabs (into SYMROOT, into cargo's output, into the SwiftPM package's build dir),
+    // so two builds of one commit from two directories carry different strings and different
     // sizes, since the paths differ in length. That is a map of the machine that built the code,
     // not the code, so it comes off before the comparison: `-S` drops the debug symbols and
     // leaves everything that determines behavior. `day build` also passes `-oso_prefix` to shrink
     // these to project-relative paths at link time (mobile.rs), but it cannot reach the objects a
     // SwiftPM package prelinks with `ld -r`, and this check must not depend on that.
     //
-    // Its result is CHECKED, not discarded: `strip` refuses a binary whose signature the edit
+    // Its result is checked, not discarded: `strip` refuses a binary whose signature the edit
     // would invalidate, and a silent refusal leaves the debug map in place, so the comparison
     // fails with "differs after normalization" and no hint that normalization is what broke.
     let stripped = Command::new("strip").arg("-S").arg(path).output();
@@ -1245,7 +1246,7 @@ fn payload_by_digest(
 ///
 /// `canonicalize` returns an extended-length `\\?\D:\a\…` path there, and the MSYS `unzip` on the
 /// runners treats every backslash as an escape: `D:\a\day\day\shipped\showcase.msix` reached it
-/// as `\?D:adaydayshippedshowcase.msix` and it reported the file missing — which the payload tier
+/// as `\?D:adaydayshippedshowcase.msix` and it reported the file missing, which the payload tier
 /// then reported as "no extractor for msix on this host". Forward slashes survive both layers, and
 /// Windows accepts them everywhere. No-op off Windows.
 fn portable(p: &Path) -> String {
@@ -1257,7 +1258,7 @@ fn portable(p: &Path) -> String {
     }
 }
 
-/// Open a container so its members can be compared. `Err` carries why it could not be opened —
+/// Open a container so its members can be compared. `Err` carries why it could not be opened:
 /// "this host has no extractor for that format" and "the extractor ran and failed" send the reader
 /// to different places, and the payload tier quotes this reason when it has to shrug.
 fn unpack(container: &Path, dest: &Path) -> Result<(), String> {
@@ -1339,7 +1340,7 @@ fn unpack_flatpak(bundle: &Path, dest: &Path) -> bool {
         .unwrap_or(false)
 }
 
-/// Every regular file under `root`, relative to it, sorted — the comparison unit.
+/// Every regular file under `root`, relative to it, sorted: the comparison unit.
 fn file_list(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
@@ -1367,7 +1368,7 @@ fn file_list(root: &Path) -> Vec<PathBuf> {
 }
 
 /// Compare two unpacked trees after normalizing each file. Returns the members that still differ.
-/// A member that holds a SIGNATURE rather than build output.
+/// A member that holds a signature rather than build output.
 ///
 /// These can never match and their difference says nothing about the build: CI signs Windows
 /// packages with a self-signed certificate generated per run, so `AppxSignature.p7x` and the
@@ -1397,12 +1398,12 @@ fn signature_member(rel: &Path) -> bool {
                 || name == "MANIFEST.MF"))
 }
 
-/// A member that indexes the CONTAINER rather than carrying build output.
+/// A member that indexes the container rather than carrying build output.
 ///
 /// `AppxBlockMap.xml` records each member's size, local-file-header size and per-block hashes;
 /// `[Content_Types].xml` maps the extensions present to content types. Both are written by
 /// `makeappx` from its own walk of the staging directory, so they describe the .msix ZIP, not the
-/// app — the same tier §20.3 already classes as advisory when the container digest differs.
+/// app: the same tier §20.3 already classes as advisory when the container digest differs.
 ///
 /// Excluding them hides nothing. Every file they describe is compared directly, and a member
 /// appearing or disappearing is caught earlier as "different sets of files", so a payload change
@@ -1455,7 +1456,7 @@ fn first_text_difference(a: &Path, b: &Path) -> Option<String> {
 ///
 /// The sibling of `first_text_difference` for the member that actually fails this check on Apple
 /// platforms: the compiled executable. "the executable differs" gives whoever reads a CI log
-/// nothing to act on, while the region the bytes land in is a lead — `__TEXT,__text` says the
+/// nothing to act on, while the region the bytes land in is a lead: `__TEXT,__text` says the
 /// emitted code changed, `__LINKEDIT` says a table the linker built did, and unequal lengths say
 /// the two links did not produce the same shape at all.
 fn first_binary_difference(a: &Path, b: &Path) -> Option<String> {
@@ -1500,10 +1501,10 @@ fn lc_name(cmd: u32) -> &'static str {
     }
 }
 
-/// Name the part of a Mach-O a file offset falls in — `__TEXT,__text`, a load command, or one of
+/// Name the part of a Mach-O a file offset falls in: `__TEXT,__text`, a load command, or one of
 /// the `__LINKEDIT` tables the header points at.
 ///
-/// Best-effort and shape-tolerant by design: this runs on a file the check has already decided is
+/// Best-effort and shape-tolerant: this runs on a file the check has already decided is
 /// wrong, so a malformed or unexpected one must yield `None` rather than a guess or a panic. The
 /// narrowest range wins, so a section is named ahead of the segment containing it.
 fn macho_location(buf: &[u8], at: usize) -> Option<String> {
@@ -1673,7 +1674,7 @@ mod tests {
     /// (the same path spelled `/private/var/…`) and an unrelated image gets detached out from
     /// under whoever attached it. The fixture is real `hdiutil info` output.
     ///
-    /// Deliberately NOT staged against a live attachment: that version manipulated global
+    /// Not staged against a live attachment: that version manipulated global
     /// disk-image state and flaked in a parallel run. `day rebuild` exercises the recovery itself.
     #[test]
     fn the_attached_image_is_found_by_its_own_path() {
@@ -1698,7 +1699,7 @@ image-type      : UDIF read-only [write once]
             image_dev_node(info, Path::new("/tmp/day-mount/image.dmg")),
             Some("/dev/disk4".to_string())
         );
-        // Each block answers for its own image — not "whichever block came first", which would
+        // Each block answers for its own image, not "whichever block came first", which would
         // detach a disk this function was never asked about.
         assert_eq!(
             image_dev_node(info, Path::new("/tmp/other/image.dmg")),
@@ -1722,8 +1723,8 @@ image-type      : UDIF read-only [write once]
         }
     }
 
-    /// `0xCAFEBABE` is the Mach-O fat magic AND the Java class magic. An APK is full of class
-    /// files, and one of them — kotlinx-coroutines' `DebugProbesKt.bin` — is a class file wearing
+    /// `0xCAFEBABE` is both the Mach-O fat magic and the Java class magic. An APK is full of class
+    /// files, and one of them, kotlinx-coroutines' `DebugProbesKt.bin`, is a class file wearing
     /// a `.bin` name, so the four-byte test took it for a universal binary, ran `codesign` on a
     /// Linux runner that has none, and failed the android reproducibility check on a difference
     /// that was not in the code.
@@ -1798,7 +1799,7 @@ image-type      : UDIF read-only [write once]
         assert_eq!(from_cdx.commit, "abc123");
         assert!(!from_cdx.dirty);
         // The project path decides which app in the repository gets rebuilt, so it has to survive
-        // both formats — SPDX has no property bag and carries it inside `sourceInfo`.
+        // both formats; SPDX has no property bag and carries it inside `sourceInfo`.
         assert_eq!(from_cdx.project.as_deref(), Some("apps/example"));
     }
 
@@ -1839,7 +1840,7 @@ image-type      : UDIF read-only [write once]
             find_project_dir(&tmp, Some("apps/example"), None).expect("recorded"),
             tmp.join("apps/example"),
         );
-        // An empty recorded path is a real answer — the project IS the repository root, which is
+        // An empty recorded path is a real answer: the project is the repository root, which is
         // how a scaffolded single-app repo looks. It must not be read as "nothing recorded".
         mk("", Some("dev.example.root"));
         assert_eq!(find_project_dir(&tmp, Some(""), None).expect("root"), tmp);
@@ -1876,7 +1877,7 @@ image-type      : UDIF read-only [write once]
         assert_eq!(fixed, "D:/a/day/day/shipped/showcase.msix");
     }
 
-    /// The payload tier must reach a verdict for containers this host cannot open — and must say
+    /// The payload tier must reach a verdict for containers this host cannot open, and must say
     /// so plainly when the artifact predates the recorded digests.
     #[test]
     fn payload_by_digest_decides_when_there_is_no_extractor() {
@@ -1901,7 +1902,7 @@ image-type      : UDIF read-only [write once]
             Verdict::Differs(d) => assert!(d.contains("showcase-bin"), "{d}"),
             v => panic!("expected Differs, got {v:?}"),
         }
-        // No recorded digests (an older artifact) → unchecked, and it says why — carrying the
+        // No recorded digests (an older artifact) → unchecked, and it says why, carrying the
         // reason the container could not be opened, so the two causes are told apart.
         match payload_by_digest(&[], &tmp, target, why) {
             Verdict::Unchecked(d) => {
@@ -1939,7 +1940,7 @@ image-type      : UDIF read-only [write once]
         assert!(signature_member(Path::new(
             r"AppxMetadata\CodeIntegrity.cat"
         )));
-        // Build output must never be excluded — that would hide a real difference.
+        // Build output must never be excluded; that would hide a real difference.
         for p in [
             "AppxManifest.xml",
             "AppxBlockMap.xml",
@@ -1952,9 +1953,9 @@ image-type      : UDIF read-only [write once]
     }
 
     /// `makeappx` writes AppxBlockMap.xml and [Content_Types].xml from its own walk of the staging
-    /// directory, so they index the ZIP rather than carry build output — and they differed between
+    /// directory, so they index the ZIP rather than carry build output, and they differed between
     /// two packs of a byte-identical payload, which made windows-xaml red. They are excluded as
-    /// container material, NOT as signature material: the distinction is what the report prints.
+    /// container material, not as signature material: the distinction is what the report prints.
     #[test]
     fn the_container_index_is_excluded_but_still_named_by_category() {
         for p in ["AppxBlockMap.xml", "[Content_Types].xml"] {
@@ -2024,7 +2025,7 @@ image-type      : UDIF read-only [write once]
     }
 
     /// The exclusion must survive a real comparison: identical payload + differing signature is a
-    /// PASS, and a differing binary still fails.
+    /// pass, and a differing binary still fails.
     #[test]
     fn a_differing_signature_alone_is_not_a_payload_difference() {
         let tmp = std::env::temp_dir().join(format!("day-sigcmp-{}", std::process::id()));
@@ -2163,7 +2164,7 @@ image-type      : UDIF read-only [write once]
         assert!(err.contains("not-a-target"), "{err}");
     }
 
-    /// The `--from-dir` copy must carry the source and NOT the build products: a stale artifact
+    /// The `--from-dir` copy must carry the source and not the build products: a stale artifact
     /// under `build/` (or an object file under `target/`) carried into the scratch copy would be
     /// compared against itself, and the verdict would say nothing.
     #[test]
@@ -2214,7 +2215,7 @@ image-type      : UDIF read-only [write once]
         );
         assert!(!dest.join(".git").exists(), ".git is excluded");
         assert!(!dest.join("target").exists(), "target/ is excluded");
-        // At any depth, not just the root — node_modules sits under website/ in a scaffold.
+        // At any depth, including below the root: node_modules sits under website/ in a scaffold.
         assert!(!dest.join("website/node_modules").exists());
         assert!(
             dest.join("website/site.toml").is_file(),

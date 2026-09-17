@@ -6,54 +6,54 @@
 //!
 //! With one `Signal<Vec<Item>>`, every observer of the store re-runs when any field of any
 //! element changes. Day's `bind` equality gate keeps the *native* side precise, so what is wasted
-//! is compute — every row's closures re-run and re-clone on every keystroke, and the waste grows
+//! is compute: every row's closures re-run and re-clone on every keystroke, and the waste grows
 //! with the list. Here each (element, field) is its own dependency node, so a write wakes exactly
 //! the readers of that field, plus readers who asked for something coarser by reading something
 //! coarser.
 //!
 //! The pieces:
 //!
-//! - [`Store<T>`] — a `Copy`, process-lifetime handle to one value, like `Signal::global`.
-//! - [`Keyed<T>`] — a collection addressed by stable key, with its own key→index map.
-//! - [`Elem<T>`] — one element of a keyed store; [`Elem::exists`] is the tracked deletion guard.
-//! - [`Field`] — one field projected out of any [`Source`]; `Copy`, itself a `Source` (so fields
+//! - [`Store<T>`]: a `Copy`, process-lifetime handle to one value, like `Signal::global`.
+//! - [`Keyed<T>`]: a collection addressed by stable key, with its own key→index map.
+//! - [`Elem<T>`]: one element of a keyed store; [`Elem::exists`] is the tracked deletion guard.
+//! - [`Field`]: one field projected out of any [`Source`]; `Copy`, itself a `Source` (so fields
 //!   nest to any depth), and a [`Binding`], so every control binds to it directly.
-//! - `#[derive(Observable)]` (in day-macros) — generates the typed field accessors, so
+//! - `#[derive(Observable)]` (in day-macros) generates the typed field accessors, so
 //!   `store.elem(id).name()` is written once per struct, not once per call site.
-//! - The **change log** — every write announces `(path components, field label, operation)`, with
-//!   the slot's prior and new value captured when a consumer asks ([`record_values`]). The test
-//!   seam today; the persistence layer's input later.
+//! - The **change log**: every write announces `(path components, field label, operation)`, with
+//!   the slot's prior and new value captured when a consumer asks ([`record_values`]). What the
+//!   tests read today; the persistence layer's input later.
 //!
 //! ## Paths
 //!
 //! A path names one observable slot: a store, one element of it, one field, a field of that
 //! field, to any depth. Each gets its own `Trigger` (day-reactive's data-less dependency node),
-//! created lazily on first observation — a path nobody reads has no trigger and costs nothing to
+//! created lazily on first observation: a path nobody reads has no trigger and costs nothing to
 //! write. Reads track the most specific path they touched; writes notify that path and its
 //! ancestors. That asymmetry is the entire granularity story.
 //!
 //! A path is a parent (an interned id) plus one component. The leaf component is not interned, so
-//! building a field handle — the thing that happens on every read of every row — costs no lookup.
+//! building a field handle (the thing that happens on every read of every row) costs no lookup.
 //! Interning happens only where a path is used as a *parent*: once per store, once per element
 //! handle, once per nested struct.
 //!
 //! ## Reclamation
 //!
 //! Both tables shrink. Triggers are refcounted by the scopes observing them: a binding's scope
-//! dies — a page popped, a row recycled — and the last watcher out disposes the trigger. Interner
+//! dies (a page popped, a row recycled) and the last watcher out disposes the trigger. Interner
 //! entries are refcounted by their children and their triggers: when the last trigger under an
 //! element is released, the element's entry (and any empty ancestors up to its pinned store root)
 //! is freed. A freed slot's id carries a generation, and every handle validates its cached id
-//! before use, re-interning through its own handle chain when stale — so a `Copy` handle held
+//! before use, re-interning through its own handle chain when stale, so a `Copy` handle held
 //! across a reclamation heals itself, and everyone converges on the current identity.
 //!
-//! A claim made from inside a reactive computation belongs to that computation's CURRENT RUN,
+//! A claim made from inside a reactive computation belongs to that computation's current run,
 //! not to a scope: it is released when the computation re-tracks or dies
 //! ([`day_reactive::on_run_retrack`]), exactly mirroring day-reactive's own per-run source
 //! bookkeeping. This is what keeps a long-lived recycled list cell from accumulating claims for
-//! every row it ever showed — rotate a binding across a million rows and the claim count stays
-//! at one row's worth. Outside any computation — a build seeding an initial value, an event
-//! handler — a tracked read subscribes nothing and therefore CLAIMS nothing: no trigger is
+//! every row it ever showed: rotate a binding across a million rows and the claim count stays
+//! at one row's worth. Outside any computation (a build seeding an initial value, an event
+//! handler) a tracked read subscribes nothing and therefore claims nothing: no trigger is
 //! created at all, because nothing could ever wake through it.
 //!
 //! ## Threads
@@ -75,9 +75,9 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use day_reactive::{Binding, Scope, Trigger};
 
-/// The Uuid key type, re-exported so a model file needs no direct `uuid` dependency —
+/// The Uuid key type, re-exported so a model file needs no direct `uuid` dependency:
 /// `#[obs(key)] id: Uuid` beside `Uuid::now_v7()` (generation is native-target only until the
-/// web pipeline's entropy import is wired; the TYPE works everywhere).
+/// web pipeline's entropy import is wired; the type itself works everywhere).
 pub use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ const ROOT: NodeId = NodeId {
     generation: 0,
 };
 
-/// The reserved component naming a collection's SHAPE (which keys, in what order) as opposed to
+/// The reserved component naming a collection's shape (which keys, in what order) as opposed to
 /// any element's contents.
 pub const STRUCTURE: u64 = u64::MAX;
 
@@ -130,7 +130,7 @@ impl Path {
         out
     }
 
-    /// This path and every resolvable ancestor, innermost first — exactly what a write wakes.
+    /// This path and every resolvable ancestor, innermost first: exactly what a write wakes.
     fn chain(self) -> Vec<Path> {
         let mut out = vec![self];
         let mut at = self.parent;
@@ -150,10 +150,10 @@ impl Path {
     }
 }
 
-/// A field's path component, derived from its NAME at compile time.
+/// A field's path component, derived from its name at compile time.
 ///
 /// Hand-assigned indices are a hazard: two fields given the same number share a trigger, and the
-/// symptom is a wakeup that fires too often — invisible until someone profiles it. A name is
+/// symptom is a wakeup that fires too often, invisible until someone profiles it. A name is
 /// already unique within a struct, so the compiler's own uniqueness rule becomes the path's.
 pub const fn field_id(name: &str) -> u64 {
     let bytes = name.as_bytes();
@@ -251,24 +251,24 @@ day_reactive::tls_group! {
         lookup: HashMap::new(),
     });
 
-    /// Path → trigger. Each trigger lives in its own child of the ROOT scope: created inside
+    /// Path → trigger. Each trigger lives in its own child of the root scope: created inside
     /// whichever page first observed it, it would be disposed with that page and every later
     /// read would panic. Its own scope is also what makes reclamation possible.
     static TRIGGERS: RefCell<HashMap<Path, Entry>> = RefCell::new(HashMap::new());
 
-    /// Every change announced while recording is on — the test seam and, with a schema beside
-    /// it, the persistence change set.
+    /// Every change announced while recording is on: what the tests read and, with a schema
+    /// beside it, the persistence change set.
     static RECORDER: RefCell<Option<Vec<Change>>> = const { RefCell::new(None) };
 
     /// Whether writes should capture prior/new values into the change log.
     static WANT_VALUES: Cell<bool> = const { Cell::new(false) };
 
-    /// Standing want-values consumers (an installed undo stack) — refcounted, unlike the
-    /// scoped RECORDER flag above.
+    /// Standing want-values consumers (an installed undo stack), refcounted, unlike the
+    /// scoped `RECORDER` flag above.
     static WANT_VALUES_STANDING: Cell<u32> = const { Cell::new(0) };
 
-    /// True while a PREVIEW write applies: triggers wake (the UI follows the drag), but no
-    /// change record is built — sinks, the recorder, autosave and undo all stay quiet until
+    /// True while a preview write applies: triggers wake (the UI follows the drag), but no
+    /// change record is built, so sinks, the recorder, autosave and undo all stay quiet until
     /// the session commits (docs/model.md).
     static PREVIEW_WRITE: Cell<bool> = const { Cell::new(false) };
 
@@ -276,12 +276,12 @@ day_reactive::tls_group! {
     /// session; taken at commit/cancel.
     static PREVIEWS: RefCell<HashMap<Vec<u64>, Rc<dyn Any>>> = RefCell::new(HashMap::new());
 
-    /// The author tag stamped on changes born while set — "undo"/"redo" during replay, a sync
+    /// The author tag stamped on changes born while set: "undo"/"redo" during replay, a sync
     /// engine's name during an import. `None` is the user.
     static CURRENT_AUTHOR: Cell<Option<&'static str>> = const { Cell::new(None) };
 
-    /// Standing consumers of every announced change — the persistence container's dirty
-    /// tracking. Unlike the RECORDER (a scoped test seam), sinks persist until removed.
+    /// Standing consumers of every announced change: the persistence container's dirty
+    /// tracking. Unlike the scoped `RECORDER`, sinks persist until removed.
     static SINKS: RefCell<Vec<(u64, ChangeSink)>> = const { RefCell::new(Vec::new()) };
 
     static NEXT_SINK: Cell<u64> = const { Cell::new(1) };
@@ -293,12 +293,12 @@ type ChangeSink = Rc<dyn Fn(&Change)>;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct ChangeSinkId(u64);
 
-/// Install a STANDING consumer of every announced change (main thread). Where
-/// [`record_changes`] is a scoped test seam, a sink lives until removed — it is how a
+/// Install a standing consumer of every announced change (main thread). Where
+/// [`record_changes`] is scoped to one closure, a sink lives until removed; it is how a
 /// persistence container watches the stores it loaded. Sinks receive the same [`Change`] the
-/// recorder would. A sink may write stores re-entrantly — the pipeline nests: a write made
+/// recorder would. A sink may write stores re-entrantly. The pipeline nests: a write made
 /// from inside a sink completes its own announcement (sinks included) before the outer one
-/// resumes, which is how relation maintenance cascades a delete — but a sink that writes owns
+/// resumes, which is how relation maintenance cascades a delete. But a sink that writes owns
 /// its own termination: nothing here bounds the recursion.
 pub fn install_change_sink(f: impl Fn(&Change) + 'static) -> ChangeSinkId {
     let id = NEXT_SINK.with(|n| {
@@ -320,7 +320,7 @@ fn sinks_active() -> bool {
     SINKS.with(|s| !s.borrow().is_empty())
 }
 
-/// Deliver to every sink with the registry borrow RELEASED, so a sink's bookkeeping can never
+/// Deliver to every sink with the registry borrow released, so a sink's bookkeeping can never
 /// collide with sink installation from another callback.
 fn feed_sinks(change: &Change) {
     let sinks: Vec<ChangeSink> =
@@ -404,7 +404,7 @@ fn pin(id: NodeId) {
     });
 }
 
-/// How many interior nodes are currently interned (the sentinel excluded) — the cost of
+/// How many interior nodes are currently interned (the sentinel excluded): the cost of
 /// observation's second table, assertable in a test.
 pub fn interned_nodes() -> usize {
     NODES.with(|n| n.borrow().slots.iter().filter(|s| s.alive).count() - 1)
@@ -413,10 +413,10 @@ pub fn interned_nodes() -> usize {
 /// Subscribe the current reactive computation to exactly this path, and register the claim so
 /// the trigger can be reclaimed on the computation's next re-track (or death).
 ///
-/// OBSERVATION BELONGS TO COMPUTATIONS: outside any active run — a build seeding an initial
-/// value, an event handler, `untrack` — a tracked read subscribes nothing in day-reactive, so
+/// Observation belongs to computations: outside any active run (a build seeding an initial
+/// value, an event handler, `untrack`) a tracked read subscribes nothing in day-reactive, so
 /// creating a trigger for it would be dead weight that some scope had to carry. It does
-/// nothing, on purpose; the read itself proceeds unobserved.
+/// nothing; the read itself proceeds unobserved.
 fn track(p: Path) {
     let Some(watcher) = day_reactive::active_run() else {
         return;
@@ -495,7 +495,7 @@ fn release(p: Path, watcher: day_reactive::RunId) {
     }
 }
 
-/// How many paths currently have a trigger — the cost of observation, assertable in a test.
+/// How many paths currently have a trigger: the cost of observation, assertable in a test.
 pub fn observed_paths() -> usize {
     TRIGGERS.with(|t| t.borrow().len())
 }
@@ -522,14 +522,14 @@ pub enum Op {
 /// One announced change, in the form a store outside the UI can consume.
 ///
 /// `prior` and `value` are the slot's value before and after the write, captured only while a
-/// consumer that wants them is active ([`record_values`]; later, an undo manager) — a write with
+/// consumer that wants them is active ([`record_values`]; later, an undo manager). A write with
 /// no such consumer clones nothing. They are type-erased; downcast with [`Change::prior_as`] /
 /// [`Change::value_as`].
 #[derive(Clone)]
 pub struct Change {
     /// The path's components, outermost first: store, key, field, …
     pub components: Vec<u64>,
-    /// The field's name — which is also its column name.
+    /// The field's name, which is also its column name.
     pub label: &'static str,
     pub op: Op,
     pub prior: Option<Rc<dyn Any>>,
@@ -567,7 +567,7 @@ fn values_wanted() -> bool {
     WANT_VALUES.with(|w| w.get()) || WANT_VALUES_STANDING.with(|w| w.get() > 0)
 }
 
-/// Whether any change consumer currently captures prior/new values — a scoped
+/// Whether any change consumer currently captures prior/new values: a scoped
 /// [`record_values`], or a standing holder like an installed undo stack. A framework layer
 /// (the persistence container) asks this to decide whether a delete must materialize its row
 /// first: a value-free delete cannot be inverted, and capturing costs nothing when nobody
@@ -576,7 +576,7 @@ pub fn record_capture_active() -> bool {
     values_wanted()
 }
 
-/// Keep prior/new values flowing on every change while `on` holders exist — the undo stack's
+/// Keep prior/new values flowing on every change while `on` holders exist: the undo stack's
 /// standing form of what [`record_values`] does for one closure.
 pub fn want_values_standing(on: bool) {
     WANT_VALUES_STANDING.with(|w| {
@@ -589,7 +589,7 @@ fn previewing() -> bool {
     PREVIEW_WRITE.with(|p| p.get())
 }
 
-/// Run `f` with changes stamped as `author` — how an undo replay or an importer signs its
+/// Run `f` with changes stamped as `author`: how an undo replay or an importer signs its
 /// writes so consumers (a sync engine, a query) can tell them from the user's.
 pub fn with_author<R>(author: &'static str, f: impl FnOnce() -> R) -> R {
     let prev = CURRENT_AUTHOR.with(|a| a.replace(Some(author)));
@@ -602,7 +602,8 @@ fn current_author() -> Option<&'static str> {
     CURRENT_AUTHOR.with(|a| a.get())
 }
 
-/// Record every change announced inside `f`. The test seam, and the persistence layer's input.
+/// Record every change announced inside `f`. What the tests read, and the persistence layer's
+/// input.
 pub fn record_changes<R>(f: impl FnOnce() -> R) -> (R, Vec<Change>) {
     RECORDER.with(|r| *r.borrow_mut() = Some(Vec::new()));
     let out = f();
@@ -610,7 +611,7 @@ pub fn record_changes<R>(f: impl FnOnce() -> R) -> (R, Vec<Change>) {
     (out, log)
 }
 
-/// [`record_changes`], with prior/new values captured on every field write inside `f` — the
+/// [`record_changes`], with prior/new values captured on every field write inside `f`: the
 /// form an undo unit needs. Costs one clone per write while active, nothing when not.
 pub fn record_values<R>(f: impl FnOnce() -> R) -> (R, Vec<Change>) {
     WANT_VALUES.with(|w| w.set(true));
@@ -625,7 +626,7 @@ pub fn record<R>(f: impl FnOnce() -> R) -> (R, Vec<&'static str>) {
     (out, changes.into_iter().map(|c| c.label).collect())
 }
 
-/// Wake the observers of this path and of every ancestor — and nobody else. `components` is
+/// Wake the observers of this path and of every ancestor, and nobody else. `components` is
 /// resolved lazily: the change log wants the full path as data, but building the `Vec` is wasted
 /// work when nothing records, which is almost always.
 fn notify_change(
@@ -677,8 +678,8 @@ fn wake(p: Path) {
     }
 }
 
-/// Announce a change named by plain components — how a background transaction's writes reach
-/// the triggers on the main thread, and the seam a framework layer uses to wake a path it
+/// Announce a change named by plain components: how a background transaction's writes reach
+/// the triggers on the main thread, and what a framework layer calls to wake a path it
 /// maintains for a value that lives elsewhere (a relation index announcing a parent's to-many
 /// field). Wakes the deepest path whose interior steps are interned; anything deeper cannot
 /// have an observer, because observing is what interns. The change feeds sinks and the
@@ -687,7 +688,7 @@ pub fn announce(parts: &[u64], label: &'static str) {
     announce_op(parts, label, Op::Set);
 }
 
-/// [`announce`], with the operation named — the undo replay's seam.
+/// [`announce`], with the operation named; what the undo replay calls.
 fn announce_op(parts: &[u64], label: &'static str, op: Op) {
     let resolved = (|| {
         let (last, interior) = parts.split_last()?;
@@ -736,10 +737,10 @@ fn announce_op(parts: &[u64], label: &'static str, op: Op) {
 /// Anything a field can be projected out of: the store itself, one element of a keyed
 /// collection, or another field (which is how nesting works).
 ///
-/// `with_value_untracked` is the one every projection reads through — a field must subscribe to
-/// its OWN path, not to its parent's, or the granularity is gone.
+/// `with_value_untracked` is the one every projection reads through: a field must subscribe to
+/// its path, not to its parent's, or the granularity is gone.
 pub trait Source<T: 'static>: Copy + 'static {
-    /// Whether this source's LOCATION can change over the handle's lifetime — a recycled list
+    /// Whether this source's location can change over the handle's lifetime: a recycled list
     /// slot whose current row rotates. Fields projected from a dynamic source resolve their
     /// path through the source on every operation instead of trusting the one cached at
     /// projection time, and their tracked reads also run [`Source::track_extra`].
@@ -754,20 +755,20 @@ pub trait Source<T: 'static>: Copy + 'static {
     fn path(self) -> Path;
     /// This source's interned id, so a child can be built with no lookup of its own.
     ///
-    /// Ids are minted per THREAD. They are the fast path for a handle built and used on the main
+    /// Ids are minted per thread. They are the fast path for a handle built and used on the main
     /// thread, and must never cross a thread boundary — see `components`.
     fn node(self) -> NodeId;
-    /// The path as plain components, resolved by walking the HANDLE chain rather than the
+    /// The path as plain components, resolved by walking the handle chain rather than the
     /// interner. This is what crosses a thread boundary: a worker names what it changed with
     /// components, and the main thread re-establishes them on its own side when it announces.
     fn components(self, out: &mut Vec<u64>);
     fn with_value_untracked<R>(self, f: impl FnOnce(Option<&T>) -> R) -> R;
-    /// Returns false when the value is gone (a deleted row) — in which case nothing is
+    /// Returns false when the value is gone (a deleted row), in which case nothing is
     /// announced either.
     fn update_value(self, f: impl FnOnce(&mut T)) -> bool;
     fn bump_version(self);
 
-    /// Tracked read of the whole value — the COARSE subscription.
+    /// Tracked read of the whole value: the coarse subscription.
     fn with<R>(self, f: impl FnOnce(Option<&T>) -> R) -> R {
         self.track_extra();
         track(self.path());
@@ -807,8 +808,8 @@ struct Inner<T> {
 static NEXT_STORE: AtomicU64 = AtomicU64::new(1);
 
 impl<T: 'static> Store<T> {
-    /// A process-lifetime store, leaked so the handle stays `Copy` — the property that makes a
-    /// `Signal` pleasant to pass, kept. Create once (a `thread_local!` + accessor fn is the
+    /// A process-lifetime store, leaked so the handle stays `Copy` (the property that makes a
+    /// `Signal` pleasant to pass). Create once (a `thread_local!` + accessor fn is the
     /// idiom); the scoped owner arrives with the persistence container.
     pub fn new(value: T) -> Store<T> {
         let inner: &'static Inner<T> = Box::leak(Box::new(Inner {
@@ -853,7 +854,7 @@ impl<T: 'static> Store<T> {
         self.inner.version.load(Ordering::Relaxed)
     }
 
-    /// This store's root id — the first component of every path under it. A persistence
+    /// This store's root id, the first component of every path under it. A persistence
     /// container keys its table map on it.
     pub fn store_id(self) -> u64 {
         self.root_id
@@ -902,7 +903,7 @@ impl<T: 'static> Source<T> for Store<T> {
 }
 
 // SAFETY: the handle is a shared reference to data behind a lock plus Copy ids. The reactive
-// triggers those ids name are touched only on the main thread — writes from other threads go
+// triggers those ids name are touched only on the main thread; writes from other threads go
 // through `transact`, whose announcements are queued and delivered by `pump`.
 unsafe impl<T: Send + Sync> Send for Store<T> {}
 unsafe impl<T: Send + Sync> Sync for Store<T> {}
@@ -912,7 +913,7 @@ unsafe impl<T: Send + Sync> Sync for Store<T> {}
 // ---------------------------------------------------------------------------
 
 impl<T: Send + Sync + 'static> Store<T> {
-    /// Open a write transaction — the way a background thread edits. Holding it holds the
+    /// Open a write transaction: the way a background thread edits. Holding it holds the
     /// store's write lock, so a reader never sees half of one; dropping it commits and queues
     /// the announcements for [`Store::pump`].
     pub fn transact(self) -> Tx<T> {
@@ -949,7 +950,7 @@ impl<T: Send + Sync + 'static> Drop for Tx<T> {
     fn drop(&mut self) {
         let touched = std::mem::take(&mut self.touched);
         let store = self.store;
-        // Release the data lock FIRST: the commit IS the unlock.
+        // Release the data lock first: the commit is the unlock.
         drop(self.guard.take());
         store.inner.version.fetch_add(1, Ordering::Relaxed);
         store
@@ -958,7 +959,7 @@ impl<T: Send + Sync + 'static> Drop for Tx<T> {
             .lock()
             .expect("queue poisoned")
             .extend(touched);
-        // Announcing is the main thread's job — see `Store::pump`. (Scheduling the pump
+        // Announcing is the main thread's job; see `Store::pump`. (Scheduling the pump
         // automatically is the persistence container's job later; a bare store keeps delivery
         // explicit so a headless test owns its own timing.)
     }
@@ -969,7 +970,7 @@ impl<T: Send + Sync + 'static> Drop for Tx<T> {
 // ---------------------------------------------------------------------------
 
 /// The floor of the interned-handle space. Plain `u64` keys pass through as their own handle
-/// and stay below it — the top bit is what lets [`Key::of_handle`] tell an identity handle
+/// and stay below it; the top bit is what lets [`Key::of_handle`] tell an identity handle
 /// from an interned one without any lookup. Integer `#[obs(key)]` fields assert the bound in
 /// debug builds rather than silently colliding.
 const WIDE_BASE: u64 = 1 << 63;
@@ -977,26 +978,26 @@ const WIDE_BASE: u64 = 1 << 63;
 /// One element's key: what its paths, its [`Keyed`] slot, and (under persistence) its stored
 /// row are addressed by.
 ///
-/// A `u64` key IS its own path handle — no interner, no lock, no allocation: exactly the cost
+/// A `u64` key is its own path handle, with no interner, lock or allocation: exactly the cost
 /// integer keys always had. The wide forms (`Uuid`, `Str`, `Pair`) intern process-globally to
 /// a `u64` handle on first use, so paths stay 12 bytes and every collection index stays
-/// `u64`-keyed. A handle, once minted, is stable for the process's lifetime — undo records
-/// and long-lived `ModelId`s rely on that — and reverses through [`Key::of_handle`]; the
+/// `u64`-keyed. A handle, once minted, is stable for the process's lifetime (undo records
+/// and long-lived `ModelId`s rely on that) and reverses through [`Key::of_handle`]; the
 /// interner's size is observable via [`interned_keys`].
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Key {
     U64(u64),
     /// A UUID, carried as its raw 128 bits (`uuid::Uuid::as_u128`).
     Uuid(u128),
-    /// A natural string key — a slug, an external system's id.
+    /// A natural string key: a slug, an external system's id.
     Str(Arc<str>),
-    /// Two handles as one key — how the persistence layer addresses join rows. Apps rarely
+    /// Two handles as one key: how the persistence layer addresses join rows. Apps rarely
     /// construct one directly.
     Pair(u64, u64),
 }
 
 impl Key {
-    /// The key's path handle — identity for `U64`, interned (once, then a read-locked lookup)
+    /// The key's path handle: identity for `U64`, interned (once, then a read-locked lookup)
     /// for the wide forms. Callable from any thread; the interner is process-global.
     pub fn handle(&self) -> u64 {
         match self {
@@ -1007,7 +1008,7 @@ impl Key {
         }
     }
 
-    /// The key a handle names — identity below the wide floor, the interner's record above
+    /// The key a handle names: identity below the wide floor, the interner's record above
     /// it. `None` only for a wide handle nothing ever interned (a forged value).
     pub fn of_handle(handle: u64) -> Option<Key> {
         if handle < WIDE_BASE {
@@ -1074,8 +1075,8 @@ struct WideKeys {
 }
 
 /// Process-global, unlike the path interner: handles are embedded in `Keyed` indexes that
-/// background transactions mutate, so a thread-local table would mint divergent handles — the
-/// exact bug the path system's `components` seam exists to prevent.
+/// background transactions mutate, so a thread-local table would mint divergent handles, the
+/// exact bug the path system's `components` method exists to prevent.
 static WIDE_KEYS: OnceLock<RwLock<WideKeys>> = OnceLock::new();
 
 fn wide_keys() -> &'static RwLock<WideKeys> {
@@ -1101,7 +1102,7 @@ fn intern_wide(k: WideKey) -> u64 {
     h
 }
 
-/// How many wide keys the process has interned — the cost of wide-key identity itself,
+/// How many wide keys the process has interned: the cost of wide-key identity itself,
 /// assertable in a test. Entries are retained for the process's lifetime.
 pub fn interned_keys() -> usize {
     wide_keys()
@@ -1111,7 +1112,7 @@ pub fn interned_keys() -> usize {
         .len()
 }
 
-/// A value usable as a key — what an `#[obs(key)]` / `#[model(id)]` field's type implements.
+/// A value usable as a key: what an `#[obs(key)]` / `#[model(id)]` field's type implements.
 /// Integer keys reserve the top bit (the interned-handle space); a negative cast or a
 /// hash-derived id at or above `1 << 63` is refused in debug builds rather than silently
 /// colliding with an interned handle.
@@ -1161,12 +1162,12 @@ impl AsKey for Key {
     }
 }
 
-/// A typed, opaque id for one `M` row — `Copy`, 8 bytes, cheap to pass and compare. It wraps
+/// A typed, opaque id for one `M` row: `Copy`, 8 bytes, cheap to pass and compare. It wraps
 /// the key's path handle: [`Store::elem`], query results, list slots and destinations all
 /// speak it, and a wrong-model id is a compile error rather than a wrong row. [`ModelId::key`]
 /// recovers the real key for display, deep links, or the persistence edge.
 ///
-/// Ordering compares handles — meaningful for integer keys, arbitrary (but stable) for wide
+/// Ordering compares handles: meaningful for integer keys, arbitrary (but stable) for wide
 /// ones; it exists so ids can live in sorted containers.
 pub struct ModelId<M: ?Sized> {
     handle: u64,
@@ -1210,7 +1211,7 @@ impl<M: ?Sized> fmt::Debug for ModelId<M> {
 }
 
 impl<M: ?Sized> ModelId<M> {
-    /// The id for `key` — interning it if wide.
+    /// The id for `key`, interning it if wide.
     pub fn of(key: impl AsKey) -> Self {
         Self::from_handle(key.as_key().handle())
     }
@@ -1224,13 +1225,13 @@ impl<M: ?Sized> ModelId<M> {
     pub fn handle(self) -> u64 {
         self.handle
     }
-    /// The real key — identity for integer handles, the interner's record for wide ones.
+    /// The real key: identity for integer handles, the interner's record for wide ones.
     pub fn key(self) -> Key {
         Key::of_handle(self.handle).unwrap_or(Key::U64(self.handle))
     }
 }
 
-/// Integer-keyed ids compare against their key value directly — `assert_eq!(ids, [1, 3])`
+/// Integer-keyed ids compare against their key value directly: `assert_eq!(ids, [1, 3])`
 /// reads the way integer-keyed code always has.
 impl<M: ?Sized> PartialEq<u64> for ModelId<M> {
     fn eq(&self, other: &u64) -> bool {
@@ -1243,7 +1244,7 @@ impl<M: ?Sized> PartialEq<ModelId<M>> for u64 {
     }
 }
 
-/// Raw path handles convert directly — this is how `store.elem(k)` keeps taking the values
+/// Raw path handles convert directly; this is how `store.elem(k)` keeps taking the values
 /// [`Store::keys`] returns, and how integer keys stay literal-friendly.
 impl<M: ?Sized> From<u64> for ModelId<M> {
     fn from(handle: u64) -> Self {
@@ -1301,13 +1302,13 @@ pub trait Identified {
     /// The element's key, read from the `#[obs(key)]` field.
     fn key(&self) -> Key;
 
-    /// The key as its path handle — identity for `u64` keys, interned otherwise.
+    /// The key as its path handle: identity for `u64` keys, interned otherwise.
     fn handle(&self) -> u64 {
         self.key().handle()
     }
 
     /// The typed id over the same handle. (Named to stay clear of the generated accessor for
-    /// an `id` FIELD, which nearly every model has.)
+    /// an `id` field, which nearly every model has.)
     fn model_id(&self) -> ModelId<Self>
     where
         Self: Sized,
@@ -1317,13 +1318,13 @@ pub trait Identified {
 }
 
 /// A keyed collection that keeps its own key→index map, so an element read is O(1) rather than
-/// a scan — and no caller can forget to maintain the map, because the collection does it.
+/// a scan, and no caller can forget to maintain the map, because the collection does it.
 pub struct Keyed<T> {
     items: Vec<T>,
     index: HashMap<u64, usize>,
     /// Set when raw access ([`Keyed::items_mut`]) may have invalidated the map. The mutating
     /// methods keep it correct themselves, so the O(n) rebuild happens only where a caller
-    /// actually reached past them — which is what keeps a bulk insert O(n) rather than O(n²).
+    /// reached past them, which is what keeps a bulk insert O(n) rather than O(n²).
     stale: bool,
 }
 
@@ -1358,7 +1359,7 @@ impl<T: Identified> Keyed<T> {
         self.stale = false;
     }
 
-    /// Rebuild only if raw access may have invalidated the map — what [`Store::restructure`]
+    /// Rebuild only if raw access may have invalidated the map: what [`Store::restructure`]
     /// calls, so appending a row stays O(1) instead of rebuilding the whole index per insert.
     pub fn reindex_if_stale(&mut self) {
         if self.stale {
@@ -1418,7 +1419,7 @@ impl<T: Identified> Keyed<T> {
 
     /// The raw list, for a structural edit inside [`Store::restructure`] that the helpers above
     /// do not cover. Taking it marks the key map stale, so the store rebuilds it after the
-    /// caller's closure returns — the helpers above stay index-correct on their own and pay
+    /// caller's closure returns; the helpers above stay index-correct on their own and pay
     /// nothing for this.
     pub fn items_mut(&mut self) -> &mut Vec<T> {
         self.stale = true;
@@ -1446,8 +1447,8 @@ impl<T> Clone for Elem<T> {
 impl<T> Copy for Elem<T> {}
 
 impl<T: Identified + 'static> Store<Keyed<T>> {
-    /// One element, addressed by its id — a [`ModelId`], a raw handle from [`Store::keys`],
-    /// an integer key, a `Uuid`, or a string key all convert. O(1) — the collection keeps a
+    /// One element, addressed by its id: a [`ModelId`], a raw handle from [`Store::keys`],
+    /// an integer key, a `Uuid`, or a string key all convert. O(1), because the collection keeps a
     /// handle→index map.
     pub fn elem(self, key: impl Into<ModelId<T>>) -> Elem<T> {
         let key = key.into().handle();
@@ -1458,7 +1459,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         }
     }
 
-    /// Tracked read of the collection's SHAPE (which keys, in what order) — what a list widget
+    /// Tracked read of the collection's shape (which keys, in what order): what a list widget
     /// wants. A field write does not wake it; an insert, a removal or a reorder does.
     pub fn keys(self) -> Vec<u64> {
         track(Path::under(self.node, STRUCTURE));
@@ -1474,7 +1475,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     ///
     /// The affected key and the operation are announced alongside the shape path, because a
     /// persistence layer has to choose between an INSERT and a DELETE and cannot infer it from
-    /// "the shape changed" — while the UI, which only re-reads `keys()`, ignores both.
+    /// "the shape changed", while the UI, which only re-reads `keys()`, ignores both.
     pub fn restructure(
         self,
         label: &'static str,
@@ -1486,7 +1487,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     {
         let key = key.into().handle();
         // When a values consumer stands by (an undo stack), a Delete carries the row it
-        // removed and an Insert the row it added — the whole of what inversion needs.
+        // removed and an Insert the row it added: the whole of what inversion needs.
         let capture = values_wanted();
         let mut prior: Option<Rc<dyn Any>> = None;
         let mut value: Option<Rc<dyn Any>> = None;
@@ -1521,15 +1522,15 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         );
     }
 
-    /// Feed one row's new value from outside the app's own editing — another connection's
-    /// committed write arriving through a persistence container, an import — replacing the
-    /// stored value and announcing each label in `changed` as that field's `Set`. Precise on
-    /// purpose: readers of the named fields wake, along with everything coarser, where a
-    /// wholesale [`Store::update`] wakes only readers of the store itself. The announcements
-    /// carry no values (a background transaction's shape) and the current author tag —
-    /// wrap the call in [`with_author`] so consumers can tell the merge from the user's own
-    /// edits. Returns false, announcing nothing, when the row is absent: an absent row is an
-    /// insert, which is [`Store::restructure`]'s job.
+    /// Feed one row's new value from outside the app's own editing (another connection's
+    /// committed write arriving through a persistence container, an import), replacing the
+    /// stored value and announcing each label in `changed` as that field's `Set`. The
+    /// announcement is precise: readers of the named fields wake, along with everything
+    /// coarser, where a wholesale [`Store::update`] wakes only readers of the store itself.
+    /// The announcements carry no values (a background transaction's shape) and the current
+    /// author tag; wrap the call in [`with_author`] so consumers can tell the merge from the
+    /// user's own edits. Returns false, announcing nothing, when the row is absent: an absent
+    /// row is an insert, which is [`Store::restructure`]'s job.
     pub fn merge_row(self, key: impl Into<ModelId<T>>, value: T, changed: &[&'static str]) -> bool
     where
         T: Clone,
@@ -1558,7 +1559,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         true
     }
 
-    /// Write one field by label — front-door semantics (announced at the field's own path,
+    /// Write one field by label: front-door semantics (announced at the field's own path,
     /// prior/new values captured while a consumer wants them, undoable, persisted) without
     /// the generated accessor in scope. The relation machinery writes foreign keys and order
     /// values through this; it is public because any framework-level maintenance faces the
@@ -1606,7 +1607,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         true
     }
 
-    /// Insert-or-replace rows without announcing — the persistence layer faulting stored rows
+    /// Insert-or-replace rows without announcing: the persistence layer faulting stored rows
     /// into its cache. No change record is born (sinks, undo and autosave all stay quiet: the
     /// rows are the database's own contents arriving, not edits), and no trigger wakes: a
     /// faulting read populates before anything binds, so there is nobody to wake yet. The
@@ -1625,8 +1626,8 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         self.inner.version.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Remove one row without announcing — the persistence layer evicting a clean cached row.
-    /// The row is not deleted anywhere; it simply stops being resident, and a later fault
+    /// Remove one row without announcing: the persistence layer evicting a clean cached row.
+    /// The row is not deleted anywhere; it stops being resident, and a later fault
     /// brings it back. Callers guard with [`Store::is_observed`]: evicting a row something is
     /// bound to would flip that binding to its `Default` with no wakeup to correct it.
     pub fn depopulate(self, key: impl Into<ModelId<T>>) -> bool {
@@ -1642,7 +1643,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     }
 
     /// [`Store::depopulate`], batched: One retain and one reindex for the whole set, where
-    /// per-key removal would rebuild the key map per row — the difference between an eviction
+    /// per-key removal would rebuild the key map per row, the difference between an eviction
     /// pass costing O(cache) and O(cache × evicted). Returns how many rows left.
     pub fn depopulate_many(self, keys: &[u64]) -> usize {
         if keys.is_empty() {
@@ -1662,7 +1663,7 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         removed
     }
 
-    /// Whether anything currently observes this element — a trigger on the element's own path,
+    /// Whether anything currently observes this element: a trigger on the element's own path,
     /// or on any path under it (a bound field, a nested struct). The eviction guard: a row
     /// nobody observes can leave the cache silently, because the next reader faults it back.
     pub fn is_observed(self, key: impl Into<ModelId<T>>) -> bool {
@@ -1687,18 +1688,18 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
 }
 
 impl<T: Identified + 'static> Elem<T> {
-    /// The path handle this element addresses — the raw form of [`Elem::id`].
+    /// The path handle this element addresses: the raw form of [`Elem::id`].
     pub fn key(self) -> u64 {
         self.key
     }
 
-    /// The element's typed id. (Named to stay clear of the `id` FIELD accessor an inherent
+    /// The element's typed id. (Named to stay clear of the `id` field accessor an inherent
     /// `id()` would shadow on every model that has one.)
     pub fn model_id(self) -> ModelId<T> {
         ModelId::from_handle(self.key)
     }
 
-    /// Whether the row is (still) present — TRACKED, so a guard re-runs when the row is deleted
+    /// Whether the row is (still) present. Tracked, so a guard re-runs when the row is deleted
     /// or comes back. This is the deletion story: reads of a gone row return the field's
     /// `Default`, and this is the one signal a page needs to degrade instead.
     pub fn exists(self) -> bool {
@@ -1706,7 +1707,7 @@ impl<T: Identified + 'static> Elem<T> {
         self.with_value_untracked(|v| v.is_some())
     }
 
-    /// The cached id when still live, a fresh interning otherwise — the self-healing described
+    /// The cached id when still live, a fresh interning otherwise: the self-healing described
     /// in the module docs.
     fn live_node(self) -> NodeId {
         if is_current(self.node) {
@@ -1791,7 +1792,7 @@ pub fn project<S: Source<T>, T: 'static, V: 'static>(
 }
 
 impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
-    /// The cached path when its parent is still live, a rebuilt one otherwise. A DYNAMIC
+    /// The cached path when its parent is still live, a rebuilt one otherwise. A dynamic
     /// source (a recycled slot) never trusts the cache: its location is wherever the source
     /// says it is right now.
     fn live_path(self) -> Path {
@@ -1899,7 +1900,7 @@ impl<S: Source<T>, T: 'static, V: 'static> Source<V> for Field<S, T, V> {
     }
 }
 
-/// A field IS a two-way binding: every control takes one, unchanged.
+/// A field is a two-way binding: every control takes one, unchanged.
 impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Binding<V> for Field<S, T, V> {
     fn read(&self) -> V {
         self.with(|v| v.cloned().unwrap_or_default())
@@ -1953,8 +1954,8 @@ impl<S: Source<T>, T: 'static, V: 'static> Field<S, T, V> {
     }
 }
 
-/// The MISSING case converts the stored type's default rather than requiring the UI type to have
-/// one — a `Color` has no `Default`, and asking every converted type for one would be a tax paid
+/// The missing case converts the stored type's default rather than requiring the UI type to have
+/// one: a `Color` has no `Default`, and asking every converted type for one would be a tax paid
 /// by every caller for a case only a deleted row reaches.
 impl<F: Source<V>, V: Clone + Default + 'static, U: Clone + 'static> Binding<U>
     for Mapped<F, V, U>
@@ -2050,7 +2051,7 @@ impl<F: Source<V>, V: Clone + Default + 'static, U: Clone + 'static> Binding<U>
 }
 
 impl<F: Source<V> + Copy, V: 'static> Mapped<F, V, usize> {
-    /// `usize` as the `f64` a slider speaks — the adapter every numeric control needs somewhere.
+    /// `usize` as the `f64` a slider speaks: the adapter every numeric control needs somewhere.
     pub fn map_to_f64(self) -> Numeric<Self> {
         Numeric { inner: self }
     }
@@ -2081,12 +2082,12 @@ impl<M: Binding<usize> + Copy + 'static> Binding<f64> for Numeric<M> {
 }
 
 // ---------------------------------------------------------------------------
-// Preview sessions (docs/model.md) — the write-side of ValueChanged / ValueCommitted
+// Preview sessions (docs/model.md): the write-side of ValueChanged / ValueCommitted
 // ---------------------------------------------------------------------------
 
 impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
-    /// A LIVE write: the value lands and this field's readers wake — a label tracking a
-    /// dragged slider follows — but no change record is born, so autosave, the undo stack and
+    /// A live write: the value lands and this field's readers wake (a label tracking a
+    /// dragged slider follows), but no change record is born, so autosave, the undo stack and
     /// every sink stay quiet. The first preview since the last commit captures the
     /// pre-session value; [`Field::write_commit`] turns the whole gesture into one record.
     pub fn write_preview(self, v: V) {
@@ -2103,7 +2104,7 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
     }
 
     /// The settled value that ends a preview sequence: applies `v`, then announces one change
-    /// whose prior is the pre-session value — sixty thumb positions become one record, one
+    /// whose prior is the pre-session value, so sixty thumb positions become one record, one
     /// undo unit, one UPDATE. Without an open session this is a plain [`Binding::write`].
     pub fn write_commit(self, v: V) {
         let mut parts = Vec::new();
@@ -2129,7 +2130,7 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
         }
     }
 
-    /// The explicit session handle — for custom pieces and programmatic gestures; bindings
+    /// The explicit session handle, for custom pieces and programmatic gestures; bindings
     /// drive [`Field::write_preview`]/[`Field::write_commit`] on their own.
     pub fn session(self) -> FieldSession<S, T, V> {
         FieldSession { field: self }
@@ -2161,7 +2162,7 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> FieldSession<S, T, 
         self.field.write_commit(v);
     }
     /// Abandon the session: the pre-session value comes back (readers wake), and no record of
-    /// any of it exists — Escape restores.
+    /// any of it exists (what Escape does).
     pub fn cancel(self) {
         let mut parts = Vec::new();
         Source::<V>::components(self.field, &mut parts);
@@ -2178,16 +2179,16 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> FieldSession<S, T, 
 }
 
 // ---------------------------------------------------------------------------
-// Undo (docs/model.md) — the change log read backward
+// Undo (docs/model.md): the change log read backward
 // ---------------------------------------------------------------------------
 
 /// Write one captured field value back into a struct, by label. Implemented by
-/// `#[derive(Observable)]` — the typed seam that lets a type-erased undo unit re-enter the
+/// `#[derive(Observable)]`; this trait is how a type-erased undo unit re-enters the
 /// store it came from.
 pub trait ApplyField {
     fn apply_field(&mut self, label: &str, value: &dyn Any) -> bool;
 
-    /// The field's current value, cloned and type-erased — `None` for an unknown label. The
+    /// The field's current value, cloned and type-erased; `None` for an unknown label. The
     /// derive implements it; [`Store::write_field`] captures priors through it.
     fn read_field(&self, label: &str) -> Option<Rc<dyn Any>> {
         let _ = label;
@@ -2207,7 +2208,7 @@ struct StoreOps {
 struct UndoUnit {
     label: &'static str,
     changes: Vec<Change>,
-    /// Transient UI state as of this unit's seal ([`UndoStack::set_transient_context`]) —
+    /// Transient UI state as of this unit's seal ([`UndoStack::set_transient_context`]);
     /// `None` for a unit sealed with no hook installed. Never persisted.
     context: Option<Rc<dyn Any>>,
 }
@@ -2219,7 +2220,7 @@ type ContextRestore = Rc<dyn Fn(&dyn Any)>;
 struct ContextHook {
     capture: Rc<dyn Fn() -> Rc<dyn Any>>,
     restore: ContextRestore,
-    /// The state before any unit — what undoing the whole history restores.
+    /// The state before any unit: what undoing the whole history restores.
     base: Rc<dyn Any>,
 }
 
@@ -2249,7 +2250,7 @@ struct UndoInner {
 }
 
 /// One undo history over the stores it [`UndoStack::watch`]es: units are turns (everything one
-/// event's dispatch changed), inverted — not snapshots. Enabling it turns on standing value
+/// event's dispatch changed), inverted, not snapshots. Enabling it turns on standing value
 /// capture; drop the stack and the capture stops.
 #[derive(Clone)]
 pub struct UndoStack {
@@ -2257,7 +2258,7 @@ pub struct UndoStack {
 }
 
 impl UndoStack {
-    /// A stack holding at most `levels` units — the bound on what history keeps in RAM.
+    /// A stack holding at most `levels` units: the bound on what history keeps in RAM.
     pub fn new(levels: usize) -> UndoStack {
         let (can_undo, can_redo, undo_label, redo_label) =
             day_reactive::Scope::detached().enter(|| {
@@ -2359,7 +2360,7 @@ impl UndoStack {
         if self.inner.replaying.get() != Replay::No {
             return;
         }
-        // Another author's writes (an importer, a sync engine) are not the USER's history:
+        // Another author's writes (an importer, a sync engine) are not the user's history:
         // undoing them from the user's stack would revert work the user never did. Their tag
         // is exactly the evidence this decision needs.
         if change.author.is_some() {
@@ -2397,9 +2398,9 @@ impl UndoStack {
             .group_label
             .take()
             .unwrap_or_else(|| changes.first().map(|c| c.label).unwrap_or(""));
-        // The unit's transient UI state is the state AT SEAL — the end of the turn (or group),
+        // The unit's transient UI state is the state at seal, the end of the turn (or group),
         // after any selection writes the same event made. Selection changes between units are
-        // deliberately not captured anywhere: they are not history.
+        // not captured anywhere: they are not history.
         let context = self.inner.context.borrow().as_ref().map(|h| (h.capture)());
         let mut undo = self.inner.undo.borrow_mut();
         undo.push_back(UndoUnit {
@@ -2411,12 +2412,12 @@ impl UndoStack {
             undo.pop_front();
         }
         drop(undo);
-        // A NEW user unit forks history: redo is gone.
+        // A new user unit forks history: redo is gone.
         self.inner.redo.borrow_mut().clear();
         self.refresh();
     }
 
-    /// Everything `f` changes lands as one unit named `label` — a multi-field commit, an
+    /// Everything `f` changes lands as one unit named `label`: a multi-field commit, an
     /// inspector applying twelve properties.
     pub fn grouped(&self, label: &'static str, f: impl FnOnce()) {
         self.seal();
@@ -2433,7 +2434,7 @@ impl UndoStack {
     pub fn can_redo(&self) -> day_reactive::Signal<bool> {
         self.inner.can_redo
     }
-    /// The next undo unit's display label ("Name", or whatever the resolver makes of it) —
+    /// The next undo unit's display label ("Name", or whatever the resolver makes of it),
     /// empty when there is nothing to undo. What a menu title interpolates.
     pub fn undo_label(&self) -> day_reactive::Signal<String> {
         self.inner.undo_label
@@ -2449,16 +2450,16 @@ impl UndoStack {
         self.refresh();
     }
 
-    /// Ride transient UI state (a selection, a scroll position) along the history — captured,
+    /// Ride transient UI state (a selection, a scroll position) along the history: captured,
     /// never persisted (docs/model.md "Transient UI state").
     ///
-    /// `capture` runs as each unit SEALS, so a snapshot is the UI state at that point of
+    /// `capture` runs as each unit seals, so a snapshot is the UI state at that point of
     /// document history, including any selection writes the same turn made. Undo restores the
-    /// snapshot of the unit history lands ON — the previous unit's, or the base snapshot
+    /// snapshot of the unit history lands on: the previous unit's, or the base snapshot
     /// (taken here, at install) once the last unit is undone; redo restores the redone unit's
-    /// own. UI changes BETWEEN units restore nowhere: they are not history, which is what
-    /// makes "select A, move it, select B, move it, undo" land on A — the state as it stood
-    /// when A's move sealed — rather than on B.
+    /// own. UI changes between units restore nowhere: they are not history, which is what
+    /// makes "select A, move it, select B, move it, undo" land on A (the state as it stood
+    /// when A's move sealed) rather than on B.
     ///
     /// `restore` must not write a watched store (that would fork history from inside a
     /// replay); write plain signals. A unit sealed before this call carries no snapshot and
@@ -2476,7 +2477,7 @@ impl UndoStack {
         });
     }
 
-    /// Restore the snapshot history just landed on. `landed` is the top unit's snapshot slot —
+    /// Restore the snapshot history just landed on. `landed` is the top unit's snapshot slot:
     /// `Some(None)` is a unit that recorded nothing (restore nothing), outer `None` the empty
     /// stack, whose state is the base. Every borrow is released before the restore closure
     /// runs: it is app code.
@@ -2510,8 +2511,8 @@ impl UndoStack {
         });
         self.inner.replaying.set(Replay::No);
         self.inner.redo.borrow_mut().push(unit);
-        // History landed on the PREVIOUS unit's point: restore its transient state (base
-        // when the stack just emptied). After the replay flag drops — restores write plain
+        // History landed on the previous unit's point: restore its transient state (base
+        // when the stack just emptied). After the replay flag drops: restores write plain
         // signals, never watched stores.
         let landed = self.inner.undo.borrow().back().map(|u| u.context.clone());
         self.restore_context(landed);
@@ -2533,7 +2534,7 @@ impl UndoStack {
         });
         self.inner.replaying.set(Replay::No);
         self.inner.undo.borrow_mut().push_back(unit);
-        // History landed back ON the redone unit: restore its own transient state.
+        // History landed back on the redone unit: restore its own transient state.
         let landed = self.inner.undo.borrow().back().map(|u| u.context.clone());
         self.restore_context(landed);
         self.refresh();

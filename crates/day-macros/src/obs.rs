@@ -1,20 +1,20 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `#[derive(Observable)]` and `#[derive(Model)]` — the day-model and day-persistence derives.
+//! `#[derive(Observable)]` and `#[derive(Model)]`: the day-model and day-persistence derives.
 //!
 //! For `struct Item { id: u32, name: String, … }`, `Observable` generates:
 //!
-//! - `impl day_model::Identified for Item` from the `#[obs(key)]` field — always explicit, never
+//! - `impl day_model::Identified for Item` from the `#[obs(key)]` field, always explicit, never
 //!   inferred: a struct that happens to carry an `id` that is not its key would make inference a
 //!   trap, and one attribute line is cheap;
 //! - an `ItemFields` trait with one accessor per field, implemented for every
-//!   `Source<Item>` — so `store.name()`, `store.elem(id).name()` and `item.address().city()`
+//!   `Source<Item>`, so `store.name()`, `store.elem(id).name()` and `item.address().city()`
 //!   all work;
 //! - `Item::OBSERVED_FIELDS`, so a test can assert what is observable without reflection.
 //!
-//! `#[obs(skip)]` leaves a field out entirely: no accessor, no path, no trigger — and, under
-//! `Model`, no column: a field the change log cannot name could never mark its row dirty, so
+//! `#[obs(skip)]` leaves a field out entirely: it gets no accessor, path or trigger and, under
+//! `Model`, no column. A field the change log cannot name could never mark its row dirty, so
 //! persisting it would silently lose edits.
 //!
 //! `Model` implies `Observable` and adds the schema half (docs/persistence.md): `impl
@@ -23,13 +23,13 @@
 //! "…"`, `unique`, `index`, `transient` (observable, never stored), `with = Codec` and `json`;
 //! struct options are `table = "…"` and `index("a", "b")` for composites.
 //!
-//! Field ids come from field NAMES (`day_model::field_id`), so no index can be duplicated by
+//! Field ids come from field names (`day_model::field_id`), so no index can be duplicated by
 //! hand. Generated paths say `day_model::…` / `day_persistence::…` unqualified: the crates
 //! depend on nothing that could shadow them, and the `day` facade's prelude re-exports both
 //! names, so a direct dependency and `use day::prelude::*` both resolve them.
 //!
-//! Same construction as [`crate::build_path!`]: no syn, no quote. A derive that needs field
-//! NAMES and type TOKENS never has to understand a type, only re-emit it.
+//! Same construction as [`crate::build_path!`], with neither syn nor quote. A derive that needs
+//! field names and type tokens never has to understand a type, only re-emit it.
 
 use proc_macro::{Delimiter, TokenStream, TokenTree};
 
@@ -65,12 +65,12 @@ struct FieldDef {
     transient: bool,
     with: Option<String>,
     json: bool,
-    /// `#[model(relation(…))]` — a `Many<T>` marker field: no column, no plain accessor;
+    /// `#[model(relation(…))]`: a `Many<T>` marker field. It gets no column or plain accessor;
     /// the Model derive emits a `RelationRef` accessor and the wiring instead.
     relation: Option<RelationAttr>,
-    /// `#[model(link(…))]` — a `Linked<T>` marker field: a relation by VALUE rather than by
-    /// key, across databases (docs/persistence.md). No column, no accessor; the Model derive
-    /// emits the predicate builder and the `LinkDef`.
+    /// `#[model(link(…))]`: a `Linked<T>` marker field, a relation by value rather than by
+    /// key, across databases (docs/persistence.md). It gets no column or accessor; the Model
+    /// derive emits the predicate builder and the `LinkDef`.
     link: Option<LinkAttr>,
 }
 
@@ -106,7 +106,7 @@ struct StructDef {
     name: String,
     table: Option<String>,
     /// `external = "alias"`: the table lives in a database ATTACHed under `alias`, managed by
-    /// someone else — no DDL, no migration, read-only.
+    /// someone else, so it is read-only and gets neither DDL nor a migration.
     external: Option<String>,
     composites: Vec<Vec<String>>,
     fts: Vec<String>,
@@ -152,7 +152,7 @@ fn expand_model(input: TokenStream) -> Result<String, String> {
         ));
     }
     if key.with.is_some() || key.json {
-        // The key's stored form must match its `Key` form — the fold's WHERE parameters and
+        // The key's stored form must match its `Key` form: the fold's WHERE parameters and
         // external-merge decoding both derive it from the key kind, not from a codec.
         return Err(format!(
             "Model: `{}`'s id field takes no codec — integer, Uuid and String keys store \
@@ -173,7 +173,7 @@ fn expand_model(input: TokenStream) -> Result<String, String> {
 fn emit_observable(def: &StructDef) -> String {
     let name = &def.name;
     // Relation marker fields observe through their RelationRef accessor (Model-emitted), not
-    // a plain Field — a `Many` holds nothing a Field could usefully bind.
+    // a plain Field: a `Many` holds nothing a Field could usefully bind.
     let observed: Vec<&FieldDef> = def
         .fields
         .iter()
@@ -184,8 +184,8 @@ fn emit_observable(def: &StructDef) -> String {
     // The key, if one was marked. Without one the struct still observes; putting it in a
     // `Keyed` collection is then a compile error naming `Identified` and this attribute.
     if let Some(k) = def.fields.iter().find(|f| f.key) {
-        // `AsKey` picks the key's form by the FIELD TYPE — integers pass through as their own
-        // handle, `Uuid` and `String` intern — so the derive never interprets the type.
+        // `AsKey` picks the key's form by the field type (integers pass through as their own
+        // handle, `Uuid` and `String` intern), so the derive never interprets the type.
         out.push_str(&format!(
             "impl day_model::Identified for {name} {{\n\
              \x20   fn key(&self) -> day_model::Key {{ day_model::AsKey::as_key(&self.{}) }}\n\
@@ -212,9 +212,10 @@ fn emit_observable(def: &StructDef) -> String {
         "impl<S: day_model::Source<{name}>> {trait_name} for S {{}}\n"
     ));
 
-    // The typed seam an undo stack replays through — and, since `read_field`, the seam
-    // label-addressed writes capture priors through and relation wiring reads foreign keys
-    // through: one match arm per observed field, downcasting to the field's own type.
+    // The `ApplyField` impl: the typed path an undo stack replays through and, since
+    // `read_field`, the one label-addressed writes capture priors through and relation wiring
+    // reads foreign keys through. One match arm per observed field, downcasting to the field's
+    // type.
     out.push_str(&format!(
         "impl day_model::ApplyField for {name} {{\n\
          \x20   fn apply_field(&mut self, label: &str, value: &dyn ::core::any::Any) -> bool {{\n\
@@ -264,14 +265,14 @@ fn emit_observable(def: &StructDef) -> String {
 }
 
 /// The schema half. Every generated expression goes through `day_persistence::` paths and the
-/// field's own type — the derive never guesses a SQL type, it asks `ColumnValue::SQL_TYPE` (or
+/// field's type: the derive never guesses a SQL type, it asks `ColumnValue::SQL_TYPE` (or
 /// the named codec's) at compile time.
 fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
     let name = &def.name;
     let bare_table = def.table.clone().unwrap_or_else(|| snake_case(name));
-    // An external table is addressed through its database alias everywhere SQL names it —
-    // the fault SELECT, predicates, the FTS shadow (`alias.table_fts`) — which is what one
-    // qualified TABLE constant gives every existing code path at once.
+    // An external table is addressed through its database alias everywhere SQL names it
+    // (the fault SELECT, predicates, the FTS shadow `alias.table_fts`), which is what one
+    // qualified `TABLE` constant gives every existing code path at once.
     let table = match &def.external {
         Some(alias) => format!("{alias}.{bare_table}"),
         None => bare_table,
@@ -354,7 +355,7 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
 
     // Typed column refs: `Trip::name()` in a predicate, beside `trip.name()` the binding.
     // Inherent fns without a receiver never collide with the Fields trait's methods (which
-    // take self) — method-call syntax finds the trait, path syntax finds these.
+    // take self): method-call syntax finds the trait, path syntax finds these.
     let mut cols = String::new();
     for f in &persisted {
         let encode = match codec(f) {
@@ -374,9 +375,9 @@ fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
             f.name,
         ));
     }
-    // The STATIC relation reference, for predicates. The instance accessor of the same name
+    // The static relation reference, for predicates. The instance accessor of the same name
     // lives on the Relations trait and takes `self`, so path syntax finds this one and
-    // method-call syntax finds that one — the rule `Trip::name()` already relies on.
+    // method-call syntax finds that one, the rule `Trip::name()` already relies on.
     for f in def.fields.iter().filter(|f| f.relation.is_some()) {
         let r = f.relation.as_ref().expect("filtered");
         cols.push_str(&format!(
@@ -600,8 +601,8 @@ fn encode_expr(f: &FieldDef) -> String {
     }
 }
 
-/// A stored NULL decodes as the field's `Default` — what makes an added column's old rows
-/// readable before their backfill, matching the model's own deleted-row semantics.
+/// A stored NULL decodes as the field's `Default`, which is what makes an added column's old
+/// rows readable before their backfill, matching the model's deleted-row semantics.
 fn decode_expr(f: &FieldDef, i: usize) -> String {
     let read = format!("day_persistence::Row::get(row, {i}usize)");
     match codec(f) {
@@ -984,7 +985,7 @@ fn parse_relation(g: &proc_macro::Group, field: &str) -> Result<RelationAttr, St
     })
 }
 
-/// `link(target = Type, local = "column", remote = "column")` — a relation matched by VALUE:
+/// `link(target = Type, local = "column", remote = "column")` is a relation matched by value:
 /// rows of `Type` whose `remote` column equals this row's `local` column. No foreign key and
 /// no wiring, which is what lets it cross into an `external` table SQLite cannot constrain.
 fn parse_link(g: &proc_macro::Group, field: &str) -> Result<LinkAttr, String> {
@@ -1062,7 +1063,7 @@ fn tokens_text(tokens: &[TokenTree]) -> String {
 }
 
 /// Split the brace body on top-level commas and read `#[obs|model(...)] vis name : Type` out of
-/// each. "Top-level" means outside `<…>` too, so a `HashMap<u64, usize>` field stays one chunk —
+/// each. "Top-level" means outside `<…>` too, so a `HashMap<u64, usize>` field stays one chunk;
 /// brackets and parens are already single `Group` tokens, but angles arrive as bare puncts.
 fn parse_fields(body: TokenStream) -> Result<Vec<FieldDef>, String> {
     let mut fields = Vec::new();
@@ -1105,7 +1106,7 @@ fn parse_one(chunk: &[TokenTree]) -> Result<FieldDef, String> {
     let mut f = FieldDef::default();
     let mut deferred: Vec<Vec<Vec<TokenTree>>> = Vec::new();
 
-    // Attributes and doc comments. `#[model(…)]` items need the field NAME for their errors,
+    // Attributes and doc comments. `#[model(…)]` items need the field name for their errors,
     // so they are parsed after it is known.
     while i < chunk.len() {
         match &chunk[i] {
@@ -1160,7 +1161,7 @@ fn parse_one(chunk: &[TokenTree]) -> Result<FieldDef, String> {
         _ => return Err(format!("expected `:` after field `{}`", f.name)),
     }
 
-    // The type is whatever is left — re-emitted verbatim, never interpreted.
+    // The type is whatever is left, re-emitted verbatim, never interpreted.
     f.ty = tokens_text(&chunk[i..]);
     if f.ty.is_empty() {
         return Err(format!("field `{}` has no type", f.name));

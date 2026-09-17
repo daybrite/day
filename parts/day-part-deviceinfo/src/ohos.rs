@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // HarmonyOS / OpenHarmony: the native device-info C API (`deviceinfo.h`, `libdeviceinfo_ndk.so`).
-// Pure FFI, like macOS/iOS — no ArkTS bridge or Day runtime needed. The getters return borrowed,
+// Pure FFI, like macOS/iOS; no ArkTS bridge or Day runtime needed. The getters return borrowed,
 // static `const char *` (never freed, so we only copy them). `OH_GetOSFullName()` is e.g.
-// "OpenHarmony-5.0.0.0" — its head is the OS name; `OH_GetDisplayVersion()` is the user-facing version
-// and `OH_GetProductModel()` the model. Reading device info needs no permission. There is no
-// simulator concept exposed here, so is_simulator is false.
+// "OpenHarmony-5.0.0.0", whose head is the OS name; `OH_GetDisplayVersion()` is the user-facing
+// version and `OH_GetProductModel()` the model. Reading device info needs no permission. There is
+// no simulator concept exposed here, so is_simulator is false.
 
 use super::DeviceInfo;
 use std::ffi::{CStr, c_char};

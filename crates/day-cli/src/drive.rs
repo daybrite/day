@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day drive` — execute dayscript steps against an ALREADY-RUNNING app (docs/agent.md).
+//! `day drive`: execute dayscript steps against an already-running app (docs/agent.md).
 //!
 //! The session registry (sessions.rs) holds the engine coordinates a previous `day launch`
 //! recorded; this command connects, runs the given steps, and reports one JSON object per step
@@ -58,7 +58,7 @@ fn normalize(
     Ok(out)
 }
 
-/// The Ok value is the run's verdict code: 0, or the script-failure code when steps failed —
+/// The Ok value is the run's verdict code: 0, or the script-failure code when steps failed;
 /// the per-step JSON report on stdout already carries the detail.
 pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, CliError> {
     let steps: Vec<serde_json::Value> = serde_json::from_str(steps_json)

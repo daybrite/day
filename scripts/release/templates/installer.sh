@@ -1,5 +1,5 @@
 #!/bin/sh
-# day-installer.sh — install the `day` CLI on macOS or Linux.
+# day-installer.sh: install the `day` CLI on macOS or Linux.
 #
 # Rendered from scripts/release/templates/installer.sh by render-installers.py for release
 # __DAY_VERSION__ (URLs, sizes, and sha256 checksums below are baked in per release, in the

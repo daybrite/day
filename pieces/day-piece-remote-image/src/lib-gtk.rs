@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// GTK: a small GtkWidget subclass that draws in `snapshot()` — a GdkTexture decoded from the bytes,
+// GTK: a small GtkWidget subclass that draws in `snapshot()`: a GdkTexture decoded from the bytes,
 // aspect fit/fill, under a rounded/circle/rect clip, over the placeholder color. Doing it in
-// `snapshot()` (via GskRoundedRect clips) makes the clip resize-correct for free and gives true
+// `snapshot()` (via GskRoundedRect clips) makes the clip resize-correct and gives true
 // aspect-fill, which a plain GtkPicture + CSS cannot. `GdkTexture::from_bytes` handles PNG/JPEG/…;
 // an undecodable buffer leaves the texture empty (placeholder only). A SetBytes patch swaps the
 // texture and queues a redraw.
@@ -48,7 +48,7 @@ mod imp {
             }
             let full = graphene::Rect::new(0.0, 0.0, w, h);
 
-            // Push the clip (a rounded clip for circle/rounded, a plain clip for none) — one push,
+            // Push the clip (a rounded clip for circle/rounded, a plain clip for none): one push,
             // one pop.
             match self.clip.get() {
                 Clip::None => snapshot.push_clip(&full),

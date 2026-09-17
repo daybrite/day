@@ -5,10 +5,11 @@
 //!
 //! **This arm is not implemented yet.** Every query reports [`Gate::Absent`] /
 //! [`Status::Unsupported`] and every request resolves the same way, so an app linking this crate on
-//! the web today gets an honest "no" rather than a wrong "yes". The next step is a `day_dom_perm_*` block in `crates/day-cli/resources/web/shim.js` (the
-//! `day-part-prefs` / `day-part-http` pattern) with a live `change`-event cache, and the matching
-//! `extern "C"` imports here. Note that `DeviceMotionEvent.requestPermission()` needs a live user
-//! activation, which day-dom preserves because it dispatches `click` synchronously into wasm.
+//! the web today gets a correct "no" rather than a wrong "yes". The next step is a
+//! `day_dom_perm_*` block in `crates/day-cli/resources/web/shim.js` (the `day-part-prefs` /
+//! `day-part-http` pattern) with a live `change`-event cache, and the matching `extern "C"`
+//! imports here. Note that `DeviceMotionEvent.requestPermission()` needs a live user activation,
+//! which day-dom preserves because it dispatches `click` synchronously into wasm.
 
 use crate::{Gate, Permission, Status};
 

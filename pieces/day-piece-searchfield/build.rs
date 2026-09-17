@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Compiles this piece's OWN native shims when their feature is on — an external Day Piece carrying
+//! Compiles this piece's native shims when their feature is on: an external Day Piece carrying
 //! native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim). Qt uses `cc` +
 //! pkg-config; XAML uses `cc` (MSVC) + the Windows SDK cppwinrt projection, mirroring day-xaml-sys.
 //! (This is the day-piece-picker build.rs verbatim, retargeted at this crate's two shim files.)
@@ -54,6 +54,6 @@ fn build_xaml() {
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
     build.compile("daysearchxamlshim");
-    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox seam are already linked by
+    // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox functions are already linked by
     // day-xaml-sys; nothing extra to link here.
 }

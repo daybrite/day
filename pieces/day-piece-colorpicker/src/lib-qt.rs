@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: this crate's shim (src/lib-qt-shim.cpp) — a swatch `QPushButton` that opens
-// `QColorDialog`, Qt's real chooser. Components cross the flat C ABI as four doubles, so nothing
+// Qt: this crate's shim (src/lib-qt-shim.cpp), a swatch `QPushButton` that opens
+// `QColorDialog`, Qt's chooser. Components cross the flat C ABI as four doubles, so nothing
 // is quantized on the way (both `QColor::getRgbF` and Day's `Color` are float).
 // ---------------------------------------------------------------------------
 

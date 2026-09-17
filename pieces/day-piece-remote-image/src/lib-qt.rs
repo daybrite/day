@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: this crate's shim (src/lib-qt-shim.cpp) — a QWidget that paints a QPixmap decoded from the
+// Qt: this crate's shim (src/lib-qt-shim.cpp), a QWidget that paints a QPixmap decoded from the
 // bytes (aspect fit/fill) under a circle / rounded / rect clip, over the placeholder color, behind a
 // flat C ABI. Bytes cross as a pointer + length; a SetBytes patch re-decodes (or clears on `None`).
 // ---------------------------------------------------------------------------

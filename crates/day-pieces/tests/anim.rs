@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! §8.4 declarative animation: `with_animation` / `.animation` / `.opacity` / `.transform` thread
-//! `AnimSpec` intent through the toolkit seams, and the curve/spring math is well-formed. The mock
+//! `AnimSpec` intent through the toolkit trait, and the curve/spring math is well-formed. The mock
 //! records the intent on each widget (`MockWidget::last_anim`, `.opacity`, `.transform`).
 
 use day_core::AnyPiece;

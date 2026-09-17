@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Menu action dispatch (§ menus). The MODEL ([`day_spec::MenuItem`]) is toolkit-neutral and carries
-//! only ids for its actions; the real closures live here, keyed by id. A backend fires
+//! Menu action dispatch (§ menus). The model ([`day_spec::MenuItem`]) is toolkit-neutral and carries
+//! only ids for its actions; the closures live here, keyed by id. A backend fires
 //! `Event::MenuAction(id)` when a native item is chosen; the event pump routes it to
 //! [`dispatch_menu_action`], which runs the app's closure. Ids are process-unique and monotonic.
 
@@ -14,7 +14,7 @@ day_reactive::tls_slots! {
     menu;
     static ACTIONS: RefCell<HashMap<u64, Rc<dyn Fn()>>> = RefCell::new(HashMap::new());
     static NEXT_ID: Cell<u64> = const { Cell::new(1) };
-    /// The app menu as last installed (post-injection) — the dayscript `menu:` step
+    /// The app menu as last installed (post-injection). The dayscript `menu:` step
     /// matches against it, and late `register_preferences` re-forwards it.
     static APP_MENU_MODEL: RefCell<Vec<day_spec::MenuItem>> = const { RefCell::new(Vec::new()) };
     /// The action ids the current app menu registered, so replacing the menu (the reactive
@@ -23,7 +23,7 @@ day_reactive::tls_slots! {
     static APP_MENU_IDS: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Forget every menu action and the last-installed app menu — a RE-MOUNT (docs/appearance.md).
+/// Forget every menu action and the last-installed app menu: a re-mount (docs/appearance.md).
 /// The closures a previous mount registered capture that mount's reactive graph, which has just
 /// been disposed; keeping them would leave the menu bar invoking a dead tree.
 pub fn reset_menus() {
@@ -59,7 +59,7 @@ pub fn register_menu_action(f: Rc<dyn Fn()>) -> u64 {
 
 /// Register an app closure whose lifetime is tied to the current scope: the id is dropped
 /// from the dispatch map when that scope is disposed. This is the registrar for closures
-/// owned by a piece build — context menus, nav-row menus, nav `bar_action` — which are
+/// owned by a piece build (context menus, nav-row menus, nav `bar_action`), which are
 /// re-registered on every rebuild; without the cleanup each remount leaks the previous
 /// build's closure (and whatever app state it captured) for the process lifetime.
 ///
@@ -95,7 +95,7 @@ pub fn dispatch_menu_action(id: u64) {
         return;
     }
     // An id with no closure means something native is still wired to an action whose scope has
-    // been disposed — a menu or a nav-bar button that draws normally and does nothing when
+    // been disposed: a menu or a nav-bar button that draws normally and does nothing when
     // pressed. Silent before, and undiagnosable from the outside: the press produces no event,
     // no log line, no visible change.
     log::warn!(
@@ -106,11 +106,11 @@ pub fn dispatch_menu_action(id: u64) {
 }
 
 /// Set the application menu (menu bar / app-bar overflow / iPad main menu). Retains the
-/// model (post-injection — [`app_menu_model`]), injects the auto Preferences item when one
-/// is registered (docs/windows.md), drops the PREVIOUS app menu's action closures (context
+/// model (post-injection, [`app_menu_model`]), injects the auto Preferences item when one
+/// is registered (docs/windows.md), drops the previous app menu's action closures (context
 /// menus share the map and are untouched), and forwards to the backend.
-/// Whether two menu models describe the same MENU — labels, shortcuts, roles, enablement and
-/// nesting — ignoring the action ids, which are re-registered on every build.
+/// Whether two menu models describe the same menu (labels, shortcuts, roles, enablement and
+/// nesting), ignoring the action ids, which are re-registered on every build.
 fn same_shape(a: &[day_spec::MenuItem], b: &[day_spec::MenuItem]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| shape_of(x) == shape_of(y))
 }
@@ -159,7 +159,7 @@ pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
     // The same rule the toolbar follows (`day_core::toolbar::set_window_toolbar`,
     // docs/toolbars.md): an app declares its menu inside the page build, so every route change
     // re-installs the same menu with freshly registered closures. Rebuilding the native menu bar
-    // for that is churn at best — and on macOS it closes a menu the user has open — so a menu
+    // for that is churn at best, and on macOS it closes a menu the user has open, so a menu
     // that differs only in its action ids rebinds onto the ids the platform already holds.
     let unchanged = APP_MENU_MODEL.with(|m| same_shape(&m.borrow(), &items));
     if unchanged {
@@ -171,7 +171,7 @@ pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
 
     let new_ids = collect_action_ids(&items);
     // The prefs/new-window/undo dispatch ids are registered outside menu lowering (by
-    // `day::register_*` and `undo_action_id`) and outlive any menu install — never sweep them.
+    // `day::register_*` and `undo_action_id`) and outlive any menu install; never sweep them.
     let durable = [
         crate::windows::preferences_action_id(),
         crate::windows::new_window_action_id(),
@@ -211,10 +211,10 @@ pub fn app_menu_installed() -> bool {
     APP_MENU_MODEL.with(|m| !m.borrow().is_empty())
 }
 
-/// Re-forward the retained model through the injection pass — the self-heal for
+/// Re-forward the retained model through the injection pass: the self-heal for
 /// `register_preferences` running after `app_menu` (docs/menus.md ordering note).
 /// Did the app install a menu model of its own (`app_menu`)? `false` means it is running on the
-/// backend's DEFAULT menu bar, which the backend builds before `root()` runs — so a backend that
+/// backend's default menu bar, which the backend builds before `root()` runs, so a backend that
 /// puts registration-dependent items there (Settings…, File ▸ New Window) has to rebuild it once
 /// the app's registrations are in. day-appkit does exactly that.
 pub fn has_app_menu() -> bool {
@@ -229,7 +229,7 @@ pub(crate) fn reinstall_app_menu() {
 }
 
 /// Inject the auto Settings…/Preferences item (docs/windows.md): when a preferences piece
-/// is registered and the model carries an INERT `role(Preferences)` item (id 0), rewrite
+/// is registered and the model carries an inert `role(Preferences)` item (id 0), rewrite
 /// its id to the registered action; when the model has no Preferences item at all, append
 /// `separator + item` to the first top-level submenu (the File menu by convention). An
 /// app-supplied `.action` (nonzero id) always wins. Backends give the item its platform
@@ -382,7 +382,7 @@ impl MenuBarStyle {
             ),
             B::View => sub("day-view", vec![act(R::Fullscreen)]),
             // macOS keeps About in the app menu; the other desktops keep it in Help. An empty
-            // Help menu still earns its place on macOS — AppKit fills it with the help search.
+            // Help menu still earns its place on macOS, where AppKit fills it with the help search.
             B::Help => match self {
                 MenuBarStyle::Macos => sub("day-help", Vec::new()),
                 _ => sub("day-help", vec![act(R::About)]),
@@ -392,7 +392,7 @@ impl MenuBarStyle {
     }
 }
 
-/// Assemble the bar for a desktop's conventions — [`standard_menu_bar`] with that style's slot
+/// Assemble the bar for a desktop's conventions: [`standard_menu_bar`] with that style's slot
 /// order and stock menus.
 pub fn standard_menu_bar_for(
     style: MenuBarStyle,
@@ -402,11 +402,11 @@ pub fn standard_menu_bar_for(
     standard_menu_bar(app_menus, leading, trailing, |r| style.stock(r))
 }
 
-/// `leading` are the slots before the app's own menus and `trailing` the ones after — each
+/// `leading` are the slots before the app's own menus and `trailing` the ones after; each
 /// backend passes its platform's bar (macOS trails Window and Help; KDE trails Settings and
 /// Help; GNOME and Windows trail Help alone). `stock` returns the backend's house version of a
 /// slot, or `None` where that platform has no such menu. Menus the app tagged with
-/// [`MenuBarRole`] replace the stock one IN PLACE, so an app customizes a standard menu by
+/// [`MenuBarRole`] replace the stock one in place, so an app customizes a standard menu by
 /// claiming it rather than by rebuilding the whole bar.
 pub fn standard_menu_bar(
     app_menus: Vec<day_spec::MenuItem>,
@@ -444,8 +444,8 @@ pub fn standard_menu_bar(
 /// IS this standard menu by title, else the platform's stock one.
 ///
 /// The title fallback is what keeps a bar from showing the same menu twice. Tagging a submenu
-/// with a [`day_spec::MenuBarRole`] is how an app claims a slot, but an app that simply builds
-/// its own "Edit" — the natural thing to write, and what the showcase did — would otherwise get
+/// with a [`day_spec::MenuBarRole`] is how an app claims a slot, but an app that builds
+/// its own "Edit" (the natural thing to write, and what the showcase did) would otherwise get
 /// the stock Edit in the slot and its own further along the bar. An untagged submenu whose title
 /// is the stock menu's title is that menu, so it takes the slot instead of being appended.
 fn take_slot(
@@ -457,9 +457,9 @@ fn take_slot(
     if let Some(i) = claimed.iter().position(|(cr, _)| *cr == role) {
         return Some(claimed.remove(i).1);
     }
-    // Match against the slot's OWN localized name, not the stock menu's label: it is the same
+    // Match against the slot's localized name, not the stock menu's label: it is the same
     // string where a stock menu exists, and it still identifies the slot where none does. That
-    // second case is File — no platform ships a stock File, yet an app's hand-built File belongs
+    // second case is File: no platform ships a stock File, yet an app's hand-built File belongs
     // in the File slot rather than adrift after View.
     if let Some(title) = role_title(role)
         && let Some(i) = own
@@ -471,7 +471,7 @@ fn take_slot(
     stock(role)
 }
 
-/// The slot's standard name in the current locale — the same catalog key a stock menu is labeled
+/// The slot's standard name in the current locale, the same catalog key a stock menu is labeled
 /// from, so an app's "Edit" matches in English and its "Édition" matches under `--locale fr`.
 fn role_title(role: day_spec::MenuBarRole) -> Option<String> {
     use day_spec::MenuBarRole as B;
@@ -494,7 +494,7 @@ fn submenu_label(item: &day_spec::MenuItem) -> Option<&str> {
 }
 
 /// Do two menu titles name the same menu? Compared case-insensitively, without surrounding space
-/// and without the `&` mnemonic markers GTK and Windows carry — `&View` and `View` are one menu.
+/// and without the `&` mnemonic markers GTK and Windows carry: `&View` and `View` are one menu.
 /// Both titles come from the same catalog in the same locale at the same moment, so a localized
 /// bar compares localized titles and still matches.
 fn menu_titles_match(a: &str, b: &str) -> bool {
@@ -557,9 +557,9 @@ mod tests {
         );
     }
 
-    /// An app that builds a standard menu by hand — an "Edit" submenu with no `bar_role` — gets
-    /// One Edit menu, in the Edit slot, not the stock one plus its own further along the bar.
-    /// This is the duplicate the showcase's macOS bar actually showed: Showcase, Edit, View,
+    /// An app that builds a standard menu by hand (an "Edit" submenu with no `bar_role`) gets
+    /// one Edit menu, in the Edit slot, not the stock one plus its own further along the bar.
+    /// This is the duplicate the showcase's macOS bar showed: Showcase, Edit, View,
     /// File, Edit, View, Window, Help.
     #[test]
     fn an_untagged_menu_named_like_a_stock_one_takes_its_slot() {
@@ -592,7 +592,7 @@ mod tests {
         assert!(!menu_titles_match("Edit", "View"));
     }
 
-    /// A claimed slot replaces the stock menu in place — it does not also get the stock one,
+    /// A claimed slot replaces the stock menu in place: it does not also get the stock one,
     /// and it does not slide into the app-menu run.
     #[test]
     fn a_claimed_slot_replaces_the_stock_menu_in_place() {
@@ -610,12 +610,12 @@ mod tests {
         assert_eq!(l[3], "Go", "app menus still follow the leading slots");
     }
 
-    /// The bar order is the BACKEND's, not one hardcoded shape: KDE trails Settings and Help,
+    /// The bar order is the backend's, not one hardcoded shape: KDE trails Settings and Help,
     /// GNOME and Windows trail Help alone, and neither grows a macOS Window menu.
     #[test]
     fn each_platform_gets_its_own_bar_order() {
         use day_spec::MenuBarRole as R;
-        // File is the app's own everywhere — no backend ships a stock one.
+        // File is the app's own everywhere; no backend ships a stock one.
         let stock = |r: R| {
             let label = match r {
                 R::Edit => "Edit",
@@ -645,7 +645,7 @@ mod tests {
         assert!(!labels(&gnome).contains(&"Window".to_string()));
     }
 
-    /// A backend with no stock menu for a slot simply has no such menu.
+    /// A backend with no stock menu for a slot has no such menu.
     #[test]
     fn a_slot_with_no_stock_menu_is_omitted() {
         use day_spec::MenuBarRole as R;

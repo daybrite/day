@@ -10,7 +10,7 @@
 //! (which owns the DayPieces package), not the `stage()` dispatcher.
 //!
 //! Data (`assets/`) is copied into the app bundle by the xcode-backend copy phase and read back
-//! through the default mmap file opener (a plain bundle file — the Apple native path). macOS/AppKit
+//! through the default mmap file opener (a plain bundle file, the Apple native path). macOS/AppKit
 //! stays on the bundle-file path too: the `platform/macos/` Xcode host stages images through the
 //! `day xcode-backend stage-resources` script phase into `Contents/Resources` rather than through
 //! an asset catalog, so no `actool` runs for them there either (the appicon is the exception).
@@ -23,13 +23,13 @@ use super::ResourceFile;
 
 const CATALOG_ROOT: &str = "{ \"info\" : { \"author\" : \"day\", \"version\" : 1 } }\n";
 
-/// Generate `Media.xcassets` under `sources_dir` — one `<name>.imageset` per image (grouping `@Nx`
+/// Generate `Media.xcassets` under `sources_dir`: one `<name>.imageset` per image (grouping `@Nx`
 /// scale variants), each with a `Contents.json`. Returns `true` if any imageset was written (so the
 /// caller adds the `.process` resource to the target). SwiftPM/xcodebuild then runs `actool`.
 /// `vectors` are `(name, glyph-svg path)` pairs from `resource/vectors/` (docs/vectors.md): each
 /// becomes an SVG imageset with `"preserves-vector-representation": true` (the Xcode 12+ vector
 /// asset), so `UIImage(named:)` renders the outline at display size instead of resampling a
-/// bitmap — the raster-cache PNG of the same name is excluded here in its favor.
+/// bitmap; the raster-cache PNG of the same name is excluded here in its favor.
 pub fn write_media_xcassets(
     sources_dir: &Path,
     images: &[ResourceFile],
@@ -47,7 +47,7 @@ pub fn write_media_xcassets(
     crate::pieces::write_if_changed(&root_contents, CATALOG_ROOT)?;
     expected.push(root_contents);
 
-    // Group scale variants by image name — skipping the raster twins of names shipped below as
+    // Group scale variants by image name, skipping the raster twins of names shipped below as
     // preserve-vector SVG imagesets (same name, two imagesets would collide in the catalog).
     let vector_names: std::collections::BTreeSet<&str> =
         vectors.iter().map(|(n, _)| n.as_str()).collect();

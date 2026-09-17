@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp) — an AutoSuggestBox (the XAML
-// search control, with a query magnifier) boxed into a Day handle via the day_xaml_box/unbox seam
-// that day-xaml-sys exports. This mirrors the picker/media XAML renderers (own shim for the
-// control; reuse the sys crate's generic measure). Windows-only, built in CI, not verified locally.
+// XAML: this crate's C++/WinRT shim (src/lib-xaml-shim.cpp), an AutoSuggestBox (the XAML
+// search control, with a query magnifier) boxed into a Day handle via the day_xaml_box/unbox
+// functions that day-xaml-sys exports. This mirrors the picker/media XAML renderers (own shim
+// for the control; reuse the sys crate's generic measure). Windows-only, built in CI, not
+// verified locally.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -77,7 +78,7 @@ day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure);
 
-/// Non-generic anchor for the linker — called by `SearchField::build` (see lib.rs). Without a
+/// Non-generic anchor for the linker, called by `SearchField::build` (see lib.rs). Without a
 /// caller this module's object is never pulled out of the rlib, and the `renderer!` registration
 /// above never reaches the binary.
 pub(crate) fn anchor() {}

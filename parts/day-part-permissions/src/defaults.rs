@@ -4,8 +4,8 @@
 //! Desktop Linux and Windows: no consent database, so nothing to ask.
 //!
 //! Both platforms let a normal desktop process open the camera, the microphone and the network
-//! without asking anyone, so every capability that EXISTS here reports [`Gate::Ungated`] +
-//! [`Status::Granted`] — an app should proceed, and a missing device should fail at the device, not
+//! without asking anyone, so every capability that exists here reports [`Gate::Ungated`] +
+//! [`Status::Granted`]: an app should proceed, and a missing device should fail at the device, not
 //! at a permission check that has nothing to check. Capabilities with no desktop equivalent at all
 //! (a photo library, motion/fitness activity) report [`Gate::Absent`] + [`Status::Unsupported`], so
 //! an app can hide the feature instead of offering a dead button.

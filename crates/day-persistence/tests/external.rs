@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Another connection's committed writes, merged: `check_external` detects them through the
-//! engine's `data_version` counter, feeds only the differences through the stores — precise
-//! field announcements, structural inserts and deletes, live-query deltas — and never echoes
+//! engine's `data_version` counter, feeds only the differences through the stores (precise
+//! field announcements, structural inserts and deletes, live-query deltas) and never echoes
 //! them back to the file.
 
 use day_macros::Model;
@@ -49,7 +49,7 @@ fn seeded(path: &std::path::Path) -> ModelContainer {
     container
 }
 
-/// A second connection to the same file — what another process looks like to this one.
+/// A second connection to the same file: what another process looks like to this one.
 fn second_connection(path: &std::path::Path) -> impl SqliteConnection {
     Sqlite::at(path).open().expect("second connection")
 }
@@ -174,7 +174,7 @@ fn an_unflushed_local_edit_survives_the_merge() {
     }
     assert!(container.check_external().expect("check_external"));
 
-    // check_external flushed the local edit before diffing, so it read as ours — not as a
+    // check_external flushed the local edit before diffing, so it read as ours, not as a
     // difference to revert.
     assert_eq!(store.elem(2).title().peek(), "local, unflushed");
     assert_eq!(store.elem(1).title().peek(), "external");

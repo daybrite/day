@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// GTK: `GtkSpinButton` — the field-with-arrows widget GNOME ships for exactly this. One
+// GTK: `GtkSpinButton`, the field-with-arrows widget GNOME ships for exactly this. One
 // widget carries the whole contract: range, increments, display digits, keyboard entry.
 //
 // The echo guard is a flag rather than a value comparison for the colorpicker's reason:
@@ -71,7 +71,7 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
     Size::new((nat_w as f64).max(96.0), (nat_h as f64).max(24.0))
 }
 
-/// Drop the echo guard when the widget goes away — the map's key is the widget's ADDRESS,
+/// Drop the echo guard when the widget goes away. The map's key is the widget's address,
 /// which the allocator reuses; a stale entry would hand its flag to the next widget there.
 fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     SUPPRESS.with(|m| {

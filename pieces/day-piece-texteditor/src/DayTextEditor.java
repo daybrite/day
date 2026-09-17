@@ -1,21 +1,21 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The styled-text editor's OWN Android backing — bundled with the day-piece-texteditor crate and
+// The styled-text editor's Android backing, bundled with the day-piece-texteditor crate and
 // pulled into the app's Gradle build through [package.metadata.day.android], with no edits to
-// day-android. It uses only DayBridge's PUBLIC surface: `ctx`, `nativeOnEvent`, and the two event
+// day-android. It uses only DayBridge's public surface: `ctx`, `nativeOnEvent`, and the two event
 // kind constants.
 //
 // Two things make this more than "an EditText with spans":
 //
-// - **Attributes are applied to the LIVE Editable.** An EditText's text IS a
+// - **Attributes are applied to the live Editable.** An EditText's text is a
 //   SpannableStringBuilder, so re-styling means removing this class's spans and setting new ones on
 //   the buffer the user is typing in. The characters, the caret, the IME composition and the undo
-//   stack all survive — which `setText` with a fresh Spannable would destroy on every keystroke.
+//   stack all survive, which `setText` with a fresh Spannable would destroy on every keystroke.
 // - **Selection needs a subclass.** `onSelectionChanged` is a protected TextView method with no
 //   listener equivalent, so reporting the caret at all requires extending EditText.
 //
-// Span removal is by CLASS, and only the classes this file sets. The IME's composing spans and the
+// Span removal is by class, and only the classes this file sets. The IME's composing spans and the
 // framework's own selection spans live in the same buffer and must survive: removing them cancels
 // a half-typed Japanese or Korean word mid-composition.
 package dev.daybrite.day.piece.texteditor;
@@ -45,12 +45,12 @@ import dev.daybrite.day.bridge.DayBridge;
 
 public final class DayTextEditor {
 
-    /** The EditText subclass, for `onSelectionChanged` — which has no listener form. */
+    /** The EditText subclass, for `onSelectionChanged`, which has no listener form. */
     public static final class DayEditText extends EditText {
         long node = 0;
         /** Set while Day itself writes, so its own edits never echo back as user input. */
         boolean suppress = false;
-        /** The input type as built, so `setEditable(true)` can put it back — `setKeyListener`
+        /** The input type as built, so `setEditable(true)` can put it back: `setKeyListener`
          *  resets it as a side effect. */
         int baseInputType = InputType.TYPE_CLASS_TEXT;
 
@@ -61,7 +61,7 @@ public final class DayTextEditor {
         @Override
         protected void onSelectionChanged(int start, int end) {
             super.onSelectionChanged(start, end);
-            // Called from TextView's constructor, before `node` is assigned — hence the guard.
+            // Called from TextView's constructor, before `node` is assigned; hence the guard.
             if (suppress || node == 0) {
                 return;
             }
@@ -182,7 +182,7 @@ public final class DayTextEditor {
 
     /**
      * Paragraph attributes: alignment and indent. `align` is 0 natural, 1 center, 2 trailing,
-     * 3 justified — Android has no per-paragraph justification (only a whole-view
+     * 3 justified. Android has no per-paragraph justification (only a whole-view
      * `setJustificationMode`), so justified paragraphs align naturally. Paragraph spacing has no
      * span equivalent either; docs/texteditor.md records both.
      */
@@ -250,10 +250,10 @@ public final class DayTextEditor {
     }
 
     /**
-     * What the next typed character takes. Android's own mechanism for this is span FLAGS —
+     * What the next typed character takes. Android's own mechanism for this is span flags:
      * SPAN_INCLUSIVE_EXCLUSIVE on a zero-length span at the caret, which the framework then
      * extends over what is typed into it. The piece also applies the style in its own model, so
-     * this is the frame-one appearance rather than the source of truth.
+     * this is the frame-one appearance rather than the model itself.
      */
     public static void setTypingStyle(View v, int flags, int color, int background, int scale) {
         DayEditText e = (DayEditText) v;

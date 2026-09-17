@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-map — an EXTERNAL Day Piece (DESIGN.md §15) wrapping the platform's NATIVE map view,
-//! **APPLE PLATFORMS only**. It is the reference for a piece that deliberately does not support every
+//! day-piece-map: an external Day Piece (DESIGN.md §15) wrapping the platform's native map view,
+//! **Apple platforms only**. It is the reference for a piece that does not support every
 //! backend: AppKit and UIKit render a real `MKMapView`; on GTK/Qt/Android/XAML the `map` kind falls
 //! back to day's placeholder leaf (those features exist but register no renderer). One Rust API,
 //! registered link-time into each Apple backend's renderer slice without touching day.
@@ -33,7 +33,7 @@ pub const KIND: &str = "day.piece.map";
 /// A (latitude, longitude) coordinate in degrees.
 pub type Coord = (f64, f64);
 
-/// The default zoom span (latitude/longitude delta, in degrees) — a few city blocks across.
+/// The default zoom span (latitude/longitude delta, in degrees): a few city blocks across.
 pub const DEFAULT_SPAN: f64 = 0.02;
 
 /// Full props (realize). `lat`/`lon` seed the center (thereafter patched when the center is a
@@ -61,10 +61,10 @@ impl Default for MapProps {
     }
 }
 
-/// Sparse reconcile patch — only the center moves after build (span/marker are fixed).
+/// Sparse reconcile patch: only the center moves after build (span/marker are fixed).
 #[derive(Clone, Debug, PartialEq)]
 pub enum MapPatch {
-    /// Recenter the map on a new coordinate — pushed whenever a bound center source changes.
+    /// Recenter the map on a new coordinate; pushed whenever a bound center source changes.
     Center { lat: f64, lon: f64 },
 }
 
@@ -76,7 +76,7 @@ pub struct Map {
     marker: Option<Coord>,
 }
 
-/// `map()` — a native map view (defaults to `(0, 0)` at the default span, no marker). Point it at a
+/// `map()`: a native map view (defaults to `(0, 0)` at the default span, no marker). Point it at a
 /// place with `.center(lat, lon)` (or `.center_signal(..)` to follow a coordinate signal).
 pub fn map() -> Map {
     Map {
@@ -94,7 +94,7 @@ impl Map {
         self
     }
 
-    /// Bind the center to a reactive coordinate — a `Signal<(f64, f64)>` or a `Fn() -> (f64, f64)`.
+    /// Bind the center to a reactive coordinate: a `Signal<(f64, f64)>` or a `Fn() -> (f64, f64)`.
     /// When it changes, the map recenters live (a `Center` patch). Last of `.center`/`.center_signal`
     /// wins.
     pub fn center_signal<M>(mut self, coord: impl IntoReactive<Coord, M>) -> Self {
@@ -102,7 +102,7 @@ impl Map {
         self
     }
 
-    /// The latitude/longitude delta covered by the viewport, in degrees — the zoom level. A smaller
+    /// The latitude/longitude delta covered by the viewport, in degrees (the zoom level). A smaller
     /// span is more zoomed in (default [`DEFAULT_SPAN`], a few city blocks).
     pub fn span(mut self, degrees: f64) -> Self {
         self.span = degrees;
@@ -130,7 +130,7 @@ impl Piece for Map {
             span,
             marker,
         };
-        // A map has no intrinsic size — it fills whatever space its container offers.
+        // A map has no intrinsic size; it fills whatever space its container offers.
         let node = cx.leaf(
             KIND,
             &props,
@@ -160,9 +160,9 @@ impl Piece for Map {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — Apple only. Each registers a `Renderer` link-time into its backend's
-// `RENDERERS` slice; `#[cfg]` gates each to its feature + target. gtk/qt/mdc/xaml/mock register
-// nothing (the map kind falls back to day's placeholder leaf there).
+// Per-toolkit native renderers (Apple only). Each registers a `Renderer` link-time into its
+// backend's `RENDERERS` slice; `#[cfg]` gates each to its feature + target. gtk/qt/mdc/xaml/mock
+// register nothing (the map kind falls back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
 day_pieces::glue_modules!(appkit, uikit);
@@ -215,7 +215,7 @@ mod tests {
     use day_reactive::{Signal, flush_sync};
     use day_spec::{Size, WindowOptions};
 
-    // Building + recentering the piece must never panic — even with no native renderer registered
+    // Building + recentering the piece must never panic, even with no native renderer registered
     // (the mock toolkit realizes unknown kinds as plain widgets and ignores unknown patches, exactly
     // like a backend built without this piece's feature, e.g. GTK/Qt/Android/XAML).
     #[test]

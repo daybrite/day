@@ -1,4 +1,4 @@
-/* day-dom base stylesheet — the web backend's native theme. Class names mirror the two
+/* day-dom base stylesheet: the web backend's native theme. Class names mirror the two
    halves of the toolkit (src/lib.rs sets them; shim.js creates them). Layout is owned by
    day-core: almost everything is absolutely positioned by set_frame, so this file styles
    surfaces and controls, never placement. */
@@ -48,14 +48,14 @@ html, body {
 /* Type sizing (docs/web.md). Day's font ramp is the Apple text-style ratios with Body = 1, and
    `--day-text-scale` is the one number that turns a ramp step into a length: `size = step × scale ×
    1rem`. day-dom emits `calc(<step>rem * var(--day-text-scale))`, so this declaration is the only
-   place the size is decided — there is no second copy in Rust to drift from.
+   place the size is decided; there is no second copy in Rust to drift from.
 
    The scale is per form factor, because a "point" means different things on a desktop and a phone:
      - Desktop (default): 0.8125 = 13/16, so one Apple point renders as one CSS pixel and Body
-       lands on 13px — the size AppKit gives a desktop app, rather than the 17px phone ramp the
-       web build used to show. `1rem` stays the browser's own font-size preference, so a reader who
+       lands on 13px, the size AppKit gives a desktop app, rather than the 17px phone ramp the
+       web build used to show. `1rem` stays the browser's font-size preference, so a reader who
        sets a larger default (or zooms) scales the whole UI with it.
-     - Touch: `html` is anchored to `-apple-system-body`, whose value IS iOS Dynamic Type — so 1rem
+     - Touch: `html` is anchored to `-apple-system-body`, whose value is iOS Dynamic Type, so 1rem
        is the 17pt body iOS itself would use, and a scale of 1 puts every step exactly on the iOS
        ramp, growing and shrinking with the user's "Larger Text" setting. Non-Apple mobile browsers
        drop the unknown keyword and keep the fixed base (Android web has no Dynamic Type to track),
@@ -67,7 +67,7 @@ html { font-size: 100%; }
   :root { --day-text-scale: 1; }
 }
 
-/* The control font — buttons, fields, pickers, sidebar rows, and chrome inherit this (labels
+/* The control font: buttons, fields, pickers, sidebar rows, and chrome inherit this (labels
    carry their own ramp step). Body-sized, as on every native toolkit, where a button's caption and
    a label are the same system font. day-dom's measure_str() names the same expression. */
 body {
@@ -88,9 +88,9 @@ body {
   user-select: none;
 }
 
-/* The toolbar strip shares the body's flow with the root, so the root has to GIVE UP the strip's
+/* The toolbar strip shares the body's flow with the root, so the root has to give up the strip's
    height. `height: 100%` alongside it means a full viewport starting 44px down, whose last 44px
-   fall past the bottom of the window — and `body { overflow: hidden }` then hides them with no
+   fall past the bottom of the window, and `body { overflow: hidden }` then hides them with no
    way to scroll there. On any page long enough to scroll, the end of the content is rendered,
    reachable by neither the scrollbar nor the wheel, and every page is clipped by exactly the
    strip's height. The root's ResizeObserver reports the corrected height, so day relayouts. */
@@ -117,17 +117,17 @@ body.day-has-toolbar #day-root {
   /* No `cursor` here: a label inherits it, so a `.cursor()` set on a decorated ancestor (the
      background container a padded, tinted label sits in) reaches the text itself rather than
      stopping at the edges. #day-root's `default` is what an undecorated label inherits. */
-  /* A label's text is Day's, newlines included — a two-paragraph body has to read as two
+  /* A label's text is Day's, newlines included: a two-paragraph body has to read as two
      paragraphs here as it does on every other backend. HTML collapses a run of whitespace to one
      space, so without this the blank line between them vanished and the two ran together.
-     `pre-wrap` keeps the breaks AND still wraps long lines. */
+     `pre-wrap` keeps the breaks and still wraps long lines. */
   white-space: pre-wrap;
 }
 .day-label.placeholder { color: var(--day-fg-dim); }
 
 /* A styled-text editor's empty-state prompt (day-piece-texteditor, docs/texteditor.md). A
-   contenteditable div has no `placeholder` attribute, and it is never `:empty` — an empty
-   document still holds the block the caret sits in — so the piece marks the empty state itself
+   contenteditable div has no `placeholder` attribute, and it is never `:empty` (an empty
+   document still holds the block the caret sits in), so the piece marks the empty state itself
    and the prompt is drawn on the first block. Not selectable, and invisible to the caret. */
 [data-day-placeholder][data-day-empty] > :first-child::before {
   content: attr(data-day-placeholder);
@@ -138,8 +138,8 @@ body.day-has-toolbar #day-root {
 
 /* A styled-text editor's blocks. The browser's default paragraph margins are meant for a
    document page; in an editor they double-space every line, and a code sample worst of all.
-   Day's own model carries paragraph spacing (ParagraphStyle::space_before/space_after), which the
-   serializer writes as explicit margins — so the default has to be nothing. */
+   Day's model carries paragraph spacing (ParagraphStyle::space_before/space_after), which the
+   serializer writes as explicit margins, so the default has to be nothing. */
 [data-day-editor] > p, [data-day-editor] > li {
   margin: 0;
 }
@@ -175,7 +175,7 @@ body.day-has-toolbar #day-root {
 .day-btn:disabled { opacity: 0.4; cursor: default; }
 .day-btn.prominent { background: var(--day-accent); color: var(--day-accent-fg); }
 /* An app-chosen fill, still a <button>: the :hover/:active/:disabled rules above apply to it
-   unchanged, which is the whole point of tinting through a variable rather than inline. */
+   unchanged, which is why the tint goes through a variable rather than inline. */
 .day-btn.tinted { background: var(--day-tint); color: var(--day-tint-fg); border-color: transparent; }
 .day-btn.bordered {
   background: transparent;
@@ -269,7 +269,7 @@ body.day-has-toolbar #day-root {
 /* A canvas carries a tab stop so the keys can reach what it draws (docs/menus.md), but it draws
    no focus ring: it is the surface the app is for, usually focused from the moment it mounts,
    and a permanent box around the whole work area says nothing a user needs. The desktops show
-   nothing there either. What has focus stays visible in the drawing itself — a selection. */
+   nothing there either. What has focus stays visible in the drawing itself, as a selection. */
 .day-canvas:focus, .day-canvas:focus-visible { outline: none; }
 
 .day-divider { background: var(--day-divider); }
@@ -329,7 +329,7 @@ body.day-has-toolbar #day-root {
 
 /* Tabs and rail: the rows become the chrome (docs/navigation.md). Both hold the same
    `.day-navmenu` the sidebar does, re-parented rather than rebuilt, so these rules only have to
-   re-flow it — the row markup, its icons, badges and listeners are untouched. */
+   re-flow it; the row markup, its icons, badges and listeners are untouched. */
 .day-nav.tabs { display: flex; flex-direction: column; }
 .day-nav.tabs .day-nav-detail { flex: 1; min-height: 0; }
 .day-nav.tabs .day-nav-tabbar {
@@ -342,11 +342,11 @@ body.day-has-toolbar #day-root {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 /* The rows arrive wrapped in a NAV_PAGE whose subtree day-core has laid out absolutely, sized
-   for the PANE it would fill in a split. A chrome slot is the backend's own furniture — the tab
-   bar is sized BY its rows, not the other way round — so the whole subtree returns to normal
+   for the pane it would fill in a split. A chrome slot is the backend's furniture (the tab
+   bar is sized by its rows, not the other way round), so the whole subtree returns to normal
    flow and CSS lays it out. `!important` because `set_frame` writes inline styles, which a plain
-   rule cannot outrank; this is the one place where the backend deliberately overrules the
-   engine's frames, and it does so because the engine has no way to know how tall a tab bar is. */
+   rule cannot outrank; this is the one place where the backend overrules the engine's frames,
+   and it does so because the engine has no way to know how tall a tab bar is. */
 .day-nav.tabs .day-nav-tabbar > .day-page,
 .day-nav.tabs .day-nav-tabbar .day-container,
 .day-nav.tabs .day-nav-tabbar .day-navmenu,
@@ -374,11 +374,11 @@ body.day-has-toolbar #day-root {
   padding: 4px 2px;
   font-size: calc(0.75rem * var(--day-text-scale));
   /* A tab is a touch target before it is a label. Without this an icon-free tab set collapses
-     to the height of its caption — around 28px, well under the ~44px minimum every mobile
+     to the height of its caption, around 28px, well under the ~44px minimum every mobile
      platform's guidelines set. Scales with the text size so it stays right at large type. */
   min-height: calc(2.75rem * var(--day-text-scale));
 }
-/* A tab reads as selected by its tint, not by a filled pill — a full-bleed accent block across a
+/* A tab reads as selected by its tint, not by a filled pill: a full-bleed accent block across a
    fifth of the screen is a button, not a tab. */
 .day-nav.tabs .day-navmenu-row.selected {
   background: none;
@@ -414,7 +414,7 @@ body.day-has-toolbar #day-root {
 .day-page { position: absolute; inset: 0; overflow: hidden; }
 
 .day-navmenu { overflow-y: auto; padding: 8px; box-sizing: border-box; }
-/* Row height is set by the icon and the padding, not the caption — so both are in `em` and follow
+/* Row height is set by the icon and the padding, not the caption, so both are in `em` and follow
    the control font. A desktop row lands near the 24px AppKit gives a sidebar; a touch browser,
    whose font is Dynamic Type's larger body, gets the roomier row a finger needs, with no second
    set of numbers to keep in step. */
@@ -429,7 +429,7 @@ body.day-has-toolbar #day-root {
 }
 .day-navmenu-row img { width: 1.25em; height: 1.25em; object-fit: contain; }
 /* Sidebar icons are template images (shim.js sets the PNG as this element's mask): painted
-   with currentColor, they track the row — dark on light, light on dark, white when selected. */
+   with currentColor, they track the row: dark on light, light on dark, white when selected. */
 .day-navmenu-icon {
   width: 1.25em;
   height: 1.25em;
@@ -442,7 +442,7 @@ body.day-has-toolbar #day-root {
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
 }
-/* The trailing status glyph — the same mask treatment as the leading icon, pushed to the row's
+/* The trailing status glyph: the same mask treatment as the leading icon, pushed to the row's
    end. `margin-left: auto` rather than a spacer so a row without one is unchanged. */
 .day-navmenu-badge {
   width: 1.1em;
@@ -461,7 +461,7 @@ body.day-has-toolbar #day-root {
 .day-navmenu-row.selected { background: var(--day-accent); color: var(--day-accent-fg); }
 /* A section heading (docs/navigation.md): small, bold and dimmed, the group title AppKit's source
    list and GTK's list box draw. shim.js puts it between the rows, never inside one, and nothing
-   that addresses rows by index counts it — so it takes no hover, no selection and no pointer.
+   that addresses rows by index counts it, so it is inert to hover, selection and the pointer.
    Inset like the row text, so the heading and the icons below it share a left edge. */
 .day-navmenu-heading {
   padding: 1em 0.75em 0.3em;
@@ -473,7 +473,7 @@ body.day-has-toolbar #day-root {
 }
 .day-navmenu-heading:first-child { padding-top: 0.25em; }
 /* Tabs and rails have no grouped rows, so the headings stay out of the chrome and the rows read as
-   one flat set there — the grouping contract every backend follows. */
+   one flat set there, the grouping contract every backend follows. */
 .day-nav.tabs .day-navmenu-heading,
 .day-nav.rail .day-navmenu-heading { display: none; }
 
@@ -536,7 +536,7 @@ body.day-has-toolbar #day-root {
 .day-scroll.day-list .day-cell.selected { background: var(--day-selected-row); }
 .day-scroll.day-list .day-cell:not(.selected):hover { background: var(--day-control-bg); }
 /* A list and a sidebar are tab stops that answer the arrow keys, so they say where the keyboard
-   is — `focus-visible`, so a click that lands the focus draws nothing and only keying in does.
+   is: `focus-visible`, so a click that lands the focus draws nothing and only keying in does.
    Inset, because both clip their content at the edge an outline would otherwise straddle. */
 .day-scroll.day-list:focus-visible, .day-navmenu:focus-visible {
   outline: 2px solid var(--day-accent);
@@ -601,7 +601,7 @@ body.day-has-toolbar #day-root {
 
 /* Window toolbar (docs/toolbars.md) ---------------------------------------- */
 /* The web has no window chrome, so the bar is a strip docked above the app root. Day sizes the
-   root from the viewport, so the strip's height comes off it — see `day-has-toolbar`. */
+   root from the viewport, so the strip's height comes off it (see `day-has-toolbar`). */
 .day-toolbar {
   display: flex;
   align-items: center;
@@ -646,7 +646,7 @@ body.day-has-toolbar #day-root {
   border: 1px solid var(--day-card-border);
   border-radius: 8px;
   background: var(--day-card-bg);
-  /* The card background is translucent by design — the blur is what keeps it readable
+  /* The card background is translucent; the blur is what keeps it readable
      over whatever the popup happens to hang across (the same treatment the sheets use). */
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);

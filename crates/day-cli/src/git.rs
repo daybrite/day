@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day launch --git <url>[@<ref>]` — run an app straight out of a repository (DESIGN.md §16.5).
+//! `day launch --git <url>[@<ref>]`: run an app straight out of a repository (DESIGN.md §16.5).
 //!
 //! Trying a Day app should not require deciding where to put it first. `--git` clones the
 //! repository into a per-URL cache, finds the Day project inside it, and hands that directory to
@@ -10,7 +10,7 @@
 //!
 //! The cache is keyed by URL **and** ref (`<cache>/git/<host>/<owner>/<repo>/<ref>`), so the cargo
 //! build tree under `build/day/` survives between runs and a second launch is an incremental
-//! compile — the reason this is a cache directory rather than the system temp dir every other
+//! compile. That is why this is a cache directory rather than the system temp dir every other
 //! scratch path in the CLI uses.
 //!
 //! It is a real working checkout, not an export. `Checkout` prints its path so it can be edited,
@@ -19,7 +19,7 @@
 //!
 //! Everything shells out to `git`, as `rebuild.rs` and `template.rs` already do; no git library is
 //! linked in. Commands run through [`crate::ops::run_capture`], so their output is invisible by
-//! default and forwarded live under `--verbose` — the CLI's one verbosity contract, rather than a
+//! default and forwarded live under `--verbose`: the CLI's one verbosity contract, rather than a
 //! private choice about which git chatter matters.
 
 use std::path::{Path, PathBuf};
@@ -52,7 +52,7 @@ const DEFAULT_REF_DIR: &str = "HEAD";
 /// other command.
 ///
 /// Finding the `@` is the only subtle part. Two legitimate URLs carry one that is *not* a ref
-/// separator — `git@github.com:owner/repo.git` and `https://user@host/owner/repo` — and both put
+/// separator (`git@github.com:owner/repo.git` and `https://user@host/owner/repo`), and both put
 /// it inside the authority, before the path begins. So the separator is the last `@` at or after
 /// [`path_start`], which also keeps a branch name containing `/` (`repo.git@feature/x`) intact.
 pub fn parse_spec(arg: &str) -> Result<Spec, String> {
@@ -83,7 +83,7 @@ pub fn parse_spec(arg: &str) -> Result<Spec, String> {
     })
 }
 
-/// Byte offset where a git URL's *path* begins — past `scheme://authority`, past scp-like
+/// Byte offset where a git URL's *path* begins: past `scheme://authority`, past scp-like
 /// `[user@]host:`, or 0 for a plain local path. A Windows drive letter (`C:\repos\x`) is a local
 /// path, not an scp-like host.
 fn path_start(url: &str) -> usize {
@@ -102,11 +102,11 @@ fn path_start(url: &str) -> usize {
     0
 }
 
-/// Whether a spec's URL names a REMOTE repository rather than a local path.
+/// Whether a spec's URL names a remote repository rather than a local path.
 ///
-/// `--git` never has to ask — a repository URL is the only thing it takes. `--day-src` does: it
-/// accepts a directory first, and a bare word that is neither a directory nor a URL should be
-/// reported as a typo rather than handed to `git clone` to fail on minutes later.
+/// `--git` never has to ask, because a repository URL is the only thing it takes. `--day-src`
+/// does: it accepts a directory first, and a bare word that is neither a directory nor a URL
+/// should be reported as a typo rather than handed to `git clone` to fail on minutes later.
 pub fn looks_remote(url: &str) -> bool {
     // A scheme (`https://`, `ssh://`, `git://`) or scp-like `[user@]host:path`. `path_start`
     // already draws that line for the ref parser, and a local path leaves it at 0.
@@ -129,7 +129,7 @@ fn env_abs(key: &str) -> Option<PathBuf> {
 /// statement about where caches go, and honoring it only on Linux would make the variable a
 /// coin flip. Absent it, each OS gets its own convention.
 ///
-/// This is the first user-level directory the CLI has owned — everything else it writes is
+/// This is the first user-level directory the CLI has owned; everything else it writes is
 /// `<project>/build/day/` (`clean.rs`) or `std::env::temp_dir()`. Config and data roots resolve the
 /// same `$XDG_*`-first-then-per-OS way when something needs them; neither has a caller yet.
 pub fn cache_dir() -> Result<PathBuf, String> {
@@ -141,8 +141,8 @@ pub fn cache_dir() -> Result<PathBuf, String> {
 }
 
 /// [`cache_dir`] over values already read, so the resolution order is testable without mutating
-/// the process environment — racy under `cargo test`'s thread pool, and `set_var` is `unsafe` in
-/// edition 2024.
+/// the process environment (racy under `cargo test`'s thread pool, and `set_var` is `unsafe` in
+/// edition 2024).
 fn cache_dir_from(
     xdg_cache_home: Option<PathBuf>,
     local_app_data: Option<PathBuf>,
@@ -169,7 +169,7 @@ fn cache_dir_from(
 /// Where a spec's checkout belongs under `cache`: `git/<host>/<owner>/<repo>/<ref>`.
 ///
 /// The ref is a relative path of its own, so `feature/x` nests instead of being flattened into
-/// `feature-x` — which would collide with a branch actually named that.
+/// `feature-x`, which would collide with a branch actually named that.
 fn checkout_dir(cache: &Path, spec: &Spec) -> Result<PathBuf, String> {
     let mut dir = cache.join("git");
     for segment in repo_slug(&spec.url)? {
@@ -194,7 +194,7 @@ fn repo_slug(url: &str) -> Result<Vec<String>, String> {
     let (authority, path) = if let Some(scheme) = url.find("://") {
         (&url[scheme + 3..start], &url[start..])
     } else if start > 0 {
-        // scp-like `[user@]host:path` — `start` is just past the colon.
+        // scp-like `[user@]host:path`: `start` is just past the colon.
         (&url[..start - 1], &url[start..])
     } else {
         // A local path or a bare name. It has no host, and `local` keeps it from ever colliding
@@ -258,10 +258,10 @@ fn sanitize(segment: &str) -> String {
 
 // --- Clone, update, and locate ---------------------------------------------------------------
 
-/// Put the repository on disk and return its ROOT.
+/// Put the repository on disk and return its root.
 ///
 /// `dir` is `--dir` (clone here instead of the cache). Separate from [`prepare`] because not every
-/// repository day clones holds an app: `--day-src` clones the FRAMEWORK, which has no `Day.toml`
+/// repository day clones holds an app: `--day-src` clones the framework, which has no `Day.toml`
 /// anywhere in it and would fail the project lookup [`prepare`] adds on top.
 pub fn checkout(spec: &Spec, dir: Option<&Path>) -> Result<PathBuf, CliError> {
     require_git()?;
@@ -276,7 +276,7 @@ pub fn checkout(spec: &Spec, dir: Option<&Path>) -> Result<PathBuf, CliError> {
         }
     };
 
-    // The cache is day's to manage — it created every directory in it and may delete one. A
+    // The cache is day's to manage: it created every directory in it and may delete one. A
     // `--dir` is the caller's directory, and nothing here removes it: the two places that would
     // (a wrong origin, a failed clone) report instead.
     let ours = dir.is_none();
@@ -288,7 +288,7 @@ pub fn checkout(spec: &Spec, dir: Option<&Path>) -> Result<PathBuf, CliError> {
     Ok(dest)
 }
 
-/// Put the repository on disk and return the Day project directory inside it — what the caller
+/// Put the repository on disk and return the Day project directory inside it: what the caller
 /// hands to [`crate::meta::find_project`] as if the user had `cd`'d there.
 ///
 /// `project` is the global `--project`, which under `--git` selects a project *within* the
@@ -303,7 +303,7 @@ pub fn prepare(
     project_in(&dest, &spec.url, project)
 }
 
-/// `git` is not a build prerequisite for a normal project, so it is only demanded here — and the
+/// `git` is not a build prerequisite for a normal project, so it is only demanded here, and the
 /// miss is an environment failure (exit 3), the same class `day doctor` reports.
 fn require_git() -> Result<(), CliError> {
     let found = Command::new("git")
@@ -325,7 +325,7 @@ fn require_git() -> Result<(), CliError> {
 fn clone(dest: &Path, spec: &Spec) -> Result<(), CliError> {
     status("Cloning", &describe(spec));
     // Whether the cleanup below is allowed to delete `dest`. A `--dir` that already exists is
-    // someone's directory — git will refuse to clone into it, and that refusal must not be
+    // someone's directory: git will refuse to clone into it, and that refusal must not be
     // followed by day removing it.
     let ours = !dest.exists();
     if let Some(parent) = dest.parent() {
@@ -334,7 +334,7 @@ fn clone(dest: &Path, spec: &Spec) -> Result<(), CliError> {
     }
     let cloned = run_capture(
         Command::new("git")
-            // Day captures git's output, so a credential prompt would be an invisible hang — the
+            // Day captures git's output, so a credential prompt would be an invisible hang: the
             // terminal sits there with nothing on it and no way to know what it wants. Fail fast
             // instead and say what to do about it.
             .env("GIT_TERMINAL_PROMPT", "0")
@@ -371,11 +371,11 @@ fn clone(dest: &Path, spec: &Spec) -> Result<(), CliError> {
 }
 
 /// Bring an existing checkout to the requested ref: fetch, then fast-forward. Nothing here ever
-/// resets or forces — the two cases that would lose work (local edits, a diverged branch) stop and
+/// resets or forces; the two cases that would lose work (local edits, a diverged branch) stop and
 /// say so instead.
 fn update(dest: &Path, spec: &Spec, ours: bool) -> Result<(), CliError> {
-    // A directory keyed by URL should hold that URL. When it doesn't — a moved repo, a
-    // hand-edited cache, a slug collision nobody predicted — start over rather than build
+    // A directory keyed by URL should hold that URL. When it doesn't (a moved repo, a
+    // hand-edited cache, a slug collision nobody predicted), start over rather than build
     // somebody else's code under this URL's name. Inside the cache that means re-cloning; a
     // `--dir` is the caller's, so it is reported and left alone.
     let origin = git(dest, &["remote", "get-url", "origin"])?;
@@ -402,7 +402,7 @@ fn update(dest: &Path, spec: &Spec, ours: bool) -> Result<(), CliError> {
     // `--git` launch that quietly discarded their changes would be the last time they trusted it.
     //
     // `Cargo.lock` is the exception, and it has to be: building here is what `--git` does, and
-    // cargo rewrites the lock to record what it resolved. Counting day's own output as the user's
+    // cargo rewrites the lock to record what it resolved. Counting day's output as the user's
     // work in progress is how a checkout stops updating after its first build and then warns about
     // it on every run afterwards.
     let dirty = git(dest, &["status", "--porcelain"])?;
@@ -436,7 +436,7 @@ fn update(dest: &Path, spec: &Spec, ours: bool) -> Result<(), CliError> {
 /// The file `cargo` rewrites inside a checkout day builds in.
 const GENERATED_LOCK: &str = "Cargo.lock";
 
-/// The paths `git status --porcelain` reports, minus the ones day's own builds write.
+/// The paths `git status --porcelain` reports, minus the ones day's builds write.
 ///
 /// Porcelain lines are `XY <path>`, and a rename is `R  <old> -> <new>`; only the destination
 /// matters here. Kept separate from the git call so the rule is testable without a repository.
@@ -453,7 +453,7 @@ fn edited_paths(porcelain: &[u8]) -> Vec<String> {
         .collect()
 }
 
-/// Whether checking `git_ref` out would move HEAD — false when the checkout already sits on it.
+/// Whether checking `git_ref` out would move HEAD; false when the checkout already sits on it.
 fn moves_head(dest: &Path, git_ref: &str) -> bool {
     let Ok(want) = git(dest, &["rev-parse", "--verify", "--quiet", git_ref]) else {
         return true;
@@ -520,9 +520,9 @@ fn fast_forward(dest: &Path, lock_dirty: bool) -> Result<(), CliError> {
 
 /// Where to read a `--script` from when the app came out of a repository.
 ///
-/// The flag is CWD-relative as always, and a file that IS there wins — that is what lets someone
+/// The flag is CWD-relative as always, and a file that is there wins; that is what lets someone
 /// drive a cloned app with a dayscript of their own. But the usual intent under `--git` is the
-/// repository's own script (`--script dayscript/demo.yaml`), and the repository is not where the
+/// repository's script (`--script dayscript/demo.yaml`), and the repository is not where the
 /// caller is standing, so a relative path that resolves nowhere else is looked up in the checkout.
 pub fn script_path(path: &Path, project_root: &Path) -> PathBuf {
     if path.is_absolute() || path.exists() {
@@ -607,7 +607,7 @@ fn short_head(dir: &Path) -> String {
     }
 }
 
-/// Git's own last words, indented under the error day reports. Trimmed to the tail because a
+/// Git's last words, indented under the error day reports. Trimmed to the tail because a
 /// failed clone can print a paragraph of transport detail and the cause is at the end.
 fn detail(out: &Output) -> String {
     let text = String::from_utf8_lossy(&out.stderr);
@@ -630,7 +630,7 @@ fn detail(out: &Output) -> String {
     msg
 }
 
-/// `owner/repo @ ref` for the `Cloning` line — the whole URL is noise once it is on screen twice.
+/// `owner/repo @ ref` for the `Cloning` line; the whole URL is noise once it is on screen twice.
 fn describe(spec: &Spec) -> String {
     let name = match repo_slug(&spec.url) {
         Ok(segments) if segments.len() >= 3 => segments[segments.len() - 2..].join("/"),
@@ -837,7 +837,7 @@ mod tests {
     // --- Against a real repository ---------------------------------------------------------
     //
     // Cloning is the half that can't be reasoned about from the strings alone, so these drive
-    // `git` itself — against a repository built in the temp dir, so they need no network and run
+    // `git` itself, against a repository built in the temp dir, so they need no network and run
     // wherever CI does. Tag + pid keeps concurrent test threads off each other's directories
     // without a `tempfile` dependency, the same fixture shape `tests/mcp_stdio.rs` uses.
 
@@ -910,7 +910,7 @@ mod tests {
         dir
     }
 
-    /// Skip the git-driven tests on a host without git rather than fail them — the same call the
+    /// Skip the git-driven tests on a host without git rather than fail them: the same call the
     /// CLI makes, so a skip here means `--git` could not have run either.
     fn git_available() -> bool {
         if require_git().is_ok() {
@@ -1001,7 +1001,7 @@ mod tests {
         // What cargo does during the build day just ran.
         std::fs::write(dest.join("Cargo.lock"), "# rewritten by cargo\n").expect("write");
 
-        // Upstream moves, and touches the same file — the case a dirty lock would block.
+        // Upstream moves, and touches the same file: the case a dirty lock would block.
         std::fs::write(origin.join("Cargo.lock"), "# resolved, later\n").expect("write");
         std::fs::write(origin.join("NEW.md"), "later\n").expect("write");
         run_git(&origin, &["add", "-A"]);
@@ -1012,7 +1012,7 @@ mod tests {
         assert!(dest.join("NEW.md").is_file());
     }
 
-    /// With nothing new upstream — every run after the first — the lock cargo wrote is left
+    /// With nothing new upstream (every run after the first) the lock cargo wrote is left
     /// alone. Discarding it anyway would throw away the resolution behind it and make the next
     /// build redo the work, on every single run.
     #[test]
@@ -1082,7 +1082,7 @@ mod tests {
     }
 
     /// `--dir` names somebody's directory. A wrong-repo checkout there is reported, never
-    /// deleted — only the cache is day's to re-clone.
+    /// deleted; only the cache is day's to re-clone.
     #[test]
     fn a_dir_holding_another_repository_is_reported_not_deleted() {
         if !git_available() {
@@ -1165,8 +1165,8 @@ mod tests {
         assert_eq!(picked, root.join("apps").join("two"));
     }
 
-    /// A repository's own dayscript is named as the repository names it, from wherever you ran
-    /// the command — but a file of your own in the current directory still wins.
+    /// A repository's dayscript is named as the repository names it, from wherever you ran
+    /// the command, but a file of your own in the current directory still wins.
     #[test]
     fn a_script_falls_back_to_the_checkout() {
         let scratch = Scratch::new("script");

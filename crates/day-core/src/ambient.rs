@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Ambient state — values a piece reads without being handed them.
+//! Ambient state: values a piece reads without being handed them.
 //!
-//! Two families live here. The first is what a BACKEND reports about a window
+//! Two families live here. The first is what a backend reports about a window
 //! (docs/size-classes.md): its [`SizeClass`] and its safe-area insets. The second is what an
-//! APP provides for its own subtree (docs/state.md): [`with_environment`] / [`environment`],
+//! app provides for its own subtree (docs/state.md): [`with_environment`] / [`environment`],
 //! and the [`Ambient`] trait over them that carries per-window and app-wide state.
 //!
 //! They sit together because they answer the same question from opposite ends, and because the
@@ -19,7 +19,7 @@
 //! Manager, Android split-screen), and a single global would lay the second window out for the
 //! first one's size.
 //!
-//! Signals are created in the ROOT reactive scope. Backends report from native callbacks that can
+//! Signals are created in the root reactive scope. Backends report from native callbacks that can
 //! fire while some transient scope is current, and a signal owned by a scope that later disposes
 //! would take the window's state with it.
 
@@ -54,8 +54,8 @@ day_reactive::tls_slots! {
 /// One window's signals, created on first touch.
 ///
 /// Returns them by value and drops the registry borrow before the caller touches either. Writing
-/// a signal runs its bindings SYNCHRONOUSLY, and those bindings read ambient state — a nav host
-/// re-presenting on a class change reads the class right back — so holding the borrow across a
+/// a signal runs its bindings synchronously, and those bindings read ambient state (a nav host
+/// re-presenting on a class change reads the class right back), so holding the borrow across a
 /// write is a reentrant panic waiting to happen.
 fn ambient_of(root: RNode) -> WindowAmbient {
     AMBIENT.with(|m| {
@@ -73,8 +73,8 @@ fn ambient_of(root: RNode) -> WindowAmbient {
     })
 }
 
-/// Seeded from the launch environment so a page built during startup — before the backend's first
-/// live report lands — already sees the right top inset (the same lazy-env pattern as
+/// Seeded from the launch environment so a page built during startup, before the backend's first
+/// live report lands, already sees the right top inset (the same lazy-env pattern as
 /// `layout_direction`/`DAY_LOCALE`). Points, not px.
 fn initial_safe_area() -> day_geometry::Insets {
     std::env::var("DAY_SAFE_AREA_TOP")
@@ -88,7 +88,7 @@ fn initial_safe_area() -> day_geometry::Insets {
 }
 
 /// The window a read or report targets: the one being built, else the primary root. Shared with
-/// [`crate::toolbar`], which scopes the same way for the same reason — an app's one `toolbar(…)`
+/// [`crate::toolbar`], which scopes the same way for the same reason: an app's one `toolbar(…)`
 /// or `size_class()` call inside a shared `build_shell` must mean "this window".
 fn target_window() -> RNode {
     crate::toolbar::window_being_built()
@@ -97,11 +97,11 @@ fn target_window() -> RNode {
 /// The current window's size class, or `None` on a backend that does not report one yet.
 /// Tracked: a piece that lays out from this rebuilds when the window crosses a breakpoint.
 ///
-/// Outside a window's content build this reads the PRIMARY window, so a long-lived effect that
+/// Outside a window's content build this reads the primary window, so a long-lived effect that
 /// wants a secondary window's class must capture its root at build time and use
-/// [`window_size_class`] — the same discipline `toolbar_reactive` follows.
+/// [`window_size_class`], the same discipline `toolbar_reactive` follows.
 pub fn size_class() -> Option<SizeClass> {
-    // Headless (no tree on this thread — an app's model unit test): no window, so no class,
+    // Headless (no tree on this thread, as in an app's model unit test): no window, so no class,
     // rather than a panic from asking which window is being built.
     if !crate::tree::has_tree() {
         return None;
@@ -114,13 +114,13 @@ pub fn window_size_class(root: RNode) -> Option<SizeClass> {
     ambient_of(root).size_class.get()
 }
 
-/// [`size_class`] without subscribing — for code that reacts to the change itself.
+/// [`size_class`] without subscribing, for code that reacts to the change itself.
 pub fn window_size_class_untracked(root: RNode) -> Option<SizeClass> {
     ambient_of(root).size_class.get_untracked()
 }
 
 /// Backend-facing: report a window's size class. Call whenever the window's size changes; the
-/// signal only notifies when the BUCKET changes, so a resize within one class is free.
+/// signal only notifies when the bucket changes, so a resize within one class is free.
 pub fn set_window_size_class(root: RNode, class: SizeClass) {
     ambient_of(root).reported_class.set(Some(class));
     let signal = ambient_of(root).size_class;
@@ -131,15 +131,16 @@ pub fn set_window_size_class(root: RNode, class: SizeClass) {
     with_tree(|t| t.layout_if_needed());
 }
 
-/// [`set_window_size_class`] against the primary window — what a single-window backend reports.
+/// [`set_window_size_class`] against the primary window, which is what a single-window backend
+/// reports.
 pub fn set_size_class(class: SizeClass) {
     set_window_size_class(primary_root(), class);
 }
 
-/// Force a class the window is not actually at — dayscript's `size_class:` step and tests.
+/// Force a class the window is not at: dayscript's `size_class:` step and tests.
 ///
-/// Deliberately does not touch the reported class: this is a claim about the window, not a report
-/// From it, so [`restore_reported_size_class`] can still put back what the backend last said.
+/// Leaves the reported class alone: this is a claim about the window, not a report from it, so
+/// [`restore_reported_size_class`] can still put back what the backend last said.
 pub fn override_size_class(class: SizeClass) {
     let root = primary_root();
     let signal = ambient_of(root).size_class;
@@ -152,7 +153,7 @@ pub fn override_size_class(class: SizeClass) {
 
 /// Undo an [`override_size_class`]: back to the class the window itself last reported.
 ///
-/// A no-op where the backend has reported nothing yet — there is no truth to restore, and the
+/// A no-op where the backend has reported nothing yet: there is nothing to restore, and the
 /// forced class is better than none.
 pub fn restore_reported_size_class() {
     let root = primary_root();
@@ -169,10 +170,10 @@ pub fn restore_reported_size_class() {
 
 /// The window's safe-area insets, in points. Zero on every backend that clamps Day's root to
 /// the safe area natively (the default everywhere); nonzero only where a backend runs the root
-/// edge-to-edge — today day-android's opt-in immersive mode (docs/layout.md, the android
+/// edge-to-edge, today day-android's opt-in immersive mode (docs/layout.md, the android
 /// platform page). Compose it yourself where a background should run under the system bars:
 /// paint the background unpadded, pad the content by these insets. The read is tracked, but
-/// layout attributes like `.padding` capture the value at build time — a mid-run inset change
+/// layout attributes like `.padding` capture the value at build time, so a mid-run inset change
 /// (rotation) does not re-pad already-built pages.
 pub fn safe_area() -> day_geometry::Insets {
     window_safe_area(target_window())
@@ -189,7 +190,8 @@ pub fn set_window_safe_area(root: RNode, insets: day_geometry::Insets) {
     ambient_of(root).safe_area.set(insets);
 }
 
-/// [`set_window_safe_area`] against the primary window — what a single-window backend reports.
+/// [`set_window_safe_area`] against the primary window, which is what a single-window backend
+/// reports.
 pub fn set_safe_area(insets: day_geometry::Insets) {
     set_window_safe_area(primary_root(), insets);
 }
@@ -203,17 +205,17 @@ pub(crate) fn forget_window(root: RNode) {
     AMBIENT.with(|m| m.borrow_mut().retain(|(r, _)| *r != root));
 }
 
-/// Reset every window's ambient state (tests — pairs with `uninstall_tree`).
+/// Reset every window's ambient state (tests; pairs with `uninstall_tree`).
 pub fn reset_ambient() {
     AMBIENT.with(|m| m.borrow_mut().clear());
 }
 // ---------------------------------------------------------------------------
-// @Environment — ambient values over day-reactive's scope context (§4.3). No backend work.
+// @Environment: ambient values over day-reactive's scope context (§4.3). No backend work.
 // ---------------------------------------------------------------------------
 
 /// Provide an ambient value `T` to `content` and its entire descendant subtree (the SwiftUI
-/// `@Environment`/`.environment(_)` analog, layered over day-reactive's scope context). `content`
-/// — and any piece built within it — reads it back with [`environment`]. A thin, non-reactive
+/// `@Environment`/`.environment(_)` analog, layered over day-reactive's scope context). `content`,
+/// and any piece built within it, reads it back with [`environment`]. A thin, non-reactive
 /// wrapper: `T` is a snapshot captured here; for a value that must react, provide a `Signal<T>`
 /// (or a `Memo<T>`) and read it reactively inside the subtree.
 ///
@@ -243,10 +245,10 @@ pub fn environment<T: Clone + 'static>() -> Option<T> {
     Scope::current().use_context::<T>()
 }
 
-/// The ambient `T` of the window that currently has FOCUS (docs/state.md) — SwiftUI's
+/// The ambient `T` of the window that currently has focus (docs/state.md): SwiftUI's
 /// `@FocusedValue`.
 ///
-/// [`environment`] answers "what did MY ancestors provide", which is the right question inside a
+/// [`environment`] answers "what did my ancestors provide", which is the right question inside a
 /// piece and the wrong one inside an app-wide menu action: a desktop menu bar is one bar for the
 /// whole app, and its commands act on the front window. This resolves through that window's own
 /// scope instead of the calling scope, so `File ▸ New Item` adds to the list the user is
@@ -255,10 +257,10 @@ pub fn focused_environment<T: Clone + 'static>() -> Option<T> {
     crate::windows::focused_scope()?.use_context::<T>()
 }
 
-/// The app-wide `T`: created on the reactive ROOT scope the first time it is asked for, and
+/// The app-wide `T`: created on the reactive root scope the first time it is asked for, and
 /// returned unchanged by every later call (docs/state.md).
 ///
-/// The counterpart to [`with_environment`]'s subtree scope — state that belongs to the APP
+/// The counterpart to [`with_environment`]'s subtree scope: state that belongs to the app
 /// rather than to a window or a page, reachable from every window, every menu action, and every
 /// task, and alive for as long as the process. `make` runs at most once.
 pub fn app_environment<T: Clone + 'static>(make: impl FnOnce() -> T) -> T {
@@ -273,10 +275,10 @@ pub fn app_environment<T: Clone + 'static>(make: impl FnOnce() -> T) -> T {
     value
 }
 
-/// State an ancestor provides once and any descendant reads back BY TYPE — SwiftUI's
+/// State an ancestor provides once and any descendant reads back by type: SwiftUI's
 /// `@EnvironmentObject`, and Day's answer to "where does app state live?" (docs/state.md).
 ///
-/// Implement it on a `Copy` struct of HANDLES. `Signal`, `Memo`, `Trigger` and `Store` are all
+/// Implement it on a `Copy` struct of handles. `Signal`, `Memo`, `Trigger` and `Store` are all
 /// `Copy` and all cheap, so the struct is a bundle of pointers that rides into closures without
 /// `Rc` or `clone()` ceremony:
 ///
@@ -288,7 +290,7 @@ pub fn app_environment<T: Clone + 'static>(make: impl FnOnce() -> T) -> T {
 ///     fn create() -> Self { Scene { selected: Signal::new(None), items: Store::new(..) } }
 /// }
 ///
-/// // one per window — File ▸ New Window gets its own:
+/// // one per window; File ▸ New Window gets its own:
 /// Scene::scoped(|scene| my_shell(scene))
 /// // anywhere below it:
 /// let scene = Scene::ambient();
@@ -296,7 +298,7 @@ pub fn app_environment<T: Clone + 'static>(make: impl FnOnce() -> T) -> T {
 /// menu_item("New").action(|| if let Some(s) = Scene::focused() { s.add() })
 /// ```
 ///
-/// The alternative — a `thread_local!` holding `Signal::global` — is one instance for the whole
+/// The alternative, a `thread_local!` holding `Signal::global`, is one instance for the whole
 /// process, which is indistinguishable from correct until the app opens a second window
 /// (docs/windows.md) and both windows start sharing a selection.
 pub trait Ambient: Clone + 'static {
@@ -308,15 +310,15 @@ pub trait Ambient: Clone + 'static {
     /// everything under it. The per-window idiom: call it from a window's shell and each window
     /// gets its own.
     ///
-    /// Creation is deferred to build time, which is what makes that true — a piece's
-    /// construction runs in the CALLER's scope, and only its build runs inside the window's
+    /// Creation is deferred to build time, which is what makes that true: a piece's
+    /// construction runs in the caller's scope, and only its build runs inside the window's
     /// (`day_core::launch_with` for the primary, `open_window` for the rest). Creating the state
     /// eagerly would hand every window the first one's.
     ///
     /// It provides on the current scope rather than a fresh child, and at a window's root that
     /// scope is the window's own. That is what lets [`Ambient::focused`] find it: a context
     /// lookup walks ancestors, so a value tucked into a child of the window scope would be
-    /// invisible to anything resolving from the window down — including every app-wide menu
+    /// invisible to anything resolving from the window down, including every app-wide menu
     /// command.
     fn scoped<P: Piece>(content: impl FnOnce(Self) -> P + 'static) -> AnyPiece
     where
@@ -331,7 +333,7 @@ pub trait Ambient: Clone + 'static {
     }
 
     /// The one app-wide instance, created on first use and alive for the whole process. Visible
-    /// from every window, menu action, and task — no `with_environment` needed.
+    /// from every window, menu action, and task, with no `with_environment` needed.
     fn app() -> Self
     where
         Self: Sized,
@@ -340,10 +342,10 @@ pub trait Ambient: Clone + 'static {
     }
 
     /// The nearest instance an ancestor provided, panicking when there is none. The read a piece
-    /// writes when the value is a precondition of it existing at all — like
+    /// writes when the value is a precondition of it existing at all, like
     /// `@EnvironmentObject`, which likewise traps rather than rendering something wrong.
     ///
-    /// A BUILD-TIME read, like [`environment`]: call it in a piece's body and capture the value
+    /// A build-time read, like [`environment`]: call it in a piece's body and capture the value
     /// in whatever closures need it. Calling it *inside* a reactive closure works on the first
     /// run and panics on the next, because a re-running reaction is no longer inside the scope
     /// that provided the value.
@@ -371,8 +373,8 @@ pub trait Ambient: Clone + 'static {
         environment::<Self>()
     }
 
-    /// The instance belonging to the window that currently has focus — what an app-wide menu
-    /// command acts on. See [`focused_environment`].
+    /// The instance belonging to the window that currently has focus, which is what an app-wide
+    /// menu command acts on. See [`focused_environment`].
     fn focused() -> Option<Self>
     where
         Self: Sized,

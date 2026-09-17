@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The datetime piece's OWN Android factory — bundled with the day-piece-datetime crate and pulled
-// into the app's Gradle build automatically (via [package.metadata.day.android]), with ZERO edits
+// The datetime piece's Android factory, bundled with the day-piece-datetime crate and pulled
+// into the app's Gradle build automatically (via [package.metadata.day.android]), with no edits
 // to day-android. Compact = the Material idiom: a value button that launches the modal
 // MaterialDatePicker / MaterialTimePicker via DayActivity's FragmentManager (DayActivity extends
 // FragmentActivity). Inline = the framework DatePicker (calendar) / TimePicker (clock) widgets.
@@ -71,10 +71,11 @@ public final class DayDateTime {
                 : null;
     }
 
-    // The piece-shipped time-picker dialog theme (platform/android/res/values/themes.xml): Material's own
-    // overlay leaves ?attr/borderlessButtonStyle pointing at an Expressive button style that a
-    // plain framework Button (Day's non-AppCompat inflation) cannot resolve — InflateException.
-    // Resolved by NAME because the app's R package differs per app; 0 (missing) keeps the default.
+    // The piece-shipped time-picker dialog theme (platform/android/res/values/themes.xml):
+    // Material's overlay leaves ?attr/borderlessButtonStyle pointing at an Expressive button
+    // style that a plain framework Button (Day's non-AppCompat inflation) cannot resolve, which
+    // throws InflateException. Resolved by name because the app's R package differs per app;
+    // 0 (missing) keeps the default.
     private static int timePickerTheme() {
         return DayBridge.ctx.getResources().getIdentifier(
                 "DayPieceDatetimeTimePickerTheme", "style", DayBridge.ctx.getPackageName());
@@ -94,8 +95,8 @@ public final class DayDateTime {
                     (view, y, m, d) -> DayBridge.nativeOnEvent(id, 12, epochDays(y, m, d), null));
             return dp;
         }
-        // Compact: a value button that launches the modal MaterialDatePicker (the Material idiom —
-        // a DIALOG, not a popover; same gesture contract, platform chrome).
+        // Compact: a value button that launches the modal MaterialDatePicker (the Material idiom
+        // is a dialog, not a popover; same gesture contract, platform chrome).
         final Button b = new Button(DayBridge.ctx);
         b.setAllCaps(false);
         // One line, always: squeezed below its natural width the label wrapped mid-date
@@ -120,7 +121,7 @@ public final class DayDateTime {
                 }
                 if (hasMax) {
                     cc.setEnd(maxDays * DAY_MS);
-                    // `before` is exclusive — extend one day so the max day itself stays pickable.
+                    // `before` is exclusive; extend one day so the max day itself stays pickable.
                     vs.add(DateValidatorPointBackward.before((maxDays + 1) * DAY_MS));
                 }
                 cc.setValidator(CompositeDateValidator.allOf(vs));

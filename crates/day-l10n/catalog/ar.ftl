@@ -1,4 +1,4 @@
-# Day core UI catalog — Arabic (العربية). The showcase and sample apps ship an `ar` locale
+# Day core UI catalog: Arabic (العربية). The showcase and sample apps ship an `ar` locale
 # (docs/localization.md), so the core strings localize with them instead of falling back to
 # English.
 day-ok = موافق

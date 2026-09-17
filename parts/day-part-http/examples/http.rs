@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Manual check: one real HTTPS GET through the platform stack (the examples/network.rs
-//! pattern — run per platform to eyeball TLS, proxies, and the tier; not run in CI).
+//! pattern: run per platform to eyeball TLS, proxies, and the tier; not run in CI).
 //!
 //! ```sh
 //! cargo run -p day-part-http --example http [URL]

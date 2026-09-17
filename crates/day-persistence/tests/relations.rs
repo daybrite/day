@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Relations: maintained inverses over one source of truth (the child's foreign key), delete
+//! Relations: maintained inverses over one stored column (the child's foreign key), delete
 //! rules that flow through the normal pipeline, ordered to-many over a visible order field,
-//! and the SQL-level clauses that keep another process honest about the same rules.
+//! and the SQL-level clauses that hold another process to the same rules.
 
 use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
@@ -55,7 +55,7 @@ struct Book {
     author: Option<One<Author>>,
 }
 
-// --- the sketch: an ORDERED self-referential tree — the ungroup fold regression -------------
+// --- the sketch: an ordered self-referential tree, the ungroup fold regression --------------
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]
 #[model(table = "layers")]
@@ -81,7 +81,7 @@ struct Node {
     children: Many<Node>,
 }
 
-// --- the playlist: ordered to-many over a visible REAL field --------------------------------
+// --- the playlist: ordered to-many over a visible `REAL` field ------------------------------
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]
 #[model(table = "playlists")]
@@ -224,7 +224,7 @@ fn adding_through_the_many_writes_the_foreign_key() {
     assert_eq!(trips.elem(1).lodging().ids(), [11]);
     assert_eq!(trips.elem(2).lodging().ids(), [10, 12], "ascending by id");
 
-    // remove() clears the optional-free reference — a required One surfaces at flush, so
+    // remove() clears the optional-free reference. A required One surfaces at flush, so
     // reparent instead; here we only assert the membership left.
     assert!(trips.elem(2).lodging().remove(10));
     assert_eq!(trips.elem(2).lodging().ids(), [12]);
@@ -294,11 +294,11 @@ fn cascade_recurses_through_a_self_referential_tree() {
 
 #[test]
 fn a_mid_batch_parent_delete_spares_the_children_the_batch_detached() {
-    // The ungroup shape: both children detach and the parent dies IN ONE TURN. The first
-    // detach's ORDERED-relation upkeep dirties the parent row, so first-dirty order puts
-    // the parent between the children — and `ON DELETE CASCADE` fires per statement
+    // The ungroup shape: both children detach and the parent dies in one turn. The first
+    // detach's ordered-relation upkeep dirties the parent row, so first-dirty order puts
+    // the parent between the children, and `ON DELETE CASCADE` fires per statement
     // (`DEFERRABLE` defers the check, never the action), so a mid-batch DELETE would take
-    // every child whose detach had not landed yet. The fold must emit deletes LAST.
+    // every child whose detach had not landed yet. The fold must emit deletes last.
     let c = ModelContainer::open(Sqlite::memory(), schema![Layer]).expect("open");
     let _undo = c.undo(10);
     let layers = c.cache::<Layer>();
@@ -493,7 +493,7 @@ fn a_spent_gap_rebalances_and_order_stays_true() {
         });
         lists.elem(1).tracks().add(id);
     }
-    // Hammer the same slot until the fractional gap between two neighbors is spent — the
+    // Hammer the same slot until the fractional gap between two neighbors is spent; the
     // rebalance path must keep the order exact throughout.
     for _ in 0..70 {
         assert!(lists.elem(1).tracks().move_to(13u32, 1));
@@ -547,7 +547,8 @@ fn an_external_cascade_merges_cleanly() {
     c.save().expect("save");
 
     {
-        // Another process deletes the trip; ITS engine runs the ON DELETE CASCADE clause.
+        // Another process deletes the trip; that process's engine runs the ON DELETE CASCADE
+        // clause.
         let mut other = Sqlite::at(&path).open().expect("second connection");
         other
             .execute("DELETE FROM trips WHERE id = 1", &[])
@@ -622,7 +623,7 @@ fn wiring_validations_name_the_problem() {
         .expect("target missing");
     assert!(err.message.contains("lodging"), "{}", err.message);
 
-    // Nullify needs an Option<One<…>> — a required reference cannot hold nothing.
+    // Nullify needs an Option<One<…>>: a required reference cannot hold nothing.
     #[derive(Model, Clone, Default, PartialEq, Debug)]
     #[model(table = "shelves")]
     struct Shelf {
@@ -643,7 +644,7 @@ fn wiring_validations_name_the_problem() {
         .expect("nullify over required must refuse");
     assert!(err.message.contains("Option"), "{}", err.message);
 
-    // Ordered must name a REAL field of the child.
+    // Ordered must name a `REAL` field of the child.
     #[derive(Model, Clone, Default, PartialEq, Debug)]
     #[model(table = "racks")]
     struct Rack {
@@ -690,11 +691,11 @@ fn a_dangling_reference_reads_as_a_missing_parent() {
     let trips = c.cache::<Trip>();
     let lodging = c.cache::<Lodging>();
 
-    // Bypass the rules on purpose: a raw delete of the parent with cascade runs the rule…
+    // Bypass the rules: a raw delete of the parent with cascade runs the rule…
     trips.restructure("delete", Op::Delete, 2, |v| {
         v.remove(2);
     });
-    // …so nothing dangles. The DEGRADE case is a reference to a key that never loaded:
+    // …so nothing dangles. The degrade case is a reference to a key that never loaded:
     lodging.restructure("add", Op::Insert, 99, |v| {
         v.push(Lodging {
             id: 99,
@@ -719,9 +720,9 @@ fn delete_rules_are_declared_data() {
 
 #[test]
 fn a_renamed_foreign_key_column_still_wires_and_folds() {
-    // `#[model(column = …)]` renames the COLUMN; the relation names the FIELD. Both halves
-    // have to meet — the DDL clause on the renamed column, the change log's field label in
-    // the fold — which is what the derive's per-column `field` entry is for.
+    // `#[model(column = …)]` renames the column; the relation names the field. Both halves
+    // have to meet (the DDL clause on the renamed column, the change log's field label in
+    // the fold), which is what the derive's per-column `field` entry is for.
     #[derive(Model, Clone, Default, PartialEq, Debug)]
     #[model(table = "crates_")]
     struct Crate {
@@ -809,7 +810,7 @@ fn ordered_edges_place_correctly() {
         });
     };
 
-    // insert_at into an EMPTY relation, then before the first, then past the end.
+    // insert_at into an empty relation, then before the first, then past the end.
     add(10);
     assert!(lists.elem(1).tracks().insert_at(10u32, 0));
     assert_eq!(lists.elem(1).tracks().ids(), [10]);
@@ -825,7 +826,7 @@ fn ordered_edges_place_correctly() {
     );
     assert_eq!(lists.elem(1).tracks().ids(), [11, 10, 12]);
 
-    // Moving a row to its own current index is a no-op in ORDER, not a corruption.
+    // Moving a row to its current index leaves the order as it is, not corrupted.
     assert!(lists.elem(1).tracks().move_to(10u32, 1));
     assert_eq!(lists.elem(1).tracks().ids(), [11, 10, 12]);
 }
@@ -910,19 +911,19 @@ fn the_engines_own_cascade_re_logs_the_parent_statement() {
         .cloned()
         .collect();
 
-    // The FOLD writes one statement for the whole subtree — no row is written twice.
+    // The fold writes one statement for the whole subtree; no row is written twice.
     assert_eq!(folded.len(), 1, "{folded:?}");
 
-    // The TRACE shows more, because SQLite re-enters the trace for each sub-program its own
+    // The trace shows more, because SQLite re-enters the trace for each sub-program its own
     // `ON DELETE CASCADE` runs, and reports the top-level statement's text each time. The
     // parent's DELETE therefore appears once per cascaded child plus once for itself.
     assert!(
         traced.len() > folded.len(),
         "the engine's cascade re-logs the parent: traced {traced:?}"
     );
-    // Compare on the EXPANDED text — the fold's statement carries a `?`, the trace carries
+    // Compare on the expanded text: the fold's statement carries a `?`, the trace carries
     // the bound value.
-    // …but the TRACE still shows more than one line for it, because SQLite re-enters the
+    // …but the trace still shows more than one line for it, because SQLite re-enters the
     // trace for each sub-program its own `ON DELETE CASCADE` runs and reports the top-level
     // statement's text each time. Reading a trace, that looks like repetition; it is one
     // statement doing the work the FK clause asked for.
@@ -1022,7 +1023,7 @@ fn a_batched_update_reaches_the_file_for_every_row() {
 
 #[test]
 fn a_join_rows_composite_key_keeps_its_own_statement() {
-    // A membership is addressed by a PAIR of columns, which no single-column `IN` expresses,
+    // A membership is addressed by a pair of columns, which no single-column `IN` expresses,
     // so those stay one statement each rather than being merged wrongly.
     let c = ModelContainer::open(Sqlite::memory(), schema![Crate2, Bottle2]).expect("open");
     c.cache::<Crate2>()

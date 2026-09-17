@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Compiles this piece's OWN native shims when their feature is on (DESIGN.md §15's tier-1+shim).
+//! Compiles this piece's native shims when their feature is on (DESIGN.md §15's tier-1+shim).
 //! Qt uses `cc` + pkg-config; XAML uses `cc` (MSVC) + the Windows SDK cppwinrt projection. The
 //! HarmonyOS arm needs no shim: its editor is ArkTS (platform/harmony/ets), staged by `day build`.
 

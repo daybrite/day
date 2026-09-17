@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-sound — HEADLESS sound effects: short clips bundled with the app, played through each
-//! platform's own low-latency engine.
+//! day-part-sound provides headless sound effects: short clips bundled with the app, played through
+//! each platform's low-latency engine.
 //!
 //! ```no_run
 //! use day_part_sound::AssetName;
@@ -735,7 +735,7 @@ mod wav {
 mod tests {
     use super::*;
 
-    /// A WAV file around `data`: a `fmt ` chunk (EXTENSIBLE when asked), an odd-length `LIST`
+    /// A WAV file around `data`: a `fmt ` chunk (`EXTENSIBLE` when asked), an odd-length `LIST`
     /// chunk to exercise the padding rule, then `data`.
     fn wav_file(tag: u16, channels: u16, rate: u32, bits: u16, data: &[u8], ext: bool) -> Vec<u8> {
         let mut fmt = Vec::new();
@@ -860,8 +860,8 @@ mod tests {
     /// The two tests below drive the one process-wide [`State`], and `cargo test` runs them on
     /// separate threads at once. [`unload_all`] clears the repeat bookkeeping, so landing between
     /// the two plays of the repeat check it lets the second play count, and the check reads a
-    /// skipped repeat as played — how CI's Linux leg failed on 2026-09-11. Both hold this lock,
-    /// so neither sees the other's edits to that state.
+    /// skipped repeat as played, which is how CI's Linux leg failed on 2026-09-11. Both hold this
+    /// lock, so neither sees the other's edits to that state.
     static SHARED: Mutex<()> = Mutex::new(());
 
     /// Hold [`SHARED`] for the rest of the test. Poisoning is ignored, as it is for [`STATE`]: a

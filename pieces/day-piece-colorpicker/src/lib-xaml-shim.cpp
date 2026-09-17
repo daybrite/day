@@ -1,24 +1,24 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-colorpicker's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. A swatch `Button`
-// whose `Flyout` holds the system `ColorPicker` (Windows.UI.Xaml.Controls, since Windows 10 1703 —
+// day-piece-colorpicker's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. A swatch `Button`
+// whose `Flyout` holds the system `ColorPicker` (Windows.UI.Xaml.Controls, since Windows 10 1703;
 // the spectrum, the channel sliders, the hex field and the alpha channel all come from the OS).
-// Elements are boxed into Day handles via the day_xaml_box/day_xaml_unbox seam day-xaml-sys
+// Elements are boxed into Day handles via the day_xaml_box/day_xaml_unbox functions day-xaml-sys
 // exports, so no day toolkit crate is touched.
 //
 // The swatch is a `Border` filled with a `SolidColorBrush` and captioned with its own hex, which is
 // the arrangement `set` walks back down: Button → Content(Border) → Background(SolidColorBrush)
-// and Child(TextBlock); and Button → Flyout → Content(ColorPicker). Keeping the state IN the visual
+// and Child(TextBlock); and Button → Flyout → Content(ColorPicker). Keeping the state in the visual
 // tree is what lets this shim avoid a pointer-keyed side map (and the address-reuse hazard that
 // comes with one) entirely.
 //
-// Windows-only; compiled by build.rs, built in CI. Driven by hand on Windows 11 since — the flyout
+// Windows-only; compiled by build.rs, built in CI. Driven by hand on Windows 11 since; the flyout
 // and the pick behind it are what no script can reach; docs/colorpicker.md records what that check
 // covered and what it left open.
 
 #include <winrt/Windows.Foundation.h>
-#include <winrt/Windows.Foundation.Collections.h> // IVector methods — else C3779
+#include <winrt/Windows.Foundation.Collections.h> // IVector methods; else C3779
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Text.h>
 #include <winrt/Windows.UI.Xaml.h>
@@ -39,7 +39,7 @@ namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 namespace WUXM = winrt::Windows::UI::Xaml::Media;
 
-// The boxing seam, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 
@@ -67,12 +67,12 @@ static std::wstring wide(const char *s) {
     return w;
 }
 
-// `ColorPicker::Color` raises `ColorChanged` — a dependency-property callback, so it runs
-// synchronously, inside the assignment below. Day pushing the MODEL's value in (a new selection
+// `ColorPicker::Color` raises `ColorChanged`, a dependency-property callback, so it runs
+// synchronously, inside the assignment below. Day pushing the model's value in (a new selection
 // in an inspector, an undo) would therefore be reported straight back as if the user had picked
 // it, and the app would rewrite the value it just sent: a no-op write that still lands as an undo
 // unit and buries the user's real one. Nothing in XAML sets the value quietly, so the write is
-// bracketed by this flag and the callback reads it — the same echo guard day-piece-colorpicker's
+// bracketed by this flag and the callback reads it, the same echo guard day-piece-colorpicker's
 // GTK backend keeps (src/lib-gtk.rs), for the same reason. The UI thread is the only thread
 // touching either.
 static bool g_pushing = false;
@@ -144,7 +144,7 @@ void *day_colorpicker_xaml_new(double r, double g, double b, double a, int with_
     button.Flyout(flyout);
     const std::wstring heading = wide(title);
     if (!heading.empty()) {
-        // A flyout has no title slot, so the heading rides the button's tooltip — the one place a
+        // A flyout has no title slot, so the heading rides the button's tooltip, the one place a
         // XAML flyout button can carry explanatory text without inventing chrome for it.
         WUXC::ToolTipService::SetToolTip(button, WF::PropertyValue::CreateString(heading));
     }
@@ -161,7 +161,7 @@ void day_colorpicker_xaml_set(void *handle, double r, double g, double b, double
         if (auto picker = flyout.Content().try_as<WUXC::ColorPicker>()) {
             // Two guards, against two different loops: the comparison drops the flush that
             // carries a pick back to the picker it came from (day rewrites every bound value,
-            // not just changed ones), and `Pushing` keeps the `ColorChanged` that a real change
+            // changed or not), and `Pushing` keeps the `ColorChanged` that a real change
             // does raise from being reported as a pick of its own.
             if (sameColor(picker.Color(), value)) return;
             Pushing pushing;

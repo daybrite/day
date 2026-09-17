@@ -5,14 +5,14 @@
 //!
 //! **day-mem** is the default: anonymous in-RAM files. `:memory:` databases never open a file
 //! at all, but SQLite can still ask the default VFS for spill files in corner cases, and the
-//! main-thread app instance must never touch OPFS — so the default answers everything from a
+//! main-thread app instance must never touch OPFS, so the default answers everything from a
 //! crate-private RAM store on every target.
 //!
 //! **day-opfs** is the worker's VFS: every file operation goes through the ten synchronous
 //! primitives in [`fsx`]. On wasm those are `day_sql_fs_*` imports the day-sql worker page
 //! implements over pre-opened OPFS sync access handles; on native they are an in-memory fake
 //! with the same slot/refcount semantics, which is what lets `cargo test` drive real SQLite
-//! through this exact VFS with no browser. Locking is a no-op — one connection per database
+//! through this exact VFS with no browser. Locking is a no-op: one connection per database
 //! per worker, and the access handles themselves are origin-exclusive.
 
 use core::ffi::{c_char, c_int, c_void};
@@ -242,7 +242,7 @@ pub(crate) mod fsx {
 
     pub(crate) use imp::*;
 
-    /// Whole-file read — the Export verb. Shares the open handle if the database is open.
+    /// Whole-file read, the Export verb. Shares the open handle if the database is open.
     pub(crate) fn read_all(name: &str) -> Option<Vec<u8>> {
         let slot = open(name, false)?;
         let result = size(slot).and_then(|len| {
@@ -253,7 +253,7 @@ pub(crate) mod fsx {
         result
     }
 
-    /// Whole-file replace — the Import verb. A connection still open on `name` is invalid
+    /// Whole-file replace, the Import verb. A connection still open on `name` is invalid
     /// afterwards; the driver closes before importing.
     pub(crate) fn write_all(name: &str, bytes: &[u8]) -> bool {
         let Some(slot) = open(name, true) else {
@@ -271,7 +271,7 @@ pub(crate) mod fsx {
 
 thread_local! {
     /// day-mem's named files (anonymous files live only in their DayFile). Nothing persistent
-    /// routes here — the proxy driver sends every real file to the worker — so this is spill
+    /// routes here (the proxy driver sends every real file to the worker), so this is spill
     /// space, not storage.
     static RAM: RefCell<HashMap<String, Vec<u8>>> = RefCell::new(HashMap::new());
 }
@@ -696,7 +696,7 @@ fn make_vfs(name: &'static core::ffi::CStr, sz_os_file: c_int, mem: bool) -> b::
 /// The name day-opfs registers under; connections opt in via `sqlite3_open_v2`'s zVfs.
 pub(crate) const OPFS_VFS: &core::ffi::CStr = c"day-opfs";
 
-/// Register day-mem (default) and day-opfs — `sqlite3_os_init`'s body.
+/// Register day-mem (default) and day-opfs; this is `sqlite3_os_init`'s body.
 pub(crate) fn register_all() -> c_int {
     let mem = Box::leak(Box::new(make_vfs(
         c"day-mem",

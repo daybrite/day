@@ -9,12 +9,12 @@ repository.workspace = true
 license.workspace = true
 build = "build.rs"
 
-# An EXTERNAL Day Piece (DESIGN.md §15): a REAL combo box — free-form text entry plus a native
+# An external Day Piece (DESIGN.md §15): a combo box, free-form text entry plus a native
 # dropdown of suggestions. NSComboBox / GtkComboBoxText-with-entry / an editable QComboBox /
-# AutoCompleteTextView / an editable XAML ComboBox. Bound TWO-WAY to a `Signal<String>` (the
-# text IS the value; typing or picking sets the signal, a signal change patches the control) with
+# AutoCompleteTextView / an editable XAML ComboBox. Bound two-way to a `Signal<String>` (the
+# text is the value; typing or picking sets the signal, a signal change patches the control) with
 # a reactive `Signal<Vec<String>>` of suggestions. iOS has no native combo-box control, so this
-# piece carries NO uikit renderer — day renders its placeholder leaf there. See docs/combobox.md.
+# piece carries no uikit renderer; day renders its placeholder leaf there. See docs/combobox.md.
 
 [features]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
@@ -22,16 +22,16 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (editable QComboBox), Qt libs linked by day-qt-sys
 mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayCombo Java factory
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (an editable ComboBox boxed via day-xaml-sys's
-# day_xaml_box seam, like the searchfield xaml piece). Windows-only, built in CI, not verified
-# locally. mock has no renderer — its feature exists so apps can enable `day-piece-combobox/mock`
+# day_xaml_box function, like the searchfield xaml piece). Windows-only, built in CI, not verified
+# locally. mock has no renderer; its feature exists so apps can enable `day-piece-combobox/mock`
 # uniformly; the combobox kind then falls back to day's placeholder leaf (as it does on uikit,
 # which has no feature at all: iOS has no native combo-box control).
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
-# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }` —
-# no per-backend feature fan-out in its own Cargo.toml.
+# into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
+# and no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
 backends = ["appkit", "gtk", "qt", "mdc", "xaml", "mock"]
 
@@ -61,13 +61,13 @@ cc = "1"
 day-mock = { workspace = true }
 
 # Standalone-piece Android contribution (docs/extending.md): the day CLI reads this from
-# `cargo metadata` and folds it into the app's Gradle build — the piece carries its own backend
-# Java (dev.daybrite.day.piece.combobox.DayCombo), without touching day-android. A plain
+# `cargo metadata` and folds it into the app's Gradle build, so the piece carries its own backend
+# Java (dev.daybrite.day.piece.combobox.DayCombo) without touching day-android. A plain
 # AutoCompleteTextView needs no Gradle dependency or manifest permission.
 [package.metadata.day.android]
 # Java/Kotlin sources, relative to this crate root: dirs, or single files linked in by package.
 java = ["src/DayCombo.java"]
-# Gradle dependency coordinates added to the app module (none — a framework widget).
+# Gradle dependency coordinates added to the app module (none: a framework widget).
 gradle-dependencies = []
 # Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().
 gradle-repositories = []

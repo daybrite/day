@@ -3,22 +3,22 @@
 
 //! Seeded app-icon generator (docs/icons.md): one `u64` seed → a deterministic layered SVG
 //! master (`day:background` / `day:foreground` / `day:monochrome`, the contract `day icon`
-//! consumes), designed to read well through every downstream form — iOS squircle, Android
+//! consumes), designed to read well through every downstream form: iOS squircle, Android
 //! adaptive + themed monochrome, plain PNG.
 //!
 //! The compositions encode the published icon-design guidance rather than free-form noise:
 //!
-//! * **One or two focal points in simple geometry** — icons are judged at small sizes, so a
+//! * **One or two focal points in simple geometry**: icons are judged at small sizes, so a
 //!   single dominant motif with at most a couple of supporting accents (Apple HIG).
-//! * **Safe-zone placement** — primary content stays inside the central region so the iOS
+//! * **Safe-zone placement**: primary content stays inside the central region so the iOS
 //!   squircle and Android circle masks never clip it; the backdrop alone bleeds full-canvas.
-//! * **A limited, harmonious palette** — a background tone plus at most two accent hues,
+//! * **A limited, harmonious palette**: a background tone plus at most two accent hues,
 //!   drawn from the classic color-harmony schemes (analogous, complementary,
 //!   split-complementary, triadic) with saturation/lightness held to bands that keep
 //!   figure-ground contrast high on both dark and light backdrops.
-//! * **Flat or subtly gradient backgrounds** — a gentle vertical two-stop gradient of one
+//! * **Flat or subtly gradient backgrounds**: a gentle vertical two-stop gradient of one
 //!   hue (the HIG's "subtle top-to-bottom gradient adds depth without looking dated").
-//! * **Balance** — compositions are either symmetric (centered, rotational) or
+//! * **Balance**: compositions are either symmetric (centered, rotational) or
 //!   golden-section asymmetric with a small counterweight, the two classical routes to
 //!   visual equilibrium.
 //!
@@ -32,7 +32,7 @@ use std::fmt::Write as _;
 const EDGE: f32 = 1024.0;
 const CENTER: f32 = EDGE / 2.0;
 
-/// Hash an arbitrary string (an app id, a pet name) into a seed — FNV-1a 64, hand-rolled so
+/// Hash an arbitrary string (an app id, a pet name) into a seed with FNV-1a 64, hand-rolled so
 /// the mapping is stable across Rust versions (std's hashers are randomly keyed).
 pub fn seed_from_str(s: &str) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -43,7 +43,7 @@ pub fn seed_from_str(s: &str) -> u64 {
     h
 }
 
-/// splitmix64 — tiny, well-distributed, and dependency-free; every aesthetic choice below
+/// splitmix64: tiny, well-distributed, and dependency-free; every aesthetic choice below
 /// draws from this stream in a fixed order, which is what makes a seed reproducible.
 struct Rng(u64);
 
@@ -161,7 +161,7 @@ fn palette(rng: &mut Rng) -> Palette {
 }
 
 /// One drawable element of the composition. `core` marks the shapes that carry the icon's
-/// identity — the monochrome layer re-emits exactly those as a single-color silhouette and
+/// identity; the monochrome layer re-emits exactly those as a single-color silhouette and
 /// drops the decorative rest (halos, glows, low-alpha accents).
 struct Shape {
     kind: Kind,
@@ -204,8 +204,8 @@ enum Kind {
 }
 
 impl Shape {
-    /// Emit as SVG. `mono` overrides every color with black and squashes opacity to 1 —
-    /// the themed-icon silhouette (the platform supplies the tint).
+    /// Emit as SVG. `mono` overrides every color with black and squashes opacity to 1,
+    /// giving the themed-icon silhouette (the platform supplies the tint).
     fn svg(&self, mono: bool) -> String {
         let fill = if mono { "#000000" } else { self.fill.as_str() };
         let op = if mono || self.opacity >= 0.999 {
@@ -319,7 +319,7 @@ fn motif(rng: &mut Rng, cx: f32, cy: f32, r: f32, fill: &str) -> Shape {
 }
 
 /// Compose the foreground: a `Vec<Shape>` whose `core` subset is also the monochrome
-/// silhouette. Templates are the two classical balance strategies — symmetry (centered,
+/// silhouette. Templates are the two classical balance strategies: symmetry (centered,
 /// rotational, stacked) and golden-section asymmetry with a counterweight.
 fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
     let mut shapes = Vec::new();
@@ -348,7 +348,7 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
             }
             shapes.push(motif(rng, CENTER, CENTER, r, &p.a));
             if rng.chance(0.5) {
-                // A small satellite where the halo would sit — the second focal point.
+                // A small satellite where the halo would sit, the second focal point.
                 let ang = rng.f() * std::f32::consts::TAU;
                 let d = rng.range(0.78, 0.95) * (r + 70.0);
                 shapes.push(Shape {
@@ -363,7 +363,7 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
                 });
             }
         }
-        // Rotational symmetry: N petals on a circle, optional center dot — mandala-adjacent.
+        // Rotational symmetry: N petals on a circle, optional center dot; mandala-adjacent.
         1 => {
             let n = 3 + rng.pick(4); // 3..=6
             let orbit = rng.range(190.0, 240.0);
@@ -422,8 +422,9 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
             }
         }
         // Golden-section asymmetry: dominant motif near a golden point, a clear counterweight
-        // pulled in along the diagonal toward the opposite one — balance without symmetry,
-        // and the shared axis is what makes the pair read as designed rather than scattered.
+        // pulled in along the diagonal toward the opposite one. That is balance without
+        // symmetry, and the shared axis is what makes the pair read as designed rather than
+        // scattered.
         2 => {
             let lo = EDGE * 0.382;
             let hi = EDGE * 0.618;
@@ -438,7 +439,7 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
             let my = CENTER + (gy - CENTER) * 0.72;
             let (ox, oy) = (CENTER + (CENTER - gx) * 0.62, CENTER + (CENTER - gy) * 0.62);
             let r = rng.range(205.0, 250.0);
-            // Compact, rotation-stable motifs only — a tilted capsule off-center reads as
+            // Compact, rotation-stable motifs only: a tilted capsule off-center reads as
             // clutter, not asymmetry.
             let kind = match rng.pick(3) {
                 0 => Kind::Circle { cx: mx, cy: my, r },
@@ -488,7 +489,7 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
                 core: true,
             });
             if rng.chance(0.45) {
-                // A third beat on the same diagonal — rhythm, and it ties the pair together.
+                // A third beat on the same diagonal adds rhythm, and it ties the pair together.
                 shapes.push(Shape {
                     kind: Kind::Circle {
                         cx: (mx + ox) / 2.0,
@@ -501,7 +502,7 @@ fn compose(rng: &mut Rng, p: &Palette) -> Vec<Shape> {
                 });
             }
         }
-        // Stacked bars: 2–3 descending capsules — abstract "text", mirror-balanced.
+        // Stacked bars: 2–3 descending capsules, abstract "text", mirror-balanced.
         3 => {
             let n = 2 + rng.pick(2);
             let h = rng.range(88.0, 112.0);
@@ -672,7 +673,7 @@ mod tests {
     #[test]
     fn monochrome_stays_inside_the_vectordrawable_subset() {
         // Android's themed icon ships the monochrome layer as a VectorDrawable only when it
-        // fits the subset (docs/icons.md) — generated masters must never fall back to the
+        // fits the subset (docs/icons.md), and generated masters must never fall back to the
         // bitmap mask. Reconstructs the pipeline's monochrome-only doc from the authored
         // layer markers.
         for seed in [0u64, 1, 7, 42, 99, 3_427_929_162_618_665_977] {

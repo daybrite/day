@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Wide keys, stored: Uuid keys are 16-byte `BLOB` primary keys, String keys are `TEXT` —
-//! round-tripping files, folding to correctly-typed parameters, merging another connection's
-//! writes, and refusing the shapes SQLite's rowid-backed indexes cannot address.
+//! Wide keys, stored: Uuid keys are 16-byte `BLOB` primary keys, String keys are `TEXT`. The
+//! tests round-trip files, fold to correctly-typed parameters, merge another connection's
+//! writes, and refuse the shapes SQLite's rowid-backed indexes cannot address.
 
 use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
@@ -205,7 +205,7 @@ fn another_connections_uuid_writes_merge_precisely() {
     let ((), changes) = day_model::record_changes(|| {
         assert!(c.check_external().expect("check"));
     });
-    // Only the changed column of the changed row announced — key width changes nothing.
+    // Only the changed column of the changed row announced; key width changes nothing.
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].label, "starred");
     assert!(store.elem(b).starred().peek());
@@ -234,7 +234,7 @@ fn queries_speak_typed_ids_over_wide_keys() {
     assert!(starred.contains(ids[0]));
     assert!(!starred.contains(ids[1]));
 
-    // A query id addresses the store directly — the typed round trip.
+    // A query id addresses the store directly: the typed round trip.
     let first = starred.first().expect("has results");
     assert_eq!(store.elem(first).name().peek(), "contact 0");
     assert_eq!(first.key().as_uuid(), Some(ids[0]));

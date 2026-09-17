@@ -150,7 +150,7 @@ fn observed_rows_never_evict() {
     let store = c.cache::<Rowy>();
     let _ = c.get::<Rowy>(9u32).expect("faults");
 
-    // A standing effect binds the row's name — the row is observed.
+    // A standing effect binds the row's name, so the row is observed.
     let seen = Rc::new(RefCell::new(String::new()));
     let sink = seen.clone();
     day_reactive::Effect::new(move || {

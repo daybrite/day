@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-clipboard — a HEADLESS cross-platform plain-text clipboard API. No UI; any Rust code can
-//! depend on this crate and call [`set_text`] / [`get_text`] / [`has_text`] to reach the system
-//! clipboard through the platform's NATIVE API.
+//! day-part-clipboard is a headless cross-platform plain-text clipboard API. No UI; any Rust code
+//! can depend on this crate and call [`set_text`] / [`get_text`] / [`has_text`] to reach the
+//! system clipboard through the platform's native API.
 //!
 //! ```no_run
 //! day_part_clipboard::set_text("hello");
@@ -13,13 +13,13 @@
 //! ```
 //!
 //! Platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]` (the clipboard is an OS
-//! concern, not a widget-toolkit one): macOS uses `NSPasteboard` (toolkit-independent — it works
+//! concern, not a widget-toolkit one): macOS uses `NSPasteboard` (toolkit-independent; it works
 //! under day-qt binaries too), iOS `UIPasteboard`, Windows the Win32 clipboard (`CF_UNICODETEXT`),
 //! desktop Linux shells out to `wl-copy`/`wl-paste` (Wayland) with an `xclip` (X11) fallback,
 //! HarmonyOS the native Pasteboard/UDMF C API, and Android `ClipboardManager` (via a Java shim
 //! staged by `day build`). Platforms without a clipboard API return `false`/`None`.
 //!
-//! Platform caveats: Android 10+ only lets the app read the clipboard while it has input focus —
+//! Platform caveats: Android 10+ only lets the app read the clipboard while it has input focus, so
 //! [`get_text`] returns `None` in the background. Desktop Linux requires `wl-clipboard` or `xclip`
 //! to be installed (both are ubiquitous distro packages).
 
@@ -74,7 +74,7 @@ mod imp;
 
 // web-dom: the browser clipboard through the day-dom shim (docs/menus.md). Inside a live
 // `copy`/`cut`/`paste` DOM event (the shim forwards those while the event is still on the
-// stack) the calls read and write the event's own `clipboardData` — the only path browsers
+// stack) the calls read and write the event's `clipboardData`, the only path browsers
 // guarantee synchronously. Outside one, writes best-effort through `navigator.clipboard` and
 // reads fall back to the page-local mirror of the last in-page copy, so same-page flows work
 // even where the async read API is denied. Like the other shim-bridged parts, using this

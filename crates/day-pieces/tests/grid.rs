@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Grid acceptance (docs/grid.md) on the mock toolkit: column inference, spans, alignment
-//! precedence, height-for-width, reactive reflow — and the performance contract (two measure
+//! precedence, height-for-width, reactive reflow, and the performance contract (two measure
 //! proposals per cell, bounded re-measures on update) as golden assertions, per §7.4.
 
 use day_core::AnyPiece;
@@ -71,7 +71,7 @@ fn grid_spacer_is_empty_cell() {
         .any()
     });
     // The spacer occupies col0 without contributing width or placement: col0 = "aaaa" = 32,
-    // and both col1 cells land at the same x — no `spacer().width(40)` placeholder needed.
+    // and both col1 cells land at the same x, with no `spacer().width(40)` placeholder needed.
     let f = label_frames(&probe);
     assert_eq!(f[0], Rect::new(42.0, 0.0, 16.0, 16.0), "{f:?}");
     assert_eq!(f[1], Rect::new(0.0, 26.0, 32.0, 16.0), "{f:?}");
@@ -173,7 +173,7 @@ fn grid_height_for_width_rewrap() {
         .any()
     });
     // Pass B re-measures the flexible cell at its final 100 − 16 = 84pt column width, so the
-    // text wraps to 3 lines (10 chars/line) and the ROW grows to fit — height-for-width.
+    // text wraps to 3 lines (10 chars/line) and the row grows to fit (height-for-width).
     let f = label_frames(&probe);
     assert_eq!(f[1].origin.x, 16.0, "{f:?}");
     assert_eq!(f[1].size, Size::new(84.0, 48.0), "3 wrapped lines: {f:?}");
@@ -230,7 +230,7 @@ fn grid_rtl_mirrors_columns() {
             .frame(400.0, 16.0)
             .any()
     });
-    // Geometry is computed LTR and mirrored at place time around the GRID's width (400):
+    // Geometry is computed LTR and mirrored at place time around the grid's width (400):
     // col0 ("aa", 16pt) lands on the right edge, the flexible shape on the left.
     let f = label_frames(&probe);
     assert_eq!(f[0], Rect::new(384.0, 0.0, 16.0, 16.0), "{f:?}");
@@ -264,7 +264,7 @@ fn grid_measure_calls_bounded() {
         .any()
     });
     let cells = ROWS * COLS;
-    // The performance contract (docs/grid.md): two proposals per cell — unconstrained (pass A)
+    // The performance contract (docs/grid.md): two proposals per cell, unconstrained (pass A)
     // and at the final column width (pass B). `place` re-runs the same proposals from cache.
     assert!(
         probe.measure_calls() <= 2 * cells + 60,

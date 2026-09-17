@@ -1,21 +1,22 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-part-permissions' OWN Android backend — a headless capability shim (no UI). It is bundled with
-// this crate and folded into the app's Gradle build via [package.metadata.day.android], with ZERO
+// day-part-permissions' Android backend: a headless capability shim (no UI). It is bundled with
+// this crate and folded into the app's Gradle build via [package.metadata.day.android], with no
 // edits to day-android; it registers no view. It is the Android twin of
 // parts/day-part-permissions/src/*.rs's other per-OS impls.
 //
-// Why A FRAGMENT. Runtime permission results arrive at Activity.onRequestPermissionsResult, and
-// day-android's DayActivity overrides only onActivityResult (hardcoded to the file picker). Rather
-// than edit a core day crate — which every part's Cargo.toml promises not to do — this shim attaches
-// its own headless Fragment and uses registerForActivityResult(RequestMultiplePermissions). Results
+// A fragment is used because runtime permission results arrive at
+// Activity.onRequestPermissionsResult, and day-android's DayActivity overrides only
+// onActivityResult (hardcoded to the file picker). Rather than edit a core day crate (which every
+// part's Cargo.toml promises not to do), this shim attaches a headless Fragment of its own and
+// uses registerForActivityResult(RequestMultiplePermissions). Results
 // route to that fragment alone, so there is no request-code space to partition, and this is the
 // standard Android idiom (RxPermissions, Dexter and PermissionsDispatcher all do the same).
 // androidx.fragment is already on the classpath because DayActivity extends FragmentActivity.
 //
-// NO REMEMBERED STATE. This shim deliberately persists nothing. Android cannot distinguish
-// "never asked" from "permanently denied" without app-side state, and Day does not keep any — see
+// No remembered state. This shim persists nothing. Android cannot distinguish
+// "never asked" from "permanently denied" without app-side state, and Day does not keep any; see
 // classify_android() in src/lib.rs and docs/permissions.md for what that means and how an app that
 // needs the distinction records it itself.
 package dev.daybrite.day.permissions;
@@ -49,7 +50,7 @@ public final class DayPermissions {
 
     /**
      * Permission lists cross the JNI boundary as one string joined by U+001F, the same flattening
-     * day_spec uses for the C ABI — it keeps this shim free of jobjectArray plumbing on both sides.
+     * day_spec uses for the C ABI; it keeps this shim free of jobjectArray plumbing on both sides.
      */
     static final String SEP = "\u001f";
 
@@ -74,8 +75,8 @@ public final class DayPermissions {
     }
 
     /**
-     * Whether the permission survived into the app's MERGED manifest. Without it a request is
-     * denied in the same frame with no dialog, and Settings offers nothing — which is what
+     * Whether the permission survived into the app's merged manifest. Without it a request is
+     * denied in the same frame with no dialog, and Settings offers nothing, which is what
      * Status::Restricted means.
      */
     public static boolean isDeclared(String perm) {
@@ -115,7 +116,7 @@ public final class DayPermissions {
         return Build.VERSION.SDK_INT;
     }
 
-    /** Below API 33 there is no POST_NOTIFICATIONS permission — this is the whole answer. */
+    /** Below API 33 there is no POST_NOTIFICATIONS permission; this is the whole answer. */
     public static boolean notificationsEnabled() {
         Context ctx = DayBridge.ctx;
         if (ctx == null) {
@@ -147,10 +148,10 @@ public final class DayPermissions {
     // --- the asynchronous request ------------------------------------------
 
     /**
-     * Ask for {@code perms}. Callable from ANY thread: the work hops to the UI thread, attaches (or
+     * Ask for {@code perms}. Callable from any thread: the work hops to the UI thread, attaches (or
      * reuses) the headless fragment, and launches. The answer comes back through nativeResult.
      *
-     * <p>When there is no Activity to host the dialog — a headless process, a Service, a test — the
+     * <p>When there is no Activity to host the dialog (a headless process, a Service, a test) the
      * current grant state is reported immediately rather than hanging: a future must always resolve.
      */
     public static void request(long token, String permsJoined) {
@@ -181,7 +182,7 @@ public final class DayPermissions {
         });
     }
 
-    /** Report whatever the current grant state is — the no-Activity and failure path. */
+    /** Report whatever the current grant state is: the no-Activity and failure path. */
     static void deliverCurrent(long token, String[] perms) {
         long mask = 0;
         for (int i = 0; i < perms.length && i < 64; i++) {
@@ -200,7 +201,7 @@ public final class DayPermissions {
     }
 
     /**
-     * The token whose prompt is on screen, or 0. STATIC on purpose: a rotation destroys and
+     * The token whose prompt is on screen, or 0. Static because a rotation destroys and
      * recreates this fragment (see the class note), so an instance field would lose the
      * correlation exactly when it is needed. Android serializes permission dialogs, so one slot is
      * enough.
@@ -208,14 +209,14 @@ public final class DayPermissions {
     static volatile long inFlight;
 
     /**
-     * A headless fragment: no view, no UI, just the ActivityResult launcher that owns the permission
+     * A headless fragment, holding just the ActivityResult launcher that owns the permission
      * dialog's answer.
      *
-     * <p>Deliberately not {@code setRetainInstance(true)}: a retained fragment skips {@code onCreate}
+     * <p>Not {@code setRetainInstance(true)}: a retained fragment skips {@code onCreate}
      * after a configuration change, which would leave {@code launcher} registered against the
      * destroyed activity's result registry and the answer would never arrive. Letting the fragment
      * be recreated re-registers the launcher with the new activity, and the ActivityResult API
-     * delivers the pending result to it — which is precisely what that API exists to do. The token
+     * delivers the pending result to it, which is what that API exists to do. The token
      * survives in the static fields above.
      */
     public static final class DayPermissionsFragment extends Fragment {

@@ -7,9 +7,9 @@
 //! path).
 //!
 //! A launch on a device, emulator or simulator has a second half that no pid reaches: the app
-//! itself is not a child of this process. Those register a STOP COMMAND instead
+//! itself is not a child of this process. Those register a stop command instead
 //! ([`register_remote_stop`]), so Ctrl-C ends the app on the device the way it ends a desktop
-//! app — rather than only taking its logs away.
+//! app, rather than only taking its logs away.
 //!
 //! Unix does the real work: a SIGINT/SIGTERM handler writes one byte to a self-pipe
 //! (async-signal-safe); a watcher thread does the killing off the signal context. On
@@ -21,9 +21,9 @@ use std::sync::Mutex;
 #[cfg(unix)]
 use std::sync::OnceLock;
 
-/// A tracked child, and whether it is the APP itself. A desktop launch spawns the app as a child
-/// of this process; everything else tracked here is a helper `day` owns outright — a log pump, the
-/// web driver. Only the app is something a run can be asked to leave behind.
+/// A tracked child, and whether it is the app itself. A desktop launch spawns the app as a child
+/// of this process; everything else tracked here is a helper `day` owns outright (a log pump, the
+/// web driver). Only the app is something a run can be asked to leave behind.
 struct Child {
     pid: u32,
     is_app: bool,
@@ -49,7 +49,7 @@ pub fn register_restore(path: &std::path::Path, before: Option<&[u8]>) {
     }
 }
 
-/// Drop a registration — the guard restored the file itself on the way out of the build.
+/// Drop a registration; the guard restored the file itself on the way out of the build.
 pub fn forget_restore(path: &std::path::Path) {
     if let Ok(mut r) = RESTORES.lock() {
         r.retain(|(p, _)| p != path);
@@ -63,23 +63,23 @@ pub fn register_child(pid: u32) {
     }
 }
 
-/// Track the APP itself, spawned as a child by a desktop launch. Killed like any other child on
-/// interrupt and on the normal-exit path — unless [`forget_app_children`] spares it first.
+/// Track the app itself, spawned as a child by a desktop launch. Killed like any other child on
+/// interrupt and on the normal-exit path, unless [`forget_app_children`] spares it first.
 pub fn register_app_child(pid: u32) {
     if let Ok(mut c) = CHILDREN.lock() {
         c.push(Child { pid, is_app: true });
     }
 }
 
-/// The most recently spawned child's pid — the app itself on a desktop launch. The crash
+/// The most recently spawned child's pid: the app itself on a desktop launch. The crash
 /// post-mortem uses it to pick this run's report out of a directory where every build of the app
 /// files under the same process name (`crate::diagnose`).
 pub fn last_child() -> Option<u32> {
     CHILDREN.lock().ok().and_then(|c| c.last().map(|c| c.pid))
 }
 
-/// Track an app that is not a child of this process — one running on a device, emulator or
-/// simulator — as the command line that stops it (`adb shell am force-stop <id>`).
+/// Track an app that is not a child of this process (one running on a device, emulator or
+/// simulator) as the command line that stops it (`adb shell am force-stop <id>`).
 ///
 /// Killing pids cannot reach these. The only host-side process a device launch owns is the log
 /// pump, so Ctrl-C used to take the logs away and leave the app running on the device, which is
@@ -91,21 +91,21 @@ pub fn register_remote_stop(argv: Vec<String>) {
     }
 }
 
-/// Drop the registered device stops without running them — for a run that DELIBERATELY leaves the
-/// app up (`--keep-alive`, whose whole promise is that the app outlives `day`). Without this the
-/// normal-exit `kill_all` would honor the interrupt contract over the explicit flag and stop the
-/// app anyway. The log-pump children are still reaped; only the app is spared.
+/// Drop the registered device stops without running them, for a run that leaves the app up
+/// (`--keep-alive`, which promises that the app outlives `day`). Without this the normal-exit
+/// `kill_all` would honor the interrupt contract over the explicit flag and stop the app anyway.
+/// The log-pump children are still reaped; only the app is spared.
 pub fn forget_remote_stops() {
     if let Ok(mut r) = REMOTE_STOPS.lock() {
         r.clear();
     }
 }
 
-/// Drop the APP from the kill list without stopping it — for a run that DELIBERATELY leaves it up
-/// (`--keep-alive`, whose whole promise is that the app outlives `day`). [`forget_remote_stops`] is
-/// the device half of that promise; this is the desktop half, where the app is a CHILD of this
+/// Drop the app from the kill list without stopping it, for a run that leaves it up
+/// (`--keep-alive`, which promises that the app outlives `day`). [`forget_remote_stops`] is the
+/// device half of that promise; this is the desktop half, where the app is a child of this
 /// process and the normal-exit `kill_all` would otherwise terminate the very thing the flag exists
-/// to keep — reporting "left running" over a window that had just closed.
+/// to keep, reporting "left running" over a window that had just closed.
 ///
 /// Helpers stay registered and are still reaped: an orphaned log pump holds the inherited stdout
 /// that CI then waits on forever.
@@ -121,9 +121,9 @@ pub fn forget_app_children() {
 pub fn kill_all() {
     // Serialized, because two threads reach here on an interrupt: the signal watcher, and the
     // main thread the moment killing the log pump lets its `join` return. Without this the main
-    // thread wins, returns from `main`, and `process::exit` tears down the watcher — mid
-    // `adb force-stop`, so the app on the device outlived the Ctrl-C that was meant to end it.
-    // Whoever arrives second now waits for the first to finish rather than exiting out from
+    // thread wins, returns from `main`, and `process::exit` tears down the watcher in the middle
+    // of an `adb force-stop`, so the app on the device outlived the Ctrl-C that was meant to end
+    // it. Whoever arrives second now waits for the first to finish rather than exiting out from
     // under it.
     let _teardown = TEARDOWN.lock().unwrap_or_else(|e| e.into_inner());
     let pids = CHILDREN

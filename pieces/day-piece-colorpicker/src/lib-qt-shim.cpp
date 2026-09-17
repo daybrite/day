@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-colorpicker's OWN Qt shim (the day-piece-datetime recipe): a swatch button that opens
+// day-piece-colorpicker's Qt shim (the day-piece-datetime recipe): a swatch button that opens
 // `QColorDialog`, behind a flat C ABI. Qt has no color-well widget, so the swatch is a
-// `QPushButton` painted with the current color; the dialog behind it is the real Qt chooser
+// `QPushButton` painted with the current color; the dialog behind it is the Qt chooser
 // (basic + custom palettes, an HSV picker, the screen eyedropper, and an alpha channel on
 // request).
 //
@@ -12,9 +12,9 @@
 // lose precision that both ends have.
 //
 // The swatch is painted through a stylesheet rather than a `QPalette` role, because a themed
-// QPushButton draws its own background over the palette on most styles — the stylesheet is what
-// actually shows through. The text color flips with the fill's luminance so the hex label stays
-// readable on both a near-black and a near-white pick.
+// QPushButton draws its background over the palette on most styles; the stylesheet is what shows
+// through. The text color flips with the fill's luminance so the hex label stays readable on both
+// a near-black and a near-white pick.
 
 #include <QColor>
 #include <QColorDialog>

@@ -35,7 +35,7 @@ define_class!(
     unsafe impl NSObjectProtocol for PickerTarget {}
 
     impl PickerTarget {
-        // One action for all three styles — read the selected index off whichever sender fired.
+        // One action for all three styles: read the selected index off whichever sender fired.
         // Contained like every trampoline (§8.5): a panic must not unwind into AppKit.
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
@@ -66,7 +66,7 @@ impl PickerTarget {
 
 day_core::tls_group! {
     /// Keeps each picker's target alive (the control holds it weakly). A [`SideTable`], so
-    /// the backend's release sweep drops it with its view — this map had no release path.
+    /// the backend's release sweep drops it with its view; this map had no release path.
     static TARGETS: SideTable<Retained<PickerTarget>> = SideTable::new();
 
 }
@@ -82,7 +82,7 @@ fn make_menu(mtm: MainThreadMarker, p: &PickerProps, target: &PickerTarget) -> R
         popup.addItemWithTitle(&NSString::from_str(opt));
     }
     // Out-of-range app state must not reach selectItemAtIndex: it raises an NSException,
-    // which Rust cannot catch — the process aborts (same guard as the segmented arm).
+    // which Rust cannot catch, so the process aborts (same guard as the segmented arm).
     if p.selected < p.options.len() {
         popup.selectItemAtIndex(p.selected as isize);
     }
@@ -156,7 +156,7 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
         PickerPatch::Options(opts) => return set_options(h, opts),
     };
     // Range guards throughout: an out-of-range index raises an NSException in AppKit,
-    // which Rust cannot catch — the process aborts.
+    // which Rust cannot catch, so the process aborts.
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
         if (i as isize) < popup.numberOfItems() && popup.indexOfSelectedItem() != i as isize {
             popup.selectItemAtIndex(i as isize);
@@ -176,7 +176,7 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
     }
 }
 
-/// New option labels, in place. The selected INDEX is preserved where it still exists —
+/// New option labels, in place. The selected index is preserved where it still exists:
 /// AppKit resets a rebuilt pop-up to item 0 and drops a segmented control's selection, so
 /// each arm restores it explicitly (clamped, since an NSException here would abort).
 fn set_options(h: &Retained<NSView>, opts: &[String]) {
@@ -244,7 +244,7 @@ pub(crate) fn realize_any(
     id: day_spec::NodeId,
 ) -> crate::Handle {
     // A mismatched payload warns once and degrades to the shared placeholder (never panics
-    // inside a native up-call) — same policy as the builtin arms in lib.rs.
+    // inside a native up-call), the same policy as the builtin arms in lib.rs.
     match day_spec::props_of::<PickerProps>(day_spec::kinds::PICKER, "appkit", props) {
         Some(p) => make(b, p, id),
         None => crate::placeholder_view(b.mtm(), day_spec::kinds::PICKER),

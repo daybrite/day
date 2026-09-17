@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Wide keys: Uuid and string keys intern to path handles, `ModelId` types the surface, and
-//! the granularity story is unchanged — one field write wakes one field's readers, whatever
+//! the granularity story is unchanged: one field write wakes one field's readers, whatever
 //! the key's shape.
 
 use day_macros::Observable;
@@ -45,13 +45,13 @@ fn uuid_keys_address_elements_and_stay_granular() {
     let b = Uuid::now_v7();
     let store = Store::new(Keyed::new(vec![card(a, "alpha"), card(b, "beta")]));
 
-    // Address by the raw Uuid, by a typed id, and by the handle — all the same row.
+    // Address by the raw Uuid, by a typed id, and by the handle: all the same row.
     assert_eq!(store.elem(a).title().peek(), "alpha");
     assert_eq!(store.elem(ModelId::<Card>::of(a)).title().peek(), "alpha");
     let handle = store.elem(a).key();
     assert_eq!(store.elem(handle).title().peek(), "alpha");
 
-    // One field write announces one field of one row — same precision as integer keys.
+    // One field write announces one field of one row, the same precision as integer keys.
     let (_, changes) = day_model::record_changes(|| {
         store.elem(a).title().write("edited".into());
     });
@@ -182,8 +182,8 @@ fn ids_are_typed_keys_with_their_own_display() {
 #[test]
 fn a_worker_thread_interns_the_same_handles() {
     // The interner is process-global, not thread-local: a background transaction's reindex
-    // mints the same handles the main thread resolves — the divergence bug the path system's
-    // components seam guards against cannot recur here.
+    // mints the same handles the main thread resolves, so the divergence bug the path system's
+    // `components` method guards against cannot recur here.
     let u = Uuid::now_v7();
     let store = Store::new(Keyed::new(vec![card(u, "before")]));
     let main_handle = store.elem(u).key();

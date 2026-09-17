@@ -4,10 +4,10 @@
 //! Recycling-list driver (docs/list.md, §10). The native list host owns scrolling + cell reuse;
 //! Day owns row *content*. day-core injects a [`day_spec::ListSource`] into the backend; when the
 //! native data-source pulls a cell, `bind_row` builds it once (per physical cell) and thereafter
-//! *rebinds* it — one slot-write — as the cell recycles.
+//! *rebinds* it (one slot-write) as the cell recycles.
 //!
 //! Re-entrancy (the crux): building a row uses `BuildCx`, and reactive bindings patch native
-//! widgets — both acquire `with_tree` per operation. So `bind_row` phases the tree borrow:
+//! widgets; both acquire `with_tree` per operation. So `bind_row` phases the tree borrow:
 //! `with_tree` (adopt cell) → build/rebind + `flush_sync` **outside** any borrow → `with_tree`
 //! (lay the row out in its cell). Holding the borrow across the build would deadlock the RefCell.
 
@@ -62,7 +62,7 @@ pub struct ListDeleteDriver {
 /// backend as [`day_spec::ListSwipe`] by [`make_source`]; also driven directly by
 /// [`list_try_swipe`] (the dayscript `swipe_row` step and the mock probe).
 pub struct ListSwipeDriver {
-    /// The offer: the actions for row `index` on `edge` — pure, runs inside native swipe
+    /// The offer: the actions for row `index` on `edge`. Pure; runs inside native swipe
     /// callbacks.
     pub actions_at: Box<dyn Fn(usize, day_spec::SwipeEdge) -> Vec<day_spec::ListSwipeAction>>,
     /// Commit an activated action (an index into the offer): defers the app's handler to the
@@ -79,13 +79,13 @@ pub struct BuiltRow {
 
 pub(crate) struct BoundCell {
     pub anchor: RNode,
-    /// The row subtree's reactive scope — disposed by `remove_subtree` when the LIST node
+    /// The row subtree's reactive scope, disposed by `remove_subtree` when the list node
     /// goes away (the cells live in the list machinery, not the node tree, so nothing else
     /// would dispose their bindings).
     pub scope: Scope,
     pub rebind: Rc<dyn Fn(usize)>,
-    /// The width the backend last laid this cell at through `ListSource::layout_cell` — the
-    /// width the native row actually granted, which on GTK is the list's less the row's own
+    /// The width the backend last laid this cell at through `ListSource::layout_cell`: the
+    /// width the native row granted, which on GTK is the list's less the row's own
     /// padding. Every later layout of the row (a rebind, the dirty-cell sweep, a data change)
     /// uses it; `None` until the backend has reported one, when the list's width stands in.
     pub native_width: Option<f64>,
@@ -113,7 +113,7 @@ pub enum CellStep {
     },
 }
 
-/// Register a list's driver and wire its native host's data-source. Call after the LIST node and
+/// Register a list's driver and wire its native host's data-source. Call after the list node and
 /// its native handle exist (from within the piece build; `with_tree` is acquired per op).
 pub fn install_list(node: RNode, driver: ListDriver) {
     with_tree(|t| t.install_list(node, driver));
@@ -126,7 +126,7 @@ pub fn list_reload(node: RNode) {
 
 /// Imperatively scroll the native list so its last row is fully visible (chat "stick to bottom").
 /// A no-op while the list is empty. Call with no borrow held.
-/// Row-level deltas to the native host — the animatable alternative to [`list_reload`], for
+/// Row-level deltas to the native host: the animatable alternative to [`list_reload`], for
 /// sources that know exactly how their set changed (a live query's maintainer does).
 pub fn list_splice(node: RNode, deltas: Vec<day_spec::props::RowDelta>) {
     with_tree(|t| t.list_splice(node, deltas));
@@ -170,7 +170,7 @@ pub fn list_try_reorder(node: RNode, from: usize, to: usize) -> Result<usize, &'
     if accepted != from {
         (re.moved)(from, accepted);
     }
-    // No native animation on this path — a reload re-binds the visible rows in the new order.
+    // No native animation on this path; a reload re-binds the visible rows in the new order.
     list_reload(node);
     Ok(accepted)
 }
@@ -191,7 +191,8 @@ pub fn list_try_delete(node: RNode, index: usize) -> Result<(), &'static str> {
         return Err("delete denied by the guard");
     }
     (del.deleted)(index);
-    // No native animation on this path — a reload re-binds the visible rows without the deleted one.
+    // No native animation on this path; a reload re-binds the visible rows without the deleted
+    // one.
     list_reload(node);
     Ok(())
 }
@@ -199,8 +200,8 @@ pub fn list_try_delete(node: RNode, index: usize) -> Result<(), &'static str> {
 /// Programmatically run a swipe action through the same offer → commit path a native gesture
 /// takes (docs/list.md): pull the row's offer for the edge, refuse when the action is not in
 /// it, and defer the commit. This is how the dayscript `swipe_row` step and the mock probe
-/// drive the seam without a native gesture. `expect` pins the button by its label — offers
-/// are state-dependent, and a pinned step must REFUSE to press a different button rather
+/// drive the swipe path without a native gesture. `expect` pins the button by its label: offers
+/// are state-dependent, and a pinned step must refuse to press a different button rather
 /// than press it and complain (pressing anyway flips state the script did not mean to flip,
 /// which is how one aborted run poisons every later one). Answers the activated label.
 /// Call with no borrow held.
@@ -253,28 +254,29 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
             let key = cell as usize;
             // A backend snapshot draws the window while holding the tree borrow; if that draw
             // re-enters here (a lazy list realizing a row mid-`cacheDisplayInRect`), skip rather
-            // than double-borrow — the row binds on the next real layout pass (tree.rs::try_with_tree).
+            // than double-borrow; the row binds on the next real layout pass
+            // (tree.rs::try_with_tree).
             let Some(step) = try_with_tree(|t| t.list_prepare_cell(node, key, cell)) else {
                 return;
             };
             match step {
                 CellStep::Build { anchor } => {
-                    // Build outside the borrow — BuildCx re-acquires with_tree per op.
+                    // Build outside the borrow; BuildCx re-acquires with_tree per op.
                     let built = (d_bind.build)(index, anchor);
                     with_tree(|t| t.list_store_cell(node, key, anchor, built));
                 }
                 CellStep::Rebind { rebind, .. } => rebind(index),
             }
             // Apply the slot-write (or first bindings); reactive effects patch natives via their
-            // own with_tree — so this too runs with no borrow held. Then lay the row out.
+            // own with_tree, so this too runs with no borrow held. Then lay the row out.
             day_reactive::flush_sync();
             with_tree(|t| t.list_layout_cell(node, key));
         }),
         // The cell stays pooled; only its dayscript ids clear, so a hidden row past a shrunk
         // source stops answering lookups (`try_with_tree`: a backend may recycle while a
-        // snapshot draw holds the borrow — the ids clear on the next pass then).
+        // snapshot draw holds the borrow; the ids clear on the next pass then).
         layout_cell: Rc::new(move |cell, width| {
-            // From the native cell's own layout pass — skip inside a snapshot borrow, the next
+            // From the native cell's own layout pass: skip inside a snapshot borrow, the next
             // real pass corrects it (same rule as bind_row).
             let _ = try_with_tree(|t| t.list_layout_cell_width(node, cell as usize, width));
         }),

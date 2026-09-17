@@ -1,17 +1,17 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! daybridge staging (docs/bridge.md, DESIGN.md §15.6) — the CLI half.
+//! daybridge staging (docs/bridge.md, DESIGN.md §15.6): the CLI half.
 //!
-//! Every bridged crate declares its arms in its own `src/**.rs`. This module finds those crates in
+//! Every bridged crate declares its arms in its `src/**.rs`. This module finds those crates in
 //! the app's dependency graph, renders the adapter for the target being built, and hands it to the
 //! host project that compiles it: Swift into the generated `DayPieces` package, Kotlin or Java
 //! into a Gradle `srcDir`, ArkTS into the hvigor module, JavaScript into the day-dom shim.
 //!
 //! **Adapters are rendered from source, not read out of build output.** day-build writes the
 //! *Rust* half into `OUT_DIR` while cargo runs, which is far too late for staging that has to
-//! finish before the platform build compiles; parsing the crate's own sources — through
-//! `day_build::bridge`, the same parser the build script uses — makes staging independent of
+//! finish before the platform build compiles; parsing the crate's sources (through
+//! `day_build::bridge`, the same parser the build script uses) makes staging independent of
 //! whether cargo has ever run. It is also how the macOS Swift staging already treats
 //! `[package.metadata.day.macos]` shims.
 
@@ -36,14 +36,14 @@ pub struct Staged {
 }
 
 impl Staged {
-    /// Whether this build stages nothing — the common case, and what callers short-circuit on.
+    /// Whether this build stages nothing: the common case, and what callers short-circuit on.
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.swift.is_empty() && self.jvm.is_empty() && self.js.is_empty() && self.arkts.is_empty()
     }
 
     /// Write the staged Swift into `sources`, one directory per crate, recording each path so the
-    /// caller's prune keeps it (mtime-stable, like every other generated tree — DESIGN §17.5).
+    /// caller's prune keeps it (mtime-stable, like every other generated tree; DESIGN.md §17.5).
     pub fn write_swift(&self, sources: &Path, expected: &mut Vec<PathBuf>) -> Result<(), String> {
         for (krate, (file, contents)) in &self.swift {
             let dir = sources.join(krate.replace('-', "_"));
@@ -139,7 +139,7 @@ pub fn stage(project: &Project, platform: &str) -> Staged {
     staged
 }
 
-/// Write every staged JVM adapter — Kotlin or Java — under `root`, returning that directory when
+/// Write every staged JVM adapter (Kotlin or Java) under `root`, returning that directory when
 /// anything landed; the caller adds it to Gradle's `java.srcDirs` through `day-pieces.json`.
 pub fn write_jvm(project: &Project, staged: &Staged) -> Result<Option<PathBuf>, String> {
     let root = project.root.join("build/day/android/bridge");
@@ -166,8 +166,8 @@ pub fn write_jvm(project: &Project, staged: &Staged) -> Result<Option<PathBuf>, 
 /// under DevEco's SDK root (`DEVECO_SDK_HOME/default/hms`).
 ///
 /// The tree alone is not enough. DevEco's command-line tools ship it, CI's HarmonyOS image
-/// included, but hvigor resolves `@kit.*` HMS kits only for a HarmonyOS product — and the
-/// scaffold's host declares `runtimeOS: "OpenHarmony"` — so checking the tree staged an HMS arm
+/// included, but hvigor resolves `@kit.*` HMS kits only for a HarmonyOS product, and the
+/// scaffold's host declares `runtimeOS: "OpenHarmony"`, so checking the tree staged an HMS arm
 /// into a build that could not compile it.
 fn hms_sdk_available(project: &Project) -> bool {
     if std::env::var("DAY_OHOS_HMS").is_ok_and(|v| v == "1") {
@@ -193,7 +193,7 @@ fn hms_sdk_available(project: &Project) -> bool {
 
 /// Whether a host `build-profile.json5` builds only for the OpenHarmony runtime: some product
 /// declares `runtimeOS: "OpenHarmony"` and none declares `"HarmonyOS"`. A profile that names no
-/// runtime at all is left to the SDK-tree check. Read as text rather than parsed — JSON5 allows
+/// runtime at all is left to the SDK-tree check. Read as text rather than parsed: JSON5 allows
 /// unquoted keys and comments, and the one value needed sits right after its key.
 fn builds_for_openharmony_only(profile: &str) -> bool {
     let mut openharmony = false;
@@ -236,7 +236,7 @@ pub fn write_js(dist: &Path, staged: &Staged) -> Result<Vec<String>, String> {
 
 /// Write every staged ArkTS module into the HarmonyOS host's `daypieces` tree, plus the
 /// `DayBridges.ets` aggregator the host page imports. hvigor compiles ArkTS only from inside the
-/// module, so these land in the project rather than under `build/day/` — the same rule the piece
+/// module, so these land in the project rather than under `build/day/`, the same rule the piece
 /// modules follow (§15.2).
 ///
 /// The aggregator is written even when nothing is staged: the framework's `EntryAbility.ets`
@@ -259,7 +259,7 @@ pub fn write_arkts(harmony: &Path, staged: &Staged) -> Result<(), String> {
     }
     let aggregator = root.join("DayBridges.ets");
     // Merged by hand: ArkTS restricts `Object.assign` (arkts-limited-stdlib), and an object
-    // spread is not allowed either — a keys loop is what the language leaves.
+    // spread is not allowed either; a keys loop is what the language leaves.
     let body = format!(
         "// @generated by `day build` — the ArkTS arms of every bridged crate in this app\n\
          // (docs/bridge.md). The host calls `registerDayBridges()` once at startup.\n\
@@ -284,7 +284,7 @@ pub fn write_arkts(harmony: &Path, staged: &Staged) -> Result<(), String> {
 
 /// The bridge platform a target stages for, or `None` when nothing is staged: C and C++ arms are
 /// compiled by cargo itself, and the GTK/Qt/XAML desktop targets have no host project to stage a
-/// foreign source INTO. `macos` is appkit-only for the same reason — only appkit has the
+/// foreign source into. `macos` is appkit-only for the same reason: only appkit has the
 /// `platform/macos/` Xcode host to compile a staged Swift source.
 pub fn platform_of(target_name: &str) -> Option<&'static str> {
     match target_name {
@@ -299,7 +299,7 @@ pub fn platform_of(target_name: &str) -> Option<&'static str> {
 
 /// Tell cargo that this target's staged foreign half will be in the link, which turns on the
 /// `day_bridge_staged` cfg and with it the real arms (docs/bridge.md). Without this a bridged
-/// crate compiles against its fallback and reports `Unsupported` — correct, but not what an app
+/// crate compiles against its fallback and reports `Unsupported`: correct, but not what an app
 /// that just staged a Kotlin adapter wants.
 pub fn apply_staged(cmd: &mut std::process::Command, project: &Project, target_name: &str) {
     let Some(platform) = platform_of(target_name) else {
@@ -313,10 +313,10 @@ pub fn apply_staged(cmd: &mut std::process::Command, project: &Project, target_n
 /// Whether the app's Android scaffold can compile Kotlin at all.
 ///
 /// `com.android.application` compiles `.java` from any source directory but routes `.kt` only
-/// through the KOTLIN source set — and if nothing wires one, Gradle ignores the file **silently**:
+/// through the Kotlin source set, and if nothing wires one, Gradle ignores the file **silently**:
 /// the APK builds, installs, runs, and the first bridged call dies with `ClassNotFoundException`.
 /// The reliable signal is the JetBrains Kotlin plugin. AGP 9 registers a `kotlin` extension but
-/// does not compile `.kt` from a Day scaffold's source sets without it — wiring the staged root
+/// does not compile `.kt` from a Day scaffold's source sets without it; wiring the staged root
 /// into that extension was tried and silently compiled nothing, which is the same failure this
 /// check exists to prevent.
 ///
@@ -335,7 +335,7 @@ fn gradle_compiles_kotlin(gradle: &str) -> bool {
         || gradle.contains("day: kotlin-ok")
 }
 
-/// The crates staging a Kotlin (not Java) arm for Android — the ones that need the plugin.
+/// The crates staging a Kotlin (not Java) arm for Android: the ones that need the plugin.
 pub fn kotlin_arm_crates(project: &Project) -> Vec<String> {
     let mut out = Vec::new();
     for (name, root) in bridged_crates(project) {
@@ -355,12 +355,12 @@ pub fn kotlin_arm_crates(project: &Project) -> Vec<String> {
 /// `(crate, library)`.
 ///
 /// `link = ["speechd"]` becomes `-lspeechd`, which needs the library's development package at
-/// build time — and, once linked, at every launch. A missing one surfaces as a wall of linker
+/// build time and, once linked, at every launch. A missing one surfaces as a wall of linker
 /// output naming no crate at all, usually on a CI machine rather than the author's. Probing here
 /// turns that into a sentence.
 ///
 /// Only the arms claiming this host's platform are probed: a Windows arm's `ole32` says nothing
-/// about a Linux box. If there is no C compiler to probe with, nothing is reported — a missing
+/// about a Linux box. If there is no C compiler to probe with, nothing is reported: a missing
 /// toolchain is a different problem with its own message.
 pub fn unresolved_link_libs(project: &Project) -> Vec<(String, String)> {
     let host = if cfg!(target_os = "macos") {
@@ -401,7 +401,7 @@ pub fn unresolved_link_libs(project: &Project) -> Vec<(String, String)> {
     out
 }
 
-/// Whether the host's C compiler can link `-l<lib>`. Any failure to RUN the probe answers `true`,
+/// Whether the host's C compiler can link `-l<lib>`. Any failure to run the probe answers `true`,
 /// so a machine with no compiler produces no findings rather than a false one.
 fn links(lib: &str) -> bool {
     let dir = std::env::temp_dir().join(format!("day-linkprobe-{}", std::process::id()));
@@ -448,7 +448,7 @@ pub fn link_help(missing: &[(String, String)]) -> String {
     )
 }
 
-/// The fix, spelled out — the same text `day lint` and `day build` both print, so a developer who
+/// The fix, spelled out: the same text `day lint` and `day build` both print, so a developer who
 /// hits it once recognizes it wherever it appears.
 pub fn kotlin_plugin_help(crates: &[String]) -> String {
     format!(
@@ -486,7 +486,7 @@ fn bridged_crates(project: &Project) -> Vec<(String, PathBuf)> {
     let mut out: Vec<(String, PathBuf)> = crate::pieces::dependency_roots(project)
         .into_iter()
         // A crate that declares a bridge depends on day-bridge, by construction. Requiring that
-        // skips the two crates that merely CONTAIN the text `bridge!` — day-bridge itself, whose
+        // skips the two crates that merely contain the text `bridge!`: day-bridge itself, whose
         // doc comment shows the macro, and day-build, whose tests carry fixtures.
         .filter(|(name, root)| name != "day-bridge" && depends_on_day_bridge(root))
         .filter(|(_, root)| day_build::bridge::is_bridged(root))
@@ -506,8 +506,8 @@ fn depends_on_day_bridge(root: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     /// An HMS arm needs a host that can resolve Huawei kits. A profile building for the
-    /// OpenHarmony runtime rules one out even where an `hms` tree exists — the case that staged
-    /// Core Speech Kit into day-part-speech's OpenHarmony build on CI.
+    /// OpenHarmony runtime rules one out even where an `hms` tree exists, which is the case that
+    /// staged Core Speech Kit into day-part-speech's OpenHarmony build on CI.
     #[test]
     fn a_host_building_for_openharmony_cannot_resolve_hms_kits() {
         use super::builds_for_openharmony_only as only;
@@ -534,7 +534,7 @@ mod tests {
     }
 
     /// A crate whose source declares a Swift arm renders one adapter, with the prefixed symbol and
-    /// the line mapping — all from source, with no cargo run and no `OUT_DIR`.
+    /// the line mapping, all from source, without a cargo run or an `OUT_DIR`.
     #[test]
     fn renders_a_swift_arm_from_source() {
         let tmp = std::env::temp_dir().join(format!("day-bridge-stage-{}", std::process::id()));
@@ -586,7 +586,7 @@ day_bridge::bridge! {
     }
 
     /// The scaffold Gradle file compiles `.java` but not `.kt`, so a Kotlin arm in a project
-    /// without a Kotlin plugin has to be a build error — the alternative is an APK that installs
+    /// without a Kotlin plugin has to be a build error; the alternative is an APK that installs
     /// and then dies with `ClassNotFoundException` (docs/bridge.md "Android").
     #[test]
     fn a_kotlin_arm_needs_the_plugin_and_java_does_not() {
@@ -623,7 +623,7 @@ day_bridge::bridge! {
     #[cfg(unix)]
     fn the_link_probe_tells_present_from_missing() {
         // libm is on every unix with a C compiler; if there is no compiler at all the probe
-        // answers `true` by design, which this assertion also accepts.
+        // answers `true`, which this assertion also accepts.
         assert!(super::links("m"));
         assert!(
             !super::links("day-no-such-library-anywhere"),

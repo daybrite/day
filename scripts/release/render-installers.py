@@ -26,7 +26,7 @@ import sys
 
 REPO_URL = "https://github.com/daybrite/day"
 
-# (triple, archive extension) — must match package-cli.sh exactly.
+# (triple, archive extension); must match package-cli.sh exactly.
 TARGETS = [
     ("x86_64-apple-darwin", "tar.gz"),
     ("aarch64-apple-darwin", "tar.gz"),

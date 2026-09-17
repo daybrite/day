@@ -7,8 +7,8 @@
 //! Two layers produce the published index:
 //!
 //! - The dayscript runner (script.rs) records every capture it saves into
-//!   `build/day/screenshots/<target>/gallery.json` — one file per target, upserted across
-//!   runs and variants — carrying the `screenshot:` step's localized `title:` / `caption:`
+//!   `build/day/screenshots/<target>/gallery.json` (one file per target, upserted across
+//!   runs and variants), carrying the `screenshot:` step's localized `title:` / `caption:`
 //!   metadata plus the file facts (dimensions, byte size, sha-256). The metadata lives on the
 //!   step because that is where the capture is declared; the runner strips it before the step
 //!   reaches the engine, so apps need nothing new.
@@ -32,7 +32,7 @@ use crate::meta::Project;
 use crate::term::BOLD;
 
 /// Capture directories that are development stand-ins (macos-gtk exercises linux-gtk's
-/// toolkit) or tool droppings — never publication targets.
+/// toolkit) or tool droppings, never publication targets.
 const SKIP_DIRS: &[&str] = &[
     "_drive",
     "macos-gtk",
@@ -101,7 +101,7 @@ fn primary_language(tag: &str) -> &str {
 
 /// True when a variant segment reads as a language tag (`fr`, `zh-CN`). Variant names are
 /// data and anything may appear (a local run leaves `ipad` or `uicheck` behind); the index
-/// only CLAIMS a locale for one shaped like a locale.
+/// only claims a locale for one shaped like a locale.
 fn is_locale_like(s: &str) -> bool {
     let mut parts = s.split('-');
     let Some(lang) = parts.next() else {
@@ -132,7 +132,7 @@ fn parse_variant(name: &str) -> (Option<&str>, Option<&str>) {
 // File facts
 // ---------------------------------------------------------------------------
 
-/// Width/height straight out of the PNG IHDR — no image library for 8 fixed bytes.
+/// Width/height straight out of the PNG IHDR; no image library for 8 fixed bytes.
 fn png_dims(bytes: &[u8]) -> Option<(u32, u32)> {
     if bytes.len() < 24 || &bytes[12..16] != b"IHDR" {
         return None;
@@ -147,7 +147,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// `home` → `Home`, `list-item-100` → `List Item 100` — the label for a shot no metadata
+/// `home` → `Home`, `list-item-100` → `List Item 100`: the label for a shot no metadata
 /// titles (mirrors daysite's `shotLabel`).
 fn derived_label(id: &str) -> String {
     let mut out = String::with_capacity(id.len());
@@ -197,13 +197,13 @@ fn iso_utc_now() -> String {
 pub struct TargetEntry {
     pub file: String,
     pub variant: String,
-    /// The `--device` slug this capture was taken on, when the run named one — the extra path
+    /// The `--device` slug this capture was taken on, when the run named one: the extra path
     /// level under the target (docs/screenshots.md). `None` for a single-device project, which
     /// keeps the index of every app that does not use device profiles byte-identical.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
     pub shot: String,
-    /// The run's actual `--locale`, when one was passed — ground truth the variant name only
+    /// The run's actual `--locale`, when one was passed: ground truth the variant name only
     /// approximates.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
@@ -307,7 +307,7 @@ pub struct ShotMeta {
     pub source: Option<String>,
 }
 
-/// Take the metadata OUT of a runner step object (leaving the step engine-clean).
+/// Take the metadata out of a runner step object (leaving the step engine-clean).
 pub fn extract_meta(step: &mut serde_json::Map<String, serde_json::Value>) -> ShotMeta {
     let text = |v: serde_json::Value| serde_json::from_value::<Text>(v).ok();
     ShotMeta {
@@ -319,7 +319,7 @@ pub fn extract_meta(step: &mut serde_json::Map<String, serde_json::Value>) -> Sh
     }
 }
 
-/// Every `screenshot:` step's (name, metadata) in a dayscript file — `day lint`'s view.
+/// Every `screenshot:` step's (name, metadata) in a dayscript file: `day lint`'s view.
 pub fn script_screenshot_meta(path: &Path) -> Vec<(String, ShotMeta)> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
@@ -351,10 +351,10 @@ pub fn script_screenshot_meta(path: &Path) -> Vec<(String, ShotMeta)> {
 }
 
 // ---------------------------------------------------------------------------
-// `day screenshot index` — the merger
+// `day screenshot index`: the merger
 // ---------------------------------------------------------------------------
 
-/// `website/site.toml`, for the published host and base path. Absent is fine — the index
+/// `website/site.toml`, for the published host and base path. Absent is fine; the index
 /// carries paths only.
 fn site_host(project_root: &Path) -> Option<(String, String)> {
     #[derive(Deserialize)]
@@ -395,7 +395,7 @@ pub struct IndexOptions {
     pub out: Option<PathBuf>,
 }
 
-/// A capture's path under its target directory — with the device level when it has one.
+/// A capture's path under its target directory, with the device level when it has one.
 fn capture_path(tdir: &Path, device: Option<&str>, variant: &str, file: &str) -> PathBuf {
     let mut p = tdir.to_path_buf();
     if let Some(d) = device {
@@ -406,7 +406,7 @@ fn capture_path(tdir: &Path, device: Option<&str>, variant: &str, file: &str) ->
 
 /// Every `(device, variant, dir)` under a target directory, sorted.
 ///
-/// Distinguishes a device level from a variant level by CONTENT: a directory whose children are
+/// Distinguishes a device level from a variant level by content: a directory whose children are
 /// all directories is a device holding variants; one that holds files is a variant holding
 /// captures. An empty directory counts as a variant, which contributes nothing either way.
 fn variant_dirs(tdir: &Path) -> Vec<(Option<String>, String, PathBuf)> {
@@ -465,8 +465,8 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
 
     // Collect per target, first tree wins on a (target, variant, file) collision.
     let mut by_target: BTreeMap<String, Vec<TargetEntry>> = BTreeMap::new();
-    // Targets whose entries came from a per-target index, which preserves the dayscript's own
-    // declaration order — bare directory scans only offer alphabetical order.
+    // Targets whose entries came from a per-target index, which preserves the dayscript's
+    // declaration order; bare directory scans only offer alphabetical order.
     let mut script_ordered: Vec<String> = Vec::new();
     for root in &roots {
         let Ok(targets) = std::fs::read_dir(root) else {
@@ -488,7 +488,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 script_ordered.push(target.clone());
             }
             let list = by_target.entry(target).or_default();
-            // The per-target index leads — in its order, which is the dayscript's declaration
+            // The per-target index leads, in its order, which is the dayscript's declaration
             // order. Files stay the truth: an entry whose file is gone contributes nothing.
             for e in &known.screenshots {
                 if capture_path(&tdir, e.device.as_deref(), &e.variant, &e.file).exists()
@@ -501,10 +501,10 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             }
             // Then the tree walk backfills captures no index describes (bare, derived facts).
             //
-            // A target's children are either variant directories (`dark-fr/`) or DEVICE
+            // A target's children are either variant directories (`dark-fr/`) or device
             // directories that each hold variants (`ipad/dark-fr/`, docs/screenshots.md). The
             // two are told apart by what is inside: a directory holding only directories is a
-            // device level. Guessing from the NAME would be worse — a device slug and a variant
+            // device level. Guessing from the name would be worse: a device slug and a variant
             // name are both free-form, and `ipad` reads exactly like a variant.
             for (device, vname, vdir) in variant_dirs(&tdir) {
                 let Ok(files) = std::fs::read_dir(&vdir) else {
@@ -552,7 +552,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
         }
     }
 
-    // Shot order: first appearance — from the script-ordered targets first (their per-target
+    // Shot order: first appearance, from the script-ordered targets first (their per-target
     // index preserves the dayscript's declaration order), then any bare-scanned stragglers
     // (alphabetical is all a directory walk can offer).
     let mut order_walk: Vec<&String> = platforms
@@ -626,7 +626,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 .and_then(|m| m.caption.as_ref())
                 .and_then(|c| c.resolve(for_locale))
                 .map(str::to_string);
-            // The DEVICE level, where the capture has one, is part of the published path as well
+            // The device level, where the capture has one, is part of the published path as well
             // as its own field: a consumer that only reads `path` still resolves the right image,
             // and one that groups by device does not have to parse it back out
             // (docs/screenshots.md).
@@ -819,7 +819,7 @@ mod tests {
 
     /// A device level and a device-less level coexist in one target's tree and one index.
     ///
-    /// The tree walk tells them apart by CONTENT, not by name — `ipad/` holds directories, so it
+    /// The tree walk tells them apart by content, not by name: `ipad/` holds directories, so it
     /// is a device; `light/` holds captures, so it is a variant. Getting that wrong either hides
     /// every device capture or invents a device called "light", and both look like an empty
     /// gallery column rather than an error.

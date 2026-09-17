@@ -5,12 +5,12 @@
 //! crate's Java shim (`src/DayLocalNotify.java`, with its two receivers beside it), staged into the app's Gradle build
 //! by `day build`.
 //!
-//! Deliberately NO Google dependency: no Play services, no Firebase, so an app linking this part
-//! runs unchanged on AOSP, GrapheneOS, or a Kindle (docs/notify.md).
+//! No Google dependency (neither Play services nor Firebase), so an app linking this part runs
+//! unchanged on AOSP, GrapheneOS, or a Kindle (docs/notify.md).
 //!
 //! Scheduling is the half that differs most from Apple. Android has no notification scheduler, so a
-//! delayed notification is an `AlarmManager` alarm that wakes a `<receiver>` — declared through the
-//! `manifest-components` key — which rebuilds the notification from data persisted at schedule
+//! delayed notification is an `AlarmManager` alarm that wakes a `<receiver>` (declared through the
+//! `manifest-components` key), which rebuilds the notification from data persisted at schedule
 //! time. A reboot clears alarms, so a boot receiver re-arms them.
 
 use day_android::DayEnv;
@@ -43,11 +43,11 @@ pub(crate) fn capabilities() -> Capabilities {
     let available = call_bool("isAvailable");
     Capabilities {
         post: available,
-        // An alarm survives the app exiting — that is the whole reason scheduling goes through
+        // An alarm survives the app exiting, which is why scheduling goes through
         // AlarmManager rather than an in-process timer. Exactness is a separate question
         // (`canScheduleExact` below); the notification still arrives either way.
         schedule_while_dead: available,
-        // The one platform with a real user-facing channel model.
+        // The one platform with a user-facing channel model.
         channels: available,
         // `setNumber` is honored only by launchers that draw badges, so this is the platform
         // saying "supported", not a promise that every launcher shows it.
@@ -67,8 +67,8 @@ fn importance_value(i: Importance) -> i32 {
         Importance::Min => 1,     // IMPORTANCE_MIN
         Importance::Low => 2,     // IMPORTANCE_LOW
         Importance::Default => 3, // IMPORTANCE_DEFAULT
-        // There is no level above HIGH; Urgent differs from High only in interruption behavior,
-        // which on Android is a full-screen intent this phase does not use.
+        // There is no level above `IMPORTANCE_HIGH`; Urgent differs from High only in interruption
+        // behavior, which on Android is a full-screen intent this phase does not use.
         Importance::High | Importance::Urgent => 4, // IMPORTANCE_HIGH
     }
 }
@@ -99,9 +99,9 @@ pub(crate) fn register_channel(channel: &Channel) {
 
 pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
     let fire_at = n.fire_at_ms(now_ms());
-    // An Urgent channel schedules through `setAlarmClock` — the user-visible alarm-clock slot
+    // An Urgent channel schedules through `setAlarmClock`, the user-visible alarm-clock slot
     // (status-bar icon, Doze-exempt). The channel's importance lives on the Rust side; Android's
-    // own channel can't answer this because Urgent and High both map to IMPORTANCE_HIGH there.
+    // channel can't answer this because Urgent and High both map to IMPORTANCE_HIGH there.
     let alarm_clock = super::channels::importance(n.channel_str()) == Importance::Urgent;
     with_env(|env| {
         let (Ok(channel), Ok(title), Ok(body), Ok(route), Ok(icon)) = (
@@ -117,7 +117,7 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
         let badge = JValue::Int(n.badge_count().unwrap_or(0) as i32);
 
         let code = if let Some(at_ms) = fire_at {
-            // Absolute wall-clock time, because AlarmManager.RTC_WAKEUP takes one — and because
+            // Absolute wall-clock time, because AlarmManager.RTC_WAKEUP takes one, and because
             // the boot receiver has to know when, not "how long from some forgotten start".
             env.dcall_static(
                 CLASS,
@@ -161,7 +161,7 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
 }
 
 /// Wall-clock milliseconds. `SystemTime` can be before the epoch only on a badly-set clock, where
-/// scheduling is meaningless anyway — treat it as "now".
+/// scheduling is meaningless anyway; treat it as "now".
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

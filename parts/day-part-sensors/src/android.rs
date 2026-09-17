@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Android: SensorManager, read via this crate's Java shim (src/DaySensors.java) —
+// Android: SensorManager, read via this crate's Java shim (src/DaySensors.java), which is
 // staged into the app's Gradle build by `day build` through [package.metadata.day.android], exactly
-// like the UI pieces, but registering NO renderer. Android sensors are push-only
+// like the UI pieces, but registering no renderer. Android sensors are push-only
 // (SensorEventListener), so the shim lazily registers a listener per sensor on the first `read` and
 // caches the newest event; Rust polls it. No manifest permission is needed for these three sensors
 // at normal rates. The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it through

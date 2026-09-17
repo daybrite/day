@@ -1,7 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Leaf pieces — the childless primitives: `label`, `link`, `button`, `toggle`, `slider`, `text_field`, `progress`/`spinner`, `divider`, and `spacer`.
+//! Leaf pieces, the childless primitives: `label`, `link`, `button`, `toggle`, `slider`,
+//! `text_field`, `progress`/`spinner`, `divider`, and `spacer`.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -19,7 +20,7 @@ use crate::*;
 
 /// Build a styled paragraph run by run (docs/text-runs.md).
 ///
-/// The point of a builder is that byte ranges are error-prone to write by hand and meaningless to
+/// A builder exists because byte ranges are error-prone to write by hand and meaningless to
 /// read: `TextRun { range: 12..19, .. }` says nothing about which word it covers. Appending text
 /// and its style together keeps the two from drifting apart.
 ///
@@ -44,7 +45,7 @@ impl TextBuilder {
     pub fn new() -> Self {
         Self::default()
     }
-    /// The style the emphasis variants build on — set it to the label's own font so a bold run
+    /// The style the emphasis variants build on. Set it to the label's font so a bold run
     /// inside a `Footnote` paragraph stays footnote-sized.
     pub fn base(mut self, font: Font) -> Self {
         self.base = font;
@@ -128,7 +129,7 @@ impl TextBuilder {
             ..day_spec::TextRun::default()
         })
     }
-    /// Highlighted — a color painted behind the glyphs, for a search hit or a review mark.
+    /// Highlighted: a color painted behind the glyphs, for a search hit or a review mark.
     ///
     /// Sets the foreground too, through the same readable-on-a-fill rule `Button::tint` uses: a
     /// highlight is usually a pale wash, and the label's own text color is chosen for the window's
@@ -166,8 +167,8 @@ impl TextBuilder {
             ..day_spec::TextRun::default()
         })
     }
-    /// A link run. RENDERING it is `Cap::TextRuns`; ACTIVATING it is `Cap::TextLinks`, which
-    /// fewer backends have — check before relying on the tap (docs/text-runs.md).
+    /// A link run. Rendering it is `Cap::TextRuns`; activating it is `Cap::TextLinks`, which
+    /// fewer backends have, so check before relying on the tap (docs/text-runs.md).
     pub fn link(self, s: &str, target: &str) -> Self {
         let base = self.base;
         let target = target.to_string();
@@ -242,7 +243,7 @@ impl Label {
     pub fn bold(self) -> Self {
         self.weight(day_spec::FontWeight::Bold)
     }
-    /// De-emphasize the text: the platform's SECONDARY label color, whatever that is here
+    /// De-emphasize the text: the platform's secondary label color, whatever that is here
     /// (`secondaryLabelColor` on Apple, `?android:textColorSecondary`, a dim label on GTK).
     ///
     /// Semantic rather than a literal grey, for the reason a literal grey cannot solve: one that
@@ -258,16 +259,17 @@ impl Label {
         self.italic = true;
         self
     }
-    /// Ask for TABULAR (monospaced) figures, so a changing number stops changing width.
+    /// Ask for tabular (monospaced) figures, so a changing number stops changing width.
     ///
     /// Pair it with [`Decorate::reserving`] for a readout beside a slider: reserving stops the box
-    /// resizing when the digit COUNT changes, tabular stops the digits shifting inside it because
+    /// resizing when the digit count changes, tabular stops the digits shifting inside it because
     /// `1` is narrower than `8`. See [`day_spec::FontSpec::tabular`].
     pub fn tabular(mut self) -> Self {
         self.tabular = true;
         self
     }
-    /// Ask for the platform's monospaced face at this style's size — what inline code wants.
+    /// Ask for the platform's monospaced face at this style's size, which is what inline code
+    /// wants.
     pub fn monospace(mut self) -> Self {
         self.monospace = true;
         self
@@ -286,7 +288,7 @@ impl Label {
         self
     }
     /// Take both the text and its runs from a [`TextBuilder`], replacing whatever text the label
-    /// was built with. This is the intended entry point — the builder guarantees the ranges match
+    /// was built with. This is the intended entry point: the builder guarantees the ranges match
     /// the string, which is the invariant hand-written runs get wrong.
     pub fn runs_from(mut self, b: TextBuilder) -> Self {
         let (text, runs) = b.build();
@@ -294,11 +296,11 @@ impl Label {
         self.runs = runs;
         self
     }
-    /// Read the label's text as inline MARKDOWN (docs/markdown.md): `**bold**`, `*italic*`,
+    /// Read the label's text as inline Markdown (docs/markdown.md): `**bold**`, `*italic*`,
     /// `` `code` ``, `~~strike~~` and `[text](url)` become styled runs, and the markers themselves
     /// are stripped.
     ///
-    /// The parse happens at run time, on every change — so it works on a translated string chosen
+    /// The parse happens at run time, on every change, so it works on a translated string chosen
     /// from the locale bundle, a value off the network, or text a user is typing, none of which a
     /// compile-time macro can see. The cost is a parse per update of a string that is a label's
     /// worth of text.
@@ -311,7 +313,7 @@ impl Label {
     /// Unrecognized markup stays literal, so a half-typed `**` reads as two asterisks rather than
     /// flickering. Block constructs (headings, lists, quotes) are not parsed: they are layout,
     /// which is `column`/`form`/`list`.
-    /// Center (or trail) this label's lines within its own width — for the short wrapped block
+    /// Center (or trail) this label's lines within its own width, for the short wrapped block
     /// a welcome screen or an empty state uses. Only observable on a label that wraps, since a
     /// single line already fills its box.
     pub fn align(mut self, align: day_spec::props::TextAlign) -> Self {
@@ -327,13 +329,13 @@ impl Label {
     /// Without this, a link opens in the platform's default handler, the same as the [`link`]
     /// piece. Set it to route in-app (a `day://` scheme, a route name) or to confirm first.
     ///
-    /// Activation is `Cap::TextLinks`, which is narrower than run RENDERING — on a backend
+    /// Activation is `Cap::TextLinks`, which is narrower than run rendering: on a backend
     /// without it the link still draws, and nothing calls this (docs/text-runs.md).
     pub fn on_link(mut self, f: impl Fn(&str) + 'static) -> Self {
         self.on_link = Some(Rc::new(f));
         self
     }
-    /// The text color: a constant, a `Signal<Color>`, or a `Fn() -> Color` — a reactive
+    /// The text color: a constant, a `Signal<Color>`, or a `Fn() -> Color`. A reactive
     /// source recolors the native label when it changes (theme systems ride this).
     pub fn color<M>(mut self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
         self.color = Some(c.into_reactive());
@@ -528,7 +530,7 @@ impl Piece for Label {
 /// Override per-link with [`Link::color`] to match an app's accent.
 const LINK_BLUE: day_spec::Color = day_spec::Color::rgb(0.0, 0.478, 1.0);
 
-/// A tappable run of text that opens `url` in the platform's default handler — the system browser
+/// A tappable run of text that opens `url` in the platform's default handler: the system browser
 /// for `http`/`https`, the mail client for `mailto:`, and so on. This is Day's analogue of
 /// SwiftUI's `Link`.
 ///
@@ -642,7 +644,7 @@ impl Button {
     }
 
     /// Whether the button is interactive (default `true`; `false` = disabled/grayed by the native
-    /// control). Reactive, so it can follow app state — e.g. `.enabled(move || !busy.get())` to
+    /// control). Reactive, so it can follow app state, e.g. `.enabled(move || !busy.get())` to
     /// lock a control while a long operation runs.
     ///
     /// This drives the platform's own disabled rendering through `ButtonPatch::Enabled`; it is not
@@ -660,19 +662,19 @@ impl Button {
         self
     }
 
-    /// A filled button in a color of your choosing, still drawn by the NATIVE control.
+    /// A filled button in a color of your choosing, still drawn by the native control.
     ///
     /// The platform keeps everything that makes a button a button: its pressed and hover
     /// rendering, its focus ring, its disabled look, its accessibility role, and keyboard
     /// activation. Only the fill is yours. The label color is chosen for contrast against the
     /// fill, so a pale tint gets dark text and a saturated one white.
     ///
-    /// Reactive, so the color can follow app state — `.tint(move || if recording { RUST } else
+    /// Reactive, so the color can follow app state: `.tint(move || if recording { RUST } else
     /// { SKY })` recolors in place rather than rebuilding the button.
     ///
     /// A backend that cannot recolor its button ignores the tint and draws its ordinary button
-    /// (docs/buttons.md). That is deliberate: a plain button on one platform is a far smaller
-    /// loss than a colored rectangle that is no longer a button.
+    /// (docs/buttons.md), because a plain button on one platform is a far smaller loss than a
+    /// colored rectangle that is no longer a button.
     pub fn tint<M>(mut self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
         self.tint = Some(color.into_reactive());
         self
@@ -687,8 +689,8 @@ impl Button {
     }
 }
 
-/// [`Button`]'s own builders, reachable through a decoration — the [`LabelBuilder`] pattern, for
-/// buttons: `button(…).padding(8.0).prominent()` resolves.
+/// [`Button`]'s builders, reachable through a decoration: the [`LabelBuilder`] pattern, for
+/// buttons, so `button(…).padding(8.0).prominent()` resolves.
 pub trait ButtonBuilder: Sized {
     fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self;
     fn image(self, name: impl Into<day_spec::ImageName>) -> Self;
@@ -797,7 +799,7 @@ impl Piece for Button {
                 },
             );
         }
-        // A reactive `enabled` patches on change; a constant is applied once at realize — the same
+        // A reactive `enabled` patches on change; a constant is applied once at realize, the same
         // shape `Toggle` uses.
         let enabled = self.enabled;
         let enabled_gate = enabled.clone();
@@ -812,7 +814,7 @@ impl Piece for Button {
         if let Some(action) = self.action {
             // Gate the action on `enabled` as well as telling the native control. A real touch on a
             // disabled UIButton/MaterialButton never produces `Pressed`, so this is belt-and-braces
-            // for users — but an event delivered by another route (a dayscript `tap`, which
+            // for users, but an event delivered by another route (a dayscript `tap`, which
             // dispatches to the node rather than simulating a touch) would otherwise fire an action
             // the user cannot reach. `.enabled(false)` should mean "cannot fire", not "looks gray".
             let gate = enabled_gate;
@@ -866,7 +868,7 @@ pub fn toggle<S: Binding<bool>>(value: S) -> Toggle<S> {
 }
 
 impl<S: Binding<bool>> Toggle<S> {
-    /// Whether the toggle is interactive (default `true`; `false` = disabled/grayed). Reactive —
+    /// Whether the toggle is interactive (default `true`; `false` = disabled/grayed). Reactive,
     /// e.g. `.enabled(capability(Cap::TextSpellCheck) == Support::Native)` to gray it out where a
     /// backend can't honor the thing it controls.
     pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
@@ -970,7 +972,7 @@ impl<S: Binding<f64>> Piece for Slider<S> {
         let v = self.value;
         let (step, min, max) = (self.step, self.min, self.max);
         cx.on(node, move |ev| {
-            // Honor `.step(_)` at the framework layer so every backend produces stepped values —
+            // Honor `.step(_)` at the framework layer so every backend produces stepped values:
             // several native sliders (e.g. iOS `UISlider`) have no native step and emit a
             // continuous stream while dragging. Snapping here keeps the bound signal (and the
             // thumb, via `bind_seeded` above) on the step grid, and stops a `.step`-bound consumer
@@ -985,7 +987,7 @@ impl<S: Binding<f64>> Piece for Slider<S> {
                 Event::ValueChanged(val) => v.write_preview(snap(*val)),
                 // The settled value: One record for the whole drag. A backend that cannot
                 // tell the two apart never sends this, and the preview default (a plain
-                // write) keeps it correct — chattier, never wrong.
+                // write) keeps it correct: chattier, never wrong.
                 Event::ValueCommitted(val) => v.write_commit(snap(*val)),
                 _ => {}
             }
@@ -1066,10 +1068,10 @@ impl<S: Binding<String>> Piece for TextField<S> {
         );
         let v = self.value;
         let submit = self.on_submit;
-        // Typing is a session: each keystroke is a PREVIEW (readers follow, nothing durable
-        // fires), sealed into one committed change on Return or focus loss — the typing
+        // Typing is a session: each keystroke is a preview (readers follow, nothing durable
+        // fires), sealed into one committed change on Return or focus loss by the typing
         // coalescer. For a plain Signal binding preview defaults to write, so nothing changes
-        // where no session semantics exist. TEARDOWN seals too: navigating away from a page
+        // where no session semantics exist. Teardown seals too: navigating away from a page
         // mid-type must not leave the last burst outside the change log.
         let last: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         {

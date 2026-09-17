@@ -4,28 +4,28 @@
 //! Relations (docs/persistence.md): `One<M>` foreign keys, `Many<M>` maintained inverses,
 //! delete rules, and the machinery that keeps them true.
 //!
-//! There is one source of truth per to-one relation — the foreign-key column on the child —
-//! and the parent's `Many` side is a VIEW over it, answered from the engine's own foreign-key
-//! index and memoized per parent. Nothing is loaded at open: the first read of one parent's
+//! A to-one relation is stored in one place, the foreign-key column on the child, and the
+//! parent's `Many` side is a view over it, answered from the engine's foreign-key index and
+//! memoized per parent. Nothing is loaded at open: the first read of one parent's
 //! children is one indexed `SELECT`, remembered until a membership write invalidates it.
 //! Write `lodging.trip()` and the trip's `lodging()` read wakes; call
 //! `trip.lodging().add(id)` and it writes the lodging's foreign key through the front door,
 //! so the change announces, captures for undo, folds to one `UPDATE`, and marks any live
 //! query watching either table stale.
 //!
-//! Reads made MID-TURN see the truth: the memo answers from the last flush, overlaid with
-//! this turn's unflushed dirty rows — a child reparented a millisecond ago is under its new
+//! Reads made mid-turn see the truth: the memo answers from the last flush, overlaid with
+//! this turn's unflushed dirty rows, so a child reparented a millisecond ago is under its new
 //! parent before any SQL runs.
 //!
-//! Delete rules run where the delete announces: a parent's removal cascades (recursively —
+//! Delete rules run where the delete announces: a parent's removal cascades (recursively:
 //! the nested deletes take the same pipeline, so undoing the cascade is one unit that
 //! restores the whole subtree), nullifies (`Option<One<M>>` references clear), or denies
 //! (the checked door [`crate::ModelContainer::delete`] refuses while children remain). The
-//! generated DDL carries the matching `REFERENCES … ON DELETE …` clause, `DEFERRABLE
-//! INITIALLY DEFERRED` so within-transaction statement order never trips it — which also
-//! keeps another process honest about the same rules, and is what deletes the NON-resident
+//! generated DDL carries the matching `REFERENCES … ON DELETE …` clause,
+//! `DEFERRABLE INITIALLY DEFERRED` so within-transaction statement order never trips it. The
+//! clause also holds another process to the same rules, and is what deletes the non-resident
 //! rows a cascade reaches: the pipeline walks every child (so queries, memos and undo hear),
-//! and the engine's own clause is the backstop that makes the file agree.
+//! and the engine's clause is the backstop that makes the file agree.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -43,10 +43,10 @@ use crate::{
 // The reference types
 // ---------------------------------------------------------------------------
 
-/// A to-one reference — the foreign-key column on the child row. `One<M>` alone is a required
+/// A to-one reference: the foreign-key column on the child row. `One<M>` alone is a required
 /// reference (`NOT NULL`); wrap it `Option<One<M>>` for a nullable one. `Copy`, 16 bytes, and
 /// an ordinary [`ColumnValue`], so the derive treats the field as a plain column whose stored
-/// form is the target's own key shape.
+/// form is the target's key shape.
 pub struct One<M: ?Sized> {
     id: Option<u64>,
     _m: PhantomData<fn() -> M>,
@@ -103,7 +103,7 @@ impl<M: ?Sized> One<M> {
             _m: PhantomData,
         }
     }
-    /// The referenced id — `None` when unset.
+    /// The referenced id, or `None` when unset.
     pub fn id(self) -> Option<ModelId<M>> {
         self.id.map(ModelId::from_handle)
     }
@@ -125,7 +125,7 @@ impl<M: ?Sized> One<M> {
 }
 
 impl<M: Model> ColumnValue for One<M> {
-    /// The target's own key shape — `INTEGER`, a 16-byte `BLOB`, or `TEXT`.
+    /// The target's key shape: `INTEGER`, a 16-byte `BLOB`, or `TEXT`.
     const SQL_TYPE: SqlType = M::KEY_SQL;
     fn to_sqlite_value(&self) -> Value {
         match self.id {
@@ -152,9 +152,9 @@ impl<M: Model> crate::Col<One<M>> {
         self.eq(One::<M>::from_handle(id.into().handle()))
     }
 
-    /// The reference points at one of these rows — the set form, and what a query feeding
+    /// The reference points at one of these rows: the set form, and what a query feeding
     /// another query compiles to. (Named apart from the generic [`crate::Col::is_in`], which
-    /// takes `One` values; this one takes ids, which is what a caller actually holds.)
+    /// takes `One` values; this one takes ids, which is what a caller holds.)
     pub fn is_one_of(self, ids: impl IntoIterator<Item = impl Into<ModelId<M>>>) -> crate::Pred {
         self.is_in(
             ids.into_iter()
@@ -176,7 +176,7 @@ impl<M: Model> crate::Col<One<M>> {
 
 /// Traversing a to-one reference in a predicate: "lodgings whose trip is done". A to-one is
 /// a to-many of at most one, so the quantifier vocabulary is the same one the `Many` side
-/// uses — `any` reads as "its target matches, and there is one".
+/// uses; `any` reads as "its target matches, and there is one".
 impl<M: Model> crate::Col<One<M>> {
     pub fn any(self, inner: crate::Pred) -> crate::Pred {
         self.quantified(crate::Quant::Any, inner)
@@ -216,7 +216,7 @@ impl<M: Model> crate::Col<Option<One<M>>> {
     }
 }
 
-/// The same tests over a NULLABLE reference (`Option<One<M>>`), which is what a relation with
+/// The same tests over a nullable reference (`Option<One<M>>`), which is what a relation with
 /// a nullify delete rule requires the child to hold.
 impl<M: Model> crate::Col<Option<One<M>>> {
     pub fn is(self, id: impl Into<ModelId<M>>) -> crate::Pred {
@@ -242,7 +242,7 @@ impl<M: Model> crate::Col<Option<One<M>>> {
     }
 }
 
-/// The to-many side: a marker field. It stores nothing — membership lives in the children's
+/// The to-many side: a marker field. It stores nothing; membership lives in the children's
 /// foreign keys (or the join table), and the field exists so the relation has an observable
 /// path of its own and a declared home for `#[model(relation(…))]`. Reads go through the
 /// generated accessor's [`RelationRef`].
@@ -278,13 +278,13 @@ impl<M: ?Sized> std::fmt::Debug for Many<M> {
 /// for `@Relationship`).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DeleteRule {
-    /// Children survive; their references clear. Needs `Option<One<M>>` on the child —
-    /// a required reference cannot hold "nothing", and wiring refuses the combination.
+    /// Children survive; their references clear. Needs `Option<One<M>>` on the child: a
+    /// required reference cannot hold "nothing", and wiring refuses the combination.
     Nullify,
-    /// Children delete with the parent, recursively, through the normal pipeline — undoable
-    /// as one unit, heard by live queries.
+    /// Children delete with the parent, recursively, through the normal pipeline, undoable
+    /// as one unit and heard by live queries.
     Cascade,
-    /// The delete is refused while children remain — through
+    /// The delete is refused while children remain, through
     /// [`crate::ModelContainer::delete`], the checked door; a raw `restructure` bypasses the
     /// check and the deferred SQL `RESTRICT` refuses at flush instead.
     Deny,
@@ -300,19 +300,19 @@ impl DeleteRule {
     }
 }
 
-/// One declared relation, as the derive records it on the PARENT (`Many`) side.
+/// One declared relation, as the derive records it on the parent (`Many`) side.
 #[derive(Clone, Copy, Debug)]
 pub struct RelationDef {
     /// The `Many` field's name on the declaring model.
     pub field: &'static str,
     /// The target model's table.
     pub target_table: &'static str,
-    /// To-one/to-many: the target's foreign-key FIELD. Join relations leave it empty.
+    /// To-one/to-many: the target's foreign-key field. Join relations leave it empty.
     pub inverse: &'static str,
     pub delete: DeleteRule,
-    /// The target's order FIELD (`REAL`) for an ordered to-many.
+    /// The target's order field (`REAL`) for an ordered to-many.
     pub ordered: Option<&'static str>,
-    /// A join table name — the many-to-many form.
+    /// A join table name: the many-to-many form.
     pub join: Option<&'static str>,
 }
 
@@ -320,7 +320,7 @@ pub struct RelationDef {
 // Wiring
 // ---------------------------------------------------------------------------
 
-/// What `Model::wire` receives — the container mid-open. Wiring failures collect here and
+/// What `Model::wire` receives: the container mid-open. Wiring failures collect here and
 /// fail the open with the first one, named.
 pub struct Registrar<'c> {
     pub(crate) container: &'c ModelContainer,
@@ -348,7 +348,7 @@ pub(crate) struct ToOneRel {
     pub(crate) child_store: u64,
     pub(crate) child_table: &'static str,
     pub(crate) child_key_col: &'static str,
-    /// The foreign key as the child's FIELD (the change log's language) and COLUMN (SQL's).
+    /// The foreign key as the child's field (the change log's language) and column (SQL's).
     pub(crate) fk_field: &'static str,
     pub(crate) fk_col: &'static str,
     pub(crate) delete: DeleteRule,
@@ -363,7 +363,7 @@ pub(crate) struct ToOneRel {
     pub(crate) write_ord: Box<dyn Fn(u64, f64) -> bool>,
     /// parent → children (relation order), filled per parent on first read.
     memo: RefCell<HashMap<u64, Vec<u64>>>,
-    /// child → memoized parent, maintained only for children of memoized parents — the O(1)
+    /// child → memoized parent, maintained only for children of memoized parents: the O(1)
     /// walk-back a foreign-key rewrite needs.
     memo_parent: RefCell<HashMap<u64, u64>>,
 }
@@ -376,7 +376,7 @@ impl ToOneRel {
         })
     }
 
-    /// The parent's children, in relation order — the memo, or one indexed `SELECT`, overlaid
+    /// The parent's children, in relation order: the memo, or one indexed `SELECT`, overlaid
     /// with this turn's unflushed dirty rows so mid-turn reads see the truth.
     pub(crate) fn children_of(&self, parent: u64) -> Vec<u64> {
         if let Some(hit) = self.memo.borrow().get(&parent) {
@@ -436,7 +436,7 @@ impl ToOneRel {
         }
     }
 
-    /// The parent this child belongs to — the memo when it knows, the child's own cached
+    /// The parent this child belongs to: the memo when it knows, the child's cached
     /// foreign key, or one point `SELECT`.
     pub(crate) fn parent_of(&self, child: u64) -> Option<u64> {
         if let Some(p) = self.memo_parent.borrow().get(&child) {
@@ -461,7 +461,7 @@ impl ToOneRel {
         .flatten()
     }
 
-    /// One child's order value — cache first (which covers every unflushed write), the file
+    /// One child's order value: cache first (which covers every unflushed write), the file
     /// otherwise.
     pub(crate) fn read_order(&self, child: u64) -> f64 {
         if let Some(v) = (self.read_ord_cached)(child) {
@@ -484,7 +484,7 @@ impl ToOneRel {
 
     pub(crate) fn set_fk(&self, child: u64, parent: Option<u64>) -> bool {
         // Writes need the row resident; the announcement then routes back through
-        // `reparent`, which is where the memos and both parents' announcements happen —
+        // `reparent`, which is where the memos and both parents' announcements happen:
         // one path for every door.
         (self.materialize)(&[child]);
         (self.write_fk)(child, parent)
@@ -534,11 +534,11 @@ impl ToOneRel {
         }
     }
 
-    /// The child's foreign key was rewritten: both parents' views move. The NEW parent is the
+    /// The child's foreign key was rewritten: both parents' views move. The new parent is the
     /// child's own field; the old one is the memo when a reader ever established it, the
-    /// FILE otherwise (the un-flushed value is exactly the pre-write one). A reader whose
+    /// file otherwise (the un-flushed value is exactly the pre-write one). A reader whose
     /// memo was current re-establishes it on its own re-read, so repeated reparents in one
-    /// turn stay coherent for anything actually watching.
+    /// turn stay coherent for anything watching.
     pub(crate) fn reparent(&self, child: u64) {
         let new = (self.read_fk)(child);
         let old = self
@@ -558,7 +558,7 @@ impl ToOneRel {
         self.announce_parent_set(old, new);
     }
 
-    /// Announce each DISTINCT parent in the pair.
+    /// Announce each distinct parent in the pair.
     fn announce_parent_set(&self, a: Option<u64>, b: Option<u64>) {
         if let Some(p) = a {
             self.announce_parent(p);
@@ -570,7 +570,7 @@ impl ToOneRel {
         }
     }
 
-    /// The parent the FILE records for this child — the pre-flush truth, bypassing both the
+    /// The parent the file records for this child: the pre-flush truth, bypassing both the
     /// memo and the (already rewritten) cached row.
     fn former_parent_file(&self, child: u64) -> Option<u64> {
         self.with_container(|c| {
@@ -605,8 +605,8 @@ impl ToOneRel {
         }
         match self.delete {
             DeleteRule::Cascade => {
-                // Each nested delete takes the whole pipeline — announce, undo capture,
-                // dirty, query staleness — and, for a self-referential tree, recurses
+                // Each nested delete takes the whole pipeline (announce, undo capture,
+                // dirty, query staleness) and, for a self-referential tree, recurses
                 // through this same method one level down. When an undo stack stands by,
                 // the rows materialize first so their deletes carry what inversion needs;
                 // without one the deletes are value-free and the fold batches them.
@@ -624,7 +624,7 @@ impl ToOneRel {
                 }
             }
             DeleteRule::Deny => {
-                // Too late to refuse — the row is gone from the store. The checked door
+                // Too late to refuse: the row is gone from the store. The checked door
                 // (`ModelContainer::delete`) refuses before; a bypass surfaces here and at
                 // the deferred SQL RESTRICT.
                 container.inner.error.set(Some(format!(
@@ -649,7 +649,7 @@ fn fk_of<P: Model, C: Model>(c: &C, inverse: &str) -> Option<u64> {
     None
 }
 
-/// Wire one `Many` declaration — called from the derive-generated `Model::wire`.
+/// Wire one `Many` declaration; called from the derive-generated `Model::wire`.
 pub fn wire_to_many<P: Model, C: Model>(
     reg: &mut Registrar<'_>,
     field: &'static str,
@@ -776,9 +776,9 @@ pub fn wire_to_many<P: Model, C: Model>(
 // Many-to-many: the join table
 // ---------------------------------------------------------------------------
 
-/// One membership row of a generated join table. Its key is the PAIR — that is what makes a
+/// One membership row of a generated join table. Its key is the pair, which is what makes a
 /// membership addressable, undoable and mergeable by the same machinery every other row uses,
-/// with no second vocabulary. The store over these rows is a CACHE like every other: only
+/// with no second vocabulary. The store over these rows is a cache like every other: only
 /// memberships this process touched are resident.
 #[derive(Clone, Default, PartialEq, Debug)]
 pub(crate) struct JoinRow {
@@ -812,11 +812,11 @@ impl ApplyField for JoinRow {
     }
 }
 
-/// A wired many-to-many — one per join table, whichever side (or both) declared it.
+/// A wired many-to-many: one per join table, whichever side (or both) declared it.
 ///
 /// Membership lives in the join table; both directions answer from its indexes, memoized per
 /// row. When both models declare the relation over the same `join = "…"` table, the second
-/// declaration attaches as this relation's B side rather than opening a second store — two
+/// declaration attaches as this relation's B side rather than opening a second store; two
 /// stores over one table would double every write and disagree about column order.
 pub(crate) struct JoinRel {
     pub(crate) container: Weak<ContainerInner>,
@@ -829,9 +829,9 @@ pub(crate) struct JoinRel {
     pub(crate) a_field: &'static str,
     pub(crate) a_key_col: &'static str,
     pub(crate) a_delete: DeleteRule,
-    /// The other side; `b_field` is set only if that model declared the relation too —
-    /// through a `Cell`, because the second declaration fills it in during wiring while the
-    /// first declaration's `Rc` is already held.
+    /// The other side. `b_field` is set only if that model declared the relation too, and
+    /// is held in a `Cell` because the second declaration fills it in during wiring while
+    /// the first declaration's `Rc` is already held.
     pub(crate) b_store: u64,
     pub(crate) b_table: &'static str,
     pub(crate) b_key_col: &'static str,
@@ -937,7 +937,7 @@ impl JoinRel {
         }
     }
 
-    /// The rows on the other side that hold `key` — the join's back-resolution.
+    /// The rows on the other side that hold `key`: the join's back-resolution.
     pub(crate) fn holders_of(&self, key: u64, forward: bool) -> Vec<u64> {
         // Looking back from a B row means asking the reverse direction, and vice versa.
         self.members_of(key, !forward)
@@ -969,7 +969,7 @@ impl JoinRel {
         .unwrap_or(0.0)
     }
 
-    /// Whether the pair is currently a membership — the cache, the dirty set, or the file.
+    /// Whether the pair is currently a membership: the cache, the dirty set, or the file.
     fn is_member(&self, parent: u64, child: u64) -> bool {
         let handle = day_model::Key::Pair(parent, child).handle();
         if let Some(state) = self.with_container(|c| c.dirty_state_of(self.join_store, handle))
@@ -1052,7 +1052,7 @@ impl JoinRel {
             let handle = day_model::Key::Pair(p, c).handle();
             if capture && self.store.with_untracked(|k| k.get(handle).is_none()) {
                 // Materialize the membership so its delete carries what undo inversion
-                // needs — the pair is known; only an ordered position needs the file.
+                // needs: the pair is known; only an ordered position needs the file.
                 let position = self.position_of(p, c);
                 self.store.populate(vec![JoinRow {
                     parent: p,
@@ -1070,9 +1070,9 @@ impl JoinRel {
             self.b_delete.get()
         };
         if rule == DeleteRule::Cascade {
-            // Cascade across a join takes the rows this one held — but only those no other
+            // Cascade across a join takes the rows this one held, but only those no other
             // row still holds, or deleting one album would take a shared photo with it.
-            // (`forward` here is the DELETED side's perspective: the counterpart's holders
+            // (`forward` here is the deleted side's perspective: the counterpart's holders
             // are read from the opposite index.)
             for other in others {
                 let holders = self.holders_of(other, is_a);
@@ -1090,7 +1090,7 @@ impl JoinRel {
 
     fn link(&self, parent: u64, child: u64, position: f64) -> bool {
         if self.is_member(parent, child) {
-            return false; // already a member — membership is a set
+            return false; // already a member; membership is a set
         }
         let handle = day_model::Key::Pair(parent, child).handle();
         self.store.restructure("link", Op::Insert, handle, |k| {
@@ -1125,7 +1125,7 @@ impl JoinRel {
     }
 }
 
-/// Wire one many-to-many — called from the derive-generated `Model::wire`.
+/// Wire one many-to-many; called from the derive-generated `Model::wire`.
 pub fn wire_join<P: Model, C: Model>(
     reg: &mut Registrar<'_>,
     field: &'static str,
@@ -1145,8 +1145,8 @@ pub fn wire_join<P: Model, C: Model>(
         return;
     };
 
-    // The other side already wired this table: attach as its B side — one relation, one
-    // store, both directions — rather than opening a second store over the same rows.
+    // The other side already wired this table: attach as its B side (one relation, one
+    // store, both directions) rather than opening a second store over the same rows.
     {
         let joins = container.inner.joins.borrow();
         if let Some(existing) = joins.iter().find(|j| j.join_table == join_table) {
@@ -1218,7 +1218,7 @@ pub fn wire_join<P: Model, C: Model>(
         return;
     }
 
-    // The membership cache starts EMPTY — memberships fault through the memos on read and
+    // The membership cache starts empty; memberships fault through the memos on read and
     // enter through link/unlink on write; the file is never read whole.
     let store = Store::new(Keyed::new(Vec::new()));
     let delete_a = Box::new(move |h: u64| {
@@ -1259,7 +1259,7 @@ pub fn wire_join<P: Model, C: Model>(
     container.inner.joins.borrow_mut().push(rel);
 }
 
-/// `trips` → `trip`, `boxes` → `box`, `categories` → `category` — the join column's stem.
+/// `trips` → `trip`, `boxes` → `box`, `categories` → `category`: the join column's stem.
 fn singular(table: &str) -> String {
     if let Some(stem) = table.strip_suffix("ies") {
         return format!("{stem}y");
@@ -1291,7 +1291,7 @@ pub(crate) fn register_container(inner: &Rc<ContainerInner>) {
     });
 }
 
-/// A resolved relation, either shape — and for a join, which end asked (`forward` is the A
+/// A resolved relation, either shape, and for a join, which end asked (`forward` is the A
 /// side, the one whose declaration created the table).
 enum Wired {
     ToOne(Rc<ToOneRel>),
@@ -1325,7 +1325,7 @@ fn find_relation(parent_store: u64, field: &str) -> Option<Wired> {
     })
 }
 
-/// Bring a set of rows into the cache — what a relation write does before it writes.
+/// Bring a set of rows into the cache: what a relation write does before it writes.
 type Materialize = Box<dyn Fn(&[u64])>;
 
 /// Read one row's order value by handle; write it back. The pair is what an ordered relation
@@ -1343,9 +1343,9 @@ struct Placement {
 }
 
 /// What the generated accessor for a `Many` field returns: the relation, addressed from one
-/// parent. Reads are TRACKED through the parent's own field path — membership changes wake
-/// exactly the readers of this parent's relation — and writes go through the children's
-/// foreign keys, the single source of truth.
+/// parent. Reads are tracked through the parent's field path (membership changes wake
+/// exactly the readers of this parent's relation), and writes go through the children's
+/// foreign keys, where membership is stored.
 pub struct RelationRef<S: Copy + 'static, P: 'static, T: 'static> {
     field: day_model::Field<S, P, Many<T>>,
 }
@@ -1380,7 +1380,7 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
         }
     }
 
-    /// The children's ids, in relation order — TRACKED: the caller re-runs when membership
+    /// The children's ids, in relation order, tracked: the caller re-runs when membership
     /// (or order) changes, and not when a child's other fields do.
     pub fn ids(&self) -> Vec<ModelId<T>> {
         self.field.with(|_| ());
@@ -1407,9 +1407,9 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
         self.members().contains(&h)
     }
 
-    /// Take `child` into this relation — writing its foreign key (reparenting it away from
+    /// Take `child` into this relation by writing its foreign key (reparenting it away from
     /// any previous parent, whose readers wake too). On an ordered relation the child lands
-    /// Last, its order field written past the current end. Returns false when the relation
+    /// last, its order field written past the current end. Returns false when the relation
     /// is unwired or the child is gone.
     pub fn add(&self, child: impl Into<ModelId<T>>) -> bool {
         let h = child.into().handle();
@@ -1449,17 +1449,17 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
         }
     }
 
-    /// Ordered relations: place `child` at `index` among the current children — normally one
+    /// Ordered relations: place `child` at `index` among the current children, normally one
     /// write of the child's order field (fractional keying), plus the adopt when it was not
     /// yet this parent's. When the gap between neighbors has bisected away, the siblings
-    /// rebalance to whole numbers first — O(n), rare, and every write still takes the front
-    /// door. Returns false on an unordered or unwired relation.
+    /// rebalance to whole numbers first (O(n), rare, and every write still takes the front
+    /// door). Returns false on an unordered or unwired relation.
     pub fn insert_at(&self, child: impl Into<ModelId<T>>, index: usize) -> bool {
         let h = child.into().handle();
         let Some((wired, parent)) = self.resolve() else {
             return false;
         };
-        // Read the neighbors' order values, place between them, and write one row — whichever
+        // Read the neighbors' order values, place between them, and write one row, whichever
         // shape holds the order (the child's field, or the membership's position).
         let Placement {
             ordered,
@@ -1543,12 +1543,12 @@ impl<S: day_model::Source<P>, P: 'static, T: 'static> RelationRef<S, P, T> {
         write_ord(h, ord)
     }
 
-    /// Move an existing child to `index` — [`RelationRef::insert_at`], reading as intent.
+    /// Move an existing child to `index`: [`RelationRef::insert_at`], reading as intent.
     pub fn move_to(&self, child: impl Into<ModelId<T>>, index: usize) -> bool {
         self.insert_at(child, index)
     }
 
-    /// Clear `child`'s reference — it leaves this relation and belongs to no parent. On a
+    /// Clear `child`'s reference; it leaves this relation and belongs to no parent. On a
     /// required (`One<…>`, non-`Option`) inverse the cleared reference is a constraint
     /// violation at flush: reparent or delete the child instead.
     pub fn remove(&self, child: impl Into<ModelId<T>>) -> bool {
@@ -1664,7 +1664,7 @@ impl ModelContainer {
         }
     }
 
-    /// Drop every relation memo — the external-change and rescan reset.
+    /// Drop every relation memo: the external-change and rescan reset.
     pub(crate) fn invalidate_relation_memos(&self) {
         for r in self.inner.relations.borrow().iter() {
             r.invalidate_all();
@@ -1674,7 +1674,7 @@ impl ModelContainer {
         }
     }
 
-    /// The cache for `M` when it is in this container's schema — the non-panicking
+    /// The cache for `M` when it is in this container's schema: the non-panicking
     /// [`ModelContainer::cache`].
     pub fn try_cache<M: Model>(&self) -> Option<Store<Keyed<M>>> {
         self.inner
@@ -1687,7 +1687,7 @@ impl ModelContainer {
 
     /// Delete one row, honoring deny rules: a parent still referenced through a
     /// `DeleteRule::Deny` relation is refused with the relation named. Cascade and nullify
-    /// need no checked door — a plain `restructure` delete triggers them — but deny cannot
+    /// need no checked door (a plain `restructure` delete triggers them), but deny cannot
     /// refuse after the row is gone, so this is deny's contract.
     pub fn delete<M: Model>(&self, id: impl Into<ModelId<M>>) -> Result<(), DbError> {
         let h = id.into().handle();
@@ -1734,7 +1734,7 @@ impl ModelContainer {
                 ));
             }
         }
-        // The delete works resident or not — a value-free Delete folds to one statement —
+        // The delete works resident or not (a value-free Delete folds to one statement),
         // but an installed undo stack needs the row to invert it.
         if day_model::record_capture_active() {
             let _ = self.ensure_resident::<M>(&[h]);
@@ -1756,7 +1756,7 @@ impl ModelContainer {
         ordered: bool,
         delete: DeleteRule,
     ) -> Result<(), DbError> {
-        // The engine's own rule for the PARENT side matches the declaration; the child side
+        // The engine's own rule for the parent side matches the declaration; the child side
         // always clears its memberships, because a membership row without its child is
         // garbage in any reading of the relation.
         let position = if ordered {
@@ -1793,7 +1793,7 @@ impl ModelContainer {
         Ok(())
     }
 
-    /// Give a join store the same table hooks every model store has — so one fold, one
+    /// Give a join store the same table hooks every model store has, so one fold, one
     /// external merge and one undo history cover memberships too.
     pub(crate) fn register_join_hooks(
         &self,
@@ -1875,7 +1875,7 @@ impl ModelContainer {
                 Ok(keys)
             }),
             refresh: Rc::new(move |raw| {
-                // Memberships are a set: the diff against the RESIDENT rows is which pairs
+                // Memberships are a set: the diff against the resident rows is which pairs
                 // arrived, moved, or left.
                 let mut fresh: Vec<JoinRow> = Vec::with_capacity(raw.len());
                 for r in &raw {

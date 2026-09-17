@@ -2,19 +2,19 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The dayscript **recorder** (DESIGN.md §14.6): the inverse of playback. Where the engine turns a
-//! script into synthesized Day events, the recorder turns the events an app actually receives back
-//! into a script. It rides one seam — [`day_core::set_event_observer`], the single point every
-//! backend funnels its native events through ([`day_core::enqueue_events`]) — so it needs no
-//! per-toolkit code, and it emits an ordinary dayscript that replays cross-toolkit through the same
-//! executor as any hand-written one.
+//! script into synthesized Day events, the recorder turns the events an app receives back into a
+//! script. It hooks one point, [`day_core::set_event_observer`], which every backend funnels its
+//! native events through ([`day_core::enqueue_events`]), so it needs no per-toolkit code, and it
+//! emits an ordinary dayscript that replays cross-toolkit through the same executor as any
+//! hand-written one.
 //!
-//! Scope is deliberately narrow: **actions only, and only where the step is portable**. A tap, a
-//! text edit, a selection/toggle, a navigation, a back — the id-addressed things a walkthrough is
-//! made of. Positional taps, gestures, slider drags, and native OS chrome are dropped (see
+//! Scope is narrow: **actions only, and only where the step is portable**. A tap, a text edit, a
+//! selection/toggle, a navigation, a back: the id-addressed things a walkthrough is made of.
+//! Positional taps, gestures, slider drags, and native OS chrome are dropped (see
 //! [`event_to_step`]); the resulting script is a starting point to edit, not a pixel-exact replay.
 //!
 //! Everything here is main-thread state (the observer only ever runs on the main thread, where
-//! day-core dispatches). On wasm there is no in-process playback ([`play`]) — the WebSocket
+//! day-core dispatches). On wasm there is no in-process playback ([`play`]); the WebSocket
 //! transport drives the page instead (docs/web.md).
 
 use std::cell::{OnceCell, RefCell};
@@ -29,7 +29,7 @@ use crate::Step;
 // Canonical on-disk form <-> Step (the exact inverse of day-cli's `parse_flow`)
 // ---------------------------------------------------------------------------
 
-/// Serialize steps to the canonical on-disk dayscript form — a `flow:` document of
+/// Serialize steps to the canonical on-disk dayscript form: a `flow:` document of
 /// `- <op>: { <params> }` entries (§14.1), byte-compatible with the file day-cli's `parse_flow`
 /// reads. Each [`Step`] serializes to its internal-`op`-tag map (`{op: tap, id: inc, …}`); this
 /// lifts the `op` out to become the entry key and drops null-valued optional params, then
@@ -43,7 +43,7 @@ pub fn steps_to_yaml(steps: &[Step]) -> String {
 }
 
 /// Like [`steps_to_yaml`], but each step's identifying line carries a trailing `# "label"` comment
-/// naming the control it came from (§14.6) — its accessibility label, or its visible text. The
+/// naming the control it came from (§14.6): its accessibility label, or its visible text. The
 /// comment sits on the `id:` line for a tap/input/select and the `route:` line for a navigate, so a
 /// reader sees `route: focus # "Focus"`. Comments are ordinary YAML, so an annotated script parses
 /// and replays exactly as the bare one does; this is the form the recorder streams and saves.
@@ -76,8 +76,8 @@ pub fn annotate_yaml(steps: &[Step], labels: &[Option<String>]) -> String {
             && let Some(Some(key)) = steps.get(idx as usize).map(key_of)
             && line.trim_start().starts_with(key)
         {
-            // A comment cannot span lines, and a quote would confuse the eye — collapse whitespace
-            // and drop any embedded quote so the annotation stays a clean single token.
+            // A comment cannot span lines, and a quote would confuse the eye, so collapse
+            // whitespace and drop any embedded quote so the annotation stays a clean single token.
             let clean = label
                 .split_whitespace()
                 .collect::<Vec<_>>()
@@ -105,7 +105,7 @@ fn step_to_entry(step: &Step) -> serde_json::Value {
         _ => return serde_json::Value::Null,
     };
     // Drop null optional params so a recorded `input` reads `{ id, text }`, not
-    // `{ id, text, key: null, args: null }` — and so it round-trips (the fields default to None).
+    // `{ id, text, key: null, args: null }`, and so it round-trips (the fields default to None).
     map.retain(|_, v| !v.is_null());
     let params = if map.is_empty() {
         serde_json::Value::Null
@@ -117,13 +117,13 @@ fn step_to_entry(step: &Step) -> serde_json::Value {
     serde_json::Value::Object(entry)
 }
 
-/// Parse the canonical on-disk dayscript form back into steps — the inverse of [`steps_to_yaml`].
+/// Parse the canonical on-disk dayscript form back into steps, the inverse of [`steps_to_yaml`].
 ///
-/// This MIRRORS day-cli's `parse_flow` (crates/day-cli/src/script.rs) on purpose: it accepts the
-/// same `- <op>: {…}` entries, the `- screenshot: name` / `- pause: 1.5` scalar shorthands, and a
-/// bare `- nav_back:` (null params). The two are kept in step by a test that round-trips the CLI's
-/// own `demo.yaml` template through here. (day-cli does NOT call this — the CLI deliberately does
-/// not depend on day-script's runtime graph — so the shared shape is guarded by test, not code.)
+/// This mirrors day-cli's `parse_flow` (crates/day-cli/src/script.rs): it accepts the same
+/// `- <op>: {…}` entries, the `- screenshot: name` / `- pause: 1.5` scalar shorthands, and a bare
+/// `- nav_back:` (null params). The two are kept in step by a test that round-trips the CLI's
+/// `demo.yaml` template through here. (day-cli does not call this, because the CLI does not depend
+/// on day-script's runtime graph, so the shared shape is guarded by test, not code.)
 pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
     let doc: serde_json::Value = serde_norway::from_str(yaml).map_err(|e| e.to_string())?;
     let flow = doc
@@ -164,23 +164,23 @@ pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
 // Event -> Step
 // ---------------------------------------------------------------------------
 
-/// Map a native event to the dayscript step that reproduces it — **actions only, semantic only**.
+/// Map a native event to the dayscript step that reproduces it: **actions only, semantic only**.
 /// Returns `None` for everything the recorder drops.
 ///
-/// `Tap(Point)` records only when the node carries an id, and then as an id-addressed `Tap` step —
+/// `Tap(Point)` records only when the node carries an id, and then as an id-addressed `Tap` step;
 /// the coordinate is discarded. It has to: a `Button::style(…)` is not a native button but a
-/// COMPOSED piece whose action rides `Decorate::on_tap`, so it delivers `Tap` and never `Pressed`
+/// composed piece whose action rides `Decorate::on_tap`, so it delivers `Tap` and never `Pressed`
 /// (day-pieces `leaves.rs`/`decorators.rs`), as does every tappable shape or card. Dropping it
-/// silently omitted those controls from every recording while `Step::Tap` replayed them perfectly
-/// — playback emits `Pressed` AND `Tap` for exactly that reason. A node that delivers both in one
-/// pump records once; see `on_event`.
+/// silently omitted those controls from every recording while `Step::Tap` replayed them perfectly,
+/// since playback emits both `Pressed` and `Tap` for exactly that reason. A node that delivers
+/// both in one pump records once; see `on_event`.
 ///
-/// DROPPED, and why:
+/// Dropped, and why:
 /// - an id-less `Tap`, and `LongPress`/`ContextMenu`: a bare coordinate is not portable;
 /// - `Drag`/`ScrollChanged`/`Pointer`/`Key`/`WindowResized`/`FrameChanged`/`Submitted`/
 ///   `FocusChanged`: gesture and low-level input, no id-addressed step;
 /// - `ValueChanged` (a slider mid-drag): the settled value arrives separately as
-///   `ValueCommitted`, which IS recorded — recording both would write a step per tick;
+///   `ValueCommitted`, which is recorded (recording both would write a step per tick);
 /// - `SelectionSet` (multi-select): no single-index step covers it;
 /// - `ListReorder`/`ListDelete` (the deferred commit of a native drag/swipe, docs/list.md):
 ///   the `reorder:`/`delete_row:` steps replay them, but the recorder does not yet write those
@@ -214,46 +214,46 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
             id: id.to_string(),
             index: *index,
         }),
-        // Playback drives a toggle through `select` (index = the bool as 0/1) — the pattern
-        // Day-Skies' weather.yaml uses — so a recorded toggle replays without a `toggle` step.
+        // Playback drives a toggle through `select` (index = the bool as 0/1), the pattern
+        // Day-Skies' weather.yaml uses, so a recorded toggle replays without a `toggle` step.
         Event::ToggleChanged(on) => id.map(|id| Step::Select {
             id: id.to_string(),
             index: *on as i64,
         }),
-        // The SETTLED value of a slider, not the drag. `ValueChanged` fires on every tick — a
+        // The settled value of a slider, not the drag. `ValueChanged` fires on every tick (a
         // drag from 1 to 100 and back to 50 would write a hundred steps and print a hundred
-        // lines — so the recorder ignores it and takes `ValueCommitted`, which fires once with
+        // lines), so the recorder ignores it and takes `ValueCommitted`, which fires once with
         // the value the user let go on (day-spec `Event::ValueCommitted`).
         Event::ValueCommitted(value) => id.map(|id| Step::SetValue {
             id: id.to_string(),
             value: *value,
         }),
         // Navigation (RouteRequested, NavBack, and every nav_link/sidebar/stack push that calls
-        // `navigate` from an event handler) is captured by the NAV observer via route changes,
-        // not here — see `on_nav`. Mapping it here too would double-record RouteRequested.
+        // `navigate` from an event handler) is captured by the nav observer via route changes,
+        // not here; see `on_nav`. Mapping it here too would double-record RouteRequested.
         _ => None,
     }
 }
 
-/// What the EXECUTOR synthesizes for each step, and what the recorder must do with it.
+/// What the executor synthesizes for each step, and what the recorder must do with it.
 ///
 /// The recorder and the executor are inverses, and they drifted: `Step::Tap` has always
-/// synthesized a `Pressed` AND a positional `Tap` — deliberately, because a native button ignores
-/// `Tap` and a composed `.on_tap` piece ignores `Pressed` — while `event_to_step` recognized only
-/// the first. Every styled button and tappable shape therefore replayed perfectly and recorded as
-/// nothing at all.
+/// synthesized both a `Pressed` and a positional `Tap` (a native button ignores `Tap` and a
+/// composed `.on_tap` piece ignores `Pressed`), while `event_to_step` recognized only the first.
+/// Every styled button and tappable shape therefore replayed perfectly and recorded as nothing at
+/// all.
 ///
 /// This table states the intended disposition of every event playback emits, and
 /// [`playback_and_recording_agree`] holds `event_to_step` to it. The rule that matters is
-/// [`Disposition::Records`]: Every event a recordable step emits must map back to that same step.
-/// One of them mapping is not enough — different piece kinds receive different ones, so an
-/// unmapped event means some class of control is silently unrecordable.
+/// [`Disposition::Records`]: every event a recordable step emits must map back to that same step.
+/// One of them mapping is not enough, because different piece kinds receive different ones, so
+/// an unmapped event means some class of control is silently unrecordable.
 ///
 /// Adding an event to a step's emission means adding it here, which means choosing a disposition.
-/// That choice is the point: it cannot be made by omission.
+/// The table exists so that the choice cannot be made by omission.
 #[cfg(test)]
 const PLAYBACK_EMISSIONS: &[(&str, &[Event], Disposition)] = &[
-    // lib.rs `Step::Tap` — both shapes, so one step drives either kind of control.
+    // lib.rs `Step::Tap`: both shapes, so one step drives either kind of control.
     ("tap", &[Event::Pressed], Disposition::Records("tap")),
     (
         "tap",
@@ -282,7 +282,7 @@ const PLAYBACK_EMISSIONS: &[(&str, &[Event], Disposition)] = &[
         &[Event::TextChanged(String::new())],
         Disposition::Records("input"),
     ),
-    // Deliberately NOT recorded. Each is a considered omission, not an oversight:
+    // Not recorded. Each is a considered omission, not an oversight:
     (
         "submit",
         &[Event::Submitted],
@@ -300,8 +300,8 @@ const PLAYBACK_EMISSIONS: &[(&str, &[Event], Disposition)] = &[
     ),
 ];
 
-/// A step's on-disk op name (`tap`, `select`, …) — the same tag [`step_to_entry`] writes, read back
-/// through serde so the test compares what a script would actually say.
+/// A step's on-disk op name (`tap`, `select`, …): the same tag [`step_to_entry`] writes, read back
+/// through serde so the test compares what a script would say.
 #[cfg(test)]
 fn step_entry_op(step: &Step) -> String {
     match serde_json::to_value(step) {
@@ -323,8 +323,8 @@ enum Disposition {
     Dropped(&'static str),
 }
 
-/// Whether appending `next` should REPLACE the last step rather than push a new one — the
-/// coalescing rules that keep a recording readable: every keystroke in a field, or every step of a
+/// Whether appending `next` should replace the last step rather than push a new one: the
+/// coalescing rules that keep a recording readable. Every keystroke in a field, or every step of a
 /// multi-step selection, collapses to the final value; consecutive navigations collapse to the last
 /// destination. Taps never coalesce (each is its own action).
 fn coalesces(last: &Step, next: &Step) -> bool {
@@ -346,15 +346,15 @@ struct Recorder {
     /// guard is a cheap thread-local read, not a reactive-runtime access.
     active: bool,
     /// Action logging without capture (§14.6): echo every action to the console in the recorder's
-    /// own vocabulary, but keep no steps and write no file. Independent of `active` — an app can
-    /// log continuously and still start and stop recordings underneath it.
+    /// vocabulary, but keep no steps and write no file. Independent of `active`: an app can log
+    /// continuously and still start and stop recordings underneath it.
     echo: bool,
     steps: Vec<Step>,
     /// A signal mirrored with the current script text on every change (the showcase's editable
     /// buffer). `None` when recording headlessly.
     into: Option<Signal<String>>,
-    /// A file rewritten with the current script on every change — continuous, so a `--record` run
-    /// that is killed still leaves everything captured up to the last event.
+    /// A file rewritten with the current script on every change, so a `--record` run that is
+    /// killed still leaves everything captured up to the last event.
     file: Option<PathBuf>,
     /// Events whose id starts with this prefix are skipped, so a UI's own record/stop controls
     /// never record themselves (else playback would re-tap Stop and the replay would never run).
@@ -362,18 +362,18 @@ struct Recorder {
     /// The pump generation in which the last `Tap`/`Select` was recorded, or `None` if the last
     /// step is not a foldable input. A navigation folds that input into one portable `Navigate`
     /// (a sidebar row, a stack push) when it happened in the same or the immediately following
-    /// pump — a signal-bound remount settles one pump late, so "same pump" alone would miss it,
+    /// pump: a signal-bound remount settles one pump late, so "same pump" alone would miss it,
     /// and "any time" would wrongly swallow an unrelated earlier tap. See `on_nav`.
     input_gen: Option<u64>,
     /// The id whose `Pressed` was just recorded, if the immediately preceding recorded event was
-    /// one. It exists to drop the `Tap` TWIN that follows: a node wearing both shapes —
-    /// `button(…).on_tap(…)`, and every playback-while-recording, since `Step::Tap` synthesizes
-    /// `Pressed` then `Tap` — would otherwise record two taps for one press.
+    /// one. It exists to drop the `Tap` twin that follows: a node wearing both shapes
+    /// (`button(…).on_tap(…)`, and every playback-while-recording, since `Step::Tap` synthesizes
+    /// `Pressed` then `Tap`) would otherwise record two taps for one press.
     ///
     /// Keyed on "immediately preceding", not on a pump generation: the executor enqueues the two
     /// separately and `enqueue_events` pumps between them, so the twin lands a generation later.
-    /// Adjacency is what actually holds. A composed piece sends `Tap` with no `Pressed` before it
-    /// and records normally; two real taps arrive as two pairs and record twice.
+    /// Adjacency is what holds. A composed piece sends `Tap` with no `Pressed` before it and
+    /// records normally; two real taps arrive as two pairs and record twice.
     last_pressed: Option<String>,
     /// Per-step annotation (a control's a11y label or visible text), index-aligned with `steps`.
     /// Rendered as a trailing `# "label"` comment by [`annotate_yaml`].
@@ -381,7 +381,7 @@ struct Recorder {
 }
 
 impl Recorder {
-    /// Append `step` with its annotation `label` (the control's a11y label or text — §14.6),
+    /// Append `step` with its annotation `label` (the control's a11y label or text, §14.6),
     /// applying the [`coalesces`] rules. `labels` stays index-aligned with `steps`.
     fn push(&mut self, step: Step, label: Option<String>) {
         if let Some(last) = self.steps.last_mut()
@@ -400,7 +400,7 @@ impl Recorder {
     fn flush(&self) {
         let script = annotate_yaml(&self.steps, &self.labels);
         if let Some(sig) = self.into {
-            // A disposed buffer (its page navigated away) is a defined no-op write — the recorder
+            // A disposed buffer (its page navigated away) is a defined no-op write; the recorder
             // keeps capturing regardless, and a fresh page re-targets it via `start_into`.
             sig.set(script.clone());
         }
@@ -412,7 +412,7 @@ impl Recorder {
 
 day_reactive::tls_group! {
     static REC: RefCell<Recorder> = RefCell::new(Recorder::default());
-    /// The reactive on/off flag a UI binds to (label/style). Lazily created in the ROOT scope so it
+    /// The reactive on/off flag a UI binds to (label/style). Lazily created in the root scope so it
     /// survives the page that first reads it (Signal::global, docs/reactivity.md).
     static FLAG: OnceCell<Signal<bool>> = const { OnceCell::new() };
     /// A counter bumped on every recorded/cleared step (see [`version`]).
@@ -427,7 +427,7 @@ pub fn recording_signal() -> Signal<bool> {
 }
 
 /// A counter that increments each time a step is recorded (or the recording is cleared). A UI can
-/// watch it to react to recording *progress* — a live step count, say — without owning the mirrored
+/// watch it to react to recording *progress* (a live step count, say) without owning the mirrored
 /// buffer signal. Global-scoped, so it survives page rebuilds.
 pub fn version() -> Signal<u64> {
     VERSION.with(|c| *c.get_or_init(|| Signal::global(0)))
@@ -437,16 +437,16 @@ fn bump_version() {
     version().update(|n| *n += 1);
 }
 
-/// Whether `ev` is the positional TWIN of the press just recorded, and so must not record a second
+/// Whether `ev` is the positional twin of the press just recorded, and so must not record a second
 /// tap for the same press.
 ///
 /// One tap can deliver two events. A native `button` leaf sends `Pressed`; a piece composed from
-/// `Decorate::on_tap` — every `Button::style(…)`, every tappable shape — sends `Tap`; a node
-/// wearing both sends `Pressed` then `Tap`. So does playback: `Step::Tap` synthesizes the pair on
-/// purpose, so that one step drives either kind of control, which means recording a replay would
-/// otherwise double every tap in it.
+/// `Decorate::on_tap` (every `Button::style(…)`, every tappable shape) sends `Tap`; a node
+/// wearing both sends `Pressed` then `Tap`. So does playback: `Step::Tap` synthesizes the pair so
+/// that one step drives either kind of control, which means recording a replay would otherwise
+/// double every tap in it.
 ///
-/// The test is ADJACENCY, not a pump generation: the executor enqueues the two separately and
+/// The test is adjacency, not a pump generation: the executor enqueues the two separately and
 /// `enqueue_events` pumps between them, so the twin usually lands a generation later. What holds is
 /// that nothing else records in between. A composed piece's `Tap` has no `Pressed` before it and
 /// records normally; two real taps arrive as two pairs and record twice.
@@ -457,7 +457,7 @@ fn is_press_twin(ev: &Event, step: &Step, last_pressed: Option<&str>) -> bool {
     )
 }
 
-/// Whether an event on `id` is excluded by `prefix` — the rule that keeps a UI's own record/stop
+/// Whether an event on `id` is excluded by `prefix`: the rule that keeps a UI's own record/stop
 /// controls out of its own recording. An empty prefix excludes nothing; an id-less event is never
 /// excluded (it has no id to match, and is dropped later for lack of a portable step anyway).
 fn is_excluded(id: Option<&str>, prefix: &str) -> bool {
@@ -465,14 +465,14 @@ fn is_excluded(id: Option<&str>, prefix: &str) -> bool {
 }
 
 /// Echo a recorded action to stdout, so it shows up in the console while the app runs (each line
-/// carries the `[target]` prefix `day launch` adds). Runs from the event/nav observer — a native
-/// trampoline path — so it uses a NON-panicking write: a raw `println!` on a broken stdout pipe
+/// carries the `[target]` prefix `day launch` adds). Runs from the event/nav observer, a native
+/// trampoline path, so it uses a non-panicking write: a raw `println!` on a broken stdout pipe
 /// (routine when `day launch` tears the app down) would unwind into non-Rust frames and abort the
 /// process (`panic_cannot_unwind`, the reason `day_core::diag` exists). Errors are dropped.
 fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
     use std::fmt::Write as _;
     // The prefix says which mode produced the line: a recording is accumulating a script you can
-    // save, action logging is only narrating. Same vocabulary either way — a logged line and the
+    // save, action logging is only narrating. Same vocabulary either way: a logged line and the
     // step a recording would have written are the same thing.
     let mut line = String::from(if recording {
         "day record ▸ "
@@ -527,18 +527,18 @@ fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
 /// The event observer: resolve the node's id, drop the recorder's own controls, map to a step, and
 /// append. Installed by the `start*` fns; removed by [`stop`].
 fn on_event(node: NodeId, ev: &Event) {
-    // Cheap guard first — the observer stays installed only while observing, but a stop() racing
+    // Cheap guard first: the observer stays installed only while observing, but a stop() racing
     // an in-flight dispatch can land here after the flag cleared.
     if !is_observing() {
         return;
     }
-    // Resolve the id with NO recorder borrow held: `id_of` reads the tree, and keeping the borrow
+    // Resolve the id with no recorder borrow held: `id_of` reads the tree, and keeping the borrow
     // out means it can never overlap the append below, even if that tree read re-enters dispatch.
     let id = day_core::id_of(node);
     let Some(step) = event_to_step(id.as_deref(), ev) else {
         return;
     };
-    // The control's label — a11y label preferred, its own text as the fallback (§14.6). Read with
+    // The control's label: a11y label preferred, its text as the fallback (§14.6). Read with
     // no recorder borrow held, same as `id_of`.
     let label = day_core::label_of(node);
     REC.with(|r| {
@@ -569,9 +569,9 @@ fn on_event(node: NodeId, ev: &Event) {
     bump_version();
 }
 
-/// The navigation observer: every route change, from any source (§14.6). Records the new FULL
-/// route as one absolute `Navigate` — which replays multi-level stacks (`items/item-1`) in a
-/// single step — folding in the tap/select that triggered it when there was one.
+/// The navigation observer: every route change, from any source (§14.6). Records the new full
+/// route as one absolute `Navigate`, which replays multi-level stacks (`items/item-1`) in a
+/// single step, folding in the tap/select that triggered it when there was one.
 fn on_nav(route: &str, label: Option<&str>) {
     if !is_observing() {
         return;
@@ -595,9 +595,9 @@ fn on_nav(route: &str, label: Option<&str>) {
             );
         echo_action(&step, label.as_deref(), true);
         if foldable {
-            // The tap/select that caused this navigation IS this navigation — replace the
+            // The tap/select that caused this navigation is this navigation, so replace the
             // non-portable `Select { id: nav, index }` / stack-push tap with the absolute route,
-            // and carry the nav host's own label (the sidebar row title).
+            // and carry the nav host's label (the sidebar row title).
             *rec.steps.last_mut().expect("input_gen implies a last step") = step;
             *rec.labels.last_mut().expect("labels align with steps") = label;
         } else {
@@ -612,9 +612,9 @@ fn on_nav(route: &str, label: Option<&str>) {
 fn install_observer() {
     day_core::set_event_observer(Some(Box::new(on_event)));
     // Navigation is delivered by day-core's nav observer (§14.6): it fires on every route change
-    // — sidebar, nav_link, imperative `navigate`, native back, and the signal-bound stack/tab
-    // pushes (caught at the event-pump tail once their reactive reconcile settles). A reactive
-    // watch on current_route() does NOT suffice: navigate()/push mutate controller state that
+    // (sidebar, nav_link, imperative `navigate`, native back, and the signal-bound stack/tab
+    // pushes, caught at the event-pump tail once their reactive reconcile settles). A reactive
+    // watch on current_route() does not suffice: navigate()/push mutate controller state that
     // current_route() reads without a tracked dependency, so the watch never re-runs.
     day_core::set_nav_observer(Some(Box::new(on_nav)));
 }
@@ -652,17 +652,17 @@ pub fn start() {
     start_common(None, None);
 }
 
-/// Start recording, mirroring the script text into `sig` on every event — the streaming, editable
+/// Start recording, mirroring the script text into `sig` on every event: the streaming, editable
 /// buffer an app binds a `text_area` to. Called again while already recording, it re-targets the
-/// stream at `sig` (keeping the recording so far) rather than restarting — what a page needs after
-/// it was disposed and rebuilt mid-recording.
+/// stream at `sig` (keeping the recording so far) rather than restarting, which is what a page
+/// needs after it was disposed and rebuilt mid-recording.
 pub fn start_into(sig: Signal<String>) {
     start_common(Some(sig), None);
 }
 
-/// Start recording, continuously flushing the script to `path` — how `DAY_RECORD` / `day launch
-/// --record` capture headlessly. Crash-resilient: the file holds everything up to the last event
-/// even if the app is killed.
+/// Start recording, continuously flushing the script to `path`; this is how `DAY_RECORD` /
+/// `day launch --record` capture headlessly. Crash-resilient: the file holds everything up to the
+/// last event even if the app is killed.
 pub fn start_to_file(path: impl AsRef<Path>) {
     start_common(None, Some(path.as_ref().to_path_buf()));
 }
@@ -685,7 +685,7 @@ pub fn is_recording() -> bool {
     REC.with(|r| r.borrow().active)
 }
 
-/// Whether the observers should run at all — a recording, action logging, or both.
+/// Whether the observers should run at all: a recording, action logging, or both.
 fn is_observing() -> bool {
     REC.with(|r| {
         let rec = r.borrow();
@@ -693,8 +693,8 @@ fn is_observing() -> bool {
     })
 }
 
-/// Log every action the app receives to stdout, in the recorder's own vocabulary — the same lines
-/// a recording echoes, minus the recording:
+/// Log every action the app receives to stdout, in the recorder's vocabulary, the same lines a
+/// recording echoes, minus the recording:
 ///
 /// ```text
 /// dayscript ▸ navigate → dates  "Date & time"
@@ -702,10 +702,10 @@ fn is_observing() -> bool {
 /// dayscript ▸ select unit-picker = 1  "Units"
 /// ```
 ///
-/// It rides the same two seams a recording does ([`start`]), so it sees exactly what the app sees,
-/// on every backend, with no per-toolkit code — and it keeps nothing: no steps, no file, no
-/// growing buffer, so it is safe to leave on for an app's whole life. `exclude_prefix` applies,
-/// so a UI's own scripting controls stay out of the log as they stay out of a recording.
+/// It hooks the same two observers a recording does ([`start`]), so it sees exactly what the app
+/// sees, on every backend, with no per-toolkit code. It stores neither steps nor a file, so no
+/// buffer grows and it is safe to leave on for an app's whole life. `exclude_prefix` applies, so a
+/// UI's own scripting controls stay out of the log as they stay out of a recording.
 ///
 /// Independent of recording. Turning logging off while a recording is live leaves the recording
 /// alone, and stopping a recording leaves logging on.
@@ -714,7 +714,7 @@ pub fn log_actions(on: bool) {
     if on {
         install_observer();
     } else if !is_recording() {
-        // Nothing left to observe — take the observers back off the event path.
+        // Nothing left to observe; take the observers back off the event path.
         day_core::set_event_observer(None);
         day_core::set_nav_observer(None);
     }
@@ -753,7 +753,7 @@ pub fn save(path: &Path) -> std::io::Result<()> {
     std::fs::write(path, script().as_bytes())
 }
 
-/// Skip events whose element id starts with `prefix` — set it to the id prefix an app gives its own
+/// Skip events whose element id starts with `prefix`: set it to the id prefix an app gives its
 /// record/stop/play controls so they never record themselves. Set before `start*`.
 pub fn exclude_prefix(prefix: &str) {
     REC.with(|r| r.borrow_mut().exclude = prefix.to_string());
@@ -765,7 +765,7 @@ pub fn exclude_prefix(prefix: &str) {
 
 /// Play a dayscript in-process (§14.6): parse `yaml` and run each step through the same executor
 /// the socket runner uses ([`crate::run_step_with_wait`]), on a spawned thread that dispatches each
-/// step to the main thread and awaits its reply — mirroring the engine's connection loop. Returns
+/// step to the main thread and awaits its reply, mirroring the engine's connection loop. Returns
 /// as soon as the run is *dispatched* (the steps then run asynchronously against the live UI).
 /// Refuses while a recording is live, so a replay never records itself.
 #[cfg(not(target_arch = "wasm32"))]
@@ -773,7 +773,7 @@ pub fn play(yaml: &str) -> Result<(), String> {
     play_with_delay(yaml, 0.0)
 }
 
-/// Play with an artificial pause (seconds) between each step — a slow-motion replay for watching a
+/// Play with an artificial pause (seconds) between each step: a slow-motion replay for watching a
 /// script drive the UI. Returns `Err` without spawning when the script is empty or does not parse,
 /// so a UI can call it to validate (see [`is_playable`]) and to run from one path.
 ///
@@ -799,7 +799,7 @@ pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
     std::thread::spawn(move || {
         for (i, step) in steps.into_iter().enumerate() {
             // Hold here while paused. Polling rather than parking on a condvar: the flag is also
-            // how a STOP arrives, and a 50 ms granularity is invisible next to a step that drives
+            // how a stop arrives, and a 50 ms granularity is invisible next to a step that drives
             // the UI and waits for the main thread to answer.
             while is_paused() && is_playing() {
                 std::thread::sleep(std::time::Duration::from_millis(PAUSE_POLL_MS));
@@ -824,13 +824,13 @@ pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
 #[cfg(not(target_arch = "wasm32"))]
 const PAUSE_POLL_MS: u64 = 50;
 
-/// Whether in-process playback exists on this target — false on wasm, which has no background
+/// Whether in-process playback exists on this target: false on wasm, which has no background
 /// thread to drive the steps from (drive the page over the dayscript WebSocket transport there,
 /// docs/web.md).
 ///
 /// A UI should gate its Play control on this rather than calling and ignoring the `Err`: an
-/// enabled button that silently does nothing is worse than a disabled one. RECORDING has no such
-/// limit — it rides the event observer on the main thread and works on every target.
+/// enabled button that silently does nothing is worse than a disabled one. Recording has no such
+/// limit: it rides the event observer on the main thread and works on every target.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn playback_supported() -> bool {
     true
@@ -841,7 +841,7 @@ pub fn playback_supported() -> bool {
     false
 }
 
-// The replay runs on a spawned thread, so its live state is ATOMIC — the signals below mirror it
+// The replay runs on a spawned thread, so its live state is atomic; the signals below mirror it
 // for the UI, and are only ever written on the main thread.
 #[cfg(not(target_arch = "wasm32"))]
 static PLAYING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -854,7 +854,7 @@ thread_local! {
     static PAUSED_SIG: OnceCell<Signal<bool>> = const { OnceCell::new() };
 }
 
-/// The reactive "a script is playing" flag — what a Play/Pause button binds its icon to.
+/// The reactive "a script is playing" flag, which a Play/Pause button binds its icon to.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn playing_signal() -> Signal<bool> {
     PLAYING_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
@@ -866,7 +866,7 @@ pub fn paused_signal() -> Signal<bool> {
     PAUSED_SIG.with(|c| *c.get_or_init(|| Signal::global(false)))
 }
 
-/// Set the atomic AND mirror it into the signal. The mirror hops to the main thread, since the
+/// Set the atomic and mirror it into the signal. The mirror hops to the main thread, since the
 /// replay thread calls this when a run ends and a `Signal` may only be touched there.
 #[cfg(not(target_arch = "wasm32"))]
 fn set_playing(on: bool) {
@@ -880,7 +880,7 @@ fn set_paused(on: bool) {
     day_reactive::on_main(move || paused_signal().set_if_changed(on));
 }
 
-/// Whether a script is playing right now — paused counts as playing.
+/// Whether a script is playing right now; paused counts as playing.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn is_playing() -> bool {
     PLAYING.load(std::sync::atomic::Ordering::SeqCst)
@@ -892,7 +892,7 @@ pub fn is_paused() -> bool {
     PAUSED.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-/// Suspend the running script BETWEEN steps. The step in flight finishes — a step is one
+/// Suspend the running script between steps. The step in flight finishes, because a step is one
 /// synthesized action dispatched to the main thread, and abandoning it mid-flight would leave the
 /// UI in a state no script describes.
 #[cfg(not(target_arch = "wasm32"))]
@@ -911,20 +911,20 @@ pub fn resume_playback() {
 }
 
 /// Abandon the run: the replay thread stops before its next step (immediately if it is paused).
-/// The steps already played are NOT undone — there is nothing to undo them with.
+/// The steps already played are not undone; there is nothing to undo them with.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn stop_playback() {
     set_playing(false);
     set_paused(false);
 }
 
-/// Whether `yaml` is a non-empty, parseable script — what a Play button binds its enabled state to.
+/// Whether `yaml` is a non-empty, parseable script, which a Play button binds its enabled state to.
 pub fn is_playable(yaml: &str) -> bool {
     steps_from_yaml(yaml).is_ok_and(|s| !s.is_empty())
 }
 
 /// wasm has no background thread and no `Instant` (the executor's wait loop traps there), so
-/// in-process playback isn't available — drive the page over the dayscript WebSocket transport
+/// in-process playback isn't available; drive the page over the dayscript WebSocket transport
 /// instead (docs/web.md).
 #[cfg(target_arch = "wasm32")]
 pub fn play(_yaml: &str) -> Result<(), String> {
@@ -940,8 +940,8 @@ pub fn play_with_delay(_yaml: &str, _step_delay_secs: f64) -> Result<(), String>
     )
 }
 
-// `is_playable` (above) is pure parsing — no threads, no `Instant` — so it serves every target,
-// wasm included; there is no wasm-specific copy.
+// `is_playable` (above) is pure parsing, with neither threads nor `Instant`, so it serves every
+// target, wasm included; there is no wasm-specific copy.
 
 // Transport controls, present on wasm so a UI compiles unchanged there: nothing plays, so nothing
 // can be paused or stopped, and the flags a Play/Pause button binds to are permanently off.
@@ -1026,7 +1026,7 @@ mod tests {
 
     #[test]
     fn accepts_cli_demo_template() {
-        // The recorder's parser must accept the exact file day-cli's `parse_flow` reads — string
+        // The recorder's parser must accept the exact file day-cli's `parse_flow` reads: string
         // `screenshot`, inline `{ id: … }` mappings, `skip_on:` lists and all. If this drifts, the
         // two parsers have diverged (see `steps_from_yaml`'s doc-comment).
         let demo = include_str!("../../day-cli/templates/app/dayscript/demo.yaml");
@@ -1061,8 +1061,8 @@ mod tests {
             event_to_step(Some("t"), &Event::ToggleChanged(true)),
             Some(Step::Select { index: 1, .. })
         ));
-        // Navigation is NOT an event-to-step concern (the nav observer captures route changes) —
-        // a RouteRequested must NOT also map to a Navigate here, or it would double-record.
+        // Navigation is not an event-to-step concern (the nav observer captures route changes);
+        // a RouteRequested must not also map to a Navigate here, or it would double-record.
         assert!(event_to_step(None, &Event::RouteRequested("home".into())).is_none());
         // A gesture `Tap` on an ID'd node records like a press: that is the only event a
         // `Button::style(…)` or any other composed `.on_tap` piece ever delivers, so dropping it
@@ -1071,7 +1071,7 @@ mod tests {
             event_to_step(Some("list-shuffle"), &Event::Tap(Point::new(1.0, 2.0))),
             Some(Step::Tap { .. })
         ));
-        // Without an id there is still no portable step — a bare coordinate is not one.
+        // Without an id there is still no portable step; a bare coordinate is not one.
         assert!(event_to_step(None, &Event::Tap(Point::new(1.0, 2.0))).is_none());
         assert!(event_to_step(Some("s"), &Event::ValueChanged(0.5)).is_none());
         assert!(event_to_step(None, &Event::Pressed).is_none());
@@ -1156,7 +1156,7 @@ mod tests {
             yaml.contains("id: focus-next-button # \"Focus next\""),
             "tap label on id line:\n{yaml}"
         );
-        // Comments are ignored on parse — the annotated script still round-trips to the same steps.
+        // Comments are ignored on parse; the annotated script still round-trips to the same steps.
         let reparsed = steps_from_yaml(&yaml).expect("annotated yaml parses");
         assert_eq!(format!("{steps:?}"), format!("{reparsed:?}"));
     }
@@ -1205,7 +1205,7 @@ mod tests {
         assert!(!is_press_twin(&press, &tap("inc"), None));
         assert!(is_press_twin(&gesture, &tap("inc"), Some("inc")));
 
-        // A composed `.on_tap` piece sends only the gesture — nothing pressed before it, so it
+        // A composed `.on_tap` piece sends only the gesture, with nothing pressed before it, so it
         // records. This is the case that was silently lost.
         assert!(!is_press_twin(&gesture, &tap("list-shuffle"), None));
 

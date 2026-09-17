@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: this crate's shim (src/lib-qt-shim.cpp) — a `QDoubleSpinBox`, Qt's real
+// Qt: this crate's shim (src/lib-qt-shim.cpp), a `QDoubleSpinBox`, Qt's
 // field-with-arrows control. The value crosses the flat C ABI as a double both ways.
 // ---------------------------------------------------------------------------
 

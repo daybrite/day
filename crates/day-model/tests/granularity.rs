@@ -3,7 +3,7 @@
 
 //! The measurement: how far does one field write travel?
 //!
-//! Both halves build the SAME UI — 100 rows, each row a label reading one item's name — and count
+//! Both halves build the same UI (100 rows, each row a label reading one item's name) and count
 //! how many of those 100 closures re-run when one item's name changes.
 
 use std::cell::Cell;
@@ -55,7 +55,7 @@ fn boot(root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
     probe
 }
 
-/// TODAY: one `Signal<Vec<Item>>`. Every row's closure re-runs on any write to any field.
+/// Today: one `Signal<Vec<Item>>`. Every row's closure re-runs on any write to any field.
 #[test]
 fn one_signal_wakes_every_row() {
     let items = Signal::new(seed().items().to_vec());
@@ -75,7 +75,7 @@ fn one_signal_wakes_every_row() {
         column(day_core::PieceVec(rows)).any()
     });
     flush_sync();
-    // Build and the measure pass each run the closures; only the DELTA after the write matters.
+    // Build and the measure pass each run the closures; only the delta after the write matters.
     let baseline = runs.get();
 
     // One field of one item.
@@ -93,11 +93,11 @@ fn one_signal_wakes_every_row() {
         recomputes, ROWS,
         "every row re-ran and re-cloned its string"
     );
-    // The equality gate means the NATIVE side was already precise — the waste is compute.
+    // The equality gate means the native side was already precise; the waste is compute.
     assert_eq!(patches, 1, "…while only one label actually changed");
 }
 
-/// PROPOSED: one trigger per (element, field). A write wakes only that field's readers.
+/// Proposed: one trigger per (element, field). A write wakes only that field's readers.
 #[test]
 fn per_property_wakes_one_row() {
     let store = Store::new(seed());
@@ -162,7 +162,7 @@ fn a_sibling_field_does_not_wake_it() {
 }
 
 /// An external merge (another connection's committed write, fed through `merge_row`) wakes
-/// exactly the readers of the fields it names — the precision a wholesale reload cannot offer.
+/// exactly the readers of the fields it names: the precision a wholesale reload cannot offer.
 #[test]
 fn a_merged_row_wakes_only_the_named_fields_readers() {
     let store = Store::new(seed());
@@ -200,7 +200,7 @@ fn a_merged_row_wakes_only_the_named_fields_readers() {
     assert_eq!(count_runs.get(), count_base, "the sibling's reader did not");
 }
 
-/// A COARSE reader — one that asked for the whole store — still wakes on a field write. Precision
+/// A coarse reader (one that asked for the whole store) still wakes on a field write. Precision
 /// is something a reader opts into by what it reads, not something writes have to know about.
 #[test]
 fn a_coarse_reader_still_wakes() {
@@ -231,7 +231,7 @@ fn unobserved_paths_have_no_cost() {
         label(move || name.with(|v| v.cloned().unwrap_or_default())).any()
     });
     flush_sync();
-    // One trigger for the observed field, one for its element, one for the store — the path and
+    // One trigger for the observed field, one for its element, one for the store: the path and
     // its ancestors, created on the way in. Not 100 rows × 3 fields.
     assert!(
         day_model::observed_paths() <= 3,

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // HarmonyOS / OpenHarmony: the native SensorServiceKit C API (`libohsensor.so`, `oh_sensor.h`,
-// API 11+). Pure FFI, like iOS — no ArkTS bridge or Day runtime needed (unlike Android's
+// API 11+). Pure FFI, like iOS: no ArkTS bridge or Day runtime needed (unlike Android's
 // SensorManager, which rides day-android's JVM/Context). The API is push-only: the first `read` for
 // a kind lazily creates a subscription (SubscriptionId + Attribute + Subscriber, all kept alive for
 // the process) whose callback caches the newest sample in a static; Rust polls the cache. Values are
@@ -97,8 +97,8 @@ fn kind_index(kind: SensorKind) -> usize {
 
 /// Latest sample per kind, written by the subscription callback, read by `read`.
 static LATEST: Mutex<[Option<[f64; 3]>; 3]> = Mutex::new([None; 3]);
-/// Whether the per-kind subscription is active (its handles are intentionally kept for the process
-/// lifetime — the API has no `stop`, and the service requires them alive while subscribed).
+/// Whether the per-kind subscription is active (its handles are kept for the process lifetime
+/// because the API has no `stop`, and the service requires them alive while subscribed).
 static SUBSCRIBED: Mutex<[bool; 3]> = Mutex::new([false; 3]);
 
 /// The subscription callback: identify the sensor by type and cache its x/y/z triple.
@@ -150,8 +150,8 @@ fn ensure_subscribed(kind: SensorKind) {
             && OH_SensorSubscriber_SetCallback(sub, on_event) == SENSOR_SUCCESS
             && OH_Sensor_Subscribe(id, attr, sub) == SENSOR_SUCCESS;
         if ok {
-            // Deliberately leak id/attr/sub: the service needs them for as long as we're subscribed,
-            // which is the rest of the process.
+            // Leak id/attr/sub: the service needs them for as long as we're subscribed, which is
+            // the rest of the process.
             subscribed[idx] = true;
         } else {
             if !sub.is_null() {
@@ -168,7 +168,7 @@ fn ensure_subscribed(kind: SensorKind) {
 }
 
 /// The device's sensor types via OH_Sensor_GetInfos (count first, then the filled array), cached on
-/// first success — the hardware set doesn't change at runtime.
+/// first success; the hardware set doesn't change at runtime.
 fn available_types() -> &'static [c_int] {
     static TYPES: OnceLock<Vec<c_int>> = OnceLock::new();
     if let Some(types) = TYPES.get() {

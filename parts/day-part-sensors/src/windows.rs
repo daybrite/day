@@ -2,17 +2,17 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Windows: Windows.Devices.Sensors (WinRT) via the `windows` crate. `GetDefault()` +
-// `GetCurrentReading()` is a synchronous poll — no XAML, no event subscription — so this arm is
-// pull-only: the crate's subscription loop samples it (docs/sensors.md). Most desktops / CI runners have no motion hardware, so `GetDefault`
-// returns null and reads yield `None`; real coverage is tablets / 2-in-1 laptops with an
-// accelerometer. Units are normalized to SI: the accelerometer reports g's (→ m/s²), the gyrometer
-// degrees/second (→ rad/s), the magnetometer µT (already SI).
+// `GetCurrentReading()` is a synchronous poll (no XAML or event subscription), so this arm is
+// pull-only: the crate's subscription loop samples it (docs/sensors.md). Most desktops / CI runners
+// have no motion hardware, so `GetDefault` returns null and reads yield `None`; real coverage is
+// tablets / 2-in-1 laptops with an accelerometer. Units are normalized to SI: the accelerometer
+// reports g's (→ m/s²), the gyrometer degrees/second (→ rad/s), the magnetometer µT (already SI).
 
 use windows::Devices::Sensors::{Accelerometer, Gyrometer, Magnetometer};
 
 use super::{SensorKind, SensorReading};
 
-const G: f64 = 9.806_65; // standard gravity — AccelerometerReading is in g
+const G: f64 = 9.806_65; // standard gravity; AccelerometerReading is in g
 const DEG_TO_RAD: f64 = std::f64::consts::PI / 180.0; // GyrometerReading is in degrees/second
 
 pub fn is_available(kind: SensorKind) -> bool {
@@ -21,7 +21,7 @@ pub fn is_available(kind: SensorKind) -> bool {
 
 pub fn sample(kind: SensorKind) -> Option<SensorReading> {
     // A missing sensor makes `GetDefault` yield a null object whose `GetCurrentReading` errors, so
-    // every `.ok()?` naturally collapses to `None` — no explicit null check needed.
+    // every `.ok()?` naturally collapses to `None`, so no explicit null check is needed.
     match kind {
         SensorKind::Accelerometer => {
             let r = Accelerometer::GetDefault().ok()?.GetCurrentReading().ok()?;

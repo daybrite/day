@@ -4,7 +4,7 @@
 //! Standalone-piece backend discovery (docs/extending.md). External piece crates (e.g.
 //! `day-piece-searchfield`) declare their per-toolkit backend contributions in `Cargo.toml` under
 //! `[package.metadata.day.<toolkit>]`; the Day CLI reads them from `cargo metadata` and folds them
-//! into the native build — so a piece carries both its front-end (Rust) and its backend (Java /
+//! into the native build, so a piece carries both its front-end (Rust) and its backend (Java /
 //! Gradle deps / …) without touching the core Day crates.
 //!
 //! Android contract (`[package.metadata.day.android]`):
@@ -22,7 +22,7 @@
 //! the directories ([`link_java_files`]).
 //! The resolved contributions are written to `build/day/android/day-pieces.json`, which Day's Gradle
 //! plugin (`toolkits/day-android/gradle-plugin`, staged into `build/day/android/gradle-plugin`) reads
-//! generically (loops over the lists — no per-piece Gradle edits, ever).
+//! generically (loops over the lists; no per-piece Gradle edits, ever).
 //! Permissions additionally go into a generated manifest overlay (`day-pieces-manifest.xml`) that the
 //! plugin points the debug+release source-set manifests at, so AGP merges them into the app manifest.
 //!
@@ -33,20 +33,20 @@
 //!   { url = "https://…", from = "1.0.0", products = ["Foo"] },
 //! ]
 //! ```
-//! Xcode is not script-driven like Gradle, so instead the CLI generates a LOCAL SwiftPM package at
-//! `build/day/ios/DayPieces` — its `Package.swift` lists every piece's `swift-packages` as
+//! Xcode is not script-driven like Gradle, so instead the CLI generates a local SwiftPM package at
+//! `build/day/ios/DayPieces`; its `Package.swift` lists every piece's `swift-packages` as
 //! dependencies and compiles every piece's staged Swift shims. The app's checked-in `.xcodeproj`
 //! depends on that one local package (the iOS analog of the Gradle scaffold), so adding an iOS piece
-//! is pure `Cargo.toml` data — no `.xcodeproj` edits, ever.
+//! is pure `Cargo.toml` data; the `.xcodeproj` is never edited.
 //!
 //! HarmonyOS contract (`[package.metadata.day.ohos]`):
 //! ```toml
 //! ets = ["platform/harmony/ets"]                    # dirs (rel. to the crate) of ArkTS sources
 //! ```
-//! For components that exist only in ArkTS — the ArkUI C node API cannot construct a `Web` at all.
+//! For components that exist only in ArkTS (the ArkUI C node API cannot construct a `Web` at all).
 //! Hvigor compiles ArkTS only from inside the module, so these stage into the project itself
 //! (`entry/src/main/ets/daypieces/<crate>/`, gitignored) beside a generated `DayPieces.ets` whose
-//! `registerDayPieces(uiContext)` the checked-in host page calls once — so adding an ArkTS piece is
+//! `registerDayPieces(uiContext)` the checked-in host page calls once, so adding an ArkTS piece is
 //! pure `Cargo.toml` data too. Each declared dir needs an `Index.ets` exporting a `DayPieceModule`.
 
 use std::collections::HashSet;
@@ -57,7 +57,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::meta::Project;
 
-/// `[package.metadata.day.permissions]` — a library declaring which PORTABLE permissions it needs
+/// `[package.metadata.day.permissions]`: a library declaring which portable permissions it needs
 /// (docs/permissions.md). Machine-facing only: a library cannot write the user-facing reason, which
 /// is why that lives in the app's Day.toml and why a contribution without one is a build error on
 /// the platforms that show it.
@@ -71,7 +71,7 @@ struct PermissionsMeta {
 #[derive(Debug, Default, Serialize)]
 pub struct AndroidPieces {
     /// The day-android framework Java shim (DayActivity, DayBridge, …), resolved from the
-    /// `day-android` crate the app depends on — wherever cargo has it (workspace path, git
+    /// `day-android` crate the app depends on, wherever cargo has it (workspace path, git
     /// checkout, or registry source). Without this dir in the dex, the APK installs and then
     /// crashes with ClassNotFoundException at launch; the Gradle scaffold hard-fails instead.
     #[serde(rename = "dayJavaSrcDir")]
@@ -94,7 +94,7 @@ pub struct AndroidPieces {
     /// that root to `java_src_dirs`; the list itself never reaches Gradle.
     #[serde(skip)]
     pub java_files: Vec<std::path::PathBuf>,
-    /// Absolute Android resource dirs to add as Gradle `res.srcDir`s — a piece can ship its own
+    /// Absolute Android resource dirs to add as Gradle `res.srcDir`s, so a piece can ship
     /// styles/drawables (e.g. a theme overlay its dialog needs) without touching the scaffold.
     #[serde(rename = "resSrcDirs")]
     pub res_src_dirs: Vec<String>,
@@ -104,15 +104,15 @@ pub struct AndroidPieces {
     pub repositories: Vec<String>,
     /// Android `<uses-permission>` names to merge into the app manifest.
     pub permissions: Vec<String>,
-    /// Absolute R8/ProGuard rule files contributed by the app and its pieces/parts — every
+    /// Absolute R8/ProGuard rule files contributed by the app and its pieces/parts. Every
     /// component that hands Java classes to native code by name (JNI FindClass, `dcall_static`,
     /// reflection) ships one and declares it in `[package.metadata.day.android].proguard`. Folded
     /// into the release build's proguard configuration so those names survive minification.
     #[serde(rename = "proguardFiles")]
     pub proguard_files: Vec<String>,
     /// Absolute manifest-fragment files contributed by pieces/parts that need a `<receiver>`,
-    /// `<service>`, or `<activity>` of their own — a scheduled-notification part cannot work
-    /// without one (docs/notify.md). Their contents are inlined into the `<application>` of the
+    /// `<service>`, or `<activity>` of their own (a scheduled-notification part cannot work
+    /// without one, docs/notify.md). Their contents are inlined into the `<application>` of the
     /// generated overlay; the paths ride in day-pieces.json so Gradle can gate on them and so a
     /// build log shows which crate contributed what.
     #[serde(rename = "manifestComponents")]
@@ -163,13 +163,13 @@ struct AndroidMeta {
     gradle_repositories: Vec<String>,
     #[serde(default)]
     permissions: Vec<String>,
-    /// R8/ProGuard rule files (relative to the crate) — one per component that needs its Java
+    /// R8/ProGuard rule files (relative to the crate), one per component that needs its Java
     /// classes kept by name under release minification.
     #[serde(default)]
     proguard: StringOrVec,
     /// Manifest fragments (relative to the crate) holding the `<receiver>`/`<service>`/`<activity>`
-    /// elements the crate's own Java classes need declared. Each file holds only the elements —
-    /// no `<manifest>` or `<application>` wrapper, which the CLI adds — and must name its classes
+    /// elements the crate's Java classes need declared. Each file holds only the elements (no
+    /// `<manifest>` or `<application>` wrapper; the CLI adds those) and must name its classes
     /// fully-qualified, since the overlay merges into an app whose package it cannot know.
     #[serde(default, rename = "manifest-components")]
     manifest_components: StringOrVec,
@@ -195,9 +195,9 @@ impl<'de> Deserialize<'de> for StringOrVec {
 
 /// The `[package.metadata.day.piece]` marker a standalone piece declares to name the backends it
 /// carries a native-renderer *feature* for. The Day CLI unions `<pkg>/<backend>` into the app build
-/// (see [`feature_union`]) so the app need only depend on the piece — never re-list its per-backend
-/// features. COMPOSE pieces (built from core pieces, no per-backend feature) omit this table and so
-/// contribute nothing.
+/// (see [`feature_union`]) so the app need only depend on the piece, never re-list its per-backend
+/// features. Composed pieces (built from core pieces, no per-backend feature) omit this table and
+/// so contribute nothing.
 #[derive(Deserialize, Default)]
 struct PieceMeta {
     /// Backend toolkit names (`appkit`, `gtk`, `qt`, `uikit`, `mdc`, `xaml`, `mock`) this piece
@@ -208,14 +208,14 @@ struct PieceMeta {
 
 /// Compute the extra `--features` entries that wire each standalone piece's per-backend renderer into
 /// a build whose toolkit is `backend`. Scans the app's dependency closure for pieces declaring
-/// `[package.metadata.day.piece].backends` that INCLUDE `backend` and returns one `<pkg>/<backend>`
+/// `[package.metadata.day.piece].backends` that include `backend` and returns one `<pkg>/<backend>`
 /// per match (deduped, sorted). This lets the app depend on a piece with a plain `{ workspace = true }`
-/// and no per-backend feature fan-out — the CLI derives them here.
+/// and no per-backend feature fan-out; the CLI derives them here.
 ///
-/// Robustness: only pieces that actually declare `backend` contribute (so `cargo`'s "feature does not
-/// exist" / "not a direct dependency" errors can't fire), and a metadata failure degrades to an empty
-/// list (warn, don't fail) so the app still builds with whatever features it lists itself. Because the
-/// union is additive, an app that still lists the per-piece features stays correct (dupes are fine).
+/// Only pieces that declare `backend` contribute (so `cargo`'s "feature does not exist" / "not a
+/// direct dependency" errors can't fire), and a metadata failure degrades to an empty list (warn,
+/// don't fail) so the app still builds with whatever features it lists itself. Because the union
+/// is additive, an app that still lists the per-piece features stays correct (dupes are fine).
 pub fn feature_union(project: &Project, backend: &str) -> Vec<String> {
     let meta = match cargo_metadata(project, &[backend]) {
         Ok(m) => m,
@@ -251,8 +251,8 @@ pub(crate) fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Met
     cargo_metadata_inner(project, features, false)
 }
 
-/// `cargo metadata --all-features` — the form external-toolkit discovery needs: a toolkit crate
-/// is an OPTIONAL dependency (behind the very feature its declaration names), and cargo omits
+/// `cargo metadata --all-features`, the form external-toolkit discovery needs: a toolkit crate
+/// is an optional dependency (behind the very feature its declaration names), and cargo omits
 /// unactivated optional deps from `packages` under any narrower flag set (verified empirically:
 /// only `--all-features` lists them). Feature-closure consumers keep the precise form above.
 pub(crate) fn cargo_metadata_all_features(project: &Project) -> Result<Metadata, String> {
@@ -266,9 +266,9 @@ fn cargo_metadata_inner(
 ) -> Result<Metadata, String> {
     let manifest = project.root.join("Cargo.toml");
     // Resolve cargo the way the build commands do (day_toolchain: RUSTUP_HOME-aware, plus the
-    // toolchain's bin dir on the child's PATH — the raw toolchain cargo finds `rustc` through
+    // toolchain's bin dir on the child's PATH, as the raw toolchain cargo finds `rustc` through
     // PATH), never from the ambient environment alone: an Xcode GUI script phase runs on
-    // Xcode's minimal PATH with no ~/.cargo/bin, where this call failed — and because every
+    // Xcode's minimal PATH with no ~/.cargo/bin, where this call failed, and because every
     // metadata consumer degrades rather than fails, that surfaced as feature_union quietly
     // dropping every optional piece, i.e. ⟨kind⟩ placeholders on GUI builds only. The ambient
     // PATH stays as fallback and tail.
@@ -286,13 +286,13 @@ fn cargo_metadata_inner(
         Err(_) => Command::new("cargo"),
     };
     // Run from the project root, like every build command: cargo discovers `.cargo/config.toml`
-    // (the `day patch` table) from the CURRENT DIRECTORY, not the manifest path. Without this,
-    // `day` invoked from outside the project resolves the graph without the patch table — a crate
+    // (the `day patch` table) from the current directory, not the manifest path. Without this,
+    // `day` invoked from outside the project resolves the graph without the patch table: a crate
     // that exists only in the local checkout fails resolution, and every metadata consumer
     // (feature union, piece staging) silently degrades to "no contributions".
     // The feature union must be resolved against the same day the build links. Resolving without
     // the `--day-src` patch reports the piece features of whatever day the manifest names, and a
-    // piece whose renderer feature goes missing renders as a `⟨kind⟩` placeholder — the exact
+    // piece whose renderer feature goes missing renders as a `⟨kind⟩` placeholder, the exact
     // silent degradation the paragraph above describes, from a different cause.
     crate::patch::apply_day_src(&mut cmd);
     cmd.current_dir(&project.root)
@@ -329,7 +329,7 @@ pub(crate) fn piece_meta<T: serde::de::DeserializeOwned>(
     let table = pkg
         .metadata
         .as_ref()
-        .and_then(|m| m.get("day")) // Cargo.toml `[package.metadata.day.*]` — lowercase key
+        .and_then(|m| m.get("day")) // Cargo.toml `[package.metadata.day.*]` (lowercase key)
         .and_then(|d| d.get(toolkit))?;
     match serde_json::from_value(table.clone()) {
         Ok(v) => Some(v),
@@ -507,7 +507,7 @@ fn is_env_name(name: &str) -> bool {
 
 /// Resolve every piece in the app's Android dependency closure and collect its contributions.
 /// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
-/// by that feature set contribute) — currently `["mdc"]`, no default features.
+/// by that feature set contribute); currently `["mdc"]`, no default features.
 pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPieces, String> {
     let meta = cargo_metadata(project, features)?;
 
@@ -520,7 +520,7 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
         if !in_closure.contains(&pkg.id) {
             continue;
         }
-        // The framework's own Java shim rides with the day-android crate (§17.1) — resolve it
+        // The framework's Java shim rides with the day-android crate (§17.1); resolve it
         // from wherever cargo checked the crate out instead of assuming a day repo layout.
         if pkg.name == "day-android" {
             let java = Path::new(&pkg.manifest_path)
@@ -535,8 +535,8 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 ));
             }
             pieces.day_java_src_dir = Some(java.to_string_lossy().into_owned());
-            // The framework's own R8 keep rules ride alongside the Java shim (optional — an older
-            // day-android checkout without the file simply contributes none).
+            // The framework's R8 keep rules ride alongside the Java shim (optional: an older
+            // day-android checkout without the file contributes none).
             let rules = Path::new(&pkg.manifest_path)
                 .parent()
                 .unwrap_or(Path::new("."))
@@ -618,9 +618,9 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 pieces.proguard_files.push(abs);
             }
         }
-        // A missing fragment is a HARD error, unlike the skip-and-warn above: the others degrade to
+        // A missing fragment is a hard error, unlike the skip-and-warn above: the others degrade to
         // a smaller build, but a dropped `<receiver>` yields an APK that installs, runs, and then
-        // silently never delivers — the failure mode this key exists to prevent.
+        // silently never delivers, which is the failure mode this key exists to prevent.
         for rel in &android.manifest_components.0 {
             let file = crate_dir.join(rel);
             if !file.is_file() {
@@ -716,7 +716,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
 
     // daybridge adapters (docs/bridge.md): rendered from each bridged crate's source and staged
     // into a generated root, which joins the piece java dirs Gradle already reads. Nothing else in
-    // the scaffold changes — a bridged crate contributes exactly like a piece with a Java shim.
+    // the scaffold changes; a bridged crate contributes exactly like a piece with a Java shim.
     // A Kotlin arm with no Kotlin plugin builds a working-looking APK whose bridge class does not
     // exist. Fail here, with the fix, rather than let it install and crash on first use.
     let kotlin_arms = crate::bridge::kotlin_arm_crates(project);
@@ -863,7 +863,7 @@ fn prune_plugin_tree(dir: &Path, top: bool, expected: &HashSet<std::path::PathBu
     }
 }
 
-/// Everything outside `<!-- … -->`. Used for validation only — the comments are kept in the
+/// Everything outside `<!-- … -->`. Used for validation only; the comments are kept in the
 /// generated overlay, where they explain to a reader which crate contributed what.
 fn strip_xml_comments(xml: &str) -> String {
     let mut out = String::with_capacity(xml.len());
@@ -908,9 +908,9 @@ fn read_manifest_components(paths: &[String]) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// The overlay: the `<uses-permission>`s, plus any `<application>` components pieces/parts declared
-/// — merged into the app manifest by AGP's manifest merger (which also dedups against any the app
-/// already declares).
+/// The overlay: the `<uses-permission>`s, plus any `<application>` components pieces/parts
+/// declared, merged into the app manifest by AGP's manifest merger (which also dedups against any
+/// the app already declares).
 fn pieces_manifest(
     permissions: &[crate::permissions::AndroidRaw],
     components: &[String],
@@ -955,13 +955,13 @@ fn pieces_manifest(
 }
 
 // ===========================================================================
-// iOS — a piece's Swift shims + SwiftPM package dependencies
+// iOS: a piece's Swift shims + SwiftPM package dependencies
 // ===========================================================================
 
 /// A SwiftPM package dependency declared by a piece (`[package.metadata.day.ios/macos]
 /// .swift-packages`): **remote** (`url` + a version requirement) or **local** (`path`, relative to
 /// the declaring crate; absolutized at discovery). Local packages are additionally scanned for
-/// exportable public SwiftUI views (docs/swiftui.md) — `day build` generates their provider glue
+/// exportable public SwiftUI views (docs/swiftui.md); `day build` generates their provider glue
 /// and day-build generates the app's typed `crate::swiftui::*` bindings from the same scan.
 #[derive(Debug, Clone, Deserialize)]
 struct SwiftPackage {
@@ -983,8 +983,8 @@ struct SwiftPackage {
 }
 
 impl SwiftPackage {
-    /// SwiftPM derives a package's identity from the last path component of its URL (sans `.git`)
-    /// — or of its directory, for a local package.
+    /// SwiftPM derives a package's identity from the last path component of its URL (sans
+    /// `.git`), or of its directory, for a local package.
     fn identity(&self) -> String {
         let base = self.path.as_deref().or(self.url.as_deref()).unwrap_or("");
         base.trim_end_matches('/')
@@ -994,7 +994,7 @@ impl SwiftPackage {
             .trim_end_matches(".git")
             .to_string()
     }
-    /// The library products to link — the declared list, or the package identity by convention
+    /// The library products to link: the declared list, or the package identity by convention
     /// (the scaffold layout `swift package init` produces).
     fn product_names(&self) -> Vec<String> {
         if self.products.is_empty() {
@@ -1030,19 +1030,20 @@ impl SwiftPackage {
 }
 
 /// The `[package.metadata.day.ios]` / `[package.metadata.day.macos]` table, as declared by a piece
-/// crate — or by the app itself (the app crate is in its own dependency closure, which is how an
-/// app contributes its own Swift sources and packages).
+/// crate, or by the app itself (the app crate is in its own dependency closure, which is how an
+/// app contributes Swift sources and packages).
 #[derive(Deserialize, Default)]
 struct AppleMeta {
     #[serde(default)]
     swift: StringOrVec,
     #[serde(default, rename = "swift-packages")]
     swift_packages: Vec<SwiftPackage>,
-    /// System frameworks to link (e.g. `["WebKit"]`) — so a piece needn't `dlopen` or hand-`#[link]`.
+    /// System frameworks to link (e.g. `["WebKit"]`), so a piece needn't `dlopen` or
+    /// hand-`#[link]`.
     #[serde(default)]
     frameworks: Vec<String>,
     /// The minimum platform version this contribution needs (e.g. `"16.0"`). The generated
-    /// package's floor — and the leg's deployment target — is the max across contributions.
+    /// package's floor (and the leg's deployment target) is the max across contributions.
     #[serde(default)]
     platform: Option<String>,
 }
@@ -1050,7 +1051,7 @@ struct AppleMeta {
 /// The resolved Apple-leg contributions across all pieces in the app's dependency closure.
 #[derive(Default)]
 struct ApplePieces {
-    /// `(namespace, absolute dir)` Swift source dirs to compile — the namespace (the piece's crate
+    /// `(namespace, absolute dir)` Swift source dirs to compile; the namespace (the piece's crate
     /// name) subfolders the staged shims so two pieces' files can't collide.
     swift_dirs: Vec<(String, String)>,
     /// SwiftPM package dependencies (deduped by identity).
@@ -1062,7 +1063,7 @@ struct ApplePieces {
     platform: Option<String>,
     /// Local packages to scan for exportable SwiftUI views: `(identity, absolute dir)`.
     scan_roots: Vec<(String, String)>,
-    /// Whether `day-piece-swiftui` is in the closure — the generated provider glue subclasses the
+    /// Whether `day-piece-swiftui` is in the closure; the generated provider glue subclasses the
     /// base class its shim stages, so without it the view export is skipped (with a warning).
     has_swiftui_piece: bool,
 }
@@ -1081,8 +1082,8 @@ fn max_platform(a: &str, b: &str) -> String {
     }
 }
 
-/// Resolve every piece in the app's dependency closure for one Apple leg — `("ios", ["uikit"])` or
-/// `("macos", ["appkit"])` — and collect its Swift dirs, SwiftPM packages, frameworks, and floor.
+/// Resolve every piece in the app's dependency closure for one Apple leg (`("ios", ["uikit"])` or
+/// `("macos", ["appkit"])`) and collect its Swift dirs, SwiftPM packages, frameworks, and floor.
 fn resolve_apple(
     project: &Project,
     features: &[&str],
@@ -1169,14 +1170,14 @@ fn resolve_apple(
 /// Generate the local `DayPieces` SwiftPM package (Package.swift + staged Swift shims + generated
 /// SwiftUI provider glue) under `build/day/ios/DayPieces`, from every piece's
 /// `[package.metadata.day.ios]`. The app's `.xcodeproj` depends on this local package, so `day
-/// build` (ios) calls this before `xcodebuild`. Always writes a VALID package (an empty target
+/// build` (ios) calls this before `xcodebuild`. Always writes a valid package (an empty target
 /// with a placeholder source when no pieces contribute), so the project's local-package reference
 /// always resolves.
 ///
 /// Returns the deployment-target override to pass to xcodebuild: `Some(floor)` when a
 /// contribution's `platform` exceeds the scaffold pbxproj's checked-in value (a command-line
-/// setting raises the app AND the SwiftPM package targets; the pbxproj itself is never edited —
-/// §15.2 "aggregation never mutates the scaffolds").
+/// setting raises the app and the SwiftPM package targets; the pbxproj itself is never edited,
+/// per §15.2 "aggregation never mutates the scaffolds").
 pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     let pieces = resolve_apple(project, &["uikit"], "ios").unwrap_or_else(|e| {
         eprintln!("day: iOS piece discovery failed ({e}); building with framework pieces only");
@@ -1235,8 +1236,8 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
             .collect();
     let has_resources = crate::resources::apple::write_media_xcassets(&sources, &images, &vectors)?;
 
-    // Bundled fonts (§18.4): copied VERBATIM into the target so SwiftPM `.copy`s the directory
-    // into the DayPieces bundle (`DayPieces_DayPieces.bundle/fonts/…` — fonts must not be
+    // Bundled fonts (§18.4): copied verbatim into the target so SwiftPM `.copy`s the directory
+    // into the DayPieces bundle (`DayPieces_DayPieces.bundle/fonts/…`; fonts must not be
     // `.process`ed). day-uikit registers every file in there with CoreText at launch, and
     // build_ios lists the same paths in the app Info.plist's UIAppFonts.
     let fonts = crate::resources::scan_fonts(project)?;
@@ -1270,14 +1271,14 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
         ),
     )?;
 
-    // Override only when the contributions exceed the scaffold's checked-in target — and never
+    // Override only when the contributions exceed the scaffold's checked-in target, and never
     // lower a value the user raised by hand.
     let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "16.0".into());
     Ok((max_platform(&pbx, &floor) != pbx).then_some(floor))
 }
 
 /// The scaffold's checked-in `IPHONEOS_DEPLOYMENT_TARGET` (the max across every place it can
-/// be set), parsed tolerantly — `None` when nothing declares it. Since the xcconfig split
+/// be set), parsed tolerantly; `None` when nothing declares it. Since the xcconfig split
 /// (§17.4) the setting normally lives in `DayApp.xcconfig`; the pbxproj is still read for
 /// pre-split projects and hand-added per-config overrides. The same line parser serves both
 /// formats (the xcconfig just has no trailing `;`, which the parser already trims).
@@ -1348,12 +1349,12 @@ struct OhosMeta {
 /// The resolved HarmonyOS contributions across all pieces in the app's dependency closure.
 #[derive(Default)]
 struct OhosPieces {
-    /// The framework's own ArkTS host (`platform/harmony/` in the day-arkui crate: both
-    /// abilities, both pages, the native module's typings — docs/harmonyos.md), resolved from
-    /// wherever cargo has the crate, like the Java shim on Android. `None` when the day-arkui
-    /// checkout predates the host moving out of the app scaffold.
+    /// The framework's ArkTS host (`platform/harmony/` in the day-arkui crate: both abilities,
+    /// both pages, the native module's typings; docs/harmonyos.md), resolved from wherever cargo
+    /// has the crate, like the Java shim on Android. `None` when the day-arkui checkout predates
+    /// the host moving out of the app scaffold.
     host_dir: Option<String>,
-    /// `(namespace, absolute dir)` ArkTS dirs to stage — the namespace (the piece's crate name)
+    /// `(namespace, absolute dir)` ArkTS dirs to stage; the namespace (the piece's crate name)
     /// subfolders them so two pieces' files can't collide, as on iOS.
     ets_dirs: Vec<(String, String)>,
 }
@@ -1370,8 +1371,8 @@ fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, Stri
         if !in_closure.contains(&pkg.id) {
             continue;
         }
-        // The framework's own ArkTS host rides with the day-arkui crate (§17.1), the way the
-        // Java shim rides with day-android — resolved from wherever cargo checked it out.
+        // The framework's ArkTS host rides with the day-arkui crate (§17.1), the way the Java
+        // shim rides with day-android, resolved from wherever cargo checked it out.
         if pkg.name == "day-arkui" {
             let host = Path::new(&pkg.manifest_path)
                 .parent()
@@ -1417,9 +1418,9 @@ fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, Stri
 /// Stage every piece's ArkTS into the hvigor project's `entry/src/main/ets/daypieces/` and generate
 /// the two files the host page leans on: `DayPiece.ets` (the `DayPieceModule` interface both sides
 /// implement) and `DayPieces.ets` (the aggregator whose `registerDayPieces(uiContext)` hands the
-/// native shim one factory + command sink + disposer for ALL pieces). Hvigor compiles ArkTS only
-/// from inside the module, so unlike the android/iOS legs these land in the project — the scaffold
-/// gitignores the directory. Always writes both generated files, even with no contributing piece,
+/// native shim one factory + command sink + disposer for all pieces). Hvigor compiles ArkTS only
+/// from inside the module, so unlike the android/iOS legs these land in the project (the scaffold
+/// gitignores the directory). Always writes both generated files, even with no contributing piece,
 /// because the host page imports them unconditionally.
 pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String> {
     let pieces = resolve_ohos(project, &["arkui"]).unwrap_or_else(|e| {
@@ -1432,8 +1433,8 @@ pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String
     let dir = harmony.join("entry/src/main/ets/daypieces");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     // Touch only what changed, then prune, so a removed piece leaves no stale module the
-    // aggregator won't import but hvigor would still compile — and so an unchanged tree does not
-    // restamp every .ets and re-run the ArkTS compile (DESIGN §17.5).
+    // aggregator won't import but hvigor would still compile, and so an unchanged tree does not
+    // restamp every .ets and re-run the ArkTS compile (DESIGN.md §17.5).
     let mut expected: Vec<std::path::PathBuf> = Vec::new();
 
     let contract = dir.join("DayPiece.ets");
@@ -1460,8 +1461,8 @@ pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String
 /// plus the page list and start-window colors those files reference. All gitignored; a
 /// scaffold since 2026-09 checks in only the hvigor skeleton (module.json5 points here).
 ///
-/// A project that still carries its own host page — `entry/src/main/ets/pages/Index.ets`, the
-/// pre-2026-09 layout — keeps it: nothing is staged over it, and a one-time note says how to
+/// A project that still carries its own host page (`entry/src/main/ets/pages/Index.ets`, the
+/// pre-2026-09 layout) keeps it: nothing is staged over it, and a one-time note says how to
 /// move on. Its module.json5 still names its own abilities, so a staged copy would compile as
 /// dead weight at best and shadow a page the app edited at worst.
 fn write_ohos_host(harmony: &Path, host_dir: Option<&str>) -> Result<(), String> {
@@ -1536,7 +1537,7 @@ const START_COLOR_LIGHT: &str =
 const START_COLOR_DARK: &str =
     "{ \"color\": [ { \"name\": \"start_window_background\", \"value\": \"#1A1A1C\" } ] }\n";
 
-/// The generated `DayPieceModule` contract — the seam between a piece's ArkTS and the aggregator.
+/// The generated `DayPieceModule` contract between a piece's ArkTS and the aggregator.
 /// Written verbatim every build so the two generated files always agree.
 const DAY_PIECE_ETS: &str = r#"// Generated by `day build`. The contract between a standalone piece's ArkTS and the generated
 // aggregator (docs/extending.md). Do not edit.
@@ -1550,7 +1551,7 @@ export interface DayPieceModule {
   make: (ui: UIContext, id: number, props: string) => FrameNode | undefined;
   // A command from the piece's Rust renderer. `cmd`/`arg` are the piece's own vocabulary.
   update: (id: number, cmd: string, arg: string) => void;
-  // Release everything held for `id` — Day disposed the node.
+  // Release everything held for `id`; Day disposed the node.
   dispose: (id: number) => void;
 }
 "#;
@@ -1609,7 +1610,7 @@ export function registerDayPieces(ui: UIContext): void {{
     )
 }
 
-/// Copy a piece's ArkTS sources (`.ets`) into the project, recursively — the HarmonyOS counterpart
+/// Copy a piece's ArkTS sources (`.ets`) into the project, recursively. The HarmonyOS counterpart
 /// of [`sync_swift_dir`], and mtime-stable for the same reason: hvigor's incremental compile keys
 /// on timestamps.
 fn sync_ets_dir(
@@ -1633,7 +1634,7 @@ fn sync_ets_dir(
 }
 
 /// Render the generated `DayPieces/Package.swift` for one Apple leg. When `has_resources`, the
-/// target processes the generated `Media.xcassets` (§18.3) — SwiftPM runs `actool` → an optimized
+/// target processes the generated `Media.xcassets` (§18.3); SwiftPM runs `actool` → an optimized
 /// `Assets.car` in the package's resource bundle, which `day-uikit` loads images from by name.
 /// When `has_fonts`, the staged `fonts/` directory is `.copy`d verbatim into the same bundle
 /// (§18.4). The macOS leg passes `static_product` (its archive is linked into the cargo binary)
@@ -1709,14 +1710,14 @@ fn package_swift(
 }
 
 // ===========================================================================
-// macOS — the appkit leg's Swift contributions (docs/swiftui.md)
+// macOS: the appkit leg's Swift contributions (docs/swiftui.md)
 // ===========================================================================
 
 /// Generate the local `DayPieces` SwiftPM package under `build/day/macos/DayPieces` from every
-/// piece's `[package.metadata.day.macos]` — the macOS analog of [`write_ios_pieces`], minus the
+/// piece's `[package.metadata.day.macos]`, the macOS analog of [`write_ios_pieces`], minus the
 /// resource legs (the `day xcode-backend stage-resources` phase owns those). The Xcode host
 /// project's pbxproj references the package unconditionally, so it is written even when
-/// nothing contributes Swift — an empty package must still exist for xcodebuild to resolve.
+/// nothing contributes Swift; an empty package must still exist for xcodebuild to resolve.
 ///
 /// Unlike the iOS leg this stages **only files whose bytes changed** (and prunes the rest):
 /// churned mtimes would make Xcode's incremental SwiftPM build recompile from scratch each
@@ -1776,8 +1777,8 @@ pub fn write_macos_pieces(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
-/// Every package in the app's dependency graph, as `(name, crate root)` — what the bridge stager
-/// walks to find crates declaring a `bridge!` block (docs/bridge.md).
+/// Every package in the app's dependency graph, as `(name, crate root)`, which the bridge
+/// stager walks to find crates declaring a `bridge!` block (docs/bridge.md).
 pub(crate) fn dependency_roots(project: &Project) -> Vec<(String, std::path::PathBuf)> {
     let Ok(meta) = cargo_metadata_all_features(project) else {
         return Vec::new();
@@ -1806,8 +1807,8 @@ fn stage_bridge_swift(
     crate::bridge::stage(project, platform).write_swift(sources, expected)
 }
 
-/// Write `content` only when the file's bytes differ — generated trees must not churn mtimes, or
-/// the incremental Swift build behind them recompiles on every `day build` (DESIGN §17.5's
+/// Write `content` only when the file's bytes differ: generated trees must not churn mtimes, or
+/// the incremental Swift build behind them recompiles on every `day build` (DESIGN.md §17.5's
 /// touch-only-when-changed rule; `swift build` and hvigor key on mtime + size, unlike Gradle,
 /// which content-hashes).
 pub(crate) fn write_if_changed(path: &Path, content: &str) -> Result<(), String> {
@@ -1848,7 +1849,7 @@ pub(crate) fn collect_files(root: &Path, expected: &mut Vec<std::path::PathBuf>)
 }
 
 /// Copy every `.swift` file under `src` into `dest` (recursively) via [`write_if_changed`],
-/// recording each destination in `expected` — the mtime-stable counterpart of [`stage_swift_dir`].
+/// recording each destination in `expected`, the mtime-stable counterpart of [`stage_swift_dir`].
 fn sync_swift_dir(
     src: &Path,
     dest: &Path,
@@ -1872,7 +1873,7 @@ fn sync_swift_dir(
 }
 
 /// Remove every file under `root` not in `expected` (and any directory left empty), so a removed
-/// piece never leaves a stale shim behind — the pruning half of the mtime-stable staging.
+/// piece never leaves a stale shim behind, the pruning half of the mtime-stable staging.
 pub(crate) fn prune_except(root: &Path, expected: &HashSet<std::path::PathBuf>) {
     for entry in std::fs::read_dir(root).into_iter().flatten().flatten() {
         let path = entry.path();
@@ -2146,7 +2147,7 @@ mod tests {
     #[test]
     fn overlay_without_components_is_unchanged() {
         // The pre-existing shape: permissions only, no <application> element at all. Guards the
-        // compatibility surface — every checked-out app's scaffold already merges this file.
+        // compatibility surface: every checked-out app's scaffold already merges this file.
         let xml = pieces_manifest(&[raw("android.permission.INTERNET")], &[]);
         assert!(xml.contains("<uses-permission android:name=\"android.permission.INTERNET\" />"));
         assert!(!xml.contains("<application"));
@@ -2199,7 +2200,7 @@ mod tests {
 
     /// The wrapper check must not fire on a header comment. This is not hypothetical: this crate's
     /// own reference fragment explains "only the elements that go inside <application>", and the
-    /// naive substring check rejected it on the first real Android build.
+    /// bare substring check rejected it on the first real Android build.
     #[test]
     fn wrapper_named_only_inside_a_comment_is_accepted() {
         let dir = std::env::temp_dir().join("day-pieces-frag-comment");
@@ -2251,7 +2252,7 @@ mod tests {
 
     #[test]
     fn android_meta_without_the_key_still_parses() {
-        // Every existing part's manifest must keep parsing — the field is additive.
+        // Every existing part's manifest must keep parsing; the field is additive.
         let meta: AndroidMeta =
             toml::from_str("java = [\"platform/android/java\"]\npermissions = []\n")
                 .expect("parses");
@@ -2270,7 +2271,7 @@ mod tests {
 
     #[test]
     fn apple_meta_parses_with_and_without_the_new_keys() {
-        // Every existing piece's manifest must keep parsing — the fields are additive.
+        // Every existing piece's manifest must keep parsing; the fields are additive.
         let old: AppleMeta = toml::from_str(
             "swift = [\"platform/ios/swift\"]\n\
              swift-packages = [{ url = \"https://github.com/airbnb/lottie-ios\", from = \"4.5.0\", products = [\"Lottie\"] }]\n",
@@ -2294,8 +2295,8 @@ mod tests {
     #[test]
     fn ios_target_parses_from_the_scaffold_pbxproj() {
         // Since the xcconfig split (§17.4) the scaffold declares the floor in
-        // DayApp.xcconfig — the floor override maxes against that value — and the pbxproj
-        // must NOT redeclare it (a buildSettings value would override the xcconfig, leaving
+        // DayApp.xcconfig (the floor override maxes against that value), and the pbxproj
+        // must not redeclare it (a buildSettings value would override the xcconfig, leaving
         // the committed setting dead).
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/templates/app/platform/ios");
         let pbx = std::fs::read_to_string(format!("{root}/DayApp.xcodeproj/project.pbxproj"))

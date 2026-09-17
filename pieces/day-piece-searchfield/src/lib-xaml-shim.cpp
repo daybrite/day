@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The search-field piece's OWN C++/WinRT shim — parallel to src/lib-qt-shim.cpp. A single
+// The search-field piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. A single
 // AutoSuggestBox (the XAML search control: a text box with a query magnifier icon), boxed into a
-// Day handle via the day_xaml_box/day_xaml_unbox seam that day-xaml-sys exports, so this piece
-// carries its own XAML native code with ZERO edits to day's toolkit crates.
+// Day handle via the day_xaml_box/day_xaml_unbox functions that day-xaml-sys exports, so this
+// piece carries its own XAML native code with no edits to day's toolkit crates.
 //
 // TextChanged reports edits back to Rust as a UTF-8 C string (valid only during the callback; Rust
 // copies it). Programmatic Text(...) re-fires TextChanged, but the front-end's bind only re-patches
@@ -25,7 +25,7 @@ using namespace winrt;
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
 
-// The boxing seam, exported by day-xaml-sys (already linked into the app).
+// The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
 extern "C" void *day_xaml_unbox(void *handle);
 

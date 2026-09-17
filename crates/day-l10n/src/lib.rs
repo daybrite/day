@@ -1,13 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-l10n — the core localization engine (DESIGN.md §12), low enough in the crate graph that even
+//! day-l10n: the core localization engine (DESIGN.md §12), low enough in the crate graph that even
 //! the central crates (day-pieces' dialogs, menu-role labels) can localize their own UI strings.
 //!
 //! Two tiers of Fluent bundles:
-//! - **core** — a built-in catalog (`catalog/*.ftl`) of the standard strings the framework itself
+//! - **core**: a built-in catalog (`catalog/*.ftl`) of the standard strings the framework itself
 //!   emits (dialog OK/Cancel, standard menu commands), shipped in several languages. Always present.
-//! - **app** — the locales an app registers with [`install`]. These take precedence over core, so an
+//! - **app**: the locales an app registers with [`install`]. These take precedence over core, so an
 //!   app can override any `day-*` string, and core is the fallback for keys the app didn't define.
 //!
 //! The current locale is a [`Signal`], so every `format`/binding re-runs on a locale switch. The
@@ -48,9 +48,9 @@ const CORE_CATALOG: &[(&str, &str)] = &[
 ];
 
 struct State {
-    /// App-registered bundles (from `install`), keyed by locale — take precedence over `core`.
+    /// App-registered bundles (from `install`), keyed by locale; take precedence over `core`.
     app: HashMap<String, FluentBundle<FluentResource>>,
-    /// Built-in core catalog bundles, keyed by locale — the fallback for `day-*` keys.
+    /// Built-in core catalog bundles, keyed by locale; the fallback for `day-*` keys.
     core: HashMap<String, FluentBundle<FluentResource>>,
     default: String,
     locale: Signal<String>,
@@ -60,8 +60,8 @@ day_reactive::tls_slots! {
     root;
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
 
-    /// The host's ordered locale preference, set by the platform entry before `install` runs —
-    /// the seam for hosts with no process environment (web-dom seeds it from the page's
+    /// The host's ordered locale preference, set by the platform entry before `install` runs:
+    /// the entry point for hosts with no process environment (web-dom seeds it from the page's
     /// `?locale=`, native backends from the OS). The `DAY_LOCALE` environment variable, where one
     /// exists, still wins.
     static LAUNCH_LOCALES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
@@ -75,7 +75,7 @@ fn build_bundles(locales: &[(&str, &str)]) -> HashMap<String, FluentBundle<Fluen
         let mut bundle = FluentBundle::new(vec![langid]);
         // icu4x-backed NUMBER()/DATETIME() + the bundle-wide number formatter (src/intl.rs).
         intl::register(&mut bundle);
-        // Overriding the same key across resources (app > core when merged) is expected — Fluent
+        // Overriding the same key across resources (app > core when merged) is expected; Fluent
         // errors on duplicate adds, so we keep app and core in separate bundles and pick at lookup.
         match FluentResource::try_new((*src).to_string()) {
             Ok(res) => {
@@ -108,7 +108,7 @@ fn ensure_state() {
             default: "en".to_string(),
             // ROOT-scoped: this is a process-global signal, but `ensure_state` runs on the
             // First touch of any l10n API, which can be inside a transient scope (a cover's
-            // presented content calling `t()` was the first observed case — the signal then
+            // presented content calling `t()` was the first observed case; the signal then
             // died with that cover and every later read panicked). Globals must never
             // inherit a caller's scope.
             locale: Signal::global(initial),
@@ -116,7 +116,7 @@ fn ensure_state() {
     });
 }
 
-/// Record the host's launch locale before [`install`] runs. Platform glue only — apps pick
+/// Record the host's launch locale before [`install`] runs. Platform glue only; apps pick
 /// locales with `set_locale`. No-op once `install` has resolved the initial locale.
 pub fn set_launch_locale(locale: &str) {
     set_launch_locales(&[locale.to_string()]);
@@ -138,10 +138,10 @@ pub fn add_launch_locales(locales: &[String]) {
     });
 }
 
-/// Record the host's ORDERED locale preference (`["fr-CA", "fr", "en"]`) before [`install`] runs.
+/// Record the host's ordered locale preference (`["fr-CA", "fr", "en"]`) before [`install`] runs.
 ///
-/// An OS answers with a list, not a locale, and the app's catalogs are not registered yet — so the
-/// list is kept whole and [`install`] picks the first entry it can actually serve. Taking only the
+/// An OS answers with a list, not a locale, and the app's catalogs are not registered yet, so the
+/// list is kept whole and [`install`] picks the first entry it can serve. Taking only the
 /// first would drop a user whose phone reads "Canadian French, then French" for an app that ships
 /// `fr` but not `fr-CA`.
 pub fn set_launch_locales(locales: &[String]) {
@@ -160,12 +160,12 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
         let st = st.as_mut().unwrap();
         st.app = build_bundles(locales);
         st.default = default.to_string();
-        // Accept the first candidate that RESOLVES — exactly, sans `-u-…` extension, or by
-        // language half (`fr-FR` → `fr`) — mirroring `message_from`'s lookup, so a regional or
+        // Accept the first candidate that resolves (exactly, sans `-u-…` extension, or by
+        // language half, `fr-FR` → `fr`), mirroring `message_from`'s lookup, so a regional or
         // extension-carrying candidate isn't silently dropped to the default.
-        // The APP's catalogs decide the app's language. The core catalog ships more languages
+        // The app's catalogs decide the app's language. The core catalog ships more languages
         // than most apps translate into, and letting it answer would hand a German phone an app
-        // whose own text is English and whose framework strings are German — a mix no user asked
+        // whose own text is English and whose framework strings are German, a mix no user asked
         // for. Core decides only when the app registered nothing at all.
         let serves = |l: &str| {
             let lang = l.split('-').next().unwrap_or(l);
@@ -204,7 +204,7 @@ pub fn locale() -> Signal<String> {
     STATE.with(|s| s.borrow().as_ref().unwrap().locale)
 }
 
-/// Switch the locale at runtime — every `tr`/binding re-runs.
+/// Switch the locale at runtime; every `tr`/binding re-runs.
 pub fn set_locale(l: &str) {
     locale().set(normalize(l.to_string()));
 }
@@ -273,7 +273,7 @@ impl IntoFArg<SigM> for Signal<f64> {
     }
 }
 
-/// Marker for [`IntoFArg`] values that carry a **number** — required for a Fluent variable used as a
+/// Marker for [`IntoFArg`] values that carry a **number**, required for a Fluent variable used as a
 /// plural / `select` selector, where CLDR plural rules select on a number (so a string can't be
 /// passed there by mistake). Implemented for the numeric `IntoFArg` types only (`i64`, `f64`, and
 /// their `Signal`s); the generated `res::str::<key>(…)` functions (§18.5) type such parameters as
@@ -298,8 +298,8 @@ fn message_from(
             let lang = locale_name.split('-').next().unwrap_or(locale_name);
             map.get(lang)
         })?;
-    // `message.attribute` reaches a Fluent ATTRIBUTE (a message id itself can never contain
-    // a dot, so the split is unambiguous) — how localized keyboard-shortcut keys resolve
+    // `message.attribute` reaches a Fluent attribute (a message id itself can never contain
+    // a dot, so the split is unambiguous). This is how localized keyboard-shortcut keys resolve
     // (`menu_group.key`, docs/localization.md): the attribute lives beside its command's
     // label, and a locale that omits it falls through this chain to the default's.
     let (msg_key, attr) = match key.split_once('.') {
@@ -352,7 +352,7 @@ pub fn format_in(locale_name: &str, key: &str, args: &[(String, FArg)]) -> Strin
     })
 }
 
-/// Resolve `key` in the current locale (no args) — the one-shot form the framework's own strings use
+/// Resolve `key` in the current locale (no args): the one-shot form the framework's own strings use
 /// (dialog buttons, menu-role labels), which are resolved once at present/build time.
 pub fn t(key: &str) -> String {
     format_in(&locale().get(), key, &[])
@@ -402,7 +402,7 @@ pub fn strip_isolates(s: &str) -> String {
 mod launch_locale_tests {
     use super::*;
 
-    /// The device answers with a LIST and its first entry is often regional. Both facts have to
+    /// The device answers with a list and its first entry is often regional. Both facts have to
     /// survive: `fr-CA` must reach an app that ships only `fr`, and a language the app does not
     /// have at all must fall through to the next preference rather than to the default.
     #[test]
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     fn core_catalog_resolves_without_install_and_across_locales() {
-        // Works before any `install` — the core catalog self-initializes.
+        // Works before any `install`; the core catalog self-initializes.
         assert_eq!(
             strip_isolates(&format_in("en", "day-cancel", &[])),
             "Cancel"
@@ -470,10 +470,10 @@ mod tests {
             "en",
             &[
                 ("en", "menu_group = Group\n    .key = g\n"),
-                // fr omits the attribute — the shortcut stays the default locale's, which is
+                // fr omits the attribute, so the shortcut stays the default locale's, which is
                 // the industry posture (letters stay stable across languages)…
                 ("fr", "menu_group = Grouper\n"),
-                // …while a locale that NEEDS to differ simply declares it.
+                // …while a locale that needs to differ declares it.
                 ("de", "menu_group = Gruppieren\n    .key = r\n"),
             ],
         );

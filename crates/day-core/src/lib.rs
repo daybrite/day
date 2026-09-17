@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-core — the Piece model, realized tree, mounter, layout engine, and event routing
+//! day-core: the Piece model, realized tree, mounter, layout engine, and event routing
 //! (DESIGN.md §5, §7). Build-once: pieces are constructed exactly once; all dynamism flows
 //! through reactive bindings (day-reactive) writing to the thread-local tree.
 
@@ -83,7 +83,8 @@ pub use tree_driver::{
     TreeBuiltRow, TreeDriver, TreeMovesDriver, install_tree, tree_driver, tree_reload, tree_reveal,
     tree_set_expanded, tree_set_selected, tree_try_move, tree_visible_rows,
 };
-// The resource seam lives in day-spec (backends depend only on day-spec); re-export for the facade.
+// The resource types live in day-spec (backends depend only on day-spec); re-exported for the
+// facade.
 pub use day_spec::resource::{
     AssetDir, AssetName, FontFamily, ImageName, Resource, ResourceOpener, VectorName, resource,
     set_resource_opener,
@@ -99,7 +100,7 @@ pub use windows::{
 /// the place pass when [`day_geometry::LayoutDirection::Rtl`]. Resolved lazily from the
 /// `DAY_LOCALE` launch environment (so toolkits can read it before any UI exists);
 /// `set_layout_direction` (called by `install_locales` for the resolved locale) overrides.
-/// Fixed for the life of the process — switching locale at runtime does not re-mirror.
+/// Fixed for the life of the process; switching locale at runtime does not re-mirror.
 pub fn layout_direction() -> day_geometry::LayoutDirection {
     DIRECTION.with(|d| {
         if let Some(dir) = d.get() {
@@ -119,7 +120,7 @@ pub fn set_layout_direction(dir: day_geometry::LayoutDirection) {
     DIRECTION.with(|d| d.set(Some(dir)));
 }
 
-/// Whether the app is being rendered right-to-left (docs/localization) — a convenience over
+/// Whether the app is being rendered right-to-left (docs/localization), a convenience over
 /// [`layout_direction`]. The layout engine already mirrors widget *placement* under an RTL locale,
 /// but a `canvas` draws in its own coordinate space, so a custom drawing that has a reading
 /// direction (a battery that drains one way, an arrow, a progress sweep) can call this to mirror
@@ -178,7 +179,7 @@ use day_spec::{Platform, WindowOptions};
 // ---- crash observation (§8.5) --------------------------------------------------------------
 
 /// Observer called after day-core contains a panic at one of its trampoline boundaries
-/// (`contain_posted_panic` here, `tree::pump_events`) — on the panicking thread, after the
+/// (`contain_posted_panic` here, `tree::pump_events`), on the panicking thread, after the
 /// reactive-runtime reset. A crash reporter (day-break, docs/break.md) registers one to
 /// downgrade the report its panic hook just wrote: the panic was caught, the process is not
 /// dying. A plain `fn` (no closure) so the containment path allocates nothing.
@@ -204,7 +205,7 @@ pub fn backend_name() -> Option<&'static str> {
 
 static BACKEND_NAME: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
-/// The toolkit key of the running backend (`"appkit"`, `"gtk"`, … — the `Platform::TOOLKIT`
+/// The toolkit key of the running backend (`"appkit"`, `"gtk"`, …, the `Platform::TOOLKIT`
 /// string), recorded by [`launch_with`]. `None` before launch.
 pub fn toolkit_key() -> Option<&'static str> {
     TOOLKIT_KEY.get().copied()
@@ -212,22 +213,22 @@ pub fn toolkit_key() -> Option<&'static str> {
 
 static TOOLKIT_KEY: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
 
-/// The development tag every window title carries in a DEBUG build:
-/// `(<version>/<toolkit>[/<script>])` — `(1.1.0/appkit)`, or
+/// The development tag every window title carries in a debug build:
+/// `(<version>/<toolkit>[/<script>])`, for example `(1.1.0/appkit)`, or
 /// `(1.1.0/gtk/walkthrough.yaml)` while a dayscript is driving. With several apps, toolkits and
 /// scripted runs open at once, the title bar is the only place that says which window is which.
 ///
 /// `None` in a release build (this is a development aid and must never ship), and before
 /// [`launch_with`] has named the backend. The version and the script name come from
 /// `DAY_APP_VERSION` and `DAY_SCRIPT`, which the `day` CLI sets on every launch; run the binary
-/// some other way and the tag simply carries the parts it knows.
+/// some other way and the tag carries the parts it knows.
 pub fn debug_title_tag() -> Option<String> {
     if !cfg!(debug_assertions) {
         return None;
     }
     let toolkit = toolkit_key()?;
     // The mock backend has no window and no title bar, so there is nothing for a tag to
-    // disambiguate — it would only corrupt what a headless test asserts about a title.
+    // disambiguate; it would only corrupt what a headless test asserts about a title.
     if toolkit == "mock" {
         return None;
     }
@@ -246,12 +247,12 @@ pub fn debug_title_tag() -> Option<String> {
     Some(format!("({})", parts.join("/")))
 }
 
-/// Append [`debug_title_tag`] to a window title. Every title day sets goes through here — the
+/// Append [`debug_title_tag`] to a window title. Every title day sets goes through here: the
 /// primary window's, each secondary window's, and every [`crate::windows::WindowHandle::set_title`].
 ///
-/// An EMPTY title stays empty: a window the app deliberately left untitled should not grow a
-/// title bar full of build metadata. An already-tagged title is left alone, since the same
-/// window can be retitled repeatedly.
+/// An empty title stays empty: a window the app left untitled should not grow a title bar full
+/// of build metadata. An already-tagged title is left alone, since the same window can be
+/// retitled repeatedly.
 pub(crate) fn decorate_window_title(title: &str) -> String {
     tag_title(title, debug_title_tag().as_deref())
 }
@@ -291,11 +292,11 @@ mod title_tag_tests {
 /// Where a formatted line goes. Unset means the process's own stderr, which is right on every
 /// native target: a terminal on the desktop, Xcode's console on Apple, and logcat on Android
 /// (day-android `dup2`s fd 2 into it). `wasm32-unknown-unknown` is the one target where that is
-/// wrong rather than merely different — std's stdio there accepts the bytes and DROPS them, so
-/// every line vanishes — and day-dom installs a sink reaching the browser console instead.
+/// wrong rather than merely different (std's stdio there accepts the bytes and drops them, so
+/// every line vanishes), and day-dom installs a sink reaching the browser console instead.
 static LOG_SINK: std::sync::OnceLock<fn(log::Level, &str)> = std::sync::OnceLock::new();
 
-/// Install the line sink. First registration wins (one host per process). Called before launch —
+/// Install the line sink. First registration wins (one host per process). Called before launch;
 /// `day::web::start` does it for the browser.
 pub fn set_log_sink(f: fn(log::Level, &str)) {
     let _ = LOG_SINK.set(f);
@@ -305,7 +306,7 @@ pub fn set_log_sink(f: fn(log::Level, &str)) {
 /// splits the finished line at exactly this offset.
 const LEVEL_WIDTH: usize = 5;
 
-/// The terminal color for a level — `env_logger`'s palette, so a Day app's output reads like any
+/// The terminal color for a level: `env_logger`'s palette, so a Day app's output reads like any
 /// other Rust app's, and the same one `day-cli` uses when it re-emits these lines under
 /// `day launch` (day-cli `src/term.rs`).
 #[cfg(not(target_arch = "wasm32"))]
@@ -324,7 +325,7 @@ fn level_style(level: log::Level) -> anstyle::Style {
 /// `*println!` macros panic on a failed write, a closed stderr pipe is routine when `day launch`
 /// tears the app down, and a panic raised inside a native trampoline aborts the process.
 ///
-/// Only the level column is colored — a fully colored line is noise at `INFO`, and leaving the
+/// Only the level column is colored: a fully colored line is noise at `INFO`, and leaving the
 /// message plain keeps it greppable. `anstream` decides whether the escapes survive: they are
 /// stripped when stderr is not a color terminal, which covers the pipe `day launch` gives us
 /// (day-cli re-colors from its own end), logcat, Xcode's console, `NO_COLOR`, and `TERM=dumb`.
@@ -338,7 +339,7 @@ fn write_line(level: log::Level, line: &str) {
     let _ = writeln!(anstream::stderr(), "{style}{lvl}{style:#}{rest}");
 }
 
-/// The wasm fallback, used only if no sink was installed — `day::web::start` installs one before
+/// The wasm fallback, used only if no sink was installed; `day::web::start` installs one before
 /// an app's first line. std's stdio on `wasm32-unknown-unknown` accepts these bytes and drops
 /// them, so this writes into nothing; it exists so the logger has a total function.
 #[cfg(target_arch = "wasm32")]
@@ -351,13 +352,14 @@ fn write_line(_level: log::Level, line: &str) {
 ///
 /// Not `env_logger` or another off-the-shelf backend, for the reason above: they print through
 /// `*println!`, and a panic on that path is an abort rather than a lost line. An app that wants
-/// one installs it itself — see [`init_logging`].
+/// one installs it itself; see [`init_logging`].
 struct DayLogger;
 
 impl log::Log for DayLogger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
         // The level filter is `log::set_max_level`'s job, checked by the macros before they even
-        // format; answering `true` here keeps `log_enabled!` honest for anything that asks.
+        // format; answering `true` here keeps `log_enabled!` consistent with them for anything
+        // that asks.
         metadata.level() <= log::max_level()
     }
 
@@ -365,9 +367,9 @@ impl log::Log for DayLogger {
         if !self.enabled(record.metadata()) {
             return;
         }
-        // `WARN day_gtk: could not register bundled font …` — the level first so a scan down the
-        // column finds problems, then the emitting crate, which is what says *which* backend or
-        // piece is unhappy. The old hand-written `day: ` prefixes said only that it was us.
+        // `WARN day_gtk: could not register bundled font …`: the level first so a scan down
+        // the column finds problems, then the emitting crate, which is what says which backend
+        // or piece is unhappy. The old hand-written `day: ` prefixes said only that it was us.
         let sink = LOG_SINK.get();
         // Formatted plain: a sink is a structured destination (the browser console, a test
         // collector, an app's own transport) and wants the text, not terminal escapes. Color is
@@ -391,14 +393,14 @@ impl log::Log for DayLogger {
 ///
 /// Called from [`launch_with`], so logging works with no ceremony at all: an app writes
 /// `log::info!(…)` (or `day::info!`, the same macro re-exported through the prelude) and the line
-/// comes out on every platform. `set_logger` answers `Err` when a logger is already registered —
-/// that is the whole customization story, and why the error is deliberately ignored: an app that
+/// comes out on every platform. `set_logger` answers `Err` when a logger is already registered;
+/// that is all the customization there is, and why the error is ignored: an app that
 /// called `env_logger::init()` (or installed `tracing`, or its own `log::Log`) before
 /// `day::launch` keeps it, and Day does not fight for the slot.
 ///
 /// The default level is `Debug` in a debug build and `Info` in a release one; `DAY_LOG` overrides
 /// it with a level name (`off`/`error`/`warn`/`info`/`debug`/`trace`). Reading an environment
-/// variable is a native-only affordance — on the web there is no process environment, so the
+/// variable is a native-only affordance; on the web there is no process environment, so the
 /// launch path sets the level explicitly from the page's query string instead.
 pub fn init_logging() {
     let level = std::env::var("DAY_LOG")
@@ -421,7 +423,7 @@ pub fn set_log_level(level: log::LevelFilter) {
     log::set_max_level(level);
 }
 
-/// Run a posted main-thread task, CONTAINING any panic (the `pump_events` twin for the poster /
+/// Run a posted main-thread task, containing any panic (the `pump_events` twin for the poster /
 /// scheduler doors): log the cause and reset the reactive runtime so the app keeps running
 /// (degraded) instead of aborting across the native trampoline's non-unwind boundary.
 fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
@@ -440,16 +442,16 @@ fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
     }
 }
 
-/// The app's undo/redo entry point as the platform front calls it — `true` means redo.
+/// The app's undo/redo entry point as the platform front calls it; `true` means redo.
 /// `Rc` because the invocation clones it out of the cell before running, so the borrow is
 /// released before app code (which may install a new bridge) gets control.
 type UndoInvoke = std::rc::Rc<dyn Fn(bool)>;
 
 /// Wire an undo history to the platform (docs/model.md): the four signals mirror into the
-/// toolkit's native front where one exists (`Cap::UndoBridge` — the stock Edit menu retitles
+/// toolkit's native front where one exists (`Cap::UndoBridge`: the stock Edit menu retitles
 /// and enables itself, the platform's gestures land), and every invocation the platform
 /// delivers comes back through `on_invoke(redo)`. On a toolkit without a native undo system
-/// the state goes nowhere and the app's own affordances call the stack directly — installing
+/// the state goes nowhere and the app's own affordances call the stack directly; installing
 /// the bridge is still harmless. Call once, after launch; installing again replaces the wiring.
 pub fn install_undo_bridge(
     can_undo: day_reactive::Signal<bool>,
@@ -505,8 +507,8 @@ fn dispatch_undo_invoke(redo: bool) {
     let _ = invoke_undo(redo);
 }
 
-/// Invoke the installed undo bridge — the same handler a native front (⌘Z, the Edit menu,
-/// a three-finger swipe) reaches — returning whether one is installed. The dayscript
+/// Invoke the installed undo bridge (the same handler a native front reaches: ⌘Z, the Edit
+/// menu, a three-finger swipe), returning whether one is installed. The dayscript
 /// `undo:`/`redo:` steps drive history through this, so a walkthrough needs no app-provided
 /// undo button on any target.
 pub fn invoke_undo(redo: bool) -> bool {
@@ -522,7 +524,7 @@ pub fn invoke_undo(redo: bool) -> bool {
 
 type EditInvoke = std::rc::Rc<dyn Fn(day_spec::EditOp)>;
 
-/// The keyboard modifiers held right now — for interactions whose meaning they change
+/// The keyboard modifiers held right now, for interactions whose meaning they change
 /// (shift-click adds to a selection). Touch backends answer all-false; a dayscript step's
 /// declared modifiers take precedence while it dispatches.
 pub fn modifiers() -> day_spec::Modifiers {
@@ -539,7 +541,7 @@ pub fn set_modifier_override(m: Option<day_spec::Modifiers>) {
 }
 
 /// Wire the app's standard-edit handlers to the platform (docs/menus.md): `state` is a
-/// TRACKED read whose value mirrors into the toolkit (`Cap::EditBridge` — native menu
+/// tracked read whose value mirrors into the toolkit (`Cap::EditBridge`: native menu
 /// validation enables the stock Cut/Copy/Paste exactly as it does for text widgets), and
 /// every invocation a platform route delivers comes back through `on_invoke`. On a toolkit
 /// with no native route, the `menu_role(Cut/Copy/Paste)` items dispatch here instead (the
@@ -561,8 +563,8 @@ fn dispatch_edit_invoke(op: day_spec::EditOp) {
     let _ = invoke_edit(op);
 }
 
-/// Invoke the installed edit bridge — the same handler the platform's own Cut/Copy/Paste
-/// route reaches (clipboard transport included) — returning whether one is installed. An
+/// Invoke the installed edit bridge (the same handler the platform's Cut/Copy/Paste
+/// route reaches, clipboard transport included), returning whether one is installed. An
 /// app's own affordances (a context menu's Cut/Copy) call this rather than duplicating the
 /// clipboard plumbing (docs/menus.md).
 pub fn invoke_edit(op: day_spec::EditOp) -> bool {
@@ -596,7 +598,7 @@ pub fn undo_action_id(redo: bool) -> u64 {
     id
 }
 
-/// A runtime route request from the backend (`Event::RouteRequested` — web-dom's URL hash
+/// A runtime route request from the backend (`Event::RouteRequested`: web-dom's URL hash
 /// changing via browser back/forward or a hand-edited hash). Echoes of our own `set_route`
 /// match the current route and are dropped.
 fn handle_route_request(route: &str) {
@@ -620,13 +622,13 @@ pub fn launch_with<P: Platform>(
     let _ = BACKEND_NAME.set(P::TARGET);
     let _ = TOOLKIT_KEY.set(P::TOOLKIT);
     // Tag the window title with version/toolkit/script in debug builds. Pin the app's display
-    // name to the UNDECORATED title first: backends fall back to `title` for the macOS App menu
+    // name to the undecorated title first: backends fall back to `title` for the macOS App menu
     // and the About panel, which must keep reading "Day Sheets", not "Day Sheets (0.1.0/appkit)".
     if options.app_name.is_none() && !options.title.is_empty() {
         options.app_name = Some(options.title.clone());
     }
     options.title = decorate_window_title(&options.title);
-    // `DAY_WINDOW=900x700` overrides the app's initial window size — responsive-layout testing
+    // `DAY_WINDOW=900x700` overrides the app's initial window size, for responsive-layout testing
     // (scripted runs can exercise a narrow window without a resize gesture). Desktop only in
     // effect; mobile/web backends size to the screen and ignore `options.size` anyway.
     if let Ok(v) = std::env::var("DAY_WINDOW")
@@ -640,14 +642,14 @@ pub fn launch_with<P: Platform>(
     // Remember what the app asked for, so File ▸ New Window can open another window of the same
     // app rather than an untitled one the platform cannot list (docs/windows.md).
     windows::set_launch_options(&options);
-    // Reactive plumbing rides the platform's main-loop poster. Both doors CONTAIN panics (the
+    // Reactive plumbing rides the platform's main-loop poster. Both doors contain panics (the
     // `pump_events` rationale, tree.rs): posted closures run inside native main-loop trampolines
-    // (a glib idle, a GCD block) that ABORT the process on unwind (`panic_cannot_unwind`) — so a
+    // (a glib idle, a GCD block) that abort the process on unwind (`panic_cannot_unwind`), so a
     // panic in a `Setter` write's drain or a scheduled `flush_sync` would SIGABRT the app instead
     // of surfacing. Contain at this single backend-agnostic boundary and reset the runtime.
     // Backend FFI trampolines (JNI up-calls, C callbacks, posted closures) contain panics
-    // through day-spec's `ffi_guard`; hand it the recovery hook here — the one layer that
-    // knows day-reactive — so a contained panic can't strand the observer stack or leave a
+    // through day-spec's `ffi_guard`; hand it the recovery hook here (the one layer that
+    // knows day-reactive) so a contained panic can't strand the observer stack or leave a
     // half-open batch behind.
     day_spec::ffi_guard::set_recovery(day_reactive::recover_from_panic);
     day_reactive::install_main_poster(|f| {
@@ -663,7 +665,7 @@ pub fn launch_with<P: Platform>(
         }))
     });
     // The async-spawn door (docs/async.md): day-reactive's `Resource` runs its fetch futures on
-    // this executor; the returned closure aborts (a no-op once the task completed — the contract
+    // this executor; the returned closure aborts (a no-op once the task completed, the contract
     // Resource's eager-poll ordering relies on).
     day_reactive::install_spawner(|fut| {
         let handle = present::task(fut);
@@ -687,9 +689,9 @@ pub fn launch_with<P: Platform>(
             tree::install_tree(Box::new(tree));
 
             // Seed the window's size class from the size the backend just reported
-            // (docs/size-classes.md), before the root piece builds below — a nav host resolving
+            // (docs/size-classes.md), before the root piece builds below: a nav host resolving
             // an automatic presentation reads it during its own build. Backends push later
-            // changes themselves; one that never does simply keeps this launch value.
+            // changes themselves; one that never does keeps this launch value.
             ambient::set_window_size_class(
                 root,
                 day_spec::SizeClass::from_size(size.width, size.height),
@@ -701,7 +703,7 @@ pub fn launch_with<P: Platform>(
 
             // Window resize → relayout. Route requests (runtime deep links: web-dom's URL
             // hash changing under the app via browser back/forward or a hand-edited hash) →
-            // navigate, guarded against echo — the request the backend reflects back after
+            // navigate, guarded against echo: the request the backend reflects back after
             // our own `set_route` matches the current route and is dropped here.
             with_tree(|t| {
                 let rn = root;
@@ -713,7 +715,7 @@ pub fn launch_with<P: Platform>(
                             with_tree(|t| t.set_window_size(s));
                             // Re-bucket the window (docs/size-classes.md). Derived here, from the
                             // geometry every backend already reports, so there is one breakpoint
-                            // table rather than one per toolkit — and only a class CHANGE
+                            // table rather than one per toolkit, and only a class change
                             // notifies, so dragging an edge within a bucket costs nothing.
                             ambient::set_window_size_class(
                                 rn,
@@ -734,8 +736,8 @@ pub fn launch_with<P: Platform>(
 
             // The first window is an ordinary primary window (docs/windows.md close policy):
             // it goes in the registry like any other, so closing it runs the same teardown and
-            // the same "was that the last primary?" question. Its content builds in a CHILD of
-            // the root scope — disposing that on close takes this window's tree and nothing
+            // the same "was that the last primary?" question. Its content builds in a child of
+            // the root scope; disposing that on close takes this window's tree and nothing
             // else, while `Signal::global` state stays on the root scope above it.
             let win_scope = day_reactive::Scope::root().enter(day_reactive::Scope::child);
             windows::adopt_initial_window(root, win_scope);
@@ -757,13 +759,13 @@ pub fn launch_with<P: Platform>(
             // DidLaunch: the UI is mounted and laid out, the app is about to run (docs/lifecycle.md).
             lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidLaunch);
 
-            // Startup deep link (docs/navigation.md): uniform across platforms — desktop
+            // Startup deep link (docs/navigation.md): uniform across platforms; desktop
             // sets `DAY_DEEPLINK` directly, mobile shells forward the launch URL/intent into
             // it, and web-dom (no process environment) records the URL hash via
             // `set_launch_deeplink`. Deferred one turn so the first frame mounts before the
-            // destination pushes. The turn-end ROUTE SYNC (`Toolkit::set_route` on change —
+            // destination pushes. The turn-end route sync (`Toolkit::set_route` on change;
             // web-dom mirrors it into the URL hash) installs in the same deferred closure,
-            // After the deep link resolves, so the launch route is never clobbered by a sync
+            // after the deep link resolves, so the launch route is never clobbered by a sync
             // of the pre-navigation state.
             day_reactive::on_main(move || {
                 if let Some(route) = nav::launch_deeplink()
@@ -775,7 +777,7 @@ pub fn launch_with<P: Platform>(
                 // cold-started the process has now been applied, and leaving it set would
                 // re-navigate on the next request.
                 let _ = nav::take_requested_route();
-                // First reflection runs eagerly — a launch with no deep link ends no turn.
+                // First reflection runs eagerly: a launch with no deep link ends no turn.
                 let route = nav::current_route().unwrap_or_default();
                 with_tree(|t| t.set_route(&route));
                 let last = std::cell::RefCell::new(Some(route));
@@ -802,7 +804,7 @@ pub fn launch_with<P: Platform>(
 }
 
 /// `DAY_AUTODRIVE="<id>:press;<id>:text:Ada;<id>:value:80;<id>:toggle:true;<id>:tap;
-/// <id>:drag:40:60;shot:/tmp/x.png"` — synthesized Day events by element id, plus snapshots.
+/// <id>:drag:40:60;shot:/tmp/x.png"`: synthesized Day events by element id, plus snapshots.
 fn autodrive(spec: &str) {
     use day_spec::{DragPhase, Event, Point};
     for step in spec.split(';').filter(|s| !s.is_empty()) {
@@ -824,8 +826,8 @@ fn autodrive(spec: &str) {
             continue;
         };
         // Gesture drivers (docs/shapes.md): tap fires at the node's local center; drag runs a
-        // Began→Changed→Ended sequence translated by dx,dy — exercising `.on_tap`/`.on_drag`
-        // hit-testing through Day's own event path (the native recognizers deliver the same events).
+        // Began→Changed→Ended sequence translated by dx,dy, exercising `.on_tap`/`.on_drag`
+        // hit-testing through Day's event path (the native recognizers deliver the same events).
         if parts.get(1) == Some(&"tap") {
             if let Some(f) = with_tree(|t| t.node_frame(node)) {
                 let c = Point::new(f.size.width / 2.0, f.size.height / 2.0);
@@ -886,7 +888,7 @@ fn autodrive(spec: &str) {
 }
 
 /// Whether the platform is rendering in dark appearance (see `Toolkit::dark_mode`): the
-/// branch apps take when painting custom OPAQUE surfaces so fills track the theme that the
+/// branch apps take when painting custom opaque surfaces so fills track the theme that the
 /// default text colors already follow.
 pub fn dark_mode() -> bool {
     dark_signal().get()
@@ -895,14 +897,14 @@ pub fn dark_mode() -> bool {
 /// The platform's font families with their faces (docs/fonts.md), enumerated once per
 /// process through `Toolkit::font_families` and cached: the answer is stable for the process
 /// (bundled fonts register before the tree exists, and nothing tracks a system font install
-/// under a running app — the OS font panels cache too), enumeration is expensive, and the
+/// under a running app; the OS font panels cache too), enumeration is expensive, and the
 /// query is synchronous on the UI thread. Sorted case-insensitively by family, deduplicated,
 /// and unioned with the bundled fonts (`day_spec::fonts::bundled_fonts`) the toolkit's own
-/// database did not report — which is how a `res/font/` (Android), `ms-appx` (XAML) or
+/// database did not report, which is how a `res/font/` (Android), `ms-appx` (XAML) or
 /// `registerFont` (HarmonyOS) family reaches a font menu without each shim parsing sfnt.
 /// Empty where the toolkit answers `Cap::FontList` = `Unsupported`.
 pub fn font_families() -> std::rc::Rc<[day_spec::FontFamilyInfo]> {
-    // Headless (no tree on this thread — a model unit test): nothing to enumerate, and
+    // Headless (no tree on this thread, i.e. a model unit test): nothing to enumerate, and
     // nothing to cache, so the first call with a tree still fills the cache.
     if !tree::has_tree() {
         return std::rc::Rc::from(Vec::new());
@@ -944,14 +946,14 @@ pub fn font_families() -> std::rc::Rc<[day_spec::FontFamilyInfo]> {
 /// holds up to twice this before the older one is dropped whole.
 ///
 /// 512 is far more than a drawing measures per frame (a chart with two axes, their titles and a
-/// legend is around twenty) and small enough that the worst case — a text tool measuring a
-/// different string every keystroke — costs tens of kilobytes rather than growing without end.
+/// legend is around twenty) and small enough that the worst case (a text tool measuring a
+/// different string every keystroke) costs tens of kilobytes rather than growing without end.
 const TEXT_METRICS_CAP: usize = 512;
 
 /// The `measure_text` cache: a **pure** memo, because every backend's measurement is a function
-/// of `(text, size, font)` and nothing else. Nothing in a running app changes the answer — canvas
+/// of `(text, size, font)` and nothing else. Nothing in a running app changes the answer: canvas
 /// text takes absolute points, so it carries neither the reader's font-scale setting nor the
-/// window's scale factor (docs/canvas.md "Text") — which is what makes caching it correct rather
+/// window's scale factor (docs/canvas.md "Text"), which is what makes caching it correct rather
 /// than merely fast.
 ///
 /// Two generations rather than an LRU list: a hit in `previous` is promoted into `current`, and
@@ -959,7 +961,7 @@ const TEXT_METRICS_CAP: usize = 512;
 /// used closely enough for a working set that repeats every frame, is O(1) amortized with no
 /// eviction scan, and needs no ordering structure beside the maps.
 struct TextMetricsCache {
-    /// Reused so a HIT allocates nothing at all: the key is rebuilt into this buffer, compared,
+    /// Reused so a hit allocates nothing at all: the key is rebuilt into this buffer, compared,
     /// and only copied into the map on a miss.
     key: String,
     current: std::collections::HashMap<String, day_spec::TextMetrics>,
@@ -981,8 +983,8 @@ impl TextMetricsCache {
 
     /// Write the key for one measurement into the scratch buffer.
     ///
-    /// The family's LENGTH is written before the family, so the encoding is injective whatever a
-    /// family name contains — the alternative, a separator, is only injective while no font is
+    /// The family's length is written before the family, so the encoding is injective whatever a
+    /// family name contains; the alternative, a separator, is only injective while no font is
     /// ever named with it in it. `size` goes in as its bit pattern: exact, and two sizes that
     /// differ only in representation would measure the same anyway.
     fn build_key(&mut self, text: &str, size: f64, font: &day_spec::CanvasFont) {
@@ -1021,7 +1023,7 @@ impl TextMetricsCache {
     }
 }
 
-/// What [`measure_text`]'s cache has done on this thread — a diagnostic, for an app that wants to
+/// What [`measure_text`]'s cache has done on this thread: a diagnostic, for an app that wants to
 /// see whether its drawing is measuring the same strings over and over (it usually is).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TextMetricsCacheStats {
@@ -1049,7 +1051,7 @@ pub fn text_metrics_cache_stats() -> TextMetricsCacheStats {
 ///
 /// Nothing in day needs this: a measurement is a pure function of its key, and the font set is
 /// fixed for the process (see [`font_families`]). It exists for a toolkit or app that registers a
-/// face at runtime and so genuinely does change what a family name measures to.
+/// face at runtime and so does change what a family name measures to.
 pub fn clear_text_metrics_cache() {
     TEXT_METRICS.with(|c| {
         let mut c = c.borrow_mut();
@@ -1063,8 +1065,8 @@ pub fn clear_text_metrics_cache() {
 /// `TextMetrics::approximate`, so a caller always gets a usable box.
 ///
 /// **Memoized** (`TextMetricsCache`): measuring crosses into the toolkit and lays the text out
-/// there — around 29 µs a call on AppKit, which builds an `NSString` and an attribute dictionary
-/// every time — and a drawing measures the same handful of strings on every frame it records. A
+/// there (around 29 µs a call on AppKit, which builds an `NSString` and an attribute dictionary
+/// every time), and a drawing measures the same handful of strings on every frame it records. A
 /// repeat costs a hash of the key and nothing else.
 pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_spec::TextMetrics {
     if let Some(m) = TEXT_METRICS.with(|c| {
@@ -1074,13 +1076,13 @@ pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_s
     }) {
         return m;
     }
-    // The toolkit call happens with NO borrow of the cache held: `replay` and a piece's own
-    // measurement can reach back into day-core, and a borrow spanning the seam would panic.
+    // The toolkit call happens with no borrow of the cache held: `replay` and a piece's own
+    // measurement can reach back into day-core, and a borrow spanning the call would panic.
     // Headless (no tree on this thread) answers the approximation too, so a model unit test
     // that frames text runs without a toolkit.
     let Some(m) = tree::try_with_tree(|t| t.measure_text(text, size, font)).flatten() else {
-        // Deliberately NOT cached. "The toolkit could not answer" is a fact about this moment —
-        // Android's returns nothing until its VM is up — not about the text, and caching it would
+        // Not cached. "The toolkit could not answer" is a fact about this moment (Android's
+        // returns nothing until its VM is up), not about the text, and caching it would
         // pin a guess for the life of the process.
         return day_spec::TextMetrics::approximate(text, size);
     };
@@ -1103,24 +1105,24 @@ fn dark_signal() -> day_reactive::Signal<bool> {
 }
 
 /// Re-read the toolkit's appearance into the reactive [`dark_mode`] signal. Backends call
-/// this when the SYSTEM appearance changes under a running app (macOS theme switch, GTK
-/// style-manager change), and [`set_appearance`] calls it after applying an override — so
+/// this when the system appearance changes under a running app (macOS theme switch, GTK
+/// style-manager change), and [`set_appearance`] calls it after applying an override, so
 /// closures reading `dark_mode()` recolor live instead of going stale until a rebuild.
 pub fn note_appearance_changed() {
     // May fire before the tree is installed (GTK's StyleManager emits `dark` notifies while
     // `startup` applies a forced DAY_THEME scheme; AppKit's observer dispatches async): no
     // tree means no palette closures exist yet, and the signal seeds from the tree on first
-    // use — skip rather than panic inside a native callback.
+    // use; skip rather than panic inside a native callback.
     if let Some(d) = tree::try_with_tree(|t| t.dark_mode()) {
         dark_signal().set(d);
     }
 }
 
-/// Deliver synthetic TYPING to a text control (the dayscript `input` step and the autodrive
+/// Deliver synthetic typing to a text control (the dayscript `input` step and the autodrive
 /// string commands both route here): paint the widget via the ordinary app-write patch, then
-/// enqueue the `TextChanged` event. Both halves are needed — when a real user types, the text
+/// enqueue the `TextChanged` event. Both halves are needed: when a real user types, the text
 /// is already in the native field by the time its change event fires, so the two-way
-/// binding's echo guard deliberately suppresses the write-back (§4.4); a synthesized event
+/// binding's echo guard suppresses the write-back (§4.4); a synthesized event
 /// alone would drive the app's signal while the widget kept showing its old text.
 pub fn synthesize_text(node: RNode, text: String) {
     tree::with_tree(|t| match t.node_kind(node) {
@@ -1151,13 +1153,13 @@ pub use piece_ops::{
 /// Override the app's appearance: `Some(true)` dark, `Some(false)` light, `None` follow the
 /// system again. On backends reporting `Cap::Appearance` the native widgets restyle in place
 /// and [`dark_mode`] answers the override; app-painted surfaces pick it up on their next
-/// rebuild. Other backends ignore the call — probe before offering a theme picker.
+/// rebuild. Other backends ignore the call; probe before offering a theme picker.
 pub fn set_appearance(dark: Option<bool>) {
     tree::with_tree(|t| t.set_appearance(dark));
     note_appearance_changed();
 }
 
-/// Put a badge on the app's icon — the Dock, launcher, home screen, or taskbar (docs/badge.md).
+/// Put a badge on the app's icon: the Dock, launcher, home screen, or taskbar (docs/badge.md).
 ///
 /// Fire-and-forget: a payload the running toolkit cannot render is ignored, so probe
 /// `capability(Cap::AppBadgeCount | AppBadgeText | AppBadgeDot)` first and choose. Nothing is ever
@@ -1170,7 +1172,7 @@ pub fn set_appearance(dark: Option<bool>) {
 /// set_app_badge(&AppBadge::None); // clear
 /// ```
 ///
-/// An iOS badge belongs to the INSTALLED APP and survives termination, so an app that sets one
+/// An iOS badge belongs to the installed app and survives termination, so an app that sets one
 /// usually clears it from a `WillTerminate` handler (docs/lifecycle.md); a macOS Dock badge dies
 /// with the process.
 pub fn set_app_badge(badge: &day_spec::AppBadge) {
@@ -1179,13 +1181,13 @@ pub fn set_app_badge(badge: &day_spec::AppBadge) {
 
 #[cfg(test)]
 mod posted_panic_tests {
-    /// A panic inside a posted main-thread task must be CONTAINED (logged + runtime reset), never
-    /// unwind into the native trampoline that posted it (`panic_cannot_unwind` → SIGABRT). This is
-    /// the poster/scheduler twin of `pump_events`' containment.
+    /// A panic inside a posted main-thread task must be contained (logged + runtime reset), never
+    /// unwind into the native trampoline that posted it (`panic_cannot_unwind` → SIGABRT). This
+    /// is the poster/scheduler twin of `pump_events`' containment.
     #[test]
     fn posted_panic_is_contained() {
         super::contain_posted_panic(Box::new(|| panic!("boom in a posted task")));
-        // Reaching here IS the assertion: the panic did not propagate. The runtime was reset, so
+        // Reaching here is the assertion: the panic did not propagate. The runtime was reset, so
         // subsequent reactive work still runs.
         let s = day_reactive::Signal::new(1i32);
         s.set(2);

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// XAML: this crate's shim (src/lib-xaml-shim.cpp) — an Ellipse (circle) or Border+Image boxed
-// into a day handle via day-xaml-sys's `day_xaml_box`/`day_xaml_unbox` seam (like the picker/media
+// XAML: this crate's shim (src/lib-xaml-shim.cpp), an Ellipse (circle) or Border+Image boxed
+// into a day handle via day-xaml-sys's `day_xaml_box`/`day_xaml_unbox` (like the picker/media
 // xaml pieces). Bytes cross as a pointer + length; a SetBytes patch re-decodes (or clears on
 // `None`). Windows-only, built in CI, not verified locally (see the shim's header caveats).
 // ---------------------------------------------------------------------------

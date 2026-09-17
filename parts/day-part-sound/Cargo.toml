@@ -8,16 +8,16 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): short sound clips bundled with the app, played through
-# each platform's own low-latency engine. Any Rust code can depend on it and call
+# A headless day-ecosystem crate (no UI Piece): short sound clips bundled with the app, played
+# through each platform's low-latency engine. Any Rust code can depend on it and call
 # `day_part_sound::play(&res::assets::sounds::tap_wav)`. Platform selection is by `#[cfg(target_os)]`
 # (an audio engine is an OS concern, not a widget-toolkit one), so there are no backend features:
-#   iOS, macOS — AVAudioEngine + AVAudioPlayerNode pool (src/apple.rs; iOS in the `.ambient` session)
-#   Windows     — XAudio2 (src/windows.rs)
-#   Linux       — libcanberra, loaded at run time (src/linux.rs)
-#   Android     — SoundPool, Java arm in src/lib.rs (docs/bridge.md)
-#   HarmonyOS   — SoundPool, ArkTS arm in src/lib.rs
-#   web         — Web Audio, JavaScript arm in src/lib.rs
+#   iOS, macOS: AVAudioEngine + AVAudioPlayerNode pool (src/apple.rs; iOS in the `.ambient` session)
+#   Windows:    XAudio2 (src/windows.rs)
+#   Linux:      libcanberra, loaded at run time (src/linux.rs)
+#   Android:    SoundPool, Java arm in src/lib.rs (docs/bridge.md)
+#   HarmonyOS:  SoundPool, ArkTS arm in src/lib.rs
+#   web:        Web Audio, JavaScript arm in src/lib.rs
 # See docs/sound.md.
 
 [dependencies]

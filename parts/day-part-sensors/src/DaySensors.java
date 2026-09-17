@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-part-sensors' OWN Android backend — a headless capability shim (no UI). It is bundled with this
-// crate and folded into the app's Gradle build via [package.metadata.day.android], with ZERO edits to
+// day-part-sensors' Android backend, a headless capability shim (no UI). It is bundled with this
+// crate and folded into the app's Gradle build via [package.metadata.day.android], with no edits to
 // day-android; it registers no view. Android sensors are push-only, so the shim lazily registers a
 // SensorEventListener per sensor on the first read() and caches the newest sample for Rust to poll.
 // No manifest permission is needed for these sensors at SENSOR_DELAY_UI rates. It uses day-android's

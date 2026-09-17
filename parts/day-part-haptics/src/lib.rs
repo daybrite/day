@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-haptics — a HEADLESS cross-platform haptic-feedback API. No UI; any Rust code can depend
-//! on this crate and call [`play`] to fire a haptic through the platform's NATIVE API.
+//! day-part-haptics: a headless cross-platform haptic-feedback API. No UI; any Rust code can depend
+//! on this crate and call [`play`] to fire a haptic through the platform's native API.
 //!
 //! ```no_run
 //! use day_part_haptics::Haptic;
@@ -14,8 +14,8 @@
 //! Platform selection is purely `#[cfg(target_os)]` (a haptic engine is an OS concern, not a
 //! widget-toolkit one): iOS uses UIKit's feedback generators, macOS `NSHapticFeedbackManager`, and
 //! Android `Vibrator`/`VibrationEffect` (via a Java shim staged by `day build`). Every other target
-//! — Windows, desktop Linux (GTK/Qt), HarmonyOS — has no haptic engine wired here, so [`play`] is a
-//! no-op and [`is_supported`] returns `false`.
+//! (Windows, desktop Linux under GTK/Qt, HarmonyOS) has no haptic engine wired here, so [`play`]
+//! is a no-op and [`is_supported`] returns `false`.
 //!
 //! [`play`] is **fire-and-forget** and best-effort: it never blocks, never returns an error, and
 //! never panics. On hardware without a Taptic engine (an iOS Simulator, a Mac without a Force Touch
@@ -32,11 +32,11 @@
 ///   `UISelectionFeedbackGenerator`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Haptic {
-    /// A light impact — the subtlest bump.
+    /// A light impact, the subtlest bump.
     Light,
     /// A medium impact.
     Medium,
-    /// A heavy impact — the most forceful bump.
+    /// A heavy impact, the most forceful bump.
     Heavy,
     /// A "task succeeded" notification.
     Success,
@@ -55,7 +55,7 @@ pub fn play(h: Haptic) {
 }
 
 /// Whether this platform has a haptic engine wired up. `true` on iOS/macOS/Android (even on a
-/// Simulator or a device that happens to lack the hardware — this reports API availability, not a
+/// Simulator or a device that happens to lack the hardware; this reports API availability, not a
 /// live hardware probe), `false` on every other target, where [`play`] is a no-op.
 pub fn is_supported() -> bool {
     imp::is_supported()
@@ -77,9 +77,9 @@ mod imp;
 #[path = "android.rs"]
 mod imp;
 
-// Any other platform — Windows, desktop Linux (GTK/Qt), HarmonyOS — has no haptic engine wired here.
-// (HarmonyOS could in principle drive `libohvibrator`, but it needs an effect/attribute struct and
-// the `ohos.permission.VIBRATE` grant, so it is left as a best-effort no-op for now.)
+// Any other platform (Windows, desktop Linux under GTK/Qt, HarmonyOS) has no haptic engine wired
+// here. (HarmonyOS could in principle drive `libohvibrator`, but it needs an effect/attribute
+// struct and the `ohos.permission.VIBRATE` grant, so it is left as a best-effort no-op for now.)
 #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
 mod imp {
     pub fn play(_h: super::Haptic) {}
@@ -93,7 +93,7 @@ mod tests {
     use super::Haptic;
 
     // Firing every style must never panic, on any host (headless CI included). On a host without a
-    // haptic engine these are no-ops; the point is that they return cleanly.
+    // haptic engine these are no-ops; the test checks that they return cleanly.
     #[test]
     fn play_never_panics() {
         for h in [

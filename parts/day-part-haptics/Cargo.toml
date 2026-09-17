@@ -8,16 +8,16 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for playing HAPTIC
-# feedback via each platform's NATIVE API. Any Rust code can depend on it and call
+# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for playing haptic
+# feedback via each platform's native API. Any Rust code can depend on it and call
 # `day_part_haptics::play(Haptic::Success)`. Platform selection is by `#[cfg(target_os)]` (haptics are
-# an OS concern, not a widget-toolkit one), so there are no backend features — it "just works" per
+# an OS concern, not a widget-toolkit one), so there are no backend features; it "just works" per
 # target:
-#   iOS      — UIFeedbackGenerator (impact / notification / selection)
-#   macOS    — NSHapticFeedbackManager (generic / alignment / levelChange)
-#   Android  — Vibrator / VibrationEffect via the inline Java arm in src/android.rs (docs/bridge.md)
-#   others   — no haptic engine: play() is a no-op and is_supported() == false (Windows, desktop
-#              Linux/GTK/Qt, HarmonyOS)
+#   iOS:     UIFeedbackGenerator (impact / notification / selection)
+#   macOS:   NSHapticFeedbackManager (generic / alignment / levelChange)
+#   Android: Vibrator / VibrationEffect via the inline Java arm in src/android.rs (docs/bridge.md)
+#   others:  no haptic engine, so play() is a no-op and is_supported() == false (Windows, desktop
+#            Linux/GTK/Qt, HarmonyOS)
 # See docs/haptics.md + docs/extending.md.
 
 [dependencies]
@@ -42,14 +42,14 @@ objc2-app-kit = { version = "0.3", features = ["NSHapticFeedback"] }
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 # daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
-# dependency is Android-only too — every other target compiles exactly as it did before.
+# dependency is Android-only too; every other target compiles exactly as it did before.
 day-bridge = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 # The Java itself is a daybridge arm in src/android.rs (docs/bridge.md), rendered and staged by
 # `day build`; what stays here is the build-graph fact that arm needs.
 [package.metadata.day.android]
-# Vibrator.vibrate(...) requires VIBRATE (a normal, install-time permission — no runtime prompt).
+# Vibrator.vibrate(...) requires `VIBRATE` (a normal, install-time permission; no runtime prompt).
 permissions = ["android.permission.VIBRATE"]
 
 [build-dependencies]

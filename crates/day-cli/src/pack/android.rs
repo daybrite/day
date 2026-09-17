@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! android-mdc → release .apk + .aab. Day.toml identity/version is conveyed to Gradle via a
-//! generated properties file (§17.5); the release signingConfig reads a second generated file —
+//! generated properties file (§17.5); the release signingConfig reads a second generated file,
 //! resolved from `signing.android` `${ENV}` refs, or the fixed dev keystore embedded in the CLI
-//! when unconfigured (dev tier, loud — fixed rather than generated so dev builds reproduce and
-//! upgrade across machines). Gradle signs both formats (apksigner cannot sign an .aab — §16.5).
+//! when unconfigured (dev tier, loud; fixed rather than generated so dev builds reproduce and
+//! upgrade across machines). Gradle signs both formats (apksigner cannot sign an .aab, §16.5).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,14 +21,15 @@ const DEV_KEYSTORE_PASS: &str = "day-dev-only"; // dev keystore: local installs 
 
 /// The Gradle to run for an app: its own `./gradlew` when it carries one, else `gradle` from PATH.
 ///
-/// A wrapper pins the Gradle version inside the project (`gradle/wrapper/gradle-wrapper.properties`),
-/// and that pin is what an IDE already obeys. Preferring the wrapper here is what makes `day build`
-/// and Android Studio compile the app with the same Gradle, instead of each using whichever one it
-/// happens to find — a difference that shows up as a build that works in one and not the other.
+/// A wrapper pins the Gradle version inside the project
+/// (`gradle/wrapper/gradle-wrapper.properties`), and that pin is what an IDE already obeys.
+/// Preferring the wrapper here is what makes `day build` and Android Studio compile the app with
+/// the same Gradle, instead of each using whichever one it happens to find, a difference that
+/// shows up as a build that works in one and not the other.
 ///
-/// Returned as an ABSOLUTE path on purpose. `Command`'s program lookup is not consistently relative
-/// to `current_dir` across platforms — on Unix the child chdirs before `exec`, on Windows the
-/// program is resolved in the parent's directory — so a literal `./gradlew` would silently mean
+/// Returned as an absolute path. `Command`'s program lookup is not consistently relative to
+/// `current_dir` across platforms (on Unix the child chdirs before `exec`, on Windows the
+/// program is resolved in the parent's directory), so a literal `./gradlew` would silently mean
 /// two different files. Joining it onto the directory removes the question.
 ///
 /// Presence alone decides. A `gradlew` without its executable bit fails with a permission error
@@ -49,13 +50,13 @@ pub(crate) fn gradle_program(android_dir: &Path) -> PathBuf {
 
 /// Day.toml → `build/day/android/day-app.properties` (applicationId, versionCode, versionName,
 /// title). Written on every android build (`day build` too) so the Gradle scaffold never goes
-/// stale (§17.5). Identity is RESOLVED for the android target, so `[app.android]` /
+/// stale (§17.5). Identity is resolved for the android target, so `[app.android]` /
 /// `[app.android-mdc]` overrides in Day.toml flow into the APK.
 ///
 /// The window block rides here too, as manifest placeholders for the activity's `<layout>` element
 /// (docs/size-classes.md). Those four numbers are what multi-window and desktop windowing read to
-/// decide how small the window may go and how big it opens, and a manifest is a BUILD-time
-/// declaration — there is no runtime call that sets them, which is why they cannot ride
+/// decide how small the window may go and how big it opens, and a manifest is a build-time
+/// declaration: there is no runtime call that sets them, which is why they cannot ride
 /// `WindowOptions` the way the iOS minimum does.
 pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     let dir = project.root.join("build/day/android");
@@ -93,7 +94,7 @@ pub fn pack(
 ) -> Result<Vec<Artifact>, PackError> {
     write_app_properties(project).map_err(PackError::Other)?;
 
-    // Resolve (or generate) the signing keystore before gradle runs — the scaffold's release
+    // Resolve (or generate) the signing keystore before gradle runs: the scaffold's release
     // signingConfig reads the generated properties file at configuration time.
     let signing_props = project
         .root
@@ -182,7 +183,7 @@ fn write_signing_properties(project: &Project, path: &Path) -> Result<SignTier, 
         .signing
         .as_ref()
         .and_then(|s| s.android.as_ref());
-    // Any unresolved secret degrades the whole section to the dev keystore (§20) — a half-resolved
+    // Any unresolved secret degrades the whole section to the dev keystore (§20); a half-resolved
     // signing config must never sign with mixed material.
     let release = match android {
         Some(a) => {
@@ -232,8 +233,8 @@ fn write_signing_properties(project: &Project, path: &Path) -> Result<SignTier, 
             )
         }
     };
-    // Gradle's Properties loader treats '\' as an escape — normalize to forward slashes (valid on
-    // Windows for java.io.File too).
+    // Gradle's Properties loader treats '\' as an escape, so normalize to forward slashes (valid
+    // on Windows for java.io.File too).
     let content = format!(
         "storeFile={}\nstorePassword={}\nkeyAlias={}\nkeyPassword={}\n",
         store_file.display().to_string().replace('\\', "/"),
@@ -252,14 +253,14 @@ fn write_signing_properties(project: &Project, path: &Path) -> Result<SignTier, 
 
 /// The shared dev keystore, written out under `build/day/` on first use.
 ///
-/// FIXED and embedded rather than generated per project, which is what Android's own
+/// Fixed and embedded rather than generated per project, which is what Android's own
 /// `debug.keystore` does and for the same two reasons. A freshly minted key each time meant a dev
-/// `.apk` could never be byte-reproducible — two CI jobs signed the same bytes with different keys,
-/// which is exactly what the container tier kept reporting (§20.3) — and it meant a build from one
+/// `.apk` could never be byte-reproducible (two CI jobs signed the same bytes with different keys,
+/// which is exactly what the container tier kept reporting, §20.3), and it meant a build from one
 /// machine could not upgrade an install from another, because Android refuses an update whose
 /// signature changed.
 ///
-/// This key is deliberately public and carries no secret: `day pack` warns loudly whenever it is
+/// This key is public and carries no secret: `day pack` warns loudly whenever it is
 /// used, the tier is recorded as dev-signed on the artifact, and distribution requires configuring
 /// `signing.android` with a real keystore.
 fn dev_keystore(project: &Project) -> Result<PathBuf, String> {
@@ -275,7 +276,7 @@ fn dev_keystore(project: &Project) -> Result<PathBuf, String> {
 }
 
 /// The built apk: ops::build returns the conventional path, but an unsigned release build is named
-/// `app-release-unsigned.apk` — fall back to any .apk in the outputs dir.
+/// `app-release-unsigned.apk`; fall back to any .apk in the outputs dir.
 fn find_output(
     conventional: &Path,
     project: &Project,
@@ -374,7 +375,7 @@ mod gradle_tests {
         dir
     }
 
-    /// Without a wrapper, PATH's `gradle` — the behavior every project had before wrappers were
+    /// Without a wrapper, PATH's `gradle`: the behavior every project had before wrappers were
     /// consulted at all.
     #[test]
     fn no_wrapper_means_path_gradle() {

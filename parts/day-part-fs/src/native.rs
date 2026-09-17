@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 // Every non-wasm target: std::fs under the per-app data root. The root resolves once per call
 // (cheap, and env-driven so tests and hosts can redirect it):
-//   1. DAY_DATA_DIR — set by the mobile hosts (DayActivity passes the app's files dir on
+//   1. DAY_DATA_DIR, set by the mobile hosts (DayActivity passes the app's files dir on
 //      Android; the OpenHarmony host passes its files dir) and by tests.
 //   2. The platform's app-data convention: Application Support on Apple (the iOS sandbox HOME
 //      makes this the app container), XDG data on Linux, APPDATA on Windows.
@@ -107,7 +107,7 @@ pub fn list(dir: &str) -> ListResult {
 }
 
 // Async twins: a spawned thread per operation, like day-part-http's non-Apple targets. Storage
-// operations are short and the callers are UI actions — a pool would be over-machinery.
+// operations are short and the callers are UI actions, so a pool would be over-machinery.
 
 pub fn read_async(path: String, on_done: Box<dyn FnOnce(BytesResult) + Send>) {
     std::thread::spawn(move || on_done(read(&path)));

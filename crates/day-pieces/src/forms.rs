@@ -15,11 +15,11 @@ use crate::*;
 use day_geometry::Proposal;
 
 // ===========================================================================
-// Forms (docs/forms.md): form / section / labeled — grouped, label-aligned settings UI.
+// Forms (docs/forms.md): form / section / labeled, the grouped, label-aligned settings UI.
 // ===========================================================================
 
 /// Shared label-column state for one [`form`]: every [`labeled`] row inside registers its
-/// label's width during measurement and lays its label out in a common, form-wide column —
+/// label's width during measurement and lays its label out in a common, form-wide column,
 /// the "aligned labels" look every settings UI converges on. The width is per-layout-pass
 /// monotonic: all rows measure before any row places (the enclosing stacks measure all
 /// children first), so alignment is consistent within a pass without invalidation dances.
@@ -66,8 +66,8 @@ impl<C: PieceSeq + 'static> Piece for Form<C> {
 }
 
 /// One grouped form section (created by [`section`]): an optional header above a rounded card
-/// whose background is the platform's own theme-adaptive grouped-content material
-/// (`SurfaceRole::SectionCard` — quaternary fill on AppKit, libadwaita `.card`, Qt
+/// whose background is the platform's theme-adaptive grouped-content material
+/// (`SurfaceRole::SectionCard`: quaternary fill on AppKit, libadwaita `.card`, Qt
 /// `palette(alternate-base)`, tertiary system fill on iOS, Material surface-container, the
 /// XAML card brush), so it follows light/dark mode with no app code.
 pub struct FormSection<C: PieceSeq> {
@@ -185,7 +185,7 @@ pub struct Labeled<P: Piece> {
 impl<P: Piece> Piece for Labeled<P> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Labeled { text, control } = self;
-        // Read the enclosing form's shared column at BUILD time (environment is scoped).
+        // Read the enclosing form's shared column at build time (environment is scoped).
         let col = environment::<FormLabelColumn>();
         let node = cx.layout_only(
             Rc::new(LabeledLayout { col }),
@@ -222,7 +222,7 @@ struct LabeledLayout {
 }
 
 impl LabeledLayout {
-    /// The label column width in effect: register OUR label width, read back the max.
+    /// The label column width in effect: register this row's label width, read back the max.
     fn column_width(&self, label_w: f64) -> f64 {
         match &self.col {
             Some(c) => {
@@ -240,7 +240,7 @@ impl LabeledLayout {
     /// How far to push each of the two children down so their text sits on one line
     /// (docs/baseline.md), plus the height the row needs to hold them once pushed.
     ///
-    /// `None` when either side has no baseline to offer — a toolkit that does not report them,
+    /// `None` when either side has no baseline to offer: a toolkit that does not report them,
     /// or a control with no text at all (a toggle, a slider, an image). The row then keeps the
     /// centering it has always done, which is what makes this safe to have on by default.
     fn baseline_shift(
@@ -263,10 +263,10 @@ impl LabeledLayout {
 impl LabeledLayout {
     /// Whether the control has to go under the label: offered the width left beside this
     /// row's own label, it still measures wider (a two-button stepper in a 280 dp inspector;
-    /// a fixed-width field). A narrow pane then reads as the settings idiom — label above,
-    /// control full-width — instead of clipping the control at the pane's edge.
+    /// a fixed-width field). A narrow pane then reads as the settings idiom (label above,
+    /// control full-width) instead of clipping the control at the pane's edge.
     ///
-    /// The row's OWN label, not the form-wide column: the column grows as the form's rows are
+    /// The row's label, not the form-wide column: the column grows as the form's rows are
     /// measured, so a decision taken against it would flip between measure and place and
     /// the rows would overlap. A `.grow()` control measures to what it is offered, so it
     /// stacks only when its content cannot fit that width.
@@ -302,7 +302,7 @@ impl day_core::Layout for LabeledLayout {
         let cs = cx.measure_child(ctl, Proposal::new(avail, None));
         let natural = colw + LABELED_GAP + cs.width;
         // The row spans the proposed width (labels align form-wide; controls may stretch), and
-        // hugs its content vertically — the taller child, or, once the two are sitting on one
+        // hugs its content vertically: the taller child, or, once the two are sitting on one
         // baseline, whatever the shifted pair needs.
         let boxes = ls.height.max(cs.height);
         let height = match self.baseline_shift(cx, lbl, ls, ctl, cs) {
@@ -364,7 +364,7 @@ impl day_core::Layout for LabeledLayout {
         // Centering the boxes preserves that offset; this removes it.
         let (lbl_y, ctl_y) = match self.baseline_shift(cx, lbl, ls, ctl, cs) {
             Some((dl, dc, used)) => {
-                // Center the aligned PAIR in whatever height the row was actually given, so a
+                // Center the aligned pair in whatever height the row was actually given, so a
                 // row stretched by a taller sibling keeps its text group centered rather than
                 // pinned to the top.
                 let slack = ((h - used) / 2.0).max(0.0);

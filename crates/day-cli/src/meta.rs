@@ -1,17 +1,17 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Day.toml — the project manifest (DESIGN.md §17.3).
+//! Day.toml, the project manifest (DESIGN.md §17.3).
 //!
 //! Follows the Tauri / Dioxus model: a dedicated manifest file that doubles as the project
-//! marker (`find_project` walks up to the nearest `Day.toml`). Two rules keep it honest:
+//! marker (`find_project` walks up to the nearest `Day.toml`). Two rules keep it consistent:
 //!
 //! * **Derive, don't restate**: `name` and `version` come from the sibling `Cargo.toml`'s
-//!   `[package]` — they are never written in Day.toml, so app identity can't drift from the
+//!   `[package]`; they are never written in Day.toml, so app identity can't drift from the
 //!   crate's.
 //! * **Base + overrides**: `[app]` holds the base properties; any of them can be overridden
 //!   per platform (`[app.ios]`), per toolkit (`[app.qt]`), or per full target
-//!   (`[app.macos-appkit]`) — most specific wins (see [`Manifest::resolve`]).
+//!   (`[app.macos-appkit]`); most specific wins (see [`Manifest::resolve`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,34 +27,35 @@ pub struct Manifest {
     #[serde(default)]
     pub window: Window,
     /// Code-signing / notarization configuration (§16.5, §17.3). Values may reference environment
-    /// variables as `${VAR}` — resolved at use time (see `pack::settings::interpolate`), never at
+    /// variables as `${VAR}`, resolved at use time (see `pack::settings::interpolate`), never at
     /// parse time, so `day sign --check` can report missing variables without failing the parse.
     #[serde(default)]
     pub signing: Option<Signing>,
     /// OS permissions this app declares, and the user-facing reason for each (docs/permissions.md).
     /// `day build` turns these into `<uses-permission>` entries, `Info.plist` usage descriptions,
-    /// and HarmonyOS `requestPermissions` — the declaration every mobile OS requires before the app
-    /// may even ask. `#[serde(default)]`, so every Day.toml written before this existed still parses.
+    /// and HarmonyOS `requestPermissions`: the declaration every mobile OS requires before the
+    /// app may even ask. `#[serde(default)]`, so every Day.toml written before this existed still
+    /// parses.
     #[serde(default)]
     pub permissions: Permissions,
-    /// `[[shortcuts]]` — launcher shortcuts: labeled, persistent deep links shown on a
+    /// `[[shortcuts]]`: launcher shortcuts, the labeled, persistent deep links shown on a
     /// long-press of the app's icon (docs/deep-links.md "Shortcuts are saved deep links").
-    /// `day build` conveys these into each platform's native declaration — iOS
+    /// `day build` conveys these into each platform's native declaration (iOS
     /// `UIApplicationShortcutItems`, Android `res/xml` shortcuts, HarmonyOS
-    /// `shortcuts_config.json` — with labels resolved per locale from `resource/locales/`.
+    /// `shortcuts_config.json`) with labels resolved per locale from `resource/locales/`.
     #[serde(default)]
     pub shortcuts: Vec<Shortcut>,
-    /// `[sbom]` — whether to produce a software bill of materials, in which formats, and whether it
+    /// `[sbom]`: whether to produce a software bill of materials, in which formats, and whether it
     /// ships inside the app or beside it (§20.4). Defaults to two sidecar documents: sidecars cost
     /// the artifact nothing, whereas embedding both formats adds roughly 400 KB.
     #[serde(default)]
     pub sbom: SbomConfig,
-    /// `[store]` — where the app is LISTED (docs/store.md "Listed apps"). A store id here says
+    /// `[store]`: where the app is listed (docs/store.md "Listed apps"). A store id here says
     /// the listing is live: the project site shows that store's badge and links to it, and
     /// tooling can build the listing URL. Absent while the app is unpublished.
     #[serde(default)]
     pub store: StoreListing,
-    /// `[web]` — how the web-dom build presents itself once added to a home screen
+    /// `[web]`: how the web-dom build presents itself once added to a home screen
     /// (docs/web.md "Home screen and offline"): the web app manifest's colors, display mode,
     /// and short name. Every key has a default, so the table is optional.
     #[serde(default)]
@@ -117,7 +118,7 @@ impl WebDisplay {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct StoreListing {
-    /// The App Store's numeric app id — the `id…` in `https://apps.apple.com/app/id6802801331`.
+    /// The App Store's numeric app id, the `id…` in `https://apps.apple.com/app/id6802801331`.
     /// A string, since the number is an identifier, not a quantity.
     pub apple_app_id: Option<String>,
     /// The Google Play listing's application id (`id=` in the Play URL). Usually the app's own
@@ -151,7 +152,7 @@ pub enum SbomMode {
     /// Write the documents next to the artifact, like the `.buildinfo` sidecar.
     #[default]
     Sidecar,
-    /// Stage the documents inside the app so it can read them at runtime — a license screen, say.
+    /// Stage the documents inside the app so it can read them at runtime (a license screen, say).
     Embed,
     /// Produce nothing.
     None,
@@ -179,7 +180,7 @@ impl SbomFormat {
         }
     }
 
-    /// The suffix a SIDECAR copy carries, appended to the artifact's own file name
+    /// The suffix a sidecar copy carries, appended to the artifact's file name
     /// (`day-showcase-macos-appkit.dmg.sbom-cdx.json`). Sidecars sit in one release directory
     /// alongside every other target's, so each has to say which artifact it describes (§20.4).
     pub fn sidecar_suffix(self) -> &'static str {
@@ -281,7 +282,7 @@ impl<'de> serde::Deserialize<'de> for SbomConfig {
 /// reserved `raw`, which carries per-platform escape hatches.
 ///
 /// This struct carries no `deny_unknown_fields` because the `flatten` map has to absorb the
-/// permission keys (the same reason [`App`] doesn't) — [`parse_manifest`] validates the names
+/// permission keys (the same reason [`App`] doesn't); [`parse_manifest`] validates the names
 /// instead, and rejects a typo with the list of valid ones, which is the better error anyway.
 #[derive(Debug, Default, Deserialize)]
 pub struct Permissions {
@@ -353,7 +354,7 @@ impl Declaration {
     }
 }
 
-/// `[permissions.raw]` — platform-native declarations for anything outside the portable set.
+/// `[permissions.raw]`: platform-native declarations for anything outside the portable set.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawPermissions {
@@ -433,7 +434,7 @@ pub struct MacosSigning {
     pub notarize: Option<Notarize>,
 }
 
-/// notarytool App Store Connect API-key auth (never interactive Apple-ID — §16.5).
+/// notarytool App Store Connect API-key auth (never interactive Apple-ID; §16.5).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Notarize {
@@ -462,7 +463,7 @@ pub struct IosSigning {
     pub key_path: Option<String>,
 }
 
-/// Android release keystore (Gradle signingConfig; .aab is jar-signed by Gradle — §16.5).
+/// Android release keystore (Gradle signingConfig; .aab is jar-signed by Gradle; §16.5).
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct AndroidSigning {
@@ -472,7 +473,7 @@ pub struct AndroidSigning {
     pub key_pass: String,
 }
 
-/// Windows Authenticode: certs are HSM/service-held since 2023 — a provider enum, not a .pfx path.
+/// Windows Authenticode: certs are HSM/service-held since 2023; a provider enum, not a .pfx path.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct WindowsSigning {
@@ -514,7 +515,7 @@ pub struct OhosSigning {
     pub profile: String,
 }
 
-/// `[app]`: the Day-specific app identity. `name`/`version` are FILLED from Cargo.toml after
+/// `[app]`: the Day-specific app identity. `name`/`version` are filled from Cargo.toml after
 /// parsing (never written in Day.toml). Every other property can be overridden per platform /
 /// toolkit / target via `[app.<key>]` tables collected in `overrides`.
 #[derive(Debug, Deserialize)]
@@ -550,9 +551,9 @@ pub struct App {
     /// The platform-toolkit combos this app ships on (`day app add-toolkit` appends here).
     #[serde(default)]
     pub targets: Vec<String>,
-    /// `[app.<platform|toolkit|target>]` override tables — validated by `day lint`.
-    /// (serde note: this flatten map is why App has no deny_unknown_fields — a typo'd scalar
-    /// key still errors because it can't parse as an override TABLE.)
+    /// `[app.<platform|toolkit|target>]` override tables, validated by `day lint`.
+    /// (serde note: this flatten map is why App has no deny_unknown_fields; a typo'd scalar
+    /// key still errors because it can't parse as an override table.)
     #[serde(flatten)]
     pub overrides: BTreeMap<String, AppOverride>,
 }
@@ -573,12 +574,12 @@ pub struct AppOverride {
     pub build: Option<u64>,
 }
 
-/// One `[[shortcuts]]` entry — a launcher shortcut. Declaration order is display order on
+/// One `[[shortcuts]]` entry, a launcher shortcut. Declaration order is display order on
 /// every platform that shows an order.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Shortcut {
-    /// The day route the shortcut opens — the part after `scheme://`, query params allowed
+    /// The day route the shortcut opens: the part after `scheme://`, query params allowed
     /// (`mail/inbox?filter=unread`). Validated by `day lint`'s unknown-route check.
     pub route: String,
     /// The Fluent message id for the user-visible label. Must be a single-line message with
@@ -597,21 +598,21 @@ pub struct ResolvedApp {
     /// this out of `day metadata --json` to name the web-dom zip, which no `day pack` produces.
     pub artifact: String,
     pub build: u64,
-    /// `Day.toml [app] scheme` as declared for this target, if it was. `None` means "derive it"
-    /// — see [`ResolvedApp::scheme`].
+    /// `Day.toml [app] scheme` as declared for this target, if it was. `None` means "derive it";
+    /// see [`ResolvedApp::scheme`].
     pub scheme: Option<String>,
 }
 
 impl ResolvedApp {
     /// The app's deep-link URI scheme: `Day.toml [app] scheme` where declared, else the last
-    /// segment of the bundle id — lowercased and stripped to what a scheme may contain
+    /// segment of the bundle id, lowercased and stripped to what a scheme may contain
     /// (ALPHA/DIGIT/`+`/`-`/`.`, RFC 3986).
     ///
-    /// Every platform gets it through that platform's generated channel — `DAY_URL_SCHEME` in
-    /// the xcconfig, `scheme` in day-app.properties, the `uris` entry in module.json5 — so no
+    /// Every platform gets it through that platform's generated channel (`DAY_URL_SCHEME` in
+    /// the xcconfig, `scheme` in day-app.properties, the `uris` entry in module.json5), so no
     /// scaffolded file spells it out (docs/deep-links.md).
     ///
-    /// The DEFAULT is derived, so a new app never states it twice; declaring it is how an app
+    /// The default is derived, so a new app never states it twice; declaring it is how an app
     /// keeps a scheme it already published when that differs from its id (an app scaffolded
     /// before this derived theirs from the crate name).
     pub fn scheme(&self) -> String {
@@ -656,16 +657,16 @@ impl Manifest {
             scheme: self.app.scheme.clone(),
         };
         let mut artifact = self.app.artifact.clone();
-        // `[app.ohos]` is the platform table for harmony-arkui — for BUILTIN targets the key
+        // `[app.ohos]` is the platform table for harmony-arkui: for builtin targets the key
         // comes from the catalog (`Target::os`), never from splitting the name. An externally
-        // declared target (docs/extending.md) is the opposite by contract: its os IS the name
+        // declared target (docs/extending.md) is the opposite by contract: its os is the name
         // prefix (there is no override key), so splitting is exact there, and this method has no
         // project to resolve the external catalog through anyway.
         let platform = crate::targets::find(target)
             .map(|t| t.os)
             .unwrap_or_else(|| target.split_once('-').map(|(os, _)| os).unwrap_or_default());
         let toolkit = target.split_once('-').map(|(_, t)| t).unwrap_or_default();
-        // `[app.ohos]` is the pre-rename spelling of the harmony platform key — still read,
+        // `[app.ohos]` is the pre-rename spelling of the harmony platform key: still read,
         // below the modern key in precedence.
         let legacy = if platform == "harmony" { "ohos" } else { "" };
         // Increasing precedence: toolkit, then platform (legacy spelling first), then the
@@ -706,7 +707,7 @@ fn default_build() -> u64 {
 ///
 /// Every packaged artifact's name goes through this. Release assets are served from URLs and
 /// listed by shells, and GitHub rewrites a space in an uploaded asset name to a dot
-/// (`Day Skies.dmg` → `Day.Skies.dmg`) — so the safe name is chosen here rather than left to
+/// (`Day Skies.dmg` → `Day.Skies.dmg`), so the safe name is chosen here rather than left to
 /// whatever a `title` happens to contain. A slug that folds away to nothing (a title of only
 /// punctuation, say) yields `app`, because a file still needs a name.
 pub fn slug(raw: &str) -> String {
@@ -728,10 +729,10 @@ pub fn slug(raw: &str) -> String {
 
 /// `[window]`: the app's window geometry, in points/dp.
 ///
-/// One declaration, two layers (docs/size-classes.md "Declaring a minimum size"). The MINIMUM has
-/// to reach the platform at two different moments: Android wants it in the manifest at BUILD time
+/// One declaration, two layers (docs/size-classes.md "Declaring a minimum size"). The minimum has
+/// to reach the platform at two different moments: Android wants it in the manifest at build time
 /// (`<layout android:minWidth>`, which is what desktop windowing and split-screen honor), iOS
-/// wants it at RUN time (`UIWindowScene.sizeRestrictions`). `day build` conveys these values into
+/// wants it at run time (`UIWindowScene.sizeRestrictions`). `day build` conveys these values into
 /// both, so an app states them once here rather than in two platform files that drift.
 #[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
@@ -783,7 +784,7 @@ pub struct Project {
 }
 
 impl Project {
-    /// The app's LIB TARGET name — what cargo names every artifact after: `libdayapp.a`,
+    /// The app's lib target name, what cargo names every artifact after: `libdayapp.a`,
     /// `libdayapp.so`, `dayapp.wasm`, and the `dayapp::` path `src/main.rs` imports.
     ///
     /// A scaffolded app pins this to the constant `dayapp` (`[lib] name`, DESIGN.md §17.5) so no
@@ -796,7 +797,7 @@ impl Project {
     pub fn lib_name(&self) -> String {
         let text = std::fs::read_to_string(self.root.join("Cargo.toml")).unwrap_or_default();
         if let Some(rest) = text.split("[lib]").nth(1) {
-            // Only the `[lib]` table's own keys — stop at the next table header.
+            // Only the `[lib]` table's own keys: stop at the next table header.
             let table = rest.split("\n[").next().unwrap_or(rest);
             for line in table.lines() {
                 if let Some(v) = line.trim().strip_prefix("name")
@@ -810,13 +811,13 @@ impl Project {
     }
 }
 
-/// On Windows `std::fs::canonicalize` returns an extended-length `\\?\` (verbatim) path. That prefix
-/// flows into `CARGO_TARGET_DIR` (ops.rs), and the windows-gnu toolchain's MinGW linker
-/// (`ld`/`collect2`) can't parse `\\?\` object-file arguments — it drops the prefix and reports
+/// On Windows `std::fs::canonicalize` returns an extended-length `\\?\` (verbatim) path. That
+/// prefix flows into `CARGO_TARGET_DIR` (ops.rs), and the windows-gnu toolchain's MinGW linker
+/// (`ld`/`collect2`) can't parse `\\?\` object-file arguments: it drops the prefix and reports
 /// `cannot find \\symbols.o`, failing the link (hit on windows-gtk / windows-qt; MSVC's link.exe
 /// tolerates it, so xaml was unaffected). De-verbatim the path so every subtool gets a plain
-/// absolute path — still absolute, so the xcodebuild-SYMROOT need in `find_project` holds. No-op off
-/// Windows, where canonicalize never adds a verbatim prefix.
+/// absolute path, still absolute, so the xcodebuild-SYMROOT need in `find_project` holds. No-op
+/// off Windows, where canonicalize never adds a verbatim prefix.
 fn strip_verbatim(p: PathBuf) -> PathBuf {
     #[cfg(windows)]
     if let Some(s) = p.to_str() {
@@ -833,9 +834,9 @@ fn strip_verbatim(p: PathBuf) -> PathBuf {
 
 /// Check `[permissions]` against the declaration table, with messages a human can act on.
 ///
-/// This runs over the raw TOML before the typed parse on purpose. `Declaration` is an untagged
+/// This runs over the raw TOML before the typed parse. `Declaration` is an untagged
 /// enum, so serde reports any malformed entry as "data did not match any variant of untagged enum
-/// Declaration" — which names neither the permission nor the key at fault. Both mistakes it catches
+/// Declaration", which names neither the permission nor the key at fault. Both mistakes it catches
 /// are the same class: a permission that silently fails to be declared is a crash on iOS.
 fn validate_permissions(day_toml: &str) -> Result<(), String> {
     /// The long form's keys, in `DeclarationTable`'s kebab-case spelling.
@@ -892,7 +893,7 @@ pub fn parse_manifest(
         ));
     }
     // `name`/`version` are derived, never restated (a permissive parse: version may be
-    // workspace-inherited in exotic layouts — fall back rather than fail).
+    // workspace-inherited in exotic layouts, so fall back rather than fail).
     let cargo: toml::Value = toml::from_str(cargo_toml).map_err(|e| format!("Cargo.toml: {e}"))?;
     let package = cargo
         .get("package")
@@ -902,11 +903,11 @@ pub fn parse_manifest(
         .and_then(|v| v.as_str())
         .ok_or("Cargo.toml: no package.name")?
         .to_string();
-    // `version.workspace = true` is the common shape for an app inside a workspace — including
-    // every app in this repo — so the inherited value is resolved, not defaulted. Silently
+    // `version.workspace = true` is the common shape for an app inside a workspace (including
+    // every app in this repo), so the inherited value is resolved, not defaulted. Silently
     // falling back to a literal is worse than it looks: `app.version` stamps CFBundleShort
     // VersionString, Android's versionName, the MSIX/NSIS version and the .hap's, so a wrong
-    // one ships in the artifacts, not just in the debug title bar.
+    // one ships in the artifacts as well as in the debug title bar.
     manifest.app.version = match package.get("version") {
         Some(v) if v.as_str().is_some() => v.as_str().unwrap_or_default().to_string(),
         Some(v) if inherits_from_workspace(v) => workspace_version
@@ -928,7 +929,7 @@ fn inherits_from_workspace(value: &toml::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// The `[workspace.package] version` of the nearest ancestor that declares a `[workspace]` — the
+/// The `[workspace.package] version` of the nearest ancestor that declares a `[workspace]`, the
 /// same search cargo itself does when resolving inheritance.
 pub fn workspace_package_version(start: &Path) -> Option<String> {
     for dir in start.ancestors() {
@@ -936,7 +937,7 @@ pub fn workspace_package_version(start: &Path) -> Option<String> {
         let Ok(text) = std::fs::read_to_string(&candidate) else {
             continue;
         };
-        // `toml::from_str`, not `str::parse` — the latter parses a bare VALUE in this toml
+        // `toml::from_str`, not `str::parse`: the latter parses a bare value in this toml
         // version and fails on the first table header, which is every Cargo.toml.
         let Ok(value) = toml::from_str::<toml::Value>(&text) else {
             continue;
@@ -972,7 +973,7 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
             })?;
             let inherited = workspace_package_version(&dir);
             let manifest = parse_manifest(&day_toml, &cargo_toml, inherited.as_deref())?;
-            // Always hand back an ABSOLUTE root. A relative `--project` (e.g. `apps/example`) would
+            // Always hand back an absolute root. A relative `--project` (e.g. `apps/example`) would
             // otherwise flow into build-tool arguments like xcodebuild's `SYMROOT` as a relative path;
             // xcodebuild resolves relative build paths against each target's own working directory, so
             // the app target and a SwiftPM package dependency scatter their products into different
@@ -1115,7 +1116,7 @@ build = 7
             strip_verbatim(PathBuf::from(r"\\?\UNC\server\share\proj")),
             PathBuf::from(r"\\server\share\proj")
         );
-        // A plain absolute path is already fine — leave it untouched.
+        // A plain absolute path is already fine; leave it untouched.
         assert_eq!(
             strip_verbatim(PathBuf::from(r"D:\a\proj")),
             PathBuf::from(r"D:\a\proj")
@@ -1163,7 +1164,7 @@ ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when
         assert_eq!(camera.reason_for("ios"), Some("Scan a document."));
         assert!(camera.covers("ohos"));
 
-        // `true` declares the permission without a reason — the notifications shape.
+        // `true` declares the permission without a reason: the notifications shape.
         assert_eq!(
             m.permissions.declared["notifications"].reason_for("ios"),
             None
@@ -1200,7 +1201,7 @@ ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when
         );
     }
 
-    /// A misspelled permission must fail the parse with the valid names, not be ignored — an
+    /// A misspelled permission must fail the parse with the valid names, not be ignored; an
     /// undeclared permission is a runtime crash on iOS.
     #[test]
     fn unknown_permission_name_is_rejected() {
@@ -1237,7 +1238,7 @@ ohos = [{ name = "ohos.permission.READ_CONTACTS", reason = "Find friends.", when
 mod workspace_inheritance {
     use super::*;
 
-    /// `version.workspace = true` resolves from the nearest ancestor `[workspace.package]` — the
+    /// `version.workspace = true` resolves from the nearest ancestor `[workspace.package]`, the
     /// shape every app in this repo uses. Before this, the parse fell back to a literal "0.1.0",
     /// which then stamped every packaged artifact.
     #[test]
@@ -1262,7 +1263,7 @@ mod workspace_inheritance {
         assert!(err.contains("workspace"), "{err}");
     }
 
-    /// The repo's own workspace answers for the showcase — the case in the bug report.
+    /// The repo's own workspace answers for the showcase, the case in the bug report.
     #[test]
     fn this_repo_resolves_its_own_workspace_version() {
         let here = Path::new(env!("CARGO_MANIFEST_DIR")); // crates/day-cli
@@ -1309,8 +1310,8 @@ mod lib_name_tests {
         find_project(Some(&dir)).expect("project")
     }
 
-    /// Every artifact is named after the LIB target, so a scaffolded app's pin is what the
-    /// staticlib, the cdylib and the wasm are all called — whatever the package is named.
+    /// Every artifact is named after the lib target, so a scaffolded app's pin is what the
+    /// staticlib, the cdylib and the wasm are all called, whatever the package is named.
     #[test]
     fn the_pinned_lib_name_wins_over_the_package() {
         let p = project_with(
@@ -1333,7 +1334,7 @@ mod lib_name_tests {
     }
 
     /// A declared scheme wins over the derived default, because a scheme already in the world is
-    /// a contract: apps scaffolded before the default existed derived theirs from the CRATE name
+    /// a contract: apps scaffolded before the default existed derived theirs from the crate name
     /// (`Day-Showcase` ⇒ `dayshowcase`), and silently re-deriving it from the id would have
     /// changed `dayshowcase://` links to `showcase://` on every platform at once.
     #[test]
@@ -1358,7 +1359,7 @@ mod lib_name_tests {
         assert_eq!(numeric.manifest.resolve("macos-appkit").scheme(), "dayapp");
     }
 
-    /// A `name` in a later table is not the lib's — the scan stops at the next header.
+    /// A `name` in a later table is not the lib's; the scan stops at the next header.
     #[test]
     fn a_name_in_a_following_table_is_not_read() {
         let p = project_with(

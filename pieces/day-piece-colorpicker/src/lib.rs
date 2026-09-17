@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-colorpicker — a color chooser bound two-way to a `Signal<Color>`, in two idioms
+//! day-piece-colorpicker is a color chooser bound two-way to a `Signal<Color>`, in two idioms
 //! (docs/colorpicker.md; DESIGN.md §15 tier 1+shim).
 //!
 //! ```ignore
@@ -13,7 +13,7 @@
 //! ))
 //! ```
 //!
-//! Both idioms give the app the same control — a **color well**: a swatch showing the current
+//! Both idioms give the app the same control, a **color well**: a swatch showing the current
 //! color that opens a chooser when pressed. They differ only in who draws the chooser.
 //!
 //! - [`PickerIdiom::Native`] realizes a native leaf: `NSColorWell` onto the shared
@@ -25,15 +25,15 @@
 //!   saturation/brightness field, a hue strip, an opacity strip and a preset palette. Every part
 //!   of it is Rust that already runs everywhere, so it is the same picker on all nine targets.
 //!
-//! [`PickerIdiom::Automatic`] — the default — is `Native` where the toolkit has a chooser and
+//! [`PickerIdiom::Automatic`], the default, is `Native` where the toolkit has a chooser and
 //! `Composed` where it does not. Two toolkits have none at any layer: Android ships no color
 //! picker in the framework, in Material, or in AndroidX, and HarmonyOS has none in ArkTS or in the
 //! ArkUI NDK. Rather than each of those growing a hand-written dialog in its own language, they
-//! get the composed panel — which is also why an app that wants one picker everywhere can just ask
+//! get the composed panel, which is also why an app that wants one picker everywhere can just ask
 //! for it.
 //!
 //! The value is Day's ordinary [`Color`], so the same signal drives `.tint(…)`, `.background(…)`,
-//! a canvas fill or a gradient stop with no conversion — see [docs/color.md](../color/) for what
+//! a canvas fill or a gradient stop with no conversion; see [docs/color.md](../color/) for what
 //! that currency does and does not carry across from a native pick.
 //!
 //! The native leaf also accepts `Event::TextChanged` carrying any form [`Color::parse`] reads
@@ -49,11 +49,11 @@ use day_spec::{Event, Support};
 pub const KIND: &str = "day.piece.colorpicker";
 
 /// The tag every in-process native arm reports a pick under. Across a JNI / C-ABI / JS boundary
-/// the tag cannot be a `&'static str`, so it arrives empty and only the payload matters (§8.2) —
+/// the tag cannot be a `&'static str`, so it arrives empty and only the payload matters (§8.2);
 /// the front-end reads the text either way.
 pub const PICK_TAG: &str = "colorpicker:value";
 
-/// Full props (realize) for the NATIVE leaf. `alpha` and `title` are set once at build; only
+/// Full props (realize) for the native leaf. `alpha` and `title` are set once at build; only
 /// `color` patches. The composed idiom realizes no leaf and never builds these.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ColorProps {
@@ -92,22 +92,22 @@ pub enum PickerIdiom {
     Automatic,
     /// The platform's own chooser, on the nose: this realizes the native leaf whatever the
     /// backend is, so on a toolkit with no renderer for it the app gets Day's visible
-    /// `⟨day.piece.colorpicker⟩` placeholder — the same answer any unrendered kind gives, and a
+    /// `⟨day.piece.colorpicker⟩` placeholder, the same answer any unrendered kind gives, and a
     /// gap a screenshot can see. Pin this only behind a [`support`] check; if you want "native
     /// where there is one", that is [`Automatic`](PickerIdiom::Automatic).
     Native,
     /// Day's composed panel, on every target. Ask for this when one identical color experience
-    /// matters more than platform chrome — a design tool, a themed app, a branded editor.
+    /// matters more than platform chrome: a design tool, a themed app, a branded editor.
     Composed,
 }
 
-/// Whether the compiled backend has a NATIVE color chooser — what [`PickerIdiom::Automatic`]
-/// resolves against.
+/// Whether the compiled backend has a native color chooser, which is what
+/// [`PickerIdiom::Automatic`] resolves against.
 ///
 /// [`Support::Native`] on appkit, uikit, gtk, qt, xaml and web-dom. [`Support::Emulated`] on
 /// android-mdc and harmony-arkui, where `Automatic` gives the composed panel instead.
 ///
-/// This does not report whether the picker works — there is no target where it does not — so an
+/// This does not report whether the picker works (there is no target where it does not), so an
 /// app showing a "not supported here" banner from this answer would be wrong. Use it to say
 /// *which* picker the user gets, or ignore it, unless the app pins [`PickerIdiom::Native`]:
 /// that realizes the leaf unconditionally and so does need this checked first.
@@ -148,11 +148,11 @@ pub struct ColorPicker<C: Binding<Color>> {
     key: String,
 }
 
-/// `color_picker(color)` — a swatch showing `color` that opens a color chooser. `color` is a
+/// `color_picker(color)` is a swatch showing `color` that opens a color chooser. `color` is a
 /// `Signal<Color>` or any other two-way binding (a day-model `Field`, mapped).
 pub fn color_picker<C: Binding<Color>>(color: C) -> ColorPicker<C> {
-    // web-dom's registry is populated at RUNTIME (no `linkme` on wasm), and a constructor always
-    // runs before the node it returns is realized — so this is where the arm registers itself.
+    // web-dom's registry is populated at runtime (no `linkme` on wasm), and a constructor always
+    // runs before the node it returns is realized, so this is where the arm registers itself.
     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
     dom_impl::register();
     ColorPicker {
@@ -179,11 +179,11 @@ impl<C: Binding<Color>> ColorPicker<C> {
         self.idiom = idiom;
         self
     }
-    /// Pin this well to the platform's own chooser — [`PickerIdiom::Native`].
+    /// Pin this well to the platform's chooser, [`PickerIdiom::Native`].
     pub fn native(self) -> Self {
         self.idiom(PickerIdiom::Native)
     }
-    /// Pin this well to Day's composed panel — [`PickerIdiom::Composed`].
+    /// Pin this well to Day's composed panel, [`PickerIdiom::Composed`].
     pub fn composed(self) -> Self {
         self.idiom(PickerIdiom::Composed)
     }
@@ -195,16 +195,16 @@ impl<C: Binding<Color>> ColorPicker<C> {
         self.title = Some(t.into_text());
         self
     }
-    /// The swatch row the COMPOSED panel offers below its strips (ignored by the native
+    /// The swatch row the composed panel offers below its strips (ignored by the native
     /// choosers, which each have their own palette). Pass an empty vector to drop the row.
     pub fn presets(mut self, presets: Vec<Color>) -> Self {
         self.presets = Some(presets);
         self
     }
-    /// The COMPOSED well's dayscript id (default `"color-picker"`).
+    /// The composed well's dayscript id (default `"color-picker"`).
     ///
     /// It goes here rather than on `Decorate::id` because what an app can reach from outside is
-    /// the layout wrapper the piece returns, and an id on that tags a node no toolkit realizes —
+    /// the layout wrapper the piece returns, and an id on that tags a node no toolkit realizes;
     /// a `tap:` against it resolves to nothing while every step still reports ✓. Give two
     /// composed pickers on one page different keys so a script can tell them apart.
     ///
@@ -266,7 +266,7 @@ fn build_native<C: Binding<Color>>(
         },
         Flex::default(),
     );
-    // The leaf's dayscript id — one `.key` serves both idioms (the day-piece-stepper rule:
+    // The leaf's dayscript id: one `.key` serves both idioms (the day-piece-stepper rule:
     // `Decorate::id` on the piece would tag a wrapper no toolkit realizes).
     with_tree(|t| t.set_id(node, key));
     // App writes → the native well. Every arm no-ops on an unchanged value, so a pick echoing
@@ -297,7 +297,7 @@ fn build_native<C: Binding<Color>>(
 }
 
 // ===========================================================================
-// The composed idiom — ordinary Day pieces, no native code, identical on all nine targets.
+// The composed idiom: ordinary Day pieces, no native code, identical on all nine targets.
 // ===========================================================================
 
 /// The saturation/brightness field, in points. Fixed rather than fluid: a picker panel is a
@@ -318,19 +318,18 @@ const SWATCH: f64 = 26.0;
 const CARD_PAD: f64 = 18.0;
 const CARD_W: f64 = FIELD_W + CARD_PAD * 2.0;
 
-/// The panel is a NEUTRAL DARK surface on every target, light appearance included, and its own
-/// text color is stated rather than inherited.
+/// The panel is a neutral dark surface on every target, light appearance included, and its text
+/// color is stated rather than inherited.
 ///
-/// Both halves of that are deliberate. A bright surround biases color judgment — the reason
-/// every serious color tool sits its swatches on a dark neutral — so a picker that flipped to a
-/// white card in light mode would make the same pick look like a different color. And a card
-/// whose fill this piece chose cannot then take the platform's label color for its text: on a
-/// light-appearance device that resolves to black, which is what put dark-on-dark text in the
-/// first iOS screenshot of this panel.
+/// A bright surround biases color judgment (the reason every serious color tool sits its swatches
+/// on a dark neutral), so a picker that flipped to a white card in light mode would make the same
+/// pick look like a different color. And a card whose fill this piece chose cannot then take the
+/// platform's label color for its text: on a light-appearance device that resolves to black, which
+/// is what put dark-on-dark text in the first iOS screenshot of this panel.
 const PANEL_SURFACE: Color = Color::rgb(0.13, 0.14, 0.17);
 const PANEL_TEXT: Color = Color::rgb(0.93, 0.94, 0.96);
 
-/// The well, in points: wide enough for its caption at the caption size — `#rrggbbaa` when the
+/// The well, in points: wide enough for its caption at the caption size: `#rrggbbaa` when the
 /// picker carries alpha, `#rrggbb` when it does not, since a row beside a slider in a narrow
 /// inspector has no width to spare.
 fn well_width(alpha: bool) -> f64 {
@@ -338,12 +337,12 @@ fn well_width(alpha: bool) -> f64 {
 }
 const WELL_H: f64 = 26.0;
 
-/// The well itself: a DRAWN swatch showing the current color and its hex, which presents the
+/// The well itself: a drawn swatch showing the current color and its hex, which presents the
 /// panel when pressed.
 ///
 /// Drawn rather than a `button(hex).tint(color)`, even though a tinted button is native and
-/// carries press feedback and focus for free. What the composed idiom promises is one picker,
-/// identical on every target — and a tinted button is the opposite of identical: AppKit
+/// carries press feedback and focus with no extra work. What the composed idiom promises is one
+/// picker, identical on every target, and a tinted button is the opposite of identical: AppKit
 /// composites the color through the bezel, Material draws a filled container with its own
 /// elevation, GTK and Qt apply it through their themes, and the web takes CSS. The color would
 /// read differently on all nine. A canvas draws the color the app asked for.
@@ -360,9 +359,9 @@ fn composed_well<C: Binding<Color>>(
 ) -> AnyPiece {
     let open: Signal<Option<String>> = Signal::new(None);
     let open_key = key.clone();
-    // The id goes on the CANVAS, here, rather than being left to the app: what the app can reach
+    // The id goes on the canvas, here, rather than being left to the app: what the app can reach
     // is the `zstack` this returns, and an id on that tags a layout wrapper the toolkit never
-    // realizes — a dayscript `tap:` against it would resolve to nothing while every step still
+    // realizes; a dayscript `tap:` against it would resolve to nothing while every step still
     // reported ✓. The route key doubles as the id, so one name identifies the well both ways.
     let cw = color.clone();
     let well = canvas(move |d, size| {
@@ -403,9 +402,9 @@ fn composed_well<C: Binding<Color>>(
         // on six of the nine targets. A near-black ground that the card sits on reads the same
         // everywhere instead.
         .background(|_: &String| Color::rgba(0.06, 0.07, 0.09, 0.92))
-        // OUT of the app's route space. A routed cover over the untyped `String` route claims
-        // every segment — `String::from_key` accepts anything — so mounting this picker would
-        // have made the host app's next `navigate("settings")` present a color panel keyed
+        // Kept out of the app's route space. A routed cover over the untyped `String` route
+        // claims every segment (`String::from_key` accepts anything), so mounting this picker
+        // would have made the host app's next `navigate("settings")` present a color panel keyed
         // "settings" instead of going to settings. A chooser is not a destination; the piece
         // opens and closes it, and Android's system back still dismisses it (that path is the
         // cover's own `NavBack` handler, not the route adapter).
@@ -422,7 +421,7 @@ fn panel<C: Binding<Color>>(
     presets: Vec<Color>,
     open: Signal<Option<String>>,
 ) -> AnyPiece {
-    // HSV is the panel's source of truth, not the bound color. Deriving hue from RGB on every
+    // The panel's state is HSV, not the bound color. Deriving hue from RGB on every
     // change would lose it the moment brightness reached zero (black has no hue), so the sliders
     // would jump back to red as the user dragged into the corner. Seeded once per presentation.
     let entry = color.peek();
@@ -507,7 +506,7 @@ fn panel<C: Binding<Color>>(
     // Not `row((spacer(), card, spacer()))` for the horizontal half, which is the obvious
     // spelling and the wrong one: a cover lays its content out once before the backend reports
     // the surface's size, so that row measures a 300pt card against a 0pt width and Day's
-    // overflow diagnostic fires — naming this panel's ids on every single open. A cross-aligned
+    // overflow diagnostic fires, naming this panel's ids on every single open. A cross-aligned
     // column has nothing to overflow.
     column((spacer(), card, spacer()))
         .align(HAlign::Center)
@@ -516,7 +515,7 @@ fn panel<C: Binding<Color>>(
 }
 
 /// The saturation/brightness field for the current hue: the pure hue, washed to white across and
-/// to black down. Three fills, which is exactly how every native picker draws the same square —
+/// to black down. Three fills, which is exactly how every native picker draws the same square,
 /// and it stays crisp at any size because two of them are gradients rather than a bitmap.
 fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece {
     let pick = move |p: Point| {
@@ -542,7 +541,7 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
             );
         });
     })
-    // Gestures go on the CANVAS, before any wrapper: `Event::Tap`/`Event::Drag` report a point in
+    // Gestures go on the canvas, before any wrapper: `Event::Tap`/`Event::Drag` report a point in
     // the node's own space, and a wrapper's space is not the canvas's. Both are wired because a
     // press that never moves is a tap on some backends and a zero-length drag on others; they
     // write the same two values, so a backend that reports both costs nothing.
@@ -682,7 +681,7 @@ fn marker(d: &mut Draw, at: Point, radius: f64) {
 /// it marks, as a fraction of the track.
 ///
 /// Its center is held half a thumb-width inside each end, because the strips draw their gradient
-/// as a rounded FILL rather than a rect behind a rounded clip — so nothing would cut a thumb that
+/// as a rounded fill rather than a rect behind a rounded clip, so nothing would cut a thumb that
 /// ran off the cap. Clipping is what used to hide it, at the cost of showing half a thumb at
 /// either extreme; holding it whole reads better and asks the rasterizer for one shape fewer.
 fn slider_thumb(d: &mut Draw, t: f64, size: Size) {
@@ -700,7 +699,7 @@ fn slider_thumb(d: &mut Draw, t: f64, size: Size) {
     let x = (t.clamp(0.0, 1.0) * size.width).clamp(lo, hi);
     let r = Rect::new(x - W / 2.0, 0.0, W, size.height);
     d.fill(Shape::RoundedRect(r, W / 2.0), Color::WHITE);
-    // The inset rect is a thumb-width MINUS one, so its corner radius has to come down with it:
+    // The inset rect is a thumb-width minus one, so its corner radius has to come down with it:
     // the old 4.0 against a 7.0-wide rect asked for radii wider than the shape they round.
     d.stroke(
         Shape::RoundedRect(r.inset(0.5), W / 2.0 - 0.5),
@@ -739,7 +738,7 @@ fn checkerboard(d: &mut Draw, size: Size) {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend, for the six toolkits that have a color
+// Per-toolkit native renderers, one file per backend, for the six toolkits that have a color
 // chooser. Every module registers a `Renderer` into its backend's `RENDERERS` slice link-time;
 // `dom` registers at runtime from `color_picker`. android-mdc and harmony-arkui carry no arm at
 // all: the composed panel above is their picker.

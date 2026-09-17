@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Windows: RtlGetVersion (ntdll) fills an OSVERSIONINFOW with the REAL running version — unlike the
-// Win32 GetVersionExW, which lies (reports 6.2 for Windows 8+) unless the app ships a compatibility
-// manifest. RtlGetVersion is the documented driver-facing escape hatch and honors no manifest, so it
-// is the reliable choice here. Raw FFI — no dependencies. Written blind (no Windows host); compiled
-// only on the windows target. There is no simulator concept on desktop Windows.
+// Windows: RtlGetVersion (ntdll) fills an OSVERSIONINFOW with the running version as it is, unlike
+// the Win32 GetVersionExW, which lies (reports 6.2 for Windows 8+) unless the app ships a
+// compatibility manifest. RtlGetVersion is the documented driver-facing escape hatch and honors no
+// manifest, so it is the reliable choice here. Raw FFI, no dependencies. Written blind (no Windows
+// host); compiled only on the windows target. There is no simulator concept on desktop Windows.
 
 use super::DeviceInfo;
 use std::os::raw::c_ulong;
@@ -24,7 +24,7 @@ struct OsVersionInfoW {
 
 #[link(name = "ntdll")]
 unsafe extern "system" {
-    // NTSTATUS RtlGetVersion(PRTL_OSVERSIONINFOW) — returns STATUS_SUCCESS (0).
+    // NTSTATUS RtlGetVersion(PRTL_OSVERSIONINFOW); returns STATUS_SUCCESS (0).
     fn RtlGetVersion(info: *mut OsVersionInfoW) -> i32;
 }
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Web (web-dom): `<input type="date">` and `<input type="time">` — the browser's own pickers,
+// Web (web-dom): `<input type="date">` and `<input type="time">`, the browser's pickers,
 // which on every desktop platform open the same system chooser the AppKit / GTK / Qt / XAML arms
 // do, and on a phone browser raise the OS wheel. The least code of the eight arms.
 //
@@ -37,7 +37,7 @@ fn make_date(backend: &mut Dom, p: &DateProps, _id: NodeId) -> DomHandle {
     let h = backend.element("input");
     backend.set_attr(&h, "type", "date");
     backend.set_attr(&h, "value", &iso_date(p.date));
-    // `min`/`max` are the browser's own clamp — it refuses out-of-range values in the picker and
+    // `min`/`max` are the browser's clamp: it refuses out-of-range values in the picker and
     // on typed entry, which is the same guarantee `DayDate::clamped` gives the other arms.
     if let Some(min) = p.min {
         backend.set_attr(&h, "min", &iso_date(min));
@@ -59,7 +59,7 @@ fn update_date(backend: &mut Dom, h: &DomHandle, patch: &DatePatch) {
 fn make_time(backend: &mut Dom, p: &TimeProps, _id: NodeId) -> DomHandle {
     let h = backend.element("input");
     backend.set_attr(&h, "type", "time");
-    // A seconds field appears only when the step admits one — that is how HTML spells it, and it
+    // A seconds field appears only when the step admits one; that is how HTML spells it, and it
     // is the same `seconds` flag AppKit and Qt honor with a control element.
     if p.seconds {
         backend.set_attr(&h, "step", "1");
@@ -82,7 +82,7 @@ fn measure(_backend: &mut Dom, _h: &DomHandle, p: Proposal) -> Size {
 }
 
 // Each `dom_renderer!` defines its own `register()`, so the two arms live in their own modules
-// and this one registers both — web-dom's registry is populated at runtime, unlike the link-time
+// and this one registers both; web-dom's registry is populated at runtime, unlike the link-time
 // `renderer!` the other seven arms use.
 mod date_arm {
     use super::*;

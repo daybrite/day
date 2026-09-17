@@ -5,8 +5,8 @@
 //! it: the `initialize` handshake, the tool catalog, a tool call that reaches the CLI, and the
 //! error paths.
 //!
-//! This is the seam between the CLI and every MCP client there is — VS Code agent mode, Claude
-//! Code, Cursor, a CI bot — and none of it is exercised by compiling day. A renamed tool, a
+//! This is the protocol between the CLI and every MCP client there is (VS Code agent mode, Claude
+//! Code, Cursor, a CI bot), and none of it is exercised by compiling day. A renamed tool, a
 //! dropped `initialize` field, a `required` naming a property that no longer exists, or a panic on
 //! a malformed line all build perfectly and surface only once an agent has already failed to
 //! connect, with the failure attributed to the client. So these tests spawn the real binary and
@@ -42,7 +42,7 @@ const TIMEOUT: Duration = Duration::from_secs(120);
 // A throwaway Day project
 
 /// The smallest tree `day metadata` accepts: Day.toml for the app table, Cargo.toml for the name
-/// and version it deliberately does not restate, and a target file because cargo rejects a package
+/// and version it does not restate, and a target file because cargo rejects a package
 /// that has none.
 struct Fixture {
     dir: PathBuf,
@@ -129,7 +129,7 @@ impl Server {
         let finished = Arc::new(AtomicBool::new(false));
         {
             // Killing the child closes its stdout, which turns a hung read into an EOF the reader
-            // reports with context — rather than hanging until the CI job is cancelled.
+            // reports with context, rather than hanging until the CI job is cancelled.
             let (child, finished) = (Arc::clone(&child), Arc::clone(&finished));
             std::thread::spawn(move || {
                 let deadline = std::time::Instant::now() + TIMEOUT;
@@ -249,7 +249,7 @@ fn initialize_announces_the_server_and_its_tool_capability() {
         result["capabilities"].get("tools").is_some(),
         "initialize must advertise the tools capability: {result}"
     );
-    // Naming the project, not just the product: a window of several Day apps runs one server per
+    // Naming the project as well as the product: a window of several Day apps runs one server per
     // app, and a client that shows this name would otherwise present identical `day` rows with no
     // way to tell which app each one drives.
     let name = result["serverInfo"]["name"].as_str().unwrap_or_default();
@@ -360,7 +360,7 @@ fn a_tool_call_reaches_the_cli_and_answers_about_this_project() {
     // Parsing the second block proves the whole path: the server shelled into this binary with
     // `--project` pointing at the fixture, and relayed `metadata --json` intact. A tool that runs
     // but reports on the wrong directory is precisely the bug `--project` exists to prevent. It
-    // has to stay a block of its own — an agent parses it, and a header merged into it would make
+    // has to stay a block of its own: an agent parses it, and a header merged into it would make
     // the one tool everything else depends on unparseable.
     let text = content[1]["text"].as_str().unwrap_or_default();
     let meta: serde_json::Value = serde_json::from_str(text)
@@ -411,7 +411,7 @@ fn a_failing_tool_reports_in_band_rather_than_as_a_protocol_error() {
             texts.iter().any(|t| t.contains("error")),
             "{name} failed without saying why: {result}"
         );
-        // A failure is exactly when knowing which project answered matters most — "no running
+        // A failure is exactly when knowing which project answered matters most; "no running
         // sessions" about the wrong app is what sent one agent chasing a working launch.
         assert!(
             texts.iter().any(|t| t.contains(Fixture::APP_ID)),
@@ -442,7 +442,7 @@ fn an_unknown_method_is_a_protocol_error() {
 /// and names it here, so a day-cli edit is compiled into the next tool call.
 ///
 /// Proved by pointing it somewhere unrunnable. Were the override ignored, the call would quietly
-/// succeed through `current_exe()` — which is exactly the silent staleness this exists to end, and
+/// succeed through `current_exe()`, which is exactly the silent staleness this exists to end, and
 /// a test that could not tell the difference would be no test at all.
 #[test]
 fn a_tool_call_re_invokes_the_cli_the_self_command_names() {

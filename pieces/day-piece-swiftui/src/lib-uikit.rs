@@ -6,7 +6,7 @@
 // (platform/apple/swift/DaySwiftUI.swift → the generated DayPieces SwiftPM package). Rust calls the shim's
 // flat C ABI and wraps the returned +1-retained UIView; the shim keeps the controller (and the
 // provider) alive via associated objects on that view. The provider class the shim resolves comes
-// from the app's own Swift sources — zero .xcodeproj edits.
+// from the app's own Swift sources, with zero .xcodeproj edits.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -35,7 +35,7 @@ fn make(_backend: &mut Uikit, p: &SwiftUiProps, _id: NodeId) -> Retained<UIView>
     // state intact, the new params applied) instead of creating a fresh one.
     let key = p.state_key.as_deref().and_then(|s| CString::new(s).ok());
     let key_ptr = key.as_ref().map_or(std::ptr::null(), |c| c.as_ptr());
-    // The shim returns a +1-retained hosting view (never null — a missing provider hosts a visible
+    // The shim returns a +1-retained hosting view (never null; a missing provider hosts a visible
     // error view instead); we take ownership.
     let ptr = unsafe { day_swiftui_make(name.as_ptr(), params_ptr, key_ptr) };
     unsafe { Retained::from_raw(ptr.cast::<UIView>()) }.expect("DaySwiftUI hosting view")

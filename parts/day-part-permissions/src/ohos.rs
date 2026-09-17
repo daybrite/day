@@ -4,16 +4,16 @@
 //! HarmonyOS: `OH_AT_CheckSelfPermission` for the answer, and the host page's ArkTS prompter for
 //! the question.
 //!
-//! The check is a direct FFI call into `libability_access_control.so`. The REQUEST has no native
-//! C API — `requestPermissionsFromUser` needs a `UIAbilityContext`, reachable only from ArkTS —
-//! so it goes through `day_arkui_request_permissions`, a seam day-arkui exports to the shim's
-//! ArkTS-registered prompter (docs/permissions.md). It is found by `dlsym` at call time, so this
-//! crate keeps no link-time dependency on that toolkit: a HarmonyOS app always carries it, and a
-//! build that somehow does not answers the request with the current status instead of failing
-//! to link.
+//! The check is a direct FFI call into `libability_access_control.so`. The request has no native
+//! C API (`requestPermissionsFromUser` needs a `UIAbilityContext`, reachable only from ArkTS), so
+//! it goes through `day_arkui_request_permissions`, a function day-arkui exports that forwards to
+//! the shim's ArkTS-registered prompter (docs/permissions.md). It is found by `dlsym` at call
+//! time, so this crate keeps no link-time dependency on that toolkit: a HarmonyOS app always
+//! carries it, and a build that somehow does not answers the request with the current status
+//! instead of failing to link.
 //!
 //! HarmonyOS has no "asked and refused once" state a native call can read: a denied permission is
-//! simply not held, and the system remembers a refusal itself (a second `requestPermissionsFromUser`
+//! not held, and the system remembers a refusal itself (a second `requestPermissionsFromUser`
 //! after a denial resolves without a dialog). So `status` answers `Prompt` for anything not held,
 //! `can_prompt` is true, and the request's own answer is where a refusal becomes `Denied`.
 
@@ -33,12 +33,12 @@ unsafe extern "C" {
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
 }
 
-/// The seam's C signature (see `day_arkui::day_arkui_request_permissions`).
+/// The exported function's C signature (see `day_arkui::day_arkui_request_permissions`).
 type RequestFn = unsafe extern "C" fn(u64, *const c_char, extern "C" fn(u64, u64)) -> c_int;
 
 /// The permission names one portable permission stands for, in the order they are requested
 /// (which is the order the grant mask answers in). Notifications has no runtime permission on
-/// HarmonyOS — enabling them is a `notificationManager` call — so it has none.
+/// HarmonyOS (enabling them is a `notificationManager` call), so it has none.
 fn native_ids(perm: Permission) -> Vec<&'static str> {
     match perm {
         Permission::Location => vec![
@@ -111,7 +111,7 @@ fn pending_lock() -> std::sync::MutexGuard<'static, Option<Pending>> {
     }
 }
 
-/// The seam, looked up once. `None` when this process carries no day-arkui.
+/// The exported function, looked up once. `None` when this process carries no day-arkui.
 fn request_fn() -> Option<RequestFn> {
     let name = c"day_arkui_request_permissions";
     let sym = unsafe { dlsym(std::ptr::null_mut(), name.as_ptr()) };
@@ -163,7 +163,7 @@ pub fn request(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
         .insert(token, (ids, on_done));
     let sent = unsafe { ask(token, joined.as_ptr(), on_result) };
     if sent == 0 {
-        // No prompter is registered, so the answer will never come — resolve with what is held
+        // No prompter is registered, so the answer will never come; resolve with what is held
         // rather than leave the caller waiting.
         let entry = pending_lock().as_mut().and_then(|m| m.remove(&token));
         if let Some((_, cb)) = entry {

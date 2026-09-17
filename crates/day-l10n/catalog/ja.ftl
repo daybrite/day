@@ -1,4 +1,4 @@
-# Day core UI catalog — Japanese (日本語).
+# Day core UI catalog: Japanese (日本語).
 day-ok = OK
 day-cancel = キャンセル
 day-yes = はい

@@ -41,8 +41,8 @@ pub enum ShapeKind {
         from: UnitPoint,
         to: UnitPoint,
     },
-    /// A filled/stroked polygon of unit points resolved against the rect (unclamped — points may
-    /// deliberately sit outside 0..1).
+    /// A filled/stroked polygon of unit points resolved against the rect (unclamped: points may
+    /// sit outside 0..1).
     Polygon {
         points: Rc<[UnitPoint]>,
     },
@@ -143,12 +143,12 @@ impl ShapeKind {
 
 /// Drag info delivered to a shape's `.on_drag` handler.
 ///
-/// `translation` is cumulative from the point the pointer went DOWN; `location` is where it is
+/// `translation` is cumulative from where the pointer went down; `location` is where it is
 /// now, in the piece's own coordinates. The two are not redundant, because `Began` does not
 /// always arrive at the press: a backend whose recognizer has to watch a few events before it
-/// calls the gesture a drag (appkit raises `Began` on the first drag event) reports the point
-/// it recognized AT, with the translation from the press already applied. So the press is
-/// `location - translation`, on every backend and in every phase — take the anchor that way
+/// calls the gesture a drag (appkit raises `Began` on the first drag event) reports where it
+/// recognized the drag, with the translation from the press already applied. So the press is
+/// `location - translation`, on every backend and in every phase; take the anchor that way
 /// rather than from `Began`'s `location`, or a gesture measured from the anchor trails the
 /// pointer by however far it moved before the recognizer engaged.
 #[derive(Clone, Copy, Debug)]
@@ -159,7 +159,7 @@ pub struct Drag {
 }
 
 /// One pinch-gesture event, delivered to a `.on_pinch(…)` handler (docs/shapes.md). `scale`
-/// is cumulative since `Began` (1.0 = unchanged); `location` is the centroid — the anchor a
+/// is cumulative since `Began` (1.0 = unchanged); `location` is the centroid, the anchor a
 /// zoom keeps stationary.
 #[derive(Clone, Copy, Debug)]
 pub struct Pinch {
@@ -169,7 +169,7 @@ pub struct Pinch {
 }
 
 /// One pan-gesture event, delivered to a `.on_pan(…)` handler (docs/shapes.md). `delta` is
-/// the movement since the previous event — apply it incrementally; a discrete wheel tick
+/// the movement since the previous event, so apply it incrementally; a discrete wheel tick
 /// arrives as a lone `Changed`.
 #[derive(Clone, Copy, Debug)]
 pub struct Pan {
@@ -178,7 +178,7 @@ pub struct Pan {
     pub location: Point,
 }
 
-/// The drawable description of a shape — everything but gestures. Cloneable so [`shape_group`]
+/// The drawable description of a shape: everything but gestures. Cloneable so [`shape_group`]
 /// can collect many descriptions into one canvas closure (docs/shapes.md §3.6).
 #[derive(Clone)]
 struct ShapeSpec {
@@ -195,7 +195,7 @@ struct ShapeSpec {
     at: Option<Rect>,
 }
 
-/// A shape piece — one data-oriented piece parameterised by `ShapeKind`, rendered atop the canvas.
+/// A shape piece: one data-oriented piece parameterized by `ShapeKind`, rendered atop the canvas.
 pub struct ShapePiece {
     spec: ShapeSpec,
     on_tap: Option<Rc<dyn Fn()>>,
@@ -221,7 +221,7 @@ pub fn shape<M>(kind: impl IntoReactive<ShapeKind, M>) -> ShapePiece {
         on_drag: None,
     }
 }
-/// SwiftUI-ergonomic sugar — all build the same `ShapePiece`.
+/// SwiftUI-ergonomic sugar; all build the same `ShapePiece`.
 pub fn rectangle() -> ShapePiece {
     shape(ShapeKind::Rectangle)
 }
@@ -312,14 +312,14 @@ impl ShapePiece {
         self.spec.offset = (x.into_reactive(), y.into_reactive());
         self
     }
-    /// Resolve this shape inside the fractional sub-rect `(fx, fy, fw, fh)` of its bounds —
-    /// unit-space, applied before [`Self::inset`]. The workhorse for composing glyphs in a
+    /// Resolve this shape inside the fractional sub-rect `(fx, fy, fw, fh)` of its bounds
+    /// (unit-space, applied before [`Self::inset`]). The workhorse for composing glyphs in a
     /// [`shape_group`], mirroring hand-drawn `Rect::new(ox + fx * s, oy + fy * s, …)` canvas code.
     pub fn at(mut self, fx: f64, fy: f64, fw: f64, fh: f64) -> Self {
         self.spec.at = Some(Rect::new(fx, fy, fw, fh));
         self
     }
-    /// Fire when the shape is tapped (path-precise — the tap is tested against the resolved path).
+    /// Fire when the shape is tapped (path-precise: the tap is tested against the resolved path).
     pub fn on_tap(mut self, f: impl Fn() + 'static) -> Self {
         self.on_tap = Some(Rc::new(f));
         self
@@ -354,13 +354,13 @@ fn resolve_at(at: Option<Rect>, bounds: Rect) -> Rect {
     }
 }
 
-/// Record one shape description into `d`, resolved within `bounds` — shared by
-/// [`ShapePiece`]'s own canvas leaf and by [`shape_group`] / [`shape_group_fn`].
+/// Record one shape description into `d`, resolved within `bounds`. Shared by
+/// [`ShapePiece`]'s canvas leaf and by [`shape_group`] / [`shape_group_fn`].
 fn record_shape(spec: &ShapeSpec, d: &mut Draw, bounds: Rect) {
     let bounds = resolve_at(spec.at, bounds);
     let kind = spec.kind.get();
     // A centered stroke overflows the geometry by half its width; inset closed shapes by w/2 so
-    // the whole stroke stays inside the view bounds — backends that clip a canvas to its bounds
+    // the whole stroke stays inside the view bounds; backends that clip a canvas to its bounds
     // (Qt/Android/XAML) would otherwise cut the stroke's outer edge. (SwiftUI `strokeBorder`
     // behavior.) Fill-only shapes are unaffected (stroke_half = 0). Line/Polygon are exempt:
     // they resolve exactly at their authored unit points, and a line's rect is legitimately
@@ -417,9 +417,9 @@ fn shape_flex() -> Flex {
     }
 }
 
-/// Flatten many shape descriptions into one canvas leaf — one native view no matter how many
+/// Flatten many shape descriptions into one canvas leaf: one native view no matter how many
 /// shapes (docs/shapes.md §3.6). Shapes draw in order; reactive properties re-record the group.
-/// Child gestures are not wired inside a group — put `.on_tap` on the group via [`Decorate`].
+/// Child gestures are not wired inside a group, so put `.on_tap` on the group via [`Decorate`].
 pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> impl Piece {
     let specs: Vec<ShapeSpec> = shapes.into_iter().map(|s| s.spec).collect();
     piece_fn(move |cx| {
@@ -433,7 +433,7 @@ pub fn shape_group(shapes: impl IntoIterator<Item = ShapePiece>) -> impl Piece {
 }
 
 /// Size-aware [`shape_group`]: the closure derives the shapes from the laid-out size and re-runs
-/// on `FrameChanged`, exactly like [`canvas`] — for geometry that depends on the final size
+/// on `FrameChanged`, exactly like [`canvas`], for geometry that depends on the final size
 /// (e.g. data mapped along the width).
 pub fn shape_group_fn(shapes: impl Fn(Size) -> Vec<ShapePiece> + 'static) -> impl Piece {
     piece_fn(move |cx| {
@@ -459,7 +459,8 @@ impl Piece for ShapePiece {
             record_shape(&draw_spec, d, Rect::from_size(size));
         });
 
-        // Path-precise tap: inverse-transform the point, then test against the resolved geometry.
+        // Path-precise tap: inverse-transform the tap location, then test against the resolved
+        // geometry.
         if let Some(on_tap) = on_tap {
             with_tree(|t| t.enable_gesture(node, GestureKind::Tap));
             cx.on(node, move |ev| {

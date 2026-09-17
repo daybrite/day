@@ -1,22 +1,22 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-combobox — an EXTERNAL Day Piece (DESIGN.md §15 tier 1, Appendix B.1): one Rust
+//! day-piece-combobox is an external Day Piece (DESIGN.md §15 tier 1, Appendix B.1): one Rust
 //! API, per-toolkit native renderers registered link-time into each backend's slice, with no
 //! edits to Day or its toolkit crates. The Qt and XAML renderers carry their own C++ shims;
 //! the Android renderer its own Java factory.
 //!
-//! A REAL combo box: free-form text entry plus a dropdown of suggestions, as the platform's
-//! genuine combo control — `NSComboBox` (AppKit), `GtkComboBoxText` with an entry (GTK), an
+//! A combo box: free-form text entry plus a dropdown of suggestions, as the platform's
+//! native combo control: `NSComboBox` (AppKit), `GtkComboBoxText` with an entry (GTK), an
 //! editable `QComboBox` (Qt), `AutoCompleteTextView` (Android), an editable `ComboBox` (XAML).
-//! Because a typed value need not be in the list, the VALUE is the text: a `Signal<String>`
+//! Because a typed value need not be in the list, the value is the text: a `Signal<String>`
 //! bound two-way, exactly like `search_field` (typing sets the signal; setting the signal
 //! patches the control, echo-guarded). Picking a dropdown item is just another way to set the
-//! text — every backend reports it through the same `Event::TextChanged`. The suggestion list
+//! text; every backend reports it through the same `Event::TextChanged`. The suggestion list
 //! is reactive: `items` is a `Signal<Vec<String>>` and changes patch the native list live.
 //!
-//! iOS has no native combo-box control, so this piece deliberately carries **no uikit
-//! renderer** — day renders its placeholder leaf there (docs/combobox.md).
+//! iOS has no native combo-box control, so this piece carries **no uikit renderer**; day
+//! renders its placeholder leaf there (docs/combobox.md).
 //!
 //! ```ignore
 //! let flavor = Signal::new(String::new());
@@ -42,7 +42,8 @@ pub struct ComboProps {
 }
 
 /// Sparse imperative updates: replace the dropdown's items, or the entry's text (programmatic
-/// sync from the bound signal). An items swap must keep the typed text — the text is the value.
+/// sync from the bound signal). An items swap must keep the typed text, because the text is the
+/// value.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ComboPatch {
     Items(Vec<String>),
@@ -56,7 +57,7 @@ pub struct ComboBox {
     placeholder: Option<TextSource>,
 }
 
-/// `combo_box(items, text)` — free-form text entry plus a native dropdown of suggestions.
+/// `combo_box(items, text)`: free-form text entry plus a native dropdown of suggestions.
 /// Typing (or picking an item) writes `text`; setting either signal patches the control.
 pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> ComboBox {
     ComboBox {
@@ -68,7 +69,7 @@ pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> ComboBox {
 
 impl ComboBox {
     /// The empty-state prompt shown while the entry has no text (a constant, `Signal<String>`, or
-    /// closure — evaluated once for the initial value; not reactive after build).
+    /// closure, evaluated once for the initial value; not reactive after build).
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
         self.placeholder = Some(t.into_text());
         self
@@ -106,7 +107,7 @@ impl Piece for ComboBox {
             },
         );
         // Controlled input with origin tracking (§4.4): the echo guard remembers the last value
-        // that arrived FROM the native control so bind_seeded does not patch it straight back.
+        // that arrived from the native control so bind_seeded does not patch it straight back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
         let g = guard.clone();
         bind_seeded(
@@ -125,8 +126,8 @@ impl Piece for ComboBox {
                 text.set(t.clone());
             }
             // Menu-driven selection by index. Native backends report picks as TextChanged (the
-            // pick sets the entry text), so this arm serves the SYNTHETIC path — dayscript's
-            // `select` step — mapping the index through the current items. No guard poke: the
+            // pick sets the entry text), so this arm serves the synthetic path (dayscript's
+            // `select` step), mapping the index through the current items. No guard poke: the
             // native control did not originate this, so the SetText patch must reach it.
             Event::SelectionChanged(i) => {
                 if *i >= 0
@@ -142,7 +143,7 @@ impl Piece for ComboBox {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend, in the house `#[cfg]`/`#[path]` gates.
+// Per-toolkit native renderers, one file per backend, in the house `#[cfg]`/`#[path]` gates.
 // No uikit arm: iOS has no native combo-box control (day renders its placeholder leaf there).
 // ---------------------------------------------------------------------------
 

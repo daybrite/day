@@ -5,8 +5,8 @@
 // the mapping from `Haptic` onto the wire code. Nothing about this platform appears anywhere else in
 // the crate.
 //
-// Android is one of the targets whose haptics API cannot be reached from Rust — it needs a `Context`
-// and a service lookup, with no C entry point — so it is this crate's only foreign arm
+// Android is one of the targets whose haptics API cannot be reached from Rust (it needs a `Context`
+// and a service lookup, with no C entry point), so it is this crate's only foreign arm
 // (docs/bridge.md). Written in Java rather than Kotlin so it compiles in any Android project.
 //
 // Before daybridge this was a checked-in `DayHaptics.java`, a `[package.metadata.day.android]
@@ -30,7 +30,7 @@ fn style_code(h: Haptic) -> i32 {
 }
 
 pub fn play(h: Haptic) {
-    // Fire and forget: no Context, no vibrator service, or no hardware all mean "no haptic", and
+    // Fire and forget: a missing Context, vibrator service, or hardware all mean "no haptic", and
     // haptics are never worth reporting a failure for.
     play_native(style_code(h));
 }
@@ -42,7 +42,7 @@ pub fn is_supported() -> bool {
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
-        /// `style` is a wire code — see `style_code` above, which is the only definition of it.
+        /// `style` is a wire code; see `style_code` above, which is the only definition of it.
         fn play_native(style: i32);
     }
 
@@ -78,7 +78,7 @@ day_bridge::bridge! {
                     // API 29+: predefined system effects feel like the real UI haptics.
                     vib.vibrate(VibrationEffect.createPredefined(predefined(style)));
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    // API 26–28: no predefined effects — approximate with a short one-shot buzz.
+                    // API 26–28: no predefined effects; approximate with a short one-shot buzz.
                     vib.vibrate(VibrationEffect.createOneShot(durationMs(style),
                             VibrationEffect.DEFAULT_AMPLITUDE));
                 } else {
@@ -132,7 +132,7 @@ day_bridge::bridge! {
     );
 
     // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
-    // never compiled — it satisfies the rule that a bridge always has an answer for an unclaimed
+    // never compiled; it satisfies the rule that a bridge always has an answer for an unclaimed
     // target.
     #[day_bridge::impl(rust, platforms = [other])]
     fn play_native(_style: i32) {}

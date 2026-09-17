@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-// webdom-sensor-test.mjs <url> — verify day-part-sensors' browser arm end to end.
+// webdom-sensor-test.mjs <url>: verify day-part-sensors' browser arm end to end.
 //
 // Headless WebKit has no motion hardware, so the walkthrough alone can only ever prove the
-// "unavailable" path. This dispatches a synthetic `devicemotion` with KNOWN values and asserts the
-// showcase's rows show the converted numbers — which pins the two things a browser sensor arm
+// "unavailable" path. This dispatches a synthetic `devicemotion` with known values and asserts the
+// showcase's rows show the converted numbers, which pins the two things a browser sensor arm
 // realistically gets wrong: the unit conversion (rotationRate is deg/s, day's contract is rad/s)
 // and the axis mapping (beta→x, gamma→y, alpha→z).
 //
@@ -60,7 +60,7 @@ try {
     const e = new Event('devicemotion');
     // m/s², passed through unchanged.
     e.accelerationIncludingGravity = { x: 1.25, y: -2.5, z: 9.81 };
-    // deg/s, and deliberately asymmetric so a swapped axis cannot pass by coincidence.
+    // deg/s, and asymmetric so a swapped axis cannot pass by coincidence.
     e.rotationRate = { alpha: 180, beta: 90, gamma: -45 };
     window.dispatchEvent(e);
   });
@@ -81,7 +81,7 @@ try {
   check('gyroscope x (beta, deg→rad)', gyro, '+1.57');
   check('gyroscope y (gamma, deg→rad)', gyro, '-0.79');
   check('gyroscope z (alpha, deg→rad)', gyro, '+3.14');
-  // No cross-browser magnetometer API exists — reporting one would be a lie.
+  // No cross-browser magnetometer API exists; reporting one would be a lie.
   check('magnetometer', magnet, 'unavailable');
 
   console.log(`accel : ${accel}`);
@@ -92,7 +92,7 @@ try {
 }
 
 if (pageErrors.length) {
-  // An unresolved wasm import shows up here as a LinkError — the failure mode that leaves the page
+  // An unresolved wasm import shows up here as a LinkError, the failure mode that leaves the page
   // blank, so it must never pass silently.
   failures.push(`page errors: ${pageErrors.slice(0, 3).join(' | ')}`);
 }

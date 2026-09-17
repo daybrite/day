@@ -6,12 +6,12 @@
 //! # Why regions instead of parsing
 //!
 //! There is no JSON5 parser in this tree, and adding one would be the wrong move anyway: any
-//! parse→serialize round-trip DELETES the file's comments. The checked-in `module.json5` explains,
-//! in a comment, why `ohos.permission.INTERNET` is required even for a loopback socket — silently
+//! parse→serialize round-trip deletes the file's comments. The checked-in `module.json5` explains,
+//! in a comment, why `ohos.permission.INTERNET` is required even for a loopback socket; silently
 //! deleting a maintainer's note about a non-obvious invariant is not an acceptable side effect of
 //! adding a permission.
 //!
-//! JSON5 has comments, so this uses them as the seam. Day owns the text between
+//! JSON5 has comments, so this uses them as the boundary markers. Day owns the text between
 //! `// day:<tag>-begin` and `// day:<tag>-end` and never touches a byte outside it. A scaffold
 //! without the markers gets them inserted once (so older projects self-migrate); every build after
 //! that is a pure replacement, which makes the writer idempotent by construction.
@@ -168,7 +168,7 @@ mod tests {
     use super::*;
 
     // The scaffold template, not the showcase's copy: `include_str!` may not reach outside this
-    // package (see web.rs) — and a fixture the CLI's own writers can edit would drift. Same
+    // package (see web.rs), and a fixture the CLI's writers can edit would drift. Same
     // reasoning as plist.rs's `SHOWCASE` fixture; `day new` copies this file verbatim.
     const MODULE: &str =
         include_str!("../templates/app/platform/harmony/entry/src/main/module.json5");
@@ -178,7 +178,7 @@ mod tests {
         let once = ensure_region(MODULE, "requestPermissions", "permissions").expect("insert");
         assert!(once.contains("// day:permissions-begin"));
         assert!(once.contains("// day:permissions-end"));
-        // The hand-managed entry and — crucially — the comment explaining it both survive.
+        // The hand-managed entry and the comment explaining it both survive.
         assert!(once.contains("\"ohos.permission.INTERNET\""));
         assert!(once.contains("Required even for the LOOPBACK dayscript engine socket"));
 

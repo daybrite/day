@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-wakelock — HEADLESS: keep the screen on while something is showing.
+//! day-part-wakelock is headless: it keeps the screen on while something is showing.
 //!
 //! ```no_run
 //! let lock = day_part_wakelock::keep_screen_on();
@@ -29,7 +29,7 @@
 //!
 //! Take and drop locks on the UI thread, where a Day app's code runs: UIKit and Windows tie the
 //! setting to it, so [`ScreenLock`] is not `Send`. Nothing here returns an error or panics; a
-//! platform that cannot keep the screen on simply lets it sleep.
+//! platform that cannot keep the screen on lets it sleep.
 
 use std::marker::PhantomData;
 use std::sync::{Mutex, MutexGuard};

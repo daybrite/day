@@ -3,13 +3,13 @@
 
 // Compiles the vendored SQLite amalgamation plus the freestanding libc subset under
 // `vendor/shim` (musl string/stdlib/math routines and a self-contained printf), with every
-// libc symbol renamed through `vendor/shim/wasm-shim.h` so the objects are hermetic — no host
-// libc anywhere. The recipe and the vendored tree come from sqlite-wasm-rs (MIT, see
+// libc symbol renamed through `vendor/shim/wasm-shim.h` so the objects are hermetic, with no
+// host libc anywhere. The recipe and the vendored tree come from sqlite-wasm-rs (MIT, see
 // vendor/LICENSE); the Rust side of those renamed symbols lives in src/lib.rs.
 //
 // The same objects build for native hosts too: that is what lets `cargo test` exercise the
 // real engine (over the in-memory OPFS fake) without a browser. On wasm the compiler must be
-// a wasm-capable clang — `CC_wasm32_unknown_unknown` as usual (docs/web.md).
+// a wasm-capable clang, selected through `CC_wasm32_unknown_unknown` as usual (docs/web.md).
 
 /// SQLite compile flags tuned for the single-threaded wasm environment: no threads, no
 /// dlopen, FTS5 and R*Tree kept in (capability parity with the bundled native builds).
@@ -87,7 +87,7 @@ fn main() {
     println!("cargo::rerun-if-changed=include");
 
     // The hermetic recipe is written for gcc/clang dialects (`-include`, musl headers); there is
-    // no MSVC port, and no native Windows consumer either — day-persistence uses this crate only
+    // no MSVC port, and no native Windows consumer either: day-persistence uses this crate only
     // for the wasm driver, and a wasm build from a Windows host targets clang, not cl. Fail with
     // the reason rather than letting cl.exe error on the first flag it does not know
     // (scripts/ci/host-test.sh excludes this crate on Windows hosts for the same reason).
@@ -102,7 +102,7 @@ fn main() {
     cc.warnings(false)
         .flag_if_supported("-Wno-macro-redefined")
         // First on the include path: the crate's own hermetic <stdint.h>/<limits.h>
-        // (include/*.h). The compiler's copies are self-contained only when freestanding —
+        // (include/*.h). The compiler's copies are self-contained only when freestanding;
         // hosted, both #include_next the libc's, and on glibc those headers read <features.h>,
         // which the musl -I below shadows (no __GLIBC_USE), killing every translation unit.
         .include("include")

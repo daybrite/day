@@ -59,10 +59,10 @@ pub fn stage(
         fs::write(values.join("day_fonts.xml"), xml)
             .map_err(|e| format!("stage day_fonts.xml: {e}"))?;
     }
-    // Vectors (docs/vectors.md): the REAL vector form — a VectorDrawable in `drawable/`, which
+    // Vectors (docs/vectors.md): the vector form proper, a VectorDrawable in `drawable/`, which
     // `Resources.getIdentifier(name, "drawable", …)` resolves exactly like a PNG, resolution-
     // independent and tintable. Art outside VD's subset falls back to the raster cache at
-    // xxxhdpi, LOUDLY. Either way the name resolves, so the generic image loop below must skip
+    // xxxhdpi, loudly. Either way the name resolves, so the generic image loop below must skip
     // the raster-cache synthetics for names handled here (a density-qualified PNG would shadow
     // the VD on that density).
     let mut vector_names = std::collections::BTreeSet::new();

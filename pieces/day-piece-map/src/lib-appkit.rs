@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// AppKit: MKMapView (MapKit) — objc2-map-kit binds it as an NSView subclass for macOS. `setRegion`
+// AppKit: MKMapView (MapKit); objc2-map-kit binds it as an NSView subclass for macOS. `setRegion`
 // takes an MKCoordinateRegion (center + span) built from the props; a marker is an MKPointAnnotation
 // added to the map. The bound-center patch recenters via `setCenterCoordinate:animated:` (keeps the
 // current zoom). MapKit renders keyless (no API token needed).

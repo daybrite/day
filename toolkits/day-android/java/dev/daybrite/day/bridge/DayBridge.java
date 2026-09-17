@@ -48,7 +48,7 @@ import com.google.android.material.textfield.TextInputLayout;
  *  wires their listeners to the single native trampoline nativeOnEvent(id, kind, num, str)
  *  (kinds: 0=press 1=text 2=toggle 3=value 4=select), and exposes setters + measurement +
  *  absolute layout to Rust. Controls are Material 3 components (com.google.android.material,
- *  Theme.Material3Expressive — the app theme supplies color/shape/motion); containers/labels
+ *  Theme.Material3Expressive; the app theme supplies color/shape/motion); containers/labels
  *  stay framework views. */
 public final class DayBridge {
     /** App context + main-thread handler, set by DayActivity before nativeStart. */
@@ -79,9 +79,10 @@ public final class DayBridge {
     }
 
     /** Close a secondary window (docs/windows.md): finish its activity and confirm the close
-     *  to day NOW. finish() tears the activity down asynchronously, and while its onDestroy was
-     *  still pending day kept the window in its registry — a re-open in that gap (a walkthrough's
-     *  second Preferences, a second later) focused the dying activity and showed nothing. */
+     *  to day right away. finish() tears the activity down asynchronously, and while its
+     *  onDestroy was still pending day kept the window in its registry; a re-open in that gap (a
+     *  walkthrough's second Preferences, a second later) focused the dying activity and showed
+     *  nothing. */
     public static void closeWindow(long node) {
         DayWindowActivity a = DayWindowActivity.ACTIVE.get(node);
         if (a == null) return;
@@ -108,10 +109,10 @@ public final class DayBridge {
         }
     }
 
-    /** The PRIMARY window's label in the recents switcher (docs/windows.md).
+    /** The primary window's label in the recents switcher (docs/windows.md).
      *
      *  Android's answer to "list the app's windows" is one recents card per task, labeled by
-     *  its task description — so the main activity needs this for the same reason a secondary
+     *  its task description, so the main activity needs this for the same reason a secondary
      *  one does. It has no `day.node` to be addressed by, hence its own entry point. */
     public static void setPrimaryWindowTitle(String title) {
         if (ctx instanceof android.app.Activity) {
@@ -123,7 +124,7 @@ public final class DayBridge {
 
     // --- event kinds -----------------------------------------------------------
     // Mirror of day_spec::bridge::BridgeKind (the shared wire table). day-android's
-    // bridge_kinds_parity test reads this block and asserts each value against the Rust enum —
+    // bridge_kinds_parity test reads this block and asserts each value against the Rust enum, so
     // edit both together. Public so piece-owned Java (the K_CUSTOM channel) can use them.
     public static final int K_PRESSED = 0;
     public static final int K_TEXT_CHANGED = 1;
@@ -170,18 +171,18 @@ public final class DayBridge {
     /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
     public static native int nativeListLen(long hostId);
     public static native void nativeListBind(long hostId, int position, View cell);
-    /** A holder left the visible set — day clears its dayscript ids (docs/list.md). */
+    /** A holder left the visible set: day clears its dayscript ids (docs/list.md). */
     public static native void nativeListRecycle(long hostId, View cell);
     /** Whether row `position` is in the list's programmatic selection (ListPatch::Selected). */
     public static native boolean nativeListIsSelected(long hostId, int position);
-    /** Drag-to-reorder (docs/list.md): may `from` drop over `to`? (The app guard's live veto —
+    /** Drag-to-reorder (docs/list.md): may `from` drop over `to`? (The app guard's live veto;
      *  a Retarget verdict reads as deny here, since ItemTouchHelper can't relocate the gap.) */
     public static native boolean nativeListCanDrop(long hostId, int from, int to);
-    /** Commit one incremental drag swap through day's seam; false = refused, don't move. */
+    /** Commit one incremental drag swap to day; false = refused, don't move. */
     public static native boolean nativeListMove(long hostId, int from, int to);
-    /** May row `index` be swiped away? (docs/list.md — the delete guard.) */
+    /** May row `index` be swiped away? (docs/list.md, the delete guard.) */
     public static native boolean nativeListCanDelete(long hostId, int index);
-    /** Commit a swipe-to-delete through the seam; false if the guard refused. */
+    /** Commit a swipe-to-delete to day; false if the guard refused. */
     public static native boolean nativeListDelete(long hostId, int index);
 
     /** Cross-thread → main-thread door for day's scheduler/Setter (§3.3). */
@@ -193,7 +194,7 @@ public final class DayBridge {
 
     /**
      * Frame clock (§8.4): schedule one Choreographer frame callback (called on the UI thread, so
-     * getInstance() yields the UI thread's Choreographer). One-shot — day-core re-arms while a
+     * getInstance() yields the UI thread's Choreographer). One-shot; day-core re-arms while a
      * frame consumer is live.
      */
     public static void requestFrame(final long token) {
@@ -236,8 +237,8 @@ public final class DayBridge {
     /**
      * Every family Android's font configuration names, with one face per `<font>` entry, in
      * Day's list format (U+001E between families; U+001F-separated fields: family, then
-     * (face, CSS weight, italic) per face). There is no public API for family NAMES — the
-     * `SystemFonts` API (29+) lists files — so this reads `/system/etc/fonts.xml`, the
+     * (face, CSS weight, italic) per face). There is no public API for family names, only the
+     * `SystemFonts` API (29+) that lists files, so this reads `/system/etc/fonts.xml`, the
      * configuration `Typeface.create(name, …)` resolves from, so every listed name draws.
      * An `<alias>` with a weight is a one-face family at that weight; one without takes its
      * target's faces. Unnamed (fallback-only) families are skipped.
@@ -297,7 +298,8 @@ public final class DayBridge {
             families.put(alias[0], faces);
         }
         // The bundled families (`day build` writes their names to res/values/day_fonts.xml):
-        // one Regular face each — the file IS the face — drawable by name through bundledFontOrNull.
+        // one Regular face each (the file is the face), drawable by name through
+        // bundledFontOrNull.
         if (ctx != null) {
             int id = ctx.getResources().getIdentifier("day_fonts", "array", ctx.getPackageName());
             if (id != 0) {
@@ -330,16 +332,16 @@ public final class DayBridge {
 
     /**
      * Measure one line of canvas text with the typeface `canvasTypeface` resolves, at an
-     * UNSCALED size (the canvas replay scales by density, so the answer is in dp): the advance
+     * unscaled size (the canvas replay scales by density, so the answer is in dp): the advance
      * width, the line height and the ascent, comma-joined.
      */
     /**
      * Comma-joined: advance, line height, ascent, cap height, then the ink box relative to the
-     * line box's top-leading corner (x, y, w, h) — the eight numbers day-spec's TextMetrics reads.
+     * line box's top-leading corner (x, y, w, h): the eight numbers day-spec's TextMetrics reads.
      *
-     * Paint has no cap-height metric, but getTextBounds gives INK, and the ink ascent of a capital
-     * IS the cap height. That is one extra measurement of a one-character string, memoized per
-     * (size, font) on day's side, so a process pays for it once (docs/fonts.md).
+     * Paint has no cap-height metric, but getTextBounds gives ink bounds, and the ink ascent of a
+     * capital is the cap height. That is one extra measurement of a one-character string,
+     * memoized per (size, font) on day's side, so a process pays for it once (docs/fonts.md).
      */
     public static String measureText(String text, double size, int weight, boolean italic, String family) {
         android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
@@ -355,7 +357,7 @@ public final class DayBridge {
                 + "," + (fm.descent - fm.ascent)
                 + "," + ascent
                 + "," + (-cap.top)
-                // getTextBounds is baseline-relative with y DOWN (top negative): shift by the
+                // getTextBounds is baseline-relative with y down (top negative): shift by the
                 // ascent to make it relative to the line box's top.
                 + "," + ink.left
                 + "," + (ink.top + ascent)
@@ -366,7 +368,7 @@ public final class DayBridge {
     /**
      * The device's ordered language preference as BCP-47 tags, comma-joined ("fr-FR,en-US").
      *
-     * The CONFIGURATION's list, not `Locale.getDefault()`: it carries every language the user
+     * The configuration's list, not `Locale.getDefault()`: it carries every language the user
      * ranked in Settings, and it honors a per-app language override (Android 13+). Day negotiates
      * its catalogs against the whole list (docs/localization.md).
      */
@@ -389,7 +391,7 @@ public final class DayBridge {
     /** A `background`/`corner_radius` surface: a GradientDrawable (rounded rect) as the view's
      *  background, plus clipToOutline so a corner radius also clips child views. `argb` is packed
      *  0xAARRGGBB (used only when `hasBg`); `radiusPx` is already density-scaled. */
-    /** SurfaceRole::SectionCard — the M3 grouped-card fill, resolved from the ACTIVE theme
+    /** SurfaceRole::SectionCard: the M3 grouped-card fill, resolved from the active theme
      *  (colorSurfaceContainer, falling back to colorSurfaceVariant), so it adapts to the app's
      *  light/dark configuration. */
     public static void setSectionCard(View v, float radiusPx) {
@@ -423,7 +425,7 @@ public final class DayBridge {
     }
 
     /** Animatable transform (§8.4): translation (px, additive over the laid-out position),
-     *  scale, and rotation (degrees) about the view's center pivot — no relayout. A repeated
+     *  scale, and rotation (degrees) about the view's center pivot, with no relayout. A repeated
      *  animate() call retargets the running animator. */
     public static void setTransform(View v, float tx, float ty, float sx, float sy, float rot,
                                     int durMs, int curve) {
@@ -457,8 +459,8 @@ public final class DayBridge {
         DayCellHolder(DayFixed cell) { super(cell); }
     }
 
-    /** A native recycling list (docs/list.md): a RecyclerView — the platform's recycling
-     *  widget — whose adapter reuses DayFixed cells, day filling each via nativeListBind.
+    /** A native recycling list (docs/list.md): a RecyclerView (the platform's recycling
+     *  widget) whose adapter reuses DayFixed cells, day filling each via nativeListBind.
      *  With `reorderable`, an ItemTouchHelper drives the native drag-to-reorder (long-press
      *  lift, elevation, incremental row swaps): every hover is vetted synchronously through
      *  nativeListCanDrop (the app's guard) and each swap commits through nativeListMove. */
@@ -475,10 +477,10 @@ public final class DayBridge {
                     ViewGroup.LayoutParams.MATCH_PARENT, rowHeightPx));
                 if (selectable) {
                     // Touch feedback, which a bare ViewGroup with a click listener does not have:
-                    // a row that responds to a tap has to SAY so under the finger, and on Android
+                    // a row that responds to a tap has to say so under the finger, and on Android
                     // that is the bounded ripple every Material list item draws.
                     //
-                    // As the FOREGROUND, not the background — day fills this cell with its own
+                    // As the foreground, not the background: day fills this cell with its own
                     // views, and a background ripple would be painted underneath them and never
                     // seen. `android:foreground="?attr/selectableItemBackground"` is what a
                     // Material list item uses, for the same reason. The View pipes hotspot
@@ -490,7 +492,7 @@ public final class DayBridge {
             public void onBindViewHolder(DayCellHolder h, int position) {
                 nativeListBind(hostId, position, h.itemView);
                 if (selectable) {
-                    // A rebound holder inherits the row's selection state — the sync patch
+                    // A rebound holder inherits the row's selection state; the sync patch
                     // (listPaintSelection) covers the holders already on screen.
                     paintSelected(h.itemView, nativeListIsSelected(hostId, position));
                     h.itemView.setOnClickListener(new View.OnClickListener() {
@@ -511,7 +513,7 @@ public final class DayBridge {
             }
         });
         if (reorderable || deletable) {
-            // One ItemTouchHelper drives both gestures — the platform arbitrates between a
+            // One ItemTouchHelper drives both gestures: the platform arbitrates between a
             // long-press drag and a swipe itself, which is why they share a callback rather
             // than fighting over the same touch stream (docs/list.md).
             final android.graphics.Paint swipePaint = new android.graphics.Paint();
@@ -523,8 +525,8 @@ public final class DayBridge {
             new ItemTouchHelper(new ItemTouchHelper.Callback() {
                 public int getMovementFlags(RecyclerView r, RecyclerView.ViewHolder vh) {
                     int drag = reorderable ? (ItemTouchHelper.UP | ItemTouchHelper.DOWN) : 0;
-                    // START, not LEFT: it resolves against the layout direction, so the gesture
-                    // is a trailing-edge swipe in both LTR and RTL — the same edge iOS uses.
+                    // `START`, not `LEFT`: it resolves against the layout direction, so the gesture
+                    // is a trailing-edge swipe in both LTR and RTL, the same edge iOS uses.
                     int swipe = 0;
                     if (deletable) {
                         int pos = vh.getBindingAdapterPosition();
@@ -569,8 +571,8 @@ public final class DayBridge {
                 }
                 public boolean onMove(RecyclerView r, RecyclerView.ViewHolder vh,
                                       RecyclerView.ViewHolder target) {
-                    // ItemTouchHelper commits INCREMENTALLY — one adjacent swap per callback
-                    // while the row is dragged — so each step goes through the seam.
+                    // ItemTouchHelper commits incrementally (one adjacent swap per callback
+                    // while the row is dragged), so each step goes through day.
                     int from = vh.getBindingAdapterPosition();
                     int to = target.getBindingAdapterPosition();
                     if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false;
@@ -584,8 +586,9 @@ public final class DayBridge {
                     if (pos == RecyclerView.NO_POSITION) return;
                     RecyclerView.Adapter<?> a = rv.getAdapter();
                     if (nativeListDelete(hostId, pos)) {
-                        // The seam already shortened day's snapshot; tell the adapter so the
-                        // removal animates out of the swipe instead of snapping via a reload.
+                        // nativeListDelete already shortened day's snapshot; tell the adapter
+                        // so the removal animates out of the swipe instead of snapping via a
+                        // reload.
                         if (a != null) a.notifyItemRemoved(pos);
                     } else if (a != null) {
                         // Refused after the fact: put the row back where it was.
@@ -596,8 +599,8 @@ public final class DayBridge {
         }
         return rv;
     }
-    /** Repaint the VISIBLE holders' selection state from day's record (ListPatch::Selected):
-     *  newly bound holders take theirs in onBindViewHolder. Paint only — no events. */
+    /** Repaint the visible holders' selection state from day's record (ListPatch::Selected):
+     *  newly bound holders take theirs in onBindViewHolder. Paint only; no events. */
     public static void listPaintSelection(View v, long hostId) {
         if (!(v instanceof RecyclerView)) return;
         RecyclerView rv = (RecyclerView) v;
@@ -610,9 +613,9 @@ public final class DayBridge {
         }
     }
     private static Integer selectionColor;
-    /** A selected row's fill — the theme's accent at 20% alpha, resolved once (colorPrimary
+    /** A selected row's fill: the theme's accent at 20% alpha, resolved once (colorPrimary
      *  is a plain color int on Material themes; colorControlHighlight is usually a state-list
-     *  REFERENCE, which TypedValue.data cannot carry as a color). As the BACKGROUND: day's
+     *  reference, which TypedValue.data cannot carry as a color). As the background: day's
      *  row content paints above it, and the ripple foreground stays free for touch feedback. */
     static void paintSelected(View cell, boolean on) {
         if (selectionColor == null) {
@@ -707,14 +710,14 @@ public final class DayBridge {
         if (v instanceof DayCover) return ((DayCover) v).content;
         return v;
     }
-    /** Minimal scroll so `[x,y,w,h]` (content px) is visible — scrollRectToVisible semantics.
+    /** Minimal scroll so `[x,y,w,h]` (content px) is visible (scrollRectToVisible semantics).
      *  Serves both scroll axes; the widget clamps to its own scroll range. */
     public static void scrollToRect(final View v, final int x, final int y,
                                     final int w, final int h, final boolean animated) {
         main.post(new Runnable() {
             private int tries = 0;
             public void run() {
-                // A freshly built page's widgets have no size until the next layout pass —
+                // A freshly built page's widgets have no size until the next layout pass, so
                 // defer until the scroll axis has a real viewport (bounded, in case the node
                 // never lays out).
                 boolean vertical = v instanceof android.widget.ScrollView;
@@ -763,7 +766,7 @@ public final class DayBridge {
      *
      * The runs arrive as flat parallel arrays rather than objects: one JNI call with three
      * primitive arrays beats N calls building a Java object per run, and this runs on every
-     * label patch. Layout: starts[i], ends[i] are UTF-16 offsets (Java string indices — Rust
+     * label patch. Layout: starts[i], ends[i] are UTF-16 offsets (Java string indices; Rust
      * converts from its byte offsets), and flags[i] packs bold/italic/mono/strike/hasColor with
      * colors[i] holding the ARGB when the flag says so. `links[i]` is null for a plain run.
      *
@@ -798,7 +801,7 @@ public final class DayBridge {
             // Android has one underline span: a dotted or wavy request draws a plain line
             // (docs/text-runs.md records which toolkits distinguish them).
             if ((f & 64) != 0) s.setSpan(new android.text.style.UnderlineSpan(), a, b, EXCL);
-            // Relative size (FontSpec::scale) as a RelativeSizeSpan, which is exactly its shape —
+            // Relative size (FontSpec::scale) as a RelativeSizeSpan, which is exactly its shape:
             // a multiplier over the inherited size, so the run still tracks the user's Font Size
             // setting rather than freezing at a pixel value.
             if (i < scales.length && scales[i] != 1000 && scales[i] > 0) {
@@ -807,8 +810,8 @@ public final class DayBridge {
             if (i < links.length && !links[i].isEmpty()) {
                 // A ClickableSpan rather than a URLSpan: the target goes back to Rust, so the
                 // app's `.on_link()` decides (route in-app, confirm, open) instead of Android
-                // firing an implicit VIEW intent behind Day's back. It keeps URLSpan's own
-                // rendering — accent color and underline — from updateDrawState.
+                // firing an implicit `VIEW` intent behind Day's back. It keeps URLSpan's
+                // rendering (accent color and underline) from updateDrawState.
                 final String target = links[i];
                 s.setSpan(new android.text.style.ClickableSpan() {
                     @Override public void onClick(View widget) {
@@ -828,7 +831,7 @@ public final class DayBridge {
     }
     /**
      * `sp` size (scales with the accessibility Font Size setting), font weight (100–900), italic,
-     * and an optional bundled font family (null for the system font — §18.4).
+     * and an optional bundled font family (null for the system font; §18.4).
      */
     public static void setLabelFont(
             View v, float sp, int weight, boolean italic, String family, boolean tabular) {
@@ -836,8 +839,8 @@ public final class DayBridge {
         // Tabular figures via the OpenType feature, so the typeface is untouched and only the
         // digits change metrics. A font without `tnum` ignores the request.
         t.setFontFeatureSettings(tabular ? "tnum" : null);
-        // COMPLEX_UNIT_SP applies the user's font scale (Settings ▸ Display ▸ Font size) — the Android
-        // accessibility text-scale — unlike DIP which does not.
+        // COMPLEX_UNIT_SP applies the user's font scale (Settings ▸ Display ▸ Font size), the
+        // Android accessibility text scale; COMPLEX_UNIT_DIP does not.
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         Typeface base = (family != null && !family.isEmpty()) ? bundledFont(family) : Typeface.DEFAULT;
         if (android.os.Build.VERSION.SDK_INT >= 28) {
@@ -854,7 +857,7 @@ public final class DayBridge {
     /**
      * Resolve a bundled font family (§18.4). `day build` stages each `fonts/` file as
      * `res/font/<ident>.ttf`, where `<ident>` is the font's family name sanitized to Android
-     * resource rules (lowercase `[a-z0-9_]`, leading letter — the same derivation as day-spec's
+     * resource rules (lowercase `[a-z0-9_]`, leading letter; the same derivation as day-spec's
      * `font_ident`). Re-derive the ident here and look up `R.font.<ident>`, so no side table is
      * needed. Unknown families (or API < 26, which predates font resources) log and fall back to
      * the system typeface.
@@ -888,7 +891,7 @@ public final class DayBridge {
                 try {
                     tf = ctx.getResources().getFont(id);
                 } catch (Exception e) {
-                    // Broken resource — fall through to the loud default below.
+                    // Broken resource: fall through to the loud default below.
                 }
             }
         }
@@ -896,7 +899,7 @@ public final class DayBridge {
         return tf;
     }
     /**
-     * The THEME's secondary text color — what a hint, a caption, or an empty state's "nothing
+     * The theme's secondary text color: what a hint, a caption, or an empty state's "nothing
      * selected" wears (`Label::secondary`).
      *
      * Resolved from `?android:attr/textColorSecondary` rather than written as a constant, so it
@@ -929,10 +932,10 @@ public final class DayBridge {
     }
 
     /**
-     * Each button's tint as Material styled it, so clearing an app tint can put the THEME's
+     * Each button's tint as Material styled it, so clearing an app tint can put the theme's
      * container color back.
      *
-     * `setBackgroundTintList(null)` does not restore a default — it removes the tint outright, and
+     * `setBackgroundTintList(null)` does not restore a default; it removes the tint outright, and
      * a MaterialButton's background is a shape drawable that the tint is what colors. Left null
      * it draws raw black, which is how every untinted button on this backend came out.
      */
@@ -970,11 +973,11 @@ public final class DayBridge {
 
     /**
      * Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted (argb/fg),
-     * 4 compact — no minimum width and glyph-sized insets, for a stepper's "−"/"+" (the M3
+     * 4 compact: no minimum width and glyph-sized insets, for a stepper's "−"/"+" (the M3
      * button's 88 dp minimum made two of them wider than an inspector pane).
      *
      * A tint is `backgroundTint` on the MaterialButton, so Material keeps drawing the ripple, the
-     * state overlays and the disabled alpha itself — the view stays a MaterialButton, with its
+     * state overlays and the disabled alpha itself; the view stays a MaterialButton, with its
      * role, focus and keyboard activation intact. Anything but a tint leaves the stock M3 look,
      * which is already the filled button day's `prominent` asks for.
      */
@@ -1004,7 +1007,7 @@ public final class DayBridge {
 
     /** Attach a tap or drag recognizer to a view (docs/shapes.md). Coordinates are px; Rust
      *  converts to dp. Event kind 11; num = phase (0=tap 1=began 2=changed 3=ended). */
-    /** Per-view enabled gestures `{wantsTap, wantsDrag}` — a view can carry both (tap + drag), so
+    /** Per-view enabled gestures `{wantsTap, wantsDrag}`: a view can carry both (tap + drag), so
      *  the single OnTouchListener must emit whichever the node asked for. UIKit's recognizers
      *  coexist; a bare setOnTouchListener does not, so we accumulate here rather than overwrite. */
     static final java.util.WeakHashMap<View, boolean[]> gestureFlags = new java.util.WeakHashMap<>();
@@ -1012,7 +1015,7 @@ public final class DayBridge {
     /**
      * Hover: a mouse or a stylus moving over the view (docs/canvas.md "Interaction"). Phases
      * 10/11/12 match day_spec::Event::Hover's Began/Changed/Ended. A finger generates no HOVER_*
-     * actions at all, so a touch-only device wires this and never reports — the contract.
+     * actions at all, so a touch-only device wires this and never reports; that is the contract.
      */
     public static void enableHover(View v, final long id) {
         v.setOnHoverListener(new View.OnHoverListener() {
@@ -1100,8 +1103,8 @@ public final class DayBridge {
         });
         e.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             public boolean onEditorAction(TextView x, int actionId, KeyEvent ev) {
-                // A real IME action (done/next/go/...), or a hardware-enter key-DOWN — the
-                // unspecified-action key-UP call must not fire a second submit.
+                // A real IME action (done/next/go/...), or a hardware-enter key-down: the
+                // unspecified-action key-up call must not fire a second submit.
                 boolean action = actionId != EditorInfo.IME_ACTION_NONE
                         && actionId != EditorInfo.IME_ACTION_UNSPECIFIED;
                 boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
@@ -1168,7 +1171,7 @@ public final class DayBridge {
         s.setValue((float) Math.max(min, Math.min(max, value)));
         // Two facts per interaction: the live value, and the one the user settled on. A drag
         // streams the first and ends with the second; a keyboard or a11y change never starts a
-        // touch, so it IS settled the moment it lands. The flag is a one-element array because a
+        // touch, so it is settled the moment it lands. The flag is a one-element array because a
         // Java anonymous class can only capture effectively-final locals.
         final boolean[] dragging = { false };
         s.addOnChangeListener(new Slider.OnChangeListener() {
@@ -1193,8 +1196,8 @@ public final class DayBridge {
         Slider s = (Slider) v;
         float f = (float) Math.max(s.getValueFrom(), Math.min(s.getValueTo(), value));
         // A stepped slider (e.g. day-tweak-slider-tickmarks) hard-crashes at the next layout pass
-        // unless every value is valueFrom + n*stepSize (BaseSlider.validateValues throws) — snap
-        // programmatic writes onto the step grid defensively.
+        // unless every value is valueFrom + n*stepSize (BaseSlider.validateValues throws), so
+        // snap programmatic writes onto the step grid defensively.
         float step = s.getStepSize();
         if (step > 0f) {
             f = s.getValueFrom() + Math.round((f - s.getValueFrom()) / step) * step;
@@ -1229,7 +1232,7 @@ public final class DayBridge {
         return (int) Math.round(Math.max(0.0, Math.min(1.0, fraction)) * 1000);
     }
 
-    /** Combobox (day-piece-combobox): the M3 exposed dropdown menu — a TextInputLayout in the
+    /** Combobox (day-piece-combobox): the M3 exposed dropdown menu: a TextInputLayout in the
      *  theme's filled-dropdown style hosting a non-editable MaterialAutoCompleteTextView. */
     public static View makeSpinner(final long id, String joinedItems, int selected) {
         final String[] items = joinedItems.split("\n");
@@ -1238,10 +1241,11 @@ public final class DayBridge {
         MaterialAutoCompleteTextView tv = new MaterialAutoCompleteTextView(box.getContext());
         tv.setInputType(android.text.InputType.TYPE_NULL); // select-only, no free text
         tv.setSimpleItems(items);
-        // Size to the widest item (an UNSPECIFIED probe of the box ignores prospective values):
+        // Size to the widest item (an `UNSPECIFIED` probe of the box ignores prospective values):
         // text width + the box's start padding and end (dropdown-icon) inset. The minimum goes on
-        // the TextInputLayout itself — LinearLayout honors its own suggested minimum during an
-        // UNSPECIFIED measure, but nothing propagates a child EditText minimum up through the box.
+        // the TextInputLayout itself: LinearLayout honors its own suggested minimum during an
+        // `UNSPECIFIED` measure, but nothing propagates a child EditText minimum up through the
+        // box.
         float widest = 0f;
         for (String it : items) widest = Math.max(widest, tv.getPaint().measureText(it));
         float d = ctx.getResources().getDisplayMetrics().density;
@@ -1267,8 +1271,8 @@ public final class DayBridge {
     }
 
     public static void addChild(View parent, View child) {
-        // A PRESENTED cover shell lives under the activity content root; a day-tree
-        // re-insert (z-order re-sync among its siblings) must not re-parent it — doing so
+        // A presented cover shell lives under the activity content root; a day-tree
+        // re-insert (z-order re-sync among its siblings) must not re-parent it; doing so
         // froze its slide mid-flight and stranded its posted callbacks (docs/cover.md).
         if (child instanceof DayCover && ((DayCover) child).presented) return;
         if (parent instanceof DayNavHost) { ((DayNavHost) parent).add(child); return; }
@@ -1287,15 +1291,15 @@ public final class DayBridge {
     }
 
     /**
-     * Put an existing child at `index` among its siblings — Day's z-order resync
+     * Put an existing child at `index` among its siblings: Day's z-order resync
      * (Toolkit::move_child), which walks the whole sibling row and asks for each position in
      * turn.
      *
-     * A ViewGroup has no move primitive, so the fallback is remove-then-add — and that DETACHES:
+     * A ViewGroup has no move primitive, so the fallback is remove-then-add, and that detaches:
      * {@link ViewGroup#removeView} unfocuses the view and everything under it, so a moved subtree
      * containing the field the user is typing into loses its focus and the soft keyboard
      * (docs/focus.md). Hence the two rules here: a child already at `index` is left alone, and one
-     * that has to move is re-added AT that index rather than appended — appending would make the
+     * that has to move is re-added at that index rather than appended; appending would make the
      * caller's next position wrong and drag every later sibling through a detach as well.
      */
     public static void moveChild(View parent, View child, int index) {
@@ -1318,7 +1322,7 @@ public final class DayBridge {
     public static void removeChild(View child) {
         // See addChild: a presented cover shell is native-owned.
         if (child instanceof DayCover && ((DayCover) child).presented) return;
-        // Nav pages route through their host (looked up by view — the FragmentManager may
+        // Nav pages route through their host (looked up by view, since the FragmentManager may
         // have the page detached mid-transition, so the parent chain can't be relied on).
         DayNavHost navHost = DayNavHost.pageHosts.get(child);
         if (navHost != null) {
@@ -1332,7 +1336,7 @@ public final class DayBridge {
         // See addChild: a presented cover shell is positioned natively (fullscreen).
         if (v instanceof DayCover && ((DayCover) v).presented) return;
         ViewGroup p = (ViewGroup) v.getParent();
-        // Nav / tab pages fill the host's page frame — their frames are native-owned.
+        // Nav / tab pages fill the host's page frame; their frames are native-owned.
         if (p != null && p.getParent() instanceof DayNavHost) return;
         if (p != null && p.getParent() instanceof DayTabs) return;
         if (p instanceof DayFixed) ((DayFixed) p).setChildFrame(v, x, y, w, h);
@@ -1345,8 +1349,8 @@ public final class DayBridge {
         // bar as the first thing the window body does), so a host born after the spec arrived
         // takes it now. Best-effort, like the bar actions below.
         //
-        // The OUTERMOST host only. A window can hold more than one — a list-backed destination
-        // composes a nested host for its own two layers — and giving each of them the window's
+        // The outermost host only. A window can hold more than one (a list-backed destination
+        // composes a nested host for its two layers), and giving each of them the window's
         // items painted a second app bar directly under the first, which is what a tablet showed
         // as the toolbar drawn twice (docs/toolbars.md).
         if (toolbarHost == null || toolbarHost.get() == null) {
@@ -1369,11 +1373,11 @@ public final class DayBridge {
      *  process: nav is app-root only (v1), so one bar rides every host. */
     static String windowToolbarSpec = null;
 
-    /** A tree is about to be mounted on a NEW activity (DayActivity, before nativeStart): drop
+    /** A tree is about to be mounted on a new activity (DayActivity, before nativeStart): drop
      *  every process-wide reference to the hosts of the one that went away. day-android clears
      *  its own per-mount tables in `init` for the same reason; these are their Java twins.
      *
-     *  Without this a recreation — the theme switch (docs/appearance.md) — left `toolbarHost`
+     *  Without this a recreation (the theme switch, docs/appearance.md) left `toolbarHost`
      *  and `DayNavHost.active` on the destroyed activity's host. The weak reference stays live
      *  until a collection happens to run, so the new tree's first host never claimed the bar
      *  (makeNavHost saw the slot taken), and every setWindowToolbar after it painted onto a view
@@ -1383,11 +1387,11 @@ public final class DayBridge {
         windowToolbarSpec = null;
         DayNavHost.active = null;
         // The FragmentManager also restored the previous activity's PageFragments and their
-        // back-stack entries from the saved instance state — content-less zombies, since a
+        // back-stack entries from the saved instance state: content-less zombies, since a
         // page's view is Rust-owned and never saved. Left in place, a zombie entry carries the
         // same `day-nav-<node>-<depth>` name the new host gives its own push, so the first pop
         // (inclusive, by name) took both entries at once, and the root came back laid out in
-        // full — every row with its frame — yet drawing nothing: a blank navigation list after
+        // full, every row with its frame, yet drawing nothing: a blank navigation list after
         // a theme switch on a pushed page. Clear them before the new tree's hosts register
         // their own; at this point nothing of the new tree has been added yet.
         if (!(ctx instanceof androidx.fragment.app.FragmentActivity)) return;
@@ -1411,8 +1415,8 @@ public final class DayBridge {
             android.util.Log.e("Day", "restored fragment state not cleared; continuing", t);
         }
     }
-    /** The host drawing the window's bar. A window can hold several — a list-backed destination
-     *  composes a nested one for its own layers — and only the first to appear carries the
+    /** The host drawing the window's bar. A window can hold several (a list-backed destination
+     *  composes a nested one for its layers), and only the first to appear carries the
      *  window's items; the rest would stack a second app bar under the first
      *  (docs/toolbars.md). Weak, so a closed window's host is collectable. */
     static java.lang.ref.WeakReference<DayNavHost> toolbarHost = null;
@@ -1432,14 +1436,14 @@ public final class DayBridge {
 
     // The window toolbar (docs/toolbars.md): one record per item (day-android
     // `serialize_toolbar`), painted onto the app bar of the nav host under `root`, and
-    // remembered for the host that comes later (makeNavHost). A window with NO nav host gets a
-    // bar of its own instead — `Cap::Toolbar` answered Native before the app built the window,
+    // remembered for the host that comes later (makeNavHost). A window with no nav host gets a
+    // bar of its own instead: `Cap::Toolbar` answered Native before the app built the window,
     // so an app that skipped its in-content strip on that answer would otherwise show no
     // commands at all. Wrapped like setNavMenu: a throw here can never reach the tree build.
     public static void setWindowToolbar(View root, String spec) {
         windowToolbarSpec = spec;
         try {
-            // The host that owns the window's bar, once one has claimed it — never a nested one
+            // The host that owns the window's bar, once one has claimed it, never a nested one
             // built later for a destination's own layers.
             DayNavHost h = toolbarHost == null ? null : toolbarHost.get();
             if (h == null) h = findNavHost(root);
@@ -1482,7 +1486,7 @@ public final class DayBridge {
      * aborts the native tree build and leaves the app blank, so decoration never rides it.
      *
      * No auto-hide. iOS reveals its field by over-scrolling past the top of the list; Material has
-     * no equivalent gesture, so the field simply stays put (docs/search.md).
+     * no equivalent gesture, so the field stays put (docs/search.md).
      */
     public static void setNavSearch(View navHost, long id, String prompt, String text) {
         if (!(navHost instanceof DayNavHost)) {
@@ -1544,7 +1548,7 @@ public final class DayBridge {
 
     /** Press the system back (Toolkit::native_back): the dispatcher runs the nav host's guard
      *  callback or the fragment manager's pop, the same path a back gesture takes. Only when
-     *  a nav host has something to pop or a guard armed — with neither, the dispatcher would
+     *  a nav host has something to pop or a guard armed; with neither, the dispatcher would
      *  finish the activity, which no walkthrough means. */
     public static boolean nativeBack() {
         DayNavHost h = DayNavHost.active;
@@ -1560,11 +1564,11 @@ public final class DayBridge {
         return night == android.content.res.Configuration.UI_MODE_NIGHT_YES;
     }
 
-    /** Whether this device can be told to use a light or dark appearance for THIS APP alone.
+    /** Whether this device can be told to use a light or dark appearance for this app alone.
      *
      *  `UiModeManager.setApplicationNightMode` arrived in API 31. The older route,
      *  `AppCompatDelegate.setDefaultNightMode`, only restyles an activity that runs through
-     *  AppCompat's delegate, and `DayActivity` is a plain `FragmentActivity` — so below 31 there
+     *  AppCompat's delegate, and `DayActivity` is a plain `FragmentActivity`, so below 31 there
      *  is nothing to offer, and `Cap::Appearance` says so rather than showing a control that
      *  would do nothing. */
     public static boolean canSetAppearance() {
@@ -1574,13 +1578,13 @@ public final class DayBridge {
     /** Apply an app-level appearance (Toolkit::set_appearance): 0 light, 1 dark, 2 follow system.
      *
      *  Applying it changes the app's uiMode, which the OS delivers to `DayActivity` as a
-     *  configuration change — the manifest lists `uiMode`, so the activity is not recreated — and
+     *  configuration change (the manifest lists `uiMode`, so the activity is not recreated), and
      *  that path already calls `appearanceChanged()`. So this only has to ask; the report back to
      *  day-core is the same one a user flipping the system theme produces. */
     public static void setAppearance(int mode) {
         if (!canSetAppearance() || ctx == null) return;
-        // IDEMPOTENT, and it has to be. The settings row re-applies its stored value every time
-        // the tree is built, and applying one recreates the activity — which builds the tree
+        // Idempotent, and it has to be. The settings row re-applies its stored value every time
+        // the tree is built, and applying one recreates the activity, which builds the tree
         // again. Without this the app recreates itself forever.
         //
         // For an explicit light or dark the current uiMode answers exactly, which also means a
@@ -1604,12 +1608,12 @@ public final class DayBridge {
         }
         // Ask the platform for the mode, and stop there. Nothing here recreates the activity:
         // this call is a binder round trip, so a `recreate()` issued beside it re-resolves the
-        // theme against whichever configuration has landed by then — which is how a Dark-to-Light
+        // theme against whichever configuration has landed by then, which is how a Dark-to-Light
         // pick came back with a light app bar over a dark sidebar. The platform answers with a
-        // uiMode configuration change once the override IS in force, and `DayActivity` recreates
+        // uiMode configuration change once the override is in force, and `DayActivity` recreates
         // from there (docs/appearance.md), so the new activity always resolves against the
-        // appearance that was asked for. A pick the platform has nothing to do — the mode already
-        // in force — produces no configuration change and no recreation, which is why the guards
+        // appearance that was asked for. A pick the platform has nothing to do (the mode already
+        // in force) produces no configuration change and no recreation, which is why the guards
         // above can afford to be exact.
         um.setApplicationNightMode(night);
     }
@@ -1624,12 +1628,12 @@ public final class DayBridge {
         if (started) nativeOnEvent(0L, K_APPEARANCE_CHANGED, 0, "");
     }
 
-    /** A PNG of this app's own window (docs/window-image.md) — `null` when there is nothing
+    /** A PNG of this app's own window (docs/window-image.md), or `null` when there is nothing
      *  to draw.
      *
-     *  `View.draw(Canvas)` rather than `PixelCopy`: it is SYNCHRONOUS, which is what lets
+     *  `View.draw(Canvas)` rather than `PixelCopy`: it is synchronous, which is what lets
      *  `day::window_image()` stay a plain call on every backend. The cost is that
-     *  surface-backed content (a `VideoView`, and any future GL or camera view) draws EMPTY —
+     *  surface-backed content (a `VideoView`, and any future GL or camera view) draws empty:
      *  those pixels live on a surface the view tree never touches, and only the async PixelCopy
      *  can read them back.
      *
@@ -1657,7 +1661,7 @@ public final class DayBridge {
     }
 
     /** Deferred system gestures (docs/cover.md): while any `defers_system_gestures` subtree
-     *  is mounted, enter swipe-to-reveal immersive mode — the platform's "first swipe shows
+     *  is mounted, enter swipe-to-reveal immersive mode, the platform's "first swipe shows
      *  the bars, second swipe acts" behavior, the closest analogue of iOS's screen-edge
      *  deferral. Restores normal bars when the last request unmounts. */
     public static void setDeferSystemGestures(boolean on) {
@@ -1677,9 +1681,9 @@ public final class DayBridge {
     }
 
     // --- navigation suite (docs/navigation.md) ---
-    // The NAV host in its `Tabs` presentation: the same container, reached from the nav path.
+    // The nav host in its `Tabs` presentation: the same container, reached from the nav path.
 
-    /** Pages whose rows are the chrome — marked before insertion, consumed by `addChild`. */
+    /** Pages whose rows are the chrome: marked before insertion, consumed by `addChild`. */
     private static final java.util.Set<View> navChromePages =
             java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
 
@@ -1691,9 +1695,9 @@ public final class DayBridge {
     /**
      * Hand a nav menu's rows to the suite that will draw them as chrome.
      *
-     * Called with the MENU, not the suite: the menu knows its rows, and by the time it is inserted
+     * Called with the menu, not the suite: the menu knows its rows, and by the time it is inserted
      * its ancestors reach the suite, so the walk up is what connects the two. A menu outside a
-     * suite — every non-tabs presentation — finds nothing and this is a no-op.
+     * suite (every non-tabs presentation) finds nothing and this is a no-op.
      */
     public static void setNavSuiteRows(View menu, String titles, String icons, long menuNode) {
         for (android.view.ViewParent p = menu.getParent(); p != null; p = p.getParent()) {
@@ -1711,14 +1715,14 @@ public final class DayBridge {
      *  Material {@link NavigationView}, the class Android means for exactly this.
      *
      *  It used to be a hand-built `LinearLayout` of `TextView` rows in a `ScrollView`, with the
-     *  48dp height, the padding, the ripple and the 24dp leading glyph all measured out here — a
+     *  48dp height, the padding, the ripple and the 24dp leading glyph all measured out here; a
      *  comment in it called that "the Material nav-drawer idiom", which it was imitating rather
-     *  than using. NavigationView IS that idiom: M3 row metrics, the ripple, the icon slot, the
+     *  than using. NavigationView is that idiom: M3 row metrics, the ripple, the icon slot, the
      *  subheaders between groups, a RecyclerView underneath so a long sidebar recycles, and the
-     *  fully-rounded ACTIVE INDICATOR behind the checked row — the thing the hand-built list had
+     *  fully-rounded active indicator behind the checked row, the thing the hand-built list had
      *  no way to draw, which is why the showcase's sidebar marked nothing at all.
      *
-     *  Rows are index-aligned with day's model throughout: a menu item's id IS its index, which
+     *  Rows are index-aligned with day's model throughout: a menu item's id is its index, which
      *  is what `setNavMenuSelected` and the tint/badge follow-ups address them by. `sections`
      *  opens a new group before the row at the same index ("" continues the current one), so the
      *  indices never shift when a heading is added.
@@ -1748,8 +1752,8 @@ public final class DayBridge {
         }
         nav.setNavigationItemSelectedListener(new NavigationView.OnNavigationItemSelectedListener() {
             @Override public boolean onNavigationItemSelected(MenuItem item) {
-                // The index IS the id. Report and let day answer with NavMenuPatch::Selected,
-                // which is what moves the indicator — the same rule the other backends follow, so
+                // The index is the id. Report and let day answer with NavMenuPatch::Selected,
+                // which is what moves the indicator, the same rule the other backends follow, so
                 // a route the app declines leaves the sidebar showing where it actually is.
                 nativeOnEvent(id, K_SELECTION_CHANGED, item.getItemId() - ROW_ID_BASE, null);
                 return true;
@@ -1759,7 +1763,7 @@ public final class DayBridge {
         return nav;
     }
 
-    /** The item set changed (day's NavMenuPatch::Items — a data-driven `nav().items(…)`
+    /** The item set changed (day's NavMenuPatch::Items, a data-driven `nav().items(…)`
      *  block re-derived): rebuild the menu so every item's id carries its current index.
      *  Reusing stale rows after a removal shifts every later selection by one. */
     public static void updateNavMenu(View v, String joinedItems, String joinedIcons,
@@ -1770,13 +1774,13 @@ public final class DayBridge {
 
     /** Where a sidebar row's menu-item id starts.
      *
-     *  A menu id is not a view id — except that `NavigationMenuItemView` copies its item's id onto
+     *  A menu id is not a view id, except that `NavigationMenuItemView` copies its item's id onto
      *  Itself, which drops both into the one namespace `findViewById` searches. Day's own
      *  containers take `View.generateViewId()`, which counts up from 1, so a row keyed by its bare
      *  index collided with them immediately: `containerId` was 1, the Controls row (index 1) became
      *  a view with id 1, it sits earlier in the traversal than the detail container, and
      *  `FragmentTransaction.replace(containerId, …)` therefore built every detail page inside that
-     *  sidebar row — the detail pane stayed empty and the page's first line drew inside the
+     *  sidebar row: the detail pane stayed empty and the page's first line drew inside the
      *  selected row's indicator.
      *
      *  `generateViewId` never returns above 0x00FFFFFF and aapt's ids start at 0x7F000000, so this
@@ -1790,8 +1794,8 @@ public final class DayBridge {
             String joinedSections) {
         Menu menu = nav.getMenu();
         // What is checked now, so a rebuild comes back marking the same row. A data-driven
-        // `.items(…)` block re-derives on its own schedule — the showcase's does it once as the
-        // sidebar first paints — and `menu.clear()` takes the indicator with it. day re-applies
+        // `.items(…)` block re-derives on its own schedule (the showcase's does it once as the
+        // sidebar first paints), and `menu.clear()` takes the indicator with it. day re-applies
         // the selection it knows about afterwards, but only if the patch that rebuilt the menu
         // carried one; this covers the rebuild that does not.
         int checked = -1;
@@ -1816,9 +1820,9 @@ public final class DayBridge {
                 // A heading opens a new group. NavigationView draws a SubMenu's title as an M3
                 // subheader and separates the groups, which is what the flat list had no room for.
                 group++;
-                // The heading's own id must stay OUT of the row-index space: a row's id IS its
+                // The heading's own id must stay out of the row-index space: a row's id is its
                 // index, `Menu.NONE` is 0, and a heading carrying 0 made `findItem(0)` answer
-                // with the subheader instead of the first row — so the indicator never appeared
+                // with the subheader instead of the first row, so the indicator never appeared
                 // on it. Anything past the row count works; this is unmistakable in a log.
                 into = menu.addSubMenu(group, SECTION_ID_BASE + group, group, sections[i]);
             }
@@ -1855,7 +1859,7 @@ public final class DayBridge {
         }
     }
 
-    /** Every menu item in `nav`, in day's index order — the tint and badge follow-ups address
+    /** Every menu item in `nav`, in day's index order; the tint and badge follow-ups address
      *  rows by index, and a grouped menu nests them inside SubMenus. */
     private static java.util.List<MenuItem> navItems(NavigationView nav) {
         java.util.ArrayList<MenuItem> out = new java.util.ArrayList<>();
@@ -1872,8 +1876,8 @@ public final class DayBridge {
         return out;
     }
 
-    /** Per-row nav icon tints (docs/vectors.md), index-aligned ARGB ints ("0" = untinted —
-     *  the row keeps its text-color template tint). Best-effort by design: called after
+    /** Per-row nav icon tints (docs/vectors.md), index-aligned ARGB ints ("0" = untinted;
+     *  the row keeps its text-color template tint). Best-effort: called after
      *  makeNavMenu/updateNavMenu so a failure here can never abort the native tree build. */
     public static void setNavMenuTints(View navMenu, String joinedTints) {
         try {
@@ -1892,9 +1896,9 @@ public final class DayBridge {
         }
     }
 
-    /** Per-row trailing status glyphs (docs/navigation.md) — a starred page's star. Index-aligned
+    /** Per-row trailing status glyphs (docs/navigation.md): a starred page's star. Index-aligned
      *  names ("" = none) with matching ARGB tints ("0" = keep the row's text-color template
-     *  tint). The glyph goes in the compound drawable's END slot, so the row needs no new layout
+     *  tint). The glyph goes in the compound drawable's end slot, so the row needs no new layout
      *  and the label still ellipsizes into what is left.
      *
      *  Best-effort and called after makeNavMenu/updateNavMenu, exactly like setNavMenuTints: a
@@ -1914,8 +1918,8 @@ public final class DayBridge {
                     row.setActionView(null);
                     continue;
                 }
-                // The END slot is a menu item's ACTION VIEW here, which NavigationView lays out
-                // opposite the label — the old compound-drawable trick had no menu to hang on.
+                // The end slot is a menu item's action view here, which NavigationView lays out
+                // opposite the label; the old compound-drawable trick had no menu to hang on.
                 badge = badge.mutate();
                 long tint = 0;
                 if (i < tints.length) {
@@ -1949,7 +1953,7 @@ public final class DayBridge {
         MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(ctx); // M3 dialog
         b.setTitle(title);
         if (sheet) {
-            // A titled list of choices — the Android idiom for an action sheet.
+            // A titled list of choices, the Android idiom for an action sheet.
             b.setItems(labels, new android.content.DialogInterface.OnClickListener() {
                 @Override public void onClick(android.content.DialogInterface d, int which) {
                     presents.remove(req);
@@ -2034,7 +2038,7 @@ public final class DayBridge {
         if (dlg != null) dlg.dismiss();
         // A pending SAF picker (docs/files.md): cancel the child DocumentsUI activity. Reached when
         // a scripted respond answers the request Day-side (day-core dismisses the native control
-        // after recording the answer) — without this the picker stays on screen over the app.
+        // after recording the answer); without this the picker stays on screen over the app.
         Integer rc = fileDayToReq.remove(req);
         if (rc != null) {
             fileReqToDay.remove(rc);
@@ -2055,7 +2059,7 @@ public final class DayBridge {
             intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
             ctx.startActivity(intent);
         } catch (Exception ignored) {
-            // No handler for the scheme, or the URI was malformed — nothing to open.
+            // No handler for the scheme, or the URI was malformed: nothing to open.
         }
     }
 
@@ -2080,7 +2084,7 @@ public final class DayBridge {
         }
     }
 
-    /** The app-private files dir (app-writable, persistent — for app data stores). */
+    /** The app-private files dir (app-writable, persistent; for app data stores). */
     public static String filesDirPath() {
         try {
             return ctx.getFilesDir().getAbsolutePath();
@@ -2232,7 +2236,7 @@ public final class DayBridge {
     }
 
     /** First text baseline from the view's top, in px, for a view laid out at `wPx` x `hPx`
-     *  (docs/baseline.md). `View.getBaseline()` is the platform's own answer — TextView and its
+     *  (docs/baseline.md). `View.getBaseline()` is the platform's answer: TextView and its
      *  subclasses (so EditText, MaterialButton, the pickers) override it, and the base View
      *  returns -1 for "no baseline", which is exactly the distinction day wants.
      *
@@ -2258,13 +2262,13 @@ public final class DayBridge {
      *  handle. */
     static final java.util.HashMap<Long, android.graphics.Bitmap> bitmaps = new java.util.HashMap<>();
 
-    /** The bitmap `id` names, or null once released — what DayCanvasView's image op draws. */
+    /** The bitmap `id` names, or null once released: what DayCanvasView's image op draws. */
     public static android.graphics.Bitmap bitmapFor(long id) {
         return bitmaps.get(id);
     }
 
-    /** Decode `bytes` into the registry under `id`. Answers "w,h,alpha" (alpha 1/0) — the same
-     *  comma-joined reply shape `measureText` uses — or null when the bytes are not an image
+    /** Decode `bytes` into the registry under `id`. Answers "w,h,alpha" (alpha 1/0), the same
+     *  comma-joined reply shape `measureText` uses, or null when the bytes are not an image
      *  this platform decodes. */
     public static String imageDecode(long id, byte[] bytes) {
         // A null array would NPE inside decodeByteArray, and an exception thrown back across
@@ -2315,9 +2319,9 @@ public final class DayBridge {
 
     /** Drop a decoded bitmap; day-core calls this when the app's last handle goes.
      *
-     *  Deliberately NOT `recycle()`: a view may still be showing this bitmap, and drawing a
-     *  recycled one is a hard crash ("trying to use a recycled bitmap"). Dropping the last
-     *  reference is enough — the GC frees the pixels once nothing draws them. */
+     *  Not `recycle()`: a view may still be showing this bitmap, and drawing a recycled one
+     *  is a hard crash ("trying to use a recycled bitmap"). Dropping the last reference is
+     *  enough; the GC frees the pixels once nothing draws them. */
     public static void imageRelease(long id) {
         bitmaps.remove(id);
     }
@@ -2427,7 +2431,7 @@ public final class DayBridge {
         // land back on `<glyph>` rather than draw nothing. This path used to do its own
         // getIdentifier + assets lookup and skip that fallback, which is why every
         // `vector(plain).weight(Light|Bold)` was blank on Android while it resolved everywhere
-        // else — invisible to `assert_visible`, since the ImageView had a frame either way.
+        // else, and invisible to `assert_visible`, since the ImageView had a frame either way.
         //
         // `.mutate()` because the drawable comes from the shared resource cache and the caller
         // tints it: without it a tint would follow every other view showing the same glyph.
@@ -2439,7 +2443,7 @@ public final class DayBridge {
         iv.setImageDrawable(d.mutate());
         return iv;
     }
-    /** Load a bundled image by NAME (docs/navigation.md) as a mutable Drawable: a processed
+    /** Load a bundled image by name (docs/navigation.md) as a mutable Drawable: a processed
      *  `res/drawable/<name>` resource (aapt2-crunched), else a raw asset by path; null if neither
      *  resolves or `name` is empty. Callers tint it (nav rows) or let the widget tint it (tabs). */
     static android.graphics.drawable.Drawable drawableByName(Context c, String name) {
@@ -2500,10 +2504,10 @@ public final class DayBridge {
 
     // --- Navigation state (docs/navigation.md) --------------------------------
     // A nav surface's `.restore(key)` persists through here, and DayActivity carries the map in
-    // the activity's SAVED INSTANCE STATE. That is deliberately not the same lifetime as prefs:
-    // Android reclaims a backgrounded process routinely, and a user returning through Recents
-    // expects the page they left, so the map has to survive process death. It must NOT survive
-    // the task, though — swiping the app off Recents, or launching it fresh, is the user asking
+    // the activity's saved instance state. That is not the same lifetime as prefs: Android
+    // reclaims a backgrounded process routinely, and a user returning through Recents expects
+    // the page they left, so the map has to survive process death. It must not survive the
+    // task, though; swiping the app off Recents, or launching it fresh, is the user asking
     // for a clean start, and instance state is discarded in exactly those cases. Persisting to
     // prefs instead would restore stale navigation onto a cold launch.
     public static final java.util.HashMap<String, String> navState = new java.util.HashMap<>();
@@ -2529,9 +2533,9 @@ public final class DayBridge {
     }
 
     /** Per-row nav context menus (docs/menus.md): one {@link #setContextMenu} spec per row,
-     *  joined by U+001E (empty entry = no menu for that row). Best-effort by design — called
-     *  After makeNavMenu/updateNavMenu, like setNavMenuTints, so a failure here can never
-     *  abort the native tree build. */
+     *  joined by U+001E (empty entry = no menu for that row). Best-effort; called after
+     *  makeNavMenu/updateNavMenu, like setNavMenuTints, so a failure here can never abort the
+     *  native tree build. */
     public static void setNavRowMenus(View navMenu, String joinedSpecs) {
         try {
             if (!(navMenu instanceof NavigationView)) return;
@@ -2539,9 +2543,9 @@ public final class DayBridge {
             final String[] specs =
                     joinedSpecs.isEmpty() ? new String[0] : joinedSpecs.split("\u001e", -1);
             navRowMenus.put(nav, specs);
-            // Rows are RECYCLED now, so a menu cannot be attached once and left: a cell is bound
+            // Rows are recycled now, so a menu cannot be attached once and left: a cell is bound
             // to a different row every time it scrolls back into view. Attach on the one event
-            // that fires for each binding — the child joining the RecyclerView — and read the row
+            // that fires for each binding (the child joining the RecyclerView) and read the row
             // it is currently showing from its own menu item rather than from its position, which
             // headings and dividers shift.
             android.view.ViewGroup list = navRecycler(nav);
@@ -2565,7 +2569,7 @@ public final class DayBridge {
         }
     }
 
-    /** The specs a sidebar's rows carry, by nav view — read back as cells recycle. */
+    /** The specs a sidebar's rows carry, by nav view, read back as cells recycle. */
     private static final java.util.WeakHashMap<View, String[]> navRowMenus =
             new java.util.WeakHashMap<>();
     /** Nav views whose recycler already has the attach watcher, so it goes on once. */
@@ -2604,8 +2608,8 @@ public final class DayBridge {
      * Hand a plain tap on `child` to the nearest ancestor that handles one.
      *
      * A long-press menu and a row tap have to coexist. `setOnLongClickListener` makes a view
-     * long-clickable, and `View.onTouchEvent` treats long-clickable as clickable — so the row's
-     * CONTENT (where the menu is attached) swallows the tap, and the RecyclerView cell's own
+     * long-clickable, and `View.onTouchEvent` treats long-clickable as clickable, so the row's
+     * content (where the menu is attached) swallows the tap, and the RecyclerView cell's own
      * click listener, which is what performs selection, never runs.
      *
      * Resolved at tap time rather than at attach time: Day builds a row's content and configures
@@ -2623,12 +2627,12 @@ public final class DayBridge {
     }
 
     /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
-    /** Give `v` the bounded ripple every Material row draws under a finger, as its FOREGROUND —
+    /** Give `v` the bounded ripple every Material row draws under a finger, as its foreground:
      *  day fills these views with its own children, and a background ripple would be painted
      *  underneath them and never seen (`android:foreground="?attr/selectableItemBackground"` is
      *  what a Material list item uses, for the same reason).
      *
-     *  It goes on whichever view actually RECEIVES the touch, which is not always the same one:
+     *  It goes on whichever view receives the touch, which is not always the same one:
      *  a plain row is handled by the RecyclerView cell, but a row carrying a context menu is
      *  handled by the menu's own view, because being long-clickable makes it eat the touch and
      *  hand the tap on (see setContextMenu / forwardClickToRow). Feedback has to follow the
@@ -2639,7 +2643,7 @@ public final class DayBridge {
             return;
         }
         if (v.getForeground() != null) {
-            return; // already carries one (or its own decoration) — don't fight it
+            return; // already carries one (or its own decoration); don't fight it
         }
         android.util.TypedValue tv = new android.util.TypedValue();
         if (v.getContext().getTheme().resolveAttribute(
@@ -2658,7 +2662,7 @@ public final class DayBridge {
             return;
         }
         // See forwardClickToRow: the menu makes this view eat touches, so the tap it eats has to
-        // be handed on. Only where the view has no click behavior of its own — a button with a
+        // be handed on. Only where the view has no click behavior of its own; a button with a
         // context menu keeps its own action.
         if (!v.hasOnClickListeners()) {
             v.setOnClickListener(new View.OnClickListener() {
@@ -2699,8 +2703,8 @@ public final class DayBridge {
         int[] group = {0};
         for (String line : spec.split("\n")) {
             if (line.isEmpty()) continue;
-            // kind \t action \t enabled \t checked \t label — the label is last so its own
-            // spaces survive, and every kind writes all five fields so the indices never shift.
+            // kind \t action \t enabled \t checked \t label; the label is last so its spaces
+            // survive, and every kind writes all five fields so the indices never shift.
             String[] f = line.split("\t", 5);
             if (f.length < 1) continue;
             String kind = f[0];

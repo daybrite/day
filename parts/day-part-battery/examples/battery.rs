@@ -1,8 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `cargo run -p day-part-battery --example battery` — print the current battery status. Demonstrates that
-//! any Rust code can depend on this crate and use the API with no Day framework at all.
+//! `cargo run -p day-part-battery --example battery` prints the current battery status. It
+//! demonstrates that any Rust code can depend on this crate and use the API with no Day framework
+//! at all.
 
 fn main() {
     match day_part_battery::status() {

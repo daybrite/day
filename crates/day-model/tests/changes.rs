@@ -67,7 +67,7 @@ fn the_components_name_the_full_path() {
     let (_, changes) = day_model::record_changes(|| {
         store.elem(1).count().update(|c| *c = 7);
     });
-    // store root, element key, field id — outermost first.
+    // store root, element key, field id, outermost first.
     assert_eq!(changes[0].components.len(), 3);
     assert_eq!(changes[0].components[1], 1, "the element's key");
 }

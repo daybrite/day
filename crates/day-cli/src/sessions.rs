@@ -4,8 +4,8 @@
 //! Live launch sessions (`build/day/sessions.json`): target → dayscript-engine coordinates.
 //!
 //! Every `day launch` records where the app's engine listens (loopback port + token), so a later
-//! process — `day drive`, `day stop`, `day relaunch --all-running`, `day mcp-server`, and through
-//! it any coding agent — can attach to an app the developer already has open. Best-effort JSON:
+//! process (`day drive`, `day stop`, `day relaunch --all-running`, `day mcp-server`, and through
+//! it any coding agent) can attach to an app the developer already has open. Best-effort JSON:
 //! entries are upserted per target on launch, dropped on stop, and replaced wholesale by a new
 //! launch of the same target (docs/agent.md).
 
@@ -49,7 +49,7 @@ fn write(root: &Path, sessions: &[Session]) {
     if let Ok(json) = serde_json::to_string_pretty(sessions) {
         // Temp file + rename, in the same directory so the rename stays atomic: `record` and
         // `remove` are read-modify-write with no lock, and parallel `day` invocations writing
-        // in place could hand each other (and every reader) a torn file. A rename never can —
+        // in place could hand each other (and every reader) a torn file. A rename never can;
         // the last writer wins whole. The pid keys the temp name so two writers don't collide
         // on it either.
         let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
@@ -77,7 +77,7 @@ pub fn find(root: &Path, target: &str) -> Option<Session> {
     list(root).into_iter().find(|s| s.target == target)
 }
 
-/// Whether the engine answers on its port right now (direct loopback probe — meaningful for
+/// Whether the engine answers on its port right now (direct loopback probe, meaningful for
 /// desktop and the iOS simulator; device targets need a forward first, so `None` = unknown).
 pub fn reachable(session: &Session, direct: bool) -> Option<bool> {
     if !direct {

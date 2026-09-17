@@ -11,8 +11,8 @@ use day_persistence::{
 };
 use day_reactive::Binding;
 
-/// A row of the catalog someone ELSE built: keyed by a BLOB uuid, addressed here through its
-/// implicit rowid, with a contentless FTS5 index that keeps the catalog's own shape.
+/// A row of the catalog someone else built: keyed by a BLOB uuid, addressed here through its
+/// implicit rowid, with a contentless FTS5 index that keeps the catalog's shape.
 #[derive(Model, Clone, Default, PartialEq, Debug)]
 #[model(table = "stations", external = "catalog", fts("name"))]
 struct Station {
@@ -115,7 +115,7 @@ fn external_rows_read_through_the_container_and_links_cross_both_ways() {
     assert_eq!(top.name().read(), "Smooth Jazz");
     assert_eq!(top.uuid().read(), JAZZ.to_vec());
 
-    // Its FTS index is the catalog's own — no triggers of ours, but the same subquery.
+    // Its FTS index is the catalog's: no triggers of ours, but the same subquery.
     let jazz = container
         .query::<Station>()
         .filter(Station::fts().matches("jazz"))
@@ -232,7 +232,7 @@ fn external_models_are_read_only() {
     let _ = std::fs::remove_file(&catalog);
 }
 
-// Keep the `Op` import honest for the derive's Observable half, which some toolchains warn
+// Keep the `Op` import used for the derive's Observable half, which some toolchains warn
 // about when a test never restructures a store directly.
 #[allow(dead_code)]
 fn _uses_op(_: Op) {}

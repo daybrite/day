@@ -5,14 +5,14 @@
 # Doc cross-reference lint (scripts/ci/lint.sh "doc links" leg).
 #
 # Two failure modes, both of which shipped for months before this gate existed:
-#   1. A bare `docs/foo.md` mention of a doc that exists — unclickable on the published site
+#   1. A bare `docs/foo.md` mention of a doc that exists, unclickable on the published site
 #      and a 404 on GitHub. Write it as a link: [docs/foo.md](foo.md) from inside docs/,
 #      [docs/foo.md](docs/foo.md) from DESIGN.md.
 #   2. A relative .md link whose target does not exist (a typo, or a doc that moved).
 #
-# Bare mentions of docs that DON'T exist are ignored: they are planned-file references
+# Bare mentions of docs that don't exist are ignored: they are planned-file references
 # (annotate them as planned in prose) and website-page mentions, which should link to the
-# site URL instead. Code fences are exempt — a path in sample output is not a reference.
+# site URL instead. Code fences are exempt: a path in sample output is not a reference.
 
 import os
 import re
@@ -64,7 +64,7 @@ for f in sorted(existing):
 check(os.path.join(ROOT, "DESIGN.md"), "DESIGN.md")
 
 # Every doc must be placed in the shared curation (the /docs/internal index and the reference
-# index both derive from it) — this is what stops a new doc from silently joining no index.
+# index both derive from it); this is what stops a new doc from silently joining no index.
 groups_file = os.path.join(ROOT, "website", "src", "lib", "internal-groups.mjs")
 curated = re.findall(r"\['([a-z0-9-]+)',", open(groups_file).read())
 doc_ids = {f[:-3] for f in existing}

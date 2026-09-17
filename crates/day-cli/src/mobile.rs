@@ -19,9 +19,9 @@ use crate::targets::Target;
 
 /// The name the app's Rust staticlib is staged under, inside `$(BUILT_PRODUCTS_DIR)/day`.
 ///
-/// A CONSTANT, not the crate's own `lib<name>.a`: the Xcode project has to name this file in
+/// A constant, not the crate's `lib<name>.a`: the Xcode project has to name this file in
 /// its linker flags and in the build phase's declared outputs, and a name derived from the
-/// crate would put the crate's name in the project file — where renaming the app means editing
+/// crate would put the crate's name in the project file, where renaming the app means editing
 /// Xcode settings, and where a rename that misses one of them fails at link time. Day owns this
 /// directory, so the name is Day's to fix.
 pub(crate) const STAGED_STATICLIB: &str = "libdayapp.a";
@@ -35,10 +35,10 @@ pub(crate) fn rustup_cargo() -> Result<(PathBuf, PathBuf), String> {
 ///
 /// `adb`, `devicectl` and friends each describe the same three operations in their own voice
 /// ("Performing Streamed Install", "App installed: • bundleID: …", "Starting: Intent { … }"), on
-/// the same stream the app's own output arrives on. Day already says what is happening through
-/// [`status`], in one format for every target — so the tool's version is captured and shown only
+/// the same stream the app's output arrives on. Day already says what is happening through
+/// [`status`], in one format for every target, so the tool's version is captured and shown only
 /// when the step fails, where it is the diagnostic. Build output still streams: there the tool's
-/// narration IS the content. The deadline exists because the same tools wait forever for a
+/// narration is the content. The deadline exists because the same tools wait forever for a
 /// device that stopped answering (ops.rs INSTALL_TIMEOUT/LAUNCH_TIMEOUT).
 pub(crate) fn run_quiet(cmd: &mut Command, what: &str, limit: Duration) -> Result<(), String> {
     let out = crate::ops::run_capture_within(cmd, what, limit)?;
@@ -46,7 +46,7 @@ pub(crate) fn run_quiet(cmd: &mut Command, what: &str, limit: Duration) -> Resul
         return Ok(());
     }
     if crate::ops::verbose() {
-        // `--verbose` already streamed the tool's output live — don't echo the wall of text again.
+        // `--verbose` already streamed the tool's output live; don't echo the wall of text again.
         return Err(format!("{what} failed"));
     }
     Err(format!(
@@ -78,10 +78,10 @@ pub(crate) fn run_logged_within(
     }
 }
 
-/// Make a path absolute without requiring it to exist yet (build-output dirs often don't). Build-tool
-/// arguments such as xcodebuild's `SYMROOT` must be absolute — a relative one is resolved per-target
-/// against each target's own working directory, so an app target and its SwiftPM package dependencies
-/// scatter their products into different trees.
+/// Make a path absolute without requiring it to exist yet (build-output dirs often don't).
+/// Build-tool arguments such as xcodebuild's `SYMROOT` must be absolute: a relative one is
+/// resolved per-target against each target's working directory, so an app target and its
+/// SwiftPM package dependencies scatter their products into different trees.
 fn absolute(path: &Path) -> Result<PathBuf, String> {
     if path.is_absolute() {
         Ok(path.to_path_buf())
@@ -92,8 +92,8 @@ fn absolute(path: &Path) -> Result<PathBuf, String> {
     }
 }
 
-/// True when a failed xcodebuild is the "a package resource bundle isn't where the app target expected
-/// it" class — a stale or split build tree. Worth one clean retry (see [`build_ios`]).
+/// True when a failed xcodebuild is the "a package resource bundle isn't where the app target
+/// expected it" class, a stale or split build tree. Worth one clean retry (see [`build_ios`]).
 fn is_stale_bundle_failure(out: &std::process::Output) -> bool {
     let all = format!(
         "{}{}",
@@ -104,10 +104,10 @@ fn is_stale_bundle_failure(out: &std::process::Output) -> bool {
     all.contains(".bundle") && all.contains("no such file")
 }
 
-/// Distill a failed xcodebuild run into something readable. Raw xcodebuild output is mostly a wall of
-/// `export FOO=bar` lines; the actionable content is the `error:` lines — surface those first (from
-/// both streams), fall back to a non-`export` tail, and add a targeted hint for the resource-bundle
-/// "no such file" failure class (a stale/split build tree).
+/// Distill a failed xcodebuild run into something readable. Raw xcodebuild output is mostly a
+/// wall of `export FOO=bar` lines; the actionable content is the `error:` lines. Surface those
+/// first (from both streams), fall back to a non-`export` tail, and add a targeted hint for the
+/// resource-bundle "no such file" failure class (a stale/split build tree).
 fn diagnose_xcodebuild(out: &std::process::Output) -> String {
     let stdout = String::from_utf8_lossy(&out.stdout);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -152,7 +152,7 @@ fn diagnose_xcodebuild(out: &std::process::Output) -> String {
 /// order. `run` executes each cargo command (the two callers want different stream handling).
 ///
 /// Runs twice per `day build`. The porcelain runs it before xcodebuild, with the output on its
-/// own terminal — xcodebuild holds a script phase's stdout and stderr until the phase ends
+/// own terminal: xcodebuild holds a script phase's stdout and stderr until the phase ends
 /// (measured with and without `-verbose`: a 44-second compile surfaces as one burst), so a
 /// compile that only ever happened inside the phase read as a hung build from an editor. The
 /// `xcode-backend build` phase then runs it again and finds every crate fresh, which is also the
@@ -176,11 +176,11 @@ pub(crate) fn cargo_apple_staticlibs(
     for triple in triples {
         let mut cmd = Command::new(&cargo);
         // `--day-src` reaches this process through DAY_SRC_DIR, set as an xcodebuild build
-        // setting by the porcelain — the same route DAY_BIN takes to get here.
+        // setting by the porcelain, the same route DAY_BIN takes to get here.
         crate::patch::apply_day_src(&mut cmd);
         // Sanitize Xcode's script-phase env: SDKROOT points at the build SDK (poisoning
-        // HOST compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
-        // toolchain clang, which — unlike the /usr/bin/cc xcrun shim — does NOT auto-select an
+        // host compiles of proc-macro build scripts), and Xcode's PATH resolves `cc` to the raw
+        // toolchain clang, which, unlike the /usr/bin/cc xcrun shim, does not auto-select an
         // SDK (ld: library 'System' not found). Reset both; rustc finds per-target SDKs via
         // xcrun.
         for var in [
@@ -228,7 +228,7 @@ pub(crate) fn cargo_apple_staticlibs(
             cmd.arg("--release");
         }
         run(&mut cmd, "cargo")?;
-        // Cargo names the archive after the LIB TARGET, which `lib_name` reads: `libdayapp.a`
+        // Cargo names the archive after the lib target, which `lib_name` reads: `libdayapp.a`
         // for a scaffolded app (its `[lib] name` is pinned to that constant), `lib<package>.a`
         // for one from before the pin.
         arch_libs.push(
@@ -275,7 +275,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         .map_err(|e| CliError::build(format!("day xcode-backend: prepare: {e}")))?;
     // Freshness (§17.5): Xcode resolved the generated xcconfig before this phase ran, so if
     // Day.toml changed since it was last written, the bundle this build is assembling
-    // carries stale identity. Refresh the file and fail with the designed message — the
+    // carries stale identity. Refresh the file and fail with the designed message; the
     // retry is clean. A missing file (first build after a clone) is not drift: Xcode used
     // the committed DayApp.xcconfig fallbacks, and the next build picks up the values.
     let xc_platform = if platform.contains("macos") {
@@ -368,7 +368,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     };
     staged.map_err(|e| CliError::build(format!("day xcode-backend: {e}")))?;
     // Stage assets/ into the app bundle (§18.1's copy-phase mechanism). Recursive: assets are
-    // a TREE (§18.5), and `resource("web/minisite/index.html")` resolves the same relative
+    // a tree (§18.5), and `resource("web/minisite/index.html")` resolves the same relative
     // path inside the bundle.
     if let (Some(tbd), Some(res)) = (
         get("TARGET_BUILD_DIR"),
@@ -383,7 +383,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         }
     }
     // The crate-named alias, for app projects generated before the staged name became this
-    // constant — they link `-l<crate>` out of the same directory. A hard link, so the archive
+    // constant; they link `-l<crate>` out of the same directory. A hard link, so the archive
     // (hundreds of MB in a debug build) is not stored twice.
     let alias = out_dir.join(format!("lib{ident}.a"));
     if alias != dest {
@@ -396,10 +396,10 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     Ok(())
 }
 
-/// `day xcode-backend stage-resources` — the macOS host project's second script phase:
+/// `day xcode-backend stage-resources` is the macOS host project's second script phase:
 /// stage the project's images/assets/fonts and the vector trees into the bundle's
 /// `Contents/Resources`, the exact layout the packed-app probes already resolve
-/// (`../Resources/{images,assets,fonts,vectors/{svg,raster}}` — docs/vectors.md), so an
+/// (`../Resources/{images,assets,fonts,vectors/{svg,raster}}`; docs/vectors.md), so an
 /// Xcode-built bundle needs no `DAY_*` environment at all. Runs the vector staging first,
 /// so a build started from the Xcode IDE is self-contained.
 pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
@@ -416,11 +416,11 @@ pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
     // platform/macos/ → project root two levels up.
     let project = find_project(Some(&project_dir.join("../..")))
         .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
-    // Refresh the vector caches (raster + glyph SVGs) — cheap and idempotent, and an
+    // Refresh the vector caches (raster + glyph SVGs): cheap and idempotent, and an
     // IDE-initiated build has no earlier `day build` step to have done it.
     let vectors = crate::resources::prepare_vectors(&project)
         .map_err(|e| CliError::build(format!("day xcode-backend: vectors: {e}")))?;
-    // This host builds the appkit bundle, which renders the staged SVGs — so the raster tree it
+    // This host builds the appkit bundle, which renders the staged SVGs, so the raster tree it
     // carries is only whatever art could not be reduced to one (docs/vectors.md).
     crate::resources::write_vector_fallbacks(&project, "appkit", &vectors)
         .map_err(|e| CliError::build(format!("day xcode-backend: vectors: {e}")))?;
@@ -453,7 +453,7 @@ pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
     Ok(())
 }
 
-/// `day xcode-backend stage-strings` — the scaffold's `Stage Day Strings` script phase:
+/// `day xcode-backend stage-strings` is the scaffold's `Stage Day Strings` script phase:
 /// per-locale `InfoPlist.strings` for the `[[shortcuts]]` titles, written into the built
 /// bundle before code signing seals it (docs/deep-links.md).
 pub fn xcode_backend_stage_strings() -> Result<(), CliError> {
@@ -476,7 +476,7 @@ pub fn xcode_backend_stage_strings() -> Result<(), CliError> {
     Ok(())
 }
 
-/// Recursive copy (dirs created as needed) — the resource trees are small and flat-ish.
+/// Recursive copy (dirs created as needed); the resource trees are small and flat-ish.
 fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dst).map_err(|e| format!("mkdir {}: {e}", dst.display()))?;
     let rd = std::fs::read_dir(src).map_err(|e| format!("{}: {e}", src.display()))?;
@@ -499,47 +499,47 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 /// The `OTHER_LDFLAGS` override that keeps a linked Mach-O reproducible across build directories
 /// (DESIGN.md §20.3), the macOS counterpart of the `/Brepro` link argument the xaml build passes.
 ///
-/// ld records an absolute path to every object file it consumed in the debug map — one `N_OSO`
+/// ld records an absolute path to every object file it consumed in the debug map: one `N_OSO`
 /// stabs entry per `.o` and per archive member, pointing into SYMROOT and into cargo's output.
 /// Those strings are the only thing that differs when the same commit is linked from two
 /// directories, which is exactly what `day rebuild` compares: `build/.../Runner.build/.../main.o`
 /// under one root versus another. `-oso_prefix` strips the leading root, leaving project-relative
 /// paths that compare equal from anywhere. Stripping the binary would also remove them, but it
-/// would take the symbols crash reports symbolicate with (§13), so the debug map stays — just
+/// would take the symbols crash reports symbolicate with (§13), so the debug map stays, just
 /// without the machine-specific prefix.
 ///
 /// The prefix is canonicalized because ld writes the resolved path: on macOS `/tmp/...` reaches
 /// the linker as `/private/tmp/...`, and a prefix that doesn't match byte-for-byte is silently
-/// ignored. `$(inherited)` keeps whatever the pbxproj already sets — a command-line build setting
+/// ignored. `$(inherited)` keeps whatever the pbxproj already sets; a command-line build setting
 /// otherwise replaces it for every target in the project.
 ///
-/// This covers every object the FINAL link consumes, which is 12 of the 13 entries. The one it
+/// This covers every object the final link consumes, which is 12 of the 13 entries. The one it
 /// cannot reach is the SwiftPM package target: Xcode merges DayPieces' objects with `ld -r` into
 /// a relocatable `Release/DayPieces.o`, and that partial link writes the debug map naming
 /// `_DayPieces.o`. The final link copies it through verbatim, so a flag given to the final link
-/// arrives too late. Command-line build settings do not reach that step either — `PRELINK_FLAGS`
-/// was measured and never appears on its command line — because a package target takes its link
+/// arrives too late. Command-line build settings do not reach that step either (`PRELINK_FLAGS`
+/// was measured and never appears on its command line), because a package target takes its link
 /// settings from the generated Package.swift. Closing the last entry means putting the flag there
 /// (day writes that manifest, so it can), which is tracked separately.
 ///
 /// # `-objc_stubs_small`, and why a reproducibility fix rides along here
 ///
-/// ld's default (`-objc_stubs_fast`) gives every `objc_msgSend$<nav host>` stub its OWN GOT slot
-/// for `_objc_msgSend`, so a binary carrying both kinds of call ends up with two slots bound to
-/// that one symbol: one the ordinary `__stubs` entry reads, one the `__objc_stubs` entry reads.
-/// The two are interchangeable — same symbol, same value — so nothing decides which consumer gets
-/// which except ld's internal ordering, and that ordering follows a `.llvm.<N>` local-symbol
-/// suffix LLVM derives from the build directory. Same commit, two directories, two assignments:
-/// three bytes of `__TEXT` differ and `day rebuild` reports a payload mismatch with no cause
-/// anyone can read off it. Measured on the `day new` scaffold: of 736 archive members exactly one
-/// differed, and only in that suffix.
+/// ld's default (`-objc_stubs_fast`) gives every `objc_msgSend$<nav host>` stub a GOT slot of
+/// its own for `_objc_msgSend`, so a binary carrying both kinds of call ends up with two slots
+/// bound to that one symbol: one the ordinary `__stubs` entry reads, one the `__objc_stubs` entry
+/// reads. The two are interchangeable (same symbol, same value), so nothing decides which
+/// consumer gets which except ld's internal ordering, and that ordering follows a `.llvm.<N>`
+/// local-symbol suffix LLVM derives from the build directory. Same commit, two directories, two
+/// assignments: three bytes of `__TEXT` differ and `day rebuild` reports a payload mismatch with
+/// no cause anyone can read off it. Measured on the `day new` scaffold: of 736 archive members
+/// exactly one differed, and only in that suffix.
 ///
 /// `-objc_stubs_small` emits one shared `_objc_msgSend` stub for the nav host stubs to branch to,
 /// so there is one slot and nothing left to order. It costs a branch per objc dispatch on a path
 /// Day barely uses, and it buys a byte-identical relink from any directory.
 ///
 /// The suffix itself is left alone: it names local symbols `strip -S` removes before the
-/// comparison, so it never reaches the payload on its own — only through the tie-break this flag
+/// comparison, so it never reaches the payload on its own, only through the tie-break this flag
 /// deletes.
 fn oso_prefix_setting(project_root: &Path) -> String {
     let root = std::fs::canonicalize(project_root).unwrap_or_else(|_| project_root.to_path_buf());
@@ -558,11 +558,11 @@ fn xcode_list_item(item: &str) -> String {
     format!("\"{escaped}\"")
 }
 
-/// The product bundle to install. A RENAME leaves the previous `PRODUCT_NAME.app` sitting in
+/// The product bundle to install. A rename leaves the previous `PRODUCT_NAME.app` sitting in
 /// the same products directory, and taking whichever `.app` the directory happens to yield
-/// first installs the stale one — which then fails to launch with a bare "failed to open",
+/// first installs the stale one, which then fails to launch with a bare "failed to open",
 /// because launch opens the id from Day.toml and the installed bundle carries the old one.
-/// Pick the bundle whose `CFBundleIdentifier` IS that id; fall back to the sole candidate when
+/// Pick the bundle whose `CFBundleIdentifier` is that id; fall back to the sole candidate when
 /// the identifier cannot be read, and name the candidates when none matches.
 fn product_bundle(products: &Path, want_id: &str) -> Result<PathBuf, String> {
     let mut apps: Vec<PathBuf> = std::fs::read_dir(products)
@@ -596,8 +596,8 @@ fn product_bundle(products: &Path, want_id: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// A BUILT bundle's `CFBundleIdentifier`. Built `Info.plist`s are binary, so ask the system
-/// rather than parsing (this path is macOS-only — it exists to serve xcodebuild).
+/// A built bundle's `CFBundleIdentifier`. Built `Info.plist`s are binary, so ask the system
+/// rather than parsing (this path is macOS-only; it exists to serve xcodebuild).
 fn bundle_id_of(app: &Path) -> Option<String> {
     let out = Command::new("/usr/libexec/PlistBuddy")
         .args(["-c", "Print :CFBundleIdentifier"])
@@ -609,9 +609,9 @@ fn bundle_id_of(app: &Path) -> Option<String> {
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// Build macos-appkit through the Xcode host project — the only macos-appkit build since the
+/// Build macos-appkit through the Xcode host project, the only macos-appkit build since the
 /// bare-cargo path retired (2026-08). Mirrors [`build_ios_for`]: stage the DayPieces package
-/// the pbxproj references (empty is fine — the reference must resolve), run xcodebuild with
+/// the pbxproj references (empty is fine; the reference must resolve), run xcodebuild with
 /// an absolute SYMROOT, and hand back the built `.app` bundle as the artifact (launch execs
 /// its inner binary; the bundle carries identity, icon, and resources).
 /// [`cargo_apple_staticlibs`] as `day build` runs it ahead of xcodebuild: output live under
@@ -653,7 +653,7 @@ pub fn build_macos_xcode(
     // must land in the same tree as the app target's.
     let symroot = absolute(&crate::ops::build_root(project).join("macos-appkit"))?;
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
-    // The xcconfig split (§17.4) — same order rationale as prepare_ios.
+    // The xcconfig split (§17.4), same order rationale as prepare_ios.
     crate::xcconfig::ensure_split(project, "macos")?;
     crate::xcconfig::write_generated(project, "macos")?;
     crate::pieces::write_macos_pieces(project)?;
@@ -680,11 +680,11 @@ pub fn build_macos_xcode(
         .args(["-configuration", configuration, "-sdk", "macosx"]);
     if universal {
         // Universal (arm64 + x86_64): opt-in, because the cargo half needs both Rust
-        // stdlibs installed (`rustup target add x86_64-apple-darwin` on Apple silicon) —
+        // stdlibs installed (`rustup target add x86_64-apple-darwin` on Apple silicon),
         // a requirement most dev machines and single-target CI legs don't meet.
     } else {
         // Legacy `-target` builds have no run destination, so ONLY_ACTIVE_ARCH cannot
-        // resolve an active arch and Xcode builds UNIVERSAL — twice the disk and time, and
+        // resolve an active arch and Xcode builds universal: twice the disk and time, and
         // a missing cross stdlib fails the build outright (rustc E0463). Pin the arch the
         // running day binary was built for: it always has a matching stdlib installed.
         let arch = match std::env::consts::ARCH {
@@ -725,8 +725,8 @@ pub fn build_macos_xcode(
 /// the DayPieces resource bundle (`DayPieces_DayPieces.bundle/fonts/…`, staged by
 /// `write_ios_pieces`), and day-uikit also registers them with CoreText at launch, so a plist
 /// that iOS declines to honor still resolves. The managed key is rewritten (or removed) on every
-/// build — idempotent, so a committed plist only changes when `fonts/` changes.
-/// The committed iOS Info.plist — the scaffold's app target is Runner/ (older scaffolds used
+/// build; idempotent, so a committed plist only changes when `fonts/` changes.
+/// The committed iOS Info.plist: the scaffold's app target is Runner/ (older scaffolds used
 /// DayApp/). `None` when the app ships no iOS platform dir.
 pub(crate) fn ios_info_plist(project: &Project) -> Option<PathBuf> {
     [
@@ -748,7 +748,7 @@ pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
         .filter_map(|f| f.path.file_name().and_then(|n| n.to_str()))
         .map(|n| format!("DayPieces_DayPieces.bundle/fonts/{n}"))
         .collect();
-    // Written through the same editor as the permission keys, NOT `plutil -replace`. plutil
+    // Written through the same editor as the permission keys, not `plutil -replace`. plutil
     // reserializes the document and moves the key it rewrites to the end, so while these were two
     // different writers they swapped each other's entries around on every build and the checked-in
     // plist never stopped churning.
@@ -781,12 +781,12 @@ pub(crate) fn app_info_plist(project: &Project) -> Option<std::path::PathBuf> {
 /// Write the `NS…UsageDescription` keys for the app's declared permissions (docs/permissions.md).
 ///
 /// iOS reads these at prompt time, and an app that touches a gated API without the matching key is
-/// TERMINATED by TCC — so this is what stands between `[permissions]` in Day.toml and a crash on a
+/// terminated by TCC, so this is what stands between `[permissions]` in Day.toml and a crash on a
 /// device.
 ///
-/// The managed set is DERIVED from the declaration table plus the app's `[permissions.raw].ios`
+/// The managed set is derived from the declaration table plus the app's `[permissions.raw].ios`
 /// keys, never from a state file: on a fresh clone the table alone still knows which keys are Day's
-/// to write and to remove. A key outside that set — one a developer added by hand — is never
+/// to write and to remove. A key outside that set (one a developer added by hand) is never
 /// touched, which is the escape hatch for anything Day doesn't model yet.
 pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<(), String> {
     let Some(plist) = app_info_plist(project) else {
@@ -810,11 +810,11 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
     let after = crate::plist::apply_string_keys(&before, &want, &remove)
         .map_err(|e| format!("{}: {e}", plist.display()))?;
     if after != before {
-        // Touch only when changed — keeps Xcode's incremental build warm.
+        // Touch only when changed, which keeps Xcode's incremental build warm.
         std::fs::write(&plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
 
         // Apple's own parser gets the last word. macOS-only, so elsewhere this costs checking,
-        // not correctness — and on failure the original file is restored rather than left corrupt.
+        // not correctness; on failure the original file is restored rather than left corrupt.
         if cfg!(target_os = "macos")
             && let Ok(out) = Command::new("plutil").arg("-lint").arg(&plist).output()
             && !out.status.success()
@@ -842,8 +842,8 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
 /// The string catalog beside the plist: `InfoPlist.xcstrings`, where Xcode 15+ reads the
 /// localized values of `Info.plist` keys. Written from the same plan as the plist, every
 /// locale the catalogs translate, byte-stable across builds. A single-locale app that has no
-/// catalog file yet gets none — materializing one would dirty a tree the app never asked to
-/// localize — but a file that exists (every scaffold since 2026-09 ships one) is always kept
+/// catalog file yet gets none (materializing one would dirty a tree the app never asked to
+/// localize), but a file that exists (every scaffold since 2026-09 ships one) is always kept
 /// current, and the Xcode project is taught about it the first time it matters.
 pub(crate) fn sync_info_plist_strings(
     project: &Project,
@@ -868,7 +868,7 @@ pub(crate) fn sync_info_plist_strings(
 pub(crate) const INFO_PLIST_STRINGS: &str = "InfoPlist.xcstrings";
 
 /// Make sure the Xcode project copies `InfoPlist.xcstrings` into the bundle: a file reference,
-/// a build file, the Runner group child, and the Resources phase entry — the four lines a
+/// a build file, the Runner group child, and the Resources phase entry: the four lines a
 /// scaffold generated before 2026-09 lacks. Text insertion at the section anchors, like the
 /// other pbxproj edits (`knownRegions`, the strings phase); ids are fixed and checked free.
 pub(crate) fn ensure_info_plist_strings_reference(project: &Project) -> Result<(), String> {
@@ -950,14 +950,14 @@ pub(crate) fn ensure_info_plist_strings_reference(project: &Project) -> Result<(
 ///
 /// iPadOS 26 warns that "support for all orientations will soon be required": an iPad window is
 /// resizable and freely rotatable, so an app that pins orientations is refusing sizes the system
-/// will hand it anyway. Written only when the app declares no set of its own — a developer who
-/// pinned orientations deliberately keeps them — and only once, since it is a constant rather
-/// than a value derived from Day.toml.
+/// will hand it anyway. Written only when the app declares no set of its own (a developer who
+/// pinned orientations keeps them), and only once, since it is a constant rather than a value
+/// derived from Day.toml.
 ///
-/// The window MINIMUM deliberately does not come through here. It rides the generated xcconfig
+/// The window minimum does not come through here. It rides the generated xcconfig
 /// as `DAY_WINDOW_MIN_WIDTH`/`_HEIGHT`, which the checked-in plist references with `$(…)` the way
-/// it already references `$(DAY_URL_SCHEME)` — see `xcconfig::write_generated`. Writing a
-/// Day.toml-derived VALUE into this tracked file made every `[window]` edit dirty the working
+/// it already references `$(DAY_URL_SCHEME)`; see `xcconfig::write_generated`. Writing a
+/// Day.toml-derived value into this tracked file made every `[window]` edit dirty the working
 /// tree, and a build that dirties the tree is one CI will not pack from.
 pub(crate) fn sync_window_keys(project: &Project) -> Result<(), String> {
     let Some(plist) = app_info_plist(project) else {
@@ -981,7 +981,7 @@ pub(crate) fn sync_window_keys(project: &Project) -> Result<(), String> {
     };
 
     if after == before {
-        return Ok(()); // touch only when changed — keeps Xcode's incremental build warm
+        return Ok(()); // touch only when changed, which keeps Xcode's incremental build warm
     }
     std::fs::write(&plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
     Ok(())
@@ -998,7 +998,7 @@ pub(crate) struct InstalledProfile {
 pub(crate) struct InstalledStoreProfile {
     pub name: String,
     pub uuid: String,
-    /// SHA-1 fingerprint of the profile's first certificate — the `signingCertificate` an
+    /// SHA-1 fingerprint of the profile's first certificate: the `signingCertificate` an
     /// ExportOptions plist takes, which picks that one identity out of a keychain holding several.
     pub cert_sha1: String,
 }
@@ -1018,7 +1018,7 @@ pub(crate) fn installed_profile(app_id: &str) -> Option<InstalledProfile> {
 }
 
 /// The installed App Store profile whose app id matches `app_id`, with its signing certificate's
-/// fingerprint (`None` when the fingerprint cannot be read — the export then stays automatic).
+/// fingerprint (`None` when the fingerprint cannot be read; the export then stays automatic).
 pub(crate) fn installed_store_profile(app_id: &str) -> Option<InstalledStoreProfile> {
     let (path, text) = decoded_profiles(app_id)
         .into_iter()
@@ -1163,12 +1163,12 @@ pub(crate) fn ios_wants_push(project: &Project) -> Result<bool, String> {
 
 /// Everything the iOS build stages before xcodebuild runs.
 ///
-/// One function, three call sites (`build_ios`, and both `pack::ios` paths) — because they had
+/// One function, three call sites (`build_ios`, and both `pack::ios` paths), because they had
 /// already drifted: the signed-archive path never synced `UIAppFonts`, so a released `.ipa` could
 /// ship a stale font list.
 /// Returns the `IPHONEOS_DEPLOYMENT_TARGET` override (docs/swiftui.md): `Some(floor)` when a
 /// piece's `platform` metadata exceeds the scaffold pbxproj's checked-in value. Every xcodebuild
-/// invocation downstream must pass it — a command-line setting reaches the app AND the SwiftPM
+/// invocation downstream must pass it: a command-line setting reaches the app and the SwiftPM
 /// package targets, which is the only way to raise both without editing the scaffold.
 pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     // The xcconfig split (§17.4): migrate a pre-split scaffold once, then refresh the
@@ -1281,12 +1281,12 @@ pub fn build_ios_for(
             cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
         }
         if physical {
-            // Build UNSIGNED and sign the bundle ourselves below. Letting xcodebuild sign means
+            // Build unsigned and sign the bundle ourselves below. Letting xcodebuild sign means
             // choosing between two failures: `Automatic` mints its own "iOS Team Provisioning
             // Profile: *" wildcard, which carries neither this app's certificate nor its push
             // capability; `Manual` names our profile, but command-line settings reach every
             // target, and the SwiftPM package targets (Lottie, DayPieces) refuse a profile at all
-            // — "does not support provisioning profiles". Signing afterwards sidesteps both, and
+            // ("does not support provisioning profiles"). Signing afterwards sidesteps both, and
             // takes the identity and entitlements from the profile itself, so the three can't
             // disagree.
             cmd.arg("CODE_SIGNING_ALLOWED=NO")
@@ -1300,14 +1300,14 @@ pub fn build_ios_for(
     let mut out = xcodebuild()?;
     if !out.status.success() && is_stale_bundle_failure(&out) {
         // A SwiftPM package resource bundle landed in the wrong tree (stale/split build products).
-        // Clear this target's build tree and retry once from clean — self-heals the common case.
+        // Clear this target's build tree and retry once from clean; that heals the common case.
         status("Rebuilding", "ios-uikit (clearing stale build tree)");
         let _ = std::fs::remove_dir_all(&symroot);
         out = xcodebuild()?;
     }
     if !out.status.success() {
-        // A device build that fails IN the signing phase still leaves the assembled (unsigned)
-        // bundle behind, and xcodebuild treats it as up to date next time — so the retry that
+        // A device build that fails in the signing phase still leaves the assembled (unsigned)
+        // bundle behind, and xcodebuild treats it as up to date next time, so the retry that
         // would have worked silently produces an unsigned app instead. Drop the product.
         if physical {
             let _ = std::fs::remove_dir_all(symroot.join(format!("{configuration}-{sdk}")));
@@ -1474,7 +1474,7 @@ fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Re
 
 /// Whether `artifact` still has to be installed on the simulator `udid`: true the first time
 /// this process meets the pair, or when the artifact has been rebuilt since (its modification
-/// time moved). Everything else is a relaunch of what is already there — see the caller for
+/// time moved). Everything else is a relaunch of what is already there; see the caller for
 /// why a reinstall is not free.
 fn simulator_needs_install(udid: &str, artifact: &Path) -> bool {
     /// (simulator udid, artifact path, the artifact's modification time when installed).
@@ -1520,14 +1520,14 @@ pub(crate) fn booted_sims() -> Vec<String> {
 
 /// Resolve `--ios-simulator` (a UDID or a device name) against the booted simulators.
 ///
-/// Matching is deliberately restricted to BOOTED devices: a name that exists but is shut down is a
+/// Matching is restricted to booted devices: a name that exists but is shut down is a
 /// clearer error than silently booting something the caller did not ask for, and booting is the
 /// caller's decision (it takes tens of seconds and changes the state of their machine).
 fn select_sim(booted: &[String], want: &str) -> Result<Vec<String>, String> {
     if booted.iter().any(|u| u.eq_ignore_ascii_case(want)) {
         return Ok(vec![want.to_string()]);
     }
-    // Not a booted UDID — try it as a device name, which is what a human passes.
+    // Not a booted UDID; try it as a device name, which is what a human passes.
     let listing = Command::new("xcrun")
         .args(["simctl", "list", "devices", "booted"])
         .output()
@@ -1692,15 +1692,15 @@ fn launch_ios_device(
     }))
 }
 
-/// [`stream_logs_labeled`] with devicectl's own narration filtered out, so what reaches the
+/// [`stream_logs_labeled`] with devicectl's narration filtered out, so what reaches the
 /// terminal is the app's output under the same `[target]` prefix every other platform uses.
 /// devicectl interleaves its progress on the same stream as the app it launched, and those lines
 /// are about devicectl, not about the app.
 /// The argument vector for `xcrun devicectl device process launch`.
 ///
-/// Split out so the ORDER is testable: devicectl's grammar ends in a variadic
+/// Split out so the order is testable: devicectl's grammar ends in a variadic
 /// `[<command-line-arguments> ...]`, so every option must precede the bundle id. Placing them
-/// after handed `--console` and the whole environment to the app as argv instead — which is why a
+/// after handed `--console` and the whole environment to the app as argv instead, which is why a
 /// device launch printed nothing while the same app on a simulator streamed its logs fine.
 fn devicectl_launch_args(udid: &str, bundle_id: &str, spec: &LaunchSpec) -> Vec<String> {
     let mut args: Vec<String> = ["devicectl", "device", "process", "launch", "--device", udid]
@@ -1710,7 +1710,7 @@ fn devicectl_launch_args(udid: &str, bundle_id: &str, spec: &LaunchSpec) -> Vec<
     if spec.attached {
         // Streams the app's own stdout/stderr back, the way `simctl launch --console` does.
         args.push("--console".into());
-        // `--console` connects the standard streams only when the app is NOT already running, so
+        // `--console` connects the standard streams only when the app is not already running, so
         // relaunching a live app would come back silent. The simulator path terminates first for
         // exactly this reason.
         args.push("--terminate-existing".into());
@@ -1742,7 +1742,7 @@ fn stream_devicectl(
         let mut failure: Vec<String> = Vec::new();
         for line in BufReader::new(src).lines().map_while(Result::ok) {
             let t = line.trim().to_string();
-            // devicectl reports a failed launch as a nested tree of error domains — a dozen lines
+            // devicectl reports a failed launch as a nested tree of error domains, a dozen lines
             // whose useful content is one sentence. Buffer from the first ERROR: to the end of the
             // stream (devicectl exits after it) and summarize once, rather than relaying the tree.
             if !failure.is_empty() || t.starts_with("ERROR:") {
@@ -1815,7 +1815,7 @@ pub fn launch_ios(
         Some(want) => select_sim(&sims, want)?,
         None => sims,
     };
-    // Remember the RESOLVED udid while we have it: the screenshot path runs later with no spec in
+    // Remember the resolved udid while we have it: the screenshot path runs later with no spec in
     // hand, and used to photograph whichever simulator booted first (crate::ops::selected_*).
     if let [only] = sims.as_slice() {
         crate::ops::remember_ios_simulator(only.clone());
@@ -1825,13 +1825,13 @@ pub fn launch_ios(
     for udid in &sims {
         // Install once per artifact per simulator for the life of this process. The capture
         // matrix launches one build several times over, and `simctl install` of an app that is
-        // already installed migrates its data container — which rereads NSUserDefaults from
-        // DISK and drops whatever cfprefsd had not written out yet. `synchronize` does not make
+        // already installed migrates its data container, which rereads NSUserDefaults from
+        // disk and drops whatever cfprefsd had not written out yet. `synchronize` does not make
         // the daemon write on the simulator (measured: three chip-mode writes in a scripted
         // run, the plist held the first; a relaunch without reinstall showed the last, and only
         // then did the plist follow). So a setting written late in one variant was gone by the
-        // next — Day-Trader's iOS matrix, where the symbol one run removed was back for the
-        // next. A plain terminate + launch keeps the container and the daemon's cache, and the
+        // next (Day-Trader's iOS matrix, where the symbol one run removed was back for the
+        // next). A plain terminate + launch keeps the container and the daemon's cache, and the
         // app reads what it last wrote.
         if simulator_needs_install(udid, &outcome.artifact) {
             run_logged_within(
@@ -1928,7 +1928,7 @@ fn stream_logs_labeled(
 }
 
 // ---------------------------------------------------------------------------
-// android-mdc (gradle + adb) — scaffold lands next; see gradle_backend_build
+// android-mdc (gradle + adb): scaffold lands next; see gradle_backend_build
 // ---------------------------------------------------------------------------
 
 pub fn gradle_backend_build() -> Result<(), CliError> {
@@ -1953,7 +1953,7 @@ pub fn gradle_backend_build() -> Result<(), CliError> {
     build_android_so(&project, profile, &out, &android_build_abis()).map_err(CliError::build)
 }
 
-/// A connected Android device or emulator, with the ABI it actually runs (queried, not guessed —
+/// A connected Android device or emulator, with the ABI it runs (queried, not guessed:
 /// an emulator matches the host arch, a phone is usually arm64, so we ask each one).
 pub(crate) struct AndroidDevice {
     pub serial: String,
@@ -2129,12 +2129,12 @@ pub(crate) fn clear_system_dialogs(serial: &str) {
 
 /// Every device in `adb devices` in the `device` state, paired with its primary ABI
 /// (`ro.product.cpu.abi`). `DAY_ANDROID_ABI`, when set, overrides the queried ABI for every device
-/// (CI's KVM emulator leg pins `x86_64`); when it holds a LIST, the first entry is the per-device
-/// override (a device runs one primary ABI — the full list matters to [`android_build_abis`]).
+/// (CI's KVM emulator leg pins `x86_64`); when it holds a list, the first entry is the per-device
+/// override (a device runs one primary ABI; the full list matters to [`android_build_abis`]).
 /// Empty when nothing is connected.
 ///
-/// `--android-device`, else `ANDROID_SERIAL` (adb's own device-selection variable), narrows the
-/// list to that one device — so launches, installs, and dayscript sessions target it exclusively
+/// `--android-device`, else `ANDROID_SERIAL` (adb's device-selection variable), narrows the
+/// list to that one device, so launches, installs, and dayscript sessions target it exclusively
 /// when several are attached (the default remains all connected devices).
 pub(crate) fn android_devices() -> Vec<AndroidDevice> {
     // Narrowed to the device this run launched on, when it named one: the callers that take no
@@ -2191,11 +2191,11 @@ pub(crate) fn android_devices_for(want: Option<&str>) -> Vec<AndroidDevice> {
 }
 
 /// The set of ABIs to build for. `DAY_ANDROID_ABI`, when set to a non-empty list, is
-/// **authoritative**: exactly those ABIs are built, regardless of any connected device — so a
+/// **authoritative**: exactly those ABIs are built, regardless of any connected device, so a
 /// distribution `day pack` carries `lib/<abi>/` for every listed ABI (`arm64-v8a,x86_64`) even
 /// while an emulator is attached (each ABI needs its rustup target, e.g.
 /// `rustup target add x86_64-linux-android`). Otherwise the ABIs are the distinct ABIs of the
-/// connected devices, or — with nothing connected (e.g. `day build` before the emulator boots) —
+/// connected devices, or, with nothing connected (e.g. `day build` before the emulator boots),
 /// the `arm64-v8a` default, so packaging still succeeds.
 pub(crate) fn android_build_abis() -> Vec<String> {
     // An explicit `DAY_ANDROID_ABI` wins over device detection: setting it produces exactly that
@@ -2284,11 +2284,11 @@ fn build_android_so(
     run_logged(&mut cmd, "cargo ndk")?;
 
     // Drop any other `lib*.so` left in the ABI directories. Gradle packages this tree whole, so
-    // a library from a previous name — the app's, before a rename or before its `[lib] name` was
-    // pinned to `dayapp` — would keep riding along in every APK, ten megabytes of a library
+    // a library from a previous name (the app's, before a rename or before its `[lib] name` was
+    // pinned to `dayapp`) would keep riding along in every APK, ten megabytes of a library
     // nothing loads. Only same-named files are replaced by the build; the rest need clearing.
     //
-    // Pruning by NAME rather than emptying the directory: an app built against an arm64 phone
+    // Pruning by name rather than emptying the directory: an app built against an arm64 phone
     // and an x86 emulator accumulates one ABI per run, and those must survive each other.
     let built = format!("lib{}.so", project.lib_name());
     for abi in abis {
@@ -2337,7 +2337,7 @@ pub fn build_android(
     profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
-    // 1) Rust .so, one per connected device's ABI (so an app built with an arm64 phone AND an
+    // 1) Rust .so, one per connected device's ABI (so an app built with an arm64 phone and an
     //    x86_64 emulator attached carries both). Also invoked by gradle's callback; building here
     //    keeps `day build` primary.
     let jni_out = project.root.join("build/day/jniLibs");
@@ -2353,7 +2353,7 @@ pub fn build_android(
     crate::pack::android::write_app_properties(project)?;
 
     // 2) Discover standalone-piece Android contributions (own Java / Gradle deps) and stage them
-    //    for the Gradle build to pick up — a piece ships its backend without editing Day.
+    //    for the Gradle build to pick up; a piece ships its backend without editing Day.
     crate::pieces::write_android_manifest(project)?;
 
     // 3) Gradle assemble.
@@ -2410,7 +2410,7 @@ pub fn build_android(
         .root
         .join("platform/android/app/build/outputs/apk")
         .join(profile.as_str());
-    // An unsigned release build is emitted as `app-release-unsigned.apk` — fall back to whatever
+    // An unsigned release build is emitted as `app-release-unsigned.apk`; fall back to whatever
     // single .apk the build produced rather than assuming the signed name.
     let conventional = apk_dir.join(apk_name);
     let apk = if conventional.exists() {
@@ -2468,7 +2468,7 @@ pub fn launch_android(
             &format!("adb install ({})", dev.serial),
             INSTALL_TIMEOUT,
         )?;
-        // A still-running instance would just be foregrounded by `am start` — keeping the old
+        // A still-running instance would just be foregrounded by `am start`, keeping the old
         // run's engine port, theme, and locale (its views were created under the previous
         // configuration). Force-stop first so every launch is a fresh process reading this run's
         // extras, mirroring the OHOS launcher.
@@ -2482,9 +2482,9 @@ pub fn launch_android(
         clear_system_dialogs(&dev.serial);
         // DAY_THEME must be in effect before the activity inflates: the manifest handles the
         // uiMode config change itself (no recreation), so an in-app UiModeManager flip leaves the
-        // already-resolved window theme in the old scheme. Setting the DEVICE night mode first —
-        // exactly what the system dark-mode toggle does — lets Material DayNight resolve the whole
-        // theme coherently from the first frame.
+        // already-resolved window theme in the old scheme. Setting the device night mode first
+        // (exactly what the system dark-mode toggle does) lets Material DayNight resolve the
+        // whole theme coherently from the first frame.
         if let Some(theme) = spec
             .envs
             .iter()
@@ -2500,7 +2500,7 @@ pub fn launch_android(
                 // Only set on an actual change, and give the system a moment to finish: the
                 // config-change ripple is asynchronous, so an immediate `am start` can still
                 // inflate the window under the old mode (views built moments later then resolve
-                // in the new one — a half-themed screen).
+                // in the new one: a half-themed screen).
                 let cur = adb(Some(&dev.serial))
                     .args(["shell", "cmd", "uimode", "night"])
                     .output()
@@ -2517,7 +2517,7 @@ pub fn launch_android(
                 }
             }
         }
-        // adb shell joins args into one device-shell command line — extras must be shell-quoted.
+        // adb shell joins args into one device-shell command line, so extras must be shell-quoted.
         let mut cmd = adb(Some(&dev.serial));
         cmd.args([
             "shell",
@@ -2547,11 +2547,11 @@ pub fn launch_android(
             LAUNCH_TIMEOUT,
         )?;
         if spec.attached {
-            // Ctrl-C must take the app on the DEVICE down with it, the way it takes a desktop
+            // Ctrl-C must take the app on the device down with it, the way it takes a desktop
             // app down. Nothing else can: the app is not a child of this process, so the signal
             // handler's pid kills reach only the log pump.
             //
-            // ATTACHED only. `--detach` means `day` exits and the app carries on, so registering
+            // Attached only. `--detach` means `day` exits and the app carries on, so registering
             // a stop there would be arming a teardown against the very thing the flag asks for.
             crate::signals::register_remote_stop(
                 [
@@ -2594,11 +2594,11 @@ pub fn launch_android(
 /// stdout/stderr into logcat under tag `Day`). `-v tag` prefixes each line with `<prio>/Day:`;
 /// map the priority to a stream (I→stdout/blue, E/W/F→stderr/yellow) and re-prefix with `label`.
 ///
-/// Both spellings of the tag are allowed through, and that is not belt-and-braces: **logcat tag
-/// filters are case-sensitive**. day-android logged under `day` until it was renamed `Day` for
-/// branding, and this filter kept asking for `day` — which silenced every app line on Android
-/// while every other platform kept streaming. Accepting both means neither a stale installed app
-/// nor another rename can take the console away again.
+/// Both spellings of the tag are allowed through because logcat tag filters are case-sensitive.
+/// day-android logged under `day` until it was renamed `Day` for branding, and this filter kept
+/// asking for `day`, which silenced every app line on Android while every other platform kept
+/// streaming. Accepting both means neither a stale installed app nor another rename can take the
+/// console away again.
 fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::JoinHandle<i32> {
     std::thread::spawn(move || {
         let pid = (0..20)
@@ -2671,7 +2671,7 @@ mod abi_tests {
     ///
     /// devicectl's usage ends in `[<command-line-arguments> ...]`, so the first positional closes
     /// the option list and everything after it becomes argv for the app. That silently swallowed
-    /// `--console` — the app launched, devicectl returned immediately, and a device run printed
+    /// `--console`: the app launched, devicectl returned immediately, and a device run printed
     /// nothing while the same app on a simulator streamed normally.
     #[test]
     fn devicectl_options_precede_the_bundle_id() {
@@ -2710,7 +2710,7 @@ mod abi_tests {
             assert!(at < bundle, "{opt} must precede the bundle id: {args:?}");
         }
 
-        // One dictionary carrying every variable — a repeated option would keep only the last.
+        // One dictionary carrying every variable; a repeated option would keep only the last.
         assert_eq!(
             args.iter()
                 .filter(|a| *a == "--environment-variables")

@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-permissions — a HEADLESS portable API for the OS PERMISSION system. No UI; any Rust
+//! day-part-permissions: a headless portable API for the OS permission system. No UI; any Rust
 //! code can depend on this crate to ask what the OS will do, and to ask the OS itself.
 //!
 //! ```no_run
@@ -23,8 +23,8 @@
 //!
 //! [`gate`] answers *"does this target gate the capability at all?"* and [`status`] answers *"what
 //! will the OS do if I use it now?"*. Keeping them apart is what lets desktop Linux answer
-//! [`Status::Granted`] for the camera — nothing stands in your way, so proceed, and let the real
-//! failure surface at `open("/dev/video0")` — without losing the structural fact that Linux has no
+//! [`Status::Granted`] for the camera (nothing stands in your way, so proceed, and let the real
+//! failure surface at `open("/dev/video0")`) without losing the structural fact that Linux has no
 //! permission system ([`Gate::Ungated`]).
 //!
 //! # Declare before you ask
@@ -44,11 +44,11 @@
 //!
 //! # Threading and cancellation
 //!
-//! [`request`]'s completion runs on an unspecified thread — possibly the UI thread (Android's
-//! `onRequestPermissionsResult`, the browser's only thread) — so deliver results with a
+//! [`request`]'s completion runs on an unspecified thread, possibly the UI thread (Android's
+//! `onRequestPermissionsResult`, the browser's only thread), so deliver results with a
 //! `day_reactive::Setter`, the way `day-part-http` does. There is no blocking `request`: the OS
 //! prompt is drawn by the very thread a blocking call would park, so it would deadlock by
-//! construction. And dropping a [`StatusFuture`] does not take the prompt off the screen — no
+//! construction. And dropping a [`StatusFuture`] does not take the prompt off the screen; no
 //! platform can do that. See [`StatusFuture`].
 
 use std::collections::HashMap;
@@ -59,7 +59,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 ///
 /// The seven portable variants exist on iOS, Android and HarmonyOS; the per-platform tables in
 /// docs/permissions.md say what each means everywhere else. For anything outside this set, use the
-/// `Permission`-typed constants in the [`android`], [`ohos`], [`apple`] and [`web`] modules — each
+/// `Permission`-typed constants in the [`android`], [`ohos`], [`apple`] and [`web`] modules; each
 /// is `#[cfg]`-gated to its platform, so a non-portable name is a compile error off it.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -70,7 +70,7 @@ pub enum Permission {
     /// the precise/approximate dialog; HarmonyOS `APPROXIMATELY_LOCATION` + `LOCATION` (the platform
     /// rejects `LOCATION` alone); the web's `navigator.geolocation`.
     Location,
-    /// Location while the app is BACKGROUNDED. Never request it first — every platform requires
+    /// Location while the app is backgrounded. Never request it first: every platform requires
     /// foreground location to be granted already, and on Android 11+ it cannot be granted from an
     /// in-app dialog at all, so [`can_prompt`] is `false` there and [`open_settings`] is the only
     /// path. Apple `requestAlwaysAuthorization`; Android `ACCESS_BACKGROUND_LOCATION`; HarmonyOS
@@ -86,20 +86,20 @@ pub enum Permission {
     /// `Info.plist` key); Android `POST_NOTIFICATIONS` on API 33+, and `areNotificationsEnabled()`
     /// below it; the web's `Notification.requestPermission()`.
     Notifications,
-    /// The photo library. Apple `PHPhotoLibrary` (its `Limited` tier reports [`Status::Granted`] —
+    /// The photo library. Apple `PHPhotoLibrary` (its `Limited` tier reports [`Status::Granted`]:
     /// the user chose *some* photos, which is access); Android `READ_MEDIA_IMAGES` +
     /// `READ_MEDIA_VIDEO` on API 33+, else `READ_EXTERNAL_STORAGE`. HarmonyOS reaches photos
     /// through a picker that needs no permission ([`Gate::Ungated`]), and the web has no library
-    /// concept at all ([`Gate::Absent`]) — use a file picker.
+    /// concept at all ([`Gate::Absent`]); use a file picker.
     Photos,
     /// Motion and fitness activity. This is not raw accelerometer/gyroscope access, which needs no
-    /// permission on iOS or Android (docs/sensors.md) — it gates step counts and activity
+    /// permission on iOS or Android (docs/sensors.md); it gates step counts and activity
     /// classification. iOS `CMMotionActivityManager` (`NSMotionUsageDescription`); Android
     /// `ACTIVITY_RECOGNITION` on API 29+; HarmonyOS `ACTIVITY_MOTION`. On the web this is the one
     /// that gates raw motion: iOS Safari's `DeviceMotionEvent.requestPermission()`. macOS has no
     /// CoreMotion ([`Gate::Absent`]).
     Motion,
-    /// A permission named the way its platform names it — the escape hatch for anything the
+    /// A permission named the way its platform names it: the escape hatch for anything the
     /// portable set doesn't cover. The string is the native id on Android
     /// (`"android.permission.BLUETOOTH_CONNECT"`) and HarmonyOS, a Permissions-API name on the web
     /// (`"clipboard-read"`), and a crate-defined `"apple.*"` id on Apple platforms, which have no
@@ -109,7 +109,7 @@ pub enum Permission {
 }
 
 impl Permission {
-    /// A stable ASCII id — `"location"`, `"camera"`, … or the raw string. Locale-independent, so it
+    /// A stable ASCII id: `"location"`, `"camera"`, … or the raw string. Locale-independent, so it
     /// is safe to assert on in dayscript and to write to logs.
     pub fn as_str(self) -> &'static str {
         match self {
@@ -131,14 +131,14 @@ impl std::fmt::Display for Permission {
     }
 }
 
-/// Whether the compiled target gates a capability at all — the structural question, asked
+/// Whether the compiled target gates a capability at all: the structural question, asked
 /// separately from [`status`] so that "no gate here" never has to masquerade as a denial.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Gate {
     /// The OS keeps a consent record and can put a prompt on screen. [`status`] may report any of
     /// [`Status::Granted`], [`Status::Denied`], [`Status::Prompt`] or [`Status::Restricted`].
     Prompts,
-    /// The capability exists and nothing gates it — desktop Linux and Windows have no consent
+    /// The capability exists and nothing gates it; desktop Linux and Windows have no consent
     /// database. [`status`] always reports [`Status::Granted`] and [`request`] resolves without a
     /// prompt.
     Ungated,
@@ -168,7 +168,7 @@ impl std::fmt::Display for Gate {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status {
-    /// Go ahead. Not a promise that the hardware exists — a laptop with no camera still answers
+    /// Go ahead. Not a promise that the hardware exists: a laptop with no camera still answers
     /// `Granted`, because no permission stands in the way. Ask the capability's own part (e.g.
     /// `day_part_sensors::is_available`) about hardware.
     Granted,
@@ -176,19 +176,19 @@ pub enum Status {
     /// can (send them to [`open_settings`]); on Android it depends on whether they checked
     /// "don't ask again".
     Denied,
-    /// Nobody has decided yet — [`request`] will put a prompt on screen. The platforms spell this
-    /// `notDetermined` (Apple), `'prompt'` (web), or simply "not granted and never asked".
+    /// Nobody has decided yet; [`request`] will put a prompt on screen. The platforms spell this
+    /// `notDetermined` (Apple), `'prompt'` (web), or "not granted and never asked".
     Prompt,
     /// Policy forbids it and the user cannot change that: iOS `restricted` (Screen Time, MDM,
-    /// supervised devices), or a permission missing from the app's merged manifest on Android —
-    /// a request there returns denied in the same frame and Settings has nothing to offer.
+    /// supervised devices), or a permission missing from the app's merged manifest on Android.
+    /// A request there returns denied in the same frame and Settings has nothing to offer.
     Restricted,
     /// This target has no such capability ([`Gate::Absent`]).
     Unsupported,
     /// Not known yet. Only two situations produce it, and only from the synchronous [`status`]:
     /// the web, where `navigator.permissions.query()` is asynchronous, and Apple `Notifications`,
     /// whose settings have no synchronous accessor. Both prime a cache on first use, so this is
-    /// a first-call state rather than a lasting one — and [`status_future`] never returns it.
+    /// a first-call state rather than a lasting one, and [`status_future`] never returns it.
     Unknown,
 }
 
@@ -199,7 +199,7 @@ impl Status {
     }
 
     /// A short display label (`"granted"`, `"denied"`, `"prompt"`, `"restricted"`,
-    /// `"unsupported"`, `"unknown"`). Locale-independent — safe to assert on in dayscript.
+    /// `"unsupported"`, `"unknown"`). Locale-independent, so safe to assert on in dayscript.
     pub fn label(self) -> &'static str {
         match self {
             Status::Granted => "granted",
@@ -237,7 +237,7 @@ pub fn status(perm: Permission) -> Status {
     imp::status(perm)
 }
 
-/// [`status`], but always authoritative — it waits for the platform's own answer where that is
+/// [`status`], but always authoritative: it waits for the platform's answer where that is
 /// asynchronous, so it never yields [`Status::Unknown`].
 ///
 /// `on_done` may run before this returns: on the platforms with a synchronous answer there is
@@ -246,7 +246,7 @@ pub fn status_async(perm: Permission, on_done: impl FnOnce(Status) + Send + 'sta
     imp::status_async(perm, Box::new(on_done));
 }
 
-/// [`status_async`] as a `Future`. Plain oneshot plumbing over the same completion — any executor
+/// [`status_async`] as a `Future`. Plain oneshot plumbing over the same completion; any executor
 /// can await it, including a test's `block_on`.
 pub fn status_future(perm: Permission) -> StatusFuture {
     let shared = new_state();
@@ -259,13 +259,13 @@ pub fn status_future(perm: Permission) -> StatusFuture {
 }
 
 /// Whether calling [`request`] would actually put a prompt on screen right now. When this is
-/// `false` the answer is already final for this launch — draw an "open Settings" path
+/// `false` the answer is already final for this launch, so draw an "open Settings" path
 /// ([`open_settings`]) rather than a "grant access" button.
 pub fn can_prompt(perm: Permission) -> bool {
     imp::can_prompt(perm)
 }
 
-/// Whether the user has already refused once and a further prompt is still possible — the
+/// Whether the user has already refused once and a further prompt is still possible: the
 /// platform's signal that an explanation should come first. This is Android's
 /// `shouldShowRequestPermissionRationale`; every other platform answers `false`, because Apple
 /// never re-prompts and the web has no equivalent.
@@ -283,9 +283,9 @@ pub fn should_show_rationale(perm: Permission) -> bool {
 /// Ask the OS for `perm`, showing the system prompt when [`can_prompt`] says one would appear and
 /// resolving immediately with the current status when it would not.
 ///
-/// `on_done` runs on an unspecified thread — possibly the UI thread — so capture a
-/// `day_reactive::Setter` to deliver into UI state. There is deliberately no blocking form: every
-/// platform draws the prompt on the thread a blocking call would park.
+/// `on_done` runs on an unspecified thread, possibly the UI thread, so capture a
+/// `day_reactive::Setter` to deliver into UI state. There is no blocking form: every platform
+/// draws the prompt on the thread a blocking call would park.
 ///
 /// Concurrent requests for the same permission coalesce: the second caller joins the first, one
 /// prompt appears, and both callbacks receive the same answer.
@@ -310,7 +310,7 @@ pub fn request_future(perm: Permission) -> StatusFuture {
 }
 
 /// Ask for several permissions in one prompt sequence where the platform batches them (Android
-/// submits a single array; elsewhere they are chained). Answers are positional — `out[i]` is the
+/// submits a single array; elsewhere they are chained). Answers are positional: `out[i]` is the
 /// status of `perms[i]`.
 pub fn request_many(perms: &[Permission], on_done: impl FnOnce(Vec<Status>) + Send + 'static) {
     let perms = perms.to_vec();
@@ -378,9 +378,9 @@ type ManyCb = Box<dyn FnOnce(Vec<Status>) + Send>;
 /// In-flight requests, keyed by permission: a second caller joins the first rather than putting a
 /// second prompt on screen (which Android answers with an empty grant array and the web answers
 /// with a duplicate dialog). The crate owns this table itself, the way `day-part-http` owns its
-/// cancel-token table — a part cannot use day-core's `present()` rail.
+/// cancel-token table; a part cannot use day-core's `present()` rail.
 ///
-/// LEAF LOCK: no platform call and no user callback ever runs while it is held.
+/// This is a leaf lock: no platform call and no user callback ever runs while it is held.
 fn inflight() -> &'static Mutex<HashMap<Permission, Vec<Cb>>> {
     static INFLIGHT: std::sync::OnceLock<Mutex<HashMap<Permission, Vec<Cb>>>> =
         std::sync::OnceLock::new();
@@ -434,11 +434,11 @@ fn resolve(perm: Permission, s: Status) {
 
 /// Shared state between a future and the completion that resolves it.
 ///
-/// Locking protocol (the mutex is a LEAF lock — no platform or user code runs under it):
+/// Locking protocol (the mutex is a leaf lock; no platform or user code runs under it):
 /// - `poll` checks the answer and stores the waker under one acquisition, closing the lost-wakeup
 ///   race a check-then-store would open.
-/// - the completion stores the answer, takes the waker, UNLOCKS, then wakes — an inline waker
-///   (as in tests) re-polls synchronously, which re-takes the lock.
+/// - the completion stores the answer, takes the waker, unlocks, then wakes, because an inline
+///   waker (as in tests) re-polls synchronously, which re-takes the lock.
 struct AnswerState<T> {
     answer: Option<T>,
     waker: Option<std::task::Waker>,
@@ -479,8 +479,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// A pending permission answer, from [`status_future`] or [`request_future`].
 ///
-/// Dropping one stops you listening. It does not dismiss a prompt that is already on screen — no
-/// platform offers that — so the user's answer is still recorded and the next [`status`] reflects
+/// Dropping one stops you listening. It does not dismiss a prompt that is already on screen (no
+/// platform offers that), so the user's answer is still recorded and the next [`status`] reflects
 /// it. Aborting a `day::task` that awaits one therefore leaves the dialog up.
 pub struct StatusFuture {
     shared: Arc<Mutex<AnswerState<Status>>>,
@@ -546,12 +546,12 @@ impl Drop for StatusesFuture {
 }
 
 // ---------------------------------------------------------------------------
-// Shared logic — compiled on every target and unit-tested on any host, so the decisions most
+// Shared logic: compiled on every target and unit-tested on any host, so the decisions most
 // likely to be wrong are covered even though parts are not in the workspace's default-members.
 //
 // `allow(dead_code)`: each helper is called by one platform's arm (`classify_android` by Android,
 // `from_web_state` by the web, `merge` by the two with one-to-many permission fan-out), so it looks
-// unused on every other target. Keeping them here — rather than in the arms — is what makes them
+// unused on every other target. Keeping them here rather than in the arms is what makes them
 // testable on a host that can't compile those arms at all.
 // ---------------------------------------------------------------------------
 
@@ -584,8 +584,8 @@ pub(crate) fn merge(a: Status, b: Status) -> Status {
 ///
 /// Day keeps no "already asked" state, so a denied-but-declared permission with no rationale flag
 /// is reported as [`Status::Prompt`] whether the user has never been asked or has permanently
-/// refused. That is safe — asking after a permanent refusal shows no dialog and resolves `Denied`
-/// immediately — and an app that needs the distinction should record it when it calls
+/// refused. That is safe (asking after a permanent refusal shows no dialog and resolves `Denied`
+/// immediately), and an app that needs the distinction should record it when it calls
 /// [`request`] (docs/permissions.md shows the three-line `day-part-prefs` recipe).
 #[allow(dead_code)]
 pub(crate) fn classify_android(granted: bool, declared: bool, rationale: bool) -> Status {
@@ -654,8 +654,8 @@ mod imp;
 #[path = "web.rs"]
 mod imp;
 
-// Any other platform: no permission system, and no capability either — the honest answer is that
-// nothing here is known to work.
+// Any other platform: no permission system, and no capability either; nothing here is known to
+// work.
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
@@ -737,8 +737,8 @@ pub mod ohos {
 
 /// Apple authorizations beyond the portable set.
 ///
-/// Apple has no permission *strings* — each of these is a per-framework authorization API — so
-/// these ids are this crate's own namespace, recognized by its Apple implementation.
+/// Apple has no permission *strings* (each of these is a per-framework authorization API), so
+/// these ids are this crate's namespace, recognized by its Apple implementation.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod apple {
     use super::Permission;
@@ -784,8 +784,8 @@ mod tests {
         Permission::Motion,
     ];
 
-    /// Probing must never panic, whatever the host is — CI runners have no sensors, no camera
-    /// entitlement, and often no window server.
+    /// Probing must never panic, whatever the host is: CI runners lack sensors, a camera
+    /// entitlement, and often a window server.
     #[test]
     fn probing_never_panics() {
         for p in PORTABLE

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// UIKit: UISearchTextField (iOS 13+) — a UITextField subclass with the search field's rounded
+// UIKit: UISearchTextField (iOS 13+), a UITextField subclass with the search field's rounded
 // background + magnifier + clear button. A per-node target fires on UIControlEvents::EditingChanged
 // and dispatches Event::TextChanged; programmatic setText does not fire EditingChanged, so no echo
 // guard is needed here (update only writes when the value actually differs).
@@ -102,8 +102,8 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
 
 /// Drop the retained target when the view goes away.
 ///
-/// Without this the map grows by one entry per realized search field, and — worse — its key is
-/// the view's ADDRESS, which the allocator reuses: a later view landing on a freed address would
+/// Without this the map grows by one entry per realized search field, and, worse, its key is
+/// the view's address, which the allocator reuses: a later view landing on a freed address would
 /// inherit the dead node's target and misroute its events.
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     TARGETS.with(|m| {
@@ -116,7 +116,7 @@ day_pieces::renderer!(day_uikit::RENDERERS, Uikit,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure, release: release);
 
-/// Non-generic anchor for the linker — called by `SearchField::build` (see lib.rs). Without a
+/// Non-generic anchor for the linker, called by `SearchField::build` (see lib.rs). Without a
 /// caller this module's object is never pulled out of the rlib, and the `renderer!` registration
 /// above never reaches the binary.
 pub(crate) fn anchor() {}

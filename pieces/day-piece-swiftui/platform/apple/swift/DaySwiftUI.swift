@@ -1,14 +1,14 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-swiftui — the Swift half (docs/swiftui.md). Staged by `day build` into the generated
+// day-piece-swiftui: the Swift half (docs/swiftui.md). Staged by `day build` into the generated
 // DayPieces package on both Apple legs (`#if os(...)` selects the host toolkit), alongside any
 // generated provider glue and the app's own Swift sources.
 //
-// The naming contract is deliberately platform-neutral: a provider is an @objc class named
+// The naming contract is platform-neutral: a provider is an @objc class named
 // `DayView_<name>` (dots in the Rust-side name become underscores), resolved here with
-// NSClassFromString — the same string contract a future Jetpack Compose leg can satisfy with
-// Class.forName. No registration call, no startup scan.
+// NSClassFromString, the same string contract a future Jetpack Compose leg can satisfy with
+// Class.forName. There is no registration call and no startup scan.
 
 import SwiftUI
 #if os(macOS)
@@ -32,7 +32,7 @@ open class DaySwiftUIProvider: NSObject {
 
 /// Support surface shared by the shim and the generated provider glue.
 public enum DaySwiftUI {
-    /// The visible stand-in when a provider class is missing or its params fail to decode —
+    /// The visible stand-in when a provider class is missing or its params fail to decode:
     /// a hosted error marker rather than a crash or a blank, mirroring Day's placeholder leaves.
     public static func errorView(_ name: String) -> AnyView {
         AnyView(Text("⟨\(name)?⟩").foregroundColor(.red).padding(4))
@@ -40,7 +40,7 @@ public enum DaySwiftUI {
 }
 
 // Associated-object keys: the provider (both platforms) and, on iOS, the UIHostingController that
-// owns the returned view — dropping the controller would tear the view down under Day's feet.
+// owns the returned view; dropping the controller would tear the view down under Day's feet.
 private var dayProviderKey: UInt8 = 0
 #if !os(macOS)
 private var dayControllerKey: UInt8 = 0
@@ -82,7 +82,7 @@ private final class DayMissingProvider: DaySwiftUIProvider {
 }
 
 /// Create (or, under a state key, revive) the hosting view for `name` (nullable `params` JSON)
-/// and return it as a +1-retained pointer — the Rust caller takes ownership (wraps it as
+/// and return it as a +1-retained pointer; the Rust caller takes ownership (wraps it as
 /// `Retained<NSView/UIView>`).
 @_cdecl("day_swiftui_make")
 public func day_swiftui_make(
@@ -94,8 +94,8 @@ public func day_swiftui_make(
     let params = paramsPtr.map { String(cString: $0) }
     let stateKey = stateKeyPtr.map { String(cString: $0) }
 
-    // A retained view from a prior mount: hand back the same instance — its SwiftUI state graph is
-    // intact — with this mount's params applied through its provider (locale switches and other
+    // A retained view from a prior mount: hand back the same instance (its SwiftUI state graph is
+    // intact) with this mount's params applied through its provider (locale switches and other
     // data changes that happened while unmounted land here). Defensively unparent it: Day removed
     // it on release, but a stale superview (or a misuse mounting one key twice) must not wedge the
     // insert.

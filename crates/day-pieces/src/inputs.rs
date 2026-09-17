@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Native input pieces: `picker` (a bound one-of-N selector — menu, segmented, or inline) and
+//! Native input pieces: `picker` (a bound one-of-N selector: menu, segmented, or inline) and
 //! `text_area` (a multi-line, auto-growing editor bound two-way to a `Signal<String>`).
 
 use std::cell::RefCell;
@@ -14,7 +14,7 @@ use day_spec::{Event, kinds};
 use crate::*;
 
 // ---------------------------------------------------------------------------
-// Picker (kinds::PICKER, docs/picker.md) — built-in since 2026-07.
+// Picker (kinds::PICKER, docs/picker.md), built-in since 2026-07.
 // ---------------------------------------------------------------------------
 
 /// A native picker bound two-way to `selected`. Style via `.menu()`/`.segmented()`/`.inline()`.
@@ -25,7 +25,7 @@ pub struct Picker<Sel: Binding<usize>> {
     style: day_spec::props::PickerStyle,
 }
 
-/// `picker(["A", "B", "C"], choice).segmented()` — options are fixed, `selected` is the bound
+/// `picker(["A", "B", "C"], choice).segmented()`: options are fixed, `selected` is the bound
 /// index: a `Signal<usize>`, or any other two-way binding (a day-model `Field`, a `Mapped` view).
 pub fn picker<S: Into<String>, Sel: Binding<usize>>(
     options: impl IntoIterator<Item = S>,
@@ -56,14 +56,14 @@ impl<Sel: Binding<usize>> Picker<Sel> {
         self.style = style;
         self
     }
-    /// Recompute the option labels reactively — for choices that come from data (the open
+    /// Recompute the option labels reactively, for choices that come from data (the open
     /// documents, a live count) rather than from a fixed list. The labels passed to
     /// [`picker`] seed the control; every later change patches the native items in place,
     /// keeping the selected index where it still exists.
     ///
-    /// The COUNT may change too, so a shrinking list can strand the app's `selected`
+    /// The count may change too, so a shrinking list can strand the app's `selected`
     /// binding past the end; the backend clamps its own selection, and the app is expected
-    /// to write a valid index. Reach for this only when the options really do change —
+    /// to write a valid index. Reach for this only when the options really do change, since
     /// rebuilding a native menu costs more than moving a mark.
     pub fn options_reactive(mut self, f: impl Fn() -> Vec<String> + 'static) -> Self {
         self.reactive_options = Some(Rc::new(f));
@@ -86,7 +86,7 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
         };
         let node = cx.leaf(kinds::PICKER, &initial, Flex::default());
         // Data-driven labels: patch the native items whenever they change. Always a
-        // remeasure — the option strings are the control's intrinsic width, in every style.
+        // remeasure, since the option strings are the control's intrinsic width, in every style.
         if let Some(f) = reactive_options {
             bind_seeded(
                 initial.options.clone(),
@@ -102,8 +102,8 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
                 },
             );
         }
-        // A menu-style picker's intrinsic size follows the SELECTED VALUE (the collapsed
-        // control renders it), so its selection patch must remeasure — without that the
+        // A menu-style picker's intrinsic size follows the selected value (the collapsed
+        // control renders it), so its selection patch must remeasure; without that the
         // control keeps the width of the build-time value and ellipsizes anything longer.
         // Segmented and inline render every option at once; selection moves a mark only.
         let affects_size = matches!(initial.style, day_spec::props::PickerStyle::Menu);
@@ -133,7 +133,7 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
 }
 
 // ---------------------------------------------------------------------------
-// Text area (kinds::TEXT_AREA, docs/textarea.md) — built-in since 2026-07.
+// Text area (kinds::TEXT_AREA, docs/textarea.md), built-in since 2026-07.
 // ---------------------------------------------------------------------------
 
 /// A native multi-line text editor bound two-way to `text`. Configure a prompt with
@@ -152,7 +152,7 @@ pub struct TextArea<S: Binding<String>> {
     on_submit: Option<Rc<dyn Fn()>>,
 }
 
-/// `text_area(text)` — a native multi-line editor whose contents mirror `text` in both
+/// `text_area(text)`: a native multi-line editor whose contents mirror `text` in both
 /// directions; `text` is a `Signal<String>` or any other two-way binding (a day-model `Field`).
 pub fn text_area<S: Binding<String>>(text: S) -> TextArea<S> {
     TextArea {
@@ -169,7 +169,7 @@ pub fn text_area<S: Binding<String>>(text: S) -> TextArea<S> {
 
 impl<S: Binding<String>> TextArea<S> {
     /// The empty-state prompt shown when the editor is empty (a constant, `Signal<String>`, or
-    /// closure — evaluated once for the initial value; not reactive after build).
+    /// closure, evaluated once for the initial value; not reactive after build).
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
         self.placeholder = Some(t.into_text());
         self
@@ -182,7 +182,7 @@ impl<S: Binding<String>> TextArea<S> {
     }
 
     /// The maximum height, in text lines, before the editor scrolls internally. `0` (the
-    /// default) means unbounded — the editor keeps growing and never scrolls.
+    /// default) means unbounded: the editor keeps growing and never scrolls.
     pub fn max_lines(mut self, lines: u32) -> Self {
         self.max_lines = lines;
         self
@@ -208,7 +208,7 @@ impl<S: Binding<String>> TextArea<S> {
         self
     }
 
-    /// Submit on Enter: a plain Enter runs `f` instead of inserting a newline — the chat-composer
+    /// Submit on Enter: a plain Enter runs `f` instead of inserting a newline, the chat-composer
     /// contract. Shift+Enter still inserts a line break on the desktop toolkits; Android's soft
     /// keyboard shows a Send action; iOS's return key submits. Backends without the intercept
     /// (web-dom today) keep inserting newlines, so pair this with a visible send button. The

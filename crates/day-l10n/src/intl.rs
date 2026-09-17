@@ -3,16 +3,16 @@
 
 //! icu4x-backed Fluent formatting (docs/localization.md "Formatted values"): registers `NUMBER()`
 //! and `DATETIME()` on every bundle and installs a bundle-wide value formatter, so plain `{ $n }`
-//! interpolations AND explicit function calls render locale-correctly (grouping separators,
+//! interpolations and explicit function calls render locale-correctly (grouping separators,
 //! locale digit systems, CLDR date/time patterns) with zero app setup.
 //!
-//! Design (DESIGN.md §12.2): fluent-bundle has no icu4x integration of its own — its built-in
-//! `NUMBER` only merges options onto the value and `DATETIME` is unimplemented — but it provides
-//! exactly the seams this module plugs: `add_function` (returns values), `set_formatter` (renders
+//! Design (DESIGN.md §12.2): fluent-bundle has no icu4x integration of its own (its built-in
+//! `NUMBER` only merges options onto the value and `DATETIME` is unimplemented), but it provides
+//! exactly the hooks this module plugs: `add_function` (returns values), `set_formatter` (renders
 //! numbers), and `FluentValue::Custom`/`FluentType` (renders datetimes). Formatters are memoized
-//! in each bundle's own `IntlLangMemoizer`, which carries the bundle's language — so nothing here
+//! in each bundle's own `IntlLangMemoizer`, which carries the bundle's language, so nothing here
 //! captures state, and the `Send + Sync` bounds hold trivially. Every failure path degrades to a
-//! visible naive rendering; formatting never panics and never produces a blank.
+//! visible unformatted rendering; formatting never panics and never produces a blank.
 //! (Prior art for the DATETIME shape: the `fluent-datetime` crate, reimplemented here to keep
 //! Day's civil ISO/epoch value conventions and avoid its `jiff` dependency.)
 
@@ -23,7 +23,7 @@ use fluent_bundle::{FluentArgs, FluentBundle, FluentResource, FluentValue};
 use intl_memoizer::{IntlLangMemoizer, Memoizable};
 use unic_langid::LanguageIdentifier;
 
-/// Register the formatting seams on a freshly built bundle (called from `build_bundles` for both
+/// Register the formatting hooks on a freshly built bundle (called from `build_bundles` for both
 /// app and core-catalog bundles).
 pub(crate) fn register(bundle: &mut FluentBundle<FluentResource>) {
     bundle.set_formatter(Some(format_value));
@@ -34,11 +34,11 @@ pub(crate) fn register(bundle: &mut FluentBundle<FluentResource>) {
 }
 
 // ---------------------------------------------------------------------------
-// NUMBER — the function merges options onto the value (so plural `select` keeps selecting on the
+// NUMBER: the function merges options onto the value (so plural `select` keeps selecting on the
 // number); the bundle formatter renders every FluentValue::Number through icu_decimal.
 // ---------------------------------------------------------------------------
 
-/// `NUMBER($n, style: "percent", minimumFractionDigits: 2, …)` — the fluent-bundle builtin's
+/// `NUMBER($n, style: "percent", minimumFractionDigits: 2, …)`: the fluent-bundle builtin's
 /// semantics: parse/merge ECMA-402-style options, return a Number for the formatter to render.
 fn number_fn<'a>(positional: &[FluentValue<'a>], named: &FluentArgs) -> FluentValue<'a> {
     match positional.first() {
@@ -92,13 +92,13 @@ fn format_number(n: &FluentNumber, intls: &IntlLangMemoizer) -> String {
     use fixed_decimal_shim::*;
 
     let Ok(mut d) = Decimal::try_from_f64(n.value, FloatPrecision::RoundTrip) else {
-        return n.as_string().into_owned(); // non-finite input — naive fallback
+        return n.as_string().into_owned(); // non-finite input: unformatted fallback
     };
 
     let o = &n.options;
     if o.style == FluentNumberStyle::Percent {
         // Scale first so the fraction-digit handling below applies to the percentage value
-        // (72.34% — ECMA-402 percent defaults to 0 fraction digits, see `max` below).
+        // (72.34%; ECMA-402 percent defaults to 0 fraction digits, see `max` below).
         d.multiply_pow10(2);
         d.trim_start(); // drop the integer-zero placeholder 0.x carries across the shift
     }
@@ -122,7 +122,7 @@ fn format_number(n: &FluentNumber, intls: &IntlLangMemoizer) -> String {
         };
         let max = o.maximum_fraction_digits.unwrap_or(default_max.max(min));
         d.round(-(max.min(20) as i16));
-        d.trim_end(); // round() extends the range with trailing zeros — keep only what min asks
+        d.trim_end(); // round() extends the range with trailing zeros; keep only what min asks
         d.pad_end(-(min.min(20) as i16));
     }
     if let Some(mi) = o.minimum_integer_digits {
@@ -145,7 +145,7 @@ fn format_number(n: &FluentNumber, intls: &IntlLangMemoizer) -> String {
     }
 }
 
-/// `fixed_decimal` reaches this crate re-exported through `icu_decimal::input` — alias the bits
+/// `fixed_decimal` reaches this crate re-exported through `icu_decimal::input`; alias the bits
 /// we use so the code reads plainly.
 mod fixed_decimal_shim {
     pub(super) use icu_decimal::input::Decimal;
@@ -154,7 +154,7 @@ mod fixed_decimal_shim {
 }
 
 // ---------------------------------------------------------------------------
-// DATETIME — a FluentValue::Custom carrying the parsed civil value + options; rendering happens
+// DATETIME: a FluentValue::Custom carrying the parsed civil value + options; rendering happens
 // in FluentType::as_string with the bundle's memoizer (locale) via icu_datetime.
 // ---------------------------------------------------------------------------
 
@@ -164,15 +164,15 @@ mod fixed_decimal_shim {
 pub(crate) struct FluentDateTime {
     date: Option<(i32, u8, u8)>,
     time: Option<(u8, u8, u8)>,
-    /// `dateStyle:` — None when the input has no date part or `dateStyle: "none"`.
+    /// `dateStyle:`; None when the input has no date part or `dateStyle: "none"`.
     date_style: Option<icu_datetime::options::Length>,
-    /// `timeStyle:` — None when the input has no time part or `timeStyle: "none"`.
+    /// `timeStyle:`; None when the input has no time part or `timeStyle: "none"`.
     time_style: Option<icu_datetime::options::Length>,
 }
 
-/// `DATETIME($when, dateStyle: "long", timeStyle: "short")` — accepts ISO-8601 strings
+/// `DATETIME($when, dateStyle: "long", timeStyle: "short")`: accepts ISO-8601 strings
 /// (`"2026-07-18"`, `"14:45"`, `"14:45:30"`, `"2026-07-18T14:45[:30]"`) or a number of epoch
-/// SECONDS rendered as UTC civil time. Unparseable input echoes back unformatted (visible).
+/// seconds rendered as UTC civil time. Unparseable input echoes back unformatted (visible).
 fn datetime_fn<'a>(positional: &[FluentValue<'a>], named: &FluentArgs) -> FluentValue<'a> {
     let parsed = match positional.first() {
         Some(FluentValue::String(s)) => parse_iso(s),
@@ -192,7 +192,7 @@ fn datetime_fn<'a>(positional: &[FluentValue<'a>], named: &FluentArgs) -> Fluent
                 "medium" => Some(Some(icu_datetime::options::Length::Medium)),
                 "short" => Some(Some(icu_datetime::options::Length::Short)),
                 "none" => Some(None),
-                _ => None, // unknown value — fall back to the input-shape default
+                _ => None, // unknown value: fall back to the input-shape default
             },
             _ => None,
         }
@@ -216,7 +216,7 @@ fn datetime_fn<'a>(positional: &[FluentValue<'a>], named: &FluentArgs) -> Fluent
 type DateParts = (Option<(i32, u8, u8)>, Option<(u8, u8, u8)>);
 
 /// Strict ISO-8601: `YYYY-MM-DD`, `HH:MM[:SS]`, or `YYYY-MM-DDTHH:MM[:SS]` (also accepts a space
-/// separator). Returns (date, time) — at least one part present.
+/// separator). Returns (date, time), with at least one part present.
 fn parse_iso(s: &str) -> Option<DateParts> {
     let s = s.trim();
     if let Some((d, t)) = s.split_once(['T', ' ']) {

@@ -1,18 +1,18 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Post-mortem for an app that died under a dayscript — what the runner prints when the engine
+//! Post-mortem for an app that died under a dayscript: what the runner prints when the engine
 //! connection is lost (docs/agent.md, docs/break.md).
 //!
 //! A scripted run that ends in "engine connection lost" says only that the app is gone. The
 //! evidence for why is on the machine and nobody looks at it: day-break's crash artifacts in the
-//! app's own store, the OS crash report, the emulator's crash buffer. In CI nobody can look — the
-//! runner is deleted minutes later — so this gathers what it can and prints it into the job log
-//! while the machine still exists.
+//! app's store, the OS crash report, the emulator's crash buffer. In CI nobody can look, because
+//! the runner is deleted minutes later, so this gathers what it can and prints it into the job
+//! log while the machine still exists.
 //!
 //! Every source is best-effort and every one is announced: a diagnosis that silently found
 //! nothing is indistinguishable from one that was never run, which is the state this replaces.
-//! Nothing here can fail the run — the script's own verdict already did that.
+//! Nothing here can fail the run; the script's verdict already did that.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -29,7 +29,7 @@ use crate::term::DIM;
 const MAX_LINES: usize = 60;
 
 /// Deadlines for the two kinds of tool this reaches for. Every one of them is optional to the
-/// diagnosis — a post-mortem that cannot finish must not outlive the crash it is describing, and
+/// diagnosis: a post-mortem that cannot finish must not outlive the crash it is describing, and
 /// a missing section says so in the output.
 ///
 /// `DEVICE_CMD` covers `adb` and `simctl`, which wait indefinitely for a device that stopped
@@ -37,7 +37,7 @@ const MAX_LINES: usize = 60;
 /// host-side readers, where a large core legitimately takes a while.
 const DEVICE_CMD: Duration = Duration::from_secs(30);
 const DEBUGGER: Duration = Duration::from_secs(90);
-/// Stack frames to print from the faulting thread — past this it is runtime plumbing.
+/// Stack frames to print from the faulting thread; past this it is runtime plumbing.
 const MAX_FRAMES: usize = 25;
 
 /// One thing worth reading, and where it came from.
@@ -48,9 +48,9 @@ struct Finding {
 }
 
 /// Print everything this host can say about an app that just died. `since` bounds the search to
-/// artifacts this run produced — an `.ips` from last week describes a different crash.
+/// artifacts this run produced; an `.ips` from last week describes a different crash.
 ///
-/// Returns whether it found EVIDENCE OF A CRASH, which is a different question from "did the
+/// Returns whether it found evidence of a crash, which is a different question from "did the
 /// engine connection drop": a dropped connection can be a slow emulator, and the caller keeps
 /// going for that; a crash artifact means this build dies on this machine, and relaunching it for
 /// every remaining variant only spends minutes to fail the same way.
@@ -92,8 +92,8 @@ pub fn after_app_death(project: &Project, target: &'static Target, since: System
     true
 }
 
-/// The app's own day-break store (docs/break.md). Richest when it is there: the panic message or
-/// signal, the location, and the backtrace the app itself captured — the same text the user would
+/// The app's day-break store (docs/break.md). Richest when it is there: the panic message or
+/// signal, the location, and the backtrace the app itself captured, the same text the user would
 /// have been shown on the next launch.
 ///
 /// Reports are FINALIZED on the next launch, so a crash seconds ago has left raw session
@@ -116,7 +116,7 @@ fn day_break_findings(
     }
     // Both shapes, ranked together by mtime and filtered to this run. Reports are finalized on
     // the app's next launch, so a crash seconds ago has left raw artifacts while `reports/` still
-    // holds the PREVIOUS crash — reading reports/ first would confidently describe the wrong
+    // holds the previous crash; reading reports/ first would confidently describe the wrong
     // death. `since` is what makes that impossible.
     let mut files = newest_files(&dir.join("reports"), 4);
     files.extend(newest_files(&dir, 6));
@@ -133,7 +133,7 @@ fn day_break_findings(
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
-        // A finalized report says when its session STARTED and which backend it ran — far better
+        // A finalized report says when its session started and which backend it ran, far better
         // than the file's mtime, because a launch finalizes every stale session it finds, which
         // stamps another target's old crash with today's time. Raw artifacts have no such field
         // and keep the mtime test above.
@@ -152,8 +152,8 @@ fn day_break_findings(
 }
 
 /// Whether an artifact describes the session this run just launched: same backend, started no
-/// earlier than the launch. Both matter — the store is keyed by APP id, so every target's crashes
-/// and every leftover instance's share one directory, and a launch FINALIZES every stale session
+/// earlier than the launch. Both matter: the store is keyed by app id, so every target's crashes
+/// and every leftover instance's share one directory, and a launch finalizes every stale session
 /// it finds, which stamps another target's old crash with today's mtime.
 ///
 /// Reads either shape: a finalized report's JSON, or the `k=v` lines of a raw session artifact.
@@ -195,7 +195,7 @@ fn describes_this_run(text: &str, target: &'static Target, since: SystemTime) ->
 
 /// Where this target keeps its day-break store. Desktop is the host's own path; the iOS simulator
 /// keeps it inside the app's data container, which `simctl` can resolve. Android and OpenHarmony
-/// hold theirs in a device sandbox this does not reach into — their OS crash buffer is the source
+/// hold theirs in a device sandbox this does not reach into; their OS crash buffer is the source
 /// [`os_crash_findings`] uses instead.
 fn break_store_dir(project: &Project, target: &'static Target, app_id: &str) -> Option<PathBuf> {
     match target.kind {
@@ -254,7 +254,7 @@ fn os_crash_findings(
     looked: &mut Vec<String>,
 ) {
     match target.kind {
-        // macOS and the iOS simulator both write `.ips` reports into the HOST's DiagnosticReports
+        // macOS and the iOS simulator both write `.ips` reports into the host's DiagnosticReports
         // directory, named after the process.
         TargetKind::Desktop | TargetKind::IosSim if cfg!(target_os = "macos") => {
             let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
@@ -264,10 +264,10 @@ fn os_crash_findings(
             looked.push(format!("macOS crash reports ({})", dir.display()));
             let stem = process_stem(project, target);
             // ReportCrash writes the `.ips` a second or two after the process dies, which is
-            // after the engine loss that brought us here. Looking once finds the PREVIOUS run's
-            // report or nothing at all, so wait for this run's — briefly, and only on a run that
+            // after the engine loss that brought us here. Looking once finds the previous run's
+            // report or nothing at all, so wait for this run's: briefly, and only on a run that
             // has already failed.
-            // On a desktop launch the app IS this process's child, so its pid picks the right
+            // On a desktop launch the app is this process's child, so its pid picks the right
             // report out of a directory where macos-gtk and macos-qt builds file under the same
             // process name. Without one (a simulator, or a launch that recorded nothing) the
             // name-and-freshness match stands, which is what it always was.
@@ -330,7 +330,7 @@ fn os_crash_findings(
                 }
             }
             // No systemd-coredump (the GitHub runners use apport, and containers often disable
-            // both). Say what to turn on rather than leave a Linux crash with no frames at all —
+            // both). Say what to turn on rather than leave a Linux crash with no frames at all;
             // the kernel wrote "core dumped", so the core exists somewhere the pattern decides.
             looked.push("a core file beside the app".into());
             let core = newest_files(&project.root, 12).into_iter().find(|p| {
@@ -367,7 +367,7 @@ fn os_crash_findings(
         }
         // Windows writes nothing on its own: no core file, no crash report on disk. What it does
         // record is a WER event in the Application log naming the faulting module and the
-        // exception code, which is most of the diagnosis — and a full minidump if (and only if)
+        // exception code, which is most of the diagnosis, and a full minidump if (and only if)
         // LocalDumps was switched on beforehand. Both are read here, and the advice for enabling
         // dumps is printed when there is none, exactly as the Linux arm does for core files.
         TargetKind::Desktop if cfg!(windows) => {
@@ -424,7 +424,7 @@ fn os_crash_findings(
                 DEBUGGER,
             ) {
                 let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                // Only OUR process: the runner's other apps file here too.
+                // Only our process: the runner's other apps file here too.
                 let mine = text.contains(&stem)
                     || pid.is_some_and(|p| {
                         text.contains(&format!("{p:x}")) || text.contains(&p.to_string())
@@ -457,8 +457,8 @@ fn os_crash_findings(
         TargetKind::Android => {
             // The emulator's own log first, because it is the one source here that does not
             // go through adb. The failure this arm most often describes is not a crash but a
-            // device that stopped answering — measured as a tablet AVD whose guest froze while
-            // its WebView's GPU process was loading shaders, with no crash to find — and there
+            // device that stopped answering (measured as a tablet AVD whose guest froze while
+            // its WebView's GPU process was loading shaders, with no crash to find), and there
             // every adb call below costs its whole timeout and prints nothing. What the emulator
             // wrote on the host is readable regardless, and it is the only record of a wedged
             // renderer or an exited QEMU. Printed, not a Finding: it is context, not evidence
@@ -496,7 +496,7 @@ fn os_crash_findings(
                 }
             }
             // The guest kernel's own tail, for the freeze that is a lockup rather than a crash
-            // (a soft lockup, the OOM killer, a wedged graphics pipe) — but only from a guest
+            // (a soft lockup, the OOM killer, a wedged graphics pipe), but only from a guest
             // that still answers, since a dead one has already cost one timeout above.
             if answered {
                 looked.push("adb shell dmesg".into());
@@ -541,8 +541,8 @@ fn modified_since(path: &Path, since: SystemTime) -> bool {
 
 /// Block until this run's crash report appears, or the budget runs out; `true` when one landed.
 ///
-/// ReportCrash writes the `.ips` well after the process dies — measured at 20–40 s on this
-/// machine — which is always after the engine loss that brought us here. Looking once finds the
+/// ReportCrash writes the `.ips` well after the process dies (measured at 20–40 s on this
+/// machine), which is always after the engine loss that brought us here. Looking once finds the
 /// previous run's report or nothing at all. Waiting costs only a run that has already failed, and
 /// a run that fails without saying why costs someone an afternoon.
 fn wait_for_fresh_ips(dir: &Path, stem: &str, since: SystemTime, pid: Option<u32>) -> bool {
@@ -559,7 +559,7 @@ fn wait_for_fresh_ips(dir: &Path, stem: &str, since: SystemTime, pid: Option<u32
             if !name.starts_with(&stem) || !modified_since(&p, since) {
                 return false;
             }
-            // With a pid in hand, wait for that process's report rather than any fresh one — a
+            // With a pid in hand, wait for that process's report rather than any fresh one; a
             // sibling instance's crash would otherwise end the wait early.
             match (
                 pid,
@@ -606,12 +606,12 @@ fn process_stem(project: &Project, target: &'static Target) -> String {
 
 /// Render an `.ips` as the four things a reader wants: what died, why, and the faulting thread's
 /// stack. The raw file is a JSON header line followed by a JSON body of a few hundred lines, most
-/// of it loaded-image addresses — printing its head shows `userID` and `deployVersion` and stops
+/// of it loaded-image addresses; printing its head shows `userID` and `deployVersion` and stops
 /// well before the frames, which is no use to anyone.
 ///
 /// Frames carry a symbol plus an image index; the image list turns that into a name, so a line
-/// reads `showcase  day_core::pump::run + 42`. `None` when the file is not the shape this expects
-/// — the caller falls back to printing the head, which is still better than nothing.
+/// reads `showcase  day_core::pump::run + 42`. `None` when the file is not the shape this
+/// expects; the caller falls back to printing the head, which is still better than nothing.
 fn summarize_ips(text: &str) -> Option<String> {
     let (_header, body) = text.split_once('\n')?;
     let v: serde_json::Value = serde_json::from_str(body).ok()?;
@@ -689,7 +689,7 @@ fn summarize_ips(text: &str) -> Option<String> {
 
 /// Render a day-break report (docs/break.md) as its answer rather than its JSON: what kind of
 /// death, the message and location a panic carries, the signal a fault carries, and the backtrace
-/// the app captured for itself. `None` when the text is not a finalized report — the raw session
+/// the app captured for itself. `None` when the text is not a finalized report; the raw session
 /// artifacts are `k=v` lines, which read fine as they are.
 fn summarize_break(text: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
@@ -733,7 +733,7 @@ fn summarize_break(text: &str) -> Option<String> {
             out.push(head(bt, MAX_LINES));
         }
         // A signal death has no Rust backtrace to give: the handler runs on a broken stack and
-        // day-break deliberately does not walk it. The OS report carries the frames instead.
+        // day-break does not walk it. The OS report carries the frames instead.
         _ => out
             .push("backtrace: none recorded (the OS crash report below carries the frames)".into()),
     }
@@ -788,8 +788,8 @@ fn head(text: &str, max: usize) -> String {
 fn headline_of(body: &str) -> Option<String> {
     let keyed = body.lines().find_map(|l| {
         let line = l.trim().trim_end_matches(',');
-        // The quote is stripped for MATCHING a JSON key and kept in what is returned — the
-        // annotation should read like the report it came from.
+        // The quote is stripped for matching a JSON key and kept in what is returned, so the
+        // annotation reads like the report it came from.
         let probe = line.trim_start_matches('"').to_lowercase();
         ["message", "kind", "exception", "termination"]
             .iter()

@@ -3,7 +3,7 @@ resolver = "2"
 # CI checks daybrite/Day-Showcase out here (.github/actions/showcase) to build the framework
 # against the app it documents. A package nested inside a workspace it is not a member of
 # fails every cargo command, so it is excluded here as well as declaring its own
-# `[workspace]` — this side is what keeps an older app ref building.
+# `[workspace]`. This side is what keeps an older app ref building.
 exclude = ["showcase-src"]
 members = [
     "crates/day-geometry",
@@ -72,11 +72,10 @@ members = [
     "crates/day-cli",
     "crates/day-break",
 ]
-# The quick-iteration set: what a FLAGLESS `cargo build`/`check`/`test` compiles, kept small so
-# editor loops stay fast (the CLI and the piece/part catalog are deliberately out). This list is
-# NOT the CI test roster — CI tests the whole workspace minus
-# the toolkit backends via scripts/ci/host-test.sh, so a crate absent here still has its tests
-# run on every push.
+# The quick-iteration set: what a flagless `cargo build`/`check`/`test` compiles, kept small so
+# editor loops stay fast (the CLI and the piece/part catalog are left out). This list is not the
+# CI test roster: CI tests the whole workspace minus the toolkit backends via
+# scripts/ci/host-test.sh, so a crate absent here still has its tests run on every push.
 default-members = [
     "crates/day-fluent",
     "crates/day-geometry",
@@ -93,7 +92,7 @@ default-members = [
 ]
 
 # crates.io publishing policy: for now only `day-cli` and its leaf dependencies (`day-fonts`,
-# `day-toolchain`, and `day-build` — the resource-constant build helper an app's `build.rs` depends
+# `day-toolchain`, and `day-build`, the resource-constant build helper an app's `build.rs` depends
 # on) are published, so `cargo install day-cli` and a scaffolded app's `[build-dependencies]` both
 # resolve while the rest of the crate names stay unclaimed and free to rename. Every other member
 # carries `publish = false`, so `cargo publish --workspace` (and the `release` CI job) publishes
@@ -178,10 +177,11 @@ day-arkui-sys = { path = "toolkits/day-arkui-sys", version = "0.4.5" }
 day-dom = { path = "toolkits/day-dom", version = "0.4.5" }
 slotmap = "1.1"
 linkme = "0.3"
-# The logging facade every day crate emits through (docs/logging.md). A facade only — no backend,
-# no dependencies of its own, `no_std`-capable — so taking it costs a crate name and nothing else,
-# and it is what lets an app install `env_logger`/`tracing`/its own `log::Log` with no cooperation
-# from us. day-core ships the default implementation; day-dom the browser-console one.
+# The logging facade every day crate emits through (docs/logging.md). It is a facade only, with
+# no backend and no dependencies, and it is `no_std`-capable, so taking it costs a crate name and
+# nothing else; it is also what lets an app install `env_logger`/`tracing`/its own `log::Log`
+# with no cooperation from us. day-core ships the default implementation; day-dom the
+# browser-console one.
 log = "0.4"
 # icu4x (docs/localization.md "Formatted values"/"Sorting"): one minor version across the runtime
 # crates so day-cli's exact-pinned datagen output (baked data) always matches what day-l10n
@@ -195,7 +195,7 @@ icu_datetime = { version = "2.2", features = ["compiled_data"] }
 icu_collator = { version = "2.2", features = ["compiled_data"] }
 # Search matching (docs/localization.md "Searching"). `auto` gives the segmenter its LSTM +
 # dictionary models, which is the only way word starts are found in a script that does not
-# write spaces — Chinese, Japanese, Thai, Khmer. Rules alone would make search useless there.
+# write spaces (Chinese, Japanese, Thai, Khmer). Rules alone would make search useless there.
 icu_segmenter = { version = "2.2", features = ["compiled_data", "auto"] }
 icu_casemap = { version = "2.2", features = ["compiled_data"] }
 intl-memoizer = "0.5"
@@ -203,10 +203,10 @@ intl-memoizer = "0.5"
 [profile.release]
 # `fat` rather than `thin` for reproducibility (DESIGN.md §20.3). ThinLTO makes an internal symbol
 # external so it can be inlined across modules, renaming it with a `.llvm.<hash>` suffix to avoid
-# collisions. Measured here: that suffix was NOT stable across build directories, so the same commit
+# collisions. Measured here: that suffix was not stable across build directories, so the same commit
 # built twice on one machine produced binaries differing in exactly those symbol names, and
-# downstream in the GNU build-id and `.strtab` size. What feeds the hash is not established — the
-# upstream reports attribute it to different inputs in different cases — so this is a fix for the
+# downstream in the GNU build-id and `.strtab` size. What feeds the hash is not established (the
+# upstream reports attribute it to different inputs in different cases), so this is a fix for the
 # observed symptom, not for a diagnosed root cause. Fat LTO merges everything into one module, so no
 # cross-module promotion happens and the suffix is never emitted (measured: 53 occurrences → 0).
 # Cargo's `trim-paths`, the more targeted candidate, is still unstable as of Cargo 1.97.

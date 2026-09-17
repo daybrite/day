@@ -8,17 +8,17 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): a shared cross-platform API for reading the device's
-# motion sensors (accelerometer / gyroscope / magnetometer) via each platform's NATIVE API. Any Rust
+# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for reading the device's
+# motion sensors (accelerometer / gyroscope / magnetometer) via each platform's native API. Any Rust
 # code can depend on it and call `day_part_sensors::read(kind)`. Platform selection is by
 # `#[cfg(target_os)]` (sensors are an OS concern, not a widget-toolkit one), so there are no backend
-# features — it "just works" per target:
-#   iOS      — CoreMotion CMMotionManager (poll accessors)
-#   Android  — SensorManager via a Java shim staged through [package.metadata.day.android]
-#   HarmonyOS— native libohsensor.so (SensorServiceKit), gated on target_env = "ohos"
-#   Linux    — Industrial I/O sysfs (/sys/bus/iio/devices)
-#   macOS    — no public motion-sensor API → always None
-#   Windows  — Windows.Devices.Sensors (WinRT poll) via the `windows` crate
+# features; it "just works" per target:
+#   iOS:       CoreMotion CMMotionManager (poll accessors)
+#   Android:   SensorManager via a Java shim staged through [package.metadata.day.android]
+#   HarmonyOS: native libohsensor.so (SensorServiceKit), gated on target_env = "ohos"
+#   Linux:     Industrial I/O sysfs (/sys/bus/iio/devices)
+#   macOS:     no public motion-sensor API → always None
+#   Windows:   Windows.Devices.Sensors (WinRT poll) via the `windows` crate
 # See docs/sensors.md + docs/extending.md.
 
 [dependencies]
@@ -34,7 +34,7 @@ objc2-core-motion = { version = "0.3", default-features = false, features = [
     "CMLogItem",
 ] }
 
-# Windows reads Windows.Devices.Sensors (WinRT) through the `windows` crate — GetDefault() +
+# Windows reads Windows.Devices.Sensors (WinRT) through the `windows` crate: GetDefault() +
 # GetCurrentReading() is a synchronous poll, no XAML/event subscription. Target-gated so it never
 # touches the Linux/macOS builds. Only the Devices_Sensors namespace feature is enabled.
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -46,7 +46,7 @@ windows = { version = "0.62", features = ["Devices_Sensors"] }
 day-android = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
-# The same mechanism the UI pieces use — but this crate registers NO renderer. `day build` stages this
-# Java and adds it to the app's Gradle build, without touching any core day crate.
+# The same mechanism the UI pieces use, but this crate registers no renderer. `day build` stages
+# this Java and adds it to the app's Gradle build, without touching any core day crate.
 [package.metadata.day.android]
 java = ["src/DaySensors.java"]

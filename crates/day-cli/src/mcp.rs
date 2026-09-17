@@ -1,15 +1,15 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day mcp-server` — a Model Context Protocol server over stdio (docs/agent.md).
+//! `day mcp-server`: a Model Context Protocol server over stdio (docs/agent.md).
 //!
-//! Gives ANY MCP-capable coding agent (VS Code agent mode, Claude Code, Cursor, CI bots) the
-//! full Day loop: inspect the project, build, launch/relaunch/stop, and — through the dayscript
-//! engine inside every running app — DRIVE the UI and capture screenshots on all seven toolkits,
+//! Gives any MCP-capable coding agent (VS Code agent mode, Claude Code, Cursor, CI bots) the
+//! full Day loop: inspect the project, build, launch/relaunch/stop, and, through the dayscript
+//! engine inside every running app, drive the UI and capture screenshots on all seven toolkits,
 //! with images returned as MCP image content so vision models can look at the result.
 //!
-//! Deliberately thin: each tool call shells out to the CLI (this binary by default, or whatever
-//! `DAY_SELF_COMMAND` names — see `self_command`) with the ordinary CLI arguments and relays the
+//! Thin: each tool call shells out to the CLI (this binary by default, or whatever
+//! `DAY_SELF_COMMAND` names; see `self_command`) with the ordinary CLI arguments and relays the
 //! (JSON where available) output. The CLI stays the single source of behavior; the server is
 //! transport, not logic. Transport: newline-delimited JSON-RPC 2.0.
 
@@ -103,14 +103,14 @@ const SELF_COMMAND_ENV: &str = "DAY_SELF_COMMAND";
 /// day subcommand.
 ///
 /// Normally this binary (`current_exe`), which is right for a server a user started themselves.
-/// `DAY_SELF_COMMAND` replaces it — the VS Code extension sets it to the invocation it resolved,
+/// `DAY_SELF_COMMAND` replaces it; the VS Code extension sets it to the invocation it resolved,
 /// which in a day-development window is `cargo run` against the open `day/` checkout.
 ///
 /// Without it, such a window is half stale: the editor's own Build and Run go through `cargo run`
 /// and compile the developer's day-cli edits, while every agent tool call execs whatever
-/// `target/debug/day` happened to be on disk — the server itself never runs cargo, so nothing in
-/// the agent loop ever rebuilds. Working on `day/` and an app in one session is the whole point of
-/// that setup, so the two paths have to agree.
+/// `target/debug/day` happened to be on disk; the server itself never runs cargo, so nothing in
+/// the agent loop ever rebuilds. That setup exists so that `day/` and an app can be worked on in
+/// one session, so the two paths have to agree.
 fn self_command() -> (std::ffi::OsString, Vec<String>) {
     let fallback = || {
         std::env::current_exe()
@@ -437,9 +437,9 @@ pub fn run(project: &Project) -> i32 {
         let Some(id) = id else { continue };
 
         let result: Result<serde_json::Value, String> = match method {
-            // `serverInfo.name` names the PROJECT, not just the product. A window of several Day
-            // apps runs one server each, and a client that surfaces this name — VS Code caches it
-            // per server — would otherwise show a row of identical `day`s with no way to tell
+            // `serverInfo.name` names the project as well as the product. A window of several
+            // Day apps runs one server each, and a client that surfaces this name (VS Code caches
+            // it per server) would otherwise show a row of identical `day`s with no way to tell
             // which app any of them drives.
             "initialize" => Ok(serde_json::json!({
                 "protocolVersion": PROTOCOL_VERSION,

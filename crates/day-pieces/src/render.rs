@@ -6,10 +6,10 @@
 //! macro inserts the `&dyn Any` downcast) and no hand-written linkme boilerplate. `fill_measure` is the
 //! shared "growing leaf" sizing, so pieces stop hand-rolling it per backend.
 
-/// A leaf `measure` that FILLS the space it's proposed — for growing leaves (a web view, a canvas, a
-/// Lottie view). Use as `measure: day_pieces::fill_measure` in `renderer!`. This gives one uniform
-/// "fill" answer across every backend (some backends' `measure: None` default returns a view's natural
-/// size, which collapses a size-less native view).
+/// A leaf `measure` that fills the space it's proposed, for growing leaves (a web view, a canvas,
+/// a Lottie view). Use as `measure: day_pieces::fill_measure` in `renderer!`. This gives one
+/// uniform "fill" answer across every backend (some backends' `measure: None` default returns a
+/// view's natural size, which collapses a size-less native view).
 pub fn fill_measure<B: day_spec::Toolkit>(
     _backend: &mut B,
     _handle: &B::Handle,
@@ -23,8 +23,8 @@ pub fn fill_measure<B: day_spec::Toolkit>(
 
 /// Register a piece's per-toolkit native renderer into `$slice` (a backend's `RENDERERS`).
 ///
-/// The author writes typed functions and one macro line — no `#[distributed_slice]`, no `Renderer {}`
-/// literal, no `downcast_ref` in the bodies:
+/// The author writes typed functions and one macro line; the macro supplies the
+/// `#[distributed_slice]`, the `Renderer {}` literal, and the `downcast_ref` in the bodies:
 /// ```ignore
 /// fn make(b: &mut AppKit, p: &MyProps, id: NodeId) -> Retained<NSView> { … }
 /// fn update(b: &mut AppKit, h: &Retained<NSView>, patch: &MyPatch) { … }
@@ -80,7 +80,8 @@ macro_rules! renderer {
             ::core::option::Option::None
         );
     };
-    // patchless: props + make (+ measure) — for pieces configured once with no updates (e.g. Lottie).
+    // patchless: props + make (+ measure), for pieces configured once with no updates (e.g.
+    // Lottie).
     ($slice:path, $backend:ty, kind: $kind:expr, props: $props:ty,
      make: $make:expr, measure: $measure:expr $(,)?) => {
         $crate::__renderer!(
@@ -114,17 +115,17 @@ macro_rules! renderer {
 ///
 /// `linkme` has no `wasm32-unknown-unknown` implementation (DESIGN.md §8.2), so `day-dom` keeps a
 /// `Registry<Dom>` that pieces add to by calling `day_dom::register_renderer`. This macro is
-/// `renderer!`'s counterpart for that seam: same typed `make`/`update`/`measure`, same inserted
-/// downcast, but it defines an idempotent `pub(crate) fn register()` instead of a static — and the
-/// piece's own constructor must call it, which is the one line web pieces write that link-time ones
-/// don't:
+/// `renderer!`'s counterpart for that registry: same typed `make`/`update`/`measure`, same
+/// inserted downcast, but it defines an idempotent `pub(crate) fn register()` instead of a static,
+/// and the piece's constructor must call it, which is the one line web pieces write that
+/// link-time ones don't:
 ///
 /// ```ignore
 /// // lib-dom.rs
 /// day_pieces::dom_renderer!(day_dom::register_renderer, day_dom::Dom,
 ///     kind: KIND, props: MyProps, patch: MyPatch, make: make, update: update, measure: measure);
 ///
-/// // lib.rs — a constructor always runs before the node it returns is realized.
+/// // lib.rs: a constructor always runs before the node it returns is realized.
 /// pub fn my_piece(…) -> MyPiece {
 ///     #[cfg(all(feature = "dom", target_arch = "wasm32"))]
 ///     dom_impl::register();
@@ -214,7 +215,7 @@ macro_rules! dom_renderer {
 macro_rules! __dom_renderer {
     ($register:path, $backend:ty, $kind:expr, $props:ty, $patch:ty, $make:expr, $update:expr,
      $measure:expr, $release:expr) => {
-        /// Add this piece's renderer to web-dom's runtime registry. Idempotent — the registry
+        /// Add this piece's renderer to web-dom's runtime registry. Idempotent: the registry
         /// keeps the first entry per kind, so calling it from every constructor is free.
         pub(crate) fn register() {
             ($register)(|| $crate::Renderer::<$backend> {
@@ -262,7 +263,7 @@ macro_rules! __renderer {
     };
 }
 
-/// Declare a satellite piece's per-toolkit glue modules — the `#[cfg]`/`#[path]` block every
+/// Declare a satellite piece's per-toolkit glue modules: the `#[cfg]`/`#[path]` block every
 /// piece otherwise hand-writes (docs/extending.md §2). Each named toolkit expands to the
 /// house-convention module gate binding `lib-<toolkit>.rs` next to the invoking lib.rs:
 ///
@@ -316,7 +317,7 @@ macro_rules! __glue_module {
         mod arkui_impl;
     };
     // `pub(crate)` unlike its siblings: web-dom registers at runtime, so the piece's own
-    // constructor calls `dom_impl::register()` (see `dom_renderer!`) — the module has a caller.
+    // constructor calls `dom_impl::register()` (see `dom_renderer!`), so the module has a caller.
     (dom) => {
         #[cfg(all(feature = "dom", target_arch = "wasm32"))]
         #[path = "lib-dom.rs"]

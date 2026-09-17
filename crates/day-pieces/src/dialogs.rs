@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Imperative, awaitable presentations: the `alert` / `confirm` / `prompt` dialogs and the
-//! `open_file` / `save_file` system file pickers (`FileUrl`) — each returns a future you await
+//! `open_file` / `save_file` system file pickers (`FileUrl`). Each returns a future you await
 //! for the user's choice.
 
 use std::hash::Hash;
@@ -18,7 +18,7 @@ use std::pin::Pin;
 
 use day_spec::present::{ButtonRole, PresentButton, PresentResult, PresentSpec};
 
-/// Boxed future the awaitable presenters resolve to — one alloc per dialog, negligible.
+/// Boxed future the awaitable presenters resolve to: one alloc per dialog, negligible.
 type Presenting<T> = Pin<Box<dyn Future<Output = T>>>;
 
 /// A dialog / confirmation / action sheet. Buttons carry a typed payload `T`; `.present()`
@@ -276,8 +276,8 @@ use day_spec::present::FileFilter;
 /// type-safety / helpers): a `FileUrl` is the lossless union with ergonomic accessors.
 ///
 /// Files returned from [`open_file`] are always readable via [`FileUrl::read_to_string`] /
-/// [`FileUrl::read`] — backends copy a picked file into app storage first where the platform
-/// requires it, so the local path "just works" everywhere.
+/// [`FileUrl::read`]: backends copy a picked file into app storage first where the platform
+/// requires it, so the local path works everywhere.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FileUrl(String);
 
@@ -290,7 +290,7 @@ impl FileUrl {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-    /// The locator as a filesystem path — `Some` for local paths (and `file://` URLs), `None`
+    /// The locator as a filesystem path: `Some` for local paths (and `file://` URLs), `None`
     /// for opaque URIs such as Android's `content://`.
     pub fn local_path(&self) -> Option<std::path::PathBuf> {
         if self.0.contains("://") && !self.0.starts_with("file://") {
@@ -488,8 +488,8 @@ impl IntoFuture for SaveFile {
 }
 
 // The file flows' filesystem, behind four verbs: a browser has no `std::fs`, so the wasm arms
-// go through day-spec's `web_files` byte store instead — day-dom's picker fills it and the
-// shim's download drains it, while every other platform reads and writes real files.
+// go through day-spec's `web_files` byte store instead (day-dom's picker fills it and the
+// shim's download drains it), while every other platform reads and writes files on disk.
 #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
 mod files {
     use std::path::Path;

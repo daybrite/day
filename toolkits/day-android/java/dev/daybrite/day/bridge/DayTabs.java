@@ -22,16 +22,16 @@ import com.google.android.material.navigationrail.NavigationRailView;
 
 /**
  * The navigation suite (docs/navigation.md): resident pages in a {@link FrameLayout}, with the
- * destination chrome drawn in whichever form Material asks for at the current width — a
+ * destination chrome drawn in whichever form Material asks for at the current width: a
  * {@link BottomNavigationView} when compact, a {@link NavigationRailView} at medium, a permanent
  * {@link NavigationView} drawer when expanded. It is the View-system equivalent of Compose's
  * {@code NavigationSuiteScaffold}, and the counterpart of what UIKit's
  * {@code UITabBarController.Mode.tabSidebar} does on iOS.
  *
  * <p>Two things follow from being one container rather than three. The host reports {@code Tabs}
- * once and keeps it at every width — the chrome changes, the presentation does not — which is why
+ * once and keeps it at every width (the chrome changes, the presentation does not), which is why
  * day-core keeps the pages resident and drives them with {@code NavPatch::Select} instead of
- * push/pop. And the CHROME is the row list: the bar's items come from the host's nav menu through
+ * push/pop. And the chrome is the row list: the bar's items come from the host's nav menu through
  * {@link #setRows}, and a tap reports against that menu's node, so a tab tap and a sidebar row
  * click are one event to everything above this backend.
  */
@@ -40,7 +40,7 @@ public class DayTabs extends LinearLayout {
     private static final int FORM_BAR = 0, FORM_RAIL = 1, FORM_DRAWER = 2;
     /** M3 window size class breakpoints, in dp. */
     private static final int MEDIUM_MIN_DP = 600, EXPANDED_MIN_DP = 840;
-    /** The permanent drawer's width — M3's standard navigation drawer. */
+    /** The permanent drawer's width (M3's standard navigation drawer). */
     private static final int DRAWER_WIDTH_DP = 280;
 
     final long hostNode;
@@ -68,7 +68,7 @@ public class DayTabs extends LinearLayout {
     }
 
     /**
-     * The destination rows — titles and bundled icon NAMES, unit-separator joined and index
+     * The destination rows: titles and bundled icon names, unit-separator joined and index
      * aligned, plus the node a tap reports against. This is the host's nav menu handing its rows
      * to the chrome that will draw them.
      */
@@ -167,7 +167,7 @@ public class DayTabs extends LinearLayout {
                     });
         }
         // The bar sits under the content; the rail and the drawer sit beside it, on the leading
-        // edge — the arrangement each form is drawn for.
+        // edge, the arrangement each form is drawn for.
         setOrientation(next == FORM_BAR ? VERTICAL : HORIZONTAL);
         if (next == FORM_BAR) {
             addView(pages, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -189,8 +189,8 @@ public class DayTabs extends LinearLayout {
                 : ((NavigationView) chrome).getMenu();
         menu.clear();
         // Only the bottom bar caps its item count (5, like the iOS tab bar). Extra destinations
-        // stay resident and reachable by route or deep link; they simply get no bar item, and the
-        // rail and drawer forms show them all.
+        // stay resident and reachable by route or deep link; they get no bar item, and the rail
+        // and drawer forms show them all.
         int max = chrome instanceof NavigationBarView
                 ? ((NavigationBarView) chrome).getMaxItemCount()
                 : titles.size();

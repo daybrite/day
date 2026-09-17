@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // Qt: Qt has no native spinner widget, so this crate's shim (src/lib-qt-shim.cpp) wraps a
-// QProgressBar in **busy mode** (range 0..0), the idiomatic Qt indeterminate indicator — the same
+// QProgressBar in **busy mode** (range 0..0), the idiomatic Qt indeterminate indicator and the same
 // technique day-qt uses for `spinner()`. build.rs compiles the shim against Qt6Widgets (already
 // linked by day-qt-sys, so no extra link flags). Animating toggles between busy (range 0..0) and a
 // frozen static bar (range 0..1, value 0); `.large` gives it a bigger minimum size.

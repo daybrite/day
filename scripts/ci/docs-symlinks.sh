@@ -12,9 +12,9 @@
 # each fails somewhere far from the cause:
 #
 #   - A doc added without its symlink never reaches the site, and linkcheck only notices when some
-#     other page happens to link to it — deep-links.md and recorder-matrix.md were both missing for
+#     other page happens to link to it; deep-links.md and recorder-matrix.md were both missing for
 #     a day before webview-eval.md finally produced a 404.
-#   - A doc DELETED without its symlink leaves the symlink dangling, which fails the Astro build.
+#   - A doc deleted without its symlink leaves the symlink dangling, which fails the Astro build.
 #
 # So both directions are checked. This script is the single implementation: the website CI job and
 # scripts/ci/lint.sh both call it, so the pre-flight catches the drift on the machine that caused
@@ -36,7 +36,7 @@ docs="$(names "$DOCS_DIR")"
 links="$(names "$LINK_DIR")"
 missing="$(comm -23 <(echo "$docs") <(echo "$links"))"
 # A dangling symlink has no `docs/` file behind it; `find -name '*.md'` still lists it, which is
-# exactly why the comparison is by NAME rather than by readability.
+# exactly why the comparison is by name rather than by readability.
 dangling="$(comm -13 <(echo "$docs") <(echo "$links"))"
 
 if $fix; then

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# validate-screenshots.sh <screenshots-root> — content-validate walkthrough screenshots (§20).
+# validate-screenshots.sh <screenshots-root>: content-validate walkthrough screenshots (§20).
 #
 # A capture that decodes but is blank (transparent snapshot, unpainted window) compresses to a
 # handful of distinct colors; a real day window has hundreds. Every PNG under the root must
@@ -21,7 +21,7 @@ while IFS= read -r png; do
     if [[ "$(uname)" == "Darwin" ]]; then
         stats="$(swift "$here/imgstat.swift" "$png")"
     elif command -v magick >/dev/null 2>&1; then
-        # ImageMagick 7 (e.g. Windows runners) — the legacy `identify` may be absent.
+        # ImageMagick 7 (e.g. Windows runners), where the legacy `identify` may be absent.
         stats="$(magick identify -format '%w %h %k' "$png")"
     else
         stats="$(identify -format '%w %h %k' "$png")"

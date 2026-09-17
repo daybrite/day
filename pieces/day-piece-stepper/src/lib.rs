@@ -1,20 +1,20 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-stepper — a numeric STEPPER FIELD: a text field with increment/decrement arrows,
+//! day-piece-stepper: a numeric stepper field, a text field with increment/decrement arrows,
 //! bound two-way to any `Binding<f64>` (docs/stepper.md).
 //!
-//! Two idioms, decided automatically. NATIVE realizes a leaf where the platform ships the
+//! Two idioms, decided automatically. `Native` realizes a leaf where the platform ships the
 //! widget: an `NSTextField` + `NSStepper` composite on AppKit (macOS has no combined
-//! control — the pair IS the platform idiom, see any inspector in Keynote), `GtkSpinButton`,
-//! and a `QDoubleSpinBox` shim. COMPOSED builds the same field from ordinary Day pieces
-//! (a − button, a text field, a + button), which is what every backend without an arm gets —
-//! uikit, mdc, arkui, dom, xaml and mock — so the piece works on all nine targets.
+//! control; the pair is the platform idiom, see any inspector in Keynote), `GtkSpinButton`,
+//! and a `QDoubleSpinBox` shim. `Composed` builds the same field from ordinary Day pieces
+//! (a − button, a text field, a + button), which is what every backend without an arm gets
+//! (uikit, mdc, arkui, dom, xaml and mock), so the piece works on all nine targets.
 //!
-//! The native leaf also accepts `Event::TextChanged` (a typed value — dayscript's `input:`
+//! The native leaf also accepts `Event::TextChanged` (a typed value, dayscript's `input:`
 //! step) and `Event::ValueChanged`/`ValueCommitted` (dayscript's `set_value:`), and mirrors
 //! its state into the dayscript probe (`assert_text` sees the display text, `assert_value`
-//! the number) — a satellite piece must report that itself, because day-core's probe
+//! the number); a satellite piece must report that itself, because day-core's probe
 //! inspection only knows the builtin patch types.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
@@ -29,7 +29,7 @@ pub const KIND: &str = "day.piece.stepper";
 /// either way.
 pub const VALUE_TAG: &str = "stepper:value";
 
-/// Full props (realize) for the NATIVE leaf. Everything but `value` is set once at build.
+/// Full props (realize) for the native leaf. Everything but `value` is set once at build.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StepperProps {
     pub value: f64,
@@ -61,7 +61,7 @@ pub enum StepperPatch {
 /// Which control this stepper renders as (the colorpicker's idiom shape).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum StepperIdiom {
-    /// The platform's own widget — literal: on a toolkit with no renderer it draws Day's
+    /// The platform's own widget, taken literally: on a toolkit with no renderer it draws Day's
     /// visible placeholder. Pin it only behind a [`support`] check.
     Native,
     /// Day's own − / field / + row, identical on every target.
@@ -72,7 +72,7 @@ pub enum StepperIdiom {
     Automatic,
 }
 
-/// Whether the compiled backend has a native stepper arm — what
+/// Whether the compiled backend has a native stepper arm, which is what
 /// [`StepperIdiom::Automatic`] resolves against. [`Support::Native`] on appkit, gtk and qt;
 /// [`Support::Emulated`] everywhere else, where `Automatic` composes the field instead.
 pub fn support() -> Support {
@@ -87,7 +87,7 @@ pub fn support() -> Support {
     }
 }
 
-/// The display form of `v` at `decimals` fraction digits — what the field shows, what the
+/// The display form of `v` at `decimals` fraction digits: what the field shows, what the
 /// probe's text reports, and what the composed field parses back.
 pub fn fmt_value(v: f64, decimals: u32) -> String {
     format!("{v:.prec$}", prec = decimals as usize)
@@ -104,7 +104,7 @@ pub struct Stepper<V: Binding<f64>> {
     key: String,
 }
 
-/// `stepper(value)` — a numeric field with increment/decrement arrows. `value` is a
+/// `stepper(value)`: a numeric field with increment/decrement arrows. `value` is a
 /// `Signal<f64>`, a day-model `Field`, or any other two-way binding; a step click commits one
 /// unit through it (`write_commit`), so under an undo stack each click is one undoable step.
 pub fn stepper<V: Binding<f64>>(value: V) -> Stepper<V> {
@@ -131,7 +131,7 @@ impl<V: Binding<f64>> Stepper<V> {
         self.step = step.max(f64::EPSILON);
         self
     }
-    /// Fraction digits shown (default 0 — integers).
+    /// Fraction digits shown (default 0, integers).
     pub fn decimals(mut self, decimals: u32) -> Self {
         self.decimals = decimals;
         self
@@ -141,15 +141,15 @@ impl<V: Binding<f64>> Stepper<V> {
         self.idiom = idiom;
         self
     }
-    /// Pin the platform's own widget — [`StepperIdiom::Native`].
+    /// Pin the platform's own widget, [`StepperIdiom::Native`].
     pub fn native(self) -> Self {
         self.idiom(StepperIdiom::Native)
     }
-    /// Pin Day's composed row — [`StepperIdiom::Composed`].
+    /// Pin Day's composed row, [`StepperIdiom::Composed`].
     pub fn composed(self) -> Self {
         self.idiom(StepperIdiom::Composed)
     }
-    /// The COMPOSED field's dayscript id (default `"stepper"`). It goes here rather than on
+    /// The composed field's dayscript id (default `"stepper"`). It goes here rather than on
     /// `Decorate::id` for the same reason the color well's does: what the app can reach from
     /// outside is the row wrapper, and an id on that tags a node no toolkit realizes. The
     /// native leaf takes this as its id too, so one name drives both idioms.
@@ -198,7 +198,7 @@ fn build_native<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode
         },
         Flex::default(),
     );
-    // The leaf's dayscript id — one `.key` drives both idioms (`Decorate::id` on the piece
+    // The leaf's dayscript id: one `.key` drives both idioms (`Decorate::id` on the piece
     // would tag the wrapper the composed row returns, which no toolkit realizes).
     with_tree(|t| t.set_id(node, key));
     let note_probe = move |v: f64| {
@@ -220,7 +220,7 @@ fn build_native<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode
     }
     // Native steps and typed edits (`Custom`), dayscript's `input:` (`TextChanged`) and
     // `set_value:` (`ValueChanged`/`ValueCommitted`) → the binding. A step or a settled edit
-    // is a COMMIT — one undoable unit per click, exactly like a built-in slider's committed
+    // is a commit, one undoable unit per click, exactly like a built-in slider's committed
     // value; only `ValueChanged` stays a preview.
     cx.on(node, move |ev| {
         match ev {
@@ -242,7 +242,7 @@ fn build_native<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode
     node
 }
 
-/// The composed idiom: a − button, a text field, a + button — ordinary pieces, every target.
+/// The composed idiom: a − button, a text field and a + button, ordinary pieces on every target.
 fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode {
     let Stepper {
         value,
@@ -267,7 +267,7 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
     };
     let inc = move || stepped(1.0);
 
-    /// The field's seam: reads format the bound value, keystrokes are previews the value
+    /// The field's binding: reads format the bound value, keystrokes are previews the value
     /// must not follow (half-typed numbers are not values), and the committed text (Return,
     /// focus loss, dayscript `submit:`) parses, clamps, and writes through.
     struct FieldBinding<V: Binding<f64>> {

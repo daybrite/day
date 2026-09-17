@@ -15,16 +15,16 @@
 //! ```
 //!
 //! The CLI resolves `-p <name>` against the builtin catalog first and then against these
-//! declarations, read from `cargo metadata` exactly as the piece contracts are (pieces.rs) — so
+//! declarations, read from `cargo metadata` exactly as the piece contracts are (pieces.rs), so
 //! registering a toolkit is pure Cargo.toml data on a crate the app depends on. A declared target
-//! inherits the DESKTOP pipeline: `cargo build --features <toolkit-half>`, run the binary, stream
-//! logs, dayscript. That single supported shape is deliberate (Stage 0): a new platform KIND
-//! (another mobile OS) means new build/launch/pack code, which cannot come from a crate.
+//! inherits the desktop pipeline: `cargo build --features <toolkit-half>`, run the binary, stream
+//! logs, dayscript. Stage 0 supports only that single shape: a new platform kind (another
+//! mobile OS) means new build/launch/pack code, which cannot come from a crate.
 //!
 //! What external targets do not get: `day pack` (guarded with a clear error), `day new`
 //! scaffolding, and the in-repo pieces' native renderers (their kinds draw placeholders unless the
-//! external ecosystem ships renderer crates). The toolkit SPI itself — day-spec's `Toolkit` and
-//! `Platform`, `Event`, `Cap`, the props structs — is UNSTABLE and unpublished: an external
+//! external ecosystem ships renderer crates). The toolkit SPI itself (day-spec's `Toolkit` and
+//! `Platform`, `Event`, `Cap`, the props structs) is unstable and unpublished: an external
 //! toolkit pins the day crates to a git revision and expects breakage between revisions
 //! (docs/extending.md spells this out).
 
@@ -41,13 +41,13 @@ use crate::targets::{self, Target, TargetKind};
 #[derive(Deserialize)]
 struct ToolkitMeta {
     /// The platform-toolkit pair, `<os>-<toolkit>`. The toolkit half (everything after the first
-    /// `-`) is also the cargo feature the app must declare — the same convention the builtin
+    /// `-`) is also the cargo feature the app must declare, the same convention the builtin
     /// targets follow (`macos-gtk`/`linux-gtk` share the `gtk` feature).
     target: String,
     /// Pipeline kind. Stage 0 accepts only `"desktop"` (the default).
     #[serde(default)]
     kind: Option<String>,
-    /// Host OS that can build this target (`"any"` default — a wrong host fails in cargo with
+    /// Host OS that can build this target (`"any"` default; a wrong host fails in cargo with
     /// the toolchain's own error, which is at least accurate).
     #[serde(default)]
     host: Option<String>,
@@ -67,8 +67,8 @@ pub struct ExternalToolkit {
     pub doctor: Option<String>,
 }
 
-/// Resolved catalogs by project root. Keyed (not a bare `OnceLock`) so tests — and any future
-/// multi-project invocation — never see another project's toolkits. Successes are cached and
+/// Resolved catalogs by project root. Keyed (not a bare `OnceLock`) so tests, and any future
+/// multi-project invocation, never see another project's toolkits. Successes are cached and
 /// leaked ('static borrows out of a static map); failures are not cached, so a fixed Cargo.toml
 /// is picked up by the next call without restarting anything.
 fn cache() -> &'static Mutex<HashMap<PathBuf, &'static [ExternalToolkit]>> {
@@ -79,7 +79,7 @@ fn cache() -> &'static Mutex<HashMap<PathBuf, &'static [ExternalToolkit]>> {
 /// Every external toolkit the project's dependency graph declares. Runs `cargo metadata` on the
 /// first call per project (the same cost pieces::feature_union already pays during a build);
 /// scans the full package set rather than a feature closure, because the toolkit crate sits
-/// behind the very optional feature its declaration names — a closure would need the answer to
+/// behind the very optional feature its declaration names; a closure would need the answer to
 /// compute the question.
 pub fn resolve(project: &Project) -> Result<&'static [ExternalToolkit], String> {
     if let Some(hit) = cache()
@@ -105,8 +105,8 @@ pub fn resolve(project: &Project) -> Result<&'static [ExternalToolkit], String> 
 }
 
 /// Validate declarations and leak them into catalog entries. Pure (no I/O), so the rules are
-/// unit-testable: name shape, desktop-only kind, and collisions — with the builtin catalog and
-/// between declarations — are all hard errors that name the offending crate.
+/// unit-testable: name shape, desktop-only kind, and collisions (with the builtin catalog and
+/// between declarations) are all hard errors that name the offending crate.
 fn build_catalog(decls: Vec<(String, ToolkitMeta)>) -> Result<Vec<ExternalToolkit>, String> {
     fn leak(s: String) -> &'static str {
         Box::leak(s.into_boxed_str())
@@ -153,7 +153,7 @@ fn build_catalog(decls: Vec<(String, ToolkitMeta)>) -> Result<Vec<ExternalToolki
                 prev.crate_name
             ));
         }
-        // `os` is the name prefix BY CONTRACT for external targets (no override key): the
+        // `os` is the name prefix by contract for external targets (no override key): the
         // `[app.<os>]` table and the platform namespace follow the name. Builtins get to differ
         // (harmony-arkui's os is "ohos") because their table entry says so; an external target
         // with a divergent os would strand every consumer that only has the name to split.
@@ -221,7 +221,7 @@ pub fn known(project: &Project, name: &str) -> bool {
 }
 
 /// Is this catalog entry an external declaration (vs. a builtin)? Externals are exactly the
-/// entries the builtin table does not contain — used to guard `day pack`.
+/// entries the builtin table does not contain; used to guard `day pack`.
 pub fn is_external(target: &Target) -> bool {
     targets::find(target.name).is_none()
 }
@@ -230,10 +230,10 @@ pub fn is_external(target: &Target) -> bool {
 mod tests {
     use super::*;
 
-    /// The whole discovery path against a REAL `cargo metadata`: a scratch project whose app
-    /// depends (optionally — behind the very feature the declaration names) on a toolkit crate
+    /// The whole discovery path against a real `cargo metadata`: a scratch project whose app
+    /// depends (optionally, behind the very feature the declaration names) on a toolkit crate
     /// declaring `[package.metadata.day.toolkit]`. Proves the package scan sees optional deps
-    /// and that the unknown-target error lists the declaration. No compilation involved —
+    /// and that the unknown-target error lists the declaration. No compilation involved;
     /// `cargo metadata` only resolves.
     #[test]
     fn a_fixture_project_declares_a_target_end_to_end() {

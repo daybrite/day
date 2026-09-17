@@ -3,7 +3,7 @@
 
 //! iOS and macOS: the per-framework authorization APIs.
 //!
-//! Apple has no permission *system* to query — each capability is gated by its own framework, with
+//! Apple has no permission *system* to query: each capability is gated by its own framework, with
 //! its own status enum and its own request call. The four we share here are `CLLocationManager`,
 //! `AVCaptureDevice`, `PHPhotoLibrary` and `UNUserNotificationCenter`; motion and the settings deep
 //! link differ per OS and live in `ios.rs` / `macos.rs`.
@@ -19,11 +19,11 @@
 //!
 //! # Two hazards this file is built around
 //!
-//! 1. **An unbundled process must not touch `UNUserNotificationCenter`** — `currentNotificationCenter`
-//!    aborts with "bundleProxyForCurrentProcess is nil". `cargo test` and `examples/` are both
-//!    unbundled, so every notification path is behind [`is_bundled`].
+//! 1. **An unbundled process must not touch `UNUserNotificationCenter`**:
+//!    `currentNotificationCenter` aborts with "bundleProxyForCurrentProcess is nil". `cargo test`
+//!    and `examples/` are both unbundled, so every notification path is behind [`is_bundled`].
 //! 2. **Requesting without the matching `Info.plist` usage description terminates the process**
-//!    (TCC kills you; it is not an exception you can catch). Nothing here can prevent that — the
+//!    (TCC kills you; it is not an exception you can catch). Nothing here can prevent that; the
 //!    `[permissions]` declaration in Day.toml is what generates the key, and `day lint` is the
 //!    backstop.
 //!
@@ -32,7 +32,7 @@
 //! `CLLocationManager` reports authorization changes to a delegate, which only fires with a live run
 //! loop. A part must work in a plain `main` and under `cargo test` (docs/async.md rule 3), so the
 //! request path here polls `authorizationStatus` on a background thread instead of installing a
-//! delegate — which also keeps this file free of `define_class!` and its unsafe.
+//! delegate, which also keeps this file free of `define_class!` and its unsafe.
 
 use std::ffi::CString;
 use std::time::Duration;
@@ -62,7 +62,7 @@ unsafe extern "C" {}
 #[link(name = "UserNotifications", kind = "framework")]
 unsafe extern "C" {}
 
-/// `AVMediaTypeVideo` / `AVMediaTypeAudio` — the four-character media-type codes, spelled out so
+/// `AVMediaTypeVideo` / `AVMediaTypeAudio`: the four-character media-type codes, spelled out so
 /// this file needs no framework constant (and no crate to import it from).
 const MEDIA_VIDEO: &str = "vide";
 const MEDIA_AUDIO: &str = "soun";
@@ -128,7 +128,7 @@ fn location_manager() -> Option<Retained<AnyObject>> {
 
 /// The raw `CLAuthorizationStatus`, or `None` if CoreLocation isn't linked.
 ///
-/// Read through the CLASS method: it is thread-safe and allocation-free, which matters because the
+/// Read through the class method: it is thread-safe and allocation-free, which matters because the
 /// request path polls it from a background thread, and `CLLocationManager` instances want a thread
 /// with a run loop. The instance property (iOS 14+/macOS 11+) is the fallback if a future OS drops
 /// the deprecated class method.
@@ -147,7 +147,7 @@ fn location_raw() -> Option<i32> {
 
 fn location_status() -> Status {
     // CoreLocation: 0 notDetermined, 1 restricted, 2 denied, 3 authorizedAlways,
-    // 4 authorizedWhenInUse — the shared mapping already treats 3 and 4 as granted.
+    // 4 authorizedWhenInUse; the shared mapping already treats 3 and 4 as granted.
     match location_raw() {
         Some(raw) => from_apple_status(i64::from(raw)),
         None => Status::Unsupported,
@@ -211,7 +211,7 @@ fn notifications_status() -> Status {
 }
 
 /// Read the real notification settings, caching the result. The completion runs on an internal
-/// queue — this is the one Apple status with no synchronous form.
+/// queue; this is the one Apple status with no synchronous form.
 fn notifications_query(on_done: Box<dyn FnOnce(Status) + Send>) {
     if !is_bundled() {
         on_done(Status::Unsupported);
@@ -232,7 +232,7 @@ fn notifications_query(on_done: Box<dyn FnOnce(Status) + Send>) {
             match raw {
                 0 => Status::Prompt,
                 1 => Status::Denied,
-                // authorized | provisional | ephemeral — all three may post notifications.
+                // authorized | provisional | ephemeral; all three may post notifications.
                 2..=4 => Status::Granted,
                 _ => Status::Unknown,
             }
@@ -335,7 +335,7 @@ pub fn can_prompt(perm: Permission) -> bool {
 }
 
 pub fn should_show_rationale(_perm: Permission) -> bool {
-    // No Apple equivalent — a denial here is final, so there is no "ask again" to explain.
+    // No Apple equivalent: a denial here is final, so there is no "ask again" to explain.
     false
 }
 
@@ -415,7 +415,7 @@ fn request_notifications(on_done: Box<dyn FnOnce(Status) + Send>) {
         );
         done(status);
     });
-    // Alert | Badge | Sound — the conventional default set. A finer-grained options API is a
+    // Alert | Badge | Sound, the conventional default set. A finer-grained options API is a
     // follow-up; docs/permissions.md records the choice.
     const OPTIONS: usize = (1 << 0) | (1 << 1) | (1 << 2);
     // SAFETY: the block matches `void (^)(BOOL, NSError *)`.
@@ -436,8 +436,8 @@ fn request_notifications(on_done: Box<dyn FnOnce(Status) + Send>) {
 ///
 /// The authorization result arrives at a delegate, which needs a live run loop; polling keeps this
 /// working in a plain `main` and under `cargo test` (docs/async.md rule 3). The prompt itself is
-/// modal to the user, not to us, so a 120 s cap simply stops the thread if they walk away — the
-/// next `status()` still reports whatever they eventually chose.
+/// modal to the user, not to us, so a 120 s cap stops the thread if they walk away; the next
+/// `status()` still reports whatever they eventually chose.
 fn request_location(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
     let Some(mgr) = location_manager() else {
         on_done(Status::Unsupported);
@@ -457,7 +457,7 @@ fn request_location(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
     // few dozen bytes, at most one is ever created here, and it keeps the dialog alive.
     std::mem::forget(mgr);
 
-    // Poll for the user's answer — `location_raw` reads a thread-safe class method, so no
+    // Poll for the user's answer: `location_raw` reads a thread-safe class method, so no
     // CoreLocation object is touched off the main thread.
     std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(120);

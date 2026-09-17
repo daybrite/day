@@ -3,7 +3,7 @@
 
 // ---------------------------------------------------------------------------
 // GTK: `GtkColorDialogButton` driving a `GtkColorDialog` (GTK 4.10+, which day-gtk already
-// requires) — the swatch button and the GNOME color chooser behind it, editor pane and custom
+// requires): the swatch button and the GNOME color chooser behind it, editor pane and custom
 // colors included. The older `GtkColorButton`/`GtkColorChooserDialog` pair is deprecated in the
 // same release and is not used here.
 //
@@ -95,8 +95,8 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {
 
 /// Drop the echo guard when the button goes away.
 ///
-/// Without this the map grows by one entry per realized button, and — worse — its key is the
-/// widget's ADDRESS, which the allocator reuses: a later widget landing on a freed address would
+/// Without this the map grows by one entry per realized button, and, worse, its key is the
+/// widget's address, which the allocator reuses: a later widget landing on a freed address would
 /// inherit the dead entry's flag, and a pick made while that stale flag was set would be dropped.
 fn release(_backend: &mut Gtk, h: &gtk4::Widget) {
     SUPPRESS.with(|m| {

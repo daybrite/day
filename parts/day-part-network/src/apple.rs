@@ -4,12 +4,12 @@
 // macOS + iOS (one shared file): SystemConfiguration's SCNetworkReachability. A target created with
 // CreateWithAddress on 0.0.0.0 asks "could traffic to the default route flow right now?"; GetFlags
 // answers synchronously from the routing table (no packets are sent, so this cannot detect a captive
-// portal or a dead upstream — "online" means routable, not verified internet). Plain-C FFI; the
+// portal or a dead upstream; "online" means routable, not verified internet). Plain-C FFI; the
 // SystemConfiguration framework is force-linked below, no crates needed.
 //
 // What reachability can and cannot say about `kind`: the only transport bit is IsWWAN (iOS-only,
-// cellular). A reachable non-WWAN iOS connection is reported as Wifi — the classic
-// "ReachableViaWiFi" reading — though it could in fact be wired or a tether. macOS gets no
+// cellular). A reachable non-WWAN iOS connection is reported as Wifi (the classic
+// "ReachableViaWiFi" reading), though it could in fact be wired or a tether. macOS gets no
 // transport information at all, so an online Mac reports Other.
 
 use super::{NetworkKind, NetworkStatus};
@@ -84,7 +84,7 @@ fn interpret(flags: u32) -> NetworkStatus {
             expensive: Some(true),
         };
     }
-    // Non-cellular: Wi-Fi on iOS (best-effort — see the header comment), unknown on macOS.
+    // Non-cellular: Wi-Fi on iOS (best-effort; see the header comment), unknown on macOS.
     #[cfg(target_os = "ios")]
     let kind = NetworkKind::Wifi;
     #[cfg(target_os = "macos")]

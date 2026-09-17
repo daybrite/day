@@ -14,10 +14,10 @@ build/
 .gradle/
 local.properties
 
-# Xcode local state (DayApp.xcodeproj itself is hand-written source — do not ignore it)
+# Xcode local state (DayApp.xcodeproj itself is hand-written source; do not ignore it)
 xcuserdata/
 DerivedData/
-# Xcode writes SwiftPM bookkeeping inside the .xcodeproj the first time it resolves packages —
+# Xcode writes SwiftPM bookkeeping inside the .xcodeproj the first time it resolves packages:
 # Package.resolved for the DayPieces package the CLI generates under build/. It is regenerated
 # state, not source, and it cannot be moved: project.xcworkspace lives inside the .xcodeproj by
 # construction, so no xcodebuild flag relocates it.

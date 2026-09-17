@@ -3,10 +3,10 @@
 
 //! Targets with no local-notification implementation wired: Windows and HarmonyOS.
 //!
-//! Both platforms have a notification system — Windows `ToastNotification`, HarmonyOS Notification
-//! Kit — so this is a gap in this crate, not in the platform (docs/notify.md says what each would
-//! need). Answering `Unsupported` keeps an app honest: `capabilities().post` is false, so a UI can
-//! disable its own controls instead of posting into a void.
+//! Both platforms have a notification system (Windows `ToastNotification`, HarmonyOS Notification
+//! Kit), so this is a gap in this crate, not in the platform (docs/notify.md says what each would
+//! need). Answering `Unsupported` means `capabilities().post` is false, so a UI can disable its
+//! controls instead of posting into a void.
 
 use crate::{Capabilities, Channel, NotifId, Notification, NotifyError};
 

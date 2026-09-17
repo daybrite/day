@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The inspector (docs/inspector.md): window content beside a trailing properties panel,
-//! show/hidden by one app-owned `Signal<bool>` — the same signal a `toolbar_toggle` and a menu
+//! show/hidden by one app-owned `Signal<bool>`, the same signal a `toolbar_toggle` and a menu
 //! item bind to, so every affordance stays in step. Where `Cap::Inspector` is `Native` the
 //! split is the toolkit's own trailing-pane container; everywhere else the pane is composed
 //! from plain containers, and on a compact window the panel presents as a fullscreen sheet
@@ -19,7 +19,7 @@ use day_spec::{Cap, Event, Size, Support, kinds};
 
 use crate::*;
 
-/// The pane's default width in points — Keynote-class inspectors sit in the 250–300 range.
+/// The pane's default width in points; Keynote-class inspectors sit in the 250–300 range.
 pub const INSPECTOR_WIDTH: f64 = 280.0;
 
 /// Window content beside a trailing inspector panel, visibility bound to `visible`
@@ -69,13 +69,13 @@ impl<V: Binding<bool>> Inspector<V> {
     }
 
     /// The label of the compact sheet's dismiss button (default `✕`). Pass a localized
-    /// "Done" — the sheet is the one home where the panel needs its own way out.
+    /// "Done"; the sheet is the one home where the panel needs its own way out.
     pub fn sheet_done<M>(mut self, t: impl IntoText<M>) -> Self {
         self.sheet_done = t.into_text();
         self
     }
 
-    /// Put the pane on the LEADING side of the content — a layer panel rather than a
+    /// Put the pane on the leading side of the content, for a layer panel rather than a
     /// properties inspector (docs/tree.md). Default [`PaneEdge::Trailing`].
     pub fn edge(mut self, edge: PaneEdge) -> Self {
         self.edge = edge;
@@ -124,9 +124,9 @@ impl<V: Binding<bool>> Piece for Inspector<V> {
     }
 }
 
-/// TRACKED: is this window compact? The un-reported case (`None` — a backend with no window
-/// geometry) reads as not compact: those are desktop-shaped surfaces, and a sheet that can
-/// never be resized away would strand the panel.
+/// A tracked read of whether this window is compact. The un-reported case (`None`, a backend
+/// with no window geometry) reads as not compact: those are desktop-shaped surfaces, and a
+/// sheet that can never be resized away would strand the panel.
 fn compact(window: RNode) -> bool {
     day_core::window_size_class(window).is_some_and(|c| c.width == day_spec::WidthClass::Compact)
 }
@@ -354,7 +354,7 @@ impl day_core::Layout for SplitLayout {
             cx.place_child(s, Rect::new(w - side_w, 0.0, side_w, h));
         }
         // The sheet (and anything after it) presents on its own; in the tree it takes only
-        // what it measures to — nothing while it is not presented — the way it did as a row
+        // what it measures to (nothing while it is not presented), the way it did as a row
         // child. Handing it the whole window would stack an empty host over the pane.
         for extra in children.iter().skip(2) {
             let m = cx.measure_child(*extra, Proposal::new(Some(w), Some(h)));
@@ -373,8 +373,8 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
         panel,
     } = inspector;
     let window = day_core::window_being_built();
-    // A LEADING pane is a utility surface (a layer panel, docs/tree.md): it stays a side
-    // pane at every width rather than re-homing into the compact sheet — a phone shows a
+    // A leading pane is a utility surface (a layer panel, docs/tree.md): it stays a side
+    // pane at every width rather than re-homing into the compact sheet; a phone shows a
     // narrow canvas beside it, and everything stays mounted in the window (no modal to
     // juggle around focus or scripting).
     if inspector_edge == PaneEdge::Leading {
@@ -409,8 +409,8 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
                 row((divider().width(1.0).grow_h(), scroll(side_panel()).grow())).grow()
             }),))
             .grow(),
-            // The compact home: a fullscreen sheet. Unrouted — the inspector is chrome, not a
-            // place (`Cover::unrouted`) — and carrying its own way out, since a fullscreen
+            // The compact home: a fullscreen sheet. Unrouted, because the inspector is chrome,
+            // not a place (`Cover::unrouted`), and carrying its own way out, since a fullscreen
             // modal has no divider to drag shut.
             cover(SheetOpen { visible, window }, move |_: &String| {
                 let close = sheet_close.clone();

@@ -3,9 +3,9 @@
 
 // Desktop Linux (GTK and Qt alike): libcanberra, the freedesktop event-sound library, which plays
 // through whatever sound server the desktop runs (PulseAudio, PipeWire's Pulse layer, ALSA). It is
-// loaded at RUN time rather than linked, the way day-part-speech loads speech-dispatcher: a linked
-// library is a DT_NEEDED entry, and an app should start on a desktop without libcanberra and simply
-// stay silent there (docs/bridge.md "Linking").
+// loaded at run time rather than linked, the way day-part-speech loads speech-dispatcher: a linked
+// library is a DT_NEEDED entry, and an app should start on a desktop without libcanberra and stay
+// silent there (docs/bridge.md "Linking").
 //
 // libcanberra plays files, and bundled assets live inside the binary (GResource, Qt's .rcc), so each
 // clip is written once to the user's cache directory and played from there. Preloading also asks

@@ -2,22 +2,22 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Route registry (docs/navigation.md): every mounted `nav()` / `nav_stack()` host
-//! register a controller here. Registrations form a STACK so hosts can nest — e.g. a `tabs()`
-//! inside a `nav()` route — and the stack order IS the nesting order (outermost first).
+//! register a controller here. Registrations form a stack so hosts can nest (e.g. a `tabs()`
+//! inside a `nav()` route), and the stack order is the nesting order (outermost first).
 //!
 //! Two addressing modes (docs/navigation.md):
-//!   * A single key (`navigate("inbox")`) is RELATIVE: tried innermost-first, falling through
-//!     outward — a tab key selects the tab, a key the tabs host doesn't know still resolves
+//!   * A single key (`navigate("inbox")`) is relative: tried innermost-first, falling through
+//!     outward. A tab key selects the tab; a key the tabs host doesn't know still resolves
 //!     against the enclosing surface.
-//!   * A `/`-separated path (`navigate("mail/inbox/msg-42")`) is ABSOLUTE: the first segment
+//!   * A `/`-separated path (`navigate("mail/inbox/msg-42")`) is absolute: the first segment
 //!     anchors at the outermost surface that recognizes it, every surface inside the anchor is
-//!     reset to its root, and the remaining segments are consumed inward — including by
+//!     reset to its root, and the remaining segments are consumed inward, including by
 //!     surfaces that only mount as the outer switch takes effect (a pending queue hands each
 //!     newly registered surface the next segment).
 //!
 //! A trailing `?name=value&…` query carries [`route_params`] to the destination builders.
-//! [`current_route`] reports the FULL path — every mounted surface's contribution, outermost
-//! to innermost — so persisting navigation is `save(current_route())` + `navigate(&saved)`.
+//! [`current_route`] reports the full path (every mounted surface's contribution, outermost
+//! to innermost), so persisting navigation is `save(current_route())` + `navigate(&saved)`.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -32,29 +32,29 @@ pub struct NavController {
     pub pop: Box<dyn Fn(bool) -> bool>,
     /// Current route path ("" while showing the root).
     pub current: Box<dyn Fn() -> String>,
-    /// Consume one segment of an ABSOLUTE path. Selectors/tabs accept a declared key (same as
-    /// `push`); a `nav_stack` accepts ANY segment by pushing it (its destinations are open-ended).
+    /// Consume one segment of an absolute path. Selectors/tabs accept a declared key (same as
+    /// `push`); a `nav_stack` accepts any segment by pushing it (its destinations are open-ended).
     /// Distinct from `push` so a relative `navigate("key")` can still fall through a stack.
     pub enter: Box<dyn Fn(&str) -> bool>,
     /// This surface's contribution to the full route: `[]` at root, `[key]` for a nav host /
     /// tabs, the whole path for a stack.
     pub segments: Box<dyn Fn() -> Vec<String>>,
-    /// How deeply this surface is NESTED — 0 for one mounted at the window root, 1 for one built
+    /// How deeply this surface is nested: 0 for one mounted at the window root, 1 for one built
     /// inside another surface's page, and so on.
     ///
-    /// An absolute path walks outermost-inward, and registration ORDER is not that order: a
+    /// An absolute path walks outermost-inward, and registration order is not that order: a
     /// nav host builds its pages before registering itself, so a stack inside a page registers
-    /// FIRST. Ordering the descent by depth instead of by position is what lets `section/detail`
+    /// first. Ordering the descent by depth instead of by position is what lets `section/detail`
     /// find the stack no matter which of the two registered first.
     pub depth: usize,
-    /// Whether this surface is on screen — false for one sitting inside a RESIDENT page its host
+    /// Whether this surface is on screen: false for one sitting inside a resident page its host
     /// is not currently showing.
     ///
     /// A tab bar or a rail keeps every page it has built alive (docs/navigation.md), so the nav
-    /// surfaces inside the tabs the user is NOT looking at stay registered. Without this they
+    /// surfaces inside the tabs the user is not looking at stay registered. Without this they
     /// contribute their segments to [`current_route`] just like the visible ones, and the route
     /// reads as the concatenation of every tab's state. Registration cannot answer the question
-    /// once and for all — which page is showing changes after the build — so it is a predicate.
+    /// once and for all (which page is showing changes after the build), so it is a predicate.
     pub active: Box<dyn Fn() -> bool>,
 }
 
@@ -67,8 +67,8 @@ day_reactive::tls_slots! {
     static NAV_STACK: RefCell<Vec<(NavToken, Rc<NavController>)>> =
         const { RefCell::new(Vec::new()) };
     static NEXT_TOKEN: Cell<u64> = const { Cell::new(1) };
-    /// A launch deep link recorded by the platform entry before `launch_with` runs — the seam
-    /// for hosts with no process environment (web-dom seeds it from the page's URL hash). The
+    /// A launch deep link recorded by the platform entry before `launch_with` runs: the entry
+    /// point for hosts with no process environment (web-dom seeds it from the page's URL hash). The
     /// `DAY_DEEPLINK` environment variable, where one exists, still wins.
     static LAUNCH_DEEPLINK: RefCell<Option<String>> = const { RefCell::new(None) };
     /// Query params of the most recent `navigate()` (empty between navigations). Destination
@@ -82,7 +82,7 @@ day_reactive::tls_slots! {
     static NAV_STORE: RefCell<Option<Rc<dyn NavStore>>> = const { RefCell::new(None) };
 
     static NAV_OBSERVER: RefCell<Option<Rc<NavObserver>>> = const { RefCell::new(None) };
-    /// The last route the observer was told about — dedups the several call sites below (a single
+    /// The last route the observer was told about; dedups the several call sites below (a single
     /// user navigation reaches `maybe_notify_route_change` from both the event-pump tail and the
     /// imperative `navigate` tail; only the first, changing, call fires).
     static LAST_ROUTE: RefCell<String> = const { RefCell::new(String::new()) };
@@ -92,7 +92,7 @@ day_reactive::tls_slots! {
 /// and never unregisters; nested hosts (`tabs()` in a route) unregister when their scope disposes.
 ///
 /// If an absolute navigation left unconsumed segments, the new surface consumes as many leading
-/// ones as it accepts — this is how `navigate("mail/inbox/msg-42")` reaches a stack that only
+/// ones as it accepts; this is how `navigate("mail/inbox/msg-42")` reaches a stack that only
 /// mounts once the "mail" switch has taken effect.
 pub fn register_nav(ctrl: NavController) -> NavToken {
     let token = NEXT_TOKEN.with(|c| {
@@ -103,7 +103,7 @@ pub fn register_nav(ctrl: NavController) -> NavToken {
     let ctrl = Rc::new(ctrl);
     NAV_STACK.with(|s| s.borrow_mut().push((token, ctrl.clone())));
     // Feed pending absolute segments to the just-mounted surface (front-first, stop at the
-    // first refusal — deeper segments wait for deeper surfaces).
+    // first refusal, since deeper segments wait for deeper surfaces).
     while let Some(front) = PENDING.with(|p| p.borrow().first().cloned()) {
         if !(ctrl.enter)(&front) {
             break;
@@ -120,7 +120,7 @@ pub fn unregister_nav(token: NavToken) {
     NAV_STACK.with(|s| s.borrow_mut().retain(|(t, _)| *t != token));
 }
 
-/// Drop every controller — a fresh mount / test boot (called from tree install/uninstall).
+/// Drop every controller: a fresh mount / test boot (called from tree install/uninstall).
 pub fn clear_controllers() {
     NAV_STACK.with(|s| s.borrow_mut().clear());
     NEXT_TOKEN.with(|c| c.set(1));
@@ -132,7 +132,7 @@ pub fn clear_controllers() {
 /// `Rc`-cloned out of the stack before the call, so their closures (which re-enter the tree and
 /// may register/unregister hosts) never run while the stack is borrowed (§3.3).
 ///
-/// "Innermost" is decided by [`NavController::depth`], not by registration order — the mirror of
+/// "Innermost" is decided by [`NavController::depth`], not by registration order: the mirror of
 /// [`nested_after`]'s outermost-first rule, and for the same reason: a host registers after
 /// building its pages, so the registry places it after the surfaces those pages contain. Asked in
 /// reverse-registration order, a tab bar would answer a back before the stack pushed inside its
@@ -178,7 +178,7 @@ pub fn parse_route(route: &str) -> (Vec<String>, Vec<(String, String)>) {
     (segments, params)
 }
 
-/// Assemble a route string from segments and params — the inverse of [`parse_route`].
+/// Assemble a route string from segments and params, the inverse of [`parse_route`].
 /// Reserved characters (`/`, `?`, `&`, `=`, `%`) in segments and params are percent-encoded.
 pub fn encode_route(segments: &[String], params: &[(String, String)]) -> String {
     let mut out = segments
@@ -233,7 +233,7 @@ fn percent_encode(s: &str) -> String {
 }
 
 /// The query params carried by the most recent [`navigate`] call (`?name=value&…`). Read them
-/// inside a destination builder: `route_param("id")`. They describe the navigation in flight —
+/// inside a destination builder: `route_param("id")`. They describe the navigation in flight;
 /// a push you perform by writing a path signal directly carries its data in your own state
 /// instead (docs/navigation.md).
 pub fn route_params() -> Rc<Vec<(String, String)>> {
@@ -249,10 +249,10 @@ pub fn route_param(name: &str) -> Option<String> {
 }
 
 /// Record the host's launch deep link before `launch_with` runs (docs/navigation.md).
-/// Platform glue only — apps navigate with [`navigate`]. `DAY_DEEPLINK`, where a process
+/// Platform glue only; apps navigate with [`navigate`]. `DAY_DEEPLINK`, where a process
 /// environment exists, takes precedence.
 ///
-/// UI THREAD ONLY: the slot is thread-local, because the web host that seeds it runs on the one
+/// UI thread only: the slot is thread-local, because the web host that seeds it runs on the one
 /// thread there is. Glue that may be called from another thread (a notification tap arriving on a
 /// JNI or delegate thread) wants [`request_route`], which is thread-safe and works at any
 /// lifecycle stage.
@@ -260,11 +260,11 @@ pub fn set_launch_deeplink(route: &str) {
     LAUNCH_DEEPLINK.with(|l| *l.borrow_mut() = Some(route.to_string()));
 }
 
-/// A route requested from outside the reactive turn, at any lifecycle stage, from any thread —
+/// A route requested from outside the reactive turn, at any lifecycle stage, from any thread:
 /// the rail a notification tap navigates through (docs/notify.md).
 ///
 /// This is process-global rather than thread-local ([`LAUNCH_DEEPLINK`] is the latter) because the
-/// caller is usually NOT on the UI thread: Android delivers a tap on a JNI thread and Apple on a
+/// caller is usually not on the UI thread: Android delivers a tap on a JNI thread and Apple on a
 /// delegate callback, and both can arrive before `launch_with` has run at all.
 static REQUESTED_ROUTE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
@@ -279,7 +279,7 @@ fn requested_slot() -> std::sync::MutexGuard<'static, Option<String>> {
 /// Cold start (a tap that launches the process) and warm tap (the app is already running) are the
 /// same call: before launch the route is buffered and `launch_with` applies it after the first
 /// mount, so it lands once routes actually exist; after launch it is applied on the UI thread.
-/// An empty route is ignored, and the newest request wins — a user who taps twice gets the second
+/// An empty route is ignored, and the newest request wins: a user who taps twice gets the second
 /// destination.
 pub fn request_route(route: &str) {
     if route.is_empty() {
@@ -318,7 +318,7 @@ pub fn has_launch_deeplink() -> bool {
 
 /// A key/value sink a nav surface's `.restore` persists its state through, so navigation
 /// survives a relaunch or an Android process death (docs/navigation.md). The framework never
-/// installs one — an app opts in by installing a store (e.g. `day_part_prefs::install_nav_store`)
+/// installs one; an app opts in by installing a store (e.g. `day_part_prefs::install_nav_store`)
 /// and marking the surfaces it wants remembered with `.restore(key)`. With no store installed,
 /// `.restore` is a silent no-op, so a surface's `.restore` call never fails to build.
 ///
@@ -351,8 +351,8 @@ pub fn nav_store_load(key: &str) -> Option<String> {
 }
 
 /// Debug-build diagnostic, once per process: a surface asked to `.restore(key)` while no
-/// [`NavStore`] is installed persists nothing, and does so SILENTLY — the surface still builds,
-/// the app still runs, and the setting simply never survives a relaunch. That is a deliberate
+/// [`NavStore`] is installed persists nothing, and does so silently: the surface still builds,
+/// the app still runs, and the setting never survives a relaunch. That follows from the
 /// design (`.restore` must never fail to build), but it reads as a bug, so say it out loud where
 /// a developer will see it.
 fn warn_no_nav_store(key: &str) {
@@ -388,7 +388,7 @@ pub(crate) fn launch_deeplink() -> Option<String> {
     std::env::var("DAY_DEEPLINK")
         .ok()
         .filter(|r| !r.is_empty())
-        // A route buffered by `request_route` before launch — a notification tap that cold-started
+        // A route buffered by `request_route` before launch: a notification tap that cold-started
         // the process. Peeked, not taken, so `has_launch_deeplink()` keeps answering true for a
         // nav surface's `.restore` (a tap must beat restored state); `launch_with` takes it.
         .or_else(|| requested_slot().clone())
@@ -398,9 +398,9 @@ pub(crate) fn launch_deeplink() -> Option<String> {
 
 /// Navigate to a route (docs/navigation.md).
 ///
-/// * `""` — pop the innermost stack to its root (falls through outward).
-/// * A single key — RELATIVE: innermost surface first, falling through outward.
-/// * `a/b/c` — ABSOLUTE: anchor at the outermost surface that knows `a`, reset every surface
+/// * `""`: pop the innermost stack to its root (falls through outward).
+/// * A single key is relative: innermost surface first, falling through outward.
+/// * `a/b/c` is absolute: anchor at the outermost surface that knows `a`, reset every surface
 ///   inside the anchor to its root, then feed `b`, `c`, … inward (surfaces that mount during
 ///   the cascade consume the rest as they register).
 /// * A trailing `?name=value&…` carries [`route_params`] to the destination builders.
@@ -422,9 +422,9 @@ pub fn navigate(route: &str) -> bool {
 /// The surfaces inside `list[anchor]`, outermost first.
 ///
 /// Ordered by [`NavController::depth`] rather than by registration, because a host that builds its
-/// pages before registering itself lands in the registry after what those pages contain — so an
+/// pages before registering itself lands in the registry after what those pages contain, so an
 /// absolute `section/detail` would otherwise anchor on the section and find nothing beyond it.
-/// Depth only ORDERS here, never filters: a subtree rebuilt outside its original build scope (a
+/// Depth only orders here, never filters: a subtree rebuilt outside its original build scope (a
 /// `when` arm re-derived on a size-class change) registers with a depth of zero, and equal depths
 /// keep registration order, which is the right answer in that case.
 fn nested_after(list: &[Rc<NavController>], anchor: usize) -> Vec<Rc<NavController>> {
@@ -436,8 +436,8 @@ fn nested_after(list: &[Rc<NavController>], anchor: usize) -> Vec<Rc<NavControll
 
 /// Anchor + descend for a multi-segment path. See [`navigate`].
 ///
-/// Signal writes may propagate SYNCHRONOUSLY (an un-batched set cascades immediately), so the
-/// surfaces an anchor switch mounts can register — and must find their segments waiting —
+/// Signal writes may propagate synchronously (an un-batched set cascades immediately), so the
+/// surfaces an anchor switch mounts can register, and must find their segments waiting,
 /// before the anchoring `push` even returns. Hence: queue the tail first, then anchor.
 fn navigate_absolute(segments: &[String]) -> bool {
     let snapshot = || -> Vec<Rc<NavController>> {
@@ -448,8 +448,8 @@ fn navigate_absolute(segments: &[String]) -> bool {
 
     // Already anchored: some surface is showing `first`. Reset everything inside it to its
     // root (innermost-first, so stacks pop cleanly), then feed the remaining segments to the
-    // surviving inner surfaces in nesting order. Consult the LIVE registry after the resets —
-    // a reset can dispose deeper surfaces (a popped page takes its sub-surfaces with it).
+    // surviving inner surfaces in nesting order. Consult the live registry after the resets,
+    // because a reset can dispose deeper surfaces (a popped page takes its sub-surfaces with it).
     if let Some(anchor) = controllers.iter().position(|c| (c.current)() == *first) {
         PENDING.with(|p| *p.borrow_mut() = segments[1..].to_vec());
         for c in nested_after(&controllers, anchor).iter().rev() {
@@ -492,8 +492,8 @@ pub fn nav_back() -> bool {
     ok
 }
 
-/// A navigation observer (§14.6): called with the new FULL route each time it changes, from any
-/// source — imperative `navigate`/`nav_back`, a nav_link or sidebar row (which navigate from an
+/// A navigation observer (§14.6): called with the new full route each time it changes, from any
+/// source: imperative `navigate`/`nav_back`, a nav_link or sidebar row (which navigate from an
 /// event handler, bypassing the event observer), a stack push, or a native back gesture. `""` is
 /// the root. Installed by the recorder in day-script; day-core only fires it.
 pub type NavObserver = dyn Fn(&str, Option<&str>);
@@ -502,16 +502,16 @@ pub type NavObserver = dyn Fn(&str, Option<&str>);
 /// change fires regardless of where recording started.
 pub fn set_nav_observer(observer: Option<Box<NavObserver>>) {
     NAV_OBSERVER.with(|o| *o.borrow_mut() = observer.map(Rc::from));
-    // Seed the baseline with the NORMALIZED route (an unmounted surface is `None` == `""`), so the
-    // first real navigation — not the None→"" transition at install — is what fires.
+    // Seed the baseline with the normalized route (an unmounted surface is `None` == `""`), so the
+    // first real navigation, not the None→"" transition at install, is what fires.
     LAST_ROUTE.with(|r| *r.borrow_mut() = current_route().unwrap_or_default());
 }
 
-/// Announce a navigation to `route` from its SOURCE — a nav host (the sidebar nav host) calls
+/// Announce a navigation to `route` from its source: a nav host (the sidebar nav host) calls
 /// this the instant it changes the bound selection, so the observer sees it synchronously instead
 /// of waiting for the route to settle into `NAV_STACK` a frame later (which `maybe_notify_route_change`
 /// reads). Deduped like the pump-boundary path. `route` is the host's local key, which replays as a
-/// relative `navigate` (innermost-first) — correct for both a top-level sidebar and a nested one.
+/// relative `navigate` (innermost-first), correct for both a top-level sidebar and a nested one.
 pub fn note_navigation(route: &str, label: Option<&str>) {
     let changed = LAST_ROUTE.with(|r| {
         let mut r = r.borrow_mut();
@@ -557,7 +557,7 @@ pub(crate) fn maybe_notify_route_change() {
     }
 }
 
-/// The FULL current route: every mounted surface's contribution, outermost to innermost,
+/// The full current route: every mounted surface's contribution, outermost to innermost,
 /// `/`-joined (docs/navigation.md). `None` = no surface mounted; `Some("")` = everything at
 /// its root. Round-trips through [`navigate`], so persisting navigation state is
 /// `save(current_route())` on the way out and `navigate(&saved)` on the way back in.
@@ -567,7 +567,7 @@ pub fn current_route() -> Option<String> {
     if controllers.is_empty() {
         return None;
     }
-    // Outermost first, which is nesting order rather than registration order — a host that builds
+    // Outermost first, which is nesting order rather than registration order: a host that builds
     // its pages before registering itself lands after what those pages contain
     // (`NavController::depth`). Ties keep registration order, which is what siblings want.
     let mut ordered = controllers;
@@ -621,9 +621,9 @@ mod tests {
         );
     }
 
-    /// `REQUESTED_ROUTE` is process-global (it must be — see `request_route`), so the tests that
+    /// `REQUESTED_ROUTE` is process-global (it must be; see `request_route`), so the tests that
     /// touch it cannot run in parallel with each other. Serialize them rather than making the
-    /// production type thread-local, which would defeat the point of the buffer.
+    /// production type thread-local, which would defeat the purpose of the buffer.
     static ROUTE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     fn route_test<T>(f: impl FnOnce() -> T) -> T {
@@ -639,13 +639,13 @@ mod tests {
     /// beside the rest of this binary's tests.
     ///
     /// `day_reactive::install_main_poster` is a process-wide `OnceLock` that is never cleared, and
-    /// `present::task_tests` installs one — its executor wakers re-poll through `on_main`, so those
-    /// tests genuinely need it. Once installed, `request_route` takes its posting branch and the
+    /// `present::task_tests` installs one: its executor wakers re-poll through `on_main`, so those
+    /// tests need it. Once installed, `request_route` takes its posting branch and the
     /// inline poster runs `apply_route_request` immediately, draining the very buffer these
     /// assertions are about. libtest gives no ordering guarantee between the two groups, so this
     /// was a coin flip: the same commit passed on linux-aarch64 and failed on linux-x86_64.
     ///
-    /// So they run in a CHILD process. This test re-executes the test binary selecting only the
+    /// So they run in a child process. This test re-executes the test binary selecting only the
     /// ignored test below, which is the whole set of assertions; nothing else runs there, so no
     /// poster exists and the precondition holds by construction rather than by luck.
     #[test]
@@ -670,7 +670,7 @@ mod tests {
     }
 
     /// Every assertion that depends on no backend having started. Ignored so it runs only in the
-    /// child process [`route_buffering_before_launch`] spawns — see that test for why.
+    /// child process [`route_buffering_before_launch`] spawns; see that test for why.
     #[test]
     #[ignore = "needs a process with no main poster; run by route_buffering_before_launch"]
     fn route_buffering_in_a_poster_free_process() {
@@ -680,8 +680,8 @@ mod tests {
              it is meaningless otherwise, so failing loudly beats passing vacuously",
         );
 
-        // A tap that cold-starts the process buffers a route, and the launch path sees it —
-        // without this, `launch_deeplink()` would miss it and the app would open on its default
+        // A tap that cold-starts the process buffers a route, and the launch path sees it.
+        // Without this, `launch_deeplink()` would miss it and the app would open on its default
         // screen.
         route_test(|| {
             assert_eq!(launch_deeplink(), None);
@@ -701,7 +701,7 @@ mod tests {
             assert_eq!(take_requested_route().as_deref(), Some("clock/alarm"));
         });
 
-        // An empty route is not a navigation request — `navigate("")` means "pop to root", which a
+        // An empty route is not a navigation request: `navigate("")` means "pop to root", which a
         // missing intent extra must never trigger.
         route_test(|| {
             request_route("");

@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // macOS: AppKit's NSHapticFeedbackManager drives the Force Touch trackpad. It offers only three
-// patterns — Generic, Alignment, LevelChange — so the seven `Haptic` styles fold onto them
+// patterns (Generic, Alignment, LevelChange), so the seven `Haptic` styles fold onto them
 // sensibly:
 //   Light / Selection      → Alignment   (the subtlest "snap into place" tick)
 //   Medium / Heavy         → LevelChange (a firmer detent, as when stepping a value)
 //   Success/Warning/Error  → Generic     (the general-purpose feedback)
-// A Mac with no Force Touch trackpad (or an external mouse in use) simply feels nothing — the call is
+// A Mac with no Force Touch trackpad (or an external mouse in use) feels nothing; the call is
 // harmless. Feedback is delivered "now"; day runs on the main thread, where this belongs.
 
 use super::Haptic;

@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-dom shim — the DOM half of the web-dom backend (toolkits/day-dom/src/lib.rs is the
-// Rust half; the two mirror each other's tables). Owns every real DOM call, keyed by numeric
-// element ids, and calls back into wasm through a handful of exports. Plain ES module: no
-// bundler, no wasm-bindgen.
+// day-dom shim: the DOM half of the web-dom backend (toolkits/day-dom/src/lib.rs is the
+// Rust half; the two mirror each other's tables). Owns every DOM call, keyed by numeric
+// element ids, and calls back into wasm through a handful of exports. A plain ES module with
+// no bundler and no wasm-bindgen.
 
 let wasm = null;            // wasm exports once instantiated
 const els = [null, null];   // element registry; id 1 = the day root (set in start())
@@ -16,7 +16,7 @@ const scriptInbox = [];
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
 let toolbarItems = {};      // toolbar item id → its element, for targeted patches
 // The one open toolbar pull-down (docs/toolbars.md). Item activation rides
-// day_dom_toolbar_action — the encoded ids are registered menu-action ids.
+// day_dom_toolbar_action; the encoded ids are registered menu-action ids.
 let toolbarMenu = null;
 function closeToolbarMenu() {
   if (toolbarMenu) { toolbarMenu.remove(); toolbarMenu = null; }
@@ -39,7 +39,7 @@ function toggleToolbarMenu(anchor, items) {
       row.className = 'day-toolbar-menu-item';
       row.style.paddingLeft = `${12 + depth * 14}px`;
       if (it.items) {
-        // Inlined submenu: a dimmed header, then its children indented — the same flattening
+        // Inlined submenu: a dimmed header, then its children indented, the same flattening
         // the composed context menu uses.
         row.classList.add('header');
         row.textContent = it.label;
@@ -102,7 +102,7 @@ const releaseHooks = new Map();
 
 // Decoded bitmaps (docs/images.md), keyed by the id day-core minted: the `ImageBitmap` a canvas
 // draws, plus the object URL an `<img>` loads. Entries leave only through
-// `day_dom_image_release`, which day-core calls when the app drops its last handle — the URL is
+// `day_dom_image_release`, which day-core calls when the app drops its last handle. The URL is
 // revoked there, since an object URL the page forgets is a leak the GC cannot reach.
 const bitmaps = new Map();
 // MIME type → whether this engine can encode it (see `day_dom_image_can_encode`).
@@ -120,7 +120,7 @@ const sensorState = { started: false, startedAt: 0, saw: false, accel: null, gyr
 const mem = () => new Uint8Array(wasm.memory.buffer);
 const f64 = (ptr, len) => new Float64Array(wasm.memory.buffer, ptr, len);
 const str = (ptr, len) => utf8.decode(new Uint8Array(wasm.memory.buffer, ptr, len));
-// Copy a JS string into wasm memory at `ptr` (capacity `cap`), returning the bytes written — the
+// Copy a JS string into wasm memory at `ptr` (capacity `cap`), returning the bytes written: the
 // counterpart of `str` for bridge arms that hand a value back (docs/bridge.md).
 const memWrite = (ptr, cap, text) => {
   const bytes = utf8enc.encode(text);
@@ -189,10 +189,11 @@ function register(el) {
 function div(cls) { const d = document.createElement('div'); d.className = cls; return d; }
 
 // Hold the keyboard on a list or sidebar across the rebuild its own key press just caused. The
-// detail that lands can contain an element the browser focuses on sight — a <video>, a web
-// view's iframe — and the sidebar would lose the arrows after a single step. A native outline
-// keeps focus while the detail changes, so this restores it once the rebuild has settled.
-// Only for KEY-driven moves: a click that lands somewhere focusable is the user aiming there.
+// detail that lands can contain an element the browser focuses as soon as it appears (a <video>,
+// a web view's iframe), and the sidebar would lose the arrows after a single step. A native
+// outline keeps focus while the detail changes, so this restores it once the rebuild has
+// settled. Only for key-driven moves: a click that lands somewhere focusable is the user aiming
+// there.
 function keepFocus(el) {
   setTimeout(() => {
     if (el.isConnected && document.activeElement !== el) el.focus({ preventScroll: true });
@@ -202,7 +203,7 @@ function keepFocus(el) {
 // A nav host's chrome for one presentation: sidebar+detail panes, or a back bar over a single
 // detail region. Shared by the initial realize and by a re-present, so the two can never drift.
 // The four presentations (docs/size-classes.md), keyed by the `mode` lib.rs sends: 0 split,
-// 1 stack, 2 tabs, 3 rail. `__side` is the CHROME slot — a sidebar pane, a tab bar, or a rail —
+// 1 stack, 2 tabs, 3 rail. `__side` is the chrome slot (a sidebar pane, a tab bar, or a rail)
 // and always holds the same NAV_MENU element, so switching between them re-parents one node
 // rather than rebuilding the rows and their listeners.
 const NAV_MODES = ['split', 'stack', 'tabs', 'rail'];
@@ -239,9 +240,9 @@ const V = (id) => E(id).__input || E(id);
 // Satisfy import modules besides `env` with loud stubs. A dependency compiled with unreached
 // wasm-bindgen code paths (chrono's default `wasmbind`, dragged in by a parsing library) still
 // lists `__wbindgen_placeholder__.*` in the module's import table, and instantiation refuses a
-// missing module outright. The stubs let the module start; a call into one — code that truly
-// needs the wasm-bindgen runtime, which the day web pipeline does not carry — fails with a
-// diagnosable message at the call site instead of a TypeError at startup.
+// missing module outright. The stubs let the module start; a call into one (code that needs
+// the wasm-bindgen runtime, which the day web pipeline does not carry) fails with a diagnosable
+// message at the call site instead of a TypeError at startup.
 const foreignStubs = (module, imports) => {
   for (const im of WebAssembly.Module.imports(module)) {
     if (im.module === 'env') continue;
@@ -264,9 +265,9 @@ const foreignStubs = (module, imports) => {
   return imports;
 };
 
-// Minutes EAST of UTC at `ms`, for the page's own zone or for the `?tz=` override the `tz` key
-// honors. `Date.getTimezoneOffset` counts the other way (minutes to ADD to reach UTC), and a
-// named zone states its offset through `Intl` as "GMT+09:00" — "GMT" alone being UTC. An
+// Minutes east of UTC at `ms`, for the page's zone or for the `?tz=` override the `tz` key
+// honors. `Date.getTimezoneOffset` counts the other way (minutes to add to reach UTC), and a
+// named zone states its offset through `Intl` as "GMT+09:00", "GMT" alone being UTC. An
 // unknown id answers 0 rather than throwing into the app.
 function tzOffsetMinutes(ms) {
   const override = new URLSearchParams(location.search).get('tz');
@@ -295,10 +296,10 @@ const env = {
     const p = E(parent); const target = p.__content || p;
     const el = E(child);
     const ref = target.children[index] ?? null;
-    // Already where it belongs. `insertBefore` does not check: it REMOVES the node and puts it
+    // Already where it belongs. `insertBefore` does not check: it removes the node and puts it
     // back, and removing a subtree that holds the focused element blurs it. Day re-inserts a
     // child at its existing index whenever a sibling's props change, so a text field lost focus
-    // on every keystroke — the caret went to <body> and only the first character landed.
+    // on every keystroke: the caret went to <body> and only the first character landed.
     if (el === ref || (el.parentNode === target && el.nextSibling === ref)) return;
     target.insertBefore(el, ref);
   },
@@ -319,7 +320,7 @@ const env = {
     s.left = x + 'px'; s.top = y + 'px';
     s.width = w + 'px'; s.height = h + 'px';
   },
-  // Options and selection for a picker, a segmented control or a radio group — one verb over
+  // Options and selection for a picker, a segmented control or a radio group: one verb over
   // three shapes, because each is "a list of choices with one active" and the element decides
   // how that is drawn (docs/controls.md).
   day_dom_options(id, json, len) {
@@ -353,8 +354,8 @@ const env = {
   day_dom_set_text(id, ptr, len) {
     const el = E(id); const t = str(ptr, len);
     if (el.tagName === 'TEXTAREA') {
-      // A text area's own edit echoes back through the binding, and assigning `value` moves the
-      // caret to the end — typing in the MIDDLE of existing notes would jump away after each
+      // A text area's edit echoes back through the binding, and assigning `value` moves the
+      // caret to the end, so typing in the middle of existing notes would jump away after each
       // character. The echo carries the text it already has, so an equal value is nothing to do.
       if (el.value !== t) el.value = t;
     } else {
@@ -362,8 +363,8 @@ const env = {
     }
   },
   day_dom_set_style(id, p, pl, v, vl) { E(id).style.setProperty(str(p, pl), str(v, vl)); },
-  // A styled run's link (docs/text-runs.md). `owner` is the LABEL's element, since that is the
-  // one Rust knows as a node — the run spans are not nodes. The anchor's own navigation is
+  // A styled run's link (docs/text-runs.md). `owner` is the label's element, since that is the
+  // one Rust knows as a node; the run spans are not nodes. The anchor's navigation is
   // cancelled: what the target does is the app's `.on_link()` call, and the default there opens
   // the URL through the same path every other backend uses.
   day_dom_link(id, owner, p, l) {
@@ -427,9 +428,9 @@ const env = {
   },
   // First text baseline from the element's top, in px, for a box `boxH` tall
   // (docs/baseline.md). The browser knows the exact metrics: a canvas TextMetrics reports the
-  // font's ascent, and the element's own computed padding/border says where its text box starts
-  // — so an <input> with a border reports a lower baseline than a bare <div>, which is the
-  // whole point. Returns -1 when the element has no text of its own.
+  // font's ascent, and the element's computed padding/border says where its text box starts,
+  // so an <input> with a border reports a lower baseline than a bare <div>, which is what the
+  // caller needs. Returns -1 when the element has no text of its own.
   day_dom_baseline(id, boxH) {
     const el = E(id);
     if (!el) return -1;
@@ -442,7 +443,7 @@ const env = {
     const padB = parseFloat(cs.paddingBottom) || 0;
     const borderB = parseFloat(cs.borderBottomWidth) || 0;
     const inner = Math.max(0, boxH - top - padT - padB - borderB);
-    // One line, centered in the content box — the same model every control uses for its text.
+    // One line, centered in the content box: the same model every control uses for its text.
     return top + padT + Math.max(0, (inner - m.line) / 2) + m.ascent;
   },
   day_dom_width: (id) => E(id).clientWidth,
@@ -456,7 +457,7 @@ const env = {
     el.scrollTo({ top, behavior: animated ? 'smooth' : 'instant' });
   },
   day_dom_scroll_offset(id, out) { const el = E(id); f64(out, 2).set([el.scrollLeft, el.scrollTop]); },
-  // What an emulated list is actually SHOWING (docs/list.md): the scrolled offset and the
+  // What an emulated list is showing (docs/list.md): the scrolled offset and the
   // visible height. The list positions every row itself, so this is the only way it can know
   // which handful of a ten-thousand-row source needs building.
   day_dom_list_viewport(id, out) { const el = E(id); f64(out, 2).set([el.scrollTop, el.clientHeight]); },
@@ -524,8 +525,8 @@ const env = {
     });
   },
   // Pointer-drag reorder for the emulated list (docs/list.md): the browser has no native list
-  // reorder, so this fakes the affordance — lift the pressed cell, slide a gap under it (CSS
-  // transitions on the other cells), autoscroll near the edges — while the DECISIONS stay
+  // reorder, so this fakes the affordance (lift the pressed cell, slide a gap under it with CSS
+  // transitions on the other cells, autoscroll near the edges) while the decisions stay
   // Day's: every hovered slot is vetted synchronously through wasm.day_dom_list_can_move (the
   // app's guard), and the drop commits through wasm.day_dom_list_move, which re-binds the cells.
   day_dom_list_reorder(id) {
@@ -611,12 +612,12 @@ const env = {
   day_dom_canvas_replay: (id, ops, opsLen, strs, strsLen, w, h) =>
     replay(E(id), f64(ops, opsLen), new Uint8Array(wasm.memory.buffer, strs, strsLen), w, h),
 
-  // Raster images from bytes (docs/images.md). A browser decodes ASYNCHRONOUSLY, so the answer
-  // comes back through the exported `day_dom_image_decoded` rather than from this call — which is
+  // Raster images from bytes (docs/images.md). A browser decodes asynchronously, so the answer
+  // comes back through the exported `day_dom_image_decoded` rather than from this call, which is
   // exactly what day-core's request-id design is for. Ids ride as f64: a wasm i64 would reach JS
   // as a BigInt, and an f64 carries a minted id exactly well past any count this page can reach.
   day_dom_image_decode: (req, id, ptr, len) => {
-    // `slice` COPIES out of wasm memory: a Blob over the live buffer would tear the moment the
+    // `slice` copies out of wasm memory: a Blob over the live buffer would tear the moment the
     // heap grows.
     const blob = new Blob([mem().slice(ptr, ptr + len)]);
     createImageBitmap(blob)
@@ -660,8 +661,8 @@ const env = {
       })
       .catch(() => wasm.day_dom_image_encoded(req, 0, 0));
   },
-  // Whether the engine WRITES `type` — what `encode_formats` answers from, so an app never
-  // offers a format the browser would quietly turn into PNG. Probed once per type on a 1×1
+  // Whether the engine writes `type`, which is what `encode_formats` answers from, so an app
+  // never offers a format the browser would quietly turn into PNG. Probed once per type on a 1×1
   // canvas: `toDataURL` answers synchronously and prefixes the type it actually produced.
   day_dom_image_can_encode: (fmtPtr, fmtLen) => {
     const type = str(fmtPtr, fmtLen);
@@ -708,7 +709,7 @@ const env = {
   day_dom_modifiers: () => modifierMask,
   // The browser clipboard for day-part-clipboard (docs/menus.md). Inside a live copy/cut/
   // paste DOM event (dispatched below while the event is on the stack) the calls use the
-  // event's own clipboardData — the only synchronous path; outside one, writes best-effort
+  // event's clipboardData, the only synchronous path; outside one, writes best-effort
   // via navigator.clipboard and reads fall back to the page-local mirror of the last copy.
   day_dom_clipboard_set: (p, n) => {
     const text = str(p, n);
@@ -747,8 +748,8 @@ const env = {
   day_dom_sql_ready: () => (sqlReady ? 1 : 0),
   day_dom_sql_call: (p, n) => sqlCall(new Uint8Array(wasm.memory.buffer, p, n).slice()),
   day_dom_sql_reply: (p) => { new Uint8Array(wasm.memory.buffer, p, sqlReplyBuf.length).set(sqlReplyBuf); sqlReplyBuf = null; },
-  // day_sql_fs_*: the OPFS primitives the WORKER instance implements. The app instance links
-  // them (same module) but never calls them — every arm here just refuses.
+  // day_sql_fs_*: the OPFS primitives the worker instance implements. The app instance links
+  // them (same module) but never calls them, so every arm here just refuses.
   day_sql_fs_open: () => -1,
   day_sql_fs_read: () => -1,
   day_sql_fs_write: () => -1,
@@ -766,9 +767,9 @@ const env = {
   day_dom_dismiss(req) { dialogs.get(req)?.close('day-dismiss'); },
 
   day_dom_nav_mode(id, mode, t, tl) { navChrome(E(id), id, mode); },
-  // Re-present a LIVE host after a size-class change (docs/size-classes.md). The chrome is
+  // Re-present a live host after a size-class change (docs/size-classes.md). The chrome is
   // rebuilt, but the pages are not: detaching an element leaves it in `els`, so each page keeps
-  // its DOM subtree — and with it every scroll offset, text selection, and focused field —
+  // its DOM subtree (and with it every scroll offset, text selection, and focused field)
   // until Day re-homes it with `day_dom_nav_add_page`.
   day_dom_nav_present(id, mode) {
     const nav = E(id);
@@ -829,7 +830,7 @@ const env = {
     spec.items.forEach((item, i) => {
       // The section heading that opens a group before this row (docs/navigation.md). A sibling
       // of the rows rather than a wrapper around them, so the rows stay direct children in Day's
-      // order and `i` stays their index everywhere — the click below, the arrow keys above,
+      // order and `i` stays their index everywhere: the click below, the arrow keys above,
       // day_dom_navmenu_select. Tabs and rails hide it in CSS; the grouping is a sidebar's.
       if (item.section) {
         const heading = div('day-navmenu-heading');
@@ -841,9 +842,9 @@ const env = {
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', i === spec.selected ? 'true' : 'false');
       if (item.icon) {
-        // Template rendering, the iOS model: the icon is a MASK painted with currentColor,
-        // so it follows the row's text color — light in dark mode, white when selected.
-        // A row's own tint (docs/vectors.md) paints the mask with that color instead.
+        // Template rendering, the iOS model: the icon is a mask painted with currentColor,
+        // so it follows the row's text color (light in dark mode, white when selected).
+        // A row's tint (docs/vectors.md) paints the mask with that color instead.
         const icon = div('day-navmenu-icon');
         icon.style.maskImage = `url("${item.icon}")`;
         icon.style.webkitMaskImage = `url("${item.icon}")`;
@@ -876,7 +877,7 @@ const env = {
     if (!spec.items.length) { document.body.classList.remove('day-has-toolbar'); return; }
     bar = div('day-toolbar'); bar.id = 'day-toolbar';
     toolbarItems = {};
-    // THREE TRACKS, one per column of a split window (docs/toolbars.md). Day draws this strip
+    // Three tracks, one per column of a split window (docs/toolbars.md). Day draws this strip
     // itself, so it can do what a desktop toolbar does: the sidebar's commands over the sidebar,
     // the content list's over the list, the rest over the detail. The track widths follow the
     // panes' own, measured from the split; a window with no split gets one track and the columns
@@ -889,7 +890,7 @@ const env = {
     const widths = { sidebar: paneWidth('.day-nav-sidebar'), list: paneWidth('.day-nav-list') };
     const tracks = {};
     const trackFor = (col) => {
-      // A column with no pane of its own — a composed content list, a collapsed sidebar — has no
+      // A column with no pane of its own (a composed content list, a collapsed sidebar) has no
       // width to align to, so its commands join the detail's track rather than claiming a strip
       // of their own.
       if (!nav || ((col === 'sidebar' || col === 'list') && !widths[col])) col = 'detail';
@@ -968,7 +969,7 @@ const env = {
           ic.style.webkitMaskImage = `url("${it.icon}")`;
           el.append(ic);
         }
-        // Icon ALONE where there is one, as every desktop toolbar does — the label stays as the
+        // Icon alone where there is one, as every desktop toolbar does; the label stays as the
         // tooltip and the accessible name, so nothing is lost to a screen reader or a hover. An
         // item with no icon keeps its text, which is also what a desktop bar does with one.
         if (it.icon) {
@@ -993,9 +994,9 @@ const env = {
           el.classList.add('day-toolbar-sidebar');
           el.setAttribute('aria-expanded', 'true');
           el.addEventListener('click', () => {
-            // `env`, not `wasm`: the sidebar toggle is a shim verb Rust IMPORTS, not a wasm
-            // export. Called through `wasm` it is simply undefined, and the handler threw before
-            // toggling anything — which is why the button did nothing at all.
+            // `env`, not `wasm`: the sidebar toggle is a shim verb Rust imports, not a wasm
+            // export. Called through `wasm` it is undefined, and the handler threw before
+            // toggling anything, which is why the button did nothing at all.
             const shown = env.day_dom_toolbar_sidebar();
             if (!shown) el.disabled = true;
             else el.setAttribute('aria-expanded',
@@ -1039,7 +1040,7 @@ const env = {
     const nav = document.querySelector('.day-nav.split');
     if (!nav) return 0;
     nav.classList.toggle('day-sidebar-hidden');
-    // Day frames the panes itself — the CSS only decides how much room the detail has, not how
+    // Day frames the panes itself; the CSS only decides how much room the detail has, not how
     // wide its page was told to be. Report the detail's new size or the page keeps the width it
     // was given and the hidden sidebar leaves a gap. A frame later, so the class has taken
     // effect and the rect is the one the browser settled on.
@@ -1054,7 +1055,7 @@ const env = {
   },
 
   day_dom_navmenu_select(id, idx) {
-    // Rows only, in Day's order — the section headings between them are not addressed by index.
+    // Rows only, in Day's order; the section headings between them are not addressed by index.
     [...E(id).querySelectorAll(':scope > .day-navmenu-row')].forEach((row, i) => {
       row.classList.toggle('selected', i === idx);
       row.setAttribute('aria-selected', i === idx ? 'true' : 'false');
@@ -1072,13 +1073,13 @@ const env = {
 
   // Motion sensors (docs/sensors.md): the browser arm of day-part-sensors, over `devicemotion`.
   //
-  // One listener feeds both kinds — the event carries acceleration and rotation together. The
+  // One listener feeds both kinds, since the event carries acceleration and rotation together. The
   // magnetometer has no cross-browser API at all (Chromium's Generic Sensor `Magnetometer` is
   // flag-gated and absent from Safari and Firefox), so kind 2 is always unavailable.
   //
   // Availability can only be known in retrospect: `'DeviceMotionEvent' in window` is true on a
   // desktop browser with no hardware, so this reports "available" until a grace period passes with
-  // no event, and "unavailable" after — which is the honest answer for a laptop.
+  // no event, and "unavailable" after, which is the right answer for a laptop.
   day_dom_sensor_start(kind) {
     if (kind === 2 || sensorState.started) return;
     sensorState.started = true;
@@ -1129,7 +1130,7 @@ const env = {
   // `navigator.geolocation.watchPosition`. The browser's API is already a subscription with an
   // error channel, so it maps almost one-to-one.
   //
-  // A field the browser did not measure is `null`, which crosses to Rust as NaN — the part turns a
+  // A field the browser did not measure is `null`, which crosses to Rust as NaN; the part turns a
   // non-finite value back into `None` rather than inventing a zero.
   day_dom_geo_available() {
     return navigator.geolocation ? 1 : 0;
@@ -1156,7 +1157,7 @@ const env = {
   },
 
   // Preferences (docs/prefs.md): the browser arm of day-part-prefs. localStorage can throw
-  // (private browsing, storage pressure) — failures report as absent/uncommitted, matching
+  // (private browsing, storage pressure); failures report as absent/uncommitted, matching
   // the part's contract on every platform.
   day_dom_pref_set(k, kl, v, vl) {
     try { localStorage.setItem(PREF_NS + str(k, kl), str(v, vl)); return 1; }
@@ -1184,12 +1185,12 @@ const env = {
   },
 
   // App-local files (docs/fs.md): the browser arm of day-part-fs, stored in the Origin
-  // Private File System — a real origin-scoped file hierarchy.
+  // Private File System, an origin-scoped file hierarchy.
   // One operation per request id (op: 0 read, 1 write, 2 remove, 3 list); the completion
   // re-enters wasm exactly once: day_fs_done (bytes; list joins names with \u001f,
   // directories carrying a trailing slash) or day_fs_failed (kind 1 NotFound, 2 no OPFS in
-  // this context — pre-OPFS browsers and private-browsing/ephemeral sessions, which WebKit
-  // gives no storage backing — 0 everything else). Request buffers are COPIED out before the
+  // this context, meaning pre-OPFS browsers and private-browsing/ephemeral sessions, which WebKit
+  // gives no storage backing; 0 everything else). Request buffers are copied out before the
   // first await. OPFS only, no fallback store: scripted runs use a persistent browser
   // profile (scripts/ci/webdom-driver.mjs) so real OPFS is what CI exercises.
   day_dom_fs_start(id, op, p, pl, d, dl) {
@@ -1222,7 +1223,7 @@ const env = {
 
   day_dom_script_send(ptr, len) {
     const line = str(ptr, len);
-    if (!scriptWs) return; // scripting not armed — nothing is listening
+    if (!scriptWs) return; // scripting not armed, so nothing is listening
     if (scriptWs.readyState === WebSocket.OPEN) scriptWs.send(line);
     else scriptOutbox.push(line);
   },
@@ -1239,7 +1240,7 @@ const env = {
       if (count < 0) { navigator.clearAppBadge?.(); }
       else if (count === 0) { navigator.setAppBadge?.(); }   // no argument = a dot
       else { navigator.setAppBadge?.(count); }
-    } catch (_) { /* unsupported or blocked — the cap already says Emulated */ }
+    } catch (_) { /* unsupported or blocked; the cap already says Emulated */ }
   },
   day_dom_open_url(ptr, len) { window.open(str(ptr, len), '_blank', 'noopener'); },
 
@@ -1257,14 +1258,14 @@ const env = {
       // The browser's IANA time zone (a zone-aware app's local-zone source on web).
       // `?tz=` overrides for testing, mirroring the other reserved keys.
       case 'tz': v = q.get('tz') ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || ''); break;
-      // The offset that zone is running at, in MINUTES EAST of UTC, for the current instant.
+      // The offset that zone is running at, in minutes east of UTC, for the current instant.
       case 'tzoffset': v = String(tzOffsetMinutes(Date.now())); break;
       default:
-        // Reserved `vector:` keys answer "is NAME a bundled vector glyph?" from the list
-        // the assemble step injects into the page (docs/vectors.md) — '1' or empty.
-        // `tzoffset:<epoch-ms>` answers for a MOMENT rather than for now: daylight saving makes
-        // the offset a function of the instant, which is what a "local midnight" boundary
-        // needs. The browser's own tz database answers, so a web app bundles none.
+        // Reserved `vector:` keys answer "is `<name>` a bundled vector glyph?" from the list
+        // the assemble step injects into the page (docs/vectors.md): '1' or empty.
+        // `tzoffset:<epoch-ms>` answers for a given moment rather than for now: daylight saving
+        // makes the offset a function of the instant, which is what a "local midnight" boundary
+        // needs. The browser's tz database answers, so a web app bundles none.
         if (key.startsWith('tzoffset:')) {
           const ms = Number(key.slice(9));
           v = Number.isFinite(ms) ? String(tzOffsetMinutes(ms)) : '';
@@ -1287,7 +1288,7 @@ const env = {
     mem().set(bytes, out);
     return bytes.length;
   },
-  // One line of canvas text measured in the font the replay draws it in, into EIGHT f64 at `out`:
+  // One line of canvas text measured in the font the replay draws it in, into eight f64 at `out`:
   // width, the line box (ascent + descent), the ascent, the cap height, then the ink box relative
   // to the line box's top-leading corner (docs/fonts.md).
   day_dom_canvas_measure_text(text, len, size, weight, italic, fam, famLen, out) {
@@ -1297,14 +1298,14 @@ const env = {
     const [asc, desc] = fontBox(ctx, t, size);
     const m = ctx.measureText(t);
     const width = m.width;
-    // Canvas2D's `actualBoundingBox*` IS the ink box, reported from the drawing origin on the
-    // baseline with left/ascent measured POSITIVE in the -x / -y directions.
+    // Canvas2D's `actualBoundingBox*` is the ink box, reported from the drawing origin on the
+    // baseline with left/ascent measured positive in the -x / -y directions.
     const num = (v, fallback) => (Number.isFinite(v) ? v : fallback);
     const inkL = -num(m.actualBoundingBoxLeft, 0);
     const inkR = num(m.actualBoundingBoxRight, width);
     const inkA = num(m.actualBoundingBoxAscent, asc);
     const inkD = num(m.actualBoundingBoxDescent, desc);
-    // No cap-height metric that Safari reports, so take the ink ascent of a capital — which is
+    // No cap-height metric that Safari reports, so take the ink ascent of a capital, which is
     // exactly what a cap height is. Memoized per (size, font) on day's side.
     const capM = ctx.measureText('H');
     const cap = num(capM.actualBoundingBoxAscent, size * 0.7);
@@ -1315,8 +1316,8 @@ const env = {
   },
   day_dom_warn: (ptr, len) => console.warn(str(ptr, len)),
   // Logging (docs/logging.md). std's stdout/stderr on wasm32-unknown-unknown accept bytes and
-  // DROP them, so the console is the only sink a page has. `level` is log's ordering — 1 Error,
-  // 2 Warn, 3 Info, 4 Debug, 5 Trace — mapped onto the console methods a browser filters by, so
+  // drop them, so the console is the only sink a page has. `level` is log's ordering (1 Error,
+  // 2 Warn, 3 Info, 4 Debug, 5 Trace) mapped onto the console methods a browser filters by, so
   // the devtools level selector works on Day's output the way it does on the page's own.
   day_dom_log: (level, ptr, len) => {
     const msg = str(ptr, len);
@@ -1396,12 +1397,12 @@ function mods(e) { return (e.ctrlKey || e.metaKey ? 1 : 0) | (e.shiftKey ? 2 : 0
 // ---------------------------------------------------------------------------
 // Styled-text editing (day-piece-texteditor, docs/texteditor.md).
 //
-// A `contenteditable` element IS the browser's rich text editing — IME, undo, spell-check,
+// A `contenteditable` element is the browser's rich text editing: IME, undo, spell-check,
 // drag-and-drop and the accessibility tree all come with it, and none of them can be rebuilt in a
-// canvas. What it does NOT give is a stable document model: pressing Enter inserts a <div> in one
+// canvas. What it does not give is a stable document model: pressing Enter inserts a <div> in one
 // browser and a <p> in another, and a paste brings whatever markup it came with. So Day reads the
 // DOM through one flattening (dayEditorText) and writes it back in one canonical shape (spans
-// inside <p> blocks), and every offset it exchanges with Rust is a UTF-8 BYTE offset, because
+// inside <p> blocks), and every offset it exchanges with Rust is a UTF-8 byte offset, because
 // that is what a Rust `String` indexes by.
 // ---------------------------------------------------------------------------
 
@@ -1417,18 +1418,18 @@ function dayFillerBr(node) {
 
 // The DOM ⇄ flat-text mapping, and the one traversal all of it goes through.
 //
-// Day's serializer writes ONE BLOCK PER LINE of the document, so read backwards the text is the
-// blocks' text JOINED with "\n" — an empty block is an empty line and still contributes its
+// Day's serializer writes one block per line of the document, so read backwards the text is the
+// blocks' text joined with "\n"; an empty block is an empty line and still contributes its
 // separator. Inside a block a <br> is a line break too, except the filler one above.
 //
 // Both directions must agree byte for byte, which is why they share this walk rather than each
 // having their own. When they disagreed (the locator counted only text nodes) two things broke:
 // restoring a selection after a restyle landed one character further right per preceding line,
-// and the first keystroke reported a text that had lost every blank line — which Day then read
+// and the first keystroke reported a text that had lost every blank line, which Day then read
 // as a deletion and reflowed the paragraph runs onto the wrong lines.
 //
 // `onEvent(kind, node)` sees, in document order: 'break' where the text gains a "\n", 'text' for
-// each text node, and 'enter' for each element (which is how a position inside an EMPTY block is
+// each text node, and 'enter' for each element (which is how a position inside an empty block is
 // named at all). Returning true stops the walk.
 function dayEditorScan(el, onEvent) {
   let started = false; // a join has no leading separator
@@ -1469,8 +1470,8 @@ function dayEditorText(el) {
   return out;
 }
 
-// A selection endpoint can be an ELEMENT with a CHILD INDEX rather than a text node with a
-// character offset — a triple-click, or a caret sitting in an empty block. Resolve it to what it
+// A selection endpoint can be an element with a child index rather than a text node with a
+// character offset (a triple-click, or a caret sitting in an empty block). Resolve it to what it
 // denotes: a text position where there is text, else the element itself, whose 'enter' names the
 // empty line.
 function dayEditorTextPoint(node, offset) {
@@ -1489,7 +1490,7 @@ function dayEditorTextPoint(node, offset) {
   return last ? [last, last.nodeValue.length] : [node, 0];
 }
 
-// A DOM position as a BYTE offset into the flattened text.
+// A DOM position as a byte offset into the flattened text.
 function dayEditorOffset(el, node, offset) {
   if (!node || !el.contains(node)) return 0;
   const [target, into] = dayEditorTextPoint(node, offset);
@@ -1529,7 +1530,7 @@ function dayEditorLocate(el, target) {
       return false;
     }
     if (kind === 'enter') {
-      // A block starting exactly at the target with no text of its own IS the position — an
+      // A block starting exactly at the target with no text of its own is the position: an
       // empty line, which no text node can name.
       if (bytes === target && emptyLine === null) emptyLine = [n, 0];
       return false;
@@ -1582,9 +1583,9 @@ function dayEditorSelect(el, startByte, endByte, force) {
   sel.addRange(range);
 }
 
-// Replace the markup, keeping the caret. Day sends fresh HTML on every attribute change — a
-// syntax highlighter does it per keystroke — so preserving the caret here is what makes the arm
-// usable at all. A rewrite during IME composition is SKIPPED: replacing the nodes mid-composition
+// Replace the markup, keeping the caret. Day sends fresh HTML on every attribute change (a
+// syntax highlighter does it per keystroke), so preserving the caret here is what makes the arm
+// usable at all. A rewrite during IME composition is skipped: replacing the nodes mid-composition
 // cancels the candidate window, and Day's next patch repaints anyway.
 function dayEditorSetHtml(el, html) {
   if (el.__dayComposing) return;
@@ -1617,7 +1618,7 @@ function dayEditorListen(id, el) {
     const [p, l] = intoWasm(dayEditorText(el));
     wasm.day_dom_event_text(id, 2, p, l);
   });
-  // A drag owns the selection until the button comes up — including a release outside the
+  // A drag owns the selection until the button comes up, including a release outside the
   // element, which is why the end listeners are on the document.
   el.addEventListener('pointerdown', () => { el.__dayDragging = true; });
   document.addEventListener('pointerup', () => { el.__dayDragging = false; });
@@ -1627,7 +1628,7 @@ function dayEditorListen(id, el) {
     if (!sel || sel.rangeCount === 0 || !el.contains(sel.anchorNode)) return;
     const a = dayEditorOffset(el, sel.anchorNode, sel.anchorOffset);
     const b = dayEditorOffset(el, sel.focusNode, sel.focusOffset);
-    // Remembered ORDERED, because the piece reports a backwards drag ordered as well — an
+    // Remembered ordered, because the piece reports a backwards drag ordered as well; an
     // unordered comparison would miss the echo and re-anchor the drag at its far end.
     el.__daySel = [Math.min(a, b), Math.max(a, b)];
     const [p, l] = intoWasm('sel ' + a + ' ' + b);
@@ -1662,7 +1663,7 @@ function listen(id, mask) {
     if (el.type === 'checkbox') wasm.day_dom_event(id, 4, el.checked ? 1 : 0, 0, 0, 0);
     else if (el.tagName === 'SELECT') wasm.day_dom_event(id, 6, el.selectedIndex, 0, 0, 0);
     // A range's `change` is the settled value: the DOM fires `input` as the thumb moves and
-    // `change` once, when the user lets go (event 15 — mirrors ev::VALUE_COMMITTED in lib.rs).
+    // `change` once, when the user lets go (event 15, mirroring ev::VALUE_COMMITTED in lib.rs).
     else if (el.type === 'range') wasm.day_dom_event(id, 15, Number(el.value), 0, 0, 0);
   });
   if (mask & 8) {
@@ -1674,15 +1675,15 @@ function listen(id, mask) {
   if (mask & 32) resizeObserver.observe(host);
   if (mask & 64) host.addEventListener('scroll', () => wasm.day_dom_event(id, 12, host.scrollLeft, host.scrollTop, 0, 0));
   if (mask & 128) {
-    // A tap is a press RELEASED without meaningful movement — decided at pointerup, the way
-    // every native recognizer does it, and reported at the PRESS point. Firing on pointerdown
+    // A tap is a press released without meaningful movement, decided at pointerup the way
+    // every native recognizer does it, and reported at the press point. Firing on pointerdown
     // broke coexisting drag gestures: the tap handler ran before the drag's Began and could
     // re-target selection out from under it (Day-Sketch's resize handles were unreachable
     // outside a shape's geometry, on web only).
     let tap = null;
     host.addEventListener('pointerdown', (e) => {
-      // Primary button only: a right-click is a SUMMON (the contextmenu listener above), and
-      // the pointerup it also produces must not come out as a tap — on Day-Sketch the phantom
+      // Primary button only: a right-click is a summon (the contextmenu listener above), and
+      // the pointerup it also produces must not come out as a tap; on Day-Sketch the phantom
       // tap re-targeted the selection under the menu the summon had just built.
       if (e.button !== 0) { tap = null; return; }
       const r = host.getBoundingClientRect();
@@ -1700,7 +1701,7 @@ function listen(id, mask) {
   }
   if (mask & 1024) {
     // The browser's own context menu yields to the app's: Day presents a composed menu from
-    // the same model every other backend shows natively (event 16 — ev::CONTEXT in lib.rs).
+    // the same model every other backend shows natively (event 16, ev::CONTEXT in lib.rs).
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1709,8 +1710,8 @@ function listen(id, mask) {
     });
   }
   if (mask & 256) {
-    // The drag engages only past the same small slop, with Began at the ORIGINAL press point
-    // — so a clean click never produces a zero-length drag, and a real drag never produces a
+    // The drag engages only past the same small slop, with Began at the original press point,
+    // so a clean click never produces a zero-length drag, and a real drag never produces a
     // tap.
     let start = null, dragging = false;
     host.addEventListener('pointerdown', (e) => {
@@ -1739,7 +1740,7 @@ function listen(id, mask) {
     host.addEventListener('pointercancel', finish);
   }
   if (mask & 512) {
-    // Hover: pointer entry, motion and exit. `pointerType` gates it to a real pointer — a touch
+    // Hover: pointer entry, motion and exit. `pointerType` gates it to a real pointer: a touch
     // produces a pointerdown/up pair with an enter and a leave around it, and reporting those as
     // hovers would make every tap look like a hover on a phone (docs/canvas.md "Interaction").
     let last = [0, 0];
@@ -1777,7 +1778,7 @@ const resizeObserver = new ResizeObserver((entries) => {
 
 let measurer = null;
 // Font ascent + line height for a CSS `font` shorthand, from a canvas TextMetrics (the only
-// place the browser exposes real font metrics). Cached per font string — a form asks for the
+// place the browser exposes font metrics). Cached per font string, since a form asks for the
 // same two or three fonts on every layout pass.
 let metricsCtx = null;
 const metricsCache = new Map();
@@ -1846,7 +1847,7 @@ function rgba(packed) {
 }
 
 // The region a stroke of the current lineWidth covers, as a clip path. Canvas2D exposes no
-// "convert stroke to path", so this is the honest approximation available to it: clip to the
+// "convert stroke to path", so this is the closest approximation available to it: clip to the
 // path's own outline. A gradient stroke therefore paints the gradient across the whole path
 // interior on web, which reads correctly for thin lines and diverges for very thick ones.
 function strokeRegion(ctx, p) { return p; }
@@ -1854,7 +1855,7 @@ function strokeRegion(ctx, p) { return p; }
 // ---- canvas fonts (docs/fonts.md) ----------------------------------------------------------
 
 // The CSS font shorthand canvas text draws and measures in: slant, CSS weight (0 = the
-// default), an absolute pixel size, then the requested family ahead of the platform stack —
+// default), an absolute pixel size, then the requested family ahead of the platform stack, so
 // a family the page cannot resolve falls through to the same face the default draws.
 function canvasFont(size, weight, italic, family) {
   const fam = family ? `${JSON.stringify(family)}, ` : '';
@@ -1880,7 +1881,7 @@ function measureContext() {
 // The page's font list in Day's list text: U+001E between families, U+001F between fields
 // (family, then face/weight/italic per face). The CSS generic families come first, each with
 // the four faces a browser synthesizes for any family; then every bundled FontFace `boot`
-// registered, grouped by family. queryLocalFonts() is deliberately not asked: Chromium only,
+// registered, grouped by family. queryLocalFonts() is not asked: Chromium only,
 // asynchronous, and behind a permission prompt (Cap::FontList answers Emulated).
 function fontListText() {
   const FS = '\u001f', RS = '\u001e';
@@ -1900,7 +1901,7 @@ function fontListText() {
       faces.push(`${FS}${FS}${weight}${FS}${italic}`); // an empty name: Day synthesizes it
       bundled.set(family, faces);
     });
-  } catch (_) { /* no FontFaceSet — the generic list stands */ }
+  } catch (_) { /* no FontFaceSet; the generic list stands */ }
   for (const [family, faces] of bundled) {
     families.push(family.replace(/[\u001e\u001f]/g, ' ') + faces.join(''));
   }
@@ -1908,8 +1909,8 @@ function fontListText() {
 }
 
 // Decoded path geometry, keyed by the encoder's content key (day_spec::geometry_key). It lives
-// OUT here on purpose: a cache inside `replay` would be built and thrown away every frame, which
-// is the cost it exists to remove. Entries can never go stale — the key IS the content — so the
+// out here because a cache inside `replay` would be built and thrown away every frame, which
+// is the cost it exists to remove. Entries can never go stale (the key is the content), so the
 // cap is only to keep a long-lived page from holding every path it has ever drawn.
 const pathCache = new Map();
 
@@ -2024,7 +2025,7 @@ function replay(canvas, ops, strs, w, h) {
       const paint = readPaint(); const p = path();
       if (paint.__radial) {
         // No gradient-stroke primitive: clip to the stroked region, then paint the gradient
-        // through it. Canvas2D has no "stroke to path", so the clip IS the stroke geometry.
+        // through it. Canvas2D has no "stroke to path", so the clip is the stroke geometry.
         const [cx, cy, rx, ry] = paint.__radial;
         ctx.save(); ctx.strokeStyle = '#000'; ctx.clip(strokeRegion(ctx, p));
         ctx.translate(cx, cy); ctx.scale(rx, ry);
@@ -2075,7 +2076,7 @@ function replay(canvas, ops, strs, w, h) {
 // ---------------------------------------------------------------------------
 // The day-sql channel (docs/persistence.md): synchronous SQLite over the day-sql worker.
 // The worker holds databases on OPFS sync access handles; this side writes a request into a
-// SharedArrayBuffer and spins the few microseconds until the reply state flips — so wasm's
+// SharedArrayBuffer and spins the few microseconds until the reply state flips, so wasm's
 // day_dom_sql_call is fully synchronous. Needs cross-origin isolation (the day server sends
 // COOP/COEP); without it sqlReady stays false and file databases refuse loudly in Rust.
 // ---------------------------------------------------------------------------
@@ -2087,7 +2088,7 @@ let sqlI = null, sqlB = null, sqlCap = 0, sqlReady = false, sqlReplyBuf = null;
 // Clipboard plumbing (docs/menus.md): the live DOM clipboard event while wasm handles it,
 // the staged outbound bytes, and the page-local mirror of the last in-page copy.
 let activeClipboardEvent = null, clipboardStaged = null, clipboardMirror = null;
-// The modifier keys as last observed (bit0 shift, bit1 primary = meta|ctrl, bit2 alt) —
+// The modifier keys as last observed (bit0 shift, bit1 primary = meta|ctrl, bit2 alt);
 // wasm pulls this ambiently for interactions modifiers change (shift-click multi-select).
 let modifierMask = 0;
 const trackModifiers = (e) => {
@@ -2175,7 +2176,7 @@ function sqlCall(req) {
 const dialogs = new Map();
 
 function present(req, spec) {
-  // The open picker IS the browser's file input — hidden, clicked, answered on change/cancel.
+  // The open picker is the browser's file input: hidden, clicked, answered on change/cancel.
   if (spec.kind === 'open') {
     const input = document.createElement('input');
     input.type = 'file';
@@ -2231,8 +2232,8 @@ function present(req, spec) {
   dlg.showModal();
 }
 
-// The save flow: wrap the staged bytes in a Blob, click a download link — the browser's own
-// "save file" surface. The answer is deferred a tick: this runs synchronously inside the wasm
+// The save flow: wrap the staged bytes in a Blob, click a download link (the browser's
+// "save file" surface). The answer is deferred a tick: this runs synchronously inside the wasm
 // present call, and answering re-enters wasm while the presenting frame is still live.
 function presentSave(req, spec, bytes) {
   const name = spec.name || 'download';
@@ -2288,9 +2289,9 @@ async function boot(wasmUrl) {
   // daybridge (docs/bridge.md): each bridged crate's web arm ships as its own ES module beside
   // this shim, rather than being hand-written into it. `day build` lists them in
   // `window.__DAY_BRIDGES`; each exports `register(rt)` returning the imports it implements, which
-  // join `env` before instantiation. A name collision between two crates is impossible — every
-  // import is `day_bridge_<crate>_<fn>` — but a module that fails to load must not take the app
-  // down with it, so a failure is logged and its arm simply stays unimplemented.
+  // join `env` before instantiation. A name collision between two crates is impossible (every
+  // import is `day_bridge_<crate>_<fn>`), but a module that fails to load must not take the app
+  // down with it, so a failure is logged and its arm stays unimplemented.
   // The runtime a bridge module gets. `exports` is a lazy accessor because the instance is bound
   // only after every module has registered; an asynchronous arm's completion (docs/bridge.md
   // "Callbacks") reaches wasm through it, handing strings and bytes over as (ptr, len) pairs it
@@ -2333,7 +2334,8 @@ async function boot(wasmUrl) {
   // One compile serves both instantiations: the compiled module is structured-cloneable, so
   // the day-sql worker gets it over postMessage instead of compiling the bytes again. The
   // worker is kicked first and awaited just before day_dom_main: by the time app code can
-  // open a database, the channel is either up or definitively absent. No async seam in Rust.
+  // open a database, the channel is either up or definitively absent, so Rust needs no async
+  // path.
   let module;
   try {
     module = await WebAssembly.compileStreaming(fetch(wasmUrl));
@@ -2362,10 +2364,10 @@ async function boot(wasmUrl) {
   }
 
   // The platform-standard keys the browser has no document-level route for: undo (⌘Z /
-  // Ctrl+Z, shifted or Ctrl+Y for redo) and select-all (⌘A) — skipped while an editable
+  // Ctrl+Z, shifted or Ctrl+Y for redo) and select-all (⌘A), skipped while an editable
   // element has them (its own text behavior applies).
   //
-  // The ARROWS are deliberately not here. They follow focus instead, delivered by whichever
+  // The arrows are not here. They follow focus instead, delivered by whichever
   // widget holds it (day_dom_list_keynav, day_dom_navmenu, day_dom_canvas_keynav), because a
   // document-level route cannot tell a nudge the app wants from the keys a focused list needs.
   document.addEventListener('keydown', (e) => {
@@ -2379,7 +2381,7 @@ async function boot(wasmUrl) {
   });
 
   // The browser's own edit-command route (⌘X/C/V, its Edit menu): when no editable element
-  // claims the event, it is the app's — forwarded synchronously so the handler's clipboard
+  // claims the event, it is the app's, forwarded synchronously so the handler's clipboard
   // calls hit this very event's clipboardData (docs/menus.md).
   const editOps = { cut: 0, copy: 1, paste: 2 };
   for (const kind of Object.keys(editOps)) {
@@ -2401,7 +2403,7 @@ async function boot(wasmUrl) {
       for (const line of scriptOutbox.splice(0)) scriptWs.send(line);
     });
     scriptWs.addEventListener('message', (ev) => {
-      // Lines can arrive while boot still awaits the day-sql worker below — before
+      // Lines can arrive while boot still awaits the day-sql worker below, before
       // day_dom_main, when the engine cannot take them. Queue until the app starts.
       if (!appStarted) { scriptInbox.push(String(ev.data)); return; }
       const [p, l] = intoWasm(String(ev.data));

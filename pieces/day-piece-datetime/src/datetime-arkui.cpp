@@ -1,17 +1,17 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-piece-datetime's OWN ArkUI shim (docs/extending.md, the pullrefresh recipe): the NDK picker
-// nodes, API 12+ — ARKUI_NODE_CALENDAR_PICKER (compact date: entry field → calendar popup),
-// ARKUI_NODE_DATE_PICKER (inline date wheels; carries native START/END bounds), and
-// ARKUI_NODE_TIME_PICKER (time wheels). The shim queries its OWN ArkUI_NativeNodeAPI_1 and uses
-// the ADDITIVE per-node event receiver (addNodeEventReceiver) so it never touches
+// day-piece-datetime's ArkUI shim (docs/extending.md, the pullrefresh recipe): the NDK picker
+// nodes, API 12+: ARKUI_NODE_CALENDAR_PICKER (compact date: entry field → calendar popup),
+// ARKUI_NODE_DATE_PICKER (inline date wheels; carries native start/end bounds), and
+// ARKUI_NODE_TIME_PICKER (time wheels). The shim queries its own ArkUI_NativeNodeAPI_1 and uses
+// the additive per-node event receiver (addNodeEventReceiver) so it never touches
 // day-arkui-sys's global receiver; each node's event user data carries the day NodeId.
 //
 // Payload notes straight from native_node.h: the wheels DATE_PICKER reports month 0–11 (the
-// calendar picker and the SELECTED_DATE attribute use 1–12) — normalized to 1–12 at this
+// calendar picker and the SELECTED_DATE attribute use 1–12), normalized to 1–12 at this
 // boundary; the wheels SELECTED/START/END attributes are "YYYY-M-D" strings. A null createNode
-// (picker nodes missing from this SDK) returns nullptr — day falls back per docs.
+// (picker nodes missing from this SDK) returns nullptr, and day falls back per docs.
 
 #include <cstdint>
 #include <cstdio>
@@ -30,7 +30,7 @@ static ArkUI_NativeNodeAPI_1* dtp_api() {
     return api;
 }
 
-// One callback per addon (set at first node creation) — the Rust side routes by NodeId.
+// One callback per addon (set at first node creation); the Rust side routes by NodeId.
 static void (*g_on_date)(long long, int, int, int) = nullptr; // id, year, month(1-12), day
 static void (*g_on_time)(long long, int, int) = nullptr;      // id, hour, minute
 
@@ -88,7 +88,7 @@ extern "C" void* day_dtp_date_new(long long id, int inline_style, int y, int m, 
     if (!api) return nullptr;
     if (inline_style) {
         ArkUI_NodeHandle n = api->createNode(ARKUI_NODE_DATE_PICKER);
-        if (!n) return nullptr; // unavailable on this SDK — day falls back per docs
+        if (!n) return nullptr; // unavailable on this SDK; day falls back per docs
         // Native bounds (the wheels won't scroll outside them); "" = leave the node default.
         if (min_iso && *min_iso) {
             ArkUI_AttributeItem item = {nullptr, 0, min_iso, nullptr};
@@ -104,8 +104,8 @@ extern "C" void* day_dtp_date_new(long long id, int inline_style, int y, int m, 
         wheels_map()[n] = true;
         return n;
     }
-    // Compact: the calendar-picker entry field (no min/max attribute in the NDK — the piece's own
-    // clamp bounds the VALUE; docs/datepicker.md).
+    // Compact: the calendar-picker entry field (no min/max attribute in the NDK; the piece's own
+    // clamp bounds the value; docs/datepicker.md).
     ArkUI_NodeHandle n = api->createNode(ARKUI_NODE_CALENDAR_PICKER);
     if (!n) return nullptr;
     set_calendar_date(n, y, m, d);
@@ -116,7 +116,7 @@ extern "C" void* day_dtp_date_new(long long id, int inline_style, int y, int m, 
 }
 
 // Erase the node's wheels/calendar flag when day releases it. Without this the map grows by one
-// entry per realized date picker, and — worse — its key is the node's ADDRESS, which the
+// entry per realized date picker, and, worse, its key is the node's address, which the
 // allocator reuses: a later picker landing on a freed address would inherit the dead entry's
 // flag and be patched through the wrong attribute.
 extern "C" void day_dtp_date_release(void* node) {

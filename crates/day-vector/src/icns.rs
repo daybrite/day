@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! macOS `.icns` writer — the modern PNG-chunk form: an `icns` header plus one four-cc chunk
+//! macOS `.icns` writer in the modern PNG-chunk form: an `icns` header plus one four-cc chunk
 //! per size, each carrying a PNG verbatim. Only the documented PNG-only OSTypes are emitted
 //! (`ic07`–`ic14`), so every reader from Finder to `iconutil` accepts the file; sizes without
-//! a PNG-only slot (bare 16 px) are skipped — the 2x members cover those densities.
+//! a PNG-only slot (bare 16 px) are skipped; the 2x members cover those densities.
 
 /// The PNG-only icns members: pixel size → OSType.
 fn ostype(px: u32) -> Option<&'static [u8; 4]> {

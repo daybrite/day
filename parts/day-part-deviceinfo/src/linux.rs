@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Linux: no single portable device-identity API is guaranteed, so we read the two files every desktop
-// distro provides: /etc/os-release (the freedesktop standard — NAME/PRETTY_NAME + VERSION_ID) for the
-// OS name/version, and the DMI node /sys/devices/virtual/dmi/id/product_name for the hardware model
-// (e.g. "20XW..." on a ThinkPad, "VirtualBox" on a VM). Pure std — no dependencies. There is no
-// simulator concept on desktop Linux.
+// Linux: no single portable device-identity API is guaranteed, so this reads the two files every
+// desktop distro provides: /etc/os-release (the freedesktop standard; NAME/PRETTY_NAME +
+// VERSION_ID) for the OS name/version, and the DMI node /sys/devices/virtual/dmi/id/product_name
+// for the hardware model (e.g. "20XW..." on a ThinkPad, "VirtualBox" on a VM). Pure std, no
+// dependencies. There is no simulator concept on desktop Linux.
 
 use super::DeviceInfo;
 use std::fs;
@@ -27,7 +27,7 @@ fn os_release_value(contents: &str, key: &str) -> Option<String> {
 
 pub fn get() -> DeviceInfo {
     let os_release = fs::read_to_string("/etc/os-release").unwrap_or_default();
-    // Prefer the clean distro NAME ("Ubuntu"); fall back to PRETTY_NAME ("Ubuntu 22.04.3 LTS").
+    // Prefer the clean distro `NAME` ("Ubuntu"); fall back to `PRETTY_NAME` ("Ubuntu 22.04.3 LTS").
     let system_name = os_release_value(&os_release, "NAME")
         .or_else(|| os_release_value(&os_release, "PRETTY_NAME"))
         .unwrap_or_else(|| "Linux".to_string());

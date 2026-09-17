@@ -13,7 +13,7 @@ use crate::meta::Project;
 use crate::ops::status;
 use crate::pack::settings::{interpolate, interpolate_opt};
 
-/// One section's readiness. `configured=false` is not an error — pack degrades to the dev tier.
+/// One section's readiness. `configured=false` is not an error; pack degrades to the dev tier.
 struct Check {
     section: &'static str,
     configured: bool,
@@ -21,13 +21,13 @@ struct Check {
 }
 
 /// `day sign --check`: exit 0 when every configured section resolves; 6 when any fails (§16.3).
-/// The per-section report prints either way, so the verdict is a code, not an `error:` line —
+/// The per-section report prints either way, so the verdict is a code, not an `error:` line;
 /// the number itself comes from the kind→code map in cli.rs.
 pub fn check(project: &Project) -> i32 {
     let signing = project.manifest.signing.as_ref();
     let mut checks = Vec::new();
 
-    // -- macos ---------------------------------------------------------------
+    // --- macos --------------------------------------------------------------
     {
         let macos = signing.and_then(|s| s.macos.as_ref());
         let mut c = Check {
@@ -69,7 +69,7 @@ pub fn check(project: &Project) -> i32 {
         checks.push(c);
     }
 
-    // -- ios -------------------------------------------------------------------
+    // --- ios ------------------------------------------------------------------
     {
         let ios = signing.and_then(|s| s.ios.as_ref());
         let mut c = Check {
@@ -104,7 +104,7 @@ pub fn check(project: &Project) -> i32 {
         checks.push(c);
     }
 
-    // -- android -----------------------------------------------------------------
+    // --- android ----------------------------------------------------------------
     {
         let android = signing.and_then(|s| s.android.as_ref());
         let mut c = Check {
@@ -133,7 +133,7 @@ pub fn check(project: &Project) -> i32 {
         checks.push(c);
     }
 
-    // -- windows -------------------------------------------------------------------
+    // --- windows ------------------------------------------------------------------
     {
         let windows = signing.and_then(|s| s.windows.as_ref());
         let mut c = Check {
@@ -149,7 +149,7 @@ pub fn check(project: &Project) -> i32 {
         checks.push(c);
     }
 
-    // -- ohos ----------------------------------------------------------------------
+    // --- ohos ---------------------------------------------------------------------
     {
         let ohos = signing.and_then(|s| s.ohos.as_ref());
         let mut c = Check {
@@ -184,7 +184,7 @@ pub fn check(project: &Project) -> i32 {
         checks.push(c);
     }
 
-    // self-signed-dev is a resolvable provider but still the dev tier — say so, don't call it ready.
+    // self-signed-dev is a resolvable provider but still the dev tier; say so, don't call it ready.
     let windows_dev_provider = signing
         .and_then(|s| s.windows.as_ref())
         .is_some_and(|w| w.provider == "self-signed-dev");

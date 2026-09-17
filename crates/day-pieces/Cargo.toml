@@ -24,10 +24,10 @@ linkme = { workspace = true }
 [features]
 # The dynamic piece registry (docs/lite.md §4 in https://github.com/daybrite/day-lite):
 # name-keyed constructors + modifiers with loosely-typed args, the surface day-lite's JS layer
-# drives. Off by default — compiled apps pay nothing for it.
+# drives. Off by default, so compiled apps pay nothing for it.
 dyn-registry = []
 # Model-driven collections (docs/model.md, docs/list.md): a day-model store as a `RowSource`
-# for `list`/`each`, rows binding fields through `ModelSlot`. Off by default — apps that bind
+# for `list`/`each`, rows binding fields through `ModelSlot`. Off by default, so apps that bind
 # plain data pay nothing for it.
 model = ["dep:day-model"]
 

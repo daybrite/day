@@ -16,7 +16,7 @@ license.workspace = true
 # OS's libsqlite3 instead (leave `bundled` off); `cipher` swaps the bundled engine for SQLCipher
 # with vendored crypto. Trait-only consumers (codec impls in pieces) use default-features=false.
 default = ["driver-rusqlite", "bundled"]
-# Native: rusqlite over the chosen engine. Web: day-sqlite-worker — the same vendored SQLite
+# Native: rusqlite over the chosen engine. Web: day-sqlite-worker, the same vendored SQLite
 # running against OPFS in the day-sql worker, reached synchronously over the SharedArrayBuffer
 # channel (docs/persistence.md, docs/web.md).
 driver-rusqlite = ["dep:rusqlite", "dep:day-sqlite-worker"]
@@ -37,11 +37,11 @@ serde_json = "1"
 
 [dev-dependencies]
 day-macros = { path = "../day-macros", version = "=0.4.5" }
-# The real-driver tests open the produced files directly to verify what was stored — same
-# crate the driver itself uses, so this adds no dependency edge.
+# The real-driver tests open the produced files directly to verify what was stored (the same
+# crate the driver itself uses, so this adds no dependency edge).
 rusqlite = { version = "0.40", features = ["bundled"] }
-# The UI-integration test drives a mock-toolkit list against a live container — same harness
-# day-model's own dev-deps use.
+# The UI-integration test drives a mock-toolkit list against a live container (the same harness
+# day-model's dev-deps use).
 day-core = { workspace = true }
 day-pieces = { workspace = true, features = ["model"] }
 day-mock = { workspace = true }

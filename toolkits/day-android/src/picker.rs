@@ -3,11 +3,11 @@
 
 // ---------------------------------------------------------------------------
 // Android: Spinner (menu) / button-row LinearLayout (segmented) / RadioGroup (inline). The Java
-// factory (`dev.daybrite.day.piece.picker.DayPicker`) is bundled with this crate under `android/java` and
-// pulled into the app's Gradle build automatically via `[package.metadata.day.android]` — so the
-// piece carries its own backend Java without touching day-android. Rust calls its own class
-// through the re-exported `jni` (day-android's `make_view` is hardcoded to DayBridge; a standalone
-// piece uses raw `call_static_method` on its class).
+// factory (`dev.daybrite.day.piece.picker.DayPicker`) is bundled with this crate under
+// `android/java` and pulled into the app's Gradle build automatically via
+// `[package.metadata.day.android]`, so the piece carries its backend Java without touching
+// day-android. Rust calls its own class through the re-exported `jni` (day-android's `make_view`
+// is hardcoded to DayBridge; a standalone piece uses raw `call_static_method` on its class).
 // ---------------------------------------------------------------------------
 
 use crate::DayEnv;
@@ -16,7 +16,7 @@ use crate::{AHandle, Android, with_env};
 use day_spec::NodeId;
 use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 
-/// This piece's OWN Java class (in the crate's android/java, on the app classpath at build).
+/// This piece's Java class (in the crate's android/java, on the app classpath at build).
 const PICKER_CLASS: &str = "dev/daybrite/day/piece/picker/DayPicker";
 
 day_core::tls_group! {
@@ -94,8 +94,8 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
     }
 }
 
-/// The node a picker view reports for — a button the option patch ADDS needs it to report
-/// its own clicks, and only the Rust side knows it.
+/// The node a picker view reports for: a button the option patch adds needs it to report
+/// its clicks, and only the Rust side knows it.
 fn node_of(h: &AHandle) -> u64 {
     NODES
         .with(|m| m.get(h.0.as_obj().as_raw() as usize))
@@ -110,7 +110,7 @@ pub(crate) fn realize_any(
     id: day_spec::NodeId,
 ) -> crate::AHandle {
     // A props-type mismatch degrades to the visible placeholder (day_spec::props_of reports
-    // it) — this runs inside a JNI up-call, where a panic is a process kill.
+    // it); this runs inside a JNI up-call, where a panic is a process kill.
     match day_spec::props_of::<PickerProps>(day_spec::kinds::PICKER, "android", props) {
         Some(p) => make(b, p, id),
         None => with_env(|env| AHandle(crate::placeholder_view(env, "picker"))),

@@ -10,7 +10,7 @@ import java.util.HashMap;
 
 /** Absolute-positioning ViewGroup (the GtkFixed / flipped-NSView analogue). day's layout engine
  *  computes every child's rect in px and calls setChildFrame; this places them verbatim. When
- *  measured UNSPECIFIED (inside a ScrollView) it reports the content size set by day (§7.6). */
+ *  measured `UNSPECIFIED` (inside a ScrollView) it reports the content size set by day (§7.6). */
 public class DayFixed extends ViewGroup {
     private final HashMap<View, int[]> frames = new HashMap<>();
     private int contentW = 0, contentH = 0;
@@ -29,7 +29,7 @@ public class DayFixed extends ViewGroup {
     public void setChildFrame(View v, int x, int y, int w, int h) {
         // Day recomputes every rect on a relayout and hands back the ones that did not move, so
         // most calls here ask for the frame the child already has. Re-measuring and scheduling a
-        // pass for those is pure churn — and when the request arrives during a layout pass (day's
+        // pass for those is pure churn, and when the request arrives during a layout pass (day's
         // engine runs off onSizeChanged), a requestLayout() also makes Android run a whole second
         // pass and log "requestLayout() improperly called ... during layout".
         int[] prev = frames.get(v);

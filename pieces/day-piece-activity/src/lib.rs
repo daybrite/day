@@ -1,14 +1,14 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-activity — an EXTERNAL Day Piece (DESIGN.md §15) wrapping each toolkit's NATIVE
+//! day-piece-activity is an external Day Piece (DESIGN.md §15) wrapping each toolkit's native
 //! indeterminate activity/loading spinner: `NSProgressIndicator` (Spinning style) on AppKit,
 //! `UIActivityIndicatorView` on UIKit, `GtkSpinner` on GTK, a busy `QProgressBar` (range 0..0) on
 //! Qt, `android.widget.ProgressBar` on Android, and `ProgressRing` on XAML. One Rust API registered
 //! link-time into each backend's renderer slice without touching day, carrying both a
 //! front-end and its own native backends (including an Android Java shim), see docs/extending.md.
 //!
-//! Unlike a media player, a spinner has an **intrinsic size** — the piece is a natural-size leaf
+//! Unlike a media player, a spinner has an **intrinsic size**: the piece is a natural-size leaf
 //! (no `fill_measure`; each backend's default `measure` returns the native indicator's fitting
 //! size), so it does not need a `.frame(w, h)` to be visible (though one gives it a stable region).
 //! `.animating(_)` accepts a `bool`, a `Signal<bool>`, or a closure (default true): a reactive
@@ -53,7 +53,7 @@ pub struct Activity {
     large: bool,
 }
 
-/// `activity()` — a native indeterminate spinner, animating by default. Configure with
+/// `activity()` is a native indeterminate spinner, animating by default. Configure with
 /// `.animating(_)` (a `bool`, `Signal<bool>`, or closure) and `.large(bool)`.
 pub fn activity() -> Activity {
     Activity {
@@ -83,7 +83,7 @@ impl Piece for Activity {
             animating: animating.get_untracked(),
             large,
         };
-        // A spinner keeps its intrinsic size — no grow flags; the backend's default `measure`
+        // A spinner keeps its intrinsic size (no grow flags); the backend's default `measure`
         // returns the native indicator's natural size.
         let node = cx.leaf(KIND, &initial, Flex::default());
 
@@ -103,7 +103,7 @@ impl Piece for Activity {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend. Each module registers a `Renderer`
+// Per-toolkit native renderers, one file per backend. Each module registers a `Renderer`
 // link-time into its backend's `RENDERERS` slice; `#[cfg]` gates each to its feature + target, and
 // `#[path]` keeps the files grouped next to lib.rs. mock registers nothing (the activity kind falls
 // back to day's placeholder leaf there).
@@ -147,7 +147,7 @@ mod tests {
     use day_reactive::{Signal, flush_sync};
     use day_spec::{Size, WindowOptions};
 
-    // Building + driving the piece must never panic — even with no native renderer registered (the
+    // Building + driving the piece must never panic, even with no native renderer registered (the
     // mock toolkit realizes unknown kinds as plain widgets and ignores unknown patches, exactly
     // like a backend built without this piece's feature).
     #[test]

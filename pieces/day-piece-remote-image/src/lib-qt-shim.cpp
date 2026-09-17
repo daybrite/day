@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The remote-image piece's OWN Qt shim behind a flat C ABI: a QWidget that paints a QPixmap decoded
+// The remote-image piece's Qt shim behind a flat C ABI: a QWidget that paints a QPixmap decoded
 // from encoded bytes (PNG/JPEG/…), aspect fit/fill, under a centered-circle / rounded / rectangular
 // clip, over the placeholder color. Painting in paintEvent (rather than a QLabel + setPixmap) makes
-// the clip resize-correct for free and gives true aspect-fill. Bytes cross as a pointer + length
+// the clip resize-correct and gives true aspect-fill. Bytes cross as a pointer + length
 // (valid only during the call; QPixmap::loadFromData copies them). Qt libs are already linked by
 // day-qt-sys.
 

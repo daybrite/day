@@ -1,10 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-piece-remote-image — an EXTERNAL Day Piece (DESIGN.md §15): a NATIVE image view that decodes
+//! day-piece-remote-image: an external Day Piece (DESIGN.md §15), a native image view that decodes
 //! encoded bytes (PNG/JPEG) supplied **reactively** and draws them, with a placeholder rectangle
-//! while the source is empty. This is the image primitive a Matrix client needs — avatars and inline
-//! image messages — where the app fetches `mxc://` bytes off the UI thread via the SDK and pushes
+//! while the source is empty. This is the image primitive a Matrix client needs (avatars and inline
+//! image messages), where the app fetches `mxc://` bytes off the UI thread via the SDK and pushes
 //! them into a signal; this piece only turns bytes into a native image.
 //!
 //! Unlike day's built-in `image` (which loads a bundled asset by name), the source here is
@@ -30,7 +30,7 @@ pub const KIND: &str = "day.piece.remote_image";
 /// How the decoded image is scaled into the piece's frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ContentMode {
-    /// Scale to fill the frame, preserving aspect ratio and cropping the overflow (the default —
+    /// Scale to fill the frame, preserving aspect ratio and cropping the overflow (the default,
     /// what avatars want). SwiftUI's `.scaledToFill`.
     #[default]
     Fill,
@@ -42,10 +42,10 @@ pub enum ContentMode {
 /// How the piece (image and placeholder) is clipped to its frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Clip {
-    /// No clipping — a plain rectangle (the default).
+    /// No clipping: a plain rectangle (the default).
     #[default]
     None,
-    /// A centered circle of diameter `min(width, height)` — for avatars.
+    /// A centered circle of diameter `min(width, height)`, for avatars.
     Circle,
     /// A rounded rectangle with the given uniform corner radius (points).
     Rounded(f64),
@@ -80,7 +80,7 @@ impl Default for RemoteImageProps {
     }
 }
 
-// Debug that elides the (potentially megabyte) byte buffer — logs the length, not the contents.
+// Debug that elides the (potentially megabyte) byte buffer: logs the length, not the contents.
 impl std::fmt::Debug for RemoteImageProps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RemoteImageProps")
@@ -117,8 +117,8 @@ pub struct RemoteImage {
     placeholder: Color,
 }
 
-/// `remote_image_url(url)` — [`remote_image`] with the fetch built in: the bytes are downloaded
-/// once through the PLATFORM HTTP stack (`day-part-http` — system proxies/VPN/Low-Data aware,
+/// `remote_image_url(url)`: [`remote_image`] with the fetch built in. The bytes are downloaded
+/// once through the platform HTTP stack (`day-part-http`, system proxies/VPN/Low-Data aware,
 /// docs/http.md) on a background completion, and pushed into the piece's own signal via a
 /// `Setter` (so a late arrival after the piece is disposed is a harmless no-op). The placeholder
 /// shows until the bytes land; a failed fetch (or non-2xx status) leaves the placeholder.
@@ -139,7 +139,7 @@ pub fn remote_image_url(url: impl Into<String>) -> RemoteImage {
     remote_image(source)
 }
 
-/// `remote_image(source)` — a native image view that decodes and displays the bytes held in
+/// `remote_image(source)`: a native image view that decodes and displays the bytes held in
 /// `source`, showing the placeholder color whenever `source` is `None`.
 pub fn remote_image(source: Signal<Option<Arc<Vec<u8>>>>) -> RemoteImage {
     RemoteImage {
@@ -151,7 +151,7 @@ pub fn remote_image(source: Signal<Option<Arc<Vec<u8>>>>) -> RemoteImage {
 }
 
 impl RemoteImage {
-    /// Clip to a centered circle of diameter `min(width, height)` — for avatars.
+    /// Clip to a centered circle of diameter `min(width, height)`, for avatars.
     pub fn circle(mut self) -> Self {
         self.clip = Clip::Circle;
         self
@@ -184,8 +184,9 @@ impl Piece for RemoteImage {
             mode,
             placeholder,
         } = self;
-        // Seed the native view with whatever the signal already holds; subsequent changes arrive as
-        // SetBytes patches (watch never fires for this initial value — §4.2's no-duplicate-op rule).
+        // Seed the native view with whatever the signal already holds; subsequent changes arrive
+        // as SetBytes patches (watch never fires for this initial value: §4.2's no-duplicate-op
+        // rule).
         let initial = source.get_untracked();
         let node = cx.leaf(
             KIND,
@@ -195,7 +196,7 @@ impl Piece for RemoteImage {
                 mode,
                 placeholder,
             },
-            // No intrinsic size — fills whatever frame its container offers (the app constrains it
+            // No intrinsic size; fills whatever frame its container offers (the app constrains it
             // with `.frame`, e.g. a 40×40 avatar).
             Flex {
                 grow_w: true,
@@ -228,7 +229,7 @@ impl Piece for RemoteImage {
 }
 
 // ---------------------------------------------------------------------------
-// Per-toolkit native renderers — one file per backend. Every module registers a `Renderer`
+// Per-toolkit native renderers, one file per backend. Every module registers a `Renderer`
 // link-time into its backend's `RENDERERS` slice; the `#[cfg]` gates each to its feature + target,
 // and `#[path]` keeps the files grouped next to lib.rs (the day-piece-searchfield layout).
 // ---------------------------------------------------------------------------
@@ -285,7 +286,7 @@ mod tests {
     use day_reactive::flush_sync;
     use day_spec::{Size, WindowOptions};
 
-    // Building + pushing bytes must never panic — even with no native renderer registered (the mock
+    // Building + pushing bytes must never panic, even with no native renderer registered (the mock
     // toolkit realizes unknown kinds as plain widgets and ignores unknown patches, exactly like a
     // backend built without this piece's feature).
     #[test]
@@ -311,7 +312,7 @@ mod tests {
         let found = probe.find_by_kind(KIND);
         assert_eq!(found.len(), 1, "one remote-image leaf realized");
 
-        // Push some (bogus) bytes, then clear — each becomes a SetBytes patch the mock ignores.
+        // Push some (bogus) bytes, then clear; each becomes a SetBytes patch the mock ignores.
         src.set(Some(Arc::new(vec![0x89, 0x50, 0x4e, 0x47])));
         flush_sync();
         src.set(None);

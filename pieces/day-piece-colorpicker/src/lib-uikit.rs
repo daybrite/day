@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// UIKit: `UIColorWell` (iOS 14+, so inside Day's iOS 15 floor) — the swatch control that presents
+// UIKit: `UIColorWell` (iOS 14+, so inside Day's iOS 15 floor), the swatch control that presents
 // the system color picker itself. The whole `UIColorPickerViewController` presentation, its grid /
 // spectrum / sliders tabs, the eyedropper and the iPad popover anchoring come with it, which is
 // why this arm presents nothing by hand: a hand-rolled presentation would have to find the right
@@ -10,7 +10,7 @@
 // difference.
 //
 // `getRed:green:blue:alpha:` returns NO for a color with no RGB representation (a pattern color).
-// It cannot happen from this picker — every tab produces an RGB-convertible color — but the return
+// It cannot happen from this picker (every tab produces an RGB-convertible color), but the return
 // value is still checked, because a `false` leaves the out-parameters untouched and reporting
 // uninitialized stack as a color would be worse than dropping the pick.
 // ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ fn measure(_backend: &mut Uikit, h: &Retained<UIView>, _p: Proposal) -> Size {
     Size::new(s.width.ceil().max(28.0), s.height.ceil().max(28.0))
 }
 
-/// Drop the retained target when the well goes away — same address-reuse hazard as every other
+/// Drop the retained target when the well goes away: the same address-reuse hazard as every other
 /// arm that keeps per-view state in a map keyed by the view's pointer.
 fn release(_backend: &mut Uikit, h: &Retained<UIView>) {
     TARGETS.with(|m| {

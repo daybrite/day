@@ -3041,7 +3041,7 @@ pub struct ServerTrust {
 }
 
 impl ServerTrust {
-    /// Each certificate's public-key pin, `sha256/<base64>`, leaf first — the value
+    /// Each certificate's public-key pin, `sha256/<base64>`, leaf first, the value
     /// `Trust::pin` takes.
     pub fn pins(&self) -> Vec<String> {
         self.chain
@@ -3585,8 +3585,8 @@ pub(crate) fn digest_authorization(
     Some(value)
 }
 
-/// Check a Digest `Authorization` value against the expected credentials — what the test server
-/// verifies with.
+/// Check a Digest `Authorization` value against the expected credentials; the test server
+/// verifies with it.
 // The test server, its one caller, is native-only.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub(crate) fn verify_digest(authorization: &str, user: &str, password: &str, method: &str) -> bool {

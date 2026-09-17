@@ -4,13 +4,13 @@
 //! The payload tree the Linux packages share.
 //!
 //! `.flatpak` and `.appimage` differ in how they are sealed and where they get their toolkit, but
-//! the tree inside is the same FHS-shaped prefix — the binary under `bin/`, the app's resources
+//! the tree inside is the same FHS-shaped prefix: the binary under `bin/`, the app's resources
 //! under `share/<name>/`, and the app-id-named desktop exports under `share/`. Staging it once
 //! here is what keeps a bundle and an AppImage of the same build carrying the same files, which is
 //! also what lets `day rebuild` compare either against one recorded payload digest set (§20.3).
 //!
 //! The only thing that varies is the install prefix: flatpak mounts at `/app`, an AppImage at a
-//! `$APPDIR` chosen per run. So the launcher script is generated from a prefix EXPRESSION rather
+//! `$APPDIR` chosen per run. So the launcher script is generated from a prefix expression rather
 //! than a path, and each packer supplies its own.
 
 use std::path::Path;
@@ -21,7 +21,7 @@ use crate::targets::Target;
 
 /// What staging produced, for the launcher the caller then writes.
 pub(crate) struct Staged {
-    /// The app name — `bin/<name>-bin`, `share/<name>/…`.
+    /// The app name: `bin/<name>-bin`, `share/<name>/…`.
     pub name: String,
     /// The compiled resource blob, when the toolkit's compiler produced one (§18.3): the
     /// environment variable that points at it, and its file name under `share/<name>/`.
@@ -61,7 +61,7 @@ pub(crate) fn stage_tree(
     }
 
     // Vector glyphs (docs/vectors.md): the raster cache plus the staged SVGs, under
-    // `share/<name>/vectors/` — the launcher exports the same `DAY_VECTOR_*_ROOT` roots a
+    // `share/<name>/vectors/`. The launcher exports the same `DAY_VECTOR_*_ROOT` roots a
     // dev `day launch` would, so packed resolution matches dev exactly.
     for (from, to) in [
         (
@@ -99,8 +99,8 @@ pub(crate) fn stage_tree(
 /// The launcher script: exports the `DAY_*` roots and the `env` defaults, then execs the real
 /// binary.
 ///
-/// `prefix` is a SHELL EXPRESSION, not a path — `/app` for a flatpak, `"$HERE/usr"` for an
-/// AppImage whose mount point is only known at run time — and `preamble` is whatever has to run
+/// `prefix` is a shell expression, not a path (`/app` for a flatpak, `"$HERE/usr"` for an
+/// AppImage whose mount point is only known at run time), and `preamble` is whatever has to run
 /// before it resolves. Each `(name, value)` in `env` applies only when the variable is unset or
 /// empty at launch, so the user's own setting wins; the value is single-quoted, so it stays
 /// literal.
@@ -171,8 +171,8 @@ pub(crate) fn stage_exports(
         .map_err(|e| e.to_string())
 }
 
-/// The `.desktop` entry. `exec` differs per format — a flatpak exports the app-id command, an
-/// AppImage runs its own `AppRun` — so the caller names it.
+/// The `.desktop` entry. `exec` differs per format (a flatpak exports the app-id command, an
+/// AppImage runs its own `AppRun`), so the caller names it.
 pub(crate) fn desktop_entry(title: &str, exec: &str, icon: &str) -> String {
     format!(
         "[Desktop Entry]\nType=Application\nName={title}\nExec={exec}\nIcon={icon}\nTerminal=false\nCategories=Utility;\n"
@@ -194,7 +194,7 @@ pub(crate) fn set_executable(path: &Path) -> Result<(), String> {
 fn stage_icons(project: &Project, prefix: &Path, id: &str) {
     if stage_project_icons(project, prefix, id) == 0 {
         // No project icons: stage the built-in defaults. The .desktop says `Icon={id}` and the
-        // appstream catalog REQUIRES a resolvable icon for a desktop-application component —
+        // appstream catalog requires a resolvable icon for a desktop-application component;
         // flatpak-builder's `appstreamcli compose` fails the whole bundle with `icon-not-found`
         // otherwise, so an icon-less project must still export one. All the policy sizes are
         // staged (48/64/128): compose only probes those, so a single off-policy size stays
@@ -249,7 +249,7 @@ fn stage_project_icons(project: &Project, prefix: &Path, id: &str) -> usize {
     staged
 }
 
-/// The largest staged icon, which an AppImage also needs at its ROOT (the format looks for
+/// The largest staged icon, which an AppImage also needs at its root (the format looks for
 /// `<icon>.png` beside `AppRun`, not only in the hicolor tree).
 pub(crate) fn largest_icon(prefix: &Path, id: &str) -> Option<std::path::PathBuf> {
     let mut best: Option<(u32, std::path::PathBuf)> = None;
@@ -392,7 +392,7 @@ mod tests {
         std::fs::create_dir_all(root.join("resource/images")).expect("images");
         std::fs::create_dir_all(root.join("build/day/gtk")).expect("blob dir");
         // The rasters a target ships come from its own fallback tree, not the shared cache
-        // (docs/vectors.md) — gtk has no vector arm, so `write_vector_fallbacks` fills it with
+        // (docs/vectors.md); gtk has no vector arm, so `write_vector_fallbacks` fills it with
         // every glyph. Staged directly here: this test drives the packer, not the whole build.
         std::fs::create_dir_all(root.join("build/day/vectors/fallback/gtk")).expect("raster dir");
         std::fs::create_dir_all(root.join("build/day/vectors/svg")).expect("svg dir");
@@ -443,7 +443,7 @@ mod tests {
                 .join("share/metainfo/dev.example.demo.metainfo.xml")
                 .is_file()
         );
-        // No project icons, so the built-in defaults stand in — the format requires one.
+        // No project icons, so the built-in defaults stand in; the format requires one.
         let icon = largest_icon(&prefix, "dev.example.demo").expect("an icon at some size");
         assert!(icon.ends_with("dev.example.demo.png"), "{}", icon.display());
 
@@ -464,7 +464,7 @@ mod tests {
     }
 
     /// The AppImage root icon is the biggest staged size, not whichever the directory walk hit
-    /// first — a 48px icon at the root is what makes a launcher render a blurry entry.
+    /// first; a 48px icon at the root is what makes a launcher render a blurry entry.
     #[test]
     fn the_root_icon_is_the_largest_staged_size() {
         let tmp = std::env::temp_dir().join(format!("day-linux-icon-{}", std::process::id()));

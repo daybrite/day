@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// UIKit: MKMapView (MapKit) as a UIView. objc2-map-kit binds the MKMapView STRUCT for macOS only
+// UIKit: MKMapView (MapKit) as a UIView. objc2-map-kit binds the MKMapView struct for macOS only
 // (the AppKit NSView subclass), so on iOS we hand-roll the class via `extern_class!` + `msg_send!`
 // (exactly how the media piece hand-rolls AVPlayerViewController), reusing the crate's cross-platform
 // MKCoordinateRegion / MKPointAnnotation. MapKit.framework must be linked or `+[MKMapView alloc]`
-// aborts — declared via this crate's `[package.metadata.day.ios].frameworks = ["MapKit","CoreLocation"]`.
+// aborts; declared via this crate's
+// `[package.metadata.day.ios].frameworks = ["MapKit","CoreLocation"]`.
 // ---------------------------------------------------------------------------
 
 use super::*;

@@ -8,7 +8,7 @@ import org.gradle.api.artifacts.dsl.RepositoryHandler;
 import org.gradle.api.initialization.Settings;
 
 /**
- * {@code dev.daybrite.day.settings}: the repositories an app's dependencies resolve from — Google
+ * {@code dev.daybrite.day.settings}: the repositories an app's dependencies resolve from: Google
  * and Maven Central, plus the extra Maven repositories its pieces declare in
  * {@code [package.metadata.day.android] gradle-repositories} (docs/extending.md).
  */

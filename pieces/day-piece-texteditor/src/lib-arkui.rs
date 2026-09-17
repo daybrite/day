@@ -3,13 +3,13 @@
 
 // ---------------------------------------------------------------------------
 // HarmonyOS: the ArkTS `RichEditor`. Unlike the other seven arms there is no native widget to
-// construct here — the ArkUI C node API has no rich editor at all — so this crate ships its OWN
-// ArkTS (platform/harmony/ets/Index.ets), staged into the app's hvigor project by `day build` through
-// `[package.metadata.day.ohos]`, exactly as day-piece-webview established.
+// construct here (the ArkUI C node API has no rich editor at all), so this crate ships its own
+// ArkTS (platform/harmony/ets/Index.ets), staged into the app's hvigor project by `day build`
+// through `[package.metadata.day.ohos]`, exactly as day-piece-webview established.
 //
 // The whole channel is strings: one props string at realize, (cmd, arg) pairs after, and reports
 // back through the shim's `pieceEvent` as the Custom event kind (§8.2). That is why the editor's
-// text report rides `TEXT_PREFIX` rather than `Event::TextChanged` — this bridge has one event.
+// text report rides `TEXT_PREFIX` rather than `Event::TextChanged`: this bridge has one event.
 //
 // Offsets are ArkTS string indices, which are UTF-16 code units.
 // ---------------------------------------------------------------------------
@@ -62,8 +62,8 @@ fn style_flags(s: &RunStyle) -> u32 {
     f
 }
 
-/// `start,end,flags,color,background,scale` per run, records separated — all numbers, so the
-/// document's own text can never collide with a separator.
+/// `start,end,flags,color,background,scale` per run, records separated. All numbers, so the
+/// document's text can never collide with a separator.
 fn encode_runs(text: &str, runs: &[TextRun]) -> String {
     let mut out = String::new();
     for r in runs {
@@ -125,7 +125,7 @@ fn push_attributes(h: &AHandle, doc_text: &str, runs: &[TextRun], paragraphs: &[
 }
 
 day_core::tls_group! {
-    /// The text each editor holds, keyed by its ArkTS frame node — what an attribute or selection
+    /// The text each editor holds, keyed by its ArkTS frame node: what an attribute or selection
     /// patch converts its byte ranges against, with no round trip into ArkTS.
     static TEXT: SideTable<String> = SideTable::new();
 
@@ -140,8 +140,8 @@ fn text_of(h: &AHandle) -> String {
 }
 
 fn make(_backend: &mut ArkUi, p: &EditorProps, id: NodeId) -> AHandle {
-    // TEXT last, so a document containing the separator still arrives intact: the ArkTS side
-    // rejoins everything after the sixth field.
+    // The text goes last, so a document containing the separator still arrives intact: the ArkTS
+    // side rejoins everything after the sixth field.
     let props = format!(
         "{base}{SEP}{editable}{SEP}{spell}{SEP}{min}{SEP}{max}{SEP}{placeholder}{SEP}{text}",
         base = day_arkui::font_vp(day_spec::FontSpec::new(p.base)),
@@ -169,7 +169,7 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
         }
         EditorPatch::SetAttributes(attrs) => {
             // The patch carries the text, so a keystroke's re-highlight encodes its ranges
-            // against the string the editor holds RIGHT now rather than the one before it.
+            // against the string the editor holds now rather than the one before it.
             TEXT.with(|t| t.with(key(h), |s| *s = attrs.text.clone()));
             push_attributes(h, &attrs.text, &attrs.runs, &attrs.paragraphs);
         }

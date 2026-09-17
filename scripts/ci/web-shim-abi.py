@@ -8,17 +8,17 @@
 # in the build checks that either side is holding up its end:
 #
 #   IMPORTS  Rust declares in an `extern "C"` block and the shim provides on the `env` object.
-#            A missing one is a WebAssembly LinkError at instantiate — loud, but it surfaces as a
+#            A missing one is a WebAssembly LinkError at instantiate: loud, but it surfaces as a
 #            blank app whose cause reads like a backend bug (a stale installed CLI is the usual
 #            reason: the app is new, the embedded shim is not).
 #   EXPORTS  Rust marks `pub extern "C" fn` and the shim calls as `wasm.name(...)`.
 #            A missing one is a plain `TypeError: undefined is not a function` inside a DOM event
-#            handler, which the browser swallows: the button simply does nothing. The sidebar
-#            toggle shipped that way — `wasm.day_dom_toolbar_sidebar()` names an IMPORT, so the
+#            handler, which the browser swallows: the button does nothing. The sidebar
+#            toggle shipped that way: `wasm.day_dom_toolbar_sidebar()` names an import, so the
 #            call was undefined and the handler died before toggling anything.
 #
 # So both directions are checked. The rule to remember when writing shim code: a verb the shim
-# DEFINES is called through `env.`, and a verb Rust EXPORTS is called through `wasm.`.
+# defines is called through `env.`, and a verb Rust exports is called through `wasm.`.
 
 import os
 import re
@@ -43,7 +43,7 @@ while True:
 env_block = js[start : i + 1]
 provided = set(re.findall(r"^\s+(day_\w+)\s*[:(]", env_block, re.M))
 
-# `wasm.name(` — a call into the module, which must therefore be an export.
+# `wasm.name(`: a call into the module, which must therefore be an export.
 called = set(re.findall(r"wasm\.(\w+)\s*\(", js))
 
 def rust_files(*roots):
@@ -55,13 +55,13 @@ def rust_files(*roots):
                     yield os.path.join(dirpath, f)
 
 
-# IMPORTS come only from code in the WEB build: the backend and each piece/part/tweak's `-dom`
+# Imports come only from code in the web build: the backend and each piece/part/tweak's `-dom`
 # arm. A tweak's qt arm declares qt imports, which shim.js has no business providing.
 import_sources = [os.path.join(ROOT, "toolkits", "day-dom", "src", "lib.rs")]
 import_sources += [f for f in rust_files("pieces", "parts", "tweaks") if f.endswith("-dom.rs")]
 
-# EXPORTS can live anywhere — `day_dom_main` is written by a macro in `crates/day`, and the parts
-# export their own completion callbacks — so this half looks at every crate.
+# Exports can live anywhere (`day_dom_main` is written by a macro in `crates/day`, and the parts
+# export their own completion callbacks), so this half looks at every crate.
 imports, exports = set(), set()
 for path in rust_files("crates", "toolkits", "pieces", "parts", "tweaks"):
     try:

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Qt: this crate's shim (src/lib-qt-shim.cpp) — a QLineEdit with setClearButtonEnabled(true) and
+// Qt: this crate's shim (src/lib-qt-shim.cpp), a QLineEdit with setClearButtonEnabled(true) and
 // a leading magnifier action, behind a flat C ABI. textChanged dispatches Event::TextChanged;
 // programmatic setText is wrapped in blockSignals so it never echoes back (like the picker shim).
 // ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ day_pieces::renderer!(day_qt::RENDERERS, Qt,
     kind: KIND, props: SearchProps, patch: SearchPatch,
     make: make, update: update, measure: measure);
 
-/// Non-generic anchor for the linker — called by `SearchField::build` (see lib.rs). Without a
+/// Non-generic anchor for the linker, called by `SearchField::build` (see lib.rs). Without a
 /// caller this module's object is never pulled out of the rlib, and the `renderer!` registration
 /// above never reaches the binary.
 pub(crate) fn anchor() {}

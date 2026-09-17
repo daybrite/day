@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The build layer (DESIGN.md §5.1–§5.2): pieces are descriptions consumed exactly once.
-//! `BuildCx` holds no tree borrow — every operation goes through `with_tree`, so bindings
+//! `BuildCx` holds no tree borrow; every operation goes through `with_tree`, so bindings
 //! and structural effects created during build can re-enter safely.
 
 use std::any::Any;
@@ -130,9 +130,9 @@ impl AnyPiece {
         AnyPiece(Box::new(move |cx| p.build(cx)))
     }
 
-    /// Already erased — hands itself back instead of boxing a box.
+    /// Already erased: hands itself back instead of boxing a box.
     ///
-    /// INHERENT so it shadows the blanket `Decorate::any` (inherent methods win method
+    /// Inherent so it shadows the blanket `Decorate::any` (inherent methods win method
     /// resolution). Every `Decorate` modifier returns an erased piece, so `.padding(8.0).any()`
     /// and friends are common in app code and would otherwise pay a second allocation and a
     /// second indirect call for nothing.
@@ -147,13 +147,13 @@ impl Piece for AnyPiece {
     }
 }
 
-/// A closure kept as a CONCRETE piece — the deferral primitive (§5.2).
+/// A closure kept as a concrete piece: the deferral primitive (§5.2).
 ///
-/// A piece that must read something only available at BUILD time (an ambient `environment`, a
+/// A piece that must read something only available at build time (an ambient `environment`, a
 /// scope, the laid-out size) defers its body into a closure. Deferring is not erasing: this
 /// newtype carries the closure inline, so the constructors built on [`piece_fn`] can return
-/// `impl Piece` and keep the caller's type concrete. Erase deliberately with `.any()` where a
-/// heterogeneous collection or a stored callback actually needs it.
+/// `impl Piece` and keep the caller's type concrete. Erase with `.any()` where a
+/// heterogeneous collection or a stored callback needs it.
 pub struct PieceFn<F>(F);
 
 impl<F: FnOnce(&mut BuildCx) -> RNode + 'static> Piece for PieceFn<F> {
@@ -176,7 +176,7 @@ pub fn piece_fn<F: FnOnce(&mut BuildCx) -> RNode + 'static>(f: F) -> PieceFn<F> 
 /// if compact { Either::Left(row(…)) } else { Either::Right(column(…)) }
 /// ```
 ///
-/// For a branch on a SIGNAL — one that must re-evaluate — use `when(…).otherwise(…)` instead.
+/// For a branch on a signal, one that must re-evaluate, use `when(…).otherwise(…)` instead.
 /// This is a plain `if` resolved once at build.
 pub enum Either<A, B> {
     Left(A),
@@ -202,7 +202,7 @@ mod any_piece_tests {
     }
 
     /// `.any()` on an already-erased piece hands the same allocation back. Guards the inherent
-    /// method against being deleted as "redundant with `Decorate::any`" — it is what stops a
+    /// method against being deleted as "redundant with `Decorate::any`": it is what stops a
     /// second box, and method resolution silently falls back to the blanket trait without it.
     #[test]
     fn any_on_an_erased_piece_reuses_its_box() {
@@ -214,10 +214,10 @@ mod any_piece_tests {
 }
 
 // ---------------------------------------------------------------------------
-// PieceSeq — tuple children (§5.1), flattening recursively.
+// PieceSeq: tuple children (§5.1), flattening recursively.
 // ---------------------------------------------------------------------------
 
-/// Children of a container: a tuple of pieces (the floem `ViewTuple` pattern — implemented
+/// Children of a container: a tuple of pieces (the floem `ViewTuple` pattern, implemented
 /// Only for tuples, `()`, and [`PieceVec`], never via a blanket, to stay coherent).
 pub trait PieceSeq: 'static {
     fn build_each(self, cx: &mut BuildCx);

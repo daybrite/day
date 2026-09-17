@@ -6,8 +6,8 @@
 //! The vendored amalgamation compiles with no libc and no wasm-bindgen: `vendor/shim` renames
 //! every libc symbol it needs onto the freestanding C subset compiled beside it, and the
 //! handful of Rust-side shims in this file (allocator, UTC localtime, entropy, abort). The
-//! only imports the wasm module gains are `day_dom_now_ms`/`day_dom_entropy` and — for the
-//! worker instance — the ten `day_sql_fs_*` OPFS primitives, all provided by day-cli's shim
+//! only imports the wasm module gains are `day_dom_now_ms`/`day_dom_entropy` and, for the
+//! worker instance, the ten `day_sql_fs_*` OPFS primitives, all provided by day-cli's shim
 //! pages, so the module instantiates in Day's raw-wasm pipeline.
 //!
 //! One wasm, two instantiations. The **app instance** may use [`Connection::open_memory`]
@@ -16,7 +16,7 @@
 //! [`day_sql_exec`], which runs it against real OPFS files through the day-opfs VFS and
 //! returns the reply bytes. The [`protocol`] module is the wire format both sides share.
 //!
-//! Everything — VFS, connection layer, worker loop — compiles and unit-tests on native hosts
+//! Everything (VFS, connection layer, worker loop) compiles and unit-tests on native hosts
 //! against an in-memory OPFS fake; only the browser glue is wasm-specific.
 //!
 //! The C tree under `vendor/` and the shim recipe come from sqlite-wasm-rs (MIT, see
@@ -80,7 +80,7 @@ mod os {
         }
         pub fn entropy(buf: &mut [u8]) {
             // SQLite wants seed material, not key material. RandomState is std's OS-seeded
-            // hasher — enough for temp names and PRNG seeding in the native test build.
+            // hasher, enough for temp names and PRNG seeding in the native test build.
             use std::hash::{BuildHasher, Hasher};
             let state = std::collections::hash_map::RandomState::new();
             for (i, chunk) in buf.chunks_mut(8).enumerate() {
@@ -103,7 +103,7 @@ mod os {
 const ALIGN: usize = core::mem::size_of::<usize>() * 2;
 
 /// # Safety
-/// C `malloc` contract; the size is stored ahead of the returned block for free/realloc.
+/// C `malloc` contract; the size is stored ahead of the returned block for `free`/`realloc`.
 #[no_mangle]
 pub unsafe extern "C" fn rust_sqlite_wasm_malloc(size: usize) -> *mut c_void {
     let layout = core::alloc::Layout::from_size_align_unchecked(size + ALIGN, ALIGN);
@@ -166,7 +166,7 @@ pub unsafe extern "C" fn rust_sqlite_wasm_getentropy(buf: *mut u8, buf_len: usiz
 }
 
 /// # Safety
-/// C `__assert_fail` contract — an assertion in the C tree is a bug worth stopping on.
+/// C `__assert_fail` contract; an assertion in the C tree is a bug worth stopping on.
 #[no_mangle]
 pub unsafe extern "C" fn rust_sqlite_wasm_assert_fail(
     expr: *const c_char,
@@ -205,7 +205,7 @@ pub struct Tm {
     tm_zone: *mut c_char,
 }
 
-/// UTC civil breakdown for `t` — Howard Hinnant's `civil_from_days`. No timezone database
+/// UTC civil breakdown for `t` (Howard Hinnant's `civil_from_days`). No timezone database
 /// exists in the browser sandbox, so SQLite's `'localtime'` modifier resolves to UTC here;
 /// apps that need the viewer's zone format in the UI layer, where the platform knows it.
 fn utc_breakdown(t: i64) -> Tm {
@@ -239,7 +239,7 @@ fn utc_breakdown(t: i64) -> Tm {
 }
 
 /// # Safety
-/// C `localtime` contract: returns a shared static buffer, single-threaded callers only —
+/// C `localtime` contract: returns a shared static buffer, single-threaded callers only,
 /// which this engine is by construction (SQLITE_THREADSAFE=0).
 #[no_mangle]
 pub unsafe extern "C" fn rust_sqlite_wasm_localtime(t: *const i64) -> *mut Tm {
@@ -309,7 +309,7 @@ pub type TraceFn = Box<dyn Fn(&str)>;
 
 pub struct Connection {
     db: *mut b::sqlite3,
-    /// The installed statement-trace closure (`trace_stmt`) — heap-boxed so the pointer the
+    /// The installed statement-trace closure (`trace_stmt`), heap-boxed so the pointer the
     /// engine holds stays put while the Connection moves; dropped after `db` closes.
     trace: Option<Box<TraceFn>>,
 }
@@ -374,15 +374,15 @@ impl Connection {
     pub fn trace_stmt(&mut self, f: TraceFn) {
         let boxed: Box<TraceFn> = Box::new(f);
         let ctx = &*boxed as *const TraceFn as *mut core::ffi::c_void;
-        // SAFETY: ctx points into `boxed`, stored on self below — stable while the engine
-        // holds it, and cleared implicitly when the connection closes.
+        // SAFETY: ctx points into `boxed`, stored on self below, so it is stable while the
+        // engine holds it, and cleared implicitly when the connection closes.
         unsafe {
             b::sqlite3_trace_v2(self.db, b::SQLITE_TRACE_STMT, Some(sql_trace_cb), ctx);
         }
         self.trace = Some(boxed);
     }
 
-    /// A private in-memory database — the only kind the main-thread app instance may open.
+    /// A private in-memory database, the only kind the main-thread app instance may open.
     pub fn open_memory() -> Result<Connection, SqlError> {
         Self::open_with(":memory:", None)
     }
@@ -574,11 +574,12 @@ thread_local! {
     static CONNS: RefCell<HashMap<u32, Connection>> = RefCell::new(HashMap::new());
     static NEXT_CONN: Cell<u32> = const { Cell::new(1) };
     /// The staged reply `day_sql_exec` hands the worker page: `[len: u32 LE][bytes]`. Lives
-    /// until the next request — the channel is strictly one request at a time.
+    /// until the next request; the channel is strictly one request at a time.
     static REPLY: RefCell<Vec<u8>> = const { RefCell::new(Vec::new()) };
 }
 
-/// Service one request — the worker loop's whole body, and the seam the native tests drive.
+/// Service one request: the worker loop's whole body, and the entry point the native tests
+/// drive.
 pub fn handle_request(req: &[u8]) -> Vec<u8> {
     let reply = match protocol::decode_req(req) {
         Err(_) => Reply::Err("malformed request".to_string()),
@@ -684,7 +685,7 @@ pub unsafe extern "C" fn day_sql_exec(ptr: *mut u8, len: usize) -> *const u8 {
 mod tests {
     use super::*;
 
-    /// The engine is compiled `SQLITE_THREADSAFE=0` — correct for the single-threaded worker,
+    /// The engine is compiled `SQLITE_THREADSAFE=0`, correct for the single-threaded worker,
     /// but the test harness runs on parallel threads, and concurrent first-opens race
     /// `sqlite3_initialize`'s unsynchronized VFS registration (a test then nondeterministically
     /// fails with "no such vfs: day-opfs"; first caught on the Linux CI leg). Every test takes
@@ -1087,7 +1088,7 @@ mod tests {
         let req = protocol::encode_req(&Req::List);
         let ptr = day_sql_alloc(req.len());
         // SAFETY: writing exactly len bytes into a day_sql_alloc(len) buffer, then handing
-        // ownership to day_sql_exec — its documented contract.
+        // ownership to day_sql_exec, its documented contract.
         let reply = unsafe {
             core::ptr::copy_nonoverlapping(req.as_ptr(), ptr, req.len());
             let out = day_sql_exec(ptr, req.len());

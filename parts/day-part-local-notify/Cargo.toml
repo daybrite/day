@@ -8,25 +8,25 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS day-ecosystem crate (no UI Piece): post and schedule the platform's OWN notifications.
+# A headless day-ecosystem crate (no UI Piece): post and schedule the platform's notifications.
 # Any Rust code can depend on it and call `day_part_local_notify::post(...)`. Platform selection is
 # by `#[cfg(target_os)]` (a notification is an OS concern, not a widget-toolkit one), so there are
 # no backend features:
-#   iOS/macOS — UNUserNotificationCenter: immediate + OS-HELD scheduling (fires while the app is
-#               dead), a delegate for foreground presentation and taps
-#   Android   — NotificationManager via this crate's own Java shim; scheduling is AlarmManager + a
-#               <receiver> (Android has no notification scheduler), declared through the
-#               manifest-components key (docs/extending.md)
-#   Linux     — org.freedesktop.Notifications over the session D-Bus, std only; no OS-held
-#               scheduler, so a scheduled notification is lost if the process exits
-#   Web       — the Notification API through the day-dom shim; foreground only
-#   Windows   — not wired yet (ToastNotification needs an AUMID shortcut + COM activator)
-#   HarmonyOS — not wired yet (the NDK notification surface is narrower than ArkTS)
+#   iOS/macOS: UNUserNotificationCenter, immediate + OS-held scheduling (fires while the app is
+#              dead), a delegate for foreground presentation and taps
+#   Android:   NotificationManager via this crate's Java shim; scheduling is AlarmManager + a
+#              <receiver> (Android has no notification scheduler), declared through the
+#              manifest-components key (docs/extending.md)
+#   Linux:     org.freedesktop.Notifications over the session D-Bus, std only; no OS-held
+#              scheduler, so a scheduled notification is lost if the process exits
+#   Web:       the Notification API through the day-dom shim; foreground only
+#   Windows:   not wired yet (ToastNotification needs an AUMID shortcut + COM activator)
+#   HarmonyOS: not wired yet (the NDK notification surface is narrower than ArkTS)
 # See docs/notify.md + docs/extending.md.
 #
 # PERMISSIONS. This crate does not ask for any: a denial surfaces as `NotifyError::PermissionDenied`
 # and the app requests access through day-part-permissions (`Permission::Notifications`). Keeping
-# them separate means neither crate depends on the other — the split day-part-location keeps.
+# them separate means neither crate depends on the other, the split day-part-location keeps.
 
 [dependencies]
 # `request_route` (tap → navigation) and the main-thread door. day-core is the only day crate this
@@ -44,7 +44,7 @@ objc2-foundation = { version = "0.3", features = [
 ] }
 # The typed wrapper rather than raw `msg_send!`: UserNotifications has enough classes in play
 # (center, content, trigger, request, sound) that hand-rolled selectors would be the riskier
-# budget — the same call day-part-haptics makes for objc2-app-kit.
+# budget, the same call day-part-haptics makes for objc2-app-kit.
 objc2-user-notifications = { version = "0.3", features = [
     "UNUserNotificationCenter",
     "UNNotificationContent",
@@ -58,8 +58,8 @@ objc2-user-notifications = { version = "0.3", features = [
     "block2",
 ] }
 # The delegate's two callbacks take completion-handler blocks. Without them a notification posted
-# while the app is FOREGROUND is silently suppressed by iOS — the reason "Post" appeared to do
-# nothing in the running app.
+# while the app is in the foreground is silently suppressed by iOS, the reason "Post" appeared to
+# do nothing in the running app.
 block2 = "0.6"
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -75,13 +75,13 @@ java = [
 res = ["platform/android/res"]
 # Structural, not user-facing: re-arming scheduled notifications after a reboot needs no consent
 # prompt and no reason string, so the crate contributes it rather than the app. POST_NOTIFICATIONS
-# is the runtime permission the APP declares via day-part-permissions.
+# is the runtime permission the app itself declares via day-part-permissions.
 #
 # SCHEDULE_EXACT_ALARM makes `Trigger::In`/`Trigger::At` fire on time on Android 12+: auto-granted
 # (revocable) on 12–13, off by default on 14+ where the user flips it in settings. Without the
 # declaration `canScheduleExactAlarms()` is always false and every schedule silently degrades to
 # an inexact alarm. Clock/alarm apps should also declare `android.permission.USE_EXACT_ALARM` in
-# their own [package.metadata.day.android] for the install-time grant (API 33+) — that one is
+# their own [package.metadata.day.android] for the install-time grant (API 33+); that one is
 # Play-restricted to alarm and calendar apps, so the crate must not impose it on every consumer
 # (docs/notify.md).
 permissions = [

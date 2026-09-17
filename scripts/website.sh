@@ -8,7 +8,7 @@
 #   scripts/website.sh build      # production build into website/dist
 #   scripts/website.sh preview    # build, then serve the production output
 #
-# Screenshots for the gallery are produced by CI, not locally — the gallery integration emits
+# Screenshots for the gallery are produced by CI, not locally; the gallery integration emits
 # placeholder tiles for local builds automatically, so no artifacts are required here.
 set -euo pipefail
 

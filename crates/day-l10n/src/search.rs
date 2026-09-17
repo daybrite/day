@@ -1,12 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Localized search matching (docs/localization.md "Searching"): does a piece of text match what
-//! the user typed into a search field?
+//! Localized search matching (docs/localization.md "Searching"): whether a piece of text matches
+//! what the user typed into a search field.
 //!
 //! The rule is **case-insensitive prefix of any word**. Typing `s` in an English UI matches
-//! "Canvas & shapes", "Device & sensors", "Platform services" and "Stack" — every title with a
-//! word beginning in `s` — and not "Toolbars", whose only `s` is inside a word.
+//! "Canvas & shapes", "Device & sensors", "Platform services" and "Stack" (every title with a
+//! word beginning in `s`) and not "Toolbars", whose only `s` is inside a word.
 //!
 //! Two pieces of icu4x do the work that makes this correct outside English:
 //!
@@ -18,7 +18,7 @@
 //!   caseless matching, so `ß` matches `SS` and `Σ`/`σ`/`ς` all match each other. Turkish and
 //!   Azerbaijani fold the dotted and dotless I apart, and get the Turkic variant.
 //!
-//! Matching is on case only. `é` does not match `e` — see the accent-insensitivity note in
+//! Matching is on case only. `é` does not match `e`; see the accent-insensitivity note in
 //! docs/localization.md.
 
 use icu_casemap::CaseMapper;
@@ -46,7 +46,7 @@ fn fold(locale: &str, s: &str) -> String {
 /// Offset 0 is always a start, whatever the segmenter says. Two reasons, one of which is a bug
 /// this closes: a query that is a prefix of the whole text should match it (that is what lets
 /// `canvas &` match "Canvas & shapes"), and under `WordBreakInvariantOptions` a run of Han
-/// ideographs comes back typed not-word-like — so `堆栈` had NO word starts at all and could not
+/// ideographs comes back typed not-word-like, so `堆栈` had no word starts at all and could not
 /// match even itself, which is how a localized title stopped matching when typed verbatim.
 /// Interior word starts in CJK still depend on the segmenter's dictionaries; this only
 /// guarantees the leading one.
@@ -63,7 +63,7 @@ fn word_starts(text: &str) -> Vec<usize> {
     starts
 }
 
-/// Does `text` match `query` under `locale`'s rules? (untracked — pass the locale explicitly).
+/// Whether `text` matches `query` under `locale`'s rules (untracked: pass the locale explicitly).
 ///
 /// An empty or whitespace-only `query` matches everything, so an empty search box filters
 /// nothing.
@@ -78,10 +78,10 @@ pub fn matches_search_in(locale: &str, text: &str, query: &str) -> bool {
     if needle.is_empty() {
         return true;
     }
-    // Fold each candidate SUFFIX rather than the whole string once: full case folding can change
+    // Fold each candidate suffix rather than the whole string once: full case folding can change
     // a string's length (`ß` folds to `ss`), so byte offsets taken from the original text would
     // not survive folding it. Folding a suffix is sound because full folding is
-    // context-independent — unlike lowercasing, which is not (Greek final sigma).
+    // context-independent, unlike lowercasing, which is not (Greek final sigma).
     //
     // A multi-word query works without a separate rule: the word start at 0 lets it match the
     // whole title, so "canvas &" matches "Canvas & shapes".
@@ -91,7 +91,7 @@ pub fn matches_search_in(locale: &str, text: &str, query: &str) -> bool {
 }
 
 /// [`matches_search_in`] against the current locale. Reads the locale signal (tracked), so a
-/// filtered list inside a reactive closure re-filters when the language changes — the same
+/// filtered list inside a reactive closure re-filters when the language changes, the same
 /// contract [`crate::compare`] has.
 pub fn matches_search(text: &str, query: &str) -> bool {
     let locale = crate::locale().get();
@@ -163,7 +163,7 @@ mod tests {
         ));
     }
 
-    /// Only prefixes match — a substring in the middle of a word does not.
+    /// Only prefixes match; a substring in the middle of a word does not.
     #[test]
     fn a_query_inside_a_word_does_not_match() {
         assert!(!matches_search_in("en", "Localization", "cal"));
@@ -179,7 +179,7 @@ mod tests {
         assert!(matches_search_in("el", "Οδός", "οδός"));
     }
 
-    /// Turkish keeps the dotted and dotless I apart, so `i` must not match `I`'s word there —
+    /// Turkish keeps the dotted and dotless I apart, so `i` must not match `I`'s word there,
     /// and must still match `İ`'s. Every other locale folds them together.
     #[test]
     fn turkish_folds_the_two_letter_is_apart() {
@@ -205,7 +205,7 @@ mod tests {
     /// Arabic: right-to-left text matches on its leading characters like any other script.
     #[test]
     fn arabic_matches_by_word_prefix() {
-        // "شريط الأدوات" — "toolbar". Both words are matchable by their own prefix.
+        // "شريط الأدوات" is "toolbar". Each word is matchable by its prefix.
         assert!(matches_search_in("ar", "شريط الأدوات", "شريط"));
         assert!(matches_search_in("ar", "شريط الأدوات", "الأ"));
         assert!(!matches_search_in("ar", "شريط الأدوات", "دوات"));
@@ -223,7 +223,7 @@ mod tests {
 mod self_match {
     use super::*;
 
-    /// A title must always match itself, in every locale — that is what makes a localized title
+    /// A title must always match itself, in every locale; that is what makes a localized title
     /// usable as a locale-portable query (the showcase walkthrough types one to filter its
     /// sidebar). The CJK case is the one that broke: segmentation there is not space-driven.
     #[test]

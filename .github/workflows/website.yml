@@ -1,22 +1,22 @@
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
 #
-# daybrite.dev (DESIGN.md §20.1) — the website builds and deploys on its own, independent of the
+# daybrite.dev (DESIGN.md §20.1): the website builds and deploys on its own, independent of the
 # framework's build matrix.
 #
 # It used to be the last two jobs of ci.yml, gated on nine platform legs finishing so it could
 # collect their screenshot artifacts. It no longer needs them: the gallery is assembled from the
-# machine-readable index each Day app's own site publishes at `<host>/gallery/gallery.json`
+# machine-readable index each Day app's site publishes at `<host>/gallery/gallery.json`
 # (website/gallery.config.mjs), so the images come from the apps that captured them and this
 # workflow depends on no other repository's CI. A docs typo is now a two-minute deploy instead of
 # an hour behind an Android emulator.
 #
 # Triggers:
-#   · pushes touching website/ or docs/ — the content this site is built from
-#   · a daily schedule — picks up screenshots the app repos published since the last run
-#   · workflow_dispatch — force a rebuild after an app republishes
-#   · repository_dispatch `gallery-published` — an app's CI can POST here and refresh daybrite.dev
-#     the moment its own gallery goes live:
+#   · pushes touching website/ or docs/: the content this site is built from
+#   · a daily schedule: picks up screenshots the app repos published since the last run
+#   · workflow_dispatch: force a rebuild after an app republishes
+#   · repository_dispatch `gallery-published`, which an app's CI can POST here to refresh
+#     daybrite.dev the moment its gallery goes live:
 #       gh api repos/daybrite/day/dispatches -f event_type=gallery-published
 
 name: website
@@ -93,7 +93,7 @@ jobs:
           DAY_RELEASE_REPO: daybrite/Day-Showcase
           # Fail rather than publish a front page without the Showcase's screenshots: its gallery
           # and the hero carousel built from it (website/integrations/gallery.mjs). Only on runs
-          # that deploy — the same condition as the deploy job below — so a pull request still
+          # that deploy (the same condition as the deploy job below), so a pull request still
           # builds and linkchecks while an app's site is down, since it publishes nothing.
           DAY_REQUIRE_SHOWCASE: ${{ github.event_name != 'pull_request' && '1' || '' }}
         run: |

@@ -1,23 +1,24 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! A narrow XML-plist editor: read and rewrite a MANAGED SET of top-level `<key>`/`<string>` pairs,
+//! A narrow XML-plist editor: read and rewrite a managed set of top-level `<key>`/`<string>` pairs,
 //! preserving every other byte of the file.
 //!
 //! # Why not `plutil`
 //!
 //! `plutil` is the obvious tool and it is not the right one here, for three reasons:
 //!
-//! 1. **`day lint` must READ the plist on every host** to report that a checked-in manifest has
-//!    drifted from `Day.toml`. `plutil` is macOS-only, so the reader has to be pure Rust regardless
-//!    — and having a Rust reader with a `plutil` writer means two models of the same file.
+//! 1. **`day lint` must read the plist on every host** to report that a checked-in manifest has
+//!    drifted from `Day.toml`. `plutil` is macOS-only, so the reader has to be pure Rust
+//!    regardless, and having a Rust reader with a `plutil` writer means two models of the same
+//!    file.
 //! 2. **`plutil -replace` reserializes the whole document.** The plist is checked in, so a build
-//!    that reformats it churns the diff on every run — which would destroy the main argument for
+//!    that reformats it churns the diff on every run, which would destroy the main argument for
 //!    writing into a checked-in file at all: that a human can see and review what Day changed.
 //! 3. It is testable on Linux CI, where the iOS leg cannot run at all.
 //!
 //! On macOS `plutil -lint` still verifies the result after a write (see `mobile.rs`), so Apple's own
-//! parser has the last word — `plutil` is demoted from mutator to verifier, and its absence
+//! parser has the last word: `plutil` is demoted from mutator to verifier, and its absence
 //! elsewhere costs checking rather than correctness.
 //!
 //! # Depth awareness
@@ -83,7 +84,7 @@ fn scan(text: &str) -> Vec<Entry> {
                 }
             }
             "key" if depth == 1 && !closing => {
-                // <key>NAME</key> then the value element.
+                // `<key>…</key>`, then the value element.
                 let Some(key_end) = text[gt..].find("</key>").map(|p| gt + p) else {
                     break;
                 };
@@ -150,7 +151,7 @@ fn balanced_end(text: &str, from: usize, name: &str) -> Option<usize> {
         let next_close = text[i..].find(&close).map(|p| i + p)?;
         match next_open {
             Some(o) if o < next_close => {
-                // Ignore a self-closing <dict/> — it opens nothing.
+                // Ignore a self-closing <dict/>: it opens nothing.
                 let tag_end = text[o..].find('>').map(|p| o + p)?;
                 if !text[o..=tag_end].ends_with("/>") {
                     depth += 1;
@@ -169,7 +170,7 @@ fn balanced_end(text: &str, from: usize, name: &str) -> Option<usize> {
 /// Rewrite a managed set of top-level string keys.
 ///
 /// `set` are replaced in place (or inserted in sorted position); `remove` are deleted with their
-/// value. Every other byte — arrays, nested dicts, the DOCTYPE, the file's tab indentation — is
+/// value. Every other byte (arrays, nested dicts, the DOCTYPE, the file's tab indentation) is
 /// preserved exactly, so the checked-in plist's diff shows only what Day actually changed.
 ///
 /// Returns `Err` for a file this editor does not recognize (a binary or JSON plist), rather than
@@ -202,7 +203,7 @@ pub fn apply_string_keys(
         if !manageable {
             continue;
         }
-        // Copy up to the START OF THE LINE, not to the tag: the line's leading indentation belongs
+        // Copy up to the start of the line, not to the tag: the line's leading indentation belongs
         // to the entry being rewritten, and copying it here as well would double it on every pass
         // (which is what breaks byte-for-byte idempotency).
         let line_start = text[..*start].rfind('\n').map(|p| p + 1).unwrap_or(0);
@@ -240,7 +241,7 @@ pub fn apply_string_keys(
     Ok(out)
 }
 
-/// Set (or remove, with `None`) a top-level array of strings — `UIAppFonts`.
+/// Set (or remove, with `None`) a top-level array of strings, `UIAppFonts`.
 ///
 /// This exists so that `UIAppFonts` and the permission keys go through one writer. When
 /// `sync_uiappfonts` still used `plutil -replace`, every build moved that key to the end of the
@@ -289,7 +290,7 @@ pub fn apply_array_key(text: &str, key: &str, values: Option<&[String]>) -> Resu
     }
 }
 
-/// Set (or remove, with `None`) a top-level array of flat string dicts —
+/// Set (or remove, with `None`) a top-level array of flat string dicts,
 /// `UIApplicationShortcutItems`. Same placement rules as [`apply_array_key`], and the same
 /// single-writer rationale: every managed Info.plist key goes through this editor so their
 /// relative order never churns.
@@ -420,10 +421,11 @@ fn unescape(s: &str) -> String {
 mod tests {
     use super::*;
 
-    /// The scaffold TEMPLATE — a real plist, including the nested dict that a depth-blind scanner
-    /// gets wrong, and stable: `day build` rewrites an app's plist, never the template. (The
-    /// showcase's own plist was the obvious fixture and the wrong one: once the permission writer
-    /// started adding keys to it, these tests were asserting against their own side effects.)
+    /// The scaffold template. It is a real plist, including the nested dict that a depth-blind
+    /// scanner gets wrong, and it is stable: `day build` rewrites an app's plist, never the
+    /// template. (The showcase's plist was the obvious fixture and the wrong one: once the
+    /// permission writer started adding keys to it, these tests were asserting against their own
+    /// side effects.)
     const SHOWCASE: &str = include_str!("../templates/app/platform/ios/Runner/Info.plist");
 
     fn set(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
@@ -436,7 +438,7 @@ mod tests {
     #[test]
     fn reads_top_level_string_keys() {
         let keys = read_string_keys(SHOWCASE);
-        // The template's value is still a handlebars placeholder — what matters is that the key is
+        // The template's value is still a handlebars placeholder; what matters is that the key is
         // seen at all, and that whatever text it holds round-trips.
         assert_eq!(
             keys.get("CFBundleDisplayName").map(String::as_str),
@@ -446,7 +448,7 @@ mod tests {
             keys.get("CFBundlePackageType").map(String::as_str),
             Some("APPL")
         );
-        // Nested inside CFBundleURLTypes' array-of-dict — must not be seen as top-level.
+        // Nested inside CFBundleURLTypes' array-of-dict; must not be seen as top-level.
         assert!(!keys.contains_key("CFBundleURLName"));
         assert!(!keys.contains_key("CFBundleURLSchemes"));
         // Non-string values are not managed.
@@ -469,7 +471,7 @@ mod tests {
                 .map(String::as_str),
             Some("Scan.")
         );
-        // Everything else survived untouched. Two keys of different SHAPES: a plain string and
+        // Everything else survived untouched. Two keys of different shapes: a plain string and
         // one inside a nested array-of-dicts, since the rewrite walks them differently.
         assert!(once.contains("<key>CFBundleShortVersionString</key>"));
         assert!(once.contains("<key>CFBundleURLName</key>"));
@@ -492,7 +494,7 @@ mod tests {
         );
     }
 
-    /// Writing the same thing twice must be a byte-for-byte no-op — this is the property that makes
+    /// Writing the same thing twice must be a byte-for-byte no-op; this is the property that makes
     /// mutating a checked-in file defensible.
     #[test]
     fn applying_twice_is_identical() {
@@ -524,7 +526,7 @@ mod tests {
         assert_eq!(without, SHOWCASE);
     }
 
-    /// A hand-added key Day does not manage must survive forever — that is the escape hatch.
+    /// A hand-added key Day does not manage must survive forever; that is the escape hatch.
     #[test]
     fn unmanaged_keys_are_never_touched() {
         let hand_edited = SHOWCASE.replace(

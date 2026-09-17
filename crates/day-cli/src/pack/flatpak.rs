@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! linux-gtk / linux-qt → single-file .flatpak bundle. The runtime supplies the toolkit
-//! (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform — no toolkit bundling, which also keeps
+//! (GTK4 ⇒ org.gnome.Platform, Qt6 ⇒ org.kde.Platform; no toolkit bundling, which also keeps
 //! Qt-LGPL obligations satisfied by the runtime's relinkable shared libs). Day stages the prebuilt
-//! release binary + resources into /app (the Tauri/Spotube repack pattern — no build-from-source),
+//! release binary + resources into /app (the Tauri/Spotube repack pattern, no build-from-source),
 //! generates the app-id-named exports (.desktop, metainfo.xml, hicolor icons), then
 //! flatpak-builder → repo → `flatpak build-bundle` with --runtime-repo so the runtime resolves
 //! from Flathub at install time. Flathub-ready offline manifests are a later mode.
@@ -58,7 +58,7 @@ pub fn pack(
 
     // --- stage the /app payload --------------------------------------------
     // The tree is the one every Linux package carries (pack/linux.rs). What is flatpak-specific
-    // is the prefix — a flatpak always mounts at /app — and that the exported command is the
+    // is the prefix (a flatpak always mounts at /app) and that the exported command is the
     // launcher, named after the app id so the .desktop's Exec resolves inside the sandbox.
     let staged = super::linux::stage_tree(project, target, &outcome.artifact, &stage)
         .map_err(PackError::Other)?;
@@ -298,7 +298,7 @@ fn links_library(binary: &Path, prefix: &str) -> Option<bool> {
         }
     }
     // Each value indexes .dynstr; read the NUL-terminated name there. 256 bytes covers any
-    // soname (a longer one simply won't match the prefix we're looking for).
+    // soname (a longer one won't match the prefix we're looking for).
     for off in needed {
         if off >= str_size {
             continue;
@@ -414,8 +414,8 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A minimal ELF64 LE file whose dynamic section lists `names` as DT_NEEDED — enough shape
-    /// for [`links_library`], so the probe is testable on every host, not just Linux.
+    /// A minimal ELF64 LE file whose dynamic section lists `names` as DT_NEEDED: enough shape
+    /// for [`links_library`], so the probe is testable on every host, Linux or otherwise.
     fn elf_needing(names: &[&str]) -> Vec<u8> {
         const STR_OFF: usize = 0x100;
         const DYN_OFF: usize = 0x400;
@@ -473,7 +473,7 @@ mod tests {
         );
         assert_eq!(links_library(&without, "libExampleBrowser"), Some(false));
 
-        // Not an ELF (e.g. a Mach-O host build): "can't tell" — the caller keeps the BaseApp.
+        // Not an ELF (e.g. a Mach-O host build): "can't tell"; the caller keeps the BaseApp.
         let alien = write("alien", b"\xcf\xfa\xed\xfe not an elf at all");
         assert_eq!(links_library(&alien, "libExampleBrowser"), None);
         assert_eq!(

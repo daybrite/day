@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! The predicate vocabulary: set membership, prefixes, and the null tests — plus the two
-//! contracts that keep a two-path query layer honest. SQL's three-valued logic is the
+//! The predicate vocabulary: set membership, prefixes, and the null tests, plus the two
+//! contracts that keep the two query paths in agreement. SQL's three-valued logic is the
 //! in-memory rule too (a comparison against NULL is UNKNOWN, not false), and a predicate
 //! whose SQL form would select different rows says so through `sql_exact`.
 
@@ -19,7 +19,7 @@ struct Paper {
     #[model(id)]
     id: u32,
     title: String,
-    /// Nullable on purpose: every three-valued assertion below runs through it.
+    /// Nullable: every three-valued assertion below runs through it.
     shelf: Option<String>,
     pages: i64,
 }
@@ -109,8 +109,8 @@ fn an_empty_set_matches_nothing_and_its_complement_matches_all() {
     let c = papers();
     let none: [i64; 0] = [];
     assert!(matching(&c, Paper::pages().is_in(none)).is_empty());
-    // NOT IN over an empty set is every row whose column is not NULL — SQL's rule, since a
-    // NULL column is UNKNOWN rather than "not a member".
+    // NOT IN over an empty set is every row whose column is not NULL. That is SQL's rule,
+    // since a NULL column is UNKNOWN rather than "not a member".
     assert_eq!(matching(&c, Paper::pages().not_in(none)), [1, 2, 3, 4, 5]);
     assert_eq!(
         matching(&c, Paper::shelf().not_in(Vec::<Option<String>>::new())),
@@ -140,8 +140,8 @@ fn duplicates_in_the_set_do_not_duplicate_results() {
 #[test]
 fn not_in_is_not_the_negation_of_is_in_over_nulls() {
     // The SQL rule, which the in-memory path now follows: `shelf NOT IN ('A')` does not
-    // select a row whose shelf is NULL, but `NOT (shelf IN ('A'))` — three-valued NOT over
-    // UNKNOWN — does not either. Both exclude it; what differs is that neither is a plain
+    // select a row whose shelf is NULL, but `NOT (shelf IN ('A'))` (three-valued NOT over
+    // UNKNOWN) does not either. Both exclude it; what differs is that neither is a plain
     // boolean complement, which is exactly what a SQL author expects.
     let c = papers();
     let a = Some("A".to_string());
@@ -151,7 +151,7 @@ fn not_in_is_not_the_negation_of_is_in_over_nulls() {
 
 #[test]
 fn the_set_is_sorted_so_membership_is_a_binary_search() {
-    // Ten thousand ids, built in a deliberately hostile order. A linear scan per candidate
+    // Ten thousand ids, built in a hostile order. A linear scan per candidate
     // row would make the seed quadratic; this is the guard that it is not.
     let c = ModelContainer::open(Sqlite::memory(), schema![Paper]).expect("open");
     let store = c.cache::<Paper>();
@@ -186,8 +186,8 @@ fn the_set_is_sorted_so_membership_is_a_binary_search() {
 
 #[test]
 fn starts_with_is_case_sensitive() {
-    // The LIKE trap: SQLite's LIKE is case-INsensitive for ASCII by default, so a form built
-    // on it would also match row 2. This predicate must not.
+    // SQLite's LIKE is case-insensitive for ASCII by default, so a form built on it would
+    // also match row 2. This predicate must not.
     let c = papers();
     assert_eq!(matching(&c, Paper::title().starts_with("Quick")), [1]);
     assert_eq!(matching(&c, Paper::title().starts_with_ci("quick")), [1, 2]);
@@ -265,7 +265,7 @@ fn a_reference_column_reports_set_and_unset() {
 fn a_comparison_against_null_is_unknown_not_false() {
     // The rule that lets the two paths agree: SQL's `shelf <> 'A'` does not select a row
     // whose shelf is NULL, and neither does this. Before three-valued evaluation, the
-    // in-memory path selected it — because `compare_values` sorts NULL below text, which is
+    // in-memory path selected it, because `compare_values` sorts NULL below text, which is
     // ORDER BY's rule, not WHERE's.
     let null_row = text_row(None);
     let a_row = text_row(Some("A"));
@@ -321,7 +321,7 @@ fn unknown_propagates_through_and_or_and_not() {
         Pred::Or(Box::new(unknown.clone()), Box::new(no)).eval3(0, &null_row),
         None
     );
-    // NOT UNKNOWN is UNKNOWN — so a negated predicate still does not select a NULL row.
+    // NOT UNKNOWN is UNKNOWN, so a negated predicate still does not select a NULL row.
     assert_eq!(
         Pred::Not(Box::new(unknown.clone())).eval3(0, &null_row),
         None
@@ -410,7 +410,7 @@ fn set_and_prefix_forms_bind_what_they_say() {
     let (sql, _) = compiled(Pred::NotIn("pages", vec![Value::Int(3)]));
     assert!(sql.contains("papers.pages NOT IN (?)"), "{sql}");
 
-    // Prefix binds a CHARACTER count, not a byte count — `substr` counts characters.
+    // Prefix binds a character count, not a byte count: `substr` counts characters.
     let (sql, params) = compiled(Pred::StartsWith("title", "École".into()));
     assert!(sql.contains("substr(papers.title, 1, ?) = ?"), "{sql}");
     assert_eq!(params[0], Value::Int(5), "5 characters, not 6 bytes");
@@ -453,8 +453,8 @@ fn the_predicates_stay_live() {
         [1, 3]
     );
 
-    // A column the fetch never mentions costs nothing (proven with a trace in query.rs);
-    // here: it also moves nothing.
+    // A column the fetch never mentions costs nothing (query.rs shows that with a trace);
+    // here it also moves nothing.
     c.cache::<Paper>().elem(2).shelf().write(Some("Z".into()));
     assert_eq!(
         q.ids().iter().map(|i| i.handle()).collect::<Vec<_>>(),
@@ -515,8 +515,8 @@ fn a_fetch_reports_its_predicate_and_sort_columns() {
 
 #[test]
 fn an_id_set_depends_on_no_column() {
-    // A row's key never changes, so no column write can move a row through `IdIn` — the
-    // property that keeps relation traversal's compilation target free.
+    // A row's key never changes, so no column write can move a row through `IdIn`. That
+    // property keeps relation traversal's compilation target free.
     let deps = Fetch::new().filter(Pred::IdIn(vec![1, 2])).dependencies();
     assert!(deps.local.is_empty());
     assert!(!deps.touches_local("pages"));

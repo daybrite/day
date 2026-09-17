@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Mock e2e for the pull-refresh piece (the day-pieces mock_e2e pattern): the emulated
-//! composition path — the piece's overlay container mounts the wrapped scrollable, the spinner
+//! composition path: the piece's overlay container mounts the wrapped scrollable, the spinner
 //! overlay appears exactly while `refreshing` is true, `ToggleChanged` (dayscript's `toggle:`)
 //! drives synthetic begin/end, and `on_refresh` runs once per begin.
 

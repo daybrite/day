@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The statement protocol the main thread speaks to the SQL worker (docs/persistence.md).
-//! Both sides link this module — the day-persistence proxy driver encodes requests and
-//! decodes replies; the worker loop does the reverse — so the wire format cannot drift.
+//! Both sides link this module (the day-persistence proxy driver encodes requests and
+//! decodes replies; the worker loop does the reverse), so the wire format cannot drift.
 //! Everything is little-endian, length-prefixed, and version-tagged; the JS shuttle between
 //! them moves opaque bytes and never parses them (oversized replies are chunked JS-side,
 //! invisible here).
@@ -11,7 +11,7 @@
 /// First byte of every request; bumped only if the format ever changes shape.
 pub const VERSION: u8 = 1;
 
-/// A SQL value on the wire — the same five kinds SQLite itself has.
+/// A SQL value on the wire: the same five kinds SQLite itself has.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     Null,
@@ -34,7 +34,8 @@ pub enum Req {
     Close {
         conn: u32,
     },
-    /// Run semicolon-separated statements, no parameters, no rows; answers `Reply::Ok`.
+    /// Run semicolon-separated statements that take no parameters and return no rows; answers
+    /// `Reply::Ok`.
     Batch {
         conn: u32,
         sql: String,
@@ -441,7 +442,7 @@ mod tests {
         assert_eq!(decode_req(&[]), Err(WireError));
         assert_eq!(decode_req(&[VERSION, 99]), Err(WireError));
         assert_eq!(decode_req(&[9, 1]), Err(WireError), "wrong version");
-        // Trailing garbage is rejected too — a length desync must not pass silently.
+        // Trailing garbage is rejected too: a length desync must not pass silently.
         let mut padded = good.clone();
         padded.push(0);
         assert_eq!(decode_req(&padded), Err(WireError));

@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Many-to-many: a generated join table whose rows are keyed by the PAIR, so memberships
+//! Many-to-many: a generated join table whose rows are keyed by the pair, so memberships
 //! fold to SQL, undo, merge and animate through the same machinery every other row uses.
 
 use day_macros::Model;
@@ -332,7 +332,7 @@ fn an_ordered_join_keeps_per_parent_order() {
     assert_eq!(courses.elem(1).readings().ids(), [10, 11, 12]);
     assert_eq!(courses.elem(2).readings().ids(), [12, 10, 11]);
 
-    // Reordering one course leaves the other alone — the position is the membership's.
+    // Reordering one course leaves the other alone: the position is the membership's.
     c.save().expect("seed");
     let sql = c
         .record_sql(|| {

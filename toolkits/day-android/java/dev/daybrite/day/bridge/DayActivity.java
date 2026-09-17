@@ -11,7 +11,7 @@ import android.util.DisplayMetrics;
 /** The host Activity: creates the root DayFixed and, after first layout (so size/density are
  *  known), hands it to Rust. The app's cdylib name comes from the manifest meta-data key
  *  "day.lib". A FragmentActivity so DayNavHost pages ride the androidx FragmentManager back
- *  stack — which hands system back (all API levels), predictive back gesture seeking (34+),
+ *  stack, which hands system back (all API levels), predictive back gesture seeking (34+),
  *  and root back-to-home to the platform (docs/navigation.md). */
 public class DayActivity extends androidx.fragment.app.FragmentActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -31,12 +31,12 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         }
         System.loadLibrary(lib);
 
-        // DAY_THEME forcing is the LAUNCHER's job (day-cli sets the device night mode over adb
+        // DAY_THEME forcing is the launcher's job (day-cli sets the device night mode over adb
         // before `am start`), not this activity's: UiModeManager.setApplicationNightMode
         // persists per-app across restarts, so a forced run would poison the next run's window
-        // inflation with the old scheme — and since the manifest handles the uiMode config
+        // inflation with the old scheme, and since the manifest handles the uiMode config
         // change itself (no recreation), the already-inflated window could never re-theme.
-        // With no app-level override the theme simply follows the system, coherently, from the
+        // With no app-level override the theme follows the system, coherently, from the
         // first frame.
 
         DayBridge.ctx = this;
@@ -59,8 +59,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // hands focus here instead of snapping to the first focusable view.
         root.setFocusableInTouchMode(true);
         // RTL locales (docs/localization): mirror native widget internals (text alignment,
-        // slider fill, back affordances) by flipping the view hierarchy's direction. Day's own
-        // absolute frames are direction-independent — the Rust layout engine mirrors those.
+        // slider fill, back affordances) by flipping the view hierarchy's direction. Day's
+        // absolute frames are direction-independent; the Rust layout engine mirrors those.
         String dayLocale = getIntent().getStringExtra("day.locale");
         if (dayLocale == null && getIntent().getExtras() != null) {
             dayLocale = getIntent().getExtras().getString("day.env.DAY_LOCALE");
@@ -76,10 +76,10 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // and has no safe-area model, so its top row would draw beneath the status bar. Rather than
         // depend on the platform's version-dependent auto-fit, make Day the sole inset authority:
         // keep the window edge-to-edge on every version, then consume the system-bar insets
-        // ourselves — hold the root in a wrapper and set the root's margins to the status/navigation
+        // ourselves: hold the root in a wrapper and set the root's margins to the status/navigation
         // -bar (and display-cutout) insets, keeping all Day content inside the safe area.
         // Immersive opt-in (docs/layout.md): <meta-data dev.daybrite.day.EDGE_TO_EDGE> in the
-        // app manifest. The window's top goes edge-to-edge — the status bar turns transparent
+        // app manifest. The window's top goes edge-to-edge: the status bar turns transparent
         // (light icons) and Day content runs beneath it, padding itself by day::safe_area().
         // Bottom and sides stay margin-clamped as before.
         try {
@@ -124,7 +124,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         final String envBlobBase = blob.toString();
         final DayActivity self = this;
         // The insets listener does exactly one job: keep the root's margins equal to the
-        // system-bar (+ cutout) insets. Everything downstream is size-driven — no launch or
+        // system-bar (+ cutout) insets. Everything downstream is size-driven; no launch or
         // relayout choreography lives here, so a late or repeated inset pass (second pass on
         // some devices, rotation, bar changes) is handled the same as the first.
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(wrapper,
@@ -135,7 +135,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                         androidx.core.view.WindowInsetsCompat.Type.systemBars()
                         | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
                 // Keyboard avoidance (docs/focus.md): consume the IME inset too, so a raised
-                // keyboard shrinks the root exactly like a taller navigation bar would — the
+                // keyboard shrinks the root exactly like a taller navigation bar would: the
                 // resize rail relayouts Day, and the platform ScrollView then scrolls the
                 // focused field back into view (its stock resized-with-focus behavior).
                 androidx.core.graphics.Insets ime = insets.getInsets(
@@ -165,8 +165,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
             }
         });
         // Size-driven start + resize: the root's first laid-out size starts native (posted, so
-        // the traversal has finished and getWidth/Height are settled); every later size change —
-        // a second inset pass shrinking the root into the safe area, rotation, bar changes —
+        // the traversal has finished and getWidth/Height are settled); every later size change
+        // (a second inset pass shrinking the root into the safe area, rotation, bar changes)
         // flows to native as a window-resize event and Day relayouts. Native never needs to know
         // where the size came from, which is what makes edge-to-edge handling automatic instead
         // of a launch-time snapshot.
@@ -192,7 +192,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 DayBridge.nativeStart(root, dm.density, root.getWidth(), root.getHeight(),
                         autodrive, locale, envBlob);
                 // Native is ready now (docs/lifecycle.md). onStart/onResume already ran before this
-                // post, so their events were dropped — synthesize the current active state.
+                // post, so their events were dropped; synthesize the current active state.
                 DayBridge.started = true;
                 reportTopInset(); // deliver the initial safe area now that native listens
                 if (self.resumed) DayBridge.lifecycle(2); // DidBecomeActive
@@ -211,7 +211,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         };
     }
 
-    /** Edge-to-edge opt-in (manifest meta-data) — see onCreate. */
+    /** Edge-to-edge opt-in (manifest meta-data); see onCreate. */
     static boolean edgeToEdge;
     /** The current status-bar inset in px (edge-to-edge mode stashes it for the safe area). */
     static int statusInsetPx;
@@ -265,7 +265,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
      *
      *  This reports the transition; it does not re-theme the window. A Material widget resolves
      *  its colors from theme attributes when it is inflated and does not re-resolve them, so the
-     *  already-built view tree keeps the scheme it was born with — which is why this backend
+     *  already-built view tree keeps the scheme it was born with, which is why this backend
      *  answers `Cap::Appearance` with Unsupported. Applying a scheme to live views is the
      *  platform's activity-recreation path, and day-android does not yet survive a second
      *  nativeStart in one process. What this does buy: `dark_mode()` is a reactive signal, so app
@@ -278,13 +278,13 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         lastNightMode = night;
         DayBridge.appearanceChanged();
         // Then re-resolve the window. A DayNight theme picks its variant when the activity's theme
-        // is RESOLVED, which is at creation, so a uiMode change alone leaves every native view —
-        // and every view inflated after it — on the colors chosen at startup: the app bar restyles
+        // is resolved, which is at creation, so a uiMode change alone leaves every native view
+        // (and every view inflated after it) on the colors chosen at startup: the app bar restyles
         // and the list beneath it does not. `uiMode` stays in the manifest's configChanges so the
-        // PLATFORM does not recreate us; Day does it here, once the new configuration is in hand,
+        // platform does not recreate us; Day does it here, once the new configuration is in hand,
         // which is what makes an app-level pick (`DayBridge.setAppearance`) and the user flipping
         // the system theme land the same way. Day's tree is rebuilt from `onCreate`, the same path
-        // a cold start takes, and since 2026-08 that path is a real RE-MOUNT (docs/appearance.md)
+        // a cold start takes, and since 2026-08 that path is a re-mount (docs/appearance.md)
         // rather than a second launch.
         recreate();
     }
@@ -298,7 +298,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     }
 
     /** The route inside a deep-link URI (docs/deep-links.md): host + path + query. The query
-     *  carries the route params, ENCODED — the route parser percent-decodes, not this layer. */
+     *  carries the route params, still encoded; the route parser percent-decodes, not this
+     *  layer. */
     static String uriRoute(android.net.Uri uri) {
         String host = uri.getHost() == null ? "" : uri.getHost();
         String path = uri.getPath() == null ? "" : uri.getPath();

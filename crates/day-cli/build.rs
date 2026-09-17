@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Bake a rich version string into the `day` binary: `<version>[*] (<profile>[, <git ref>])`, where the
-//! trailing `*` marks a debug build and the git ref names what HEAD was at build time — always
-//! including the COMMIT, and the tag or branch as well when there is one.
+//! trailing `*` marks a debug build and the git ref names what HEAD was at build time, always
+//! including the commit, and the tag or branch as well when there is one.
 //!
-//! This is purely additive metadata — it never affects the binary at runtime. Off a git checkout (e.g.
-//! a crates.io build), the git lookups fail and the ref is simply omitted (`0.0.3 (release)`), so the CLI
-//! stays fully portable.
+//! This is purely additive metadata; it never affects the binary at runtime. Off a git checkout
+//! (e.g. a crates.io build), the git lookups fail and the ref is omitted (`0.0.3 (release)`), so
+//! the CLI stays fully portable.
 
 use std::process::Command;
 
@@ -26,13 +26,13 @@ fn git(args: &[&str]) -> Option<String> {
 /// is one, and the short SHA either way.
 ///
 /// The name is a hint; the SHA is the fact. Two things made that distinction matter. A branch name
-/// does not identify a build — every commit on `main` used to bake the same
+/// does not identify a build: every commit on `main` used to bake the same
 /// `(release, branch main)`, so `day rebuild`, which compares recorded tool versions strictly,
 /// read two different CLIs as the same one. And the name is not always even the right one: cargo
 /// names the local branch of its own git checkout, so `cargo install --git --branch main` reported
 /// `branch master` on a Windows runner while being a correct build of main.
 ///
-/// No SHA means no git, which is a crates.io build — the ref is then omitted entirely, as before.
+/// No SHA means no git, which is a crates.io build; the ref is then omitted entirely, as before.
 fn git_ref() -> Option<String> {
     let sha = git(&["rev-parse", "--short", "HEAD"])?;
     if let Some(tag) = git(&["describe", "--tags", "--exact-match", "HEAD"]) {
@@ -46,7 +46,7 @@ fn git_ref() -> Option<String> {
 
 fn main() {
     // Rebuild when the checked-out ref changes so the baked ref stays accurate (best-effort; these
-    // paths simply don't exist for a crates.io tarball, which has no .git).
+    // paths don't exist for a crates.io tarball, which has no .git).
     if let Some(gitdir) = git(&["rev-parse", "--absolute-git-dir"]) {
         println!("cargo:rerun-if-changed={gitdir}/HEAD");
         println!("cargo:rerun-if-changed={gitdir}/packed-refs");
@@ -58,7 +58,7 @@ fn main() {
 
     // Windows/MSVC reserves a 1 MiB main-thread stack; Linux and macOS give 8 MiB. An
     // unoptimized build keeps every temporary of a large expression alive on the frame, and
-    // `mcp::tool_list`'s single `json!` catalog literal needs more than 1 MiB built that way —
+    // `mcp::tool_list`'s single `json!` catalog literal needs more than 1 MiB built that way,
     // so `day mcp-server` answered `tools/list` on every host except a debug Windows/MSVC one,
     // where it died with "has overflowed its stack". The MCP tests spawn this binary and read
     // its stdout, so the crash reached them as "closed stdout without replying" with no hint of

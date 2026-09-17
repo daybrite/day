@@ -1,8 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// day-part-location's OWN Android backend — a headless capability shim (no UI). Bundled with the
-// crate and folded into the app's Gradle build via [package.metadata.day.android], with ZERO edits
+// day-part-location's Android backend: a headless capability shim (no UI). Bundled with the
+// crate and folded into the app's Gradle build via [package.metadata.day.android], with no edits
 // to day-android; it registers no view. The Android twin of parts/day-part-location/src/*.rs's
 // other per-OS impls.
 //
@@ -97,7 +97,7 @@ public final class DayLocation {
             }
             try {
                 // The listener needs a Looper; DayBridge.main is the UI thread's, which always has
-                // one — a Rust-spawned caller thread would not.
+                // one; a Rust-spawned caller thread would not.
                 lm.requestLocationUpdates(provider, 1000L, 0f, listener, Looper.getMainLooper());
                 // A cached fix makes the first update immediate instead of waiting for the radio.
                 Location last = lm.getLastKnownLocation(provider);

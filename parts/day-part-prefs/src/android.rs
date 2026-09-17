@@ -7,7 +7,7 @@
 // SharedPreferences needs a `Context` and has no C entry point, so it is this crate's only foreign
 // arm (docs/bridge.md). Written in Java rather than Kotlin so it compiles in any Android project.
 // Values persist across launches like every other platform, and no manifest permission is required
-// — this is app-private storage.
+// because this is app-private storage.
 
 pub fn set(key: &str, value: &str) -> bool {
     set_native(key, value).unwrap_or(false)
@@ -88,7 +88,7 @@ day_bridge::bridge! {
     );
 
     // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
-    // never compiled — it satisfies the rule that a bridge always has an answer for an unclaimed
+    // never compiled; it satisfies the rule that a bridge always has an answer for an unclaimed
     // target.
     #[day_bridge::impl(rust, platforms = [other])]
     fn set_native(_key: &str, _value: &str) -> Result<bool, day_bridge::Error> {

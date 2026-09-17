@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // Linux: the kernel exposes power supplies under /sys/class/power_supply/<name>/ with `type`,
-// `capacity` (0–100) and `status` files. Pure std — no dependencies.
+// `capacity` (0–100) and `status` files. Pure std, no dependencies.
 
 use super::{BatteryState, BatteryStatus};
 use std::fs;

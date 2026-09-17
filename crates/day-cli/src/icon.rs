@@ -1,27 +1,27 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day prepare` (docs/icons.md, DESIGN.md §16.5) — every platform's derived host files from
-//! One master, kept in sync and kept OUT of git.
+//! `day prepare` (docs/icons.md, DESIGN.md §16.5): every platform's derived host files from
+//! One master, kept in sync and kept out of git.
 //!
 //! Master discovery (first hit wins): an explicit path argument, else
 //! `resource/icons/icon.svg`, `resource/icons/day-icon.svg`, `resource/icons/icon.png`. A
 //! per-family override beside it (`resource/icons/ios.svg`, `macos.svg`, `android.svg`,
 //! `linux.svg`, `windows.svg`, `harmony.svg`, `png.svg`) replaces the master for that family
 //! alone, and a checked-in `resource/icons/ios/AppIcon.icon/` bundle is copied through instead
-//! of generated — the rule being that anything in git is a SOURCE, and everything derived lives
+//! of generated. The rule is that anything in git is a source, and everything derived lives
 //! under [`HOST_DIR`] where the host projects reference it (docs/project-structure.md).
 //!
 //! An SVG master may mark top-level groups as semantic layers by id:
 //! `day:background`, `day:foreground` (any number), `day:monochrome`, `day:dark`.
 //! The composite (background+foregrounds) feeds every full-bleed output; the split layers feed
 //! Android's adaptive icon. An unlayered SVG (or a PNG master) still produces the full legacy
-//! set — the adaptive foreground is then the whole art in the safe zone over a derived
+//! set; the adaptive foreground is then the whole art in the safe zone over a derived
 //! background color. `day:monochrome`/`day:dark` are reserved for the modern formats
 //! (Icon Composer, themed icons) and are excluded from every composite today.
 //!
 //! Everything renders in memory first; `--check` compares those bytes against `build/day/host`
-//! and exits 5 when anything is missing or stale (the duty-matrix pattern — CI's gate, and what
+//! and exits 5 when anything is missing or stale (the duty-matrix pattern: CI's gate, and what
 //! `day lint` and the VS Code extension ask before opening a native project), a plain run writes
 //! them plus `host.lock.json` recording the master and generator. [`ensure`] is the cheap form
 //! every build takes: it regenerates only when the lock says the master or the generator moved.
@@ -35,7 +35,7 @@ use day_vector::tiny_skia;
 use crate::meta::Project;
 use crate::ops::status;
 
-/// Where every derived host file lives, relative to the project root — never in git. The Xcode
+/// Where every derived host file lives, relative to the project root, never in git. The Xcode
 /// projects reference `ios/Assets.xcassets` and `macos/Assets.xcassets` here by relative path,
 /// the Gradle module adds `platform/android/res` as a resource source set, `day pack` reads the Linux
 /// and Windows icons here, and the HarmonyOS media directories are symlinks into `harmony/media`.
@@ -59,7 +59,7 @@ pub struct IconOptions {
 }
 
 /// Resolve a `--seed` / `--icon-seed` spec: a bare integer is used as-is, anything else is
-/// hashed ([`day_vector::icongen::seed_from_str`] — how `day new` seeds from the app id),
+/// hashed ([`day_vector::icongen::seed_from_str`], how `day new` seeds from the app id),
 /// and `None` draws fresh entropy. Always tell the user the number (via the return), so a
 /// liked random icon can be reproduced.
 pub fn resolve_seed(spec: Option<&str>) -> u64 {
@@ -82,7 +82,7 @@ pub fn resolve_seed(spec: Option<&str>) -> u64 {
 }
 
 /// `day icon --generate`: write the seeded master to `resource/icons/icon.svg`. Refuses to
-/// clobber an existing master (any discovery candidate) unless `overwrite` — a hand-drawn
+/// clobber an existing master (any discovery candidate) unless `overwrite`, because a hand-drawn
 /// icon is unrecoverable. The caller then runs [`run`] to regenerate every output.
 pub fn generate_master(project: &Project, seed: u64, overwrite: bool) -> Result<PathBuf, String> {
     if !overwrite {
@@ -108,7 +108,7 @@ pub fn generate_master(project: &Project, seed: u64, overwrite: bool) -> Result<
     Ok(dest)
 }
 
-/// `day icon --generate --out <file.svg>`: preview mode — write the seeded master to an
+/// `day icon --generate --out <file.svg>`: preview mode. Write the seeded master to an
 /// arbitrary path (no project needed, nothing else touched) plus a 512 px PNG render beside
 /// it, so seeds can be browsed before committing to one.
 pub fn generate_preview(path: &Path, seed: u64) -> Result<(), String> {
@@ -321,7 +321,7 @@ pub fn ensure(project: &Project, platforms: &[&str]) -> Result<(), String> {
         let outputs = v.get("outputs")?.as_object()?;
         let families: Vec<Family> = platforms.iter().flat_map(|p| family_of_target(p)).collect();
         // A lock written by a narrower `day prepare -p …` lists nothing for a family it never
-        // rendered, and "every listed output exists" is then vacuously true for it — which is
+        // rendered, and "every listed output exists" is then vacuously true for it, which is
         // how an app added harmony-arkui after its first prepare built a hap whose
         // `$media:layered_image` did not exist. A requested family with no outputs on record
         // is not fresh.
@@ -347,7 +347,7 @@ pub fn ensure(project: &Project, platforms: &[&str]) -> Result<(), String> {
     };
     if fresh() == Some(true) {
         // The links are cheap to re-assert, and a fresh clone has a lock only after a first
-        // run — so this is the path that repairs a link someone removed.
+        // run, so this is the path that repairs a link someone removed.
         let families: Vec<Family> = if platforms.is_empty() {
             vec![Family::Ohos]
         } else {
@@ -534,7 +534,7 @@ fn link_dir(root: &Path, link: &str, target: &str) -> Result<(), String> {
 
 /// The path `link` stores to reach `target`, both project-relative: enough `..` to climb from
 /// the link's directory to the project root, then the target. Built component by component so
-/// every separator is the host's own — Windows stores a symlink target verbatim in the reparse
+/// every separator is the host's: Windows stores a symlink target verbatim in the reparse
 /// point and its resolver does not treat `/` as a separator, so a target pushed as one
 /// `build/day/host/…` string made a link that created fine and resolved to nothing.
 fn link_relative(link: &str, target: &str) -> PathBuf {
@@ -596,8 +596,8 @@ pub fn migrate(project: &Project) -> Result<(), String> {
             })
         })
         .unwrap_or_default();
-    // A second witness beside the legacy lock: the files this generator renders NOW. A committed
-    // copy whose bytes equal a fresh render was generated, whatever the lock says — the macOS
+    // A second witness beside the legacy lock: the files this generator renders now. A committed
+    // copy whose bytes equal a fresh render was generated, whatever the lock says; the macOS
     // catalog PNG, for one, was staged by `day new` from the same render and never locked.
     let rendered: std::collections::BTreeSet<String> = generate(
         project,
@@ -939,7 +939,7 @@ fn generate(
         for px in [16u32, 32, 64, 128, 256, 512, 1024] {
             let png = art.squircle(px)?;
             if px != 64 {
-                // 64 is rendered only for the icns ladder — the export set never carried it.
+                // 64 is rendered only for the icns ladder; the export set never carried it.
                 out.push((
                     host(Family::Macos, &format!("day-icon-macos-{px}.png")),
                     png.clone(),
@@ -1109,7 +1109,7 @@ fn generate(
             host(Family::Ohos, "media/layered_image.json"),
             LAYERED.as_bytes().to_vec(),
         ));
-        // The manifests are SOURCE files under platform/; this is the one edit prepare makes to
+        // The manifests are source files under platform/; this is the one edit prepare makes to
         // one, and only when it still names the flat icon. Idempotent.
         out.extend(harmony_manifest_rewrites(project));
     }
@@ -1145,7 +1145,7 @@ fn harmony_manifest_rewrites(project: &Project) -> Vec<(String, Vec<u8>)> {
 }
 
 /// `text` with every ability `icon` that names the flat icon pointed at the layered one, or
-/// `None` when nothing needed changing. `startWindowIcon` keeps the flat icon on purpose.
+/// `None` when nothing needed changing. `startWindowIcon` keeps the flat icon.
 fn rewrite_icon_refs(text: &str) -> Option<String> {
     let updated = text.replace(
         "\"icon\": \"$media:startIcon\"",
@@ -1197,13 +1197,13 @@ enum MonoDrawable {
 /// A prepared master: SVG documents per role, or a decoded raster.
 enum Art {
     Svg {
-        /// Whole art minus the reserved layers — every full-bleed output.
+        /// Whole art minus the reserved layers: every full-bleed output.
         composite: String,
         /// Foreground-only document (layered masters), pre-tightened to its content box.
         foreground: Option<String>,
         /// Background-only document (layered masters).
         background: Option<String>,
-        /// Monochrome-only document (`day:monochrome`) — Android themed icons, `.icon` Tinted.
+        /// Monochrome-only document (`day:monochrome`): Android themed icons, `.icon` Tinted.
         monochrome: Option<String>,
     },
     Raster(tiny_skia::Pixmap),
@@ -1272,7 +1272,7 @@ impl Art {
         }
     }
 
-    /// Composite flattened over the derived background color (opaque — iOS/store slots).
+    /// Composite flattened over the derived background color (opaque; iOS/store slots).
     fn flat_composite(&self, px: u32) -> Result<Vec<u8>, String> {
         let png = self.composite(px)?;
         flatten(&png, self.backdrop()?)
@@ -1376,7 +1376,7 @@ impl Art {
 
     /// The Android themed-icon monochrome drawable: the `day:monochrome` layer as a
     /// VectorDrawable when it fits the subset, else (and without the layer) the adaptive
-    /// foreground's alpha as a bitmap mask — the system tints either.
+    /// foreground's alpha as a bitmap mask; the system tints either.
     fn monochrome_drawable(&self) -> Result<MonoDrawable, String> {
         if let Art::Svg {
             monochrome: Some(mono),
@@ -1388,9 +1388,9 @@ impl Art {
                 let (bx, by, bw, bh) = bbox_in_viewbox_units(mono, &tree, b)?;
                 let inset = (ADAPTIVE_PX as f32 - SAFE_PX) / 2.0;
                 let inner = inner_markup(mono)?;
-                // Safe-zone fit as an EXPLICIT transform, not a nested <svg> viewport: usvg
+                // Safe-zone fit as an explicit transform, not a nested <svg> viewport: usvg
                 // models a nested svg as a clipped group, which is outside the
-                // VectorDrawable subset — the very conversion this document exists for. The
+                // VectorDrawable subset, the very conversion this document exists for. The
                 // math is `xMidYMid meet` by hand: uniform scale to the safe square,
                 // centered, then offset by the zone inset.
                 let s = SAFE_PX / bw.max(bh).max(1e-3);
@@ -1435,7 +1435,7 @@ impl Art {
     }
 
     /// The Icon Composer `.icon` package files (Xcode 26): SVG layer assets + `icon.json`.
-    /// Only for layered SVG masters — the package's value IS the layer split; a flat master
+    /// Only for layered SVG masters, since the package's value is the layer split; a flat master
     /// has nothing to feed the Liquid Glass modes.
     fn icon_composer_package(&self) -> Result<Option<PackageFiles>, String> {
         let Art::Svg {
@@ -1463,7 +1463,7 @@ impl Art {
         }
         if let Some(mono) = monochrome {
             // Not referenced by the default group: Icon Composer assigns it to the Tinted
-            // appearance when the designer opts in — shipping the asset makes that a drag.
+            // appearance when the designer opts in; shipping the asset makes that a drag.
             files.push(("Assets/monochrome.svg".into(), mono.clone().into_bytes()));
         }
         let json = serde_json::json!({
@@ -1497,7 +1497,7 @@ impl Art {
 }
 
 // ---------------------------------------------------------------------------
-// SVG text helpers (layer slicing is textual — see the module docs)
+// SVG text helpers (layer slicing is textual; see the module docs)
 // ---------------------------------------------------------------------------
 
 struct Layers {
@@ -1541,9 +1541,9 @@ fn splice_out(xml: &str, removals: &[&Vec<Range<usize>>]) -> String {
     out
 }
 
-/// Drop a `display="none"` from the named layer's OPEN TAG. A master may hide a reserved
-/// layer (`day:monochrome`, `day:dark`) so plain SVG viewers show the icon as shipped — the
-/// generated masters do — and the layer-only documents re-enable it here.
+/// Drop a `display="none"` from the named layer's open tag. A master may hide a reserved
+/// layer (`day:monochrome`, `day:dark`) so plain SVG viewers show the icon as shipped (the
+/// generated masters do), and the layer-only documents re-enable it here.
 fn unhide_layer(doc: String, id: &str) -> String {
     let Some(at) = doc.find(&format!("id=\"{id}\"")) else {
         return doc;
@@ -1565,7 +1565,7 @@ fn unhide_layer(doc: String, id: &str) -> String {
 /// A usvg content box mapped back into the document's own viewBox units.
 ///
 /// usvg normalizes a parsed tree to the svg's width/height, so when a master declares e.g.
-/// `viewBox="0 0 120 120" width="1024"`, [`day_vector::content_bbox`] answers in 1024-space —
+/// `viewBox="0 0 120 120" width="1024"`, [`day_vector::content_bbox`] answers in 1024-space,
 /// while the raw inner markup the safe-zone wrappers re-parse is still in 120-space. Windowing
 /// the markup with unconverted bounds selects a region outside the art entirely (an empty
 /// adaptive foreground). Identity when the viewBox and the tree size already agree.
@@ -1782,7 +1782,7 @@ mod tests {
         // A master may declare `viewBox="0 0 120 120" width="1024"`. usvg reports content
         // bounds in 1024-space while the raw markup the safe-zone wrapper re-parses is in
         // 120-space; unconverted bounds window a region outside the art and the adaptive
-        // foreground renders EMPTY (the Day-Showcase sunrise master, 2026-08-07).
+        // foreground renders empty (the Day-Showcase sunrise master, 2026-08-07).
         let master = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 120 120\" \
              width=\"1024\" height=\"1024\">\
              <rect id=\"day:background\" width=\"120\" height=\"120\" fill=\"#123456\"/>\

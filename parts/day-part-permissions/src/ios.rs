@@ -10,8 +10,8 @@ use objc2::{msg_send, sel};
 use super::{class, nsstring};
 use crate::{Gate, Permission, Status, from_apple_status};
 
-/// `CMMotionActivityManager` gates motion and fitness ACTIVITY (step counts, activity
-/// classification) — not the raw accelerometer/gyroscope, which need no permission at all
+/// `CMMotionActivityManager` gates motion and fitness activity (step counts, activity
+/// classification), not the raw accelerometer/gyroscope, which need no permission at all
 /// (docs/sensors.md).
 pub fn motion_gate() -> Gate {
     if class("CMMotionActivityManager").is_some() {
@@ -79,8 +79,8 @@ pub fn request_motion(on_done: Box<dyn FnOnce(Status) + Send>) {
         on_done(Status::Unsupported);
         return;
     }
-    // Poll for the answer — the same reasoning as location: a delegate/handler needs a run loop,
-    // which a plain `main` or `cargo test` does not have.
+    // Poll for the answer, with the same reasoning as location: a delegate/handler needs a run
+    // loop, which a plain `main` or `cargo test` does not have.
     std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
         loop {
@@ -94,7 +94,7 @@ pub fn request_motion(on_done: Box<dyn FnOnce(Status) + Send>) {
     });
 }
 
-/// iOS offers exactly one destination — this app's own page in Settings. There is no per-permission
+/// iOS offers exactly one destination, this app's page in Settings. There is no per-permission
 /// anchor, so `perm` is unused.
 pub fn open_settings(_perm: Permission) -> bool {
     let (Some(app_cls), Some(url_cls), Some(s)) = (

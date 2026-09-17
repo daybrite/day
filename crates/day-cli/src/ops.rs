@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Build / launch operations. Desktop = cargo with per-(target, profile) CARGO_TARGET_DIR
-//! (§16.5 — parallel targets never contend on the cargo build-dir lock). Mobile pipelines
+//! (§16.5; parallel targets never contend on the cargo build-dir lock). Mobile pipelines
 //! attach here at M5 (xcodebuild + simctl; gradle + adb).
 
 use std::collections::BTreeMap;
@@ -28,10 +28,10 @@ pub struct BuildOutcome {
 ///
 /// The separation is what makes an A/B comparison worth doing. Two day versions otherwise share one
 /// cargo target directory and one product directory, so switching between them recompiles the whole
-/// framework each way and the second build overwrites the first app's binary — which is the
+/// framework each way and the second build overwrites the first app's binary, which is the
 /// comparison, gone. With a subtree each, switching is incremental and both apps exist at once.
 ///
-/// Only COMPILED output moves. Staged resources, the generated xcconfig, and gradle's and hvigor's
+/// Only compiled output moves. Staged resources, the generated xcconfig, and gradle's and hvigor's
 /// own build directories stay on the shared path: they are cheap to regenerate, and duplicating
 /// them would buy nothing.
 pub(crate) fn build_root(project: &Project) -> PathBuf {
@@ -59,13 +59,13 @@ pub fn set_verbose(on: bool) {
     VERBOSE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Whether `--verbose` is in effect — build tools consult this to decide whether to forward their
+/// Whether `--verbose` is in effect; build tools consult this to decide whether to forward their
 /// sub-commands' output.
 pub fn verbose() -> bool {
     VERBOSE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Whether this process runs inside a GitHub Actions job — the documented signal is
+/// Whether this process runs inside a GitHub Actions job. The documented signal is
 /// `GITHUB_ACTIONS=true`, set for every step of every runner. Shared by the commands that report
 /// into a job (`day lint`'s findings, `day checkup`'s combo table).
 pub fn github_actions() -> bool {
@@ -81,12 +81,12 @@ pub fn gha_escape(msg: &str) -> String {
 }
 
 /// Run `cmd` to completion, capturing its stdout and stderr. Under [`verbose`] each stream is also
-/// forwarded — verbatim — to day's own logging stream (**stderr**) as it arrives, so a
+/// forwarded verbatim to day's own logging stream (**stderr**) as it arrives, so a
 /// sub-command's raw output streams live while the captured copy still feeds day's own failure
 /// diagnostics (the `run_quiet`/`run_tool`/gradle/xcodebuild error text). Forwarding goes to stderr
 /// (not stdout) for two reasons: it is where day already writes its status lines, and it keeps
 /// stdout clean for `--format json`'s NDJSON result stream (raw tool bytes there would corrupt it).
-/// Both pipes are drained concurrently — a tool that fills one while day only read the other would
+/// Both pipes are drained concurrently; a tool that fills one while day only read the other would
 /// deadlock.
 ///
 /// The default (non-verbose) result is byte-identical to [`Command::output`], so callers that
@@ -103,8 +103,8 @@ pub(crate) fn run_capture(cmd: &mut Command, what: &str) -> Result<std::process:
     // piped just above, so both handles are always Some.
     let mut child_out = child.stdout.take().expect("stdout was piped");
     let mut child_err = child.stderr.take().expect("stderr was piped");
-    // Byte-chunk tee (not line-based): forwards output verbatim — partial lines and `\r` progress
-    // redraws included — so `--verbose` is truly unfiltered, and each chunk is flushed so it lands
+    // Byte-chunk tee (not line-based): forwards output verbatim, partial lines and `\r` progress
+    // redraws included, so `--verbose` is unfiltered, and each chunk is flushed so it lands
     // live rather than sitting in a block buffer when the destination is a pipe.
     fn tee(src: &mut impl Read, forward: bool) -> Vec<u8> {
         let mut collected = Vec::new();
@@ -134,11 +134,11 @@ pub(crate) fn run_capture(cmd: &mut Command, what: &str) -> Result<std::process:
 }
 
 /// Run a command to completion, giving up after `limit` and killing the child. `None` means it
-/// never finished — or never started.
+/// never finished, or never started.
 ///
 /// Device tooling is what this exists for. `adb`, `hdc` and `simctl` do not fail against a
 /// device that has stopped answering; they wait for it, with no deadline of their own. So the
-/// cleanup that follows a lost engine — force-stop the app, read the crash buffer — is exactly
+/// cleanup that follows a lost engine (force-stop the app, read the crash buffer) is exactly
 /// where a run stops making progress, and a CI job then sits until its own timeout hours later,
 /// having already printed the diagnosis it was asked for.
 pub fn status_within(cmd: &mut Command, limit: Duration) -> Option<std::process::ExitStatus> {
@@ -208,10 +208,10 @@ const POLL: Duration = Duration::from_millis(50);
 /// Ceilings for the device-tool calls on the install/launch path. `adb`, `simctl`, `devicectl`
 /// and `hdc` wait for an unresponsive device with no deadline of their own (the same wedge the
 /// post-mortem paths above already guard against), so every install and launch call runs under
-/// one of these. Generous on purpose: a cold emulator install takes minutes, never ten.
+/// one of these. Generous because a cold emulator install takes minutes, never ten.
 pub const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 pub const LAUNCH_TIMEOUT: Duration = Duration::from_secs(180);
-/// gradle / hvigor assemble the whole app host project — a first run downloads dependencies,
+/// gradle / hvigor assemble the whole app host project, and a first run downloads dependencies,
 /// so the ceiling is an hour: far above any real build, far below a job timeout.
 pub const BUILD_TIMEOUT: Duration = Duration::from_secs(3600);
 
@@ -232,7 +232,7 @@ pub(crate) fn run_capture_within(
     // piped just above, so both handles are always Some.
     let mut child_out = child.stdout.take().expect("stdout was piped");
     let mut child_err = child.stderr.take().expect("stderr was piped");
-    // The same byte-chunk tee as `run_capture`, on a thread per stream — killing the child
+    // The same byte-chunk tee as `run_capture`, on a thread per stream; killing the child
     // closes the pipes, which is what lets the reads (and the join below) finish.
     fn tee(src: &mut impl Read, forward: bool) -> Vec<u8> {
         let mut collected = Vec::new();
@@ -285,10 +285,10 @@ pub(crate) fn timeout_message(what: &str, limit: Duration) -> String {
     )
 }
 
-/// The exit code to report for a finished child, with a signal death made VISIBLE.
+/// The exit code to report for a finished child, with a signal death made visible.
 ///
-/// `ExitStatus::code()` is `None` when a process was killed by a signal, and mapping that to 0 —
-/// which every call site here used to do — turned an app that aborted or segfaulted into a clean
+/// `ExitStatus::code()` is `None` when a process was killed by a signal, and mapping that to 0
+/// (which every call site here used to do) turned an app that aborted or segfaulted into a clean
 /// exit: `day launch` returned success after a crash, and nothing downstream could tell that the
 /// app had died badly. `128 + signo` is the shell's convention (SIGABRT ⇒ 134, SIGSEGV ⇒ 139).
 pub fn exit_code_of(status: std::process::ExitStatus) -> i32 {
@@ -305,7 +305,7 @@ pub fn exit_code_of(status: std::process::ExitStatus) -> i32 {
     1
 }
 
-/// Whether an exit code says the process was killed by a fatal signal — a crash, not a quit.
+/// Whether an exit code says the process was killed by a fatal signal: a crash, not a quit.
 pub fn died_on_signal(code: i32) -> bool {
     // 128 + {SIGILL, SIGABRT, SIGBUS(both spellings), SIGFPE, SIGSEGV, SIGSYS}
     matches!(code, 132 | 134 | 135 | 136 | 138 | 139 | 141)
@@ -348,15 +348,15 @@ pub fn app_identity_env(project: &Project) -> BTreeMap<String, OsString> {
 /// `libtool` and `ld64` write file modification times into static archives and into the debug map's
 /// `OSO` entries, so two builds of identical sources differ by whenever they happened to run.
 /// `ZERO_AR_DATE` zeroes both. It is set here rather than in CI so local packs are deterministic
-/// too — reproducibility that only holds on the build farm is not worth much.
+/// too; reproducibility that only holds on the build farm is not worth much.
 ///
 /// Scope: archive and debug-map timestamps only. It does not touch `__DATE__`/`__TIME__` (Day uses
 /// neither), and it is inert on non-Apple hosts.
 /// Build settings every `xcodebuild` invocation carries, whatever it is building.
 ///
 /// Index-while-building is turned off, and the reason is not speed. Xcode 27 was measured emitting
-/// `-index-store-path` with an EMPTY value, so `swiftc` took the next token on the line as the
-/// path — with a `-Xcc` from OTHER_SWIFT_FLAGS sitting there, it created a directory literally
+/// `-index-store-path` with an empty value, so `swiftc` took the next token on the line as the
+/// path; with a `-Xcc` from OTHER_SWIFT_FLAGS sitting there, it created a directory literally
 /// named `-Xcc`. It landed inside `platform/ios/DayApp.xcodeproj/`, because that is the
 /// `-working-directory` Xcode passes, which left an untracked directory in the source tree and
 /// failed the pristine check that proves a packed artifact was rebuilt from its commit.
@@ -373,12 +373,12 @@ pub fn apply_determinism(cmd: &mut Command) {
     }
 }
 
-/// The determinism variables as a map — see `app_identity_env` for why the map form exists.
+/// The determinism variables as a map; see `app_identity_env` for why the map form exists.
 pub fn determinism_env() -> BTreeMap<String, OsString> {
     BTreeMap::from([
         ("ZERO_AR_DATE".to_string(), OsString::from("1")),
         // Export the resolved epoch so any SOURCE_DATE_EPOCH-aware tool downstream agrees with the
-        // value Day stamps into archives itself — flatpak-builder honors it (1.3.1+), as do many
+        // value Day stamps into archives itself; flatpak-builder honors it (1.3.1+), as do many
         // compilers and archivers. Passing through the caller's value when they set one, and Day's
         // default otherwise, means one clock governs the whole pack.
         (
@@ -390,14 +390,14 @@ pub fn determinism_env() -> BTreeMap<String, OsString> {
 
 /// The comma-joined `--features` string for a `backend` toolkit: the toolkit feature itself plus the
 /// unioned `<pkg>/<backend>` renderer feature of every standalone piece in the app's dependency
-/// closure (Tier A.2 — apps no longer fan out per-piece features in their own Cargo.toml).
+/// closure (Tier A.2: apps no longer fan out per-piece features in their own Cargo.toml).
 pub fn feature_selection(project: &Project, backend: &str) -> String {
     let mut features = vec![backend.to_string()];
     features.extend(crate::pieces::feature_union(project, backend));
     features.join(",")
 }
 
-/// Where [`build`] records the last successful artifact path for a (target, profile) — the
+/// Where [`build`] records the last successful artifact path for a (target, profile): the
 /// `--skip-build` reuse stamp. One line, the absolute artifact path.
 fn artifact_stamp(project: &Project, target: &Target, profile: Profile) -> PathBuf {
     // Under the day-src root, so `--skip-build` reuses the binary built against that day rather
@@ -409,7 +409,7 @@ fn artifact_stamp(project: &Project, target: &Target, profile: Profile) -> PathB
 
 /// Reuse the previous [`build`]'s artifact instead of building (`day launch --skip-build`):
 /// the artifact is read from the stamp and must still exist. For runs whose variants share one
-/// binary (theme/locale are runtime inputs), this drops the per-invocation build overhead —
+/// binary (theme/locale are runtime inputs), this drops the per-invocation build overhead;
 /// CI's iOS walkthrough pays xcodebuild once instead of once per variant.
 pub fn reuse_build(
     project: &Project,
@@ -471,15 +471,16 @@ pub fn build(
     let start = std::time::Instant::now();
     // The derived host files (icon catalogs, mipmaps, HarmonyOS media) live under
     // build/day/host and are never checked in; regenerate them when the master moved
-    // (crate::icon::ensure — cheap when the lock is current). A failure here is a real one:
+    // (crate::icon::ensure, cheap when the lock is current). A failure here is a real one:
     // the host build would compile a catalog that does not exist.
     crate::icon::ensure(project, &[target.name])?;
     // Stage declared resources (images/ + assets/) into this target's native locations before its
     // platform build runs, so actool/aapt2/rcc/hvigor can process them (§18.3). Best-effort: this
     // needs the toolkit's native resource compiler (rcc / glib-compile-resources / …), which isn't
     // always on PATH (e.g. MSYS2 windows-qt/windows-gtk ship no rcc/glib-compile-resources). When
-    // it's missing the resource blob is simply skipped — day loads assets from the filesystem roots
-    // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON — so a missing tool must not fail the build.
+    // it's missing the resource blob is skipped (day loads assets from the filesystem roots
+    // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON), so a missing tool must not fail the
+    // build.
     if let Err(e) = crate::resources::stage(project, target) {
         status("Warning", &format!("resource staging skipped ({e})"));
     }
@@ -491,7 +492,7 @@ pub fn build(
         crate::shortcuts::sync_android(project)?;
     }
     // macos-appkit builds through the Xcode host project (§17.4, platform/macos/), always:
-    // a real bundle with identity, compiled appiconset, and staged resources — the same
+    // a real bundle with identity, compiled appiconset, and staged resources, the same
     // build a developer gets pressing Run in Xcode. (The bare-cargo path this replaced was
     // retired 2026-08; the shared artifact stamping below keeps `--skip-build` reuse.)
     let outcome = if target.name == "macos-appkit" {
@@ -510,7 +511,7 @@ pub fn build(
     } else {
         build_native(project, target, profile, start)
     }?;
-    // Record the artifact for `--skip-build` reuse ([`reuse_build`]). Best-effort — a failed
+    // Record the artifact for `--skip-build` reuse ([`reuse_build`]). Best-effort: a failed
     // stamp write must never fail a successful build.
     let stamp = artifact_stamp(project, target, profile);
     if let Some(dir) = stamp.parent() {
@@ -528,15 +529,15 @@ pub fn build(
 /// Mach-O (`S_ATTR_NO_DEAD_STRIP`) the object carries a flag the linker's dead-strip honors;
 /// MSVC gets an `/INCLUDE` directive. COFF linked by GNU `ld` has none of these, so
 /// `--gc-sections`, which rustc passes for every executable, discards the section as
-/// unreferenced — the "dead-strip gamble" DESIGN.md §8.2 records, seen in CI as a piece
+/// unreferenced, the "dead-strip gamble" DESIGN.md §8.2 records, seen in CI as a piece
 /// drawing Day's placeholder on windows-qt while rendering elsewhere, and as the set of
 /// missing pieces moving between commits. (Archive member selection is not the problem: the
 /// element's type-check shim references the static from the crate's root object, so the
-/// member is pulled on every platform — measured on a macos-gtk build — and it is the section
+/// member is pulled on every platform, measured on a macos-gtk build, and it is the section
 /// that goes.)
 ///
 /// So the two MinGW targets link without section garbage collection. The cost is a larger
-/// binary — the unreferenced code and data the collector would have dropped — on an
+/// binary (the unreferenced code and data the collector would have dropped) on an
 /// experimental target; the precise alternative, `#[used(linker)]`, is nightly-only. Appended
 /// to an inherited `RUSTFLAGS` (CI sets one), the way the web build adds its cfg (web.rs).
 fn apply_mingw_registration_guard(cmd: &mut Command, target: &Target) {
@@ -568,13 +569,13 @@ fn build_native(
             crate::bridge::apply_staged(&mut cmd, project, target.name);
             apply_mingw_registration_guard(&mut cmd, target);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
-            // renderer feature, derived from `cargo metadata` — so the app depends on a piece
+            // renderer feature, derived from `cargo metadata`, so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).
             let features = feature_selection(project, target.toolkit);
             if target.toolkit == "xaml" {
                 // XAML Islands refuses to start unless the app manifest declares
                 // `maxversiontested` (§9). rustc's default embedded manifest lacks it, so we
-                // embed our own — `cargo rustc -- <link-args>` scopes this to the bin only.
+                // embed our own; `cargo rustc -- <link-args>` scopes this to the bin only.
                 let manifest = write_xaml_manifest(project, target, profile)?;
                 cmd.args(["rustc", "--bin", &project.manifest.app.name])
                     .args(["--no-default-features", "--features", &features]);
@@ -609,8 +610,9 @@ fn build_native(
                 return Err(format!("cargo build failed for {}", target.name));
             }
             // The desktop binary carries the platform's executable extension (`.exe` on Windows,
-            // none elsewhere). `day launch`'s `Command::new` auto-appends it on Windows, but the raw
-            // `fs::copy` in `pack` (msix/nsis stage the exe) needs the REAL path — so bake it in here.
+            // none elsewhere). `day launch`'s `Command::new` auto-appends it on Windows, but the
+            // raw `fs::copy` in `pack` (msix/nsis stage the exe) needs the full path, so bake it in
+            // here.
             let artifact = cargo_dir(project, target, profile)
                 .join(profile.as_str())
                 .join(format!(
@@ -670,10 +672,10 @@ pub struct LaunchSpec {
     pub attached: bool,
     /// Device selection, one field per runtime, so a single `day launch` can name a different
     /// one for each `-p` it was given. Left `None`, a target uses every device of its kind it
-    /// can see — right for a capture sweep, wrong when you mean one specific phone.
+    /// can see: right for a capture sweep, wrong when you mean one specific phone.
     ///
     /// The split is not cosmetic: an iOS simulator and an iOS device are different runtimes
-    /// (simctl vs devicectl) and, more importantly, different BUILDS — a device needs the
+    /// (simctl vs devicectl) and, what matters more, different builds; a device needs the
     /// `iphoneos` SDK and code signing, decided before `build` runs.
     pub ios_device: Option<String>,
     pub ios_simulator: Option<String>,
@@ -693,9 +695,9 @@ impl LaunchSpec {
 /// What this run actually launched onto, remembered for the steps that come after the launch.
 ///
 /// A dayscript run forwards a port and takes screenshots long after `LaunchSpec` is out of scope,
-/// and those paths used to pin whichever device enumerated first — so a `--android-device` run
+/// and those paths used to pin whichever device enumerated first, so a `--android-device` run
 /// forwarded to a bystander phone, and a `--ios-simulator` run photographed the wrong screen.
-/// Recording the RESOLVED identity (a simulator UDID, an adb serial, an hdc key) once at launch
+/// Recording the resolved identity (a simulator UDID, an adb serial, an hdc key) once at launch
 /// keeps every later step on the device the user actually named.
 ///
 /// Set-once per process: one `day launch` selects at most one device per runtime, and a second
@@ -741,21 +743,21 @@ pub fn selected_ohos_key() -> Option<&'static str> {
 /// Everything needed to start a desktop target's own binary: the program, its arguments, the
 /// working directory, and the environment Day layers onto the caller's.
 ///
-/// `launch` spawns exactly this, and `day build --format json` reports it verbatim — which is what
+/// `launch` spawns exactly this, and `day build --format json` reports it verbatim, which is what
 /// lets an outside debugger (the VS Code extension delegating to lldb) start the app the way Day
-/// would. Having one producer is the point: an env var added for a launch but not mirrored here
-/// would leave the app resource-less under the debugger, and only there.
+/// would. There is one producer so that an env var added for a launch cannot go unmirrored here,
+/// which would leave the app resource-less under the debugger, and only there.
 pub struct DesktopLaunchPlan {
-    /// The executable to start. For a macOS `.app` bundle this is the binary inside it — a
+    /// The executable to start. For a macOS `.app` bundle this is the binary inside it, since a
     /// debugger needs a Mach-O to load, and macOS reads the adjacent Info.plist either way.
     pub program: PathBuf,
     pub args: Vec<String>,
     pub cwd: PathBuf,
-    /// Day's ADDITIONS to the inherited environment, not a complete environment block.
+    /// Day's additions to the inherited environment, not a complete environment block.
     pub env: BTreeMap<String, OsString>,
     /// The wrapper argv this host needs to give the app a display (`xvfb-run`, under
     /// `dbus-run-session` when there is one), if any. `program`/`args` describe the app itself
-    /// either way, so a caller that cannot wrap — a debugger launches the binary directly — still
+    /// either way, so a caller that cannot wrap (a debugger launches the binary directly) still
     /// has something to run, and something to warn about.
     pub wrapper: Option<Vec<String>>,
 }
@@ -772,7 +774,7 @@ pub fn desktop_launch_plan(
     let mut env: BTreeMap<String, OsString> = BTreeMap::new();
 
     // Headless CI (a linux host with no display server): give the toolkit what the CI shims used
-    // to wrap around the CLI — xvfb sized to `[window]` (the root-capture screenshot fallback
+    // to wrap around the CLI: xvfb sized to `[window]` (the root-capture screenshot fallback
     // then frames exactly the app), the WebKit flags for gtk, the xcb platform for qt. Qt could
     // render displayless (QT_QPA_PLATFORM=offscreen, the previous plumbing), but X selections
     // need a display server to broker them, so the system clipboard (day-part-clipboard's xclip)
@@ -799,7 +801,7 @@ pub fn desktop_launch_plan(
                 //     assertion 'G_IS_DBUS_CONNECTION (connection)' failed
                 // and then SIGSEGV on the next dialog. `dbus-run-session` starts a private bus for
                 // the app's lifetime and tears it down after, so the portal call gets a real
-                // connection — and fails cleanly (no portal service answers) instead of
+                // connection, and fails cleanly (no portal service answers) instead of
                 // dereferencing nothing.
                 let bus = Command::new("dbus-run-session")
                     .arg("--version")
@@ -827,7 +829,7 @@ pub fn desktop_launch_plan(
                     }
                     // Pinned, not autodetected: an inherited QT_QPA_PLATFORM (the pre-CLI CI
                     // shims exported `offscreen`) would defeat the display xvfb just provided.
-                    // A `--env` override still wins — `spec.envs` lands after this.
+                    // A `--env` override still wins; `spec.envs` lands after this.
                     "qt" => {
                         env.insert("QT_QPA_PLATFORM".to_string(), OsString::from("xcb"));
                     }
@@ -849,13 +851,13 @@ pub fn desktop_launch_plan(
 
     // An Xcode-built `.app` bundle (platform/macos/, §17.4): name its inner binary. macOS resolves
     // the adjacent Info.plist, so bundle identity, the Dock icon (compiled appiconset), and
-    // `Contents/Resources` are all REAL — none of the bare-binary environment below applies, and
+    // `Contents/Resources` are all in place; none of the bare-binary environment below applies, and
     // naming the binary rather than `open`ing the bundle keeps stdio attached for log streaming
     // and dayscript.
     let bundled = outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app");
     let program = if bundled {
-        // The executable is named by the pbxproj's PRODUCT_NAME, not the crate — take the bundle's
-        // single Contents/MacOS entry rather than guess.
+        // The executable is named by the pbxproj's PRODUCT_NAME, not the crate, so take the
+        // bundle's single Contents/MacOS entry rather than guess.
         let macos_dir = outcome.artifact.join("Contents/MacOS");
         std::fs::read_dir(&macos_dir)
             .ok()
@@ -875,20 +877,20 @@ pub fn desktop_launch_plan(
             project.root.join("resource/images").into_os_string(),
         );
         // The vector raster cache (docs/vectors.md): how the file-loading desktop backends resolve
-        // `vector(…)` names — written by resources::stage at build. The FALLBACK rasters, not the
+        // `vector(…)` names, written by resources::stage at build. The fallback rasters, not the
         // whole cache: a dev launch has to fail the same way a shipped app would, or a broken
         // vector path stays hidden behind a stand-in PNG right where it would be caught.
         env.insert(
             "DAY_VECTOR_RASTER_ROOT".to_string(),
             crate::resources::vector_fallback_dir(project, target.toolkit).into_os_string(),
         );
-        // The glyph SVGs themselves — day-appkit prefers these (NSImage renders SVG at display
+        // The glyph SVGs themselves; day-appkit prefers these (NSImage renders SVG at display
         // size on macOS 11+), so vectors stay vector on the desktop too.
         env.insert(
             "DAY_VECTOR_SVG_ROOT".to_string(),
             crate::resources::vector_svg_dir(project).into_os_string(),
         );
-        // The XAML geometry — day-xaml draws these as real Path geometry, which is what keeps a
+        // The XAML geometry; day-xaml draws these as real Path geometry, which is what keeps a
         // Windows glyph vector at any size and lets a tint be a brush rather than a second asset
         // (docs/vectors.md).
         env.insert(
@@ -905,7 +907,7 @@ pub fn desktop_launch_plan(
     }
 
     // App icon (§18.2): the backend applies it to the dock / taskbar at startup (QApplication
-    // window icon, GTK icon theme, Win32 WM_SETICON). macos-appkit never reaches this — its
+    // window icon, GTK icon theme, Win32 WM_SETICON). macos-appkit never reaches this; its
     // launch is always the bundled Xcode build, whose compiled appiconset is the Dock icon.
     if let Some(icon) = (!bundled)
         .then(|| crate::resources::app_icon(project, target.toolkit))
@@ -927,14 +929,14 @@ pub fn desktop_launch_plan(
     }
     if target.toolkit == "gtk" {
         env.insert("GSK_RENDERER".to_string(), OsString::from("cairo"));
-        // Native GResource blob (§18.3) — day-gtk registers it + loads via g_resources_*.
+        // Native GResource blob (§18.3); day-gtk registers it and loads via g_resources_*.
         let g = crate::resources::gtk::gresource_path(project);
         if g.exists() {
             env.insert("DAY_GRESOURCE".to_string(), g.into_os_string());
         }
     }
     if target.toolkit == "qt" {
-        // Native Qt resource blob (§18.3) — the day-qt shim registers it (QResource).
+        // Native Qt resource blob (§18.3); the day-qt shim registers it (QResource).
         let q = crate::resources::qt::qresource_path(project);
         if q.exists() {
             env.insert("DAY_QRESOURCE".to_string(), q.into_os_string());
@@ -999,9 +1001,9 @@ pub fn launch(
             if spec.attached {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
             } else {
-                // Detached: the day process exits after spawning — piped stdio would close
+                // Detached: the day process exits after spawning, so piped stdio would close
                 // with it and the app's next log write would die on SIGPIPE. The app must also
-                // leave day's PROCESS GROUP: task runners (VS Code) dispose the pty when the
+                // leave day's process group: task runners (VS Code) dispose the pty when the
                 // task's root process exits, and the resulting SIGHUP to the pty's foreground
                 // group would kill a keep-alive app that stayed in it.
                 cmd.stdout(Stdio::null()).stderr(Stdio::null());
@@ -1044,7 +1046,7 @@ pub fn launch(
     }
 }
 
-/// Which standard stream a forwarded line came from — sets its destination, and its color when
+/// Which standard stream a forwarded line came from; sets its destination, and its color when
 /// the line carries no level of its own.
 #[derive(Clone, Copy)]
 pub enum LogStream {
@@ -1071,13 +1073,13 @@ fn level_style(word: &str) -> Option<anstyle::Style> {
 
 /// Render one forwarded line: `[target] LEVEL rest`, colored by level.
 ///
-/// Day's logger writes every level to **stderr**, so coloring by stream — the only severity signal
-/// available back when an app had just two file descriptors — painted an entire debug run yellow.
+/// Day's logger writes every level to **stderr**, so coloring by stream (the only severity signal
+/// available back when an app had just two file descriptors) painted an entire debug run yellow.
 /// Now that each line arrives as `LEVEL target: message` the level is right there, and it colors
 /// the `[target]` prefix too so a scan down the left column finds the errors.
 ///
 /// Anything not in that format keeps the old stream color: a bare `println!`, a Qt warning on
-/// stderr, a raw logcat line. The destination always follows the stream, never the level — an
+/// stderr, a raw logcat line. The destination always follows the stream, never the level; an
 /// `ERROR` an app wrote to stdout stays on stdout.
 fn format_log(name: &str, stream: LogStream, line: &str) -> String {
     let leveled = line
@@ -1127,7 +1129,7 @@ pub(crate) enum HeadlessWrap {
     Xvfb { width: u32, height: u32 },
 }
 
-/// The decision alone, display-state and host passed in — testable on any machine. Only the
+/// The decision alone, display-state and host passed in, testable on any machine. Only the
 /// in-repo linux toolkits get house treatment; an external toolkit (docs/extending.md) manages
 /// its own headless story.
 pub(crate) fn headless_wrap(

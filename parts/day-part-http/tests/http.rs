@@ -175,7 +175,7 @@ fn async_fetch_delivers_on_background_thread() {
 
 #[test]
 fn download_streams_to_file() {
-    // A multi-megabyte body: the point of fetch_to_file is that this never sits in a Vec.
+    // A multi-megabyte body: fetch_to_file exists so that this never sits in a Vec.
     let body: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
     let expected = body.clone();
     let port = serve(1, "HTTP/1.1 200 OK", body);
@@ -284,11 +284,11 @@ fn streamed_head_abort() {
 }
 
 // ---------------------------------------------------------------------------
-// fetch_future: completion, error mapping, and drop-cancellation. These run with no executor —
+// fetch_future: completion, error mapping, and drop-cancellation. These run with no executor;
 // `block_on` parks the test thread and the completion's wake (from the delegate queue / worker
 // thread) unparks it, which is exactly the cross-thread waker path production uses.
 // `HttpError::Cancelled` itself has no host-observable path (it is produced only after the
-// observing future is gone, or by Android's cancel tokens) — the showcase emulator run covers it.
+// observing future is gone, or by Android's cancel tokens); the showcase emulator run covers it.
 // ---------------------------------------------------------------------------
 
 /// Minimal single-future executor: poll; on Pending park until the waker unparks us.
@@ -350,7 +350,7 @@ fn fetch_future_timeout() {
 
 #[test]
 fn fetch_future_two_concurrent() {
-    // Both requests are IN FLIGHT before either is awaited — fetch_future starts eagerly.
+    // Both requests are in flight before either is awaited; fetch_future starts eagerly.
     let port = serve(2, "HTTP/1.1 200 OK", b"pair".to_vec());
     let a = day_part_http::fetch_future(Request::get(format!("http://127.0.0.1:{port}/a")));
     let b = day_part_http::fetch_future(Request::get(format!("http://127.0.0.1:{port}/b")));
@@ -358,7 +358,7 @@ fn fetch_future_two_concurrent() {
     assert_eq!(block_on(b).expect("b").status, 200);
 }
 
-/// Apple half only: dropping the future must CANCEL the in-flight task — observed as the
+/// Apple half only: dropping the future must cancel the in-flight task, observed as the
 /// server's connection dying long before the request's 30 s default timeout.
 #[cfg(target_os = "macos")]
 #[test]
@@ -396,8 +396,8 @@ fn drop_cancels_inflight() {
     );
 }
 
-/// Fallback half: dropping is a quiet discard — the request runs out on its worker thread and
-/// the result goes nowhere. Nothing to assert beyond "no hang, no panic".
+/// Fallback half: dropping is a quiet discard; the request runs out on its worker thread and
+/// the result goes nowhere. The only assertion is that it neither hangs nor panics.
 #[cfg(target_os = "linux")]
 #[test]
 fn drop_is_quiet_on_fallback() {

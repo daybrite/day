@@ -62,9 +62,9 @@ flow:
   - input: { id: field-notes, text: "Notes persist with the item." }
   - screenshot: editor
 
-  # On a phone the editor is a pushed page; the PLATFORM's back (the bar's button on iOS, the
-  # system back on Android) pops to the list and keeps the selection — `native: true` runs the
-  # toolkit's own user-back path, the code a real tap runs. A wide window never pushed
+  # On a phone the editor is a pushed page; the platform's back (the bar's button on iOS, the
+  # system back on Android) pops to the list and keeps the selection; `native: true` runs the
+  # toolkit's user-back path, the code a real tap runs. A wide window never pushed
   # anything, so the step passes without moving there. The same ios-uikit build stacks on an
   # iPhone and splits on an iPad.
   - nav_back: { native: true, only_on: [uikit, mdc] }

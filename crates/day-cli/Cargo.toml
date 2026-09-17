@@ -21,7 +21,7 @@ clap = { version = "4.6", features = ["derive"] }
 anstyle = "1"
 anstream = "1"
 # `day new app` templates (templates/app/, embedded so a fresh `cargo install day-cli` scaffolds
-# offline): handlebars renders {{name}}/{{id}}/… in file contents AND paths; include_dir bakes
+# offline): handlebars renders {{name}}/{{id}}/… in both file contents and paths; include_dir bakes
 # the template tree into the binary.
 handlebars = "6"
 include_dir = "0.7"
@@ -29,7 +29,7 @@ include_dir = "0.7"
 # multi-select (arrow keys / space to toggle / type-to-filter). inquire renders to stderr, so
 # stdout stays clean for `--format json` result events.
 inquire = "0.9"
-# Day.toml (the project manifest) — `toml` parses it via serde; `toml_edit` (the library under
+# Day.toml (the project manifest): `toml` parses it via serde; `toml_edit` (the library under
 # cargo-edit/cargo itself) performs format- and comment-preserving edits (`day app add-toolkit`).
 toml = "1.1"
 toml_edit = "0.25"
@@ -45,14 +45,14 @@ day-vector = { workspace = true }
 # `FILE_FLAG_BACKUP_SEMANTICS`. filetime handles both, and it is small and dependency-free.
 filetime = "0.2"
 # Background "is a newer day-cli on crates.io?" check (update.rs). ureq is a small synchronous HTTP
-# client with bundled roots — no OS cert-store dependency, works on a fresh machine.
+# client with bundled roots: no OS cert-store dependency, so it works on a fresh machine.
 ureq = "3"
-# Shared host-toolchain/SDK discovery (docs/environment.md) — same code the build scripts use.
+# Shared host-toolchain/SDK discovery (docs/environment.md), the same code the build scripts use.
 day-toolchain = { workspace = true }
-# Font name-table parsing + family→ident rules (§18.4) — the same leaf crate the runtimes use (via
+# Font name-table parsing + family→ident rules (§18.4): the same leaf crate the runtimes use (via
 # `day_spec::fonts`), so the names the stagers derive always match what the backends look up.
 day-fonts = { workspace = true }
-# Resource name → identifier rules (§18.5) — the same leaf crate an app's `build.rs` uses to generate
+# Resource name → identifier rules (§18.5): the same leaf crate an app's `build.rs` uses to generate
 # the typed `res::…` constants, so the name a stager writes into a backend's native store is exactly
 # the string baked into the constant. `sanitize_ident` re-exported from here.
 day-build = { workspace = true }

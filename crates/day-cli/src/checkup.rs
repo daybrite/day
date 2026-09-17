@@ -1,19 +1,19 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day checkup` (DESIGN.md §16.5) — prove this machine can take a user from `day new` to a
+//! `day checkup` (DESIGN.md §16.5): prove this machine can take a user from `day new` to a
 //! shippable artifact, per platform-toolkit combo.
 //!
 //! One command for what the scheduled install workflow used to spell out in YAML: run the doctor
 //! probes (failing fast), then for every combo this host can build, scaffold a fresh app in a
 //! temporary directory, build it, and package it. A combo whose prerequisites are missing is
-//! SKIPPED with doctor's own fix line when the selection was automatic, and is an ERROR when the
-//! caller named it with `-p` — naming a combo asserts it works here.
+//! skipped with doctor's fix line when the selection was automatic, and is an error when the
+//! caller named it with `-p`, because naming a combo asserts it works here.
 //!
 //! The three steps run as sub-processes of a day CLI, the way [`crate::rebuild`] re-invokes
-//! `day pack`: the point of the command is to exercise the real user-facing commands — their
-//! argument parsing, their working directory, their exit codes — not the library functions
-//! underneath them. `--format json` on the build/pack children gives back the artifact paths, which
+//! `day pack`: the command exists to exercise the user-facing commands (their argument parsing,
+//! their working directory, their exit codes) rather than the library functions underneath
+//! them. `--format json` on the build/pack children gives back the artifact paths, which
 //! is where the reported sizes come from.
 //!
 //! Which CLI is `--day-version`'s answer ([`prepare`]): this binary by default, or one
@@ -32,8 +32,9 @@ use crate::ops::status;
 use crate::targets::{self, Target};
 use crate::term::{BOLD, DIM, ERROR, ERROR_BOLD, SUCCESS, SUCCESS_BOLD, WARN};
 
-/// The app every combo scaffolds. Short on purpose: it becomes a path component under the scratch
-/// root, and the deepest cargo target paths beneath it are what run into Windows' path limit.
+/// The app every combo scaffolds. Kept short because it becomes a path component under the
+/// scratch root, and the deepest cargo target paths beneath it are what run into Windows' path
+/// limit.
 const APP: &str = "checkup";
 const APP_ID: &str = "dev.example.checkup";
 /// The `day` git remote, for `--day-version <branch|commit>` installs.
@@ -42,12 +43,12 @@ const GIT_URL: &str = "https://github.com/daybrite/day.git";
 pub struct Options {
     /// Combos to check (repeatable / comma-separated). Empty = every combo this host can build.
     pub platforms: Vec<String>,
-    /// The profile both the build and the pack use — one compile, not two.
+    /// The profile both the build and the pack use: one compile, not two.
     pub profile: Profile,
     /// Stop after the build (what the install workflow did before packaging joined the check).
     pub no_pack: bool,
-    /// A combo this host could have checked but is not set up for — or a pack skipped for missing
-    /// tooling — is a failure. Combos that build on another OS are never counted (see [`Skip`]).
+    /// A combo this host could have checked but is not set up for, or a pack skipped for missing
+    /// tooling, is a failure. Combos that build on another OS are never counted (see [`Skip`]).
     pub strict: bool,
     /// Where to scaffold (default: a fresh directory under the system temp dir).
     pub dir: Option<PathBuf>,
@@ -78,7 +79,7 @@ struct Slot {
 #[derive(Debug)]
 struct Skip {
     reason: String,
-    /// The combo is out because this machine is not set up for it — the skip `--strict` fails on.
+    /// The combo is out because this machine is not set up for it: the skip `--strict` fails on.
     /// A combo that builds on another OS, or an experimental one nobody asked for, is out by
     /// definition rather than by omission, and no amount of installing here would change that.
     fixable: bool,
@@ -111,7 +112,7 @@ struct Report {
     artifacts: Vec<(String, u64)>,
     /// Why no packaging happened, when that is expected rather than a failure.
     pack_note: Option<String>,
-    /// The pack was skipped because its tooling is missing — the one pack skip that is about this
+    /// The pack was skipped because its tooling is missing: the one pack skip that is about this
     /// machine rather than about the target, and so the one `--strict` counts.
     pack_missing_tools: bool,
     /// The step that failed, if one did.
@@ -125,7 +126,7 @@ impl Report {
 }
 
 /// Resolve `-p` into targets: comma- or repeat-separated, deduped, order preserved. `Err` is a
-/// usage error (exit 2) — a name that is not a target, or one this host cannot build at all.
+/// usage error (exit 2): a name that is not a target, or one this host cannot build at all.
 ///
 /// Empty in, empty out: that is the automatic selection, which [`plan`] makes.
 fn resolve(requested: &[String], host: &str) -> Result<Vec<&'static Target>, String> {
@@ -166,7 +167,7 @@ fn plan(
 ) -> Result<Vec<Slot>, String> {
     if requested.is_empty() {
         // Automatic: everything this host can build, today, with what is installed. Experimental
-        // targets stay out — a default checkup should not spend minutes on a combo the user has
+        // targets stay out; a default checkup should not spend minutes on a combo the user has
         // not opted into.
         let mut slots = Vec::new();
         for target in targets::TARGETS {
@@ -240,7 +241,7 @@ impl Under {
 /// Resolve `--day-version` into a CLI to run: this binary when the spec names the version it
 /// already is, otherwise `cargo install` into the run's scratch directory.
 ///
-/// The installed CLI must be able to PIN its scaffold (`day new --day-version`), or the check
+/// The installed CLI must be able to pin its scaffold (`day new --day-version`), or the check
 /// would build a release's CLI against the git remote's default branch and report the result as
 /// that release. A CLI that predates the flag is therefore refused, with the alternative named.
 fn prepare(spec: Option<&str>, root: &Path, opts: &Options) -> Result<Under, CliError> {
@@ -336,7 +337,7 @@ fn prepare(spec: Option<&str>, root: &Path, opts: &Options) -> Result<Under, Cli
     })
 }
 
-/// `qt6-widgets missing: install Qt 6 (…)` — doctor's probe name and its fix line, so a skip
+/// `qt6-widgets missing: install Qt 6 (…)`: doctor's probe name and its fix line, so a skip
 /// reason tells the reader the same thing `day doctor` would.
 fn missing_line(missing: &[doctor::Missing]) -> String {
     missing
@@ -368,7 +369,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
     let requested = resolve(&opts.platforms, host).map_err(CliError::usage)?;
 
     // Step 1: the environment, and stop here if it is broken. With combos named explicitly their
-    // toolkits are FOCUSED — misses are errors and the setup text prints — which is what the
+    // toolkits are focused (misses are errors and the setup text prints), which is what the
     // per-combo CI jobs relied on `day doctor --toolkit <t>` for.
     let mut focus: Vec<String> = Vec::new();
     for t in &requested {
@@ -388,8 +389,8 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
     let checking: Vec<&Slot> = slots.iter().filter(|s| s.skip.is_none()).collect();
     let skipped: Vec<&Slot> = slots.iter().filter(|s| s.skip.is_some()).collect();
     if checking.is_empty() {
-        // Report-style: the head line plus one dim line per skipped combo, in reading order —
-        // printed here rather than folded into one CliError message; only the CODE comes from
+        // Report-style: the head line plus one dim line per skipped combo, in reading order,
+        // printed here rather than folded into one CliError message; only the code comes from
         // the map.
         eprintln!(
             "error: nothing to check on this {host} host — every combo was skipped.\n       \
@@ -402,7 +403,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
     }
 
     // `--strict` says every combo this machine could check must be checked, and that verdict is
-    // already knowable — report it now rather than after ten minutes of builds that cannot change
+    // already knowable, so report it now rather than after ten minutes of builds that cannot change
     // it. (A CI cell naming its combo with `-p` has no skips to trip on; this is the bare-checkup
     // path.) The pack stages are the strict skips that can only be judged later.
     let unchecked: Vec<&&Slot> = skipped
@@ -426,7 +427,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
     });
     std::fs::create_dir_all(&root)
         .map_err(|e| CliError::build(format!("{}: {e}", root.display())))?;
-    // Which day is under test — and, when `--day-version` names one, the CLI install that gets it.
+    // Which day is under test, and, when `--day-version` names one, the CLI install that gets it.
     // Before any combo runs: a bad spec or a failed install is not worth a build first.
     let under = match prepare(opts.day_version.as_deref(), &root, opts) {
         Ok(u) => u,
@@ -462,8 +463,8 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
         let target = slot.target;
         let dir = root.join(target.name);
         if opts.dir.is_some() && dir.exists() {
-            // A directory the CALLER named. Whatever is in it is theirs, and checkup deletes what
-            // it scaffolds — so refuse rather than clear it out.
+            // A directory the caller named. Whatever is in it is theirs, and checkup deletes what
+            // it scaffolds, so refuse rather than clear it out.
             return Err(CliError::usage(format!(
                 "{} already exists — remove it, or point --dir somewhere else",
                 dir.display()
@@ -474,7 +475,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
         std::fs::create_dir_all(&dir)
             .map_err(|e| CliError::build(format!("{}: {e}", dir.display())))?;
         // Packaging tools are warnings in doctor, so a missing one skips the pack stage with a
-        // reason rather than failing the combo — `--strict` is what turns that skip red.
+        // reason rather than failing the combo; `--strict` is what turns that skip red.
         let missing_pack = lookup(doctor::group_id(target.toolkit))
             .map(|r| r.missing_pack)
             .unwrap_or_default();
@@ -498,7 +499,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    // Step 3: the report — per combo, with the build time and the size of what it packed.
+    // Step 3: the report, per combo, with the build time and the size of what it packed.
     let failed = reports.iter().filter(|(_, r)| r.failure.is_some()).count();
     let pack_skips = reports.iter().filter(|(_, r)| r.pack_missing_tools).count();
     let day = under.label();
@@ -586,7 +587,7 @@ fn check_one(
     report.build_seconds = built.seconds;
 
     // Packaging. A target with no pack pipeline (GTK/Qt off their native OS, web-dom) is not a
-    // failure — `pack_support` carries day's own explanation, so the report quotes it.
+    // failure; `pack_support` carries day's explanation, so the report quotes it.
     if opts.no_pack {
         report.pack_note = Some("--no-pack".into());
     } else if let Err(why) = pack_support(target) {
@@ -631,8 +632,8 @@ fn check_one(
             Err(e) => report.failure = Some(format!("`day pack`: {e}")),
         }
     }
-    // Nothing was packed, so the build's own artifact is what this combo produced — report its
-    // size rather than leaving the row blank.
+    // Nothing was packed, so the build's artifact is what this combo produced; report its size
+    // rather than leaving the row blank.
     if report.artifacts.is_empty() && report.failure.is_none() {
         report.artifacts = artifacts_from(built.json.as_ref(), &project);
     }
@@ -641,8 +642,8 @@ fn check_one(
 
 /// The `day new app` command line for one combo.
 ///
-/// Pure, and tested, because of the last clause: the scaffold is pinned to the RESOLVED spec that
-/// [`prepare`] installed the CLI from — never the word `latest`, which the child would resolve for
+/// Pure, and tested, because of the last clause: the scaffold is pinned to the resolved spec that
+/// [`prepare`] installed the CLI from, never the word `latest`, which the child would resolve for
 /// itself at a different moment and possibly to a different release.
 fn new_app_args(target: &Target, opts: &Options, under: &Under) -> Vec<String> {
     let mut args: Vec<String> = vec![
@@ -683,7 +684,7 @@ fn pack_support(target: &'static Target) -> Result<(), String> {
         .map_err(|e| first_sentence(&e, 100))
 }
 
-/// The first sentence of `text`, capped at `max` characters and cut at a word boundary — a table
+/// The first sentence of `text`, capped at `max` characters and cut at a word boundary: a table
 /// cell, not an essay. The full text is what `day pack` prints when the user goes and runs it.
 fn first_sentence(text: &str, max: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -755,7 +756,7 @@ fn bytes_on_disk(path: &Path) -> u64 {
     total
 }
 
-/// `12.4 MB` — decimal units, the way a download page or a store listing reports a size.
+/// `12.4 MB`: decimal units, the way a download page or a store listing reports a size.
 fn human_bytes(n: u64) -> String {
     const UNITS: [(u64, &str); 3] = [(1_000_000_000, "GB"), (1_000_000, "MB"), (1_000, "KB")];
     for (scale, unit) in UNITS {
@@ -889,7 +890,7 @@ fn summarize(reports: &[(&'static Target, Report)], skipped: &[&Slot], total: f6
 }
 
 /// The same table on the job's run-summary page: what was built, how long it took, and how big the
-/// result is — the numbers a scheduled run exists to keep an eye on.
+/// result is, the numbers a scheduled run exists to keep an eye on.
 fn write_step_summary(
     reports: &[(&'static Target, Report)],
     skipped: &[&Slot],
@@ -945,7 +946,7 @@ fn write_step_summary(
         reports.len() - failed,
         skipped.len()
     );
-    // Appending, not truncating: earlier steps' summaries are theirs to keep. Best-effort — a
+    // Appending, not truncating: earlier steps' summaries are theirs to keep. Best-effort, since a
     // failed summary write must never fail the checkup.
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .append(true)
@@ -989,7 +990,8 @@ fn print_json(
         serde_json::json!({
             "target": s.target.name, "ok": true, "status": "skipped",
             "reason": skip_reason(s),
-            // Whether setting this machine up would have let the combo run — what `--strict` acts on.
+            // Whether setting this machine up would have let the combo run: what `--strict`
+            // acts on.
             "fixable": s.skip.as_ref().is_some_and(|k| k.fixable),
         })
     }));
@@ -1057,7 +1059,7 @@ mod tests {
     }
 
     /// `--strict` fails on combos this machine could have checked and didn't. A combo that builds
-    /// on another OS, or an experimental one nobody named, is out by definition — counting those
+    /// on another OS, or an experimental one nobody named, is out by definition; counting those
     /// would make `day checkup --strict` impossible to pass anywhere.
     #[test]
     fn only_a_machine_this_host_could_fix_counts_as_a_strict_skip() {
@@ -1077,7 +1079,7 @@ mod tests {
         assert_eq!(fixable, vec!["macos-qt"], "only the unequipped toolkit");
     }
 
-    /// A missing prerequisite is a skip with doctor's fix line — not a failure, and not silence.
+    /// A missing prerequisite is a skip with doctor's fix line: not a failure, and not silence.
     #[test]
     fn auto_skips_an_unready_toolkit_with_the_fix() {
         let ready = |id: &str| {
@@ -1107,7 +1109,7 @@ mod tests {
         assert_eq!(names(&slots), vec!["ios-uikit", "macos-appkit"]);
     }
 
-    /// Naming a combo asserts it works here, so an unready one is an error — the silent skip is
+    /// Naming a combo asserts it works here, so an unready one is an error; the silent skip is
     /// what would let a CI job whose prerequisite install broke report success.
     #[test]
     fn explicit_target_that_is_not_set_up_is_an_error() {
@@ -1124,7 +1126,7 @@ mod tests {
     }
 
     /// The two usage errors, each naming the fix. These are `resolve`'s (exit 2), not the
-    /// environment's (exit 3) — no probe can make `windows-xaml` build on a Mac.
+    /// environment's (exit 3): no probe can make `windows-xaml` build on a Mac.
     #[test]
     fn unknown_and_cross_host_targets_are_usage_errors() {
         let e = resolve(&["macos-swiftui".to_string()], "macos").unwrap_err();
@@ -1183,8 +1185,8 @@ mod tests {
         }
     }
 
-    /// The scaffold is pinned to the day the CLI came from, by its RESOLVED spec. Passing `latest`
-    /// through would let the child resolve it again — and a release published in between would
+    /// The scaffold is pinned to the day the CLI came from, by its resolved spec. Passing `latest`
+    /// through would let the child resolve it again, and a release published in between would
     /// leave the CLI and the app it scaffolds on different days, which is the one thing
     /// `--day-version` exists to prevent.
     #[test]

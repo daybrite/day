@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// Web (web-dom): a `contenteditable` element — not a `<textarea>`, which is plain text by
+// Web (web-dom): a `contenteditable` element, not a `<textarea>`, which is plain text by
 // definition. Contenteditable is the browser's own rich text editing, and it is what every web
 // editor is built on: IME composition, the undo stack, spell-check, drag-and-drop, dictation and
 // a full accessibility tree all come with it.
@@ -10,12 +10,12 @@
 // What it does not come with is a document model. Enter inserts a `<div>` in one browser and a
 // `<p>` in another; a paste arrives as whatever markup it was copied from. So this arm never reads
 // the DOM's shape as meaning: the shim flattens it to text under one set of rules
-// (`dayEditorText`), and Day writes it back in one canonical form — the same
+// (`dayEditorText`), and Day writes it back in one canonical form: the same
 // `day_spec::styled_to_html` an export produces, so what the editor holds and what "Export HTML"
 // writes are the same markup.
 //
 // `document.execCommand` is not used anywhere here. It is deprecated, differs per browser, and
-// inserts `<b>`/`<font>` markup Day would then have to normalize away — pushing serialized HTML is
+// inserts `<b>`/`<font>` markup Day would then have to normalize away. Pushing serialized HTML is
 // both simpler and exactly what the other seven arms do with their attributed strings.
 // ---------------------------------------------------------------------------
 
@@ -56,11 +56,11 @@ fn editor_html(doc: &StyledText, base: Font) -> String {
     let html = html.trim_end().to_string();
     if html.is_empty() {
         // An empty document still needs a block to put the caret in, and an empty block needs a
-        // filler <br> to have any height — the browser's own convention, which the shim's
+        // filler <br> to have any height, the browser's own convention, which the shim's
         // flattener knows to skip.
         return "<p><br></p>".into();
     }
-    // A document ENDING in a newline has a final empty paragraph, which the serializer drops
+    // A document ending in a newline has a final empty paragraph, which the serializer drops
     // (there is no text in it to write). Put it back, or the flattened text would come up one
     // character short and the piece would read it as the user deleting the newline.
     if doc.text.ends_with('\n') {
@@ -80,11 +80,11 @@ fn make(backend: &mut Dom, p: &EditorProps, _id: NodeId) -> DomHandle {
     // Marks the element for day.css's editor block rules (paragraph margins, list markers).
     backend.set_attr(&h, "data-day-editor", "-");
     if !p.placeholder.is_empty() {
-        // The empty-state prompt is a CSS `::before` on the empty element — the web's own idiom
-        // for a contenteditable placeholder, since the element has no `placeholder` attribute.
+        // The empty-state prompt is a CSS `::before` on the empty element, the web's idiom for
+        // a contenteditable placeholder, since the element has no `placeholder` attribute.
         backend.set_attr(&h, "data-day-placeholder", &p.placeholder);
     }
-    // NO `min-height`: Day sets this element's frame itself, and a CSS minimum would win over
+    // No `min-height`: Day sets this element's frame itself, and a CSS minimum would win over
     // that frame and push the element out from under the siblings laid out below it.
     backend.set_attr(
         &h,
@@ -110,7 +110,7 @@ fn make(backend: &mut Dom, p: &EditorProps, _id: NodeId) -> DomHandle {
     h
 }
 
-/// The document's line count, as the height band's input. A wrapped line counts once — the
+/// The document's line count, as the height band's input. A wrapped line counts once: the
 /// browser is the only thing that knows where it wrapped, and asking it per layout pass would
 /// cost a synchronous reflow on every keystroke.
 fn line_count(text: &str) -> usize {
@@ -140,7 +140,7 @@ fn update(backend: &mut Dom, h: &DomHandle, patch: &EditorPatch) {
         EditorPatch::SetSelection(r) => backend.set_editor_selection(h, r.start, r.end),
         // The browser has no typing-attributes concept either (`execCommand` is the only thing
         // that ever did). The piece styles the inserted characters in its model instead, and the
-        // markup that follows carries them — see the GTK arm, which resolves this the same way.
+        // markup that follows carries them; see the GTK arm, which resolves this the same way.
         EditorPatch::SetTypingStyle(_) => {}
         EditorPatch::SetEditable(v) => {
             backend.set_attr(h, "contenteditable", if *v { "true" } else { "false" })
@@ -176,7 +176,7 @@ fn release(_backend: &mut Dom, h: &DomHandle) {
     });
 }
 
-// Defines `register()`, which `text_editor()` calls — web-dom's registry is populated at runtime,
+// Defines `register()`, which `text_editor()` calls: web-dom's registry is populated at runtime,
 // unlike the link-time `renderer!` the other seven arms use.
 day_pieces::dom_renderer!(day_dom::register_renderer, Dom,
     kind: KIND, props: EditorProps, patch: EditorPatch,

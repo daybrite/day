@@ -1,14 +1,14 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The combo-box piece's OWN Android factory — bundled with the day-piece-combobox crate and
+// The combo-box piece's Android factory, bundled with the day-piece-combobox crate and
 // pulled into the app's Gradle build automatically (via [package.metadata.day.android] →
-// day-pieces.json), with ZERO edits to day-android. It uses only day-android's PUBLIC Java
+// day-pieces.json), with no edits to day-android. It uses only day-android's public Java
 // surface: DayBridge.ctx (the Android Context), DayBridge.nativeOnEvent (the event trampoline),
 // and the K_* event-kind constants.
 //
-// Android's real combo box is AutoCompleteTextView: free-form text plus a dropdown of
-// suggestions — prefix-filtered while typing, and popped open on a plain tap or focus so the
+// Android's combo box is AutoCompleteTextView: free-form text plus a dropdown of
+// suggestions, prefix-filtered while typing, and popped open on a plain tap or focus so the
 // list is reachable without typing (the combo half). Picking an item writes the text, so both
 // change paths report through the one TextWatcher as K_TEXT_CHANGED.
 package dev.daybrite.day.piece.combobox;

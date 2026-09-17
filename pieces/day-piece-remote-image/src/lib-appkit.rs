@@ -4,8 +4,8 @@
 // ---------------------------------------------------------------------------
 // AppKit: a custom NSView subclass that draws the decoded NSImage (aspect fit/fill) inside a
 // centered-circle / rounded / rectangular clip, on top of the placeholder color. Drawing it in
-// `drawRect:` (rather than an NSImageView + CALayer) keeps the clip resize-correct for free — the
-// clip path is recomputed against the current bounds every draw — and gives true aspect-fill, which
+// `drawRect:` (rather than an NSImageView + CALayer) keeps the clip resize-correct (the clip path
+// is recomputed against the current bounds every draw) and gives true aspect-fill, which
 // NSImageView's `imageScaling` cannot. `setFrameSize:` invalidates so a resize redraws; a SetBytes
 // patch swaps the ivar image and marks the view for display.
 // ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ define_class!(
             let bounds = self.bounds();
             let path = clip_path(bounds, iv.clip);
             path.addClip();
-            // Placeholder fill first — shows through the letterboxed margins in Fit mode and behind
+            // Placeholder fill first; shows through the letterboxed margins in Fit mode and behind
             // any translucent image.
             let c = iv.color;
             let color = NSColor::colorWithSRGBRed_green_blue_alpha(c.r, c.g, c.b, c.a);

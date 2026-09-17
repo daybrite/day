@@ -3,7 +3,7 @@
 
 //! Mock e2e for the styled-text editor (the day-pieces mock_e2e pattern).
 //!
-//! What these pin is the CONTRACT every native arm is written against, on the one backend where it
+//! What these pin is the contract every native arm is written against, on the one backend where it
 //! can be driven without a window: a character edit reported as plain text is diffed and reflowed
 //! rather than re-sent, an attribute change patches without replacing the text (so the caret and
 //! the undo stack survive a live syntax highlighter), a selection report reaches the bound signal,
@@ -86,8 +86,8 @@ fn boot_editor() -> Fixture {
 #[test]
 fn a_keystroke_is_diffed_and_the_runs_reflow() {
     let f = boot_editor();
-    // The native view reports only its new TEXT — no delta, no attributes. Everything else the
-    // piece works out for itself, which is what makes this one path serve all eight arms.
+    // The native view reports only its new text, with no delta and no attributes. Everything else
+    // the piece works out for itself, which is what makes this one path serve all eight arms.
     f.probe
         .emit(f.node, Event::TextChanged("hello there world".into()));
     flush_sync();
@@ -160,7 +160,7 @@ fn an_app_write_that_changes_the_text_replaces_the_document() {
 #[test]
 fn the_echo_of_a_day_write_is_not_written_back() {
     // A backend that re-reports the text Day just set (AppKit's setString: does not, GTK's
-    // set_text does) must not push it through the diff again — the document would be rebuilt
+    // set_text does) must not push it through the diff again: the document would be rebuilt
     // from a delta of nothing, losing every run.
     let f = boot_editor();
     f.doc.update(|d| d.splice(5..5, ","));
@@ -202,7 +202,7 @@ fn a_selection_report_reaches_the_bound_signal() {
 #[test]
 fn a_selection_the_view_reported_is_not_written_back() {
     // The drag bug: a `selectionchange` fires on every mouse-move, and each report used to come
-    // straight back as a `SetSelection`. Re-anchoring a selection mid-drag collapses it — in
+    // straight back as a `SetSelection`. Re-anchoring a selection mid-drag collapses it; in
     // Safari the caret jumps around and a mouse selection is impossible to make at all.
     let f = boot_editor();
     let mark = f.probe.log_len();
@@ -247,7 +247,7 @@ fn an_app_write_still_moves_the_caret() {
 
 #[test]
 fn restyling_leaves_the_selection_on_the_same_characters() {
-    // A restyle must not move the selection. The piece's half of that is simply not to patch one:
+    // A restyle must not move the selection. The piece's half of that is not to patch one:
     // an arm that rebuilds its view to apply attributes (the web's does) restores the selection
     // itself, and a `SetSelection` on top of that would fight it.
     let f = boot_editor();
@@ -304,7 +304,7 @@ fn an_unchanged_typing_style_does_not_patch() {
 #[test]
 fn the_toolbar_round_trip_is_pure_rust() {
     // What every arm's toolbar does, with no backend involved: read the selection's style, flip
-    // it, write it back. This is the whole reason `style_of`/`apply` live in day-spec.
+    // it, write it back. This is why `style_of`/`apply` live in day-spec.
     let f = boot_editor();
     f.sel.set(0..11);
     flush_sync();
@@ -396,7 +396,7 @@ fn a_pending_typing_style_styles_the_characters_it_was_set_for() {
 #[test]
 fn moving_the_caret_reads_the_style_back_into_the_typing_signal() {
     // The other half of the two-way binding: a toolbar bound to the typing style shows the state
-    // of the text the caret sits in, so pressing B once turns bold OFF inside a bold word.
+    // of the text the caret sits in, so pressing B once turns bold off inside a bold word.
     let (probe, _doc, typing, _sel, node) = boot_with_typing();
     probe.emit(
         node,

@@ -27,7 +27,8 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSNotification, NSObject, NSPoint, NSRect, NSSize, NSString};
 
-// The editor's font size and container inset — fixed so `measure`'s line-height math is deterministic.
+// The editor's font size and container inset, fixed so `measure`'s line-height math is
+// deterministic.
 const FONT_SIZE: f64 = 13.0;
 const INSET: f64 = 6.0;
 
@@ -122,7 +123,7 @@ struct TAState {
 
 day_core::tls_group! {
     /// Scroll ptr → the editor's live state. A [`SideTable`], so the backend's release sweep
-    /// reclaims the text view, delegate target and placeholder — this map had no release path.
+    /// reclaims the text view, delegate target and placeholder; this map had no release path.
     static STATE: SideTable<TAState> = SideTable::with_teardown(|st: TAState| {
         // The text view outlives this state until its scroll view deallocs: detach the
         // delegate so the dropped target is never reached through a stale reference.
@@ -154,7 +155,7 @@ fn make(backend: &mut AppKit, p: &TextProps, id: NodeId) -> Retained<NSView> {
     let scroll = NSScrollView::new(mtm);
     scroll.setDrawsBackground(false);
     scroll.setHasVerticalScroller(true);
-    // Overlay scrollers, like every day scroll view — a legacy scroller would narrow the
+    // Overlay scrollers, like every day scroll view: a legacy scroller would narrow the
     // editor under the "always show scroll bars" system setting.
     scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
     scroll.setHasHorizontalScroller(false);
@@ -275,7 +276,7 @@ pub(crate) fn realize_any(
     id: day_spec::NodeId,
 ) -> crate::Handle {
     // A mismatched payload warns once and degrades to the shared placeholder (never panics
-    // inside a native up-call) — same policy as the builtin arms in lib.rs.
+    // inside a native up-call), the same policy as the builtin arms in lib.rs.
     match day_spec::props_of::<TextProps>(day_spec::kinds::TEXT_AREA, "appkit", props) {
         Some(p) => make(b, p, id),
         None => crate::placeholder_view(b.mtm(), day_spec::kinds::TEXT_AREA),

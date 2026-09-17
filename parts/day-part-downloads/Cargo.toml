@@ -8,7 +8,7 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A HEADLESS download manager (docs/downloads.md) over day-part-http's client: a queue with
+# A headless download manager (docs/downloads.md) over day-part-http's client: a queue with
 # limits, a journal beside the partial files, validated Range resume, SHA-256 verification,
 # retries with backoff, and the move into place once a download is whole. No runtime and no
 # thread per transfer: bytes arrive on the client's transport, backoff waits on day-async's timer.

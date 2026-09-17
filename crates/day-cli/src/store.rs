@@ -5,12 +5,12 @@
 //! Connect and Google Play expect.
 //!
 //! An app's listing text is localized user-facing copy, so it lives beside the app's other
-//! localized copy — as plain text a translator can edit, under `store/<locale>/`, keyed by the same
+//! localized copy, as plain text a translator can edit, under `store/<locale>/`, keyed by the same
 //! locale tags `resource/locales/` uses. The stores disagree about almost everything else: what the
 //! fields are called, how long they may be, and how a locale is spelled (`zh-CN` here is `zh-Hans`
 //! to Apple and `zh-CN` to Google; Hebrew is `he` to Apple and the legacy `iw-IL` to Google). All of
 //! that divergence is handled here, at generation time, rather than by asking the author to keep two
-//! parallel trees in step — the same reason `resource/` fans out to per-platform resources rather
+//! parallel trees in step, the same reason `resource/` fans out to per-platform resources rather
 //! than being authored per platform.
 //!
 //! ```text
@@ -26,7 +26,7 @@
 //! ```
 //!
 //! `day store stage -p <target>` (and every `day pack` of a store target) writes
-//! `build/day/fastlane/<target>/` — a tree `fastlane deliver` / `fastlane supply` accept as-is.
+//! `build/day/fastlane/<target>/`, a tree `fastlane deliver` / `fastlane supply` accept as-is.
 //! Generated, never checked in: the pristine-checkout rule (§20.3) means a build must not write
 //! into tracked directories.
 
@@ -92,13 +92,13 @@ impl Field {
             Field::Name => Some(("title.txt", 30)),
             Field::Short => Some(("short_description.txt", 80)),
             Field::Description => Some(("full_description.txt", 4000)),
-            // Play's changelog is FAR shorter than the App Store's release notes, and it is the
+            // Play's changelog is far shorter than the App Store's release notes, and it is the
             // limit that binds for an app shipping to both.
             Field::ReleaseNotes => Some(("changelog", 500)),
             // Play's `video.txt` is a YouTube promo video, not a website: supply sends it as
             // the listing's video and Google refuses any other URL ("Invalid YouTube URL",
             // the Day Showcase's first dry run, 2026-09-11). Play takes no marketing URL
-            // through the API — the website lives in the Play Console's store settings.
+            // through the API; the website lives in the Play Console's store settings.
             Field::MarketingUrl => None,
             Field::Subtitle | Field::Keywords | Field::Promo => None,
             Field::SupportUrl | Field::PrivacyUrl => None,
@@ -129,8 +129,8 @@ pub const FIELDS: &[Field] = &[
 ///
 /// Neither store accepts a bare BCP-47 tag for every language: Apple wants `zh-Hans` where Google
 /// wants `zh-CN`, Google still spells Hebrew with the pre-1989 ISO code `iw`, and both prefer
-/// region-qualified English. A tag missing from this table is a lint error rather than a guess —
-/// uploading a listing under a locale the store does not know silently drops it.
+/// region-qualified English. A tag missing from this table is a lint error rather than a guess,
+/// because uploading a listing under a locale the store does not know silently drops it.
 pub const LOCALES: &[(&str, Option<&str>, Option<&str>)] = &[
     ("en", Some("en-US"), Some("en-US")),
     ("en-GB", Some("en-GB"), Some("en-GB")),
@@ -208,14 +208,14 @@ pub fn mappable(day_tag: &str) -> bool {
     LOCALES.iter().any(|(d, _, _)| *d == day_tag)
 }
 
-/// `store/app.toml` — the parts of a listing that are not localized.
+/// `store/app.toml`: the parts of a listing that are not localized.
 #[derive(Debug, Clone, Default)]
 pub struct AppMeta {
     /// Play package name / App Store bundle id. Defaults to `[app] id`.
     pub bundle_id: Option<String>,
     /// App Store primary category, e.g. `DEVELOPER_TOOLS` (deliver's `primary_category`).
     ///
-    /// There is deliberately no Play counterpart: Google Play's category is set in the Play
+    /// There is no Play counterpart: Google Play's category is set in the Play
     /// Console and `supply` cannot write it, so recording one here would be a value that silently
     /// never reached the store.
     pub apple_category: Option<String>,
@@ -333,7 +333,7 @@ pub fn app_locales(project: &Project) -> Vec<String> {
     out
 }
 
-/// The default locale: `en` when present, else the first — the same rule day-build applies to
+/// The default locale: `en` when present, else the first, the same rule day-build applies to
 /// `res::locales::DEFAULT`, so the listing's primary language matches the app's.
 pub fn default_locale(locales: &[String]) -> Option<String> {
     if locales.iter().any(|l| l == "en") {
@@ -350,7 +350,7 @@ pub fn default_locale(locales: &[String]) -> Option<String> {
 ///
 /// iOS gets `metadata/<apple-locale>/…` (deliver); Android gets `metadata/android/<play-locale>/…`
 /// plus `changelogs/<versionCode>.txt` (supply). Both get an `Appfile` and a `Fastfile` with the
-/// two lanes a release needs — a dry run that validates against the store without publishing, and
+/// two lanes a release needs: a dry run that validates against the store without publishing, and
 /// the upload itself.
 pub fn stage(
     project: &Project,
@@ -613,7 +613,7 @@ end
 }
 
 /// Where a target's fastlane project is written: `build/day/store/<target>/`, holding the
-/// `fastlane/` folder the tool insists on finding (it locates its config by folder, not by file —
+/// `fastlane/` folder the tool insists on finding (it locates its config by folder, not by file;
 /// a Fastfile sitting loose in the working directory is not seen).
 pub fn stage_dir(project: &Project, target: &'static crate::targets::Target) -> PathBuf {
     project.root.join("build/day/store").join(target.name)
@@ -633,8 +633,8 @@ pub fn is_store_target(target: &'static crate::targets::Target) -> bool {
 pub struct Problem {
     pub code: &'static str,
     pub message: String,
-    /// Project-relative file the problem is IN. `None` when the problem is that a file, a locale
-    /// or the whole listing is missing — there is nothing to point an editor at.
+    /// Project-relative file the problem is in. `None` when the problem is that a file, a locale
+    /// or the whole listing is missing, so there is nothing to point an editor at.
     pub file: Option<String>,
     /// A safe, unambiguous repair. Only two listing rules have one: whitespace around a field, and
     /// spaces in a keyword list. Everything else needs a human to write words.
@@ -656,7 +656,7 @@ fn tidy_keywords(text: &str) -> String {
 
 /// Check a listing against the stores the app targets.
 ///
-/// Silent when the app ships to neither store, and when it has no `store/` at all — an app that
+/// Silent when the app ships to neither store, and when it has no `store/` at all; an app that
 /// never leaves a developer's machine should not be nagged about App Store copy. Once `store/`
 /// exists, it is held to the stores' rules, because the alternative is finding out at upload time.
 pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
@@ -1005,7 +1005,7 @@ mod tests {
     fn tidying_keywords_reaches_a_fixed_point() {
         use super::tidy_keywords;
         assert_eq!(tidy_keywords("a, b, c"), "a,b,c\n");
-        // Whatever the spacing, one pass is enough — `day lint --fix` re-checks after writing,
+        // Whatever the spacing, one pass is enough: `day lint --fix` re-checks after writing,
         // and a repair that left work behind would report its finding on every run.
         for messy in ["a,  b ,c", "a , b,  c", "a,b,c"] {
             assert_eq!(tidy_keywords(messy), "a,b,c\n", "{messy:?}");
@@ -1039,7 +1039,7 @@ mod tests {
     }
 
     /// The generated tree has to be one fastlane accepts unchanged: the tool locates its config by
-    /// finding a `fastlane` FOLDER, each store's own file names differ from Day's, and Play keys the
+    /// finding a `fastlane` folder, each store's own file names differ from Day's, and Play keys the
     /// changelog by versionCode.
     #[test]
     fn staging_writes_each_store_its_own_layout() {

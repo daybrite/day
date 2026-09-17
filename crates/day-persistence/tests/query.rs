@@ -243,7 +243,7 @@ fn a_windowed_query_stays_correct_across_the_boundary() {
         .live();
     assert_eq!(q.ids(), [1, 2, 3]);
 
-    // Deleting inside the window pulls the next row in — the engine re-answers the window.
+    // Deleting inside the window pulls the next row in; the engine re-answers the window.
     store.restructure("remove", Op::Delete, 2, |v| {
         v.remove(2);
     });

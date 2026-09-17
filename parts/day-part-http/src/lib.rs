@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-http — HEADLESS cross-platform HTTP(S) through each platform's NATIVE networking
+//! day-part-http: headless cross-platform HTTP(S) through each platform's native networking
 //! stack (docs/http.md). No UI; any Rust code can depend on this crate.
 //!
 //! ```no_run
@@ -10,9 +10,9 @@
 //! # Ok::<(), day_part_http::HttpError>(())
 //! ```
 //!
-//! Why native stacks instead of a Rust HTTP crate: the request inherits the SYSTEM configuration —
-//! proxies + PAC, per-network VPN routing, Low Data Mode ([`Request::allow_constrained`]),
-//! enterprise/MDM certificate stores — and the binary carries no TLS library of its own. macOS
+//! Why native stacks instead of a Rust HTTP crate: the request inherits the system configuration
+//! (proxies + PAC, per-network VPN routing, Low Data Mode via [`Request::allow_constrained`],
+//! enterprise/MDM certificate stores), and the binary carries no TLS library of its own. macOS
 //! and iOS use URLSession, Android OkHttp through a Java bridge arm, Windows WinHTTP, Linux the
 //! system's libcurl (opened at run time), HarmonyOS the Network Kit through an ArkTS arm, and the
 //! web the browser's `fetch` and `WebSocket` through a JavaScript arm, where only the asynchronous
@@ -26,11 +26,11 @@
 //! callbacks, public-key pins and server trust decisions, client identities, cookies, caches,
 //! transfer metrics and WebSockets. [`capabilities`] reports what the platform offers.
 //!
-//! **Threading.** [`fetch`] BLOCKS the calling thread — run it on your own thread, never the UI
+//! **Threading.** [`fetch`] blocks the calling thread; run it on your own thread, never the UI
 //! thread. [`fetch_async`]'s completion runs on the transport's own thread (URLSession's delegate
 //! queue, OkHttp's reader pool, the libcurl driver, WinHTTP's callbacks, the HarmonyOS JS thread,
 //! or the browser's only thread); deliver results into the UI by capturing
-//! a [`day_reactive::Signal::setter`]-style setter in the callback — setters hop to the UI thread
+//! a [`day_reactive::Signal::setter`]-style setter in the callback; setters hop to the UI thread
 //! themselves and silently no-op after disposal, so late completions are harmless (DESIGN §4.5):
 //!
 //! ```ignore
@@ -40,8 +40,8 @@
 //! });
 //! ```
 //!
-//! Or await it: [`fetch_future`] wraps the same completion as a `Future` whose DROP cancels the
-//! request where the platform can (docs/http.md's cancel matrix) — under `day::task` the
+//! Or await it: [`fetch_future`] wraps the same completion as a `Future` whose drop cancels the
+//! request where the platform can (docs/http.md's cancel matrix); under `day::task` the
 //! continuation runs on the UI thread, so results are plain signal writes (docs/async.md).
 //!
 //! Every option is **best-effort per platform** (docs/http.md has the matrix):
@@ -237,7 +237,7 @@ impl Request {
     }
 
     /// How long the request may sit without progress. Default **30 s**. This bounds connecting,
-    /// awaiting the response head, and idle gaps in the body — not the total transfer time, so a
+    /// awaiting the response head, and idle gaps in the body, not the total transfer time, so a
     /// long download that keeps moving is never cut off (per-platform mapping: docs/http.md).
     pub fn timeout(mut self, d: Duration) -> Self {
         self.timeout = Some(d);
@@ -252,7 +252,7 @@ impl Request {
     }
 
     /// Whether the request may use "expensive" paths (cellular / personal hotspot). Default
-    /// `true`. Native on Apple (`allowsExpensiveNetworkAccess`); advisory elsewhere — combine
+    /// `true`. Native on Apple (`allowsExpensiveNetworkAccess`); advisory elsewhere; combine
     /// with `day_part_network::status().expensive` for app-side policy.
     pub fn allow_expensive(mut self, allowed: bool) -> Self {
         self.allow_expensive = allowed;
@@ -299,7 +299,7 @@ impl Request {
 /// which streams to disk instead, or read a [`Client`]'s [`Body`] in chunks.
 #[derive(Clone, Debug)]
 pub struct Response {
-    /// The HTTP status code. **4xx/5xx are delivered here, not as [`HttpError`]** — only
+    /// The HTTP status code. **4xx/5xx are delivered here, not as [`HttpError`]**; only
     /// transport-level failures error.
     pub status: u16,
     /// Response headers in arrival order (duplicates preserved).
@@ -355,7 +355,7 @@ pub struct Download {
     pub bytes_written: u64,
 }
 
-/// A transport-level failure. HTTP error STATUSES (4xx/5xx) are not here — they arrive as
+/// A transport-level failure. HTTP error statuses (4xx/5xx) are not here; they arrive as
 /// [`Response::status`]. The portable core maps from each platform's taxonomy (docs/http.md).
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -372,10 +372,10 @@ pub enum HttpError {
     Tls(String),
     /// Everything else the platform reported (message passed through).
     Io(String),
-    /// The request was cancelled — its [`FetchFuture`] dropped, or a platform-side cancel.
+    /// The request was cancelled: its [`FetchFuture`] dropped, or a platform-side cancel.
     Cancelled,
     /// No HTTP capability on this platform ([`Tier::Unavailable`]), or an entry point or option
-    /// that cannot exist on it (the blocking calls on the web's single thread — docs/http.md).
+    /// that cannot exist on it (the blocking calls on the web's single thread, see docs/http.md).
     Unsupported,
     /// More redirects than [`Redirects::Follow`] allows.
     TooManyRedirects,
@@ -407,11 +407,11 @@ impl std::error::Error for HttpError {}
 pub enum Tier {
     /// The platform's own networking stack (URLSession, OkHttp, WinHTTP, libcurl, the Network
     /// Kit, the browser's fetch): system proxy + PAC, VPN routing, platform TLS + certificate
-    /// stores. On the web this tier is async-only — the blocking entry points return
+    /// stores. On the web this tier is async-only; the blocking entry points return
     /// [`HttpError::Unsupported`] (docs/http.md).
     NativeStack,
     /// No HTTP capability (no libcurl on Linux, a HarmonyOS build without its staged arm, an
-    /// unknown target) — every call returns [`HttpError::Unsupported`].
+    /// unknown target); every call returns [`HttpError::Unsupported`].
     Unavailable,
 }
 
@@ -498,10 +498,10 @@ fn streamed_through(
     })
 }
 
-/// Perform the request, BLOCKING the calling thread until the response (or [`Request::timeout`]).
-/// Run it on your own thread — calling this on the UI thread stalls the app (docs/http.md).
+/// Perform the request, blocking the calling thread until the response (or [`Request::timeout`]).
+/// Run it on your own thread; calling this on the UI thread stalls the app (docs/http.md).
 /// On the web (web-dom) blocking is impossible on the single browser thread: this returns
-/// [`HttpError::Unsupported`] there — use [`fetch_async`] or [`fetch_future`].
+/// [`HttpError::Unsupported`] there; use [`fetch_async`] or [`fetch_future`].
 pub fn fetch(req: &Request) -> Result<Response, HttpError> {
     // The browser has one thread and no blocking waits.
     #[cfg(target_arch = "wasm32")]
@@ -521,9 +521,9 @@ pub fn fetch(req: &Request) -> Result<Response, HttpError> {
     }
 }
 
-/// Perform the request without blocking; `on_done` runs on an unspecified BACKGROUND thread
-/// (capture a reactive `Setter` to deliver into UI state — see the crate docs). On the web
-/// the completion runs on the browser thread — the only one — which the Setter idiom absorbs
+/// Perform the request without blocking; `on_done` runs on an unspecified background thread
+/// (capture a reactive `Setter` to deliver into UI state; see the crate docs). On the web
+/// the completion runs on the browser thread, the only one, which the Setter idiom absorbs
 /// unchanged.
 pub fn fetch_async(
     req: Request,
@@ -565,13 +565,13 @@ pub fn fetch_to_file(req: &Request, dest: &Path) -> Result<Download, HttpError> 
 
 /// Start the request immediately and await the result. The future is the cancellation grip:
 /// **dropping it cancels the request** where the platform supports it (docs/http.md's cancel
-/// matrix) — Apple `NSURLSessionTask.cancel`, Android OkHttp `Call.cancel`, the web the
+/// matrix): Apple `NSURLSessionTask.cancel`, Android OkHttp `Call.cancel`, the web the
 /// fetch's `AbortController`; Windows closes the WinHTTP
 /// request handle.
 /// A cancelled request that still completes resolves nothing; a platform-side cancel that beats
 /// the drop surfaces as [`HttpError::Cancelled`].
 ///
-/// Await it inside `day::task` (or any executor — the future is `Send`-agnostic plumbing over
+/// Await it inside `day::task` (or any executor; the future is `Send`-agnostic plumbing over
 /// [`fetch_async`]'s completion): `day::task(async move { let r = fetch_future(req).await; … })`.
 pub fn fetch_future(req: Request) -> FetchFuture {
     let shared = Arc::new(Mutex::new(FutureState {
@@ -593,12 +593,12 @@ pub fn fetch_future(req: Request) -> FetchFuture {
 
 /// Shared state between a [`FetchFuture`] and its completion callback.
 ///
-/// Locking protocol (the mutex is a LEAF lock — no platform or user code runs under it):
+/// Locking protocol (the mutex is a leaf lock; no platform or user code runs under it):
 /// - `poll` checks `result` and stores the waker under one lock acquisition, closing the
 ///   lost-wakeup race (a completion between a check and a separate store would be missed).
-/// - the completion stores `result`, takes the waker, UNLOCKS, then wakes — an inline waker
+/// - the completion stores `result`, takes the waker, unlocks, then wakes; an inline waker
 ///   (tests) re-polls synchronously, which re-takes the lock.
-/// - `Drop` sets `cancelled`, clears the waker, UNLOCKS, then runs the platform cancel —
+/// - `Drop` sets `cancelled`, clears the waker, unlocks, then runs the platform cancel, because
 ///   Apple's `task.cancel()` can schedule the completion synchronously on the delegate queue,
 ///   which takes this lock. Nobody wakes on cancel: Drop is terminal (the future can never be
 ///   polled again); a late completion finds no waker and its stored result is never read.
@@ -699,11 +699,11 @@ pub fn fetch_to_file_async(
 }
 
 /// Receives a streamed response: the head first, then each body chunk as it arrives. Implement
-/// this for progress reporting, cancellation, incremental hashing — anything that must observe a
+/// this for progress reporting, cancellation, incremental hashing, or anything that must observe a
 /// large body without buffering it (an app store streaming an APK to disk, docs/http.md).
 pub trait StreamSink {
     /// The status + headers, before any body. Return `false` to abort the transfer (e.g. an
-    /// unexpected status for a `Range` resume) — [`fetch_streamed`] then returns
+    /// unexpected status for a `Range` resume); [`fetch_streamed`] then returns
     /// [`HttpError::Io`]`("aborted")`.
     fn head(&mut self, _status: u16, _headers: &[(String, String)]) -> bool {
         true
@@ -713,7 +713,7 @@ pub trait StreamSink {
     fn chunk(&mut self, data: &[u8]) -> Result<(), HttpError>;
 }
 
-/// Perform the request, streaming the body into `sink` chunk by chunk — nothing is buffered
+/// Perform the request, streaming the body into `sink` chunk by chunk; nothing is buffered
 /// beyond one chunk. Blocking, like [`fetch`]. `bytes_written` counts the bytes handed to the
 /// sink.
 pub fn fetch_streamed(req: &Request, sink: &mut dyn StreamSink) -> Result<Download, HttpError> {

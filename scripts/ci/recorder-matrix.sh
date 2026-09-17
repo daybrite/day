@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-# Regenerate docs/recorder-matrix.md — what THE DAYSCRIPT RECORDER does with every `Event` variant
+# Regenerate docs/recorder-matrix.md: what the dayscript recorder does with every `Event` variant
 # the app can receive (§14.6). Third of the generated conformance tables, after duty-matrix.sh (the
 # Toolkit trait is implemented) and coverage-matrix.sh (the piece vocabulary is rendered); this one
 # proves the recorder has a decision about every event, rather than a default of silence.
 #
 # Why generate it: `event_to_step` ends in a `_ => None` arm, so an event nobody mapped is not a
-# compile error, not a test failure, and not visible in review — it is a control that replays
+# compile error, not a test failure, and not visible in review; it is a control that replays
 # perfectly and records as nothing. That is exactly how `Button::style(…)` was lost: it is a
 # composed `.on_tap` piece, so it delivers `Tap` and never `Pressed`, and only `Pressed` was
 # mapped. Deriving the table from the source puts every new `Event` variant in a diff as
 # "dropped", where a human has to agree with it.
 #
 # The runtime half of the same fact is day-script's `playback_and_recording_agree` test, which
-# holds the recorder to what the EXECUTOR emits per step. This table covers the other direction:
+# holds the recorder to what the executor emits per step. This table covers the other direction:
 # the full event vocabulary, mapped or not.
 #
 #     scripts/ci/recorder-matrix.sh
@@ -70,7 +70,7 @@ for arm in re.split(r"\n\s{8}(?=Event::|_ =>)", fn_body):
     for n in names:
         mapped[n] = step.group(1)
 
-# The nav observer records route changes instead of `event_to_step` — a real decision, not a gap,
+# The nav observer records route changes instead of `event_to_step`: a decision, not a gap,
 # and the one case where "unmapped here" does not mean "not recorded".
 VIA_NAV = {"RouteRequested", "NavBack"}
 

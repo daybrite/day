@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Locale-aware decimal formatting (docs/localization.md "Numbers outside a message"), backed by
-//! icu4x's `DecimalFormatter` — the same engine the Fluent `NUMBER()` builtin uses, reached
+//! icu4x's `DecimalFormatter`, the same engine the Fluent `NUMBER()` builtin uses, reached
 //! without going through a message.
 //!
 //! A bare number rendered with `format!("{v}")` carries an English decimal point and no digit
@@ -90,7 +90,7 @@ mod tests {
     fn grouping_and_separators_follow_the_locale() {
         assert_eq!(format_decimal_in("en", 1_234_567.0, 0), "1,234,567");
         assert_eq!(format_decimal_in("de", 1_234_567.0, 0), "1.234.567");
-        // fr uses a comma for the DECIMAL mark and a narrow no-break space between groups — the
+        // fr uses a comma for the decimal mark and a narrow no-break space between groups; the
         // exact space is CLDR's to choose, so the assertion asks what kind it is, not which.
         let fr = format_decimal_in("fr", 1234.5, 1);
         assert!(

@@ -3,7 +3,7 @@
 
 // Windows: GetNetworkConnectivityHint (iphlpapi, Windows 10 2004+) fills an
 // NL_NETWORK_CONNECTIVITY_HINT with a connectivity level and a cost. The symbol is resolved
-// dynamically (LoadLibrary/GetProcAddress) so apps still start on older Windows — status() just
+// dynamically (LoadLibrary/GetProcAddress) so apps still start on older Windows; status() just
 // returns None there. The hint reports level + cost but not the transport, so kind is Other when
 // online. Raw FFI (shapes cross-checked against windows-sys 0.61's IpHelper/WinSock bindings).
 // Written blind (no Windows host); compiled only on the windows target.
