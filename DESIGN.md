@@ -2897,8 +2897,9 @@ extra-combo case the design worried about.
 > operate on string properties; permission regions belong to `module.requestPermissions`;
 > shortcuts read the named `EntryAbility` and merge its metadata array. Comments, quoting,
 > unrelated entries and whitespace survive, and malformed JSON5 is rejected before a write.
-> SDK selection reads only `products[].runtimeOS`; comments cannot opt an OpenHarmony host
-> into HMS kits. `json5::tests`, `ohos::identity_tests` and the bridge SDK-selection tests cover
+> SDK selection reads only `app.products[].runtimeOS` in the root build profile; comments or
+> unrelated top-level `products` cannot opt an OpenHarmony host into HMS kits. The SDK-selection
+> regression test reads the actual scaffold build profile to keep that nesting contract covered. `json5::tests`, `ohos::identity_tests` and the bridge SDK-selection tests cover
 > these contracts. A small token-span correction covers json-five 0.3.1's block-comment end
 > offset so its round-trip rendering retains the closing slash.
 

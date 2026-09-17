@@ -202,7 +202,11 @@ fn builds_for_openharmony_only(profile: &str) -> Result<bool, String> {
     use crate::json5::{array, get, parse, string};
     let doc = parse(profile)?;
     let mut openharmony = false;
-    for product in get(&doc.value, "products").into_iter().flat_map(array) {
+    for product in get(&doc.value, "app")
+        .and_then(|app| get(app, "products"))
+        .into_iter()
+        .flat_map(array)
+    {
         match get(product, "runtimeOS").and_then(string).as_deref() {
             Some("HarmonyOS") => return Ok(false),
             Some("OpenHarmony") => openharmony = true,
@@ -502,19 +506,28 @@ mod tests {
     /// OpenHarmony runtime rules one out even where an `hms` tree exists, which is the case that
     /// staged Core Speech Kit into day-part-speech's OpenHarmony build on CI.
     #[test]
+    fn scaffold_profile_selects_openharmony_without_hms() {
+        let profile = include_str!("../templates/app/platform/harmony/build-profile.json5");
+        assert!(super::builds_for_openharmony_only(profile).unwrap());
+    }
+
+    #[test]
     fn a_host_building_for_openharmony_cannot_resolve_hms_kits() {
         use super::builds_for_openharmony_only as only;
-        assert!(only(r#"{products: [{runtimeOS: 'OpenHarmony'}]}"#).unwrap());
+        assert!(only(r#"{app: {products: [{runtimeOS: 'OpenHarmony'}]}}"#).unwrap());
         assert!(
-            !only(r#"{products: [{runtimeOS: 'OpenHarmony'}, {runtimeOS: 'HarmonyOS'}]}"#).unwrap()
+            !only(r#"{app: {products: [{runtimeOS: 'OpenHarmony'}, {runtimeOS: 'HarmonyOS'}]}}"#)
+                .unwrap()
         );
-        assert!(!only("{products: [{}]}").unwrap());
+        assert!(!only("{app: {products: [{}]}}").unwrap());
         assert!(!only("{} // runtimeOS: 'OpenHarmony'").unwrap());
         assert!(
-            only("{products: [{runtimeOS: 'OpenHarmony'}]} // runtimeOS: 'HarmonyOS'").unwrap()
+            only("{app: {products: [{runtimeOS: 'OpenHarmony'}]}} // runtimeOS: 'HarmonyOS'")
+                .unwrap()
         );
-        assert!(only(r#"{note: "runtimeOS: 'HarmonyOS'", products: [{runtimeOS: 'OpenHarmony'}], other: {runtimeOS: 'HarmonyOS'}}"#).unwrap());
-        assert!(only("{products: [").is_err());
+        assert!(only(r#"{note: "runtimeOS: 'HarmonyOS'", app: {products: [{runtimeOS: 'OpenHarmony'}]}, products: [{runtimeOS: 'HarmonyOS'}]}"#).unwrap());
+        assert!(!only(r#"{products: [{runtimeOS: 'OpenHarmony'}]}"#).unwrap());
+        assert!(only("{app: {products: [").is_err());
     }
 
     /// A crate whose source declares a Swift arm renders one adapter, with the prefixed symbol and
