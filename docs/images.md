@@ -171,9 +171,12 @@ not an app, which exits the process instead.
 
 A `Bitmap` can outlive the core tree or the platform bitmap registry when thread-local
 state is destroyed (notably AppKit's normal Quit path). Its final release must tolerate
-both orders: core treats an inaccessible TLS root as an absent tree, and AppKit skips
-removal when its registry has already been destroyed and released the native images.
+both orders: core treats an inaccessible TLS root as an absent tree, and AppKit, GTK,
+and Qt skip removal when their toolkit registry is unavailable. GTK and AppKit have
+already released their native images; Qt leaves final cleanup to its C++ registry
+and avoids calling into that registry after toolkit TLS teardown has begun.
 Live registries still remove images normally; deferred release while the tree is borrowed
 is unchanged. This does not suppress panics or leak the registry to avoid destruction.
 Subprocess regressions in `day-core::image::teardown_tests` and
-`day-appkit::bitmap_teardown_tests` exercise late release after each TLS owner is gone.
+the `bitmap_teardown_tests` modules in `day-appkit`, `day-gtk`, and `day-qt` exercise
+late release when each TLS owner is unavailable.

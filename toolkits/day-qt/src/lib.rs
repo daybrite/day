@@ -3192,11 +3192,7 @@ impl Toolkit for Qt {
     }
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
-        BITMAP_INFO.with(|m| {
-            m.borrow_mut().remove(&id.0);
-        });
-        // SAFETY: an id the shim either knows or does not; removing an absent one is a no-op.
-        unsafe { ffi::day_qt_image_release(id.0) };
+        release_bitmap(id);
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
@@ -3354,5 +3350,67 @@ impl Platform for Qt {
     fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
         let data = Box::into_raw(Box::new(cb)) as *mut c_void;
         unsafe { ffi::day_qt_post_delayed(16, run_frame, data) };
+    }
+}
+
+// Bitmap handles in reactive state can outlive the toolkit's thread-local registry at Quit.
+// Keep normal releases strict about borrow conflicts, but tolerate a destroyed registry.
+fn release_bitmap(id: day_spec::BitmapId) {
+    let _ = BITMAP_INFO.try_with(|m| {
+        m.borrow_mut().remove(&id.0);
+        // SAFETY: release a known or already-absent id while toolkit TLS is still alive.
+        // Do not call into the C++ registry once toolkit teardown has begun.
+        unsafe { ffi::day_qt_image_release(id.0) };
+    });
+}
+
+#[cfg(test)]
+mod bitmap_teardown_tests {
+    use super::*;
+
+    #[test]
+    fn releasing_during_bitmap_registry_teardown_does_not_abort() {
+        const CHILD: &str = "DAY_QT_BITMAP_TEARDOWN_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            struct LateRelease(std::sync::mpsc::Sender<()>);
+            impl Drop for LateRelease {
+                fn drop(&mut self) {
+                    assert!(BITMAP_INFO.try_with(|_| ()).is_err());
+                    release_bitmap(day_spec::BitmapId(1));
+                    self.0.send(()).unwrap();
+                }
+            }
+            let (sent, received) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let held = LateRelease(sent);
+                // The sink and bitmap registry share one TLS group. Dropping its captures
+                // exercises unavailable TLS without relying on ordering of unrelated keys.
+                SINK.with(|sink| {
+                    *sink.borrow_mut() = Some(Rc::new(move |_, _| {
+                        let _ = &held;
+                    }));
+                });
+            })
+            .join()
+            .unwrap();
+            received
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "bitmap_teardown_tests::releasing_during_bitmap_registry_teardown_does_not_abort",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

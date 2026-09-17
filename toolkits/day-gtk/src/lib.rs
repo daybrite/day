@@ -6261,7 +6261,7 @@ impl Toolkit for Gtk {
     }
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
-        BITMAPS.with(|m| m.borrow_mut().remove(&id.0));
+        release_bitmap(id);
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
@@ -7045,6 +7045,63 @@ mod tests {
         assert!(
             !claim_file_dialog(2),
             "a result arriving after the dismissal belongs to nothing"
+        );
+    }
+}
+
+// Bitmap handles in reactive state can outlive the toolkit's thread-local registry at Quit.
+// Keep normal releases strict about borrow conflicts, but tolerate a destroyed registry.
+fn release_bitmap(id: day_spec::BitmapId) {
+    let _ = BITMAPS.try_with(|m| m.borrow_mut().remove(&id.0));
+}
+
+#[cfg(test)]
+mod bitmap_teardown_tests {
+    use super::*;
+
+    #[test]
+    fn releasing_during_bitmap_registry_teardown_does_not_abort() {
+        const CHILD: &str = "DAY_GTK_BITMAP_TEARDOWN_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            struct LateRelease(std::sync::mpsc::Sender<()>);
+            impl Drop for LateRelease {
+                fn drop(&mut self) {
+                    assert!(BITMAPS.try_with(|_| ()).is_err());
+                    release_bitmap(day_spec::BitmapId(1));
+                    self.0.send(()).unwrap();
+                }
+            }
+            let (sent, received) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let held = LateRelease(sent);
+                // The sink and bitmap registry share one TLS group. Dropping its captures
+                // exercises unavailable TLS without relying on ordering of unrelated keys.
+                SINK.with(|sink| {
+                    *sink.borrow_mut() = Some(Rc::new(move |_, _| {
+                        let _ = &held;
+                    }));
+                });
+            })
+            .join()
+            .unwrap();
+            received
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap();
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "bitmap_teardown_tests::releasing_during_bitmap_registry_teardown_does_not_abort",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
         );
     }
 }

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 use super::*;
 use day_spec::transfer::*;
+use objc2::ClassType;
 use objc2_app_kit::{NSDragOperation, NSDraggingItem, NSPasteboardItem};
+use objc2_foundation::NSURL;
 use std::ffi::c_void;
 
 // Use the same system MIME/UTI conversion as GTK, including dynamic UTIs for custom types.
@@ -173,6 +175,12 @@ pub fn receive(view: &NSView, info: &ProtocolObject<dyn objc2_app_kit::NSDraggin
             return false;
         }
         let pb = unsafe { info.draggingPasteboard() };
+        // Read file objects through AppKit even when a Day bundle is also present, so
+        // AppKit can acquire sandbox access. Raw public.file-url bytes are only locators;
+        // NSURL must resolve Finder's file-reference URLs to ordinary file-path URLs.
+        let _file_urls = unsafe {
+            pb.readObjectsForClasses_options(&NSArray::from_slice(&[NSURL::class()]), None)
+        };
         if let Some(data) = pb.dataForType(&native(BUNDLE_MIME)) {
             return data.len() <= MAX_BYTES
                 && Offer::decode(&data.to_vec()).is_some_and(|o| target.deliver(at, o));
@@ -182,12 +190,22 @@ pub fn receive(view: &NSView, info: &ProtocolObject<dyn objc2_app_kit::NSDraggin
         if let Some(native_items) = pb.pasteboardItems() {
             for item in native_items.iter() {
                 for ty in &target.types {
-                    if let Some(bytes) = item.dataForType(&native(ty)) {
+                    let bytes = if ty == "text/uri-list" {
+                        // Resolve each item's own URL so mixed or unreadable items cannot
+                        // shift the association between native objects and representations.
+                        item.stringForType(&native(ty))
+                            .and_then(|s| NSURL::URLWithString(&s))
+                            .and_then(|url| file_uri(&url))
+                            .map(|url| format!("{url}\r\n").into_bytes())
+                    } else {
+                        item.dataForType(&native(ty)).map(|data| data.to_vec())
+                    };
+                    if let Some(bytes) = bytes {
                         total = total.saturating_add(bytes.len());
                         if total > MAX_BYTES || items.len() >= MAX_ITEMS {
                             return false;
                         }
-                        items.push(Item::new(vec![Representation::new(ty, bytes.to_vec())]));
+                        items.push(Item::new(vec![Representation::new(ty, bytes)]));
                         break;
                     }
                 }
@@ -195,4 +213,33 @@ pub fn receive(view: &NSView, info: &ProtocolObject<dyn objc2_app_kit::NSDraggin
         }
         !items.is_empty() && target.deliver(at, Offer { items })
     })
+}
+
+// Preserve URL escaping while resolving Finder's /.file/id=... references through Foundation.
+fn file_uri(url: &NSURL) -> Option<String> {
+    if !url.isFileURL() {
+        return None;
+    }
+    url.filePathURL()?.absoluteString().map(|s| s.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_reference_url_resolves_to_readable_uri_list_path() {
+        let path = std::env::temp_dir().join(format!("day-drop-{} ü.png", std::process::id()));
+        std::fs::write(&path, b"image fixture").unwrap();
+        let path = std::fs::canonicalize(path).unwrap();
+        let url = NSURL::fileURLWithPath(&NSString::from_str(path.to_str().unwrap()));
+        let reference = url.fileReferenceURL().unwrap();
+        let raw = reference.absoluteString().unwrap().to_string();
+        assert!(raw.contains("/.file/id="), "expected a file-ID URL: {raw}");
+        let resolved = file_uri(&reference).unwrap();
+        let paths = file_paths(resolved.as_bytes()).unwrap();
+        assert_eq!(paths, vec![path.clone()]);
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), b"image fixture");
+        std::fs::remove_file(path).unwrap();
+    }
 }

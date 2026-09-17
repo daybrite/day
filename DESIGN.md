@@ -5723,14 +5723,19 @@ a live gesture. They become available again after its final guard drops.
 ### Bitmap teardown order at process exit
 
 Native Quit can destroy toolkit TLS before the reactive arena releases its cached
-`Bitmap` handles. AppKit's `release_image` therefore uses fallible registry access;
-a destroyed registry has already released its images. Core also treats destroyed TLS
-as an absent tree so handles dropped later do not access its dead root. The shared
+`Bitmap` handles. AppKit, GTK, and Qt image release therefore use fallible registry
+access. GTK/AppKit registry destruction releases its images; Qt skips its C++ image
+registry once toolkit TLS teardown has begun, leaving final reclamation to the native
+registry's lifetime. Core also treats destroyed TLS as an absent tree so handles
+dropped later do not access its dead root. The shared
 `tls_root!`/`tls_slots!` macros expose `try_tls_root`/`try_with` for these destructor
 paths while normal `.with` access retains its strict contract. See
 [image shutdown semantics](docs/images.md#image-handles-during-thread-shutdown) and
-the subprocess regressions in `day-core` and `day-appkit`. Runtime image ownership
-and deferred releases are unchanged; this fix changes no drawing or persistence API.
+the subprocess regressions in `day-core`, `day-appkit`, `day-gtk`, and `day-qt`.
+GTK/Qt tests release an image from a capture owned by their own TLS group, ensuring
+the registry is unavailable without relying on cross-platform TLS destructor ordering.
+Runtime image ownership and deferred releases are unchanged; this fix changes no
+drawing or persistence API.
 
 The core regression stores a bitmap in a pending callback owned by the core TLS root.
 Dropping that callback during root destruction verifies that root access fails and bitmap
@@ -5810,3 +5815,17 @@ Sketch re-enters the captured target scope when an asynchronous import commits. 
 regression `transfer_callbacks_restore_owner_scope_and_reject_after_disposal` covers scope
 restoration and stale callback rejection. Android native touch testing confirmed a local image
 move after installing the provider through toolkit manifest contributions, including existing apps.
+
+### Sandboxed AppKit file drops
+
+The AppKit drop receiver reads native `NSURL` objects from the dragging pasteboard
+before delivering either standard representations or Day's bundled offer, so AppKit
+can acquire sandbox access for native file offers. Raw `public.file-url` bytes are
+locators, not necessarily ready-to-open filesystem paths.
+Native URLs are resolved with `filePathURL` and published as standard `text/uri-list`,
+so Finder file-reference URLs and percent-encoded paths reach the same app-side loader.
+Hover acceptance remains metadata-only; native file access is acquired only on drop.
+This grants access to files actually offered by the native pasteboard, not arbitrary
+paths embedded in custom Day data. Persistent access still requires a bookmark.
+`transfer::tests::file_reference_url_resolves_to_readable_uri_list_path` covers
+file-ID resolution and escaped Unicode filenames.
