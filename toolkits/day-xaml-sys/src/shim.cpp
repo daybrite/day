@@ -186,6 +186,27 @@ static void pump_until_complete(TOp const& op) {
     }
 }
 
+// Pump the message loop until `done()` answers true, or the bound elapses (best-effort: a caller
+// that times out carries on with whatever state it has, because no capture or scroll is worth
+// hanging the app over). Shares `pump_until_complete`'s WM_APP+1 exclusion, and for the same
+// reason: these pumps run inside a day-core `with_tree` borrow that day's cross-thread post
+// would re-enter. (A template, so it lives at file scope like its neighbour.)
+template <typename F>
+static void pump_until(F done, ULONGLONG timeout_ms) {
+    MSG msg{};
+    ULONGLONG start = GetTickCount64();
+    const UINT day_post = WM_APP + 1;
+    while (!done() && GetTickCount64() - start < timeout_ms) {
+        if (PeekMessageW(&msg, nullptr, 0, day_post - 1, PM_REMOVE) ||
+            PeekMessageW(&msg, nullptr, day_post + 1, 0xFFFFFFFF, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        } else {
+            Sleep(1);
+        }
+    }
+}
+
 // ---- canvas display list helpers (§11, docs/shapes.md) ----
 // XAML is retained-mode, so each op becomes a Path/TextBlock child of the Canvas; the painter
 // transform stack (Save/Restore/Concat) is folded into each element's RenderTransform (a
@@ -1566,6 +1587,22 @@ void day_xaml_scroll_to(void* sv, int y, int h, int animated) {
     if (y < off) target = y;
     else if (y + h > off + vh) target = y + h - vh;
     if (target != off) s.ChangeView(nullptr, target, nullptr, animated == 0);
+    // KNOWN GAP — a screenshot taken in the SAME dayscript request as this scroll, with no step
+    // between, captures the PREVIOUS scroll position (the walkthrough's `controls-pickers` shot
+    // is the standing example). A ScrollViewer moves its content with a compositor
+    // (DirectManipulation) transform and folds it into layout only when the view change commits;
+    // `PrintWindow` re-renders the tree without that transform, so the capture tears — scrollbar
+    // at the new offset, content at the old one.
+    //
+    // Three in-call fixes were tried here and NONE work, so do not reach for them again: the
+    // snapshot's own present-barrier (`pump_until_presented`), pumping until `VerticalOffset`
+    // reaches the target, and pumping until `ViewChanged` reports `IsIntermediate() == false`.
+    // What does work is any step that returns to the engine first (a bare `wait_idle`), or
+    // capturing in a separate `day drive` call — i.e. the commit needs a turn of the app's REAL
+    // message loop, which a pump nested inside this request cannot give it: these pumps run
+    // inside a day-core `with_tree` borrow and must exclude day's own WM_APP+1 post to avoid
+    // re-entering it. Closing this needs the capture to yield to the loop and resume, not
+    // another wait in here.
 }
 // The day name for a key the route carries, or null for every other key (docs/menus.md).
 // `mods` is the day KeyEvent mask already read for this press. A digit is the PHYSICAL key,
@@ -4253,6 +4290,33 @@ static int png_encoder_clsid(CLSID* clsid) {
     return result;
 }
 
+/// Block until XAML has laid the tree out AND the compositor has PRESENTED it (bounded).
+///
+/// Without this a capture is routinely one frame stale: it shows the page you just navigated
+/// away from, or the scroll offset you just left. `wait_idle` settles day's reactive graph
+/// (`day_reactive::flush_sync`) and returns, but the XAML mutations that flush produced are
+/// still queued as layout work, and DirectComposition presents asynchronously after that.
+/// `PrintWindow` reads the window's last COMPOSED surface, so it hands back the previous frame.
+/// Nothing catches it: every assertion reads the logical tree, which is already correct, so only
+/// the pixels are wrong — and those pixels are what the published gallery ships.
+///
+/// `CompositionTarget::Rendering` fires once per frame the XAML compositor drives, so a tick
+/// proves layout ran; `DwmFlush` then waits for DWM to finish the present that tick scheduled.
+/// TWO ticks, because the first one to arrive can be a frame already in flight when we get here,
+/// which would prove nothing about our own mutations.
+///
+/// Bounded and best-effort: a window that is never composed (minimized, or a headless session
+/// where DWM does not tick) must not hang the capture, so this falls through on a timeout and
+/// lets the snapshot proceed with whatever the surface holds.
+static void pump_until_presented() {
+    auto seen = std::make_shared<int>(0);
+    auto token = WUXM::CompositionTarget::Rendering(
+        [seen](WF::IInspectable const&, WF::IInspectable const&) { ++*seen; });
+    pump_until([&] { return *seen >= 2; }, 2000);
+    WUXM::CompositionTarget::Rendering(token);
+    DwmFlush();
+}
+
 // Snapshot via RenderTargetBitmap: renders the XAML visual tree straight to a bitmap,
 // independent of whether the host window is visible/foreground/composed (so it works for a
 // background-launched app and on headless CI, unlike PrintWindow). Pixels are BGRA8 — which is
@@ -4271,6 +4335,10 @@ static int png_encoder_clsid(CLSID* clsid) {
 // they pass.
 static int snapshot_hwnd_png(HWND hwnd, const char* path) {
     if (!hwnd || !IsWindow(hwnd)) return 1;
+    // Settle here rather than in the dayscript `wait_idle` step: the barrier belongs to the one
+    // operation whose correctness depends on it, so an ad-hoc `day drive` screenshot with no
+    // preceding `wait_idle` is as trustworthy as a walkthrough capture.
+    pump_until_presented();
     RECT r{};
     if (!GetWindowRect(hwnd, &r)) return 1;
     int w = r.right - r.left, h = r.bottom - r.top;
