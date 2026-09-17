@@ -21,6 +21,7 @@ pub mod resource;
 pub mod styled;
 /// Import and export for [`StyledText`]: Markdown, HTML and RTF (docs/texteditor.md).
 pub mod styled_codec;
+pub mod transfer;
 
 pub use resource::{
     AssetDir, AssetName, FontFamily, ImageName, Resource, ResourceOpener, VectorName,
@@ -1940,6 +1941,22 @@ impl SizeClass {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cap {
+    /// Native data-transfer source and destination callbacks.
+    DragDrop,
+    /// Transfers between independent native applications (inbound).
+    DragExternalImport,
+    /// Transfers to independent native applications, including arbitrary binary MIME data.
+    DragExternalExport,
+    /// Lossless ordered items and alternatives between Day applications.
+    DragMultipleItems,
+    /// Existing native file references, distinct from promised/generated files.
+    DragFileReferences,
+    /// Native result can wait for asynchronous data receipt.
+    DragDeferredReceipt,
+    /// Generated files supplied to a destination after dropping.
+    DragFilePromises,
+    /// External move acknowledgment safe for source deletion.
+    DragExternalMove,
     ListRecycling,
     /// The toolkit fronts the app's undo stack with the platform's own undo system
     /// ([`Toolkit::set_undo_state`] + `Event::Undo`): `Native` where one exists
@@ -5729,6 +5746,9 @@ pub trait Toolkit: Sized + 'static {
     // shown. The static `set_context_menu` below stays the simple path; this one exists for
     // surfaces whose menu depends on what is under the pointer (a canvas selection,
     // docs/tree.md). Default no-op: a backend without the affordance shows nothing.
+    fn set_drag_source(&mut self, _h: &Self::Handle, _source: transfer::Source) {}
+    fn set_drop_target(&mut self, _h: &Self::Handle, _target: transfer::Target) {}
+
     fn set_context_menu_fn(&mut self, _h: &Self::Handle, _node: NodeId, _f: ContextMenuFn) {}
 
     // menus (§ menus): render `items` with the backend's native menu affordance, firing

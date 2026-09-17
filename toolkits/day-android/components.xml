@@ -1,0 +1,5 @@
+<!-- Copyright © The Daybrite Project; SPDX-License-Identifier: MPL-2.0 -->
+<!-- Merged for existing apps as well as new scaffolds. Access requires an OS URI grant. -->
+<provider android:name="dev.daybrite.day.bridge.DayTransferProvider"
+    android:authorities="${applicationId}.day.transfer"
+    android:exported="false" android:grantUriPermissions="true" />

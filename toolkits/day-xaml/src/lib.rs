@@ -11,6 +11,7 @@
 
 #![cfg(windows)]
 
+mod transfer;
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::{CStr, CString};
@@ -1481,8 +1482,21 @@ fn win_cursor_code(c: &Cursor) -> c_int {
 impl Toolkit for Xaml {
     type Handle = WinHandle;
 
+    fn set_drag_source(&mut self, h: &WinHandle, source: day_spec::transfer::Source) {
+        transfer::source(h, source);
+    }
+    fn set_drop_target(&mut self, h: &WinHandle, target: day_spec::transfer::Target) {
+        transfer::target(h, target);
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            Cap::DragDrop
+            | Cap::DragExternalImport
+            | Cap::DragExternalExport
+            | Cap::DragMultipleItems
+            | Cap::DragFileReferences
+            | Cap::DragDeferredReceipt => Support::Native,
             // PointerEntered/Exited per element plus WM_SETCURSOR on the host; several CSS
             // shapes take their nearest IDC_* shape (docs/cursor.md).
             Cap::Cursor => Support::Emulated,

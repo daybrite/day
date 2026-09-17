@@ -8,6 +8,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+# Xcode links the Rust static library; it does not inherit Rust's framework link attributes.
+[package.metadata.day.ios]
+frameworks = ["MobileCoreServices"]
+
 [dependencies]
 log = { workspace = true }
 day-spec = { workspace = true }
@@ -70,6 +74,6 @@ objc2-ui-kit = { version = "0.3", features = [
     "UIGeometry",
     # List drag-to-reorder (docs/list.md): the drag-delegate item that lifts a row without
     # entering editing mode (the move/target data-source methods are ungated).
-    "UIDragItem", "UIDragSession", "UIDragInteraction",
+    "UIDragItem", "UIDragSession", "UIDragInteraction", "UIDropInteraction",
     "objc2-core-foundation", "objc2-core-graphics",
 ] }

@@ -5746,8 +5746,49 @@ native image representations and decodes foreign image bytes into SQLite-backed 
 UIKit canvas replay uses UIImage's explicit blend/alpha overload so copied image opacity
 is reflected visually as well as preserved in the model.
 
-The proposed general transfer architecture is recorded in
-[docs/drag-and-drop-plan.md](docs/drag-and-drop-plan.md). It covers every toolkit, multiple
-items and representations, scoped file access, synchronous hover policy, asynchronous
-imports, and safe copy/move completion. These drag/drop APIs are planned, not shipped;
-existing canvas gestures and collection reorder contracts continue to stand separately.
+General transfer implementation is underway; the full delivery plan remains in
+[docs/drag-and-drop-plan.md](docs/drag-and-drop-plan.md). `day::transfer` now defines ordered
+items with alternative MIME byte representations, a frozen source offer, target-local
+hover policy, and owned drop receipt. `.drag_source(...)` and `.drop_target(...)` attach
+native hosts; scoped guards reject callbacks after disposal and enter the owning reactive
+scope for source, policy, and receipt callbacks, preserving per-window ambient state. Hover and drop both consult
+the guard, and a guard cannot select an operation absent from the native allowed mask.
+
+AppKit uses native dragging sessions/pasteboard items, GTK uses content providers and
+asynchronous drop streams, Qt uses QDrag/QMimeData, and web-dom uses native HTML events.
+UIKit uses UIDragInteraction/UIDropInteraction and NSItemProvider byte loads; Android uses
+startDragAndDrop with read-only ContentProvider URI grants; ArkUI uses native drag events and
+UDMF records. XAML uses DataPackage streams and native drag deferrals (Windows validation
+pending). The adapters transport a bounded versioned multi-item MIME representation alongside
+standard first-item image/file representations. AppKit and Qt custom MIME types use the same
+system MIME/UTI mapping as GTK on macOS, enabling independent cross-toolkit processes.
+No clipboard write or private inter-process service is involved. Platform-provided locality
+is separate from user-supplied bytes; external operations advertise Copy only. A receiver's
+boolean acknowledges owned receipt, not durable completion of subsequently launched work.
+
+The browser captures Files and starts string reads synchronously in drop before awaiting
+bytes. It transports binary Day data as base64 in HTML's string-only custom formats. This is
+interoperable between Day browser pages, not a claim of arbitrary binary export to native
+applications. Browser file reads reject completion into disposed elements. Capability flags
+separate general transfer, external import/export, multiple items, file references, deferred
+receipt, promised files, and external moves. Promised files and external moves are not yet
+implemented. Async application readers/file leases remain plan work; UIKit provider loads
+and GTK streams time out after 30 seconds, and Android releases permission grants after
+receipt or timeout. The [API guide](docs/drag-and-drop.md) records native format boundaries; existing canvas gestures and collection reordering retain their separate contracts.
+
+Regression entry points: `cargo test -p day-spec transfer` covers packet boundaries, binary
+alternatives, URI decoding, guard revalidation, and operation escalation. Day-Showcase's
+Drag & Drop page exercises images, file references, arbitrary binary data, rejected regions,
+local moves, and independent-window copies. Native OS mouse dragging has verified an AppKit
+local move; user testing confirmed same-window, separate-window, and cross-toolkit desktop
+transfers. Native HTML tests also cover image/custom-byte moves and forbidden locations.
+UIKit and Android app builds/page scripts pass, and Harmony compiles against API 18; these
+checks do not establish the untested Windows/mobile cross-process matrix. Sketch receives
+image bytes, editable SVG, and local file references at transformed canvas coordinates,
+validates the whole batch within one byte budget, and commits one undo group. An explicit
+selection drag handle exports editable/standard SVG without replacing canvas manipulation.
+The original canvas identifier remains inside the drop wrapper, preserving gesture routing.
+Sketch re-enters the captured target scope when an asynchronous import commits. The pieces
+regression `transfer_callbacks_restore_owner_scope_and_reject_after_disposal` covers scope
+restoration and stale callback rejection. Android native touch testing confirmed a local image
+move after installing the provider through toolkit manifest contributions, including existing apps.

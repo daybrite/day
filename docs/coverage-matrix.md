@@ -67,6 +67,14 @@ An app branches on this rather than on the target name.
 
 | cap | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|
+| `DragDrop` | N | N | N | N | N | N | N | N |
+| `DragExternalImport` | N | N | N | N | N | N | N | N |
+| `DragExternalExport` | N | N | N | N | N | N | N | – |
+| `DragMultipleItems` | N | N | N | N | N | N | N | N |
+| `DragFileReferences` | N | – | N | N | N | – | – | – |
+| `DragDeferredReceipt` | – | – | N | – | N | – | – | – |
+| `DragFilePromises` | – | – | – | – | – | – | – | – |
+| `DragExternalMove` | – | – | – | – | – | – | – | – |
 | `ListRecycling` | – | – | – | – | E | – | – | E |
 | `UndoBridge` | N | N | – | – | – | – | – | – |
 | `EditBridge` | N | N | – | – | – | – | – | N |

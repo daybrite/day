@@ -23,6 +23,8 @@
 //! contract (docs/navigation.md).
 #![cfg(target_arch = "wasm32")]
 
+mod transfer;
+
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap};
 
@@ -1339,6 +1341,13 @@ impl Toolkit for Dom {
         unsafe { day_dom_set_app_badge(encoded) };
     }
 
+    fn set_drag_source(&mut self, h: &DomHandle, source: day_spec::transfer::Source) {
+        transfer::source(h.0, source);
+    }
+    fn set_drop_target(&mut self, h: &DomHandle, target: day_spec::transfer::Target) {
+        transfer::target(h.0, target);
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             // Composed, not read: the CSS generic families plus the bundled `document.fonts`
@@ -1347,7 +1356,9 @@ impl Toolkit for Dom {
             // name for certain (docs/fonts.md).
             Cap::FontList => Support::Emulated,
             // An inline `cursor` style per element (docs/cursor.md); a coarse pointer never shows it.
-            Cap::Cursor => Support::Native,
+            Cap::Cursor | Cap::DragDrop | Cap::DragExternalImport | Cap::DragMultipleItems => {
+                Support::Native
+            }
             // A statement about the toolkit, not about the current window: web-dom can always
             // draw two panes. Whether a given host does follows from the window's size class,
             // which `run`/`day_dom_resized` report and the pieces layer resolves against

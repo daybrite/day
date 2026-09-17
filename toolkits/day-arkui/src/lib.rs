@@ -21,6 +21,8 @@ pub use imp::*;
 #[cfg(target_env = "ohos")]
 pub mod ext;
 #[cfg(target_env = "ohos")]
+mod transfer;
+#[cfg(target_env = "ohos")]
 pub use ext::*;
 
 #[cfg(target_env = "ohos")]
@@ -2743,8 +2745,18 @@ mod imp {
             unsafe { ffi::day_ark_open_url(cstr(url).as_ptr()) };
         }
 
+        fn set_drag_source(&mut self, h: &AHandle, source: day_spec::transfer::Source) {
+            crate::transfer::source(h, source);
+        }
+        fn set_drop_target(&mut self, h: &AHandle, target: day_spec::transfer::Target) {
+            crate::transfer::target(h, target);
+        }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                Cap::DragDrop
+                | Cap::DragExternalImport
+                | Cap::DragExternalExport
+                | Cap::DragMultipleItems => Support::Native,
                 Cap::FileDialogs => Support::Native,
                 // `OH_Drawing_FontMgr` lists every family and style set (docs/fonts.md).
                 Cap::FontList => Support::Native,

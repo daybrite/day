@@ -47,6 +47,7 @@ fn qt_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
 mod picker;
 mod textarea;
 mod toolbar;
+mod transfer;
 
 pub type Handle = QtHandle;
 
@@ -1633,7 +1634,7 @@ impl Toolkit for Qt {
             | Cap::TextEditable
             | Cap::TextSelectable
             // Qt's own QDrag pipeline: grabbed-cell pixmap, insertion line, no-drop cursor.
-            | Cap::ListReorder
+            | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::ListReorder
             // Real DayWindows on the shared QApplication (docs/windows.md).
             | Cap::MultiWindow
             // A QTabWidget, which is Qt's own one-of-N container and already the shape Day
@@ -3027,6 +3028,12 @@ impl Toolkit for Qt {
         }
     }
 
+    fn set_drag_source(&mut self, h: &QtHandle, source: day_spec::transfer::Source) {
+        transfer::source(h, source);
+    }
+    fn set_drop_target(&mut self, h: &QtHandle, target: day_spec::transfer::Target) {
+        transfer::target(h, target);
+    }
     fn set_context_menu_fn(&mut self, h: &QtHandle, node: NodeId, f: day_spec::ContextMenuFn) {
         CTX_MENU_FNS.with(|m| m.borrow_mut().insert(node.0, f));
         unsafe { ffi::day_qt_context_menu_fn(h.0, node.0, on_context_menu_summon) };

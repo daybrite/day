@@ -1031,6 +1031,21 @@ macro_rules! day_start_android {
 
         #[cfg(target_os = "android")]
         #[unsafe(no_mangle)]
+        pub extern "system" fn Java_dev_daybrite_day_bridge_DayTransfer_nativeCall<'local>(
+            mut env: $crate::android::jni::EnvUnowned<'local>,
+            _class: $crate::android::jni::objects::JClass<'local>,
+            kind: i32, token: i64, x: f64, y: f64,
+            bytes: $crate::android::jni::objects::JByteArray<'local>,
+            local: $crate::android::jni::sys::jboolean,
+        ) -> $crate::android::jni::sys::jbyteArray {
+            match env.with_env(|env| $crate::android::transfer_call(env,kind,token,x,y,bytes,local)).into_outcome() {
+                $crate::android::jni::Outcome::Ok(value)=>value,
+                _=>::core::ptr::null_mut(),
+            }
+        }
+
+        #[cfg(target_os = "android")]
+        #[unsafe(no_mangle)]
         pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeHandlesKeys(
             _env: $crate::android::jni::EnvUnowned,
             _class: $crate::android::jni::objects::JClass,
@@ -1048,7 +1063,7 @@ pub mod android {
     pub use day_android::{
         dispatch_event, handles_keys, list_bind, list_can_delete, list_can_drop, list_delete,
         list_is_selected, list_len, list_move, list_recycle, read_jstring, run_frame, run_posted,
-        window_started,
+        transfer_call, window_started,
     };
 
     #[allow(clippy::too_many_arguments)]
@@ -1273,3 +1288,6 @@ pub mod arkui {
         }
     }
 }
+
+/// Native drag-and-drop data and acceptance policy.
+pub use day_spec::transfer;

@@ -290,6 +290,9 @@ const env = {
   // its own, and `SystemTime::now()` traps there rather than failing.
   day_datetime_now_secs: () => Date.now() / 1000,
 
+  day_dom_drag_source: (id) => installDragSource(id),
+  day_dom_drop_target: (id) => installDropTarget(id),
+  day_dom_drag_offer: (p, n) => { dragOffer = mem().slice(p, p + n); },
   day_dom_create: (kind) => create(kind),
 
   day_dom_insert(parent, child, index) {
@@ -2480,4 +2483,110 @@ async function boot(wasmUrl) {
     const [p, l] = intoWasm(line);
     wasm.day_dom_script_line(p, l);
   }
+}
+
+// Native HTML transfer. DataTransfer is accessed only during its permitted event lifetime.
+const dragBundle = 'application/vnd.day.transfer';
+const dragLimit = 64 * 1024 * 1024;
+let dragOffer = null, localDrag = null;
+function transferCall(fn, id, x, y, bytes, local) {
+  const p = wasm.day_dom_alloc(bytes.length);
+  mem().set(bytes, p);
+  return fn(id, x, y, p, bytes.length, !!local);
+}
+function dragPacket(items) {
+  const parts = items.map(clipPacket);
+  const n = 12 + parts.reduce((n, b) => n + b.length, 0);
+  if (!items.length || items.length > 256 || n > dragLimit) throw new RangeError('Transfer too large');
+  const out = new Uint8Array(n); out.set([68,65,89,68,78,68,0,1]);
+  new DataView(out.buffer).setUint32(8, items.length, true);
+  let at = 12; for (const p of parts) { out.set(p,at); at += p.length; }
+  return out;
+}
+function dragRepresentations(packet) {
+  const v = new DataView(packet.buffer,packet.byteOffset,packet.byteLength);
+  let at=12; const items=[];
+  for (let i=0;i<v.getUint32(8,true);i++) {
+    const count=v.getUint32(at,true); at+=4; const reps=[];
+    for(let j=0;j<count;j++) {
+      const m=v.getUint32(at,true), n=v.getUint32(at+4,true); at+=8;
+      const mime=utf8.decode(packet.subarray(at,at+m)); at+=m;
+      reps.push({mime,bytes:packet.slice(at,at+n)}); at+=n;
+    }
+    items.push(reps);
+  }
+  return items;
+}
+function dragBase64(bytes) {
+  let s=''; for(let i=0;i<bytes.length;i+=16384) s+=String.fromCharCode(...bytes.subarray(i,i+16384));
+  return btoa(s);
+}
+function installDragSource(id) {
+  const el=E(id); el.draggable=true;
+  el.addEventListener('dragstart',e=>{
+    // Nested registered sources own their own gesture.
+    if(e.target.closest('[draggable="true"]')!==el) return;
+    dragOffer=null; const r=el.getBoundingClientRect();
+    wasm.day_dom_drag_prepare(id,e.clientX-r.left,e.clientY-r.top);
+    const packet=dragOffer; dragOffer=null;
+    if(!packet || !e.dataTransfer) { e.preventDefault(); return; }
+    try {
+      e.dataTransfer.effectAllowed='copy';
+      e.dataTransfer.setData(dragBundle,dragBase64(packet));
+      for(const rep of dragRepresentations(packet)[0]) {
+        // HTML custom formats carry strings. Preserve arbitrary bytes through the bundle;
+        // expose their MIME names during protected hover without decoding them as text.
+        e.dataTransfer.setData(rep.mime,rep.mime.startsWith('text/') ? utf8.decode(rep.bytes) : dragBase64(rep.bytes));
+      }
+      localDrag={id}; e.stopPropagation();
+    } catch { localDrag=null; e.preventDefault(); }
+  });
+  el.addEventListener('dragend',()=>{ localDrag=null; });
+  const hooks=releaseHooks.get(id)??[]; hooks.push(()=>{if(localDrag?.id===id)localDrag=null;}); releaseHooks.set(id,hooks);
+}
+function installDropTarget(id) {
+  const el=E(id);
+  const proposal=e=>{
+    const r=el.getBoundingClientRect(), dt=e.dataTransfer;
+    if(!dt) return false;
+    const types=new Set(dt.types);
+    for(const item of dt.items) if(item.type) types.add(item.type);
+    return transferCall(wasm.day_dom_drag_accept,id,e.clientX-r.left,e.clientY-r.top,utf8enc.encode([...types].join('\n')),localDrag);
+  };
+  for(const name of ['dragenter','dragover']) el.addEventListener(name,e=>{
+    if(proposal(e)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect='copy'; }
+  });
+  el.addEventListener('drop',e=>{
+    if(!proposal(e)) return;
+    e.preventDefault(); e.stopPropagation();
+    const r=el.getBoundingClientRect(), x=e.clientX-r.left,y=e.clientY-r.top, local=!!localDrag;
+    // Capture every File and initiate every string read before returning from drop.
+    const dt=e.dataTransfer, encoded=dt.getData(dragBundle);
+    const files=Array.from(dt.files);
+    const strings=Array.from(dt.items).filter(i=>i.kind==='string').map(i=>new Promise(resolve=>i.getAsString(s=>resolve({mime:i.type,bytes:utf8enc.encode(s)}))));
+    const expires=performance.now()+30000;
+    (async()=>{
+      let packet;
+      if(encoded) {
+        if(encoded.length>Math.ceil(dragLimit/3)*4) return;
+        // Native apps may publish the same MIME as binary rather than HTML base64.
+        // Keep a standard File fallback available instead of discarding a valid image.
+        try {
+          const candidate=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));
+          if(candidate.length>=12 && [68,65,89,68,78,68,0,1].every((b,i)=>candidate[i]===b)) packet=candidate;
+        } catch { /* Try the standard File representations. */ }
+      }
+      if(!packet && files.length) {
+        if(files.length>256 || files.reduce((n,f)=>n+f.size,0)>dragLimit) return;
+        packet=dragPacket(await Promise.all(files.map(async f=>[{mime:f.type||'application/octet-stream',bytes:new Uint8Array(await f.arrayBuffer())}])));
+      } else if(!packet) {
+        const reps=(await Promise.all(strings)).filter(r=>r.mime.includes('/')&&r.mime!==dragBundle);
+        if(!reps.length||reps.length>32) return;
+        packet=dragPacket([reps]);
+      }
+      // Disposed targets cannot receive a late File read.
+      if(performance.now()<expires && els[id]===el && el.isConnected && packet.length<=dragLimit)
+        transferCall(wasm.day_dom_drag_receive,id,x,y,packet,local);
+    })().catch(error=>console.warn('day: drop read failed',error));
+  });
 }

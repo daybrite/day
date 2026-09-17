@@ -22,6 +22,10 @@ fn pkg_config(args: &[&str]) -> String {
 }
 
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        println!("cargo:rustc-link-lib=framework=CoreServices");
+    }
+    println!("cargo:rerun-if-changed=src/shim-transfer.cpp");
     let cflags = pkg_config(&["--cflags", "Qt6Widgets"]);
 
     let mut build = cc::Build::new();
@@ -31,6 +35,7 @@ fn main() {
         .file("src/shim.cpp")
         // Built-in leaf shims moved in from their satellite crates (2026-07).
         .file("src/shim-picker.cpp")
+        .file("src/shim-transfer.cpp")
         .file("src/shim-textarea.cpp");
     for tok in cflags.split_whitespace() {
         build.flag(tok);

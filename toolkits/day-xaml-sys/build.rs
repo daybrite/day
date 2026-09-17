@@ -46,5 +46,6 @@ fn main() {
     println!("cargo:rustc-link-lib=dwmapi"); // dark title bar opt-in (DwmSetWindowAttribute)
     println!("cargo:rustc-link-lib=dwrite"); // the system font collection (docs/fonts.md)
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/transfer.inc");
     println!("cargo:rerun-if-changed=build.rs");
 }

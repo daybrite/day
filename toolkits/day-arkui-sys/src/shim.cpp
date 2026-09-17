@@ -234,7 +234,9 @@ static const char* day_ark_key_name(int32_t code, uint64_t held) {
     return nullptr;
 }
 
+#include "transfer.inc"
 static void event_receiver(ArkUI_NodeEvent* ev) {
+    if (day_transfer::event(ev)) return;
     if (!ev) return;
     uint64_t id = (uint64_t)(uintptr_t)OH_ArkUI_NodeEvent_GetUserData(ev);
     ArkUI_NodeEventType t = OH_ArkUI_NodeEvent_GetEventType(ev);
@@ -395,6 +397,7 @@ void* day_ark_node_new(int32_t kind) {
 void day_ark_node_dispose(void* n) {
     if (!n) return;
     // Erase per-node side state before the node dies (see the forward declarations above).
+    day_transfer::forget(n);
     day_canvas_forget(n);
     day_list_forget(n);
     if (g_api) g_api->disposeNode((ArkUI_NodeHandle)n);

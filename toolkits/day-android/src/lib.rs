@@ -447,6 +447,9 @@ mod imp {
     };
 
     day_core::tls_group! {
+        static TRANSFER_SOURCES: day_spec::sidetable::SideTable<day_spec::transfer::Source> = day_spec::sidetable::SideTable::new();
+        static TRANSFER_TARGETS: day_spec::sidetable::SideTable<day_spec::transfer::Target> = day_spec::sidetable::SideTable::new();
+
         /// Recycling list (docs/list.md): row-pull sources keyed by list node id (Java passes it
         /// back in nativeListBind), and a stable GlobalRef per physical cell so day-core's cell
         /// map keys consistently across ListView recycling. Cells are grouped by list so that
@@ -579,6 +582,75 @@ mod imp {
                     .is_some_and(|set| set.contains(&(position.max(0) as usize)))
             })
         })
+    }
+
+    pub fn transfer_call(
+        env: &mut Env,
+        kind: i32,
+        token: i64,
+        x: f64,
+        y: f64,
+        bytes: jni::objects::JByteArray,
+        local: bool,
+    ) -> Result<jni::sys::jbyteArray, jni::errors::Error> {
+        use day_spec::transfer::*;
+        let input = env.convert_byte_array(&bytes)?;
+        let output = day_spec::ffi_guard::contain(Vec::new(), || match kind {
+            0 => TRANSFER_SOURCES
+                .with(|t| t.get(token as usize))
+                .and_then(|f| f(Point::new(x, y)))
+                .and_then(|o| o.encode())
+                .unwrap_or_default(),
+            1 => {
+                let at = Location {
+                    position: Point::new(x, y),
+                    types: String::from_utf8_lossy(&input)
+                        .split('\n')
+                        .map(str::to_owned)
+                        .collect(),
+                    allowed: vec![Operation::Copy],
+                    local,
+                };
+                vec![u8::from(
+                    TRANSFER_TARGETS
+                        .with(|t| t.get(token as usize))
+                        .is_some_and(|t| t.proposal(&at) == Operation::Copy),
+                )]
+            }
+            2 => {
+                let ok = Offer::decode(&input).is_some_and(|offer| {
+                    TRANSFER_TARGETS
+                        .with(|t| t.get(token as usize))
+                        .is_some_and(|t| {
+                            t.deliver(
+                                Location {
+                                    position: Point::new(x, y),
+                                    types: offer.types(),
+                                    allowed: vec![Operation::Copy],
+                                    local,
+                                },
+                                offer,
+                            )
+                        })
+                });
+                vec![u8::from(ok)]
+            }
+            _ => Vec::new(),
+        });
+        Ok(env.byte_array_from_slice(&output)?.into_raw())
+    }
+    fn transfer_install(h: &AHandle, method: &str) {
+        with_env(|env| {
+            let _ = env.dcall_static(
+                "dev/daybrite/day/bridge/DayTransfer",
+                method,
+                "(Landroid/view/View;J)V",
+                &[
+                    JValue::Object(h.0.as_obj()),
+                    JValue::Long(h.0.as_obj().as_raw() as i64),
+                ],
+            );
+        });
     }
 
     /// The reorder guard's verdict for a hovered drop (docs/list.md), pulled synchronously by
@@ -1986,8 +2058,17 @@ mod imp {
     impl Toolkit for Android {
         type Handle = AHandle;
 
+        fn set_drag_source(&mut self, h: &AHandle, source: day_spec::transfer::Source) {
+            TRANSFER_SOURCES.with(|t| t.insert(h.0.as_obj().as_raw() as usize, source));
+            transfer_install(h, "source");
+        }
+        fn set_drop_target(&mut self, h: &AHandle, target: day_spec::transfer::Target) {
+            TRANSFER_TARGETS.with(|t| t.insert(h.0.as_obj().as_raw() as usize, target));
+            transfer_install(h, "target");
+        }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems => Support::Native,
                 // `View.setPointerIcon` with a system `PointerIcon` per view (docs/cursor.md).
                 Cap::Cursor => Support::Native,
                 // The families `fonts.xml` names, the ones `Typeface.create` resolves
@@ -3205,6 +3286,14 @@ mod imp {
             }
         }
         fn release(&mut self, h: AHandle) {
+            with_env(|env| {
+                let _ = env.dcall_static(
+                    "dev/daybrite/day/bridge/DayTransfer",
+                    "release",
+                    "(Landroid/view/View;)V",
+                    &[JValue::Object(h.0.as_obj())],
+                );
+            });
             // A released window root drops its `SECONDARY` record (docs/windows.md teardown;
             // the activity itself already finished or is finishing).
             with_env(|env| {

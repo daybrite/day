@@ -37,6 +37,7 @@ pub type Handle = gtk4::Widget;
 mod picker;
 mod textarea;
 mod toolbar;
+mod transfer;
 
 pub mod ext;
 pub use ext::*;
@@ -3396,7 +3397,7 @@ impl Toolkit for Gtk {
             | Cap::TextEditable
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
-            | Cap::ListReorder
+            | Cap::DragDeferredReceipt | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::ListReorder
             // GtkListView + GtkTreeListModel + GtkTreeExpander host day-built rows natively
             // (docs/tree.md). `Cap::TreeMove` is deliberately NOT here yet: the native drag
             // half lands after the seam parity — dayscript's `tree_move:` drives the seam
@@ -5906,6 +5907,12 @@ impl Toolkit for Gtk {
         }
     }
 
+    fn set_drag_source(&mut self, h: &Handle, source: day_spec::transfer::Source) {
+        transfer::source(h, source);
+    }
+    fn set_drop_target(&mut self, h: &Handle, target: day_spec::transfer::Target) {
+        transfer::target(h, target);
+    }
     fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
         let key = widget_key(h);
         CTX_MENU_FNS.with(|m| m.borrow_mut().insert(key, f));

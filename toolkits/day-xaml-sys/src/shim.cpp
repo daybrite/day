@@ -4041,7 +4041,9 @@ void day_xaml_remove_child(void* parent, void* child) {
         }
     });
 }
+void day_xaml_transfer_release(void* h);
 void day_xaml_delete(void* h) {
+    day_xaml_transfer_release(h);
     g_clip_geometry.erase(h);
     delete reinterpret_cast<Node*>(h);
 }
@@ -5696,3 +5698,5 @@ void day_textarea_xaml_set_text(void* handle, const char* text) {
 }
 
 } // extern "C"
+
+#include "transfer.inc"

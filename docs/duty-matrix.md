@@ -38,6 +38,8 @@ implement them, and this table proves it.
 | `set_undo_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |
 | `set_edit_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |
 | `modifiers` | · | ✓ | · | · | ✓ | · | · | · | ✓ | · |
+| `set_drag_source` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| `set_drop_target` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `set_context_menu_fn` | · | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ | · |
 | `set_app_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `set_context_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |

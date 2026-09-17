@@ -7,7 +7,14 @@ description: "Proposed transfer model, toolkit adapters, Day-Sketch behavior, an
 
 # Drag and drop for Day apps
 
-Investigation: 2026-09-17. **Design proposal; the general API described here is not implemented.**
+Investigation: 2026-09-17. **Implementation in progress.** The eager-byte API and native
+adapters for all eight toolkits are implemented. AppKit/GTK/Qt cross-process desktop transfers
+have user-reported manual validation; native HTML image/custom-data and rejection tests pass.
+UIKit and Android applications build and their page scripts pass. Harmony is compile checked;
+Windows still needs its own build/runtime validation. Asynchronous application readers/file
+leases, file promises, and the full acceptance matrix below remain outstanding. See the
+[current API and verification record](drag-and-drop.md). The vocabulary below describes the
+complete intended API, not a claim that every part has landed.
 The [typed clipboard API](clipboard.md#typed-binary-content) is implemented. This plan builds on
 its representation model, without using the system clipboard as the transport for a drag.
 

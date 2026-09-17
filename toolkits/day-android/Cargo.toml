@@ -31,6 +31,7 @@ jni = "0.22"
 # CLI scaffolding apps whose Gradle cannot compile the current shim (the install workflow's
 # android-mdc leg failed exactly this way when SlidingPaneLayout arrived).
 [package.metadata.day.android]
+manifest-components = ["components.xml"]
 gradle-dependencies = ["androidx.slidingpanelayout:slidingpanelayout:1.2.0"]
 # The toolkit's own glyph set for `Symbol` (res/drawable/day_symbol_*.xml, docs/toolbars.md):
 # a Material Symbols vector per variant, so a symbol-only toolbar item has an icon to show in

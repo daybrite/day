@@ -1005,6 +1005,9 @@ pub trait TreeOps {
     /// The tree's driver, for the guard → commit path `tree_try_move` runs outside the
     /// borrow (`None` when `node` hosts no tree).
     fn tree_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::tree_driver::TreeDriver>>;
+    /// Install native transfer behavior on a realized host.
+    fn set_drag_source(&mut self, node: RNode, source: day_spec::transfer::Source);
+    fn set_drop_target(&mut self, node: RNode, target: day_spec::transfer::Target);
     /// Install a summon-time context-menu provider on `node` (docs/menus.md).
     fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn);
 }
@@ -2206,6 +2209,16 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.trees.get(&node).map(|s| s.driver.clone())
     }
 
+    fn set_drag_source(&mut self, node: RNode, source: day_spec::transfer::Source) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.set_drag_source(&handle, source);
+        }
+    }
+    fn set_drop_target(&mut self, node: RNode, target: day_spec::transfer::Target) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.set_drop_target(&handle, target);
+        }
+    }
     fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn) {
         if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
             self.toolkit

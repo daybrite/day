@@ -23,6 +23,8 @@ pub use imp::*;
 mod picker;
 #[cfg(target_os = "ios")]
 mod textarea;
+#[cfg(target_os = "ios")]
+mod transfer;
 /// Set a `UITextInputTraits` integer property on a `UITextView` (0 = on/default, 1 = off) —
 /// dispatched through the raw runtime, since objc2's checked send does not see these dynamically
 /// resolved setters. Public for standalone editor pieces (docs/extending.md).
@@ -7394,8 +7396,15 @@ mod imp {
             }
         }
 
+        fn set_drag_source(&mut self, h: &Handle, source: day_spec::transfer::Source) {
+            crate::transfer::source(h, source);
+        }
+        fn set_drop_target(&mut self, h: &Handle, target: day_spec::transfer::Target) {
+            crate::transfer::target(h, target);
+        }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
+                Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems => Support::Native,
                 // A UIPointerInteraction per view answers pointer EFFECTS (beam, highlight,
                 // lift, hidden) for the nearest shapes; iPadOS draws no arrows (docs/cursor.md).
                 Cap::Cursor => Support::Emulated,

@@ -983,6 +983,37 @@ impl<P: Piece> Decorated<P> {
     pub fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
         self.push(op_toolbar(content.into_source()))
     }
+    /// Offer data through the platform's native drag session.
+    pub fn drag_source(
+        self,
+        source: impl Fn(day_spec::Point) -> Option<day_spec::transfer::Offer> + 'static,
+    ) -> Self {
+        self.push(move |inner| {
+            Box::new(move |cx| {
+                let n = layer_node(cx);
+                cx.under(n, |cx| {
+                    inner(cx);
+                });
+                let source = scoped_drag_source(Rc::new(source));
+                with_tree(|t| t.set_drag_source(n, source));
+                n
+            })
+        })
+    }
+    /// Attach native drop acceptance policy and an owned-data receiver.
+    pub fn drop_target(self, target: day_spec::transfer::Target) -> Self {
+        self.push(move |inner| {
+            Box::new(move |cx| {
+                let n = layer_node(cx);
+                cx.under(n, |cx| {
+                    inner(cx);
+                });
+                let target = scoped_drop_target(target);
+                with_tree(|t| t.set_drop_target(n, target));
+                n
+            })
+        })
+    }
     pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
         self.push(op_context_menu(items))
     }
@@ -1284,6 +1315,15 @@ pub trait Decorate: Piece + Sized {
     /// Attach a context menu, shown with the platform's native affordance on secondary-click (desktop)
     /// or long-press (mobile). Items are built with [`menu_item`]/[`sub_menu`]/[`menu_role`]/
     /// [`menu_separator`]. Passing an empty `Vec` removes any menu.
+    fn drag_source(
+        self,
+        source: impl Fn(day_spec::Point) -> Option<day_spec::transfer::Offer> + 'static,
+    ) -> Decorated<Self> {
+        Decorated::new(self).drag_source(source)
+    }
+    fn drop_target(self, target: day_spec::transfer::Target) -> Decorated<Self> {
+        Decorated::new(self).drop_target(target)
+    }
     fn context_menu(self, items: Vec<MenuEntry>) -> Decorated<Self> {
         Decorated::new(self).context_menu(items)
     }
@@ -1511,5 +1551,88 @@ impl A11yBuilder {
         self.0.decorative = true;
         self.0.hidden = true;
         self
+    }
+}
+
+// Native callbacks arrive outside the event dispatcher. Enter their owning scope so
+// window ambient state resolves correctly, and reject callbacks retained after disposal.
+fn scoped_drag_source(source: day_spec::transfer::Source) -> day_spec::transfer::Source {
+    let scope = Scope::current();
+    let alive = Rc::new(Cell::new(true));
+    let cleanup = alive.clone();
+    scope.on_cleanup(move || cleanup.set(false));
+    Rc::new(move |point| alive.get().then(|| scope.enter(|| source(point))).flatten())
+}
+fn scoped_drop_target(target: day_spec::transfer::Target) -> day_spec::transfer::Target {
+    let scope = Scope::current();
+    let alive = Rc::new(Cell::new(true));
+    let cleanup = alive.clone();
+    scope.on_cleanup(move || cleanup.set(false));
+    let accept_alive = alive.clone();
+    day_spec::transfer::Target {
+        types: target.types,
+        accept: Rc::new(move |location| {
+            if accept_alive.get() {
+                scope.enter(|| (target.accept)(location))
+            } else {
+                day_spec::transfer::Operation::None
+            }
+        }),
+        receive: Rc::new(move |drop| alive.get() && scope.enter(|| (target.receive)(drop))),
+    }
+}
+
+#[cfg(test)]
+mod transfer_tests {
+    use super::*;
+    use day_spec::transfer::*;
+
+    #[test]
+    fn transfer_callbacks_restore_owner_scope_and_reject_after_disposal() {
+        let owner = Scope::child();
+        let foreign = Scope::child();
+        foreign.provide(22u32);
+        let (source, target) = owner.enter(|| {
+            owner.provide(11u32);
+            let check = || assert_eq!(day_core::environment::<u32>(), Some(11));
+            (
+                scoped_drag_source(Rc::new(move |_| {
+                    check();
+                    Some(Offer::default())
+                })),
+                scoped_drop_target(Target {
+                    types: vec![],
+                    accept: Rc::new(move |_| {
+                        check();
+                        Operation::Copy
+                    }),
+                    receive: Rc::new(move |_| {
+                        check();
+                        true
+                    }),
+                }),
+            )
+        });
+        let location = || Location {
+            position: day_spec::Point::new(40., 20.),
+            types: vec![],
+            allowed: vec![Operation::Copy],
+            local: true,
+        };
+        foreign.enter(|| {
+            assert!(source(day_spec::Point::new(0., 0.)).is_some());
+            assert!(target.deliver(location(), Offer::default()));
+            assert_eq!(day_core::environment::<u32>(), Some(22));
+            owner.dispose();
+            assert!(source(day_spec::Point::new(0., 0.)).is_none());
+            assert_eq!(target.proposal(&location()), Operation::None);
+            assert!(!(target.receive)(Drop {
+                local: true,
+                position: day_spec::Point::new(0., 0.),
+                operation: Operation::Copy,
+                items: vec![]
+            }));
+        });
+        foreign.dispose();
     }
 }

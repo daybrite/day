@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/transfer.inc");
     println!("cargo:rerun-if-env-changed=OHOS_NDK_HOME");
 
     let target_env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
@@ -18,6 +19,7 @@ fn main() {
         return;
     }
 
+    println!("cargo:rustc-link-lib=udmf");
     let ndk = std::env::var("OHOS_NDK_HOME").unwrap_or_else(|_| {
         panic!(
             "day-arkui-sys: set OHOS_NDK_HOME to the OpenHarmony NDK `native` dir \

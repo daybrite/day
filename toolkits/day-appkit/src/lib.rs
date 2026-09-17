@@ -75,6 +75,8 @@ pub type Handle = Retained<NSView>;
 mod picker;
 mod textarea;
 mod toolbar;
+mod transfer;
+use objc2_app_kit::NSDraggingSource;
 
 pub mod ext;
 pub use ext::*;
@@ -808,6 +810,7 @@ define_class!(
         // forwards it to them.
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &objc2_app_kit::NSEvent) {
+            if transfer::pressed(self, event) { return; }
             let ptr = (self as *const DayFlipped).cast::<NSView>() as usize;
             if FOCUSABLE_NODES.with(|t| t.get(ptr)).is_some()
                 && let Some(window) = self.window()
@@ -952,6 +955,24 @@ define_class!(
             }
         }
     }
+    unsafe impl NSObjectProtocol for DayFlipped {}
+    unsafe impl NSDraggingSource for DayFlipped {
+        #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
+        fn source_mask(&self, _session: &objc2_app_kit::NSDraggingSession, _context: objc2_app_kit::NSDraggingContext) -> objc2_app_kit::NSDragOperation { objc2_app_kit::NSDragOperation::Copy }
+    }
+    impl DayFlipped {
+        #[unsafe(method(mouseDragged:))]
+        fn transfer_dragged(&self, event: &NSEvent) {
+            if !transfer::dragged(self, event) { let _: () = unsafe { msg_send![super(self), mouseDragged: event] }; }
+        }
+        #[unsafe(method(draggingEntered:))]
+        fn transfer_entered(&self, info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>) -> objc2_app_kit::NSDragOperation { transfer::proposal(self, info) }
+        #[unsafe(method(draggingUpdated:))]
+        fn transfer_updated(&self, info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>) -> objc2_app_kit::NSDragOperation { transfer::proposal(self, info) }
+        #[unsafe(method(performDragOperation:))]
+        fn transfer_drop(&self, info: &ProtocolObject<dyn objc2_app_kit::NSDraggingInfo>) -> bool { transfer::receive(self, info) }
+    }
+
 );
 
 impl DayFlipped {
@@ -5111,7 +5132,7 @@ impl Toolkit for AppKit {
             // NSUndoManager fronted by DayUndoManager: the stock Edit menu retitles and
             // enables itself, ⌘Z/⇧⌘Z land through the responder chain (docs/model.md).
             | Cap::UndoBridge
-            | Cap::EditBridge
+            | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::EditBridge
             | Cap::AppBadgeDot
             | Cap::Appearance
             // firstBaselineOffsetFromTop — the platform's own answer (docs/baseline.md).
@@ -7382,6 +7403,12 @@ impl Toolkit for AppKit {
         apply_to_subviews(view, &menu);
     }
 
+    fn set_drag_source(&mut self, h: &Handle, source: day_spec::transfer::Source) {
+        transfer::source(h, source);
+    }
+    fn set_drop_target(&mut self, h: &Handle, target: day_spec::transfer::Target) {
+        transfer::target(h, target);
+    }
     fn set_context_menu_fn(&mut self, h: &Handle, _node: NodeId, f: day_spec::ContextMenuFn) {
         // Consulted by the classes that override `menuForEvent:` (the canvas; docs/menus.md
         // "Dynamic context menus" lists the covered surfaces per backend).
