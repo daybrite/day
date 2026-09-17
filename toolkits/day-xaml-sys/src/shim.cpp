@@ -486,6 +486,11 @@ static int g_forced_theme = 0;
 /// one still wins, so a themed CI capture cannot be knocked off its scheme by the app's own picker.
 static int g_app_override = 0;
 
+/// True when the scheme in force is NOT the system's own — a DAY_THEME force or the app's
+/// Appearance pick. The windows below consult it wherever they would otherwise take a color from
+/// something that only ever speaks the SYSTEM scheme: the app's theme-brush resources, and Mica.
+static bool theme_overridden() { return g_forced_theme != 0 || g_app_override != 0; }
+
 struct DayApp : WUX::ApplicationT<DayApp, WUXMk::IXamlMetadataProvider> {
     WUXH::WindowsXamlManager manager{ nullptr };
     // DAY_THEME is forced PER-ELEMENT (ElementTheme on the root Canvas — see day_xaml_window_new),
@@ -814,6 +819,14 @@ static std::vector<OemAccel> g_oem_accels;
 
 extern "C" {
 
+// Defined with the rest of the set_appearance machinery further down this same block, but needed
+// by the two window-creation paths above it: a window's ground and its root ElementTheme must
+// agree with what a later re-theme would compute, or it opens in one scheme and re-themes into
+// another. Declared in here, beside the definitions, for the linkage reason noted at
+// `cached_path_geometry` — a declaration outside the block contradicts the definition inside it.
+static void ground_root(WUXC::Canvas const& root, bool dark);
+static WUX::ElementTheme element_theme_now();
+
 void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h) try {
     g_min_w = min_w;
     g_min_h = min_h;
@@ -856,9 +869,7 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     // chrome (transient client brush + dark title bar) and, via g_forced_theme, the code-behind
     // theme-brush fills. The theme itself is forced per-element on the root below, not app-wide.
     g_forced_theme = day_theme_env(); // 0 unset, 1 light, 2 dark
-    bool app_dark = g_forced_theme == 2 ||
-        (g_forced_theme == 0 &&
-         WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark);
+    bool app_dark = effective_dark();
 
     WNDCLASSW wc{};
     wc.lpfnWndProc = WndProc;
@@ -916,19 +927,23 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     // Force DAY_THEME PER-ELEMENT (islands-safe, unlike Application::RequestedTheme): ElementTheme
     // on the root cascades to every descendant control + its {ThemeResource} lookups, so the whole
     // tree renders in the forced scheme. Unset => Default (follows the system).
-    switch (g_forced_theme) {
-        case 2: root.RequestedTheme(WUX::ElementTheme::Dark); break;
-        case 1: root.RequestedTheme(WUX::ElementTheme::Light); break;
-    }
+    root.RequestedTheme(element_theme_now());
     source.Content(root);
     // Ground the island: a Canvas paints nothing itself, and the raw HWND behind it is white — under
     // a dark tree that white would ghost through. The named page-background brush resolves per the
     // SYSTEM theme, so it is only trustworthy when unforced; when DAY_THEME forces a scheme, ground
     // with a solid neutral matching it (the Fluent page-base color for that scheme).
     {
-        // Mica accepted ⇒ leave the root transparent so the material shows through it.
-        bool grounded = mica;
-        if (!mica && g_forced_theme == 0) {
+        // Mica accepted ⇒ leave the root transparent so the material shows through it — but ONLY
+        // when the window is on the system's own scheme. DWM draws the material from the SYSTEM
+        // theme and offers no way to ask it for the other one, so under a DAY_THEME force or an
+        // Appearance override a transparent root shows the wrong scheme: every self-painting
+        // control (nav pane, toolbar, menu bar, title bar) turns dark while the page area and the
+        // docked chrome stay the system's white. `ground_root` refuses Mica for the same reason on
+        // the re-theme path; this is the creation-time half, which alone runs for a window that
+        // opens already forced (a DAY_THEME capture run never calls set_appearance at all).
+        bool grounded = mica && !theme_overridden();
+        if (!mica && !theme_overridden()) {
             auto res = WUX::Application::Current().Resources();
             auto key = winrt::box_value(winrt::hstring(L"ApplicationPageBackgroundThemeBrush"));
             if (res.HasKey(key)) {
@@ -940,7 +955,7 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
         }
         if (!grounded)
             root.Background(WUXM::SolidColorBrush(
-                color_argb(app_dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+                color_argb(effective_dark() ? 0xFF'202020u : 0xFF'F3F3F3u)));
     }
 
     // Load the island now, before day builds the control tree. Controls added to a live,
@@ -1306,9 +1321,7 @@ static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
 void* day_xaml_window_new2(const char* title, int w, int h,
                            unsigned long long node, int fixed) try {
-    bool app_dark = g_forced_theme == 2 ||
-        (g_forced_theme == 0 &&
-         WUX::Application::Current().RequestedTheme() == WUX::ApplicationTheme::Dark);
+    bool app_dark = effective_dark();
     static bool registered = false;
     if (!registered) {
         WNDCLASSW wc{};
@@ -1352,15 +1365,15 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     // Stretch, so the ground below actually covers the window — see the primary window's root.
     root.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
     root.VerticalAlignment(WUX::VerticalAlignment::Stretch);
-    switch (g_forced_theme) {
-        case 2: root.RequestedTheme(WUX::ElementTheme::Dark); break;
-        case 1: root.RequestedTheme(WUX::ElementTheme::Light); break;
-    }
+    // The scheme in force, which is the env force AND the app's own Appearance pick — a window
+    // opened from File ▸ New Window while the app is set to Dark used to consult only the former
+    // and open light, next to the dark window that spawned it.
+    root.RequestedTheme(element_theme_now());
     source.Content(root);
     // Solid neutral ground matching the scheme (the primary's themed-brush path needs the
     // unforced system lookup; a solid is correct in both cases and keeps this path simple).
     root.Background(WUXM::SolidColorBrush(
-        color_argb(app_dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+        color_argb(effective_dark() ? 0xFF'202020u : 0xFF'F3F3F3u)));
 
     // Load the island before day builds (see day_xaml_window_new: unloaded templated
     // controls measure to 0). Bounded pump.
@@ -2445,8 +2458,7 @@ static WUX::ElementTheme element_theme_now() {
 /// Following the system again puts the transparency back, so Mica returns.
 static void ground_root(WUXC::Canvas const& root, bool dark) {
     if (!root) return;
-    bool overridden = g_forced_theme != 0 || g_app_override != 0;
-    if (overridden) {
+    if (theme_overridden()) {
         root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
     } else if (root.Background()) {
         // Already grounded (Mica refused at creation): keep it opaque, just re-color it.
