@@ -118,12 +118,10 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
     <div class="container">
       <h2>How these are made</h2>
       <p class="lead">
-        Each app declares its screens in a dayscript walkthrough — the same script that drives its
-        UI tests. Its CI runs that walkthrough on every target it builds for, once per theme and
-        language, and publishes both the images and a machine-readable index of them beside its own
-        website. This page reads those indexes, so an app that captures a new screen shows it here
-        on the next build. See <a href={url('docs/dayscript')}>the dayscript reference</a> for the
-        <code>screenshot:</code> step and the metadata a row's heading comes from.
+        Each app’s CI runs a <a href={url('docs/dayscript')}>dayscript walkthrough</a> to capture
+        screens in its configured languages and themes. The gallery collects those published
+        screenshots when this site is built. Open an app above to compare the same screen
+        across platforms and find its source code.
       </p>
     </div>
   </section>

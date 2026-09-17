@@ -25,19 +25,26 @@ license.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
-objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2-ui-kit = { version = "0.3", features = ["UIPasteboard"] }
-objc2-foundation = { version = "0.3", features = ["NSString"] }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
 
 # Android reads ClipboardManager through a Java shim + day-android's cached JVM/Context. This is the
 # one platform where the headless crate rides on the day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
+base64 = "0.22"
 # daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
 # dependency is Android-only too; every other target compiles exactly as it did before.
 day-bridge = { workspace = true }
 
 [build-dependencies]
 day-build = { workspace = true }
+
+[package.metadata.day.android]
+java = ["platform/android/java"]
+manifest-components = ["platform/android/components.xml"]

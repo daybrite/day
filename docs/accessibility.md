@@ -10,13 +10,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Accessibility (§13)
 
-> **Status: implemented (annotation pillar).** `A11yProps` (label/hint/value/role/hidden/
-> decorative/identifier) now reaches native accessibility APIs on all five backends, and the
-> dayscript `a11y_audit` step verifies it in-process on the apple targets.
+Day starts with the accessibility behavior of its native controls. App code supplies the
+meaning those controls cannot infer: a label for an icon-only button, a summary for a chart,
+or the role and value of a custom drawing.
 
-Every interactive Piece is a native control, so screen readers, switch access, and keyboard
-navigation work at the level the platform provides before Day adds anything. Day's job is to keep
-that working, provide one uniform annotation API, and verify it landed.
+`A11yProps` carries those annotations to the native accessibility APIs. The dayscript
+`a11y_audit` step checks the declared metadata against the native tree on Apple targets.
+Test keyboard navigation and screen-reader behavior on the platforms you ship; annotations
+alone do not establish that a screen is usable.
 
 ## Authoring
 

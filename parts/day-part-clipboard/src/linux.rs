@@ -80,3 +80,106 @@ pub fn has_text() -> bool {
     // No cheaper probe than reading (the tools exit non-zero when the clipboard is empty).
     get_text().is_some()
 }
+
+use crate::{Content, Error, MAX_BYTES, Representation};
+pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
+    // Session tools own one target; prefer a standard image representation when offered.
+    let r = content
+        .0
+        .iter()
+        .find(|r| r.mime == "image/png")
+        .or_else(|| content.0.iter().find(|r| r.mime == "image/svg+xml"))
+        .or_else(|| content.0.iter().find(|r| r.mime == "text/plain"))
+        .unwrap_or(&content.0[0]);
+    let put = |cmd: &str, args: &[&str]| {
+        let Ok(mut child) = Command::new(cmd)
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            return false;
+        };
+        let ok = child
+            .stdin
+            .take()
+            .is_some_and(|mut s| s.write_all(&r.bytes).is_ok());
+        if !ok {
+            let _ = child.kill();
+        }
+        child.wait().is_ok_and(|s| ok && s.success())
+    };
+    let wl = || put("wl-copy", &["--type", &r.mime]);
+    let x = || {
+        put(
+            "xclip",
+            &["-selection", "clipboard", "-in", "-target", &r.mime],
+        )
+    };
+    let ok = if wayland_session() {
+        wl() || x()
+    } else {
+        x() || wl()
+    };
+    if ok {
+        Ok(vec![r.mime.clone()])
+    } else {
+        Err(Error::Unavailable)
+    }
+}
+pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error> {
+    use std::io::Read;
+    for mime in preferred {
+        let read = |cmd: &str, args: &[&str]| -> Result<Option<Vec<u8>>, Error> {
+            let Ok(mut child) = Command::new(cmd)
+                .args(args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::null())
+                .spawn()
+            else {
+                return Ok(None);
+            };
+            let mut bytes = Vec::new();
+            let ok = child
+                .stdout
+                .take()
+                .unwrap()
+                .take(MAX_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+                .is_ok();
+            if bytes.len() > MAX_BYTES {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Error::TooLarge);
+            }
+            Ok(child
+                .wait()
+                .is_ok_and(|s| ok && s.success())
+                .then_some(bytes))
+        };
+        let wl = || read("wl-paste", &["--no-newline", "--type", mime]);
+        let x = || {
+            read(
+                "xclip",
+                &["-selection", "clipboard", "-out", "-target", mime],
+            )
+        };
+        let bytes = if wayland_session() {
+            match wl()? {
+                some @ Some(_) => some,
+                None => x()?,
+            }
+        } else {
+            match x()? {
+                some @ Some(_) => some,
+                None => wl()?,
+            }
+        };
+        if let Some(bytes) = bytes {
+            return Ok(Some(Representation::new(*mime, bytes)));
+        }
+    }
+    Ok(None)
+}

@@ -8,8 +8,9 @@ section: Start here
 import InstallCommand from '../../components/InstallCommand.astro';
 import PlatformSetup from '../../components/PlatformSetup.astro';
 
-Day is a Rust framework for apps built with native platform controls. This guide covers installing
-the tools, creating a project, and making a change to a running app. No particular editor is required.
+This guide takes you from an empty directory to a running Day app. You will install the CLI,
+choose one platform, and edit the app’s first screen. You need a terminal and a text editor;
+the examples assume you can read basic Rust.
 
 ## 1. Install the CLI
 
@@ -64,9 +65,30 @@ pub fn root() -> impl Piece {
 Run the `day launch` command for your selected target again to see the change.
 [Pieces](/docs/pieces) explains how `column`, `label`, and `button` compose the interface.
 
-## 4. Add another target
+## 4. Make the screen respond
 
-Install the second target’s tools, then add it to the project:
+Replace `root()` again to give the button something visible to do:
+
+```rust
+pub fn root() -> impl Piece {
+    let count = Signal::new(0i64);
+
+    column((
+        label(move || format!("Count: {}", count.get())),
+        button("Add one").action(move || count.update(|n| *n += 1)),
+    ))
+    .spacing(12.0)
+    .padding(16.0)
+}
+```
+
+Rebuild and launch. Pressing **Add one** should change the count on screen. The `Signal`
+holds the value, and the label’s closure reads it whenever it changes. Keep the read inside
+the closure: `label(count.get().to_string())` would display only the initial value.
+
+## Optional: add another target
+
+Once the app works on your first platform, install another target’s tools and add it to the project:
 
 ```bash
 day app add-toolkit web-dom
@@ -79,7 +101,7 @@ each target you plan to ship.
 
 <span id="2-install-the-day-extension-for-vs-code"></span>
 
-## Optional: editor and AI tools
+## Optional: editor integration
 
 The [Day VS Code extension](https://github.com/daybrite/day-vscode)
 adds project creation, build and run controls, and diagnostics to the editor.

@@ -142,3 +142,163 @@ pub fn has_text() -> bool {
         has
     }
 }
+
+use crate::{Content, Error, MAX_BYTES, Representation};
+#[link(name = "udmf")]
+unsafe extern "C" {
+    fn OH_UdmfRecord_AddGeneralEntry(
+        record: *mut OhUdmfRecord,
+        ty: *const c_char,
+        bytes: *mut u8,
+        len: u32,
+    ) -> c_int;
+    fn OH_UdmfRecord_GetGeneralEntry(
+        record: *mut OhUdmfRecord,
+        ty: *const c_char,
+        bytes: *mut *mut u8,
+        len: *mut u32,
+    ) -> c_int;
+    fn OH_UdmfData_GetRecords(data: *mut OhUdmfData, count: *mut u32) -> *mut *mut OhUdmfRecord;
+}
+fn type_id(m: &str) -> CString {
+    CString::new(match m {
+        "image/png" => "general.png",
+        "image/jpeg" => "general.jpeg",
+        "image/bmp" => "com.microsoft.bmp",
+        "image/gif" => "com.compuserve.gif",
+        "image/tiff" => "general.tiff",
+        "image/svg+xml" => "general.svg",
+        other => other,
+    })
+    .unwrap()
+}
+pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
+    unsafe {
+        let pb = OH_Pasteboard_Create();
+        let data = OH_UdmfData_Create();
+        let rec = OH_UdmfRecord_Create();
+        let mut types = Vec::new();
+        if !pb.is_null() && !data.is_null() && !rec.is_null() {
+            for r in &content.0 {
+                if r.mime == "text/plain" {
+                    if let Ok(text) = CString::new(r.bytes.as_slice()) {
+                        let uds = OH_UdsPlainText_Create();
+                        if !uds.is_null() {
+                            if OH_UdsPlainText_SetContent(uds, text.as_ptr()) == OK
+                                && OH_UdmfRecord_AddPlainText(rec, uds) == OK
+                            {
+                                types.push(r.mime.clone());
+                            }
+                            OH_UdsPlainText_Destroy(uds);
+                        }
+                    }
+                    continue;
+                }
+                if OH_UdmfRecord_AddGeneralEntry(
+                    rec,
+                    type_id(&r.mime).as_ptr(),
+                    r.bytes.as_ptr().cast_mut(),
+                    r.bytes.len() as u32,
+                ) == OK
+                {
+                    types.push(r.mime.clone());
+                }
+            }
+            if types.is_empty()
+                || OH_UdmfData_AddRecord(data, rec) != OK
+                || OH_Pasteboard_SetData(pb, data) != OK
+            {
+                types.clear();
+            }
+        }
+        if !rec.is_null() {
+            OH_UdmfRecord_Destroy(rec);
+        }
+        if !data.is_null() {
+            OH_UdmfData_Destroy(data);
+        }
+        if !pb.is_null() {
+            OH_Pasteboard_Destroy(pb);
+        }
+        if types.is_empty() {
+            Err(Error::Unavailable)
+        } else {
+            Ok(types)
+        }
+    }
+}
+pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error> {
+    unsafe {
+        let pb = OH_Pasteboard_Create();
+        if pb.is_null() {
+            return Err(Error::Unavailable);
+        }
+        let mut status = 0;
+        let data = OH_Pasteboard_GetData(pb, &mut status);
+        let result = (|| {
+            if data.is_null() {
+                return if status == OK {
+                    Ok(None)
+                } else {
+                    Err(Error::Unavailable)
+                };
+            }
+            let mut count = 0;
+            let records = OH_UdmfData_GetRecords(data, &mut count);
+            if records.is_null() {
+                return Ok(None);
+            }
+            for mime in preferred {
+                if *mime == "text/plain" {
+                    let uds = OH_UdsPlainText_Create();
+                    if !uds.is_null() {
+                        let value = if OH_UdmfData_GetPrimaryPlainText(data, uds) == OK {
+                            let p = OH_UdsPlainText_GetContent(uds);
+                            if p.is_null() {
+                                None
+                            } else {
+                                Some(CStr::from_ptr(p).to_bytes().to_vec())
+                            }
+                        } else {
+                            None
+                        };
+                        OH_UdsPlainText_Destroy(uds);
+                        if let Some(bytes) = value {
+                            if bytes.len() > MAX_BYTES {
+                                return Err(Error::TooLarge);
+                            }
+                            return Ok(Some(Representation::new(*mime, bytes)));
+                        }
+                    }
+                }
+
+                for i in 0..count as usize {
+                    let mut bytes = std::ptr::null_mut();
+                    let mut len = 0;
+                    if OH_UdmfRecord_GetGeneralEntry(
+                        *records.add(i),
+                        type_id(mime).as_ptr(),
+                        &mut bytes,
+                        &mut len,
+                    ) == OK
+                        && !bytes.is_null()
+                    {
+                        if len as usize > MAX_BYTES {
+                            return Err(Error::TooLarge);
+                        }
+                        return Ok(Some(Representation::new(
+                            *mime,
+                            std::slice::from_raw_parts(bytes, len as usize).to_vec(),
+                        )));
+                    }
+                }
+            }
+            Ok(None)
+        })();
+        if !data.is_null() {
+            OH_UdmfData_Destroy(data);
+        }
+        OH_Pasteboard_Destroy(pb);
+        result
+    }
+}

@@ -11,15 +11,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 `day-break` saves crash reports on the device. On the next launch, the app can show the report
-and offer to send it by HTTP, GitHub issue, or email. Reports are sent only through an explicit
-user action. The reporter is initialized before the UI; this example configures email delivery:
-
-```rust
-day_break::Config::new()
-    .reporter(day_break::EmailReporter::new("crashes@example.dev"))
-    .init()
-    .ok();
-```
+and offer to send it by HTTP, GitHub issue, or email. Reports are sent only through an explicit user action. The steps below show how to capture
+a crash, display the report after restarting, and let the user decide whether to send it.
 
 **Works on:** Rust panics are captured on every native target. Native faults (SIGSEGV, SIGBUS,
 SIGILL, SIGFPE, SIGABRT, SIGTRAP) are caught on the Unix targets (macOS, iOS, Linux, Android, and
@@ -27,7 +20,7 @@ HarmonyOS), and Android also records uncaught Java exceptions. Windows records p
 faults yet, and on the web `init` is a no-op. The full matrix is in [the break
 reference](/docs/internal/break).
 
-## 1. Arm capture before the UI mounts
+## 1. Initialize reporting before launch
 
 Add the crate and call `init` as early as possible: before `day::launch`, so a crash during
 startup is still recorded:
@@ -54,7 +47,7 @@ Crash capture is process-global, so `init` is single-shot: a second call returns
 `InitError::AlreadyInitialized`. That's why the helper ignores the result: calling it from
 both `main` and a mobile entry point is safe.
 
-The builder has a few more knobs, with the defaults in parentheses: `.max_reports(n)` caps the
+The configuration also controls which reports are kept and how they are redacted: `.max_reports(n)` caps the
 report rotation (5), `.keep_contained(false)` drops reports for panics day-core contained
 (kept by default), `.signals(false)` turns off the native signal handlers (on by default), and
 `.redact(|msg| …)` scrubs secrets from panic messages before they are persisted, displayed, or
@@ -65,14 +58,13 @@ uploaded. App identity (id, version, build) is baked in by `day build` from `Day
 
 Reports come from a Rust panic (the panic hook), a native fault or abort (the signal handlers), and,
 on Android, an uncaught Java exception. A panic that day-core contains at its trampoline boundaries
-(the app survives) is recorded too, as a distinct non-fatal report, so you also see the
-almost-crashes.
+(the app survives) is recorded too, as a distinct non-fatal report, so you can investigate failures that did not terminate the app.
 
 A report is versioned JSON: app id, version, and build; the day version and backend; OS,
 device model, and locale; the session id and uptime; the panic message and source location, or
-the signal's number and addresses; and a backtrace. The schema in
-[the reference](/docs/internal/break) lists every field, and there is no user data beyond
-them. The signal handlers chain to the previous disposition, so the platform's crash
+the signal's number and addresses; and a backtrace. The [reference](/docs/internal/break) lists every field.
+Panic messages may contain user data supplied by your app; use `.redact(…)` to remove sensitive
+values before storage. The signal handlers chain to the previous disposition, so the platform's crash
 reporter (Android tombstones, HarmonyOS faultlogs) still runs alongside.
 
 ## 3. Show the report on the next launch
@@ -88,7 +80,7 @@ match day_break::last_session() {
 }
 ```
 
-The ready-made surface is `day_break::consent_banner()` from the `ui` feature (on by
+Use `day_break::consent_banner()` from the `ui` feature (on by
 default): a piece that appears while reports are pending, shows the full report text, and
 offers send and discard. To build your own (the showcase's Crash Reporting page does),
 compose the queries: `pending()` is a reactive `Signal<Vec<ReportMeta>>`, newest first;

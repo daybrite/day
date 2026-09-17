@@ -1,6 +1,6 @@
 ---
 title: Layout
-description: "The parent-proposes, child-chooses layout protocol, native measurement, and incremental relayout."
+description: "Arrange controls, manage flexible space, and understand how Day measures a screen."
 order: 13
 section: Concepts
 ---
@@ -13,6 +13,47 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Day measures and positions the UI through a shared layout engine. Native toolkits still measure
 text and controls; Day uses those measurements to calculate frames and place widgets in their
 containers. This gives the app a consistent layout API while respecting native control sizes.
+
+## Arrange controls
+
+Use `column` for vertical content and `row` for horizontal content. Their `.spacing()` sets
+the gap between children; `.padding()` adds space around a group.
+
+```rust
+column((
+    label("Account").font(Font::Title),
+    row((label("Notifications"), spacer(), toggle(enabled))),
+))
+.spacing(12.0)
+.padding(16.0)
+```
+
+Here, `enabled` is a `Signal<bool>`. The spacer takes the row’s remaining horizontal space,
+leaving the label and toggle at opposite ends. Use `scroll(content)` when the content can be
+taller than its window.
+
+Containers fit their content by default. Add `.grow()` when a pane should take the available
+space in its parent’s direction. Use a fixed `.frame()` only when the design calls for a fixed
+size; text needs room to wrap and to grow in translation.
+
+## The modifier vocabulary
+
+Day's layout modifiers are few and compose left to right:
+
+```rust
+label("Total")
+    .padding(Insets::symmetric(12.0, 6.0))  // or .padding(8.0) for all edges
+    .frame(200.0, 44.0)                     // fixed size (or .width / .height for one axis)
+    .grow()                                 // take flexible space in the parent's axis
+
+column((a, b, c)).spacing(8.0).align(HAlign::Leading)
+row((x, spacer(), y))                       // spacer pushes x and y apart
+zstack((photo, badge)).align(Alignment::TopTrailing)
+scroll(long_column)
+```
+
+`padding`, `frame`, and friends are layout-only wrapper nodes: they exist in Day's tree but
+create no native widget, so nesting them is cheap.
 
 ## Parent proposes, child chooses
 
@@ -69,7 +110,7 @@ a caching regression fails tests.
 ## Incremental relayout
 
 When a [binding](/docs/glossary#binding) changes something size-affecting (a label's text grows, a font changes), the node
-is marked dirty and the dirt bubbles up to the nearest **layout boundary**: a node whose size is
+is marked dirty and the change propagates to the nearest **layout boundary**: a node whose size is
 externally fixed, like the window root, a `scroll`, or a node with an explicit two-axis
 `.frame(w, h)`. At the turn boundary, layout re-enters *there*, not at the root:
 
@@ -91,25 +132,6 @@ Relayout needs boundaries because, inside a negotiated stack, one child's new si
 siblings' proposals, so pruning is only safe from a node whose own proposal is stable.
 Mock-toolkit golden tests pin this behavior down.
 
-## The modifier vocabulary
-
-Day's layout modifiers are few and compose left to right:
-
-```rust
-label("Total")
-    .padding(Insets::symmetric(12.0, 6.0))  // or .padding(8.0) for all edges
-    .frame(200.0, 44.0)                     // fixed size (or .width / .height for one axis)
-    .grow()                                 // take flexible space in the parent's axis
-
-column((a, b, c)).spacing(8.0).align(HAlign::Leading)
-row((x, spacer(), y))                       // spacer pushes x and y apart
-zstack((photo, badge)).align(Alignment::TopTrailing)
-scroll(long_column)
-```
-
-`padding`, `frame`, and friends are layout-only wrapper nodes: they exist in Day's tree but
-create no native widget, so nesting them is cheap.
-
 ## Windows, safe areas, and direction
 
 - **Window sizing:** the minimum window size is the one the app declares
@@ -122,7 +144,7 @@ create no native widget, so nesting them is cheap.
   top and report the insets through `day::safe_area()` instead. Paint a background unpadded
   and pad the content by those insets to run it under the system bars.
 - **Right-to-left**: since Day owns placement, RTL is a single x-mirror applied at place time.
-  `Layout` implementations are written direction-naive with leading/trailing coordinates, and the
+  `Layout` implementations are written using leading/trailing coordinates, and the
   [backends](/docs/glossary#backend) set the native per-view direction so text, cursors, and assistive technology agree
   with the mirrored layout.
 

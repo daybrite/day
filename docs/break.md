@@ -1,6 +1,6 @@
 ---
 title: "day-break: crash reporting"
-description: "Consent-first crash reporting: what is captured, where reports go, and the dayscript steps that test the pipeline."
+description: "Crash capture, report storage, delivery transports, and testing the reporting pipeline."
 ---
 
 <!--
@@ -8,25 +8,23 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# day-break: consent-first crash reporting (normative)
+# day-break: crash reporting
 
 > **Status: implemented** (`crates/day-break`). The panic hook, POSIX signal handlers, session
 > sentinel, next-launch reconciliation, the report schema + JSON round-trip, the app-identity
-> plumbing, the pluggable transports, and the `ui` consent surface (localized en/fr/ar/zh-CN) are
+> plumbing, the pluggable transports, and the optional reporting UI (localized en/fr/ar/zh-CN) are
 > built and tested (unit + a subprocess crash harness + a mock-backend banner e2e, on macOS/Linux
 > hosts). The Android uncaught-exception layer and on-device verification track in DESIGN.md §8.5.
 > This file is the normative reference for the whole design.
 
-day-break is Day's crash reporter, in the role Crashlytics, Sentry, Bugsnag, or Backtrace play
-elsewhere. Its one principle is that **the user is fully informed and nothing leaves the device
-without an explicit action.** It
-registers standard crash handlers, writes a report when the app dies abnormally, and on the *next*
-launch lets the app show the user exactly what would be sent and ask whether to send it, through
-a transport the app chooses (a REST endpoint, a GitHub-issue flow, or a `mailto:` the user sends).
+day-break captures crashes, stores reports on the device, and provides APIs for inspecting,
+discarding, and sending them. It registers crash handlers and finalizes their reports on the
+next launch. The app controls when to send a report and chooses the delivery transport: an HTTP
+endpoint, a GitHub issue form, or email.
 
-It is an **optional** crate: an app that doesn't depend on it is unaffected. It is a framework
-crate (`crates/day-break`), not a `parts/day-part-*`, because its consent surface is a Day piece
-and parts may not depend on `day-pieces`.
+It is an optional crate: apps that do not depend on it are unaffected. It lives in
+`crates/day-break` rather than `parts/` because its optional reporting UI uses Day pieces.
+Apps can use the reporting APIs with their own interface or without the built-in UI.
 
 ## Using it
 
@@ -42,11 +40,11 @@ day_break::Config::new()
 day::launch(WindowOptions::default(), app_root);
 ```
 
-On the next launch, surface any pending report and let the user decide:
+On the next launch, check how the previous session ended:
 
 ```rust
 match day_break::last_session() {
-    day_break::SessionEnd::Crashed { .. } => show_crash_prompt(),  // your UI, or consent_banner()
+    day_break::SessionEnd::Crashed { .. } => handle_pending_reports(),  // app-defined report handling
     day_break::SessionEnd::Unknown => { /* an OS kill — not a crash; usually ignore */ }
     day_break::SessionEnd::Clean => {}
 }
@@ -54,15 +52,8 @@ match day_break::last_session() {
 
 `report_paths()` returns the finalized reports newest-first; each is the schema-versioned JSON
 below. `latest_report_text()` returns the newest report's content for display. `discard(path)`
-removes one. The `send()` / consent-surface API (the only network path) is documented with the
-transports section.
-
-### The consent rule
-
-There is **no auto-upload mode** in v1. Upload happens only through a transport's `send`, which is
-called by app code. The intended trigger is a user action ("Send report") on a disclosure surface
-that has shown the full report text. The report the user reads is byte-for-byte what is uploaded;
-there are no hidden fields. A conforming app does not call `send` from a non-interactive path.
+removes one. App code calls `send()` to deliver a report through the configured transport;
+see [Transports](#transports-reporter).
 
 ## What is captured
 
@@ -152,8 +143,8 @@ Upload is pluggable. A transport implements:
 
 ```rust
 pub trait Reporter {
-    fn name(&self) -> &str;          // shown on the consent surface
-    fn describe(&self) -> String;    // one-line disclosure: where the report goes
+    fn name(&self) -> &str;          // transport name
+    fn describe(&self) -> String;    // description of the destination
     fn send(&self, report: &Report, done: Box<dyn FnOnce(Result<(), SendError>)>);
 }
 ```
@@ -166,12 +157,12 @@ Built-ins:
   server-side (never on the device); the device just POSTs to it.
 - **`GithubIssueReporter`** — needs no server; it opens
   `https://github.com/<owner>/<repo>/issues/new?title=…&body=…` (truncated to URL limits) in the
-  browser via the `open_url` toolkit duty; the user reviews and submits the issue themselves.
+  browser via the `open_url` toolkit duty. Submission happens in the browser.
 - **`EmailReporter`** — opens `mailto:dev@example.com?subject=…&body=…` (also `open_url`); the
-  user sends the mail. Body is truncated; the full report is attached/inlined per app choice.
+  mail client handles sending. Body is truncated; the full report is attached/inlined per app choice.
 
-All three keep the human in the loop; `GithubIssueReporter` and `EmailReporter` require no
-server and hand the final submit to the user.
+`RestReporter` sends directly to the configured endpoint. `GithubIssueReporter` and
+`EmailReporter` open external applications and require no reporting server.
 
 ## Testing
 
@@ -181,3 +172,10 @@ test binary to actually panic / abort / segfault a child and asserts the finaliz
 macOS and Linux CI hosts). On-device capture (Android UEH, iOS/HarmonyOS signals) is verified
 through the showcase "Crash Reporting" page and its dayscript ([`docs/agent.md`](agent.md)), which uses the
 `expect_exit` step to tolerate the crash the script triggers.
+
+## Recommended reporting practice
+
+Users should always be fully informed about any information leaving their device, including
+what a report contains and where it will be sent. We recommend making reporting fully opt-in:
+let users review the information and explicitly choose whether to share it. This is a
+recommendation for apps using day-break, not a requirement enforced by the framework.

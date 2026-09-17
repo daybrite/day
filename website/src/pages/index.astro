@@ -2,473 +2,169 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import BaseLayout from '../layouts/BaseLayout.astro';
-import CodeSample from '../components/CodeSample.astro';
 import HeroCarousel from '../components/HeroCarousel.astro';
-import InstallCommand from '../components/InstallCommand.astro';
 import Logo from '../components/Logo.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import { url, site } from '../lib/site';
 import { primaryPlatforms } from '../lib/platforms.mjs';
 
-// The eight primary platform-toolkits for the "runs on" grid, in Day's canonical order.
-// Each card wears its platform accent (global.css `--pf-<target>`, iOS-palette light/dark)
-// via data-pf; the blurbs say what the toolkit is and where people actually meet it.
-const blurbs: Record<string, string> = {
-  'web-dom': 'Rust compiled to WebAssembly, using HTML controls. Deploy as a static website.',
-  'macos-appkit':
-    'Apple’s desktop UI toolkit, with native buttons, tables, menus, and windows for macOS.',
-  'ios-uikit':
-    'Apple’s UI framework for iPhone and iPad, with navigation stacks, tab bars, and system text handling.',
-  'android-mdc':
-    'Android views and Material controls for interfaces on phones, tablets, and foldables.',
-  'linux-gtk':
-    'GTK with libadwaita provides controls and styling for apps that follow GNOME desktop conventions.',
-  'linux-qt':
-    'The toolkit used by KDE applications. Day also offers Qt targets on macOS and Windows.',
-  'windows-xaml':
-    'Windows XAML controls hosted in a Win32 window, including menus, text fields, and navigation components.',
-  'harmony-arkui':
-    'HarmonyOS’s native UI framework, accessed through its C node API on Huawei devices.',
-};
-
-// The grid's eight, named and ordered by the platform table (src/lib/platforms.mjs); this page
-// contributes only the blurb.
-const targets = primaryPlatforms.map((p) => ({
-  id: p.id,
-  name: p.toolkit,
-  os: p.os,
-  blurb: blurbs[p.id],
-}));
-
-const navCode = `let section = Signal::new(String::new());
-nav(section)
-    .style(NavStyle::Sidebar)   // native split view / tabs / pushing list
-    .item("home",     "Home",     home_page)
-    .item("settings", "Settings", settings_page)`;
-
-// Feature-card icons are Google Material Symbols (Rounded), Apache 2.0 —
-// https://fonts.google.com/icons — inlined as path data (viewBox 0 -960 960 960).
-// Each card tints its icon with an accent from the site palette.
-const features = [
-  {
-    icon: 'm438-452-58-57q-11-11-27.5-11T324-508q-11 11-11 28t11 28l86 86q12 12 28 12t28-12l170-170q12-12 11.5-28T636-592q-12-12-28.5-12.5T579-593L438-452ZM326-90l-58-98-110-24q-15-3-24-15.5t-7-27.5l11-113-75-86q-10-11-10-26t10-26l75-86-11-113q-2-15 7-27.5t24-15.5l110-24 58-98q8-13 22-17.5t28 1.5l104 44 104-44q14-6 28-1.5t22 17.5l58 98 110 24q15 3 24 15.5t7 27.5l-11 113 75 86q10 11 10 26t-10 26l-75 86 11 113q2 15-7 27.5T802-212l-110 24-58 98q-8 13-22 17.5T584-74l-104-44-104 44q-14 6-28 1.5T326-90Zm52-72 102-44 104 44 56-96 110-26-10-112 74-84-74-86 10-112-110-24-58-96-102 44-104-44-56 96-110 24 10 112-74 86 74 84-10 114 110 24 58 96Zm102-318Z',
-    color: 'var(--pf-android-mdc)',
-    title: 'Apps your users recognize',
-    body: 'Use platform controls such as NSButton on macOS and MaterialButton on Android, with the toolkit’s text handling, scrolling, and appearance.',
-  },
-  {
-    icon: 'm422-232 207-248H469l29-227-185 267h139l-30 208Zm-62-128H236q-24 0-35.5-21.5T203-423l299-430q10-14 26-19.5t33 .5q17 6 25 21t6 32l-32 259h155q26 0 36.5 23t-6.5 43L416-100q-11 13-27 17t-31-3q-15-7-23.5-21.5T328-139l32-221Zm111-110Z',
-    color: 'var(--sun)',
-    title: 'Compile for your target platform',
-    body: 'Day compiles your Rust code for the selected target and links its toolkit backend. Startup time and package size depend on your app, resources, and platform dependencies.',
-  },
-  {
-    icon: 'M155-75q-35-35-35-85t35-85q35-35 85-35 14 0 26 3t23 8l57-71q-28-31-39-70t-5-78l-81-27q-17 25-43 40t-58 15q-50 0-85-35T0-580q0-50 35-85t85-35q50 0 85 35t35 85v8l81 28q20-36 53.5-61t75.5-32v-87q-39-11-64.5-42.5T360-840q0-50 35-85t85-35q50 0 85 35t35 85q0 42-26 73.5T510-724v87q42 7 75.5 32t53.5 61l81-28v-8q0-50 35-85t85-35q50 0 85 35t35 85q0 50-35 85t-85 35q-32 0-58.5-15T739-515l-81 27q6 39-5 77.5T614-340l57 70q11-5 23-7.5t26-2.5q50 0 85 35t35 85q0 50-35 85t-85 35q-50 0-85-35t-35-85q0-20 6.5-38.5T624-232l-57-71q-41 23-87.5 23T392-303l-56 71q11 15 17.5 33.5T360-160q0 50-35 85t-85 35q-50 0-85-35Zm-35-465q17 0 28.5-11.5T160-580q0-17-11.5-28.5T120-620q-17 0-28.5 11.5T80-580q0 17 11.5 28.5T120-540Zm148.5 408.5Q280-143 280-160t-11.5-28.5Q257-200 240-200t-28.5 11.5Q200-177 200-160t11.5 28.5Q223-120 240-120t28.5-11.5Zm240-680Q520-823 520-840t-11.5-28.5Q497-880 480-880t-28.5 11.5Q440-857 440-840t11.5 28.5Q463-800 480-800t28.5-11.5ZM480-360q42 0 71-29t29-71q0-42-29-71t-71-29q-42 0-71 29t-29 71q0 42 29 71t71 29Zm268.5 228.5Q760-143 760-160t-11.5-28.5Q737-200 720-200t-28.5 11.5Q680-177 680-160t11.5 28.5Q703-120 720-120t28.5-11.5Zm120-420Q880-563 880-580t-11.5-28.5Q857-620 840-620t-28.5 11.5Q800-597 800-580t11.5 28.5Q823-540 840-540t28.5-11.5ZM480-840ZM120-580Zm360 120Zm360-120ZM240-160Zm480 0Z',
-    color: 'var(--brand)',
-    title: 'Share code across platforms',
-    body: 'Share application logic and UI code across desktop, mobile, and web, with platform-specific code where needed.',
-  },
-  {
-    icon: 'M423.5-743.5Q400-767 400-800t23.5-56.5Q447-880 480-880t56.5 23.5Q560-833 560-800t-23.5 56.5Q513-720 480-720t-56.5-23.5ZM360-120v-480q-49-4-99-11t-98-18q-17-4-27.5-19t-5.5-32q5-17 21-25t34-4q70 15 145.5 22t149.5 7q74 0 149.5-7T775-709q18-4 34 4t21 25q5 17-5.5 32T797-629q-48 11-98 18t-99 11v480q0 17-11.5 28.5T560-80q-17 0-28.5-11.5T520-120v-200h-80v200q0 17-11.5 28.5T400-80q-17 0-28.5-11.5T360-120Z',
-    color: 'var(--pf-macos-appkit)',
-    title: 'Accessibility and localization tools',
-    body: 'Day integrates with native accessibility APIs and provides localization tools based on Mozilla Fluent. Add accessible labels and translations as you build your app.',
-  },
-  {
-    icon: 'M160-120q-33 0-56.5-23.5T80-200v-560q0-33 23.5-56.5T160-840h640q33 0 56.5 23.5T880-760v560q0 33-23.5 56.5T800-120H160Zm0-80h640v-560H160v560Zm200-80q17 0 28.5-11.5T400-320q0-17-11.5-28.5T360-360H240q-17 0-28.5 11.5T200-320q0 17 11.5 28.5T240-280h120Zm222-193-29-29q-12-12-28-11.5T497-501q-11 12-11.5 28t11.5 28l57 57q12 12 28 12t28-12l142-142q12-12 12-28t-12-28q-12-12-28.5-12T695-586L582-473Zm-222 33q17 0 28.5-11.5T400-480q0-17-11.5-28.5T360-520H240q-17 0-28.5 11.5T200-480q0 17 11.5 28.5T240-440h120Zm0-160q17 0 28.5-11.5T400-640q0-17-11.5-28.5T360-680H240q-17 0-28.5 11.5T200-640q0 17 11.5 28.5T240-600h120ZM160-200v-560 560Z',
-    color: 'var(--pf-linux-qt)',
-    title: 'Platform testing and support',
-    body: 'Day uses CI builds, automated walkthroughs, and screenshots to check platform behavior. Testing coverage varies by target; consult the platform support tiers when choosing targets for your app.',
-  },
-  {
-    icon: 'M160-160q-33 0-56.5-23.5T80-240v-480q0-33 23.5-56.5T160-800h640q33 0 56.5 23.5T880-720v480q0 33-23.5 56.5T800-160H160Zm0-80h640v-400H160v400Zm187-200-76-76q-12-12-11.5-28t12.5-28q12-11 28-11.5t28 11.5l104 104q12 12 12 28t-12 28L328-308q-11 11-27.5 11.5T272-308q-11-11-11-28t11-28l75-76Zm173 160q-17 0-28.5-11.5T480-320q0-17 11.5-28.5T520-360h160q17 0 28.5 11.5T720-320q0 17-11.5 28.5T680-280H520Z',
-    color: 'var(--pf-web-dom)',
-    title: 'Build, test, and package your app',
-    body: 'Use the Day CLI to create projects, run apps, automate tests, and build platform-specific packages. Configure signing for the platforms you distribute to.',
-  },
-
-  {
-    icon: 'M420-180v-100H140q-24 0-42-18t-18-42v-440q0-24 18-42t42-18h680q24 0 42 18t18 42v440q0 24-18 42t-42 18H540v100h56q12.75 0 21.38 8.68 8.62 8.67 8.62 21.5 0 12.82-8.62 21.32-8.63 8.5-21.38 8.5H364q-12.75 0-21.37-8.68-8.63-8.67-8.63-21.5 0-12.82 8.63-21.32 8.62-8.5 21.37-8.5h56ZM140-340h680v-440H140v440Zm0 0v-440 440Z',
-    color: 'var(--pf-windows-xaml)',
-    title: 'Desktop app features',
-    body: 'Build desktop apps with menu bars, keyboard shortcuts, preferences windows, toolbars, and multiple windows. On macOS, Day manages the Window menu automatically.',
-  },
-  {
-    icon: 'M180-180h560v-173q0-9 4.5-16t12.5-11l24-11q19-8 30.5-27t11.5-40q0-21.43-11.5-39.72Q800-516 781-525l-24-11q-8.13-3.75-12.57-10.88Q740-554 740-563v-177H564q-10.66 0-18.83-7-8.17-7-10.17-18.33L530-791q-5-27-24.67-45.5-19.68-18.5-45.91-18.5Q432-855 412-836.5T387-791l-5 25.67Q380-754 371.83-747q-8.17 7-18.83 7H181v110q55 20 89 66.78t34 105.5q0 59.72-34 107.22T180-287v107Zm11 60q-29 0-50-21t-21-51v-121q0-8 5-13t13-7q45-9 75.5-43.08T244-458q0-48.03-30-82.52Q184-575 139-583q-8-2-13-7t-5-13v-126q0-30 20.5-50.5T192-800h136q6.63-48.88 43.58-81.94Q408.53-915 458.74-915q49.26 0 86.45 33.06Q582.37-848.88 590-800h139q30 0 50.5 20.5T800-729v147q38 18 60.5 49.5T883-458q0 43-22.5 75T800-334v142q0 30-20.5 51T729-120H191Zm311-338Z',
-    color: 'var(--pf-ios-uikit)',
-    title: 'Use platform-specific APIs',
-    body: 'Embed SwiftUI views in your Day interface on Apple platforms using typed Rust constructors. Use Day’s platform-specific tweaks to customize native widgets.',
-  },
-  {
-    icon: 'M179-120q-24 0-42-18t-18-42v-339q-28-24-37-59t2-70l43-135q8-27 28-42t46-15h553q28 0 49 15.5t29 41.5l44 135q11 35 1.5 70T840-519v339q0 24-18 42t-42 18H179Zm391-430q29 0 49-19t16-46l-25-165H510v165q0 26 17 45.5t43 19.5Zm-187 0q28 0 47.5-19t19.5-46v-165H350l-25 165q-4 26 14 45.5t44 19.5Zm-182 0q24 0 41.5-16.5T263-607l26-173H189l-46 146q-10 31 8 57.5t50 26.5Zm557 0q32 0 50.5-26t8.5-58l-46-146H671l26 173q3 24 20.5 40.5T758-550ZM179-180h601v-311q1 1-6.5 1H758q-25 0-47.5-10.5T666-533q-16 20-40 31.5T573-490q-30 0-51.5-8.5T480-527q-15 18-38 27.5t-52 9.5q-31 0-55-11t-41-32q-24 21-47 32t-46 11h-13.5q-6.5 0-8.5-1v311Zm601 0H179h601Z',
-    color: 'var(--pf-harmony-arkui)',
-    title: 'Capture screenshots for your app',
-    body: 'Use dayscript to test app workflows and capture screenshots in different languages and themes. Reuse the screenshots in store listings and a generated app website.',
-  },
+const platforms = primaryPlatforms.filter((p) => p.id !== 'linux-qt');
+const benefits = [
+  { number: '01', title: 'Put more of your team behind one product.', body: 'Share your interface and application logic across platforms. Bring improvements to more users from the same codebase, and spend less time maintaining separate versions.', link: 'Explore the Day approach', path: 'docs/overview' },
+  { number: '02', title: 'Make every device feel like home.', body: 'Give people the controls, text input, menus, and navigation they expect. Day uses each platform’s native interface, so your app belongs wherever it runs.', link: 'See Day apps in action', path: 'gallery' },
+  { number: '03', title: 'Keep your next market within reach.', body: 'Start where your audience is today. Add desktop, mobile, or web as your product grows, building on the work you have already done.', link: 'Explore the platforms', path: 'docs/platforms' },
 ];
-
-
+const stages = [
+  { title: 'Create', body: 'Set up a project, choose your platforms, and build your first screens with shared components.', path: 'docs/getting-started' },
+  { title: 'Develop', body: 'Build and run from VS Code. Connect platform services and make the interface your own.', path: 'docs/internal/vscode' },
+  { title: 'Test', body: 'Replay real app workflows, check results, and capture screenshots across languages and themes.', path: 'docs/dayscript' },
+  { title: 'Release', body: 'Prepare platform packages, configure signing, and manage store listings and release automation.', path: 'docs/packaging' },
+  { title: 'Improve', body: 'Investigate crashes with user-approved reports and turn fixes into repeatable regression tests.', path: 'docs/guide-crash-reporting' },
+];
 ---
 <BaseLayout>
-  <!-- HERO -->
   <section class="hero">
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="container hero-grid">
-      <div class="hero-copy">
-        <h1 class="hero-title">
-          <span class="hero-line"><span class="hero-day">Day:</span> create</span>{' '}
-          <span class="hero-line">native apps for</span>{' '}
-          <span class="hero-line">every platform</span>{' '}
-          <span class="hero-line sun-text">under the sun</span>{' '}
-          <span class="hero-line">from a single</span>{' '}
-          <span class="hero-line">Rust codebase</span>
-        </h1>
-        <p class="lead hero-lead">{site.description}</p>
-        <div class="hero-cta">
-          <a class="btn btn-primary" href={url('docs/overview')}>Read the docs</a>
-          <a class="btn btn-ghost" href={url('gallery')}>Explore the gallery →</a>
-        </div>
-      </div>
-      <div class="hero-media">
-        <HeroCarousel />
-      </div>
-    </div>
-    <div class="container hero-install">
-      <InstallCommand />
-    </div>
-  </section>
-
-  <!-- RUNS ON -->
-  <section class="section runs">
-    <div class="container">
-      <p class="eyebrow">Runs natively on</p>
-      <div class="pf-grid">
-        {targets.map((t) => (
-          <article class="pf-card" data-pf={t.id}>
-            <div class="pf-head">
-              <PlatformIcon id={t.id} class="pf-icon-mark" />
-              <div class="pf-headings">
-                <p class="pf-os">{t.os}</p>
-                <h3 class="pf-name">{t.name}</h3>
-                <code class="pf-id">{t.id}</code>
-              </div>
-            </div>
-            <p class="pf-blurb">{t.blurb}</p>
-            <a class="pf-more" href={url(`docs/platforms/${t.id}`)}>
-              Building for {t.os} <span aria-hidden="true">→</span>
-            </a>
-          </article>
-        ))}
-      </div>
-    </div>
-  </section>
-
-  <!-- NO COMPROMISES -->
-  <section class="section native">
-    <div class="container">
-      <p class="eyebrow">What native means here</p>
-      <h2 class="sec-title">Your interface uses <span class="accent-text">native platform controls</span></h2>
-      <p class="lead">
-        A button declared in Rust becomes an <code>NSButton</code> on macOS, a
-        <code>UIButton</code> on iOS, or a <code>MaterialButton</code> on Android.
-        Day uses the underlying toolkit’s controls to provide familiar interaction and
-        accessibility behavior.
-      </p>
-      <ul class="how-list">
-        <li><b>Native interaction:</b> Controls use the platform toolkit’s text input, selection, scrolling, and accessibility features.</li>
-        <li><b>Platform-specific packages:</b> Use <code>day pack</code> to create distribution packages for your target platforms, with signing and notarization configured where required.</li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- FEATURES -->
-  <section class="section features">
-    <div class="container">
-      <p class="eyebrow">Why Day</p>
-      <h2 class="sec-title">Native quality <span class="accent-text">and</span> a single codebase.</h2>
-      <div class="feat-grid">
-        {features.map((f) => (
-          <div class="card feat">
-            <h3>
-              <svg
-                class="feat-ic"
-                viewBox="0 -960 960 960"
-                aria-hidden="true"
-                style={`color: ${f.color}`}
-              ><path fill="currentColor" d={f.icon} /></svg>
-              {f.title}
-            </h3>
-            <p>{f.body}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  </section>
-
-  <!-- The whole toolchain -->
-  <section class="section toolchain">
-    <div class="container">
-      <p class="eyebrow">Development tools</p>
-      <h2 class="sec-title">Tools to <span class="accent-text">develop and distribute your app</span></h2>
-      <p class="lead">
-        Day includes project setup, editor integration, testing, and packaging tools.
-        Configure the SDKs and signing credentials required by your distribution targets.
-      </p>
-      <ul class="how-list">
-        <li>
-          Use the <code>day</code> CLI to create projects, check strings and identifiers,
-          build and launch apps, run scripts, and package releases. <a href={url('docs/cli')}>CLI &amp; projects →</a>
-        </li>
-        <li>
-          The VS Code extension picks targets, builds and launches from the editor, opens the host
-          project in Xcode or Android Studio when you need it, and runs dayscript
-          walkthroughs.
-          <a href="https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode">Install from the Marketplace →</a>
-        </li>
-        <li>
-          Configure Day’s reusable GitHub workflow to build your selected targets, run app
-          walkthroughs, and package releases. Store uploads and website publishing require
-          the corresponding project settings and credentials.
-          <a href={url('docs/cli') + '#continuous-integration'}>Continuous integration →</a>
-        </li>
-        <li>
-          Strings live in Fluent catalogs and reach code as typed constants, so
-          a missing translation is a build error. Use <code>day localize add</code> to add a language
-          to your project. The app switches locale while it runs.
-          <a href={url('docs/localization')}>Localization →</a>
-        </li>
-        <li>
-          Use dayscript’s YAML scripts to test your app in CI, automate it through an AI agent
-          using MCP, and capture store screenshots in different languages and themes.
-          <a href={url('docs/dayscript')}>Testing with dayscript →</a>
-        </li>
-        <li>
-          Day exposes controls through each platform’s accessibility tree. Declare labels and
-          roles alongside your UI, and use automated walkthroughs to check accessibility during
-          development. <a href={url('docs/accessibility')}>Accessibility →</a>
-        </li>
-      </ul>
-    </div>
-  </section>
-
-  <!-- AI + CI -->
-  <section class="section ai-ci">
-    <div class="container">
-      <p class="eyebrow">Agents & automation</p>
-      <h2 class="sec-title">Built <span class="accent-text">for agents and CI</span>.</h2>
-      <p class="lead">
-        Use <b>dayscript</b> to tap buttons, enter text, check on-screen content using stable
-        element IDs, and capture screenshots. Run these actions from YAML scripts, CI jobs,
-        or an AI agent connected through MCP.
-      </p>
-      <ul class="how-list">
-        <li>
-          <b>Test changes with an AI agent:</b> MCP clients such as Claude Code can use Day’s
-          tools to build and relaunch your app, interact with its UI, and capture screenshots
-          for review.
-        </li>
-        <li>
-          <b>Capture different languages and themes:</b> Reuse a walkthrough to capture
-          screenshots for each language and theme your app supports.
-        </li>
-        <li>
-          <b>Check for regressions in CI:</b> Run walkthroughs in your CI workflow so failed
-          assertions flag problems before release.
-        </li>
-      </ul>
-      <div class="hero-cta">
-        <a class="btn btn-primary" href={url('docs/ai')}>AI-assisted development →</a>
-        <a class="btn btn-ghost" href={url('docs/dayscript')}>Testing with dayscript →</a>
-      </div>
-    </div>
-  </section>
-
-  <!-- HOW IT WORKS -->
-  <section class="section how">
-    <div class="container how-grid">
       <div>
-        <p class="eyebrow">How it works</p>
-        <h2 class="sec-title">When data changes, the right control updates.</h2>
-        <p class="lead">
-          Day connects native controls to your application’s state through reactive bindings.
-          When state changes, the bindings that depend on it update the affected controls.
-        </p>
-        <ul class="how-list">
-          <li><b>Plain Rust:</b> functions and builder calls in the same language as the rest of your app.</li>
-          <li><b>Native navigation:</b> sidebars, tabs, and back-gestures are the platform's containers.</li>
-        </ul>
-        <div class="hero-cta">
-          <a class="btn btn-ghost" href={url('docs/api-tour')}>Full API tour →</a>
-          <a class="btn btn-ghost" href={url('docs/rendering')}>How rendering works →</a>
+        <p class="eyebrow">Day · The native app framework</p>
+        <h1>One app.<br />Every platform.<br /><span class="hero-day">All Day.</span></h1>
+        <p class="lead">Bring your product to desktop, mobile, and web. Day gives your team a shared foundation to build, test, and deliver native apps across the consumer platforms your users call home.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href={url('docs/getting-started')}>Start building</a>
+          <a class="btn btn-ghost" href={url('gallery')}>Explore the possibilities →</a>
         </div>
       </div>
-      <div class="how-code">
-        <CodeSample code={navCode} title="navigation.rs" />
+      <div class="hero-media"><HeroCarousel /></div>
+    </div>
+    <div class="container platform-strip" aria-label="Target platforms">
+      {platforms.map((p) => <a href={url(`docs/platforms/${p.id}`)} data-pf={p.id}><PlatformIcon id={p.id} class="platform-icon" /><span>{p.os}</span></a>)}
+    </div>
+    <p class="container support-note">Platform capabilities and release support vary. <a href={url('docs/platforms')}>See current platform support →</a></p>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">More reach. Shared effort.</p>
+      <h2>Build the product.<br />Bring it everywhere.</h2>
+      <p class="section-lead">macOS, Windows, Linux, iPhone, iPad, Android, HarmonyOS, and the web—all from a single codebase. Keep your product moving forward across devices, with room for the details that make each platform different.</p>
+      <div class="benefit-grid">
+        {benefits.map((item) => <article class="capability"><span class="number" aria-hidden="true">{item.number}</span><h3>{item.title}</h3><p>{item.body}</p><a href={url(item.path)}>{item.link} →</a></article>)}
       </div>
     </div>
   </section>
 
-  <!-- CTA -->
-  <section class="section cta">
+  <section class="section performance">
+    <div class="container split">
+      <div>
+        <p class="eyebrow">Native performance</p>
+        <h2>Give your app<br />the power to respond.</h2>
+        <p class="section-lead">A responsive experience starts with the foundation. Day combines compiled application code with native controls and focused updates that do only the work a change requires.</p>
+        <a href={url('docs/rendering')}>Explore how Day delivers performance →</a>
+      </div>
+      <div class="performance-facts">
+        <article><h3>Compiled for the device</h3><p>Powered by Rust, Day compiles to machine code on native targets and WebAssembly for the browser.</p></article>
+        <article><h3>The platform’s own controls</h3><p>Text, input, and scrolling draw on the same native toolkits used by the platform’s own applications.</p></article>
+        <article><h3>Updates where they matter</h3><p>When data changes, Day updates the controls that depend on it. The rest of the interface stays in place.</p></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section lifecycle">
+    <div class="container">
+      <p class="eyebrow">The complete development lifecycle</p>
+      <h2>From your first idea<br />to your next release.</h2>
+      <p class="section-lead">Day brings development tools, UI testing, localization, packaging, and release automation into one workflow. Carry the same project from a first prototype through launch and ongoing maintenance.</p>
+      <ol class="stages">
+        {stages.map((stage, i) => <li><span class="stage-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span><h3><a href={url(stage.path)}>{stage.title} →</a></h3><p>{stage.body}</p></li>)}
+      </ol>
+      <p class="detail-note">Use the SDKs, signing credentials, and store accounts required by your release platforms. Day’s tools help coordinate the work.</p>
+    </div>
+  </section>
+
+  <section class="section tooling">
+    <div class="container split tooling-grid">
+      <div>
+        <p class="eyebrow">Day for Visual Studio Code</p>
+        <h2>Your platforms.<br />One place to work.</h2>
+        <p class="section-lead">Create projects, choose targets, manage devices, and build and launch apps from the editor. Run automated walkthroughs as you work, then open Xcode or Android Studio when you need to go deeper.</p>
+        <a class="btn btn-primary" href="https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode">Get Day for VS Code</a>
+      </div>
+      <figure class="editor-shot">
+        <!-- Source: daybrite/day-vscode, media/screenshot-cockpit.png. -->
+        <a href="https://github.com/daybrite/day-vscode"><img src={url('images/day-vscode.png')} width="1440" height="900" loading="lazy" alt="The Day extension in VS Code, with project targets and device controls beside the editor." /></a>
+        <figcaption>Manage the app and its platform targets from the Day view.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">Built to grow with your ambitions</p>
+      <h2>A foundation you can make your own.</h2>
+      <div class="ownership-grid">
+        <article class="capability"><h3>Extend what your app can do.</h3><p>Combine existing controls into reusable components, wrap a native widget, or connect a platform service. Package your additions separately and share them across your products.</p><a href={url('docs/extending')}>Explore the extension framework →</a></article>
+        <article class="capability"><h3>Reach more people from the start.</h3><p>Build for different languages and assistive technologies as part of everyday development. Test translated screens and add accessible labels alongside the interface.</p><a href={url('docs/localization')}>Build for a global audience →</a></article>
+        <article class="capability independent"><p class="eyebrow">Independent. Open source.</p><h3>Your product’s future belongs to you.</h3><p>Day is an independent open-source project, built on a shared foundation you can inspect, extend, and contribute to. Choose your own infrastructure and keep the framework’s source within reach.</p><p>Available under the Mozilla Public License 2.0.</p><a href={site.repo}>Explore the source →</a><a href={`${site.repo}/blob/main/LICENSE`}>Read the license →</a></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
     <div class="container cta-inner">
       <Logo size={40} />
-      <h2>Build your first Day app</h2>
-      <div class="hero-cta">
-        <a class="btn btn-primary" href={url('docs/getting-started')}>Get started</a>
-        <a class="btn btn-ghost" href={url('gallery')}>Browse the gallery</a>
-      </div>
+      <h2>Where will you take your next app?</h2>
+      <p>Start with one idea. Build for a world of devices.</p>
+      <div class="actions"><a class="btn btn-primary" href={url('docs/getting-started')}>Get started with Day</a><a class="btn btn-ghost" href={url('showcase')}>Try Day Showcase</a></div>
     </div>
   </section>
 </BaseLayout>
 
 <style>
-  /* HERO */
-  .hero { position: relative; overflow: hidden; padding-block: 72px 40px; }
-  .hero-glow {
-    position: absolute;
-    top: -280px; left: 50%;
-    width: 1100px; height: 700px;
-    transform: translateX(-50%);
-    background: radial-gradient(closest-side, rgba(255, 150, 90, 0.22), rgba(106, 164, 255, 0.14) 55%, transparent 72%);
-    filter: blur(6px);
-    pointer-events: none;
-  }
-  .hero-grid {
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
-    gap: 52px;
-    align-items: center;
-  }
-  /* Grid items must be allowed to shrink below their content's intrinsic width, so a wide
-     code block scrolls inside its own box instead of stretching the page. */
-  .hero-grid > *, .how-grid > * { min-width: 0; }
-  .hero-title { font-size: clamp(2.3rem, 5.2vw, 3.7rem); margin: 0 0 20px; font-weight: 800; line-height: 1.08; }
-  /* Break the headline into its six intended lines — "Day: create / native apps for / every
-     platform / under the sun / from a single / Rust codebase" — by making each phrase one
-     inline-block unit. Line breaking then happens at the unit boundaries, so the phrases stay
-     whole and the headline reads in sense groups instead of wherever the column edge lands.
-     ENCOURAGED, not forced: an inline-block still wraps INSIDE itself once a phrase alone is
-     wider than the column, so a narrow window degrades to ordinary word wrapping rather than
-     overflowing (which is what `&nbsp;` or `<br>` would do here). */
-  .hero-line { display: inline-block; }
-  /* "Day:" wears the carousel's active platform accent — HeroCarousel sets --hero-accent on
-     the .hero section at every slide change, and transitioning `color` makes the hue glide
-     between platforms instead of jumping. The duration is ~¾ of the carousel's 3400ms
-     interval, so the color is in motion for most of every cycle — a continuous drift through
-     the palette — settling just before the next advance. Before the first slide (or with no
-     carousel manifest) it rests on the brand blue. */
+  .hero { position: relative; overflow: hidden; padding-block: 80px 30px; }
+  .hero-glow { position: absolute; top: -280px; left: 50%; width: 1100px; height: 700px; transform: translateX(-50%); background: radial-gradient(closest-side, rgba(255,150,90,.22), rgba(106,164,255,.14) 55%, transparent 72%); pointer-events: none; }
+  .hero-grid, .split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
+  .hero-grid > *, .split > * { min-width: 0; }
+  h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); line-height: 1.05; letter-spacing: -.045em; margin: 0 0 26px; }
   .hero-day { color: var(--hero-accent, var(--brand)); transition: color 2.6s ease-in-out; }
-  /* "under the sun" in solid amber — a nod to the Dawn Sky mark. Not a
-     gradient clip: one accent color keeps the headline from reading as a template hero. */
-  .sun-text {
-    color: var(--sun);
-    white-space: nowrap;
-  }
-  .hero-lead { margin: 0 0 28px; }
-  .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; }
-  .hero-install { margin-top: 34px; }
-
-  /* THE CODE (example moved down from the hero) */
-
-  /* RUNS ON */
-  /* Eight platform cards, one per target, each wearing its accent (data-pf → --pf).
-     Explicit column counts per band: 4-up wide, 2-up narrow, 1-up mobile. */
-  .pf-grid { display: grid; grid-template-columns: repeat(4, 1fr); grid-auto-rows: 1fr; gap: 16px; margin-top: 8px; }
-  @media (max-width: 980px) { .pf-grid { grid-template-columns: repeat(2, 1fr); } }
-  @media (max-width: 560px) { .pf-grid { grid-template-columns: 1fr; } }
-  .pf-card {
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--border-soft);
-    border-top: 3px solid var(--pf);
-    border-radius: var(--radius);
-    padding: 16px 18px;
-    background: var(--surface);
-  }
-  .pf-os {
-    margin: 0 0 2px;
-    font-size: 0.78rem;
-    font-weight: 650;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--pf) 78%, var(--text));
-  }
-  /* The mark sits beside the three title rows, centered against the block as a whole — the same
-     header shape the showcase download cards use. */
-  .pf-head { display: flex; align-items: center; gap: 13px; margin-bottom: 6px; }
-  .pf-headings { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
-  /* :global — see the note on .dl-icon in showcase.astro: the svg carries PlatformIcon's scope. */
-  .pf-card :global(.pf-icon-mark) {
-    width: 34px;
-    height: 34px;
-    color: color-mix(in srgb, var(--pf) 78%, var(--text));
-  }
-  .pf-name { margin: 0 0 6px; font-size: 1.02rem; }
-  .pf-id {
-    display: inline-block;
-    font-family: var(--mono);
-    font-size: 0.76rem;
-    padding: 0.1em 0.45em;
-    border-radius: 6px;
-    color: color-mix(in srgb, var(--pf) 78%, var(--text));
-    background: color-mix(in srgb, var(--pf) 13%, transparent);
-  }
-  .pf-blurb { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
-  .pf-blurb code { font-size: 0.85em; }
-  /* Each card ends with the way in: the per-target build guide. Tinted with the card's own
-     platform accent so the link reads as part of the card, not a generic docs link. */
-  .pf-more {
-    display: inline-block;
-    margin-top: auto;
-    padding-top: 12px;
-    align-self: flex-start;
-    font-size: 0.86rem;
-    font-weight: 600;
-    color: var(--pf);
-    text-decoration: none;
-  }
-  .pf-more:hover { text-decoration: underline; }
-
-  /* section headers */
-  .sec-title { font-size: clamp(1.7rem, 3.6vw, 2.4rem); margin: 0 0 14px; }
-
-  /* FEATURES */
-  .feat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(268px, 100%), 1fr)); gap: 18px; margin-top: 34px; }
-  .feat { transition: border-color 0.15s ease, transform 0.12s ease; }
-  .feat:hover { border-color: var(--border); transform: translateY(-3px); }
-  .feat h3 { margin: 0 0 8px; font-size: 1.12rem; display: flex; align-items: center; gap: 10px; }
-  /* Material Symbol, tinted per card (the inline style sets `color`; the path fills currentColor). */
-  .feat-ic { width: 22px; height: 22px; flex: none; }
-  .feat p { margin: 0; color: var(--muted); font-size: 0.95rem; }
-
-  /* COMPARE */
-
-  /* HOW */
-  .how-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 48px; align-items: center; }
-  .how-list { list-style: none; padding: 0; margin: 20px 0 26px; }
-  .how-list li { color: var(--muted); padding: 8px 0 8px 26px; position: relative; }
-  .how-list li::before { content: '◆'; color: var(--sun); position: absolute; left: 0; font-size: 0.72rem; top: 12px; }
-  .how-list b { color: var(--text); }
-
-  /* CTA */
-  .cta-inner {
-    text-align: center;
-    display: flex; flex-direction: column; align-items: center; gap: 18px;
-    padding: 56px 28px;
-    border: 1px solid var(--border-soft);
-    border-radius: var(--radius-lg);
-    background:
-      radial-gradient(closest-side at 50% 0%, rgba(255, 150, 90, 0.12), transparent 70%),
-      var(--surface);
-  }
-  .cta-inner h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0; max-width: 20ch; }
-
-  @media (max-width: 880px) {
-    .hero-grid, .how-grid { grid-template-columns: minmax(0, 1fr); }
-    .hero { padding-top: 40px; }
-    .how-code { order: 2; }
-    /* On the hero, keep the copy (info column) first — above the carousel — on narrow screens
-       (source order; no reorder). */
-  }
+  h2 { font-size: clamp(1.9rem, 3.8vw, 2.8rem); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 22px; }
+  h3 { font-size: 1.25rem; line-height: 1.35; margin: 0 0 14px; }
+  .lead { margin-bottom: 28px; }
+  .section-lead { font-size: 1.12rem; line-height: 1.75; max-width: 65ch; color: var(--muted); margin: 0 0 28px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+  .platform-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px 32px; margin-top: 56px; padding-top: 28px; border-top: 1px solid var(--border-soft); }
+  .platform-strip a { display: flex; align-items: center; gap: 9px; color: var(--text); font-weight: 600; font-size: .9rem; }
+  .platform-strip :global(.platform-icon) { width: 25px; height: 25px; color: var(--pf); }
+  .support-note { margin-top: 20px; text-align: center; color: var(--muted); font-size: .85rem; }
+  .benefit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin-top: 38px; }
+  .capability { display: flex; flex-direction: column; padding: 30px; border: 1px solid var(--border-soft); border-radius: var(--radius-lg); background: var(--surface); }
+  .capability p, .performance-facts p, .stages p { color: var(--muted); line-height: 1.7; margin: 0 0 22px; }
+  .capability > a { margin-top: auto; font-weight: 600; font-size: .94rem; }
+  .number { color: var(--sun); font: 500 2rem var(--mono); margin-bottom: 26px; }
+  .performance { background: var(--surface); border-block: 1px solid var(--border-soft); }
+  .performance-facts { border-left: 2px solid var(--brand); padding-left: 30px; }
+  .performance-facts article + article { margin-top: 28px; }
+  .performance-facts p { margin-bottom: 0; }
+  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; padding: 0; margin: 40px 0 24px; gap: 24px; }
+  .stages li { border-top: 2px solid var(--brand); padding-top: 20px; }
+  .stage-number { display: block; color: var(--muted); font: .85rem var(--mono); margin-bottom: 16px; }
+  .stages h3 { font-size: 1.1rem; }
+  .stages p { font-size: .94rem; margin: 0; }
+  .detail-note { color: var(--muted); font-size: .85rem; }
+  .tooling { background: linear-gradient(135deg, color-mix(in srgb, var(--brand) 8%, var(--bg)), var(--bg)); }
+  .tooling-grid { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); }
+  .editor-shot { margin: 0; }
+  .editor-shot img { width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  figcaption { color: var(--muted); margin-top: 14px; font-size: .85rem; }
+  .ownership-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 36px; }
+  .independent { grid-column: 1 / -1; padding: 40px; background: linear-gradient(120deg, color-mix(in srgb, var(--sun) 9%, var(--surface)), var(--surface)); }
+  .independent p { max-width: 75ch; }
+  .independent > a + a { margin-top: 14px; }
+  .cta-inner { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 64px 28px; border-radius: var(--radius-lg); background: var(--surface); border: 1px solid var(--border-soft); }
+  .cta-inner h2, .cta-inner p { margin: 0; }
+  .cta-inner p { color: var(--muted); }
+  @media (max-width: 1000px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 880px) { .hero-grid, .split, .benefit-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; } .hero { padding-top: 40px; } .hero-media { max-width: 600px; width: 100%; margin-inline: auto; } }
+  @media (max-width: 560px) { .ownership-grid, .stages { grid-template-columns: minmax(0, 1fr); } .capability, .independent { padding: 24px; } .platform-strip { gap: 18px; } .performance-facts { padding-left: 22px; } }
+  @media (prefers-reduced-motion: reduce) { .hero-day { transition: none; } }
 </style>

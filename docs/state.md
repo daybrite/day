@@ -8,32 +8,28 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# App state (§4.3)
+# App state
 
-> **Status: implemented** on every backend; the whole mechanism is `day-reactive` scope context
-> plus the window registry, so there is no toolkit duty behind it and nothing to degrade.
-> Verified by the `Ambient` suite in `crates/day-pieces/tests/mock_e2e.rs` and by the scaffold,
-> whose entire state is one per-window struct (`day new` output; `Day-Rise`).
+Choose a state’s owner by how long the value should live and who should share it. A text
+field’s temporary input may belong to one piece. A document selection usually belongs to a
+window. A login session may belong to the whole app.
 
-A `Signal` has to live somewhere. Day gives you three places, and picking the right one is
-most of the answer to "how do I structure an app's state":
-
-| Scope | Lives as long as | Reach it with | SwiftUI |
+| Scope | Lifetime | API | Typical use |
 |---|---|---|---|
-| **Piece** | the piece that made it | a local `Signal::new` | `@State` in a view |
-| **Window** | that window | `T::scoped(…)` → `T::ambient()` | `@State` on a `WindowGroup` root |
-| **App** | the process | `T::app()` | `@StateObject` on the `App` |
+| Piece | Until its owning scope is disposed | `Signal::new` | Input or expanded state within a component |
+| Window | Until the window closes | `T::scoped(…)`, then `T::ambient()` | A document’s selection and current page |
+| App | Until the process exits | `T::app()` | A session or cache shared by windows |
 
-The trap is that on a one-window app all three behave identically, so the wrong choice is
-invisible until [File ▸ New Window](windows.md) opens a second one and both windows turn out
-to share a selection.
+For window state, use `Ambient` as shown below. This uses Day’s reactive scopes and window
+registry, so the ownership rules are shared by all backends. The `Ambient` tests in
+[`mock_e2e.rs`](../crates/day-pieces/tests/mock_e2e.rs) cover the behavior.
 
 ## The shape: a `Copy` struct of handles
 
 ```rust
 use day::prelude::*;
 
-/// Everything ONE WINDOW owns.
+/// State shared by the pieces in one window.
 #[derive(Clone, Copy)]
 struct Scene {
     items: Store<Keyed<Item>>,
@@ -52,20 +48,20 @@ impl Ambient for Scene {
 }
 ```
 
-`Signal`, `Memo`, `Trigger` and `Store` are all `Copy` and all pointer-sized, so the struct is a
-bundle of handles: it moves into an event handler or a page function without an `Rc`, a `clone()`,
-or a lifetime, so passing state around costs as little as reaching for a global.
+`Signal`, `Memo`, `Trigger`, and `Store` are pointer-sized `Copy` handles. Copying `Scene`
+copies those handles, so event handlers and page functions can access the same state without
+cloning the underlying values. `Item` and `Section` in this example are app-defined types.
 
 ## Providing it
 
 ```rust
 pub fn root() -> impl Piece {
-    day::register_new_window(|| window_shell(false));   // File ▸ New Window: the SAME shell
+    day::register_new_window(|| window_shell());   // use the same builder for each new window
     app_menu(menus());
-    window_shell(true)
+    window_shell()
 }
 
-fn window_shell(primary: bool) -> impl Piece {
+fn window_shell() -> impl Piece {
     Scene::scoped(move |scene| my_ui(scene))            // one Scene per window
 }
 ```
@@ -79,14 +75,13 @@ fn my_page() -> impl Piece {
 }
 ```
 
-`ambient()` is the read to reach for when a piece cannot take the value as an argument:
-`nav(…).item_icon(key, title, icon, my_page)` takes a bare `fn() -> impl Piece`, and that is
-the case SwiftUI's `@EnvironmentObject` exists for. When you *can* pass it, pass it: an
-argument is clearer than a lookup, and `Scene` is `Copy`.
+Pass `Scene` as an argument when the function allows it. Use `Scene::ambient()` when a
+callback signature cannot accept state, such as a navigation page builder. It finds the
+`Scene` provided by the enclosing scope.
 
 For state that belongs to the whole app rather than to a window (a login session, a
 sync engine, a document cache several windows share), use `T::app()` instead. It creates the value
-on the reactive root scope the first time anything asks and hands out the same instance forever,
+on the reactive root scope the first time anything asks and returns that instance for the rest of the process,
 from any window, any menu action, and any task.
 
 ### Two rules
@@ -97,9 +92,9 @@ re-running reaction is no longer inside the scope that provided the value.
 
 ```rust
 let scene = Scene::ambient();                       // ✅ read once, at build
-label(move || scene.title.read())
+label(move || format!("{:?}", scene.selected.get()))
 
-label(move || Scene::ambient().title.read())        // ❌ panics when the label re-runs
+label(move || format!("{:?}", Scene::ambient().selected.get()))        // ❌ panics when the label re-runs
 ```
 
 **Per-window state must be created at build time.** `T::scoped` does this for you (it defers
@@ -109,8 +104,9 @@ window would get the first one's.
 
 ## The focused-window rule
 
-A desktop menu bar is one bar for the whole app. Its items belong to no window, so they cannot
-capture a `Scene`; they have to resolve the front one when they run:
+App-wide menu actions need to act on the window that is focused when the command runs.
+Capturing one window’s `Scene` when installing the menu would keep targeting that window.
+Use `Scene::focused()` inside the action instead:
 
 ```rust
 fn front(f: impl Fn(Scene) + 'static) -> impl Fn() + 'static {
@@ -129,10 +125,8 @@ its way out: a phone presents a secondary window as a cover and animates its dis
 from the moment the close is requested the window behind it is the front one again, so a
 command fired during that animation acts on it rather than on the departing sheet.
 
-Toolbars need none of this: a contribution belongs to the window being
-built, so a toolbar declared inside the window shell already belongs to its own window, but for
-the same reason it must be declared *there* and not in `root()`, or every window gets the first
-one's bar ([docs/toolbars.md](toolbars.md)).
+A toolbar already belongs to the piece that declares it. Put its declarations in the window
+builder, and capture that window’s state directly. See [Toolbars](toolbars.md).
 
 ## Why not `thread_local!`
 
@@ -140,10 +134,9 @@ one's bar ([docs/toolbars.md](toolbars.md)).
 thread_local! { static SELECTED: Signal<Option<u32>> = Signal::global(None); }   // ❌
 ```
 
-One instance per process. It compiles, it is easy to reach, and it is correct right up until the
-app grows a second window, at which point both windows share the selection, both scroll each
-other's lists, and the fix is a refactor of every call site rather than a change of one line. A
-`Scene` field costs the same to write and never has to be undone.
+A thread-local selection is shared by every window on the UI thread. That may go unnoticed
+until a second window opens and selecting a row in one window changes the other. Put the
+selection in `Scene` when each window should have its own value.
 
 The exception is state that really is process-wide and really has no owner: `Signal::global` is
 still the right tool for, say, a network-reachability flag that the whole app observes. `T::app()`
@@ -151,7 +144,7 @@ is the typed version of the same idea, and is preferable when the state has more
 
 ## The primitives underneath
 
-`Ambient` is a thin layer over three functions you can use directly:
+`Ambient` is a convenience layer over four functions you can use directly:
 
 | | |
 |---|---|

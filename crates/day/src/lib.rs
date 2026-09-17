@@ -97,7 +97,12 @@ pub mod persistence {
 /// Wire an [`model::UndoStack`] to the platform: native fronts (the stock Edit menu, ⌘Z,
 /// iOS's three-finger gestures) where the toolkit has them, and the stack's own signals for
 /// the app's buttons everywhere (docs/model.md). One call, after the stack exists.
-pub use day_core::invoke_edit;
+pub use day_core::{install_edit_bridge, invoke_edit};
+pub use day_spec::EditState;
+/// MIME-typed text and binary clipboard data, with async browser support.
+pub mod clipboard {
+    pub use day_part_clipboard::*;
+}
 pub use day_spec::EditOp;
 
 #[cfg(feature = "model")]

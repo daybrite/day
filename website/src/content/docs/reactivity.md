@@ -1,6 +1,6 @@
 ---
 title: Reactivity
-description: "Signals, memos, effects, and scopes: how a built-once tree stays live without diffing."
+description: "Keep controls up to date with signals, derived values, and reactive closures."
 order: 12
 section: Concepts
 ---
@@ -10,9 +10,21 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Day updates existing widgets when state changes. State is held in **signals**, derived values in
-**memos**, and side effects in **effects**. A change re-runs the closures that read the affected
-value, including bindings that update native controls; it does not rebuild the component function.
+A Day component builds its controls when it appears. To change those controls later, keep the
+changing values in **signals** and read them inside reactive closures.
+
+The distinction matters even for a label:
+
+```rust
+let count = Signal::new(0i64);
+
+label(count.get().to_string());         // shows the value at construction
+label(move || count.get().to_string()); // updates when count changes
+```
+
+The first call reads `count` immediately and passes a string to `label`. The second passes a
+closure that Day can run again. Updating the signal refreshes that label without calling the
+whole component function again.
 
 ## Signals
 
@@ -30,8 +42,8 @@ count.get_untracked();             // read without subscribing
 ```
 
 A read is *tracked* when it happens inside a reactive context: a memo, an effect, or one of the
-reactive closures you hand to Pieces. Tracking is how the graph learns its edges: while your
-closure runs, every `.get()` registers the enclosing computation as an observer of that signal.
+reactive closures you hand to Pieces. While the closure runs, Day records which signals it reads. Later changes to those
+signals tell Day to run the closure again.
 
 ```rust
 let name = Signal::new(String::from("Ada"));
@@ -59,10 +71,9 @@ let total = Memo::new(move || items.with(|v| v.iter().map(|i| i.price).sum::<f64
 label(move || format!("{:.2} €", total.get()))
 ```
 
-Memos are pull-based and glitch-free: reading one mid-update gives you a value consistent with
-all its sources. You don't need them for cheap derivations (a closure reading two signals is
-fine), but they save work when the computation is expensive or when many observers hang off
-one derived value.
+Reading a memo gives you a value consistent with its current sources, even during an update.
+Use a memo for an expensive calculation or a value shared by several bindings. For a simple
+label that combines two signals, a closure is usually enough.
 
 ## Effects and bindings
 
@@ -99,9 +110,9 @@ Only the label's binding runs. The cost of a state change is proportional to the
 
 ## Batching and the turn
 
-Writes inside an event handler are batched: the handler runs to completion, then the reactive
-graph drains to a fixpoint, then (once per turn) layout runs for whatever became dirty and
-native frames are updated. You can batch explicitly too:
+Writes inside an event handler are batched: the handler runs to completion, then Day runs
+the pending reactions until no more updates remain. Layout then runs once for the affected
+controls, and native frames are updated. You can batch explicitly too:
 
 ```rust
 batch(|| {
@@ -180,10 +191,12 @@ the main thread comes back through a `Setter` or `on_main`, the same way it woul
 
 ## What this model asks of you
 
-The cost of this build-once model is that *you* mark what's dynamic. A closure makes text live; a
-bare value doesn't. Structure changes only through `when`, `each`, and `list`. Deriving structure
-from a signal in plain Rust freezes it at build time. Frameworks that re-run the view function don't
-need these distinctions; Day does, because nothing re-runs.
+Keep changing values inside reactive closures. Use `when` for a conditional subtree and
+`each` or `list` for changing collections. A plain Rust `if` in a component function runs
+at construction, so changing a signal later will not switch its branch.
+
+If a control is stuck on its initial value, first check where the signal is read. It usually
+needs to move inside the closure passed to that control.
 
 ---
 

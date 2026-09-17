@@ -95,13 +95,10 @@ behavior, and passing an empty `Vec` removes the menu.
 
 ## 3. Put commands in a toolbar
 
-Declare a toolbar on the piece its commands act on, with `.toolbar(…)`. Where you declare an
-item is where it appears, and it stays as long as the declaring piece does. Items on the
-window's root piece ride every page of that window. Items on a content-list pane ride the
-list's column on a desktop and the list's own navigation bar on a phone. Items on a
-destination page ride the detail column. A command leaves the bar when the content it acts on
-leaves the screen, so one declaration serves every desktop and phone, and there is no
-capability to probe first.
+Attach `.toolbar(…)` to the piece whose content the commands affect. A toolbar on the window’s
+root piece stays available throughout that window. A toolbar on a page appears with that page
+and disappears when it leaves the screen. The platform decides where to place those commands;
+the [toolbar reference](/docs/internal/toolbars) describes each toolkit’s behavior.
 
 ```rust
 item_list(scene).grow().toolbar([
@@ -184,8 +181,7 @@ day::register_preferences_with(
     || preferences_page(),
 );
 day::register_new_window(|| {
-    install_toolbar();      // each window gets its own bar (see Pitfalls)
-    shell()
+    shell()                 // toolbar items come from the pieces in this window
 });
 ```
 
@@ -203,13 +199,12 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
 
 ## Pitfalls
 
-- Register windows before the menu. A `MenuRole::NewWindow` item lowers disabled when no
+- Register windows before the menu. A `MenuRole::NewWindow` item is disabled when no
   builder is registered, and the auto Settings item needs the preferences registration. Call
   `register_preferences_with` and `register_new_window` before installing the app menu (the
-  showcase's `root()` does exactly this), so the items lower live.
-- Toolbars follow their pieces into new windows. Items declared on the root piece a
-  `register_new_window` builder returns ride that window, and a page's items ride it wherever
-  the page is shown. A builder whose pieces declare none opens a window with an empty bar.
+  showcase's `root()` does exactly this), so those menu items are enabled.
+- Toolbars follow their pieces into new windows. Items declared on a window’s root
+  piece belong to that window. Items declared on a page appear wherever that page is shown. A builder whose pieces declare none opens a window with an empty bar.
 - Keep bound values out of a derived toolbar closure. A [reactive](/docs/glossary#reactive) rebuild replaces that
   piece's items and would drop the search field's focus mid-word. Structure and labels go in
   the closure; a toggle's signal, a search signal, and `.enabled_when` patch single items.

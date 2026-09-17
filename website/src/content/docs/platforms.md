@@ -151,7 +151,7 @@ list:
 - **Keyboard shortcuts** beyond native menu accelerators; no general key-event API.
 - **Gestures**: tap and drag are wired; pinch, rotation, and long-press are not.
 - **Forms**: no validation framework; roll your own with [signals](/docs/glossary#signal) and memos.
-- **Hot reload**: not present; see [the tradeoffs page](/docs/benefits#what-you-give-up).
+- **Hot reload**: not present; see [the tradeoffs page](/docs/benefits#allow-for-the-development-workflow).
 
 Check this list before you adopt the framework; if something you need is missing from it and
 doesn't work, report it as a bug.

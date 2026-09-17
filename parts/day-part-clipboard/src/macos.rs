@@ -41,3 +41,49 @@ pub fn has_text() -> bool {
     pb.stringForType(unsafe { NSPasteboardTypeString })
         .is_some()
 }
+
+use crate::{Content, Error, MAX_BYTES, Representation};
+use objc2_foundation::NSData;
+fn native_type(mime: &str) -> objc2::rc::Retained<NSString> {
+    NSString::from_str(match mime {
+        "text/plain" => "public.utf8-plain-text",
+        "image/png" => "public.png",
+        "image/jpeg" => "public.jpeg",
+        "image/tiff" => "public.tiff",
+        "image/gif" => "com.compuserve.gif",
+        "image/bmp" => "com.microsoft.bmp",
+        "image/svg+xml" => "public.svg-image",
+        "image/webp" => "org.webmproject.webp",
+        other => other,
+    })
+}
+
+pub fn write_content(content: &Content) -> Result<Vec<String>, Error> {
+    let _guard = PASTEBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let pb = NSPasteboard::generalPasteboard();
+    pb.clearContents();
+    let written: Vec<_> = content
+        .0
+        .iter()
+        .filter(|r| pb.setData_forType(Some(&NSData::with_bytes(&r.bytes)), &native_type(&r.mime)))
+        .map(|r| r.mime.clone())
+        .collect();
+    if written.is_empty() {
+        Err(Error::Unavailable)
+    } else {
+        Ok(written)
+    }
+}
+pub fn read_content(preferred: &[&str]) -> Result<Option<Representation>, Error> {
+    let _guard = PASTEBOARD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let pb = NSPasteboard::generalPasteboard();
+    for mime in preferred {
+        if let Some(data) = pb.dataForType(&native_type(mime)) {
+            if data.len() > MAX_BYTES {
+                return Err(Error::TooLarge);
+            }
+            return Ok(Some(Representation::new(*mime, data.to_vec())));
+        }
+    }
+    Ok(None)
+}

@@ -88,9 +88,9 @@ export function internalExcerpt(body: string, max = 155): string {
 
 export const site = {
   name: 'Day',
-  tagline: 'Create native apps for every platform under the sun from a single Rust codebase.',
+  tagline: 'One app. Every platform. All Day.',
   description:
-    'Day is a Rust application framework for desktop, mobile, and web. Share UI code using native platform controls, with tools for building, testing, localization, and distribution.',
+    'Build, test, and deliver native apps for desktop, mobile, and web from a single codebase. Discover Day’s tools for the complete app development lifecycle.',
   repo: 'https://github.com/daybrite/day',
   /** The showcase app's repository — it is its own project, released and deployed from there. */
   showcaseRepo: 'https://github.com/daybrite/Day-Showcase',

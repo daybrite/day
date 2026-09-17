@@ -14,19 +14,16 @@ Day provides two forms of persistent storage: `day::prefs` for small settings an
 for files. Settings are stored as strings; files hold documents, exports, or caches. Both use
 platform storage locations assigned to the app.
 
-```rust
-day::prefs::set("theme", "dark");                       // NSUserDefaults, SharedPreferences, …
-day_part_fs::write("notes/today.txt", b"rain later")?;  // a real file under the app-data root
-```
+Choose the store by the kind of data you need to keep:
 
-Preferences store small string values. They use `NSUserDefaults` on Apple targets,
-`SharedPreferences` on Android, a configuration file on Linux and Windows, and `localStorage`
-on the web. Files use an app-private data directory on native targets and the browser’s Origin
-Private File System (OPFS) on the web.
+| Data | API | Example |
+|---|---|---|
+| Small settings | `day::prefs` | Theme, volume, last selected tab |
+| Files | `day-part-fs` | Notes, downloaded data, exported documents |
 
-**Works on:** both parts cover macOS, iOS, Android, Linux, Windows, HarmonyOS, and `web-dom`.
-On any other target prefs is a no-op store (`get` returns `None`, `set` returns `false`) and
-every fs call returns `FsError::Unsupported`. On the web, fs is async-only; see step 3.
+Both support macOS, iOS, Android, Linux, Windows, HarmonyOS, and web. On web, file operations
+must be asynchronous. Neither API encrypts data; see [what not to store](#4-what-not-to-store)
+before using them for sensitive information.
 
 ## 1. Persist a setting
 
@@ -57,22 +54,13 @@ day::prefs::bind("settings.volume", volume);
 Call it right after creating the signal: the write-back is a reactive watch, and it stops when
 the creating scope is disposed.
 
-On the web this matters most, because pages reload often. The showcase's Controls page binds its
-counter, name field, volume, and toggle on wasm only, so a reload keeps them while native launches
-start fresh:
-
-```rust
-#[cfg(target_arch = "wasm32")]
-day::prefs::bind("controls.count", count);
-```
-
-The same store also backs navigation persistence: call `day::prefs::install_nav_store()` once in
+Preferences also back navigation persistence: call `day::prefs::install_nav_store()` once in
 `main` and a `nav` or `nav_stack` marked `.restore(key)` remembers its state across launches.
 See [navigation](/docs/navigation).
 
 ## 3. Write and read files
 
-`day-part-fs` is a separate dependency:
+`day-part-fs` is a separate dependency. Match its revision to the Day version used by your app:
 
 ```toml
 [dependencies]
@@ -82,8 +70,7 @@ day-part-fs = { git = "https://github.com/daybrite/day.git" }
 Paths are relative and sandboxed inside a private per-app root: an absolute path or a `.`/`..`
 segment is `FsError::BadPath` before any platform code runs. `write` creates missing parent
 directories. Each operation comes in three forms: blocking (`read`, `write`, `remove`, `list`),
-callback (`read_async`, …), and future (`read_future`, …). The blocking calls are real on every
-native target and return `FsError::Unsupported` on the web, where the single browser thread
+callback (`read_async`, …), and future (`read_future`, …). Blocking calls work on native targets and return `FsError::Unsupported` on the web, where the single browser thread
 cannot wait; the `*_future` forms work everywhere, awaited under `day::task`:
 
 ```rust
@@ -131,17 +118,20 @@ store yourself.
 
 ## Pitfalls
 
+On unsupported targets, preferences return `None` for reads and `false` for writes. File
+operations return `FsError::Unsupported`.
+
 - Keep prefs values modest; large blobs belong in a file. On the web, `localStorage` can throw
   (private browsing, storage pressure); failures report as uncommitted writes or absent reads, never
   a panic.
 - `bind`'s write-back stops with its scope. Bind in the scope that owns the signal, right
   after creating it. A signal bound inside a page keeps persisting only while that page's scope
   is alive.
-- The blocking fs calls don't exist on web. They return `FsError::Unsupported`; the
-  `*_async` and `*_future` forms are the portable surface. Even natively, keep large files off
+- The blocking fs calls don't exist on web. They return `FsError::Unsupported`; use
+  the `*_async` or `*_future` forms for code shared with web. Even natively, keep large files off
   the UI thread.
-- A file is one buffer. v1 has no streaming: `read` and `write` move the whole body through
-  memory, so don't store anything huge this way.
+- `read` and `write` load the entire file into memory. Use a different approach for files
+  too large to fit comfortably in memory; this API does not stream them.
 - OPFS is the only web store. A pre-OPFS browser, or a private-browsing session (WebKit
   gives ephemeral sessions no storage backing), answers `Unsupported` or `Io`; there is no
   silent fallback store.
@@ -155,4 +145,4 @@ store yourself.
 
 [prefs](/docs/internal/prefs) — the full `day::prefs` contract and each platform's store.
 [fs](/docs/internal/fs) — the path rules, error taxonomy, and the OPFS web tier.
-[async](/docs/internal/async) — `day::task` and the rules the file sample leans on.
+[async](/docs/internal/async) — `day::task` and main-thread updates and task lifetimes.

@@ -15,7 +15,7 @@ into a tree, and the selected backend creates the native widgets. For example, a
 an `NSTextField` on macOS or a `TextView` on Android. The [API tour](/docs/api-tour) has examples;
 this page explains composition and construction.
 
-## A Piece is a description, built once
+## Start with a control
 
 In code, a Piece is a small plain value, usually a builder struct returned by a free function:
 
@@ -27,29 +27,10 @@ button("Save").action(|| save())     // → Button
 column((label("a"), label("b")))     // → Column
 ```
 
-Behind the builders sits one trait with one method:
-
-```rust
-pub trait Piece: 'static {
-    fn build(self, cx: &mut BuildCx) -> RNode;
-}
-```
-
-Two parts of that signature matter.
-
-- **`build` takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
-  view description that Day re-runs and diffs against the last frame.
-- **It returns an `RNode`,** a handle to a node in the *realized tree*: the live structure that
-  owns the native widget, its layout state, and the [reactive](/docs/glossary#reactive) scope its [bindings](/docs/glossary#binding) live in.
-
-Your Piece functions run once, at mount time. Everything dynamic afterward flows through
-[signals](/docs/reactivity), which are bound to individual native attributes during that single
-build. The [reactivity page](/docs/reactivity) covers what that means for your code, including the
-costs.
-
 ## Composing trees
 
-Containers take their children as tuples, so a static tree is written directly:
+Containers take a tuple of children. Here, `temp` is a `Signal<f64>` shared by a slider
+and a label:
 
 ```rust
 column((
@@ -90,7 +71,7 @@ An ordinary [page](/docs/glossary#page) or component function does **not** erase
 `impl Piece` to avoid naming that type:
 
 ```rust
-fn settings_page() -> impl Piece {
+fn settings_page(dark_mode: Signal<bool>) -> impl Piece {
     column((
         label(tr("settings_title")).font(Font::Title),
         toggle(dark_mode),
@@ -143,6 +124,27 @@ Each built-in has a reference page with per-platform notes under
 [lists](/docs/internal/list), and [dialogs](/docs/internal/dialogs).
 
 ## What happens at build
+
+Behind the builders sits one trait with one method:
+
+```rust
+pub trait Piece: 'static {
+    fn build(self, cx: &mut BuildCx) -> RNode;
+}
+```
+
+Two parts of that signature matter.
+
+- **`build` takes `self`, not `&self`.** A Piece is consumed exactly once. There is no retained
+  view description that Day re-runs and diffs against the last frame.
+- **It returns an `RNode`,** a handle to a node in the *realized tree*: the live structure that
+  owns the native widget, its layout state, and the [reactive](/docs/glossary#reactive) scope its [bindings](/docs/glossary#binding) live in.
+
+Your Piece functions run once, at mount time. Everything dynamic afterward flows through
+[signals](/docs/reactivity), which are bound to individual native attributes during that single
+build. The [reactivity page](/docs/reactivity) covers what that means for your code, including the
+costs.
+
 
 When a Piece's `build` runs, three things are created together and live together:
 
@@ -203,8 +205,7 @@ each(
 data; a [model](/docs/internal/model) collection supplies one directly, and `list` accepts the
 same sources.
 
-This is the only place Day diffs anything, and it diffs *keys*, not widget trees: `each` compares
-the old and new key sequences to decide which rows to keep, which to build, and which to dispose. A
+`each` compares the old and new key sequences to decide which rows to keep, build, or remove. A
 `when` flip or a row removal is a real structural edit (native widgets are added and removed), so it
 costs more than a bound-attribute update. For long scrolling data, prefer
 [`list`](/docs/internal/list), which hands rows to the platform's recycling list widget instead of
@@ -225,7 +226,8 @@ doesn't exist.
 
 ## Where Pieces come from
 
-There are exactly three kinds of Piece, and you can write all three:
+You can use pieces from the framework, combine them into your own components, or add native
+controls through separate crates:
 
 1. **Built-ins**: the vocabulary above, implemented in `day-pieces` with a renderer in every
    toolkit backend.

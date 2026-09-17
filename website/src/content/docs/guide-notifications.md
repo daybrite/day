@@ -14,22 +14,16 @@ Local notifications let an app deliver reminders and status updates through the 
 system. `day-part-local-notify` supports immediate and scheduled delivery, including reminders
 due after the app has closed. Posting a notification requires permission and a configured channel:
 
-```rust
-Notification::new("Timer done")
-    .body("Your 5 minute timer finished.")
-    .channel("timers")
-    .route("clock/timer")
-    .post()?;
-```
-
 **Works on:** iOS, macOS, and Android. Support is selected by `target_os` and applies to every backend on those operating systems. Linux, Windows, HarmonyOS, and the web compile the same code and report
 `NotifyError::Unsupported`; gate the UI with `capabilities()` (step 6). The full design and the
 per-platform details are in [the notify reference](/docs/internal/notify).
 
 ## 1. Declare the permission
 
-Consent belongs to `day-part-permissions`; this crate builds on it, so there is one prompt.
-The build-time half is one line in your `Day.toml`:
+Add `day-part-local-notify` and `day-part-permissions` to your app’s Cargo dependencies,
+using the same Day revision as the rest of the project.
+
+Declare notification access in `Day.toml`:
 
 ```toml
 [permissions]
@@ -60,9 +54,9 @@ if status(Permission::Notifications) != Status::Granted {
 }
 ```
 
-The callback may run on another thread, so deliver into UI state through a `Setter`. The full
-flow (priming UI, `can_prompt`, the switch to Open Settings after a final denial) is
-[Permissions](/docs/guide-permissions).
+The callback may run on another thread, so use a `Setter` to update UI state. Ask when the
+user enables a feature that needs notifications. The [permissions guide](/docs/guide-permissions)
+explains how to handle a denial and offer a link to system settings.
 
 ## 3. Post one now
 
@@ -154,7 +148,7 @@ caps.tap_route            // taps route into the app
 caps.schedule_exact       // scheduled fires are on time
 ```
 
-On the unwired targets every field is false and `post()` returns `NotifyError::Unsupported`, so a
+On unsupported targets every field is false and `post()` returns `NotifyError::Unsupported`, so a
 notifications section can hide itself.
 
 ## Pitfalls
@@ -174,6 +168,6 @@ notifications section can hide itself.
 ## Reference
 
 [notify](/docs/internal/notify) — the full API, the per-platform capability matrix, scheduling
-internals, and the design for the platforms not yet wired.
+internals, and plans for platforms not yet supported.
 [permissions](/docs/internal/permissions) covers the consent half, and
 [Permissions](/docs/guide-permissions) covers the app configuration and runtime requests.

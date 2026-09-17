@@ -28,14 +28,12 @@ label(tr("greeting").arg("name", user_name))   // reactive, localized
 set_locale("fr");                               // every visible string updates
 ```
 
-### Who installs the catalog, and when
+### Install the catalog through WindowOptions
 
-`launch` does, and the timing is the reason. The OS's languages reach day-l10n from the live
-backend, and the catalog has to be registered after that hint and before the first localized
-string is read. An app that calls `res::locales::install()` itself before `launch` registers
-against an empty hint list and resolves to `DEFAULT`, so a French device opens an English window.
-Calling it from the root builder is late in a different way: the window, and its title, already
-exist.
+Pass the catalog in `WindowOptions`; `launch` installs it after receiving the OS language
+preferences and before creating the window. Installing it yourself before `launch` is too
+early to use those preferences, so the app may open in the default language. Installing it
+in the root builder is too late for the window title.
 
 So `WindowOptions::locales` carries the catalog and `WindowOptions::title_fn` computes the
 title once it is installed. Both entry points (`src/main.rs` and the `day_start!` platform

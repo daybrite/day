@@ -711,6 +711,55 @@ const env = {
   // paste DOM event (dispatched below while the event is on the stack) the calls use the
   // event's clipboardData, the only synchronous path; outside one, writes best-effort
   // via navigator.clipboard and reads fall back to the page-local mirror of the last copy.
+  day_dom_clipboard_read_bytes: (req, p, n) => {
+    const preferred = str(p, n).split('\n');
+    const event = activeClipboardEvent;
+    // Snapshot clipboardData while it is still accessible; File bytes may finish later.
+    const files = event?.type === 'paste' ? Array.from(event.clipboardData?.files || []) : null;
+    const strings = event?.type === 'paste' ? new Map(preferred.map(m => [m, event.clipboardData?.getData(m)])) : null;
+    Promise.resolve().then(async () => {
+      if (files) {
+        for (const mime of preferred) {
+          const f = files.find(f => f.type === mime);
+          if (f) { if (f.size > 64*1024*1024) throw new RangeError(); return clipPacket([{mime, bytes: new Uint8Array(await f.arrayBuffer())}]); }
+          if (strings.get(mime)) return clipPacket([{mime, bytes: utf8enc.encode(strings.get(mime))}]);
+        }
+        return clipPacket([]);
+      }
+      if (!navigator.clipboard?.read) throw new TypeError();
+      const items = await navigator.clipboard.read();
+      for (const mime of preferred) for (const item of items) if (item.types.includes(mime)) {
+        const b = await item.getType(mime); if (b.size > 64*1024*1024) throw new RangeError();
+        return clipPacket([{mime, bytes: new Uint8Array(await b.arrayBuffer())}]);
+      }
+      return clipPacket([]);
+    }).then(bytes => clipResult(req,0,bytes), e => clipResult(req,e instanceof RangeError ? 3 : e instanceof TypeError ? 2 : 1));
+  },
+  day_dom_clipboard_write_bytes: (req, p, n) => {
+    const data = new Uint8Array(mem().slice(p,p+n));
+    const view = new DataView(data.buffer); let at = 4; const reps = [];
+    for (let i=0;i<view.getUint32(0,true);i++) {
+      const m=view.getUint32(at,true), b=view.getUint32(at+4,true); at+=8;
+      const mime=utf8.decode(data.subarray(at,at+m)); at+=m;
+      reps.push({mime,bytes:data.slice(at,at+b)}); at+=b;
+    }
+    const event = activeClipboardEvent;
+    const native = reps.filter(r => typeof ClipboardItem !== 'undefined' && ClipboardItem.supports?.(r.mime));
+    // Preserve app-specific/SVG strings synchronously for normal copy events. Binary
+    // representations use the async system API, whose permission failures are reported.
+    const eventTypes=[];
+    if (event && event.type !== 'paste') for (const r of reps) {
+      if (r.mime.startsWith('text/') || r.mime.endsWith('+svg') || r.mime === 'image/svg+xml') {
+        event.clipboardData.setData(r.mime,utf8.decode(r.bytes)); eventTypes.push(r.mime);
+      }
+    }
+    if (native.length && navigator.clipboard?.write) {
+      const item = new ClipboardItem(Object.fromEntries(native.map(r => [r.mime,new Blob([r.bytes],{type:r.mime})])));
+      navigator.clipboard.write([item]).then(() => clipResult(req,0,utf8enc.encode(native.map(r=>r.mime).join('\n'))), () => {
+        clipResult(req,eventTypes.length ? 0 : 1,utf8enc.encode(eventTypes.join('\n')));
+      });
+    } else queueMicrotask(() => clipResult(req,eventTypes.length ? 0 : 2,utf8enc.encode(eventTypes.join('\n'))));
+  },
   day_dom_clipboard_set: (p, n) => {
     const text = str(p, n);
     clipboardMirror = text;
@@ -2085,6 +2134,19 @@ const SQL_STATE = 0, SQL_LEN = 1, SQL_TOTAL = 2;
 const SQL_IDLE = 0, SQL_REQ = 1, SQL_REQ_ACK = 2, SQL_REPLY = 3, SQL_REPLY_ACK = 4;
 const SQL_DATA_OFF = 16, SQL_SAB_SIZE = (1 << 22) + SQL_DATA_OFF;
 let sqlI = null, sqlB = null, sqlCap = 0, sqlReady = false, sqlReplyBuf = null;
+// Owned byte transport for day-part-clipboard; callbacks consume day_dom_alloc buffers.
+function clipResult(req,status,bytes=new Uint8Array()) {
+  const p = bytes.length ? wasm.day_dom_alloc(bytes.length) : 0;
+  if (bytes.length) mem().set(bytes,p);
+  wasm.day_clipboard_result(req,status,p,bytes.length);
+}
+function clipPacket(reps) {
+  const out=new Uint8Array(4+reps.reduce((n,r)=>n+8+utf8enc.encode(r.mime).length+r.bytes.length,0));
+  const view=new DataView(out.buffer); view.setUint32(0,reps.length,true); let at=4;
+  for (const r of reps) { const m=utf8enc.encode(r.mime); view.setUint32(at,m.length,true);view.setUint32(at+4,r.bytes.length,true);at+=8;out.set(m,at);at+=m.length;out.set(r.bytes,at);at+=r.bytes.length; }
+  return out;
+}
+
 // Clipboard plumbing (docs/menus.md): the live DOM clipboard event while wasm handles it,
 // the staged outbound bytes, and the page-local mirror of the last in-page copy.
 let activeClipboardEvent = null, clipboardStaged = null, clipboardMirror = null;

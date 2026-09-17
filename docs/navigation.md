@@ -10,20 +10,16 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Navigation (`nav`, `nav_stack`)
 
-Day models navigation the way it models everything else: as a projection of an app-owned
-`Signal`. There is no imperative navigation controller in app code; you own the state, and
-the native container is reconciled to it. Two primitives cover the field, matching what every
-native toolkit provides:
+Navigation state lives in signals. Selecting a tab or pressing Back updates the signal;
+changing the signal from app code updates the native container.
 
-- **`nav`**: a flat one-of-N choice, bound to a `Signal` of the active key. Its
-  `.style` picks the native chrome.
-- **`nav_stack`**: a push/pop stack, bound to a `Signal<Vec<_>>` **path**.
+- **`nav`** selects one destination, such as a tab or sidebar item. Its signal holds the active key.
+- **`nav_stack`** holds a path of destinations in a `Signal<Vec<_>>`. Pushing or removing a key
+  opens or closes a level of the native stack.
 
-Both are generic over the key type, any [`Route`](#typed-routes): plain `String`s for
-stringly-keyed quick starts, or an app-defined enum for compile-checked navigation whose
-variants can carry data. A thin string-route adapter (`navigate`, `nav_back`, `current_route`)
-sits underneath so deep links and dayscript address surfaces by key either way, but the
-surfaces themselves run on their signals.
+Keys implement [`Route`](#typed-routes). Start with strings, or use an app-defined enum when
+you want the compiler to check destinations and their associated data. The string adapter
+(`navigate`, `nav_back`, `current_route`) lets deep links and dayscript address either form.
 
 ## `nav`: one-of-N
 

@@ -8,37 +8,18 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Async: futures without a runtime
+# Async tasks and background work
 
-> **Status: implemented** (DESIGN.md §4.5, revised 2026-07). Day runs futures on its own
-> main-loop executor (`day::task`) without an async runtime: nothing brings in tokio, and
-> there is no reactor or thread pool. The executor polls `!Send` futures on the UI thread; wakers re-poll through the same
-> `on_main` poster everything else rides. On top of it sit `present().await` ([docs/dialogs.md](dialogs.md)),
-> `day_part_http::fetch_future` ([docs/http.md](http.md)), and `day::reactive::Resource` (below).
+Use `day::task` to await work without blocking the interface. Its futures run on Day’s main
+loop, so they can read and write signals before and after an `.await`. Day provides this
+executor itself; apps do not need Tokio to use it.
 
-## The policy
+Use a worker thread for CPU-heavy or blocking work. Return its results to the UI through
+`Setter` or `on_main`, because signals cannot move between threads.
 
-Five rules keep async at the edges and the reactive core single-threaded. They are the
-contract for every `day-*` crate and the recommended shape for apps:
-
-1. **Async never appears in the authoring surface.** No `async fn` in `Piece::build`, actions,
-   or event handlers. `day::task(async { … })` is the one explicit bridge from a sync action
-   into a sequential flow.
-2. **`day::task` is the only executor for signal-touching futures.** Its futures run on the UI
-   thread, so after an `.await` they read and write signals directly, without a `Setter` or
-   marshaling. Futures that never touch signals may run anywhere.
-3. **Parts expose a callback and a future, never a runtime-bound API.** `fetch_async(req, cb)`
-   plus `fetch_future(req)`; both must work in a plain-`main` binary and under `cargo test`
-   (so a part never calls `on_main` itself, per [docs/http.md](http.md)'s contract).
-4. **Foreign runtimes are quarantined in app-private crates.** A dependency that demands tokio
-   (matrix-rust-sdk) gets a headless core crate owning that runtime on background threads;
-   results cross back only through `Setter`/`on_main`, and `!Send` handles never leave the
-   main thread. The Day-Matrix app's `matrix-core` crate (a standalone Day app) is the
-   reference; its bridge rule is documented at the top of its lib.rs. No `day-*` crate
-   depends on an async runtime.
-5. **`Setter` and `on_main` remain the only cross-thread doors** (DESIGN §3.3). Completion
-   callbacks that run on background threads (e.g. `fetch_async`) deliver through them;
-   futures on `day::task` don't need them.
+For app examples, see [HTTP requests](https://daybrite.dev/docs/guide-http) and
+[Local storage](https://daybrite.dev/docs/guide-storage). This reference covers task lifetimes,
+cancellation, and the rules for implementing asynchronous parts.
 
 ## `day::task` and `TaskHandle`
 
@@ -54,10 +35,14 @@ button("Save").action(move || {
 ```
 
 `task(fut)` polls the future once before returning and hands back a `TaskHandle` (`Copy`,
-`!Send`, freely discardable). `handle.abort()` removes and drops the task's future; an
-in-flight `.await` cancels via `Drop`, so aborting a task that awaits a `fetch_future` cancels
-the platform request. Aborting a finished task is a no-op; `is_finished()` reports
+`!Send`, freely discardable). `handle.abort()` removes and drops the task's future; dropping
+the future invokes its cleanup. For `fetch_future`, that requests cancellation where the
+platform supports it; other implementations finish in the background and discard the result.
+See the [HTTP cancellation contract](http.md). Aborting a finished task is a no-op; `is_finished()` reports
 completed-or-aborted. Task ids are never reused, so stale handles are harmless.
+
+A task is not owned by the scope that starts it. Leaving a page does not abort its tasks.
+Keep the handle and abort it explicitly, or use `Resource` for work that should end with a scope.
 
 ## `Resource` and `Load` (day::reactive)
 
@@ -79,10 +64,10 @@ stations.refetch();                                         // force, even if re
   `ready()/is_loading()/is_ready()/error()` accessors. `Resource` is a `Copy` handle:
   `signal()`, `get()`, `with()`, `loading()`, `ready()` (all tracked), `refetch()`.
 - **Latest wins.** A source change supersedes the in-flight fetch: its task is aborted (the
-  drop cancels any platform request inside) and a completion that slips through writes
+  drop requests cancellation where supported) and a completion that slips through writes
   nothing. `refetch()` always fetches; a rerun with an unchanged source value fetches nothing.
-- **Disposal is clean.** The owning scope's death aborts the in-flight fetch; a late write
-  hits the disposed-signal no-op.
+- **Scope cleanup cancels the fetch.** When the owning scope is disposed, its task is
+  aborted. A late write to the disposed signal has no effect.
 - The fetcher runs on the main-loop executor, so it may read and write signals after its
   awaits, and its source value needs no `Send` bound. §4.5's `MaybeSend` bound was removed for
   this reason. See the DESIGN status note.
@@ -93,6 +78,30 @@ stations.refetch();                                         // force, even if re
 `day-part-http` pairs with it for the common case (see the showcase's Platform-services page:
 the loopback `Resource` demo, the PATCH `fetch_future` demo, and the URL checker that aborts
 its previous in-flight task on re-tap).
+
+## The policy
+
+These rules keep UI state on the main thread and let parts work without depending on a
+particular executor:
+
+1. **Piece builders and event handlers are synchronous.** No `async fn` in `Piece::build`, actions,
+   or event handlers. `day::task(async { … })` is the one explicit bridge from a sync action
+   into a sequential flow.
+2. **`day::task` is the only executor for signal-touching futures.** Its futures run on the UI
+   thread, so after an `.await` they read and write signals directly, without a `Setter` or
+   marshaling. Futures that never touch signals may run anywhere.
+3. **Parts expose a callback and a future, never a runtime-bound API.** `fetch_async(req, cb)`
+   plus `fetch_future(req)`; both must work in a plain-`main` binary and under `cargo test`
+   (so a part never calls `on_main` itself, per [docs/http.md](http.md)'s contract).
+4. **Keep other async runtimes in app-specific crates.** A dependency that demands tokio
+   (matrix-rust-sdk) gets a headless core crate owning that runtime on background threads;
+   results cross back only through `Setter`/`on_main`, and `!Send` handles never leave the
+   main thread. The Day-Matrix app's `matrix-core` crate (a standalone Day app) is the
+   reference; its bridge rule is documented at the top of its lib.rs. No `day-*` crate
+   depends on an async runtime.
+5. **Return to the UI thread through `Setter` or `on_main`** (DESIGN §3.3). Completion
+   callbacks that run on background threads (e.g. `fetch_async`) deliver through them;
+   futures on `day::task` don't need them.
 
 ## Under the hood
 

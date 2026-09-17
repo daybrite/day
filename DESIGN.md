@@ -5713,3 +5713,30 @@ paths while normal `.with` access retains its strict contract. See
 [image shutdown semantics](docs/images.md#image-handles-during-thread-shutdown) and
 the subprocess regressions in `day-core` and `day-appkit`. Runtime image ownership
 and deferred releases are unchanged; this fix changes no drawing or persistence API.
+
+### Typed clipboard representations
+
+`day-part-clipboard` now exposes a single logical clipboard item with alternate MIME/byte
+representations (`Content`, `Representation`). `day::clipboard` re-exports the API;
+existing text functions remain available. Reads/writes start at the call site and return
+local futures so the browser can capture a live clipboard event before its lifetime ends.
+Writes report accepted MIME types, rather than claiming every platform supports arbitrary
+formats, and reads negotiate in caller preference order. There is no stale-copy fallback
+in the new API. Apps defer Cut deletion until successful publication.
+
+Apple platforms use native binary pasteboard values, Android uses a contributed read-only
+URI provider backed by private cache files, Windows uses registered formats and an exact
+length companion, Linux uses session clipboard tools, and HarmonyOS uses UDMF byte records.
+The web adapter owns asynchronous request state and late completion buffers. Resource,
+format, permission, and native conversion limitations are explicit in
+[docs/clipboard.md](docs/clipboard.md#typed-binary-content), along with regression entry
+points and the local verification matrix. Day-Sketch publishes editable SVG alongside
+native image representations and decodes foreign image bytes into SQLite-backed nodes.
+UIKit canvas replay uses UIImage's explicit blend/alpha overload so copied image opacity
+is reflected visually as well as preserved in the model.
+
+The proposed general transfer architecture is recorded in
+[docs/drag-and-drop-plan.md](docs/drag-and-drop-plan.md). It covers every toolkit, multiple
+items and representations, scoped file access, synchronous hover policy, asynchronous
+imports, and safe copy/move completion. These drag/drop APIs are planned, not shipped;
+existing canvas gestures and collection reorder contracts continue to stand separately.

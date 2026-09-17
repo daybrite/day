@@ -8,21 +8,18 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Persistent preferences (headless capability crate)
+# Persistent preferences
 
-> **Status: implemented** as `day-part-prefs` (in `parts/`, the headless counterpart of `pieces/`).
-> It's a headless day-ecosystem crate (no UI Piece): a shared cross-platform API for a small persistent
-> **string key/value store**, backed by each platform's native preferences facility. Verified on macOS
-> (real round-trip through `NSUserDefaults`); iOS-sim / Android (Rust side) / HarmonyOS / Linux all
-> clippy-clean and cross-compile.
->
-> **Promoted into the facade (2026-08): reach for `day::prefs`.** Nearly every app wants settings, and
-> this is the one part that lives in the reactive layer (`bind`) and backs a core framework feature
-> (`.restore(key)` navigation), so `day` depends on it behind a **default-on `prefs` feature** and
-> re-exports it as `day::prefs`. Apps need no separate dependency. It is still its own crate, so a
-> direct `day-part-prefs` dependency and the `day_part_prefs::…` paths keep working unchanged; the two
-> spellings are the same API. Decline it with `day = { …, default-features = false }`, which drops the
-> Apple `NSUserDefaults` dependency and the Android `SharedPreferences` Java shim.
+`day::prefs` stores small string values between launches, such as a selected theme or volume.
+It is provided by `day-part-prefs` and re-exported by `day` through the default-enabled `prefs`
+feature. Apps using the facade do not need a separate dependency.
+
+Use `bind` to restore a signal’s saved value and persist later changes. For files, use
+[app-local file storage](fs.md). Neither API is an encrypted store for passwords or tokens.
+
+A direct `day-part-prefs` dependency remains available. The `day::prefs` and `day_part_prefs`
+paths expose the same API. Disabling the facade’s default features removes its preferences
+dependency; enable any other default features your app still needs explicitly.
 
 ## Authoring
 

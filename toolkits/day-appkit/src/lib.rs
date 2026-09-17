@@ -4229,7 +4229,7 @@ define_class!(
                     Some(a) if a == sel!(paste:) => {
                         state.can_paste && {
                             let pb = unsafe { NSPasteboard::generalPasteboard() };
-                            unsafe { pb.stringForType(NSPasteboardTypeString) }.is_some()
+                            pb.types().is_some_and(|types| !types.is_empty())
                         }
                     }
                     _ => true,

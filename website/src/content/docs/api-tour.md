@@ -55,8 +55,9 @@ count.with(|c| c.abs());     // borrow without cloning
 count.get_untracked();  // read without creating a dependency
 ```
 
-Any closure that reads a signal *becomes reactive*: when the signal changes, only that [binding](/docs/glossary#binding)
-re-runs, and nothing else in the tree is touched.
+A closure passed to a reactive property, such as a label’s text, tracks its signal reads.
+Changing the signal reruns that [binding](/docs/glossary#binding). An ordinary closure or event
+handler does not become reactive just because it reads a signal.
 
 ```rust
 // This label re-reads `count` whenever it changes; nothing else is touched.
@@ -93,8 +94,8 @@ Wrap any subtree in `scroll(...)` to make it scroll natively.
 
 (Each input is a [piece](/docs/glossary#piece); [Pieces](/docs/pieces) covers the vocabulary.)
 
-Two-way controls take a signal directly; the user's edits flow back into it (origin-tagged, so
-there is no feedback echo).
+Editable controls take a signal directly. User input changes the signal, and changes from
+your code update the control.
 
 ```rust
 let name = Signal::new(String::new());
@@ -159,8 +160,8 @@ canvas(move |d, size| {
 
 (The whole model, with per-platform mappings: [Navigation](/docs/navigation).)
 
-Day models navigation as a projection of an app-owned signal: you own the state, and the native
-container is reconciled to it. There are two primitives:
+Navigation state lives in signals too. Changing a selection or path updates the native
+container; using its tabs or back button updates the signal. Choose between two containers:
 
 **`nav`** is a one-of-N choice bound to a `Signal<String>`. Its `.style` picks the native
 chrome: `Sidebar` becomes a `NavigationSplitView` (an `AdwNavigationSplitView` on GTK, an

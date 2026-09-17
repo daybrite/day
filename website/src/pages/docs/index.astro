@@ -1,31 +1,39 @@
 ---
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: CC-BY-SA-4.0
-import { getCollection } from 'astro:content';
 import DocsLayout from '../../layouts/DocsLayout.astro';
-import { navigation } from '../../lib/docs-navigation.mjs';
 import { url } from '../../lib/site';
-
-const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.order);
+const tasks = [
+  { title: 'Build a screen', description: 'Compose controls, connect state, and arrange the interface.', links: [['pieces', 'Pieces'], ['reactivity', 'Reactivity'], ['layout', 'Layout'], ['styling', 'Styling']] },
+  { title: 'Add app features', description: 'Move between screens, fetch data, and save it for next time.', links: [['navigation', 'Navigation'], ['guide-http', 'HTTP requests'], ['guide-storage', 'Local storage'], ['guide-desktop', 'Desktop apps']] },
+  { title: 'Reach your users', description: 'Translate text, support assistive technology, and request access to platform features.', links: [['localization', 'Localization'], ['accessibility', 'Accessibility'], ['guide-permissions', 'Permissions'], ['guide-notifications', 'Notifications']] },
+  { title: 'Test and release', description: 'Check a running app, diagnose failures, and prepare distribution packages.', links: [['dayscript', 'UI testing'], ['troubleshooting', 'Troubleshooting'], ['packaging', 'Packaging'], ['reproducible-builds', 'Reproducible builds']] },
+];
 ---
-<DocsLayout title="Documentation" description="Learn Day, build an app, find reference material, or contribute to the framework.">
-  <h1>Documentation</h1>
-  <p class="lead">Day is a Rust framework for apps that use each platform’s native UI toolkit. Start with a small app, then add the features and platforms you need.</p>
-  <p><a href={url('docs/getting-started')}>Create your first app →</a> · <a href={url('docs/overview')}>What is Day?</a></p>
-  {navigation(docs).map((group) => (
-    <section aria-labelledby={group.name.toLowerCase()}>
-      <h2 id={group.name.toLowerCase()}>{group.name}</h2>
-      <p>{group.description}</p>
-      {group.name === 'Learn' && <p>Already know another UI framework? The “Day for…” guides explain the differences. You can read them when you need them.</p>}
-      <div class="doc-cards">
-        {group.pages.map((d) => (
-          <a class="doc-card" href={url(`docs/${d.id}`)}><h3>{d.data.title}</h3><p>{d.data.description}</p></a>
-        ))}
-        {group.name === 'Reference' && <a class="doc-card" href={url('docs/api')}><h3>API reference</h3><p>Generated Rust documentation for Day’s public crates.</p></a>}
-        {group.name === 'Contribute' && <a class="doc-card" href={url('docs/internal')}><h3>Implementation notes</h3><p>Backend internals and design notes for framework development.</p></a>}
-      </div>
-    </section>
-  ))}
+<DocsLayout title="Documentation" description="Create your first Day app, learn the UI model, and find guides for the features you need.">
+  <h1>Build with Day</h1>
+  <p class="lead">Start with a running app. Then learn the pieces you need as you build your own.</p>
+  <div class="start-here">
+    <h2>Your first app</h2>
+    <p>Choose a platform, install its tools, and make your first change to the interface.</p>
+    <a href={url('docs/getting-started')}>Get started →</a>
+  </div>
+  <p>Still exploring? Read <a href={url('docs/overview')}>the overview</a>, consider <a href={url('docs/benefits')}>whether Day fits your app</a>, or browse <a href={url('gallery')}>the gallery</a>.</p>
+  <h2>What are you working on?</h2>
+  <div class="doc-cards">
+    {tasks.map((task) => (
+      <section class="doc-card">
+        <h3>{task.title}</h3><p>{task.description}</p>
+        <ul>{task.links.map(([slug, label]) => <li><a href={url(`docs/${slug}`)}>{label}</a></li>)}</ul>
+      </section>
+    ))}
+  </div>
+  <h2>Look something up</h2>
+  <p>The <a href={url('docs/api-tour')}>API tour</a> collects short examples of common controls. For a specific question, use the <a href={url('docs/api')}>Rust API documentation</a>, <a href={url('docs/cli')}>CLI reference</a>, or <a href={url('docs/glossary')}>glossary</a>.</p>
+  <p><a href={url('docs/platforms')}>Platform support</a> lists testing coverage and limitations. <a href={url('docs/system-requirements')}>System requirements</a> covers the tools you need to build each target.</p>
+  <h2>Extend or contribute to Day</h2>
+  <p>To add a control or a platform service, start with <a href={url('docs/extending')}>the extension guide</a>. To work on Day itself, read <a href={url('docs/local-development')}>local development</a> and <a href={url('docs/architecture')}>the architecture</a>. The <a href={url('docs/reference')}>implementation reference</a> covers detailed contracts and backend behavior.</p>
+  <p>The navigation lists all guides, including introductions for developers coming from other UI frameworks.</p>
 </DocsLayout>
 
 <style>
@@ -41,5 +49,7 @@ const docs = (await getCollection('docs')).sort((a, b) => a.data.order - b.data.
   .doc-card:hover { border-color: var(--brand); transform: translateY(-2px); }
   .doc-card h3 { margin: 0 0 6px; color: var(--text); }
   .doc-card p { margin: 0; color: var(--muted); font-size: 0.94rem; }
-  .ref-card { border-color: color-mix(in srgb, var(--brand) 55%, var(--border-soft)); background: color-mix(in srgb, var(--brand) 7%, var(--surface)); }
+  .start-here { padding: 24px; margin-block: 28px; border-color: color-mix(in srgb, var(--brand) 55%, var(--border-soft)); background: color-mix(in srgb, var(--brand) 7%, var(--surface)); }
+  .start-here h2 { margin-top: 0; }
+  .doc-card ul { margin-bottom: 0; padding-left: 20px; }
 </style>

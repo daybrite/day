@@ -10,41 +10,25 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day-part-http` provides HTTP requests for fetching API responses and downloading files.
-Its asynchronous methods let a request complete without blocking the UI. In this example,
-`body` is a signal that receives the response text or an error message:
+Use `day-part-http` to fetch data without blocking the interface. This guide starts with a
+button that loads a response, then shows cancellation and requests that follow a page’s state.
+The examples use `day::task`, which resumes futures on the UI thread so they can update signals.
 
-```rust
-day::task(async move {
-    match day_part_http::fetch_future(Request::get(url)).await {
-        Ok(resp) => body.set(resp.text().into_owned()),
-        Err(e) => body.set(format!("error: {e}")),
-    }
-});
-```
-
-**Platforms:** macOS, iOS, Android, Windows, Linux, HarmonyOS, and web. Unknown targets return
-`Unsupported`. On the web, use the asynchronous methods; blocking calls return `Unsupported`.
-`day_part_http::tier()` reports the compiled target’s support tier.
-
-Apple targets use `NSURLSession`, Android uses OkHttp, Windows uses WinHTTP, and the web uses
-`fetch()`. These implementations use platform networking settings, such as proxy configuration,
-VPN routing, certificate stores, and Low Data Mode where supported.
-Linux and HarmonyOS use a bundled ureq + rustls client, with proxy support limited to the
-`http_proxy` environment variables.
+The asynchronous API works on macOS, iOS, Android, Windows, Linux, HarmonyOS, and web.
+Blocking requests are unavailable on web; unknown targets return `Unsupported`.
 
 ## 1. Fetch into UI state
 
-Add the crate, then hold the request's outcome in signals and let the UI bind them:
+Add the crate to `Cargo.toml`. Use the same Day revision as the rest of your app:
 
 ```toml
 [dependencies]
 day-part-http = { git = "https://github.com/daybrite/day.git" }
 ```
 
-The `match` goes inside the task: `day::task` takes a future with `Output = ()`, so an async
-block that returns a `Result` doesn't compile there; handle both arms and write signals.
-Under `day::task` the future resumes on the UI thread, so those writes are plain `set` calls:
+The button below starts a request and shows either the response or an error. Replace the
+example URL with your own endpoint. Handle errors inside the task: `day::task` expects
+`Output = ()`, so the task cannot return a `Result`.
 
 ```rust
 use day::prelude::*;
@@ -73,7 +57,7 @@ fn forecast_row() -> impl Piece {
 }
 ```
 
-The contract differs from ureq-style clients on error statuses and on timeouts.
+Check both the request result and the HTTP status:
 
 - 4xx/5xx are `Ok`. An HTTP error status is a response (`resp.status == 404`), not an `HttpError`,
   which is why the sample checks the status range. Errors are transport-level only: `BadUrl`,
@@ -124,10 +108,10 @@ disposed is a silent no-op, so a late completion can't crash a page the user alr
 
 ## 3. Load on mount with Resource
 
-For "fetch when this page appears, refetch when an input changes", `day::reactive::Resource`
-is the scope-tied form: a tracked `source` feeds an async `fetcher`, and the result is stored in a
-`Signal<Load<T>>`. Unlike `day::task`, the fetcher returns a `Result`, and the error becomes
-`Load::Failed`:
+Use `day::reactive::Resource` when a page should load data on arrival and reload when an input
+changes. In this example, `city` is a `Signal<String>`. Each change starts a new fetch, and
+`forecast` holds the loading, success, or failure state. The fetcher returns a `Result`;
+`Resource` turns an error into `Load::Failed`:
 
 ```rust
 use day::reactive::{Load, Resource};
@@ -171,6 +155,16 @@ holding it in memory; `fetch_streamed` adds per-chunk control (progress, hashing
 cancel). To cache a response across launches, write `resp.body` with `day-part-fs`; see
 [Local storage](/docs/guide-storage).
 
+## Platform behavior
+
+Apple targets use `NSURLSession`, Android uses OkHttp, Windows uses WinHTTP, and the web uses
+`fetch()`. These implementations use platform networking settings, such as proxy configuration,
+VPN routing, certificate stores, and Low Data Mode where supported.
+Linux and HarmonyOS use a bundled ureq + rustls client, with proxy support limited to the
+`http_proxy` environment variables.
+
+`day_part_http::tier()` reports the compiled target’s support tier.
+
 ## Pitfalls
 
 - Don't block the UI thread. `fetch`, `fetch_to_file`, and `fetch_streamed` block their
@@ -191,5 +185,4 @@ cancel). To cache a response across launches, write `resp.body` with `day-part-f
 
 [http](/docs/internal/http) — the full `Request`/`Response` contract, per-platform
 realization, error mapping, and the cancel matrix.
-[async](/docs/internal/async) — `day::task`, `TaskHandle`, `Resource`, and the rules that keep
-async at the edges.
+[async](/docs/internal/async) — `day::task`, `TaskHandle`, `Resource`, and task lifetimes and main-thread updates.

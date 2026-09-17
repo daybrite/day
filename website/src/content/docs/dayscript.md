@@ -17,31 +17,39 @@ conditions rather than depending on fixed delays.
 
 ## A script
 
-```yaml
-name: walkthrough
-flow:
-  - wait_for:      { id: home-title }
-  - screenshot:    home
-  - navigate:      { route: controls }
-  - assert_route:  { route: controls }
-  - input:         { id: name-field, text: "Ada" }
-  - tap:           { id: increment-button }
-  - assert_value:  { id: counter-label, value: "1 click" }
-  - tap:           { id: btn-alert }
-  - assert_presented:
-  - respond:       { button: 0 }
-  - a11y_audit:
-  - screenshot:    controls
+Give the controls you want to test stable IDs. For the counter from
+[Getting started](/docs/getting-started), add IDs to the label and button:
+
+```rust
+label(move || format!("Count: {}", count.get())).id("counter-label"),
+button("Add one")
+    .action(move || count.update(|n| *n += 1))
+    .id("increment-button"),
 ```
 
-Run it against any target:
+Keep these two pieces inside the existing `column`. Save this script as
+`dayscript/counter.yaml`:
+
+```yaml
+name: counter
+flow:
+  - wait_for:     { id: increment-button }
+  - tap:          { id: increment-button }
+  - assert_value: { id: counter-label, value: "Count: 1" }
+  - screenshot:  counter
+```
+
+The script waits for the button, presses it once, checks the label, and captures the result.
+It assumes a fresh launch with the count at zero.
+
+Run it on a configured target:
 
 ```bash
-day launch -p macos-appkit --script dayscript/walkthrough.yaml
-day launch -p android-mdc --script dayscript/walkthrough.yaml --locale fr
+day launch -p macos-appkit --script dayscript/counter.yaml
+day launch -p android-mdc --script dayscript/counter.yaml
 ```
 
-`day launch` builds, starts the app with the scripting engine invited, executes the steps, and
+`day launch` builds, starts the app with scripting enabled, executes the steps, and
 exits nonzero if any assertion fails (exit code 5). Screenshots land under
 `build/day/screenshots/<target>/<subdir>/`, where the subdirectory is the `--variant` name when
 given, else the [locale](/docs/glossary#locale), else `default`. Several `--script` flags run in sequence, and
@@ -80,7 +88,8 @@ does, so it never races the push it is meant to undo.
 
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, so
 scripts need no hand-tuned sleeps. Acting steps synthesize Day events on the
-main thread between flushes, so they are deterministic and behave identically on every [toolkit](/docs/glossary#toolkit).
+main thread between reactive updates. Native behavior can still differ between toolkits,
+so run the walkthrough on the targets you intend to ship.
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
 
@@ -91,7 +100,7 @@ Any step can be gated per target: `skip_on:` drops it on the named targets or to
 
 ## How it works
 
-The engine lives in `day-script`, compiled into your app. It activates only when invited: the
+The engine lives in `day-script`, compiled into your app. It activates only when the launcher enables it: the
 launcher passes a localhost port and a one-time token through the environment; without them the
 engine never binds a socket, in debug or release. Steps arrive as JSON over that socket and
 execute on the main thread between [reactive](/docs/glossary#reactive) flushes:

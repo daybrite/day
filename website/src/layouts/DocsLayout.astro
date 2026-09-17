@@ -30,7 +30,7 @@ if (active === 'internal' && slug) {
     next = { href: url(`docs/internal/${orderedIds[i + 1]}`), title: titleOf(orderedIds[i + 1]) };
 } else {
   const current = docs.find((d) => d.id === slug);
-  const sequence = current ? docs.filter((d) => groupOf(d) === groupOf(current)) : [];
+  const sequence = current ? navigation(docs).find((group) => group.name === groupOf(current))?.pages ?? [] : [];
   const idx = sequence.findIndex((d) => d.id === slug);
   if (idx > 0) prev = { href: url(`docs/${sequence[idx - 1].id}`), title: sequence[idx - 1].data.title };
   if (idx >= 0 && idx < sequence.length - 1)
@@ -43,6 +43,8 @@ const sections = navigation(docs);
 <BaseLayout title={title} description={description} active={active}>
   <div class="docs container">
     <aside class="sidebar" data-pagefind-ignore>
+      <details class="docs-menu" open>
+        <summary class="docs-menu-toggle">Browse documentation</summary>
       <nav aria-label="Documentation">
         <a class="side-link" href={url('docs')}>Documentation home</a>
         {sections.map((s) => (
@@ -63,6 +65,7 @@ const sections = navigation(docs);
         ))}
 
       </nav>
+      </details>
     </aside>
 
     <article class="doc-body">
@@ -105,7 +108,8 @@ const sections = navigation(docs);
     scrollbar-width: thin;
     padding-right: 6px;
   }
-  .sidebar details { margin-top: 16px; }
+  .sidebar nav details { margin-top: 16px; }
+  .docs-menu-toggle { display: none; font-weight: 600; cursor: pointer; }
   summary.side-h { cursor: pointer; padding: 8px 0; }
   .side-h {
     text-transform: uppercase;
@@ -167,6 +171,8 @@ const sections = navigation(docs);
       overflow-y: visible;
     }
     .sidebar nav { display: block; }
+    .docs-menu-toggle { display: list-item; }
+    .docs-menu[open] > .docs-menu-toggle { margin-bottom: 16px; }
     .side-h { width: 100%; }
     .side-link { border-left: 0; }
   }
@@ -174,6 +180,12 @@ const sections = navigation(docs);
 
 <!-- prose styling for rendered markdown -->
 <script>
+  const menu = document.querySelector<HTMLDetailsElement>('.docs-menu');
+  const narrow = window.matchMedia('(max-width: 860px)');
+  const sizeMenu = () => { if (menu) menu.open = !narrow.matches; };
+  sizeMenu();
+  narrow.addEventListener('change', sizeMenu);
+
   // Glossary popovers (plugins/glossary-links.mjs stamps the terms). One popover element is
   // shared by every term on the page: it opens under the term on hover or keyboard focus,
   // stays open while the pointer is over it (its "defined in" link is meant to be clicked),

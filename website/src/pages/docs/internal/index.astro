@@ -33,17 +33,15 @@ const sections = groups
 const total = entries.length;
 ---
 <DocsLayout
-  title="Internal docs"
+  title="Implementation reference"
   description="Day framework internal reference: the repo's docs/ folder, rendered for the web."
   active="internal"
 >
-  <h1>Internal reference docs</h1>
+  <h1>Implementation reference</h1>
   <p class="lead">
-    These are Day's <strong>framework internal docs</strong>: the design and reference notes that
-    live in the repository's <code>docs/</code> folder, rendered here for easy reading. They are
-    written for contributors and framework authors, and describe how each subsystem
-    works in full. If you are building an app, start with the curated
-    <a href={url('docs/overview')}>Documentation</a> instead.
+    API contracts, platform behavior, and implementation notes for app developers and contributors.
+    These pages are also available in the repository’s <code>docs/</code> directory.
+    For step-by-step examples, start with the <a href={url('docs')}>app guides</a>.
   </p>
 
   {sections.map((s) => (

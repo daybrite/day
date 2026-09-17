@@ -60,6 +60,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [persistence](/docs/internal/persistence) | SQLite storage for the model: ModelContainer, the Model derive, migrations |
 | [resources](/docs/internal/resources) | asset packaging and the zero-copy runtime path |
 | [vectors](/docs/internal/vectors) | resolution-independent SVG glyphs and the `vector` piece |
+| [images](/docs/internal/images) | raster images from bytes: decode, draw, read, and write back out |
 | [color](/docs/internal/color) | the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it |
 | [icons](/docs/internal/icons) | `day icon`: every platform's app-icon set from one master |
 | [files](/docs/internal/files) | file I/O and platform paths |
@@ -71,7 +72,6 @@ Standalone UI Pieces: native widgets that live in their own crates and plug in w
 | Page | Covers |
 |---|---|
 | [swiftui](/docs/internal/swiftui) | `day-piece-swiftui` — embed your own SwiftUI views (macOS, iOS) |
-| [day-piece-webview](https://github.com/daybrite/day-piece-webview) | `day-piece-webview` — embedded web view, remote and bundled sites; in its own repository |
 | [webview-eval](/docs/internal/webview-eval) | web view JavaScript evaluation: API and per-platform support |
 | [map](/docs/internal/map) | `day-piece-map` — native maps |
 | [media](/docs/internal/media) | `day-piece-media` — audio/video playback |
@@ -121,8 +121,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [duty-matrix](/docs/internal/duty-matrix) | which backend implements which Toolkit duty (generated, CI-gated) |
 | [recorder-matrix](/docs/internal/recorder-matrix) | event → recorded dayscript step coverage (generated, CI-gated) |
 | [logging](/docs/internal/logging) | the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers |
-| [break](/docs/internal/break) | `day-break` consent-first crash reporting |
-| [day-lite](https://github.com/daybrite/day-lite) | `day-lite` JS/TS miniapps and superapp embedding; in its own repository |
+| [break](/docs/internal/break) | `day-break` crash capture, reports, and delivery |
 | [store](/docs/internal/store) | store listings and `day store` |
 | [agent](/docs/internal/agent) | dayscript sessions, `day drive`, and the agent-facing tooling |
 | [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
@@ -130,4 +129,8 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [environment](/docs/internal/environment) | toolchain/SDK discovery env vars (DAY_CPPWINRT, DAY_WINDOWS_KITS_ROOT, …) |
 <!-- END GENERATED: internal-docs-index -->
 
-If a guide and a reference page disagree, trust the reference page and tell us about the guide.
+## Related projects
+
+The [web view piece](https://github.com/daybrite/day-piece-webview) and
+[Day Lite](https://github.com/daybrite/day-lite), for embedded JavaScript and TypeScript apps,
+have their own repositories and documentation.

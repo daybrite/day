@@ -8,18 +8,15 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# App-local file storage (headless capability crate)
+# App-local file storage
 
-> **Status: implemented** as `day-part-fs` (in `parts/`), a headless day-ecosystem crate with no
-> UI Piece: private per-app file storage with one API on every target. Native targets read and
-> write real files under an app-data root; web-dom stores files in the browser's Origin
-> Private File System (OPFS) through the day-dom shim. Exercised by the showcase's Platform
-> services page and its walkthrough on every target.
+`day-part-fs` reads and writes files beneath an app-data directory. Use it for documents,
+cached responses, and other data that is too large for [preferences](prefs.md).
+Native targets use filesystem storage; web uses the browser’s Origin Private File System
+(OPFS). Files persist across launches, subject to the platform’s storage policies.
 
-Where [day-part-prefs](prefs.md) is a small key/value store for settings, this crate is for
-*data*: documents, caches, exports (anything file-shaped). Both persist per app and survive
-restarts; on the web, prefs ride `localStorage` while files ride OPFS, which is sized for real
-data and holds a true directory hierarchy.
+This reference covers paths, errors, and backend behavior. The
+[local storage guide](https://daybrite.dev/docs/guide-storage) shows how to use files from an app.
 
 ## Authoring
 

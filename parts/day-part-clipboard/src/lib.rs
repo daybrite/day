@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-clipboard is a headless cross-platform plain-text clipboard API. No UI; any Rust code
-//! can depend on this crate and call [`set_text`] / [`get_text`] / [`has_text`] to reach the
-//! system clipboard through the platform's native API.
+//! Headless cross-platform clipboard access for text and arbitrary encoded bytes. Use
+//! [`read`] / [`write`] with MIME [`Representation`]s for binary content and explicit errors;
+//! [`set_text`] / [`get_text`] / [`has_text`] remain convenient plain-text helpers.
 //!
 //! ```no_run
 //! day_part_clipboard::set_text("hello");
@@ -22,6 +22,12 @@
 //! Platform caveats: Android 10+ only lets the app read the clipboard while it has input focus, so
 //! [`get_text`] returns `None` in the background. Desktop Linux requires `wl-clipboard` or `xclip`
 //! to be installed (both are ubiquitous distro packages).
+
+mod content;
+pub use content::{ClipboardFuture, Content, Error, MAX_BYTES, Representation, read, write};
+
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+mod web_content;
 
 /// Place `text` on the system clipboard as plain text, replacing the previous contents.
 /// Returns `true` on success, `false` when the platform has no clipboard API or the write failed
@@ -118,6 +124,13 @@ mod imp {
     all(target_family = "wasm", target_os = "unknown")
 )))]
 mod imp {
+    pub fn write_content(_: &crate::Content) -> Result<Vec<String>, crate::Error> {
+        Err(crate::Error::Unsupported)
+    }
+    pub fn read_content(_: &[&str]) -> Result<Option<crate::Representation>, crate::Error> {
+        Err(crate::Error::Unsupported)
+    }
+
     pub fn set_text(_text: &str) -> bool {
         false
     }

@@ -6362,13 +6362,13 @@ mod imp {
                             CGPoint::new(rect.origin.x, rect.origin.y),
                             CGSize::new(rect.size.width, rect.size.height),
                         );
-                        // The alpha rides the context rather than a blend-mode draw, so the
-                        // opacity composes with whatever the canvas already set.
-                        let ctx = objc2_ui_kit::UIGraphicsGetCurrentContext();
-                        CGContext::save_g_state(ctx.as_deref());
-                        CGContext::set_alpha(ctx.as_deref(), *opacity);
-                        img.drawInRect(dest);
-                        CGContext::restore_g_state(ctx.as_deref());
+                        // UIImage's plain drawInRect always draws at full opacity, even if
+                        // CGContext's alpha was set. Use its explicit compositing overload.
+                        img.drawInRect_blendMode_alpha(
+                            dest,
+                            objc2_core_graphics::CGBlendMode::Normal,
+                            *opacity,
+                        );
                     }
                 }
                 DrawOp::Save => {
@@ -10787,7 +10787,7 @@ mod imp {
                         state.can_copy
                     } else if action == sel!(paste:) {
                         state.can_paste
-                            && unsafe { objc2_ui_kit::UIPasteboard::generalPasteboard().hasStrings() }
+                            && unsafe { let pb = objc2_ui_kit::UIPasteboard::generalPasteboard(); !pb.pasteboardTypes().is_empty() }
                     } else {
                         unsafe {
                             msg_send![super(self), canPerformAction: action, withSender: sender]

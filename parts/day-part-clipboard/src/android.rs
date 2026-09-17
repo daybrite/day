@@ -10,6 +10,8 @@
 // Note: since Android 10, apps can only read the clipboard while they hold input focus, so
 // `get_text`/`has_text` answer empty/false in the background. Writing is always allowed.
 
+use base64::Engine as _;
+
 pub fn set_text(text: &str) -> bool {
     set_text_native(text).unwrap_or(false)
 }
@@ -28,9 +30,34 @@ pub fn has_text() -> bool {
     has_text_native().unwrap_or(false)
 }
 
+pub fn write_content(content: &crate::Content) -> Result<Vec<String>, crate::Error> {
+    if write_content_native(
+        &base64::engine::general_purpose::STANDARD.encode(crate::content::pack(content)),
+    )
+    .unwrap_or(false)
+    {
+        Ok(content.0.iter().map(|r| r.mime.clone()).collect())
+    } else {
+        Err(crate::Error::Unavailable)
+    }
+}
+pub fn read_content(preferred: &[&str]) -> Result<Option<crate::Representation>, crate::Error> {
+    let encoded =
+        read_content_native(&preferred.join("\n")).map_err(|_| crate::Error::Unavailable)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| crate::Error::InvalidData)?;
+    if bytes.is_empty() {
+        return Err(crate::Error::Unavailable);
+    }
+    Ok(crate::content::unpack(&bytes)?.0.into_iter().next())
+}
+
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
+        fn write_content_native(data: &str) -> Result<bool, day_bridge::Error>;
+        fn read_content_native(preferred: &str) -> Result<String, day_bridge::Error>;
         /// Whether the clip was placed.
         fn set_text_native(text: &str) -> Result<bool, day_bridge::Error>;
         /// The current clip coerced to text, or `""` when there is none to read.
@@ -49,6 +76,12 @@ day_bridge::bridge! {
             import dev.daybrite.day.bridge.DayBridge;
         "#,
         body = r#"
+            public static boolean write_content_native(String data) {
+                return dev.daybrite.clipboard.BinaryClipboardProvider.write(DayBridge.ctx, android.util.Base64.decode(data, android.util.Base64.NO_WRAP));
+            }
+            public static String read_content_native(String preferred) {
+                return android.util.Base64.encodeToString(dev.daybrite.clipboard.BinaryClipboardProvider.read(DayBridge.ctx, preferred), android.util.Base64.NO_WRAP);
+            }
             private static ClipboardManager manager() {
                 Context ctx = DayBridge.ctx;
                 if (ctx == null) return null;
@@ -85,6 +118,11 @@ day_bridge::bridge! {
             }
         "#,
     );
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn write_content_native(_data: &str) -> Result<bool, day_bridge::Error> { Err(day_bridge::Error::Unsupported) }
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn read_content_native(_preferred: &str) -> Result<String, day_bridge::Error> { Err(day_bridge::Error::Unsupported) }
 
     // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
     // never compiled; it satisfies the rule that a bridge always has an answer for an unclaimed

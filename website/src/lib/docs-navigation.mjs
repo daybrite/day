@@ -8,13 +8,21 @@ export const groups = [
 ];
 
 export function groupOf(page) {
+  if (page.id === 'troubleshooting') return 'Build';
   if (['local-development', 'architecture', 'rendering'].includes(page.id) || page.data.section === 'Extend') return 'Contribute';
   if (['system-requirements', 'cli', 'platforms', 'project-structure'].includes(page.id) || ['Platforms', 'Reference'].includes(page.data.section)) return 'Reference';
   if (['Start here', 'Coming from', 'Concepts'].includes(page.data.section)) return 'Learn';
   return 'Build';
 }
 
+// Keep the first-app reading path together; migration guides are optional further reading.
+const learningPath = ['overview', 'benefits', 'getting-started', 'pieces', 'reactivity', 'layout', 'styling', 'api-tour'];
+
 export function navigation(docs) {
   const sorted = [...docs].sort((a, b) => a.data.order - b.data.order);
-  return groups.map((group) => ({ ...group, pages: sorted.filter((page) => groupOf(page) === group.name) }));
+  return groups.map((group) => ({ ...group, pages: sorted.filter((page) => groupOf(page) === group.name).sort((a, b) => {
+    if (group.name !== 'Learn') return 0;
+    const rank = (page) => { const index = learningPath.indexOf(page.id); return index < 0 ? learningPath.length : index; };
+    return rank(a) - rank(b);
+  }) }));
 }
