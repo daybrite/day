@@ -36,6 +36,8 @@ toml_edit = "0.25"
 serde = { version = "1", features = ["derive"] }
 serde_norway = "0.9"
 serde_json = "1"
+# HarmonyOS JSON5: round-trip parsing retains comments and whitespace during manifest edits.
+json-five = "=0.3.1"
 sha2 = "0.11"
 # The vector engine behind `day icon` and resource/vectors staging (docs/icons.md,
 # docs/vectors.md): SVG parse/raster + the platform icon-format writers.

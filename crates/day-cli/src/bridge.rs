@@ -110,7 +110,10 @@ pub fn stage(project: &Project, platform: &str) -> Staged {
                 }
                 day_build::bridge::Lang::ArkTs
                     if arm.options.get("sdk").map(String::as_str) == Some("hms")
-                        && !hms_sdk_available(project) =>
+                        && !hms_sdk_available(project).unwrap_or_else(|e| {
+                            eprintln!("day: cannot select HMS SDK: {e}");
+                            false
+                        }) =>
                 {
                     // The host's every ArkTS module compiles, so an arm over a Huawei SDK kit
                     // would fail the whole build against the public OpenHarmony SDK. Leave it
@@ -169,15 +172,18 @@ pub fn write_jvm(project: &Project, staged: &Staged) -> Result<Option<PathBuf>, 
 /// included, but hvigor resolves `@kit.*` HMS kits only for a HarmonyOS product, and the
 /// scaffold's host declares `runtimeOS: "OpenHarmony"`, so checking the tree staged an HMS arm
 /// into a build that could not compile it.
-fn hms_sdk_available(project: &Project) -> bool {
+fn hms_sdk_available(project: &Project) -> Result<bool, String> {
     if std::env::var("DAY_OHOS_HMS").is_ok_and(|v| v == "1") {
-        return true;
+        return Ok(true);
     }
-    let profile =
-        std::fs::read_to_string(project.root.join("platform/harmony/build-profile.json5"))
-            .unwrap_or_default();
-    if builds_for_openharmony_only(&profile) {
-        return false;
+    let path = project.root.join("platform/harmony/build-profile.json5");
+    let profile = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}".into(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if builds_for_openharmony_only(&profile).map_err(|e| format!("{}: {e}", path.display()))? {
+        return Ok(false);
     }
     if let Ok(root) = std::env::var("OHOS_BASE_SDK_HOME")
         && let Ok(rd) = std::fs::read_dir(&root)
@@ -185,31 +191,25 @@ fn hms_sdk_available(project: &Project) -> bool {
             .flatten()
             .any(|e| e.path().join("hms").join("ets").is_dir())
     {
-        return true;
+        return Ok(true);
     }
-    std::env::var("DEVECO_SDK_HOME")
-        .is_ok_and(|root| Path::new(&root).join("default/hms/ets").is_dir())
+    Ok(std::env::var("DEVECO_SDK_HOME")
+        .is_ok_and(|root| Path::new(&root).join("default/hms/ets").is_dir()))
 }
 
-/// Whether a host `build-profile.json5` builds only for the OpenHarmony runtime: some product
-/// declares `runtimeOS: "OpenHarmony"` and none declares `"HarmonyOS"`. A profile that names no
-/// runtime at all is left to the SDK-tree check. Read as text rather than parsed: JSON5 allows
-/// unquoted keys and comments, and the one value needed sits right after its key.
-fn builds_for_openharmony_only(profile: &str) -> bool {
+/// Only actual products' runtimeOS declarations participate in SDK selection.
+fn builds_for_openharmony_only(profile: &str) -> Result<bool, String> {
+    use crate::json5::{array, get, parse, string};
+    let doc = parse(profile)?;
     let mut openharmony = false;
-    for (at, key) in profile.match_indices("runtimeOS") {
-        let value: String = profile[at + key.len()..]
-            .trim_start_matches(|c: char| c == '"' || c == '\'' || c == ':' || c.is_whitespace())
-            .chars()
-            .take_while(char::is_ascii_alphanumeric)
-            .collect();
-        match value.as_str() {
-            "HarmonyOS" => return false,
-            "OpenHarmony" => openharmony = true,
+    for product in get(&doc.value, "products").into_iter().flat_map(array) {
+        match get(product, "runtimeOS").and_then(string).as_deref() {
+            Some("HarmonyOS") => return Ok(false),
+            Some("OpenHarmony") => openharmony = true,
             _ => {}
         }
     }
-    openharmony
+    Ok(openharmony)
 }
 
 /// Write every staged ES module into `dist/bridge/`, returning the import lines the day-dom shim
@@ -483,24 +483,17 @@ pub fn kotlin_plugin_help(crates: &[String]) -> String {
 
 /// Every crate in the app's dependency graph that declares a bridge, as `(name, crate root)`.
 fn bridged_crates(project: &Project) -> Vec<(String, PathBuf)> {
-    let mut out: Vec<(String, PathBuf)> = crate::pieces::dependency_roots(project)
+    let mut out: Vec<(String, PathBuf)> = crate::pieces::bridge_dependency_roots(project)
         .into_iter()
         // A crate that declares a bridge depends on day-bridge, by construction. Requiring that
         // skips the two crates that merely contain the text `bridge!`: day-bridge itself, whose
         // doc comment shows the macro, and day-build, whose tests carry fixtures.
-        .filter(|(name, root)| name != "day-bridge" && depends_on_day_bridge(root))
+        .filter(|(name, _)| name != "day-bridge")
         .filter(|(_, root)| day_build::bridge::is_bridged(root))
         .collect();
     out.sort();
     out.dedup();
     out
-}
-
-/// Whether a crate's manifest lists day-bridge as a dependency.
-fn depends_on_day_bridge(root: &Path) -> bool {
-    std::fs::read_to_string(root.join("Cargo.toml"))
-        .map(|t| t.contains("day-bridge"))
-        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -511,26 +504,17 @@ mod tests {
     #[test]
     fn a_host_building_for_openharmony_cannot_resolve_hms_kits() {
         use super::builds_for_openharmony_only as only;
-        assert!(only(
-            r#""products": [{ "name": "default", "runtimeOS": "OpenHarmony" }]"#
-        ));
-        assert!(only(
-            "products: [{ name: 'default', runtimeOS: 'OpenHarmony' }]"
-        ));
-        assert!(!only(
-            r#""products": [{ "name": "default", "runtimeOS": "HarmonyOS" }]"#
-        ));
-        // A HarmonyOS product anywhere in the profile can compile the kits.
-        assert!(!only(
-            r#"[{ "runtimeOS": "OpenHarmony" }, { "runtimeOS": "HarmonyOS" }]"#
-        ));
-        // Naming no runtime leaves the decision to the SDK-tree check.
-        assert!(!only(r#""products": [{ "name": "default" }]"#));
-        assert!(!only(""));
-        // A comment that mentions the key declares nothing.
-        assert!(!only(
-            "// must match the product runtimeOS in the root profile"
-        ));
+        assert!(only(r#"{products: [{runtimeOS: 'OpenHarmony'}]}"#).unwrap());
+        assert!(
+            !only(r#"{products: [{runtimeOS: 'OpenHarmony'}, {runtimeOS: 'HarmonyOS'}]}"#).unwrap()
+        );
+        assert!(!only("{products: [{}]}").unwrap());
+        assert!(!only("{} // runtimeOS: 'OpenHarmony'").unwrap());
+        assert!(
+            only("{products: [{runtimeOS: 'OpenHarmony'}]} // runtimeOS: 'HarmonyOS'").unwrap()
+        );
+        assert!(only(r#"{note: "runtimeOS: 'HarmonyOS'", products: [{runtimeOS: 'OpenHarmony'}], other: {runtimeOS: 'HarmonyOS'}}"#).unwrap());
+        assert!(only("{products: [").is_err());
     }
 
     /// A crate whose source declares a Swift arm renders one adapter, with the prefixed symbol and

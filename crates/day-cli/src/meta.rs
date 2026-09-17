@@ -796,16 +796,15 @@ impl Project {
     /// for `day_showcase.wasm` beside the `dayapp.wasm` cargo had just written).
     pub fn lib_name(&self) -> String {
         let text = std::fs::read_to_string(self.root.join("Cargo.toml")).unwrap_or_default();
-        if let Some(rest) = text.split("[lib]").nth(1) {
-            // Only the `[lib]` table's own keys: stop at the next table header.
-            let table = rest.split("\n[").next().unwrap_or(rest);
-            for line in table.lines() {
-                if let Some(v) = line.trim().strip_prefix("name")
-                    && let Some(v) = v.trim_start().strip_prefix('=')
-                {
-                    return v.trim().trim_matches('"').replace('-', "_");
-                }
-            }
+        // Parse TOML: comments can mention `[lib]`, and names may use either quote style
+        // or have a trailing comment. A text scan can silently choose the wrong artifact.
+        if let Ok(cargo) = toml::from_str::<toml::Value>(&text)
+            && let Some(name) = cargo
+                .get("lib")
+                .and_then(|lib| lib.get("name"))
+                .and_then(toml::Value::as_str)
+        {
+            return name.replace('-', "_");
         }
         self.manifest.app.name.replace('-', "_")
     }
@@ -1317,6 +1316,25 @@ mod lib_name_tests {
         let p = project_with(
             "[package]\nname = \"day-showcase\"\nversion = \"0.1.0\"\n\
              [lib]\nname = \"dayapp\"\ncrate-type = [\"rlib\"]\n",
+        );
+        assert_eq!(p.lib_name(), "dayapp");
+    }
+
+    #[test]
+    fn lib_name_ignores_table_names_in_comments() {
+        let p = project_with(
+            "[package]\nname = \"day-trader\"\nversion = \"0.1.0\"\n\
+             [lib]\n# Artifacts are named after the `[lib]` target.\n\
+             name = \"dayapp\"\ncrate-type = [\"rlib\"]\n",
+        );
+        assert_eq!(p.lib_name(), "dayapp");
+    }
+
+    #[test]
+    fn lib_name_accepts_toml_quoting_and_trailing_comments() {
+        let p = project_with(
+            "[package]\nname = \"day-trader\"\nversion = \"0.1.0\"\n\
+             [lib]\nname = 'dayapp' # independent of the package name\n",
         );
         assert_eq!(p.lib_name(), "dayapp");
     }

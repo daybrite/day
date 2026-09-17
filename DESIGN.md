@@ -2892,6 +2892,16 @@ extra-combo case the design worried about.
 > required. What keeps the exception honest: Day writes and removes ONLY keys inside a closed
 > managed set derived from the declaration table, every other byte is preserved, and two consecutive
 > builds produce a byte-identical file.
+>
+> HarmonyOS manifests are parsed as JSON5 with `json-five`'s round-trip AST. Identity edits
+> operate on string properties; permission regions belong to `module.requestPermissions`;
+> shortcuts read the named `EntryAbility` and merge its metadata array. Comments, quoting,
+> unrelated entries and whitespace survive, and malformed JSON5 is rejected before a write.
+> SDK selection reads only `products[].runtimeOS`; comments cannot opt an OpenHarmony host
+> into HMS kits. `json5::tests`, `ohos::identity_tests` and the bridge SDK-selection tests cover
+> these contracts. A small token-span correction covers json-five 0.3.1's block-comment end
+> offset so its round-trip rendering retains the closing slash.
+
 
 **Aggregation never mutates the scaffolds** — this principle shipped intact for everything else. `day build` reads
 the resolved dependency graph via `cargo metadata`, collects every crate's
@@ -3949,6 +3959,17 @@ removed each copy:
 | Apple `CFBundleURLName`/`CFBundleURLSchemes` | `$(PRODUCT_BUNDLE_IDENTIFIER)` and a generated `DAY_URL_SCHEME`, the indirection `CFBundleIdentifier` already used |
 | `store/app.toml bundle-id` | omitted — `day store` falls back to `Day.toml [app] id` |
 | HarmonyOS `bundleName`, `uris` scheme | rewritten in place on every build (OHOS has no include/properties channel), the way permissions and shortcuts already are |
+
+The CLI reads `[lib].name` by parsing Cargo.toml as TOML, not scanning its text: comments
+mentioning `[lib]`, quoted names and trailing comments must not change which artifact it stages.
+Without an explicit library name it falls back to the package name with hyphens replaced by
+underscores. This lookup is shared by Apple staticlibs, Android shared libraries and web WASM;
+`meta::lib_name_tests` covers the contract, including Day-Trader's commented library declaration.
+Bridge discovery uses Cargo metadata's resolved dependency names, including renamed and
+workspace-inherited dependencies, rather than looking for a crate name in manifest text.
+The VS Code extension uses `smol-toml` for checkout repositories, dependency git URLs, Cargo.lock
+sources and Cargo patch paths; comments and unrelated metadata cannot create a local-patch offer.
+
 
 The scheme DEFAULTS to the id's last segment, so a new app never states it twice, and
 `Day.toml [app] scheme` overrides that where an app needs a different one. It is declarable

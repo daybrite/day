@@ -128,6 +128,9 @@ pub(crate) struct Metadata {
 }
 #[derive(Deserialize)]
 pub(crate) struct Package {
+    /// Cargo resolves dependency renames and workspace inheritance in this list.
+    #[serde(default)]
+    dependencies: Vec<PackageDependency>,
     id: String,
     pub(crate) name: String,
     pub(crate) manifest_path: String,
@@ -148,6 +151,11 @@ struct Node {
 #[derive(Deserialize)]
 struct Dep {
     pkg: String,
+}
+
+#[derive(Deserialize)]
+struct PackageDependency {
+    name: String,
 }
 
 /// The `[package.metadata.day.android]` table, as declared by a piece crate.
@@ -1777,14 +1785,19 @@ pub fn write_macos_pieces(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
-/// Every package in the app's dependency graph, as `(name, crate root)`, which the bridge
+/// Packages depending on day-bridge, as `(name, crate root)`, which the bridge
 /// stager walks to find crates declaring a `bridge!` block (docs/bridge.md).
-pub(crate) fn dependency_roots(project: &Project) -> Vec<(String, std::path::PathBuf)> {
+pub(crate) fn bridge_dependency_roots(project: &Project) -> Vec<(String, std::path::PathBuf)> {
     let Ok(meta) = cargo_metadata_all_features(project) else {
         return Vec::new();
     };
+    bridge_roots_from_metadata(&meta)
+}
+
+fn bridge_roots_from_metadata(meta: &Metadata) -> Vec<(String, std::path::PathBuf)> {
     meta.packages
         .iter()
+        .filter(|pkg| pkg.dependencies.iter().any(|dep| dep.name == "day-bridge"))
         .filter_map(|pkg| {
             Path::new(&pkg.manifest_path)
                 .parent()
@@ -2010,6 +2023,25 @@ fn jvm_package(source: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bridge_roots_use_resolved_dependency_names() {
+        // Cargo's name is the real package, including renamed/workspace-inherited dependencies.
+        let meta: super::Metadata = serde_json::from_value(serde_json::json!({
+            "packages": [
+                {"id":"yes", "name":"yes", "manifest_path":"yes/Cargo.toml",
+                 "dependencies":[{"name":"day-bridge", "rename":"bridge_alias"}]},
+                {"id":"no", "name":"no", "manifest_path":"no/Cargo.toml",
+                 "metadata":{"note":"day-bridge"},
+                 "dependencies":[{"name":"another-package", "rename":"day-bridge"}]}
+            ]
+        }))
+        .unwrap();
+        assert_eq!(
+            super::bridge_roots_from_metadata(&meta),
+            vec![("yes".into(), std::path::PathBuf::from("yes"))]
+        );
+    }
+
     #[test]
     fn flatpak_requirements_follow_dependency_closure_and_validate_metadata() {
         let mut data = serde_json::json!({

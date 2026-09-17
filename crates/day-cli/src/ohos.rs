@@ -471,7 +471,7 @@ fn sync_ohos_identity(project: &Project) -> Result<(), String> {
     if app_json.exists() {
         let text = std::fs::read_to_string(&app_json)
             .map_err(|e| format!("{}: {e}", app_json.display()))?;
-        let out = replace_json5_string(&text, "bundleName", &resolved.id);
+        let out = replace_json5_string(&text, "bundleName", &resolved.id)?;
         if out != text {
             std::fs::write(&app_json, out).map_err(|e| format!("{}: {e}", app_json.display()))?;
         }
@@ -481,7 +481,7 @@ fn sync_ohos_identity(project: &Project) -> Result<(), String> {
     if module.exists() {
         let text =
             std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
-        let out = replace_json5_string(&text, "scheme", &resolved.scheme());
+        let out = replace_json5_string(&text, "scheme", &resolved.scheme())?;
         if out != text {
             std::fs::write(&module, out).map_err(|e| format!("{}: {e}", module.display()))?;
         }
@@ -489,42 +489,100 @@ fn sync_ohos_identity(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
-/// Replace every `"<key>": "<value>"` in a JSON5 document, preserving the file's spacing.
-/// Textual because these files are hand-editable JSON5 with comments, and a parse →
-/// re-serialize round trip would reformat everything around the one field being set.
-fn replace_json5_string(text: &str, key: &str, value: &str) -> String {
-    let needle = format!("\"{key}\"");
-    let mut out = String::with_capacity(text.len());
-    let mut rest = text;
-    while let Some(at) = rest.find(&needle) {
-        let (head, tail) = rest.split_at(at + needle.len());
-        out.push_str(head);
-        // `: "…"`: skip the colon and any spacing, then swap the quoted value whole.
-        let after_colon = tail.trim_start();
-        let Some(after_colon) = after_colon.strip_prefix(':') else {
-            rest = tail;
-            continue;
-        };
-        let spacing = &tail[..tail.len() - after_colon.len()];
-        let body = after_colon.trim_start();
-        let gap = &after_colon[..after_colon.len() - body.len()];
-        match body
-            .strip_prefix('"')
-            .and_then(|b| b.find('"').map(|e| &b[e + 1..]))
-        {
-            Some(remainder) => {
-                out.push_str(spacing);
-                out.push_str(gap);
-                out.push('"');
-                out.push_str(value);
-                out.push('"');
-                rest = remainder;
+/// Update string properties through the round-trip AST, preserving all unrelated source text.
+fn replace_json5_string(text: &str, key: &str, value: &str) -> Result<String, String> {
+    use crate::json5::{self, Value};
+    fn visit(node: &mut Value, key: &str, value: &str) -> Result<(), String> {
+        match node {
+            Value::JSONObject {
+                key_value_pairs, ..
+            } => {
+                for pair in key_value_pairs {
+                    if json5::string(&pair.key).as_deref() == Some(key)
+                        && json5::string(&pair.value).is_some()
+                    {
+                        json5::set_string(&mut pair.value, value)?;
+                    } else {
+                        visit(&mut pair.value, key, value)?;
+                    }
+                }
             }
-            None => rest = tail,
+            Value::JSONArray { values, .. } => {
+                for item in values {
+                    visit(&mut item.value, key, value)?;
+                }
+            }
+            _ => {}
         }
+        Ok(())
     }
-    out.push_str(rest);
-    out
+    let mut doc = json5::parse(text)?;
+    visit(&mut doc.value, key, value)?;
+    Ok(doc.to_string())
+}
+
+fn entry_ability(module: &crate::json5::Value) -> Option<&crate::json5::Value> {
+    use crate::json5::{array, get, string};
+    array(get(module, "abilities")?)
+        .find(|a| get(a, "name").and_then(string).as_deref() == Some("EntryAbility"))
+}
+
+/// Read the owning ability's skill URI and merge its metadata without disturbing other entries.
+fn shortcut_module(text: &str) -> Result<(String, Option<String>, String), String> {
+    use crate::json5::{self, Value, array, get, get_mut, string};
+    let mut doc = json5::parse(text)?;
+    let module = get_mut(&mut doc.value, "module").ok_or("module.json5 has no module object")?;
+    let module_name = get(module, "name")
+        .and_then(string)
+        .ok_or("module has no name")?;
+    let ability = entry_ability(module).ok_or("no EntryAbility to attach [[shortcuts]] to")?;
+    let scheme = get(ability, "skills")
+        .into_iter()
+        .flat_map(array)
+        .filter_map(|skill| get(skill, "uris"))
+        .flat_map(array)
+        .find_map(|uri| get(uri, "scheme").and_then(string));
+    let Value::JSONArray { values, .. } = get_mut(module, "abilities").unwrap() else {
+        unreachable!()
+    };
+    let ability = &mut values
+        .iter_mut()
+        .find(|a| get(&a.value, "name").and_then(string).as_deref() == Some("EntryAbility"))
+        .unwrap()
+        .value;
+    if get(ability, "metadata").is_none() {
+        json5::insert(ability, "metadata", json5::parse("[]")?.value)?;
+    }
+    let metadata = get_mut(ability, "metadata").unwrap();
+    if !matches!(metadata, Value::JSONArray { .. }) {
+        return Err("EntryAbility.metadata must be an array".into());
+    }
+    let existing = match metadata {
+        Value::JSONArray { values, .. } => values.iter_mut().find(|v| {
+            get(&v.value, "name").and_then(string).as_deref() == Some("ohos.ability.shortcuts")
+        }),
+        _ => unreachable!(),
+    };
+    if let Some(existing) = existing {
+        if let Some(resource) = get_mut(&mut existing.value, "resource") {
+            json5::set_string(resource, "$profile:shortcuts_config")?;
+        } else {
+            json5::insert(
+                &mut existing.value,
+                "resource",
+                json5::parse("'$profile:shortcuts_config'")?.value,
+            )?;
+        }
+    } else {
+        json5::push(
+            metadata,
+            json5::parse(
+                r#"{ "name": "ohos.ability.shortcuts", "resource": "$profile:shortcuts_config" }"#,
+            )?
+            .value,
+        )?;
+    }
+    Ok((module_name, scheme, doc.to_string()))
 }
 
 /// Write the declared permissions into `module.json5`, and their reasons into the module's string
@@ -551,9 +609,11 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
 
     // The ability the permissions are used by; the scaffold has exactly one. Omitting
     // `abilities` is safer than naming one that doesn't exist, which hvigor rejects.
-    let ability = std::fs::read_to_string(&module)
-        .ok()
-        .filter(|s| s.contains("\"name\": \"EntryAbility\""))
+    let before =
+        std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
+    let doc = crate::json5::parse(&before)?;
+    let ability = crate::json5::get(&doc.value, "module")
+        .and_then(entry_ability)
         .map(|_| "EntryAbility");
 
     let mut body = String::new();
@@ -573,14 +633,12 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
         body.push_str(" },\n");
     }
 
-    let before =
-        std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
     // Nothing to manage and no region yet: leave the file alone rather than stamping an empty one
     // in. Materializing it would rewrite a file the scaffold ships and the app has not touched,
     // which fails the pristine check every packing job runs: the artifact has to be rebuildable
     // from its commit, and a build that edits tracked files means it is not. An app that already
     // Has a region still falls through, so removing the last permission still empties it.
-    if entries.is_empty() && !before.contains("// day:permissions-begin") {
+    if entries.is_empty() && !crate::json5::has_region(&before, "permissions")? {
         return write_ohos_reason_strings(project, &plan);
     }
     let with_region = crate::json5::ensure_region(&before, "requestPermissions", "permissions")?;
@@ -721,26 +779,8 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
 
     let text =
         std::fs::read_to_string(&module).map_err(|e| format!("{}: {e}", module.display()))?;
-    if !text.contains("\"name\": \"EntryAbility\"") {
-        return Err(format!(
-            "{}: no EntryAbility to attach [[shortcuts]] to",
-            module.display()
-        ));
-    }
-    // The scheme the `uris` skill registered, read from the module so conveyance can't drift
-    // from registration. Absent (no deep-link skill): the want carries the bare route, which
-    // `route_of_url` passes through unchanged.
-    let scheme = text
-        .split("\"scheme\": \"")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .map(String::from);
-    let module_name = text
-        .split("\"name\": \"")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .unwrap_or("entry")
-        .to_string();
+    let (module_name, scheme, after) =
+        shortcut_module(&text).map_err(|e| format!("{}: {e}", module.display()))?;
     let bundle = project.manifest.resolve("harmony-arkui").id;
 
     let config = crate::shortcuts::harmony_shortcuts_config(
@@ -758,22 +798,7 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
         std::fs::write(&profile, config).map_err(|e| format!("{}: {e}", profile.display()))?;
     }
 
-    // Point the ability at the profile, once. Anchored on the ability's own "name" line; the
-    // marker string doubles as the idempotence check.
-    if !text.contains("ohos.ability.shortcuts") {
-        let anchor = text
-            .lines()
-            .find(|l| l.contains("\"name\": \"EntryAbility\""))
-            .map(str::to_string)
-            .ok_or_else(|| format!("{}: EntryAbility anchor line not found", module.display()))?;
-        let indent: String = anchor.chars().take_while(|c| c.is_whitespace()).collect();
-        let insert = format!(
-            "{anchor}\n{indent}// day: [[shortcuts]] — labels and routes live in the generated profile.\n\
-             {indent}\"metadata\": [\n\
-             {indent}  {{ \"name\": \"ohos.ability.shortcuts\", \"resource\": \"$profile:shortcuts_config\" }},\n\
-             {indent}],"
-        );
-        let after = text.replacen(&anchor, &insert, 1);
+    if after != text {
         std::fs::write(&module, after).map_err(|e| format!("{}: {e}", module.display()))?;
     }
 
@@ -1343,12 +1368,78 @@ fn stream_hilog(key: &str, label: &str) -> i32 {
 mod identity_tests {
     use super::replace_json5_string;
 
+    #[test]
+    fn identity_ignores_comments_and_handles_json5_escapes() {
+        let src = r#"// "scheme": "leave-me"
+{scheme: 'a\'b', note: 'scheme: "untouched"', nested: {'scheme': 'old'}}"#;
+        let out = replace_json5_string(src, "scheme", "new\"value").unwrap();
+        assert!(out.starts_with("// \"scheme\": \"leave-me\"\n"));
+        assert!(out.contains("note: 'scheme: \"untouched\"'"));
+        let parsed: serde_json::Value = json_five::from_str(&out).unwrap();
+        assert_eq!(parsed["scheme"], "new\"value");
+        assert_eq!(parsed["nested"]["scheme"], "new\"value");
+        assert_eq!(
+            replace_json5_string(&out, "scheme", "new\"value").unwrap(),
+            out
+        );
+        assert!(replace_json5_string("{scheme:", "scheme", "x").is_err());
+    }
+
+    #[test]
+    fn shortcuts_use_the_owning_ability_and_merge_metadata() {
+        let src = r#"// "name": "EntryAbility", "scheme": "wrong"
+{module: {name:'custom', note:'ohos.ability.shortcuts', abilities:[
+  {name:'OtherAbility', skills:[{uris:[{scheme:'wrong'}]}]},
+  {name:'EntryAbility', metadata:[{name:'other', resource:'keep'}],
+   skills:[{uris:[{scheme:'right'}]}]}
+]}}"#;
+        let (name, scheme, out) = super::shortcut_module(src).unwrap();
+        assert_eq!(name, "custom");
+        assert_eq!(scheme.as_deref(), Some("right"));
+        assert!(out.starts_with("// \"name\": \"EntryAbility\", \"scheme\": \"wrong\"\n"));
+        assert!(out.contains("{name:'other', resource:'keep'}"));
+        let parsed: serde_json::Value = json_five::from_str(&out).unwrap();
+        assert!(parsed["module"]["abilities"][0].get("metadata").is_none());
+        assert_eq!(
+            parsed["module"]["abilities"][1]["metadata"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(super::shortcut_module(&out).unwrap().2, out);
+    }
+
+    #[test]
+    fn shortcuts_add_missing_metadata_and_repair_existing_reference() {
+        for metadata in [
+            "",
+            ", metadata: [{name:'ohos.ability.shortcuts', resource:'old'}]",
+        ] {
+            let src = format!(
+                "{{module:{{name:'entry',abilities:[{{name:'EntryAbility'{metadata}}}]}}}}"
+            );
+            let (_, scheme, out) = super::shortcut_module(&src).unwrap();
+            assert_eq!(scheme, None);
+            let parsed: serde_json::Value = json_five::from_str(&out).unwrap();
+            assert_eq!(
+                parsed["module"]["abilities"][0]["metadata"][0]["resource"],
+                "$profile:shortcuts_config"
+            );
+            assert_eq!(super::shortcut_module(&out).unwrap().2, out);
+        }
+        assert!(
+            super::shortcut_module("{module:{name:'entry',abilities:[]}} // name: 'EntryAbility'")
+                .is_err()
+        );
+    }
+
     /// The rewrite touches the one field and leaves the comments, trailing commas and spacing
-    /// a hand-edited JSON5 file carries, which is why this is textual rather than a parse.
+    /// a hand-edited JSON5 file carries, using the parser’s round-trip representation.
     #[test]
     fn only_the_named_field_moves() {
         let src = "{\n  \"app\": {\n    // the app's id\n    \"bundleName\": \"dev.example.old\",\n    \"vendor\": \"example\",\n  }\n}\n";
-        let out = replace_json5_string(src, "bundleName", "dev.daybrite.new");
+        let out = replace_json5_string(src, "bundleName", "dev.daybrite.new").unwrap();
         assert!(out.contains("\"bundleName\": \"dev.daybrite.new\""));
         assert!(out.contains("// the app's id"));
         assert!(out.contains("\"vendor\": \"example\","));
@@ -1360,7 +1451,7 @@ mod identity_tests {
     fn every_occurrence_is_replaced() {
         let src = "{ \"uris\": [{ \"scheme\": \"a\" }, { \"scheme\": \"a\" }] }";
         assert_eq!(
-            replace_json5_string(src, "scheme", "b"),
+            replace_json5_string(src, "scheme", "b").unwrap(),
             "{ \"uris\": [{ \"scheme\": \"b\" }, { \"scheme\": \"b\" }] }"
         );
     }
@@ -1369,6 +1460,6 @@ mod identity_tests {
     #[test]
     fn non_string_values_are_untouched() {
         let src = "{ \"scheme\": 7, \"note\": \"scheme is derived\" }";
-        assert_eq!(replace_json5_string(src, "scheme", "b"), src);
+        assert_eq!(replace_json5_string(src, "scheme", "b").unwrap(), src);
     }
 }
