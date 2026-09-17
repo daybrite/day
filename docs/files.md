@@ -82,7 +82,7 @@ target.
 | arkui (HarmonyOS) | ArkTS `DocumentViewPicker.select` + `@ohos.file.fs` (copy → cache) | `DocumentViewPicker.save` + `@ohos.file.fs` |
 | dom (web) | `<input type=file>` (the browser's picker) | a Blob download |
 | mock   | records the spec; resolved programmatically | same |
-| xaml  | not yet implemented (like its alert dialogs) | — |
+| xaml  | WinRT `FileOpenPicker` | WinRT `FileSavePicker` |
 
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
 the `day-arkui` backend calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
@@ -125,3 +125,23 @@ A file picker is a presentation, so a script answers it with a path ([docs/dialo
 This makes open/save flows headless-testable and screenshot-able on every backend without touching
 the machine's real filesystem. See `Day-Showcase` (the **Files & storage** page's Files section) and
 `Day-Showcase/dayscript/files.yaml`.
+
+## Windows picker behavior
+
+The XAML backend advertises `Cap::FileDialogs = Native`. It uses the system WinRT
+pickers, initialized with the host HWND through `IInitializeWithWindow` (the
+[desktop picker interop contract](https://devblogs.microsoft.com/oldnewthing/20190412-00/?p=102413)).
+Open filters become `.ext` entries, with `*` when no filters are supplied; save filters
+retain their names. The WinRT API does not expose a custom dialog title.
+The selected local path becomes a `FileUrl`, so `read()` returns the original bytes.
+
+Registration precedes native setup. Missing owners, activation/filter/initialization
+failures, canceled operations, and errors retrieving the result or path resolve as
+`Dismissed`, rather than leaving the calling future pending. Completion removes the
+registration before notifying Rust; duplicate or late replies are ignored.
+
+Validate on a Windows host with `Day-Showcase/dayscript/files.yaml`, then manually
+open and cancel the native picker and select a file with a Unicode path. In Day-Sketch,
+insert an image through the **+** menu, edit its geometry/opacity/rotation, save the
+drawing, and reopen it. Scripted `respond` validates the portable presentation flow;
+it does not select a file through the real Windows picker UI.

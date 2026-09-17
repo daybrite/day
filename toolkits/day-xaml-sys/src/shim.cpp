@@ -5212,22 +5212,35 @@ extern "C" void day_xaml_present_prompt(uint64_t req, const char* title, const c
 } catch (...) {
 }
 
-// Report a completed file-picker op: tag 3 (files) with the chosen path, else tag 0 (dismissed).
-static void finish_file(uint64_t req, WSt::StorageFile const& file) {
+// Resolve only registered requests: cancellation/scripted dismissal and late completion must
+// never answer twice. Resolve the path BEFORE removing the request, since Path() can throw.
+static void finish_file(uint64_t req, std::string const& path = {}) {
     if (!g_presents.erase(req)) return;
-    if (!g_present_cb) return;
-    if (file) {
-        std::string p = u8(file.Path());
-        g_present_cb(req, 3, 0, p.c_str());
-    } else {
-        g_present_cb(req, 0, 0, "");
+    if (g_present_cb) g_present_cb(req, path.empty() ? 0 : 3, 0, path.c_str());
+}
+
+static void file_completed(uint64_t req,
+                           WF::IAsyncOperation<WSt::StorageFile> const& op,
+                           WF::AsyncStatus status) noexcept {
+    std::string path;
+    try {
+        if (status == WF::AsyncStatus::Completed) {
+            if (auto file = op.GetResults()) path = u8(file.Path());
+        }
+    } catch (...) {
+        // Provider/GetResults/Path errors have the same public result as cancellation.
+        // In particular, never let a WinRT exception escape the completion delegate.
     }
+    finish_file(req, path);
 }
 
 extern "C" void day_xaml_present_file_open(uint64_t req, const char* title,
                                             const char* filters_joined, void* win) try {
     (void)title; // FileOpenPicker has no title property in the WinRT API
+    // Register before any WinRT activation/filter/owner setup that can fail.
+    g_presents.try_emplace(req);
     auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->host) { finish_file(req); return; }
     WStP::FileOpenPicker picker;
     picker.SuggestedStartLocation(WStP::PickerLocationId::DocumentsLibrary);
     // FileOpenPicker requires >=1 FileTypeFilter or PickSingleFileAsync throws. Flatten day's named
@@ -5246,20 +5259,24 @@ extern "C" void day_xaml_present_file_open(uint64_t req, const char* title,
         }
     }
     if (!any) picker.FileTypeFilter().Append(L"*");
-    if (app && app->host) picker.as<::IInitializeWithWindow>()->Initialize(app->host);
+    winrt::check_hresult(picker.as<::IInitializeWithWindow>()->Initialize(app->host));
 
     auto op = picker.PickSingleFileAsync();
     g_presents[req].op = op;
     op.Completed([req](WF::IAsyncOperation<WSt::StorageFile> const& a, WF::AsyncStatus st) {
-        finish_file(req, (st == WF::AsyncStatus::Completed) ? a.GetResults() : nullptr);
+        file_completed(req, a, st);
     });
 } catch (...) {
+    finish_file(req);
 }
 
 extern "C" void day_xaml_present_file_save(uint64_t req, const char* title, const char* suggested,
                                             const char* filters_joined, void* win) try {
     (void)title; // FileSavePicker has no title property in the WinRT API
+    // Register before any WinRT activation/filter/owner setup that can fail.
+    g_presents.try_emplace(req);
     auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !app->host) { finish_file(req); return; }
     WStP::FileSavePicker picker;
     picker.SuggestedStartLocation(WStP::PickerLocationId::DocumentsLibrary);
     // FileSavePicker requires >=1 FileTypeChoice (name → [".ext", ...]); no filters → "Any" → ".".
@@ -5284,14 +5301,15 @@ extern "C" void day_xaml_present_file_save(uint64_t req, const char* title, cons
             L"Any", winrt::single_threaded_vector<winrt::hstring>({ L"." }));
     }
     if (suggested && *suggested) picker.SuggestedFileName(hs(suggested));
-    if (app && app->host) picker.as<::IInitializeWithWindow>()->Initialize(app->host);
+    winrt::check_hresult(picker.as<::IInitializeWithWindow>()->Initialize(app->host));
 
     auto op = picker.PickSaveFileAsync();
     g_presents[req].op = op;
     op.Completed([req](WF::IAsyncOperation<WSt::StorageFile> const& a, WF::AsyncStatus st) {
-        finish_file(req, (st == WF::AsyncStatus::Completed) ? a.GetResults() : nullptr);
+        file_completed(req, a, st);
     });
 } catch (...) {
+    finish_file(req);
 }
 
 extern "C" void day_xaml_dismiss_present(uint64_t req) try {

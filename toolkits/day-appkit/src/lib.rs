@@ -3711,12 +3711,16 @@ fn draw_op(op: &DrawOp) {
                         NSPoint::new(rect.origin.x, rect.origin.y),
                         NSSize::new(rect.size.width, rect.size.height),
                     );
+                    // DayCanvas is flipped (top-left origin). Respect that context so image
+                    // rows stay upright, including under the canvas's rotation/zoom transforms.
                     // A zero `fromRect` means the whole image; `fraction` multiplies its alpha.
-                    img.drawInRect_fromRect_operation_fraction(
+                    img.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
                         dest,
                         NSRect::ZERO,
                         objc2_app_kit::NSCompositingOperation::SourceOver,
                         *opacity,
+                        true,
+                        None,
                     );
                 }
             }

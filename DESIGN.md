@@ -2180,7 +2180,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 >   decision at pane width and breaks ([docs/navigation.md](docs/navigation.md), [docs/size-classes.md](docs/size-classes.md)).
 > - **Presentation** shipped as the `present`/`dismiss` duties (`PresentSpec` →
 >   `PresentResult`): alert/confirm/prompt/sheets and the open/save file pickers, all native,
->   all scriptable (`assert_presented` / `respond`).
+>   all scriptable (`assert_presented` / `respond`). Windows XAML uses HWND-parented
+>   WinRT `FileOpenPicker`/`FileSavePicker` and advertises native file dialogs. Picker
+>   requests register before native setup; setup/result failures and cancellation resolve
+>   as dismissed, with duplicate completion suppressed. Chosen local paths feed the same
+>   `FileUrl::read` byte API as other desktop backends. WinRT picker titles cannot be
+>   customized. See [docs/files.md](docs/files.md) for contracts and Windows validation.
 > - **`cover(open, build)`** *(2026-07)* — a fullscreen modal Day subtree bound to a
 >   `Signal<Option<Route>>` (the SwiftUI `fullScreenCover(item:)` shape): `kinds::COVER` +
 >   `CoverPatch`, native modal VC on iOS, window overlay on Android, topmost root child on
@@ -4047,6 +4052,12 @@ Assets ship platform-idiomatically, with the per-target mechanics specified now:
 > `ImageSource` carries all three forms (`Named`, `Bytes`, `Decoded`) through the same `image`
 > piece; `Draw::image` draws a decoded handle on a canvas. Per-backend decode/encode/metadata
 > support: [docs/images.md](docs/images.md).
+> Canvas images follow the same top-left coordinate system and affine transforms as paths.
+> AppKit explicitly respects the flipped `DayCanvas` context when drawing `NSImage`; otherwise
+> imported pictures appear vertically mirrored even though their selection geometry is correct.
+> Day-Sketch's image insertion walkthrough (`dayscript/images.yaml`) exercises an asymmetric
+> image with resize, rotation, opacity, and SQLite reopen; the original encoded bytes stay in
+> the document while decoded bitmap handles are retained only by the live canvas cache.
 
 ### §18.3 Processed images + random-access data resources ([docs/resources.md](docs/resources.md))
 

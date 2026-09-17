@@ -61,6 +61,8 @@ canvas(move |d, size| d.image(&photo, Rect::from_size(size)))
 `Draw::image` takes the **handle**, never bytes. A canvas re-records on every tracked read, so a
 buffer in the op would hand the backend a megabyte to compare — and re-decode — on every frame. The
 app decodes once and draws a number. `Draw::image_with_opacity` multiplies the image's own alpha.
+Images follow the canvas's top-left origin and current affine transform, including rotation and
+zoom. AppKit respects its flipped canvas context, keeping image rows upright.
 
 A released bitmap draws nothing rather than a placeholder: a handle can be dropped between the
 record and the replay, and a frame that flashes a grey box is worse than one that omits the image.
