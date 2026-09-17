@@ -169,7 +169,7 @@ The UIKit walkthrough also caught and verifies a canvas fix: `UIImage.drawInRect
 full opacity, so replay now uses `drawInRect:blendMode:alpha:` for `DrawOp::Image`.
 
 General transfer sessions and file drops are planned separately in
-[Drag and drop for Day apps](drag-and-drop-plan.md).
+[Drag and drop for Day apps](drag-and-drop.md).
 
 ### Verification on the macOS ARM development host (2026-09-17)
 

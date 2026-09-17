@@ -63,6 +63,8 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [images](/docs/internal/images) | raster images from bytes: decode, draw, read, and write back out |
 | [color](/docs/internal/color) | the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it |
 | [icons](/docs/internal/icons) | `day icon`: every platform's app-icon set from one master |
+| [drag-and-drop](/docs/internal/drag-and-drop) | native data transfer within and between applications |
+| [drag-and-drop-plan](/docs/internal/drag-and-drop-plan) | transfer architecture, platform constraints, and implementation plan |
 | [files](/docs/internal/files) | file I/O and platform paths |
 
 ## Pieces
@@ -113,6 +115,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 
 | Page | Covers |
 |---|---|
+| [sandbox](/docs/internal/sandbox) | macOS App Sandbox, entitlements, and persistent file access |
 | [harmonyos](/docs/internal/harmonyos) | OpenHarmony toolchain setup and quirks |
 | [web](/docs/internal/web) | the `web-dom` backend — wasm build, dayscript bridge, static hosting |
 | [extending](/docs/internal/extending) | piece registration internals |

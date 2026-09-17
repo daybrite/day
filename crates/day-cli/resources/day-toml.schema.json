@@ -6,6 +6,65 @@
   "type": "object",
   "required": ["app"],
   "properties": {
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "macos-appkit": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "App Sandbox entitlements for both macos-appkit builds and packages. Off by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "network-client": {
+              "type": "boolean",
+              "default": false
+            },
+            "network-server": {
+              "type": "boolean",
+              "default": false
+            },
+            "camera": {
+              "type": "boolean",
+              "default": false
+            },
+            "microphone": {
+              "type": "boolean",
+              "default": false
+            },
+            "location": {
+              "type": "boolean",
+              "default": false
+            },
+            "bluetooth": {
+              "type": "boolean",
+              "default": false
+            },
+            "bookmarks": {
+              "type": "boolean",
+              "default": true
+            },
+            "development-network-server": {
+              "type": "boolean",
+              "default": true,
+              "description": "Allow the dayscript listener in Debug only."
+            },
+            "user-selected-files": {
+              "type": "string",
+              "enum": [
+                "none",
+                "read-only",
+                "read-write"
+              ],
+              "default": "read-write"
+            }
+          }
+        }
+      }
+    },
     "schema": {
       "type": "integer",
       "description": "Manifest schema version.",

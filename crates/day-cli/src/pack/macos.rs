@@ -61,8 +61,10 @@ pub fn pack(
         status("Signing", "skipped (--no-sign)");
         SignTier::Unsigned
     } else {
-        sign_app(project, &app).map_err(PackError::Sign)?
+        sign_app(project, &app, opts.profile).map_err(PackError::Sign)?
     };
+
+    crate::sandbox::verify(project, &app, opts.profile).map_err(PackError::Sign)?;
 
     // --- package (dmg) ------------------------------------------------------
     // The staging folder holds the .app plus an /Applications symlink for drag-install.
@@ -146,24 +148,17 @@ fn resolved_identity(project: &Project) -> Result<Option<String>, String> {
 
 /// Sign the bundle inside-out: nested code first (Frameworks, non-main executables), the bundle
 /// last. Never `--deep`: Apple's guidance, and the class of bug that bit macdeployqt/Tauri.
-fn sign_app(project: &Project, app: &Path) -> Result<SignTier, String> {
+fn sign_app(
+    project: &Project,
+    app: &Path,
+    profile: crate::cli::Profile,
+) -> Result<SignTier, String> {
     // Finder metadata xattrs make codesign fail with "resource fork, Finder information...", so
     // strip them.
     let _ = Command::new("xattr").args(["-crs"]).arg(app).status();
 
     let identity = resolved_identity(project)?;
-    let entitlements: Option<PathBuf> = project
-        .manifest
-        .signing
-        .as_ref()
-        .and_then(|s| s.macos.as_ref())
-        .and_then(|m| m.entitlements.as_ref())
-        .map(|p| project.root.join(p));
-    if let Some(e) = &entitlements
-        && !e.exists()
-    {
-        return Err(format!("entitlements file not found: {}", e.display()));
-    }
+    let entitlements = crate::sandbox::entitlements(project, profile)?;
 
     let mut nested = nested_signables(app);
     nested.push(app.to_path_buf()); // the bundle itself is signed last
@@ -188,12 +183,14 @@ fn sign_app(project: &Project, app: &Path) -> Result<SignTier, String> {
         None => {
             status("Signing", "ad-hoc codesign (no signing.macos.identity)");
             for item in &nested {
-                run_tool(
-                    Command::new("codesign")
-                        .args(["--force", "-s", "-"])
-                        .arg(item),
-                    "codesign (ad-hoc)",
-                )?;
+                let mut cmd = Command::new("codesign");
+                cmd.args(["--force", "-s", "-"]);
+                if item == app
+                    && let Some(e) = &entitlements
+                {
+                    cmd.arg("--entitlements").arg(e);
+                }
+                run_tool(cmd.arg(item), "codesign (ad-hoc)")?;
             }
             Ok(SignTier::DevSigned)
         }

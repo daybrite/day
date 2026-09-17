@@ -35,6 +35,10 @@ model = ["dep:day-model"]
 day-mock = { workspace = true }
 day-macros = { path = "../day-macros", version = "=0.4.5" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSURL", "NSData", "NSError", "NSString", "NSArray"] }
+
 # The model-rows suite proves the granularity and reclamation claims docs/list.md makes.
 [[test]]
 name = "model_rows"

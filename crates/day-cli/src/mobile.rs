@@ -696,6 +696,29 @@ pub fn build_macos_xcode(
     cmd.arg(format!("SYMROOT={}", symroot.display()))
         .arg(format!("DAY_BIN={}", day_bin.display()))
         .arg(oso_prefix_setting(&project.root));
+    // Day.toml is authoritative even if an older project has target-level signing settings.
+    if let Some(path) = crate::sandbox::entitlements(project, profile)? {
+        cmd.arg(format!("CODE_SIGN_ENTITLEMENTS={}", path.display()))
+            .arg("CODE_SIGNING_ALLOWED=YES");
+    } else if project.manifest.sandbox.macos_appkit.is_some() {
+        cmd.arg("CODE_SIGN_ENTITLEMENTS=");
+    }
+    if let Some(config) = &project.manifest.sandbox.macos_appkit {
+        cmd.arg(format!(
+            "ENABLE_APP_SANDBOX={}",
+            if config.enabled { "YES" } else { "NO" }
+        ));
+    }
+    if profile == Profile::Release
+        && project
+            .manifest
+            .sandbox
+            .macos_appkit
+            .as_ref()
+            .is_some_and(|s| s.enabled)
+    {
+        cmd.arg("CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO");
+    }
     // Carries `--day-src` across to the `day xcode-backend build` script phase, which runs the
     // cargo half in its own process and would otherwise resolve the app's declared day.
     if let Some(setting) = crate::patch::day_src_setting() {
@@ -709,6 +732,7 @@ pub fn build_macos_xcode(
     // macosx products land under `<configuration>/` (no SDK suffix, unlike iOS).
     let products = symroot.join(configuration);
     let app = product_bundle(&products, &project.manifest.app.id)?;
+    crate::sandbox::verify(project, &app, profile)?;
     Ok(BuildOutcome {
         target: target.name,
         artifact: app,

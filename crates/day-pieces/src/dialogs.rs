@@ -293,11 +293,26 @@ impl FileUrl {
     /// The locator as a filesystem path: `Some` for local paths (and `file://` URLs), `None`
     /// for opaque URIs such as Android's `content://`.
     pub fn local_path(&self) -> Option<std::path::PathBuf> {
-        if self.0.contains("://") && !self.0.starts_with("file://") {
+        if self.0.starts_with("file://") {
+            return day_spec::transfer::file_paths(self.0.as_bytes())?
+                .into_iter()
+                .next();
+        }
+        if self.0.contains("://") {
             return None;
         }
-        let p = self.0.strip_prefix("file://").unwrap_or(&self.0);
-        Some(std::path::PathBuf::from(p))
+        Some(std::path::PathBuf::from(&self.0))
+    }
+    /// Persistable macOS security-scoped bookmark for a file the user has authorized.
+    /// Store the opaque bytes in app-private storage, not the path. Other platforms return
+    /// `Unsupported`. `read_only` prevents a bookmark from requesting write access.
+    pub fn bookmark(&self, read_only: bool) -> std::io::Result<Vec<u8>> {
+        crate::file_access::bookmark(self, read_only)
+    }
+    /// Resolve a saved macOS bookmark and hold its security scope until the returned guard
+    /// is dropped. Keep the guard alive across all I/O, including asynchronous operations.
+    pub fn resolve_bookmark(bytes: &[u8]) -> std::io::Result<crate::FileAccess> {
+        crate::file_access::resolve(bytes)
     }
     /// The last path component, for display (e.g. `notes.txt`). Best-effort for opaque URIs.
     pub fn file_name(&self) -> Option<String> {

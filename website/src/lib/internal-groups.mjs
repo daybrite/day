@@ -59,6 +59,8 @@ export const groups = [
       ['images', 'raster images from bytes: decode, draw, read, and write back out'],
       ['color', 'the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it'],
       ['icons', "`day icon`: every platform's app-icon set from one master"],
+      ['drag-and-drop', 'native data transfer within and between applications'],
+      ['drag-and-drop-plan', 'transfer architecture, platform constraints, and implementation plan'],
       ['files', 'file I/O and platform paths'],
     ],
   },
@@ -109,6 +111,7 @@ export const groups = [
     blurb:
       'Platform backends, the extension model for writing your own Pieces, per-backend support matrices, API conventions, and tooling.',
     docs: [
+      ['sandbox', 'macOS App Sandbox, entitlements, and persistent file access'],
       ['harmonyos', 'OpenHarmony toolchain setup and quirks'],
       ['web', 'the `web-dom` backend — wasm build, dayscript bridge, static hosting'],
       ['extending', 'piece registration internals'],

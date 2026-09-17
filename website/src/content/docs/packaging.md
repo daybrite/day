@@ -183,3 +183,9 @@ artifacts, so the packaging path is exercised on every push, at the dev tier. Ad
 repository secrets enables release signing without any workflow change. Version tags (`v*`) run the
 `release` workflow, which packs every target and attaches the artifacts plus a `SHA256SUMS` file
 to a draft GitHub Release.
+
+## macOS App Sandbox
+
+Enable `[sandbox.macos-appkit] enabled = true` in Day.toml to sandbox AppKit builds and
+packaged apps. See [macOS sandboxing](/docs/internal/sandbox) for configuration, native file
+access, persistent bookmarks, and App Store distribution limitations.

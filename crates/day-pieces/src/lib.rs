@@ -29,6 +29,8 @@ mod canvas;
 mod containers;
 mod decorators;
 mod dialogs;
+mod file_access;
+pub use file_access::FileAccess;
 mod forms;
 mod image;
 mod inputs;
@@ -71,11 +73,11 @@ pub mod prelude {
     pub use crate::routes;
     pub use crate::{
         A11yBuilder, Alert, Ambient, BackRequest, BackResponse, Binding, ButtonBuilder,
-        ColumnBuilder, Confirm, Corner, Cover, Decorate, Decorated, Drag, Draw, FileUrl, Form,
-        FormSection, Grid, GridRow, HAlign, Inspector, IntoFocusBinding, IntoFraction,
-        IntoImageSource, IntoReactive, IntoText, ItemSlot, LabelBuilder, Labeled, Link, List,
-        MenuEntry, Modifier, NativeRef, Nav, NavItem, NavStack, NavStyle, OpenFile, Pan,
-        PathBuilder, Pinch, Prompt, Reactive, Reorder, Route, RoutePath, RowBuilder, RowFit,
+        ColumnBuilder, Confirm, Corner, Cover, Decorate, Decorated, Drag, Draw, FileAccess,
+        FileUrl, Form, FormSection, Grid, GridRow, HAlign, Inspector, IntoFocusBinding,
+        IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot, LabelBuilder, Labeled,
+        Link, List, MenuEntry, Modifier, NativeRef, Nav, NavItem, NavStack, NavStyle, OpenFile,
+        Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route, RoutePath, RowBuilder, RowFit,
         SaveFile, ShapeKind, ShapePiece, SwipeAction, TextBuilder, VAlign, VectorWeight, When,
         ZStack, alert, app_environment, app_menu, app_menu_reactive, arc, button, canvas, capsule,
         circle, column, confirm, cover, current_route, divider, each, ellipse, environment,

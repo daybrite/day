@@ -31,6 +31,9 @@ pub struct Manifest {
     /// parse time, so `day sign --check` can report missing variables without failing the parse.
     #[serde(default)]
     pub signing: Option<Signing>,
+    /// Native app sandbox policy, applied to development builds as well as packages.
+    #[serde(default)]
+    pub sandbox: Sandbox,
     /// OS permissions this app declares, and the user-facing reason for each (docs/permissions.md).
     /// `day build` turns these into `<uses-permission>` entries, `Info.plist` usage descriptions,
     /// and HarmonyOS `requestPermissions`: the declaration every mobile OS requires before the
@@ -60,6 +63,52 @@ pub struct Manifest {
     /// and short name. Every key has a default, so the table is optional.
     #[serde(default)]
     pub web: Web,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Sandbox {
+    #[serde(default)]
+    pub macos_appkit: Option<MacosSandbox>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct MacosSandbox {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub user_selected_files: UserSelectedFiles,
+    #[serde(default = "sandbox_true")]
+    pub bookmarks: bool,
+    #[serde(default)]
+    pub network_client: bool,
+    #[serde(default)]
+    pub network_server: bool,
+    /// Debug builds only: the dayscript loopback listener. Never inferred for Release.
+    #[serde(default = "sandbox_true")]
+    pub development_network_server: bool,
+    #[serde(default)]
+    pub camera: bool,
+    #[serde(default)]
+    pub microphone: bool,
+    #[serde(default)]
+    pub location: bool,
+    #[serde(default)]
+    pub bluetooth: bool,
+}
+
+fn sandbox_true() -> bool {
+    true
+}
+
+#[derive(Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum UserSelectedFiles {
+    None,
+    ReadOnly,
+    #[default]
+    ReadWrite,
 }
 
 /// The home-screen presentation of the web-dom build (`[web]` in Day.toml). The name, the

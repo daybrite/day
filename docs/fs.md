@@ -88,3 +88,6 @@ contributing a single `DAY_DATA_DIR` line each.
 Streaming reads/writes (today a file is one buffer; see the memory-efficiency rule before
 storing anything huge), append, rename, recursive remove, file metadata (size/mtime), and
 cancellation for in-flight web operations.
+
+For macOS container storage, file permissions, migration, and SQLite sidecar restrictions,
+see [macOS App Sandbox](sandbox.md).

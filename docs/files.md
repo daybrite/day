@@ -145,3 +145,10 @@ open and cancel the native picker and select a file with a Unicode path. In Day-
 insert an image through the **+** menu, edit its geometry/opacity/rotation, save the
 drawing, and reopen it. Scripted `respond` validates the portable presentation flow;
 it does not select a file through the real Windows picker UI.
+
+## macOS sandboxing
+
+See [macOS App Sandbox](sandbox.md) for Day.toml configuration and persistent file access.
+`FileUrl::bookmark(read_only)` returns opaque bookmark bytes;
+`FileUrl::resolve_bookmark(bytes)` returns a `FileAccess` guard. Keep it alive through I/O and
+renew stale bookmarks while the guard is held. A saved path alone does not preserve permission.

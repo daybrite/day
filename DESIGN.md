@@ -41,6 +41,24 @@ Sections carry a status alert whose type says how far to trust the text below it
 Part I still names milestones (M0–M9) in places; those refer to [§21.2](#212-milestones-each-lands-green-ci--tests-forward-dependencies-eliminated)'s historical plan — all
 of it is complete. Read "an M5 acceptance item" as "verified when that milestone landed".
 
+### macOS sandbox policy and persistent file access
+
+AppKit builds and packaging derive a single profile-specific entitlement plan from
+`[sandbox.macos-appkit]` in `Day.toml`, merged with custom signing entitlements. Conflicts fail
+explicitly; build and packaging verify the signed product. Debug can authorize Day’s loopback
+automation listener without adding that grant to Release. Sandboxed Release builds disable
+Xcode’s base entitlement injection and reject debugger grants in the signed product.
+Qt/GTK development executables are
+not covered by this AppKit bundle policy. See [macOS sandboxing](docs/sandbox.md).
+
+Native panels grant user-selected file access. `FileUrl::bookmark` persists macOS app-scoped
+bookmark bytes; `FileUrl::resolve_bookmark` returns a `FileAccess` guard whose lifetime balances
+security-scoped access. Stale bookmarks are refreshed explicitly while access is held; cloned
+paths do not retain it. Other platforms return `Unsupported`. App-private storage remains in
+the OS container, and old unsandboxed data requires explicit migration/import. Entitlement
+policy and malformed-bookmark regression tests live in `day-cli::sandbox` and
+`day-pieces::file_access`; Showcase demonstrates reopening a persisted bookmark.
+
 ### Subsystem index
 
 The normative reference for each shipped subsystem is its `docs/` file; the section here gives

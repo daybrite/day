@@ -190,7 +190,7 @@ static void pump_until_complete(TOp const& op) {
 // that times out carries on with whatever state it has, because no capture or scroll is worth
 // hanging the app over). Shares `pump_until_complete`'s WM_APP+1 exclusion, and for the same
 // reason: these pumps run inside a day-core `with_tree` borrow that day's cross-thread post
-// would re-enter. (A template, so it lives at file scope like its neighbour.)
+// would re-enter. (A template, so it lives at file scope like its neighbor.)
 template <typename F>
 static void pump_until(F done, ULONGLONG timeout_ms) {
     MSG msg{};
