@@ -372,9 +372,15 @@ fn schedule_list_populate(host_key: usize) {
 /// `with_tree` cannot run.
 extern "C" fn on_list_scrolled(node: u64) {
     ffi_guard::contain((), || {
-        if let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) {
-            schedule_list_fill(host_key);
-        }
+        // Even a visible-row query can make Qt lay out the view and emit this signal
+        // inside list_fill_window's LIST_STATE borrow. Defer the registry access too.
+        let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
+            if let Some(host_key) = LIST_BY_NODE.with(|m| m.borrow().get(&node).copied()) {
+                schedule_list_fill(host_key);
+            }
+        });
+        let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe { ffi::day_qt_post(run_posted, data) };
     });
 }
 
@@ -435,17 +441,22 @@ fn schedule_list_scroll_row(host_key: usize, row: usize) {
 /// alone, and so is a list that has not built a row yet.
 extern "C" fn on_list_viewport_resized(host: *mut c_void) {
     ffi_guard::contain((), || {
-        let stale = LIST_STATE.with(|m| {
-            let m = m.borrow();
-            let Some(st) = m.get(&(host as usize)) else {
-                return false;
+        // Qt can resize the viewport synchronously while we realize cells. Wait until
+        // that operation releases LIST_STATE; look up the host again in case it died.
+        let host_key = host as usize;
+        let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
+            let state =
+                LIST_STATE.with(|m| m.borrow().get(&host_key).map(|st| (st.host, st.cell_width)));
+            let Some((host, cell_width)) = state else {
+                return;
             };
-            let vw = unsafe { ffi::day_qt_list_viewport_width(st.host) };
-            st.cell_width > 0 && vw > 0.0 && (vw as c_int) != st.cell_width
+            let vw = unsafe { ffi::day_qt_list_viewport_width(host) };
+            if cell_width > 0 && vw > 0.0 && (vw as c_int) != cell_width {
+                schedule_list_populate(host_key);
+            }
         });
-        if stale {
-            schedule_list_populate(host as usize);
-        }
+        let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe { ffi::day_qt_post(run_posted, data) };
     });
 }
 
@@ -3260,7 +3271,9 @@ impl Toolkit for Qt {
 fn snapshot_qt_widget(widget: *mut c_void) -> Result<Vec<u8>, String> {
     let path = std::env::temp_dir().join(format!("day-qt-snap-{}.png", std::process::id()));
     let cpath = cstr(path.to_str().unwrap_or("/tmp/day-qt-snap.png"));
-    let rc = unsafe { ffi::day_qt_snapshot_png(widget, cpath.as_ptr()) };
+    // A scripted run's stated capture scale (Day.toml `[screenshots]`), else the widget's own.
+    let scale = day_spec::capture_scale().unwrap_or(0.0);
+    let rc = unsafe { ffi::day_qt_snapshot_png(widget, cpath.as_ptr(), scale) };
     if rc != 0 {
         return Err("grab failed".into());
     }

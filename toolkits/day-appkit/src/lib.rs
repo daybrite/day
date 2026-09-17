@@ -8256,6 +8256,16 @@ impl Platform for AppKit {
         if deterministic || !unsafe { window.setFrameUsingName(&autosave) } {
             window.center();
         }
+        // A scripted run whose capture needs a display scale this host's displays lack opens on
+        // the one `day launch` made for it (`DAY_WINDOW_SCREEN`, a CGDirectDisplayID): a
+        // capture is the window server's pixels, so it has the scale of the display under it.
+        if let Some(screen) = capture_screen(mtm) {
+            let (visible, frame) = (screen.visibleFrame(), window.frame());
+            window.setFrameOrigin(NSPoint::new(
+                visible.origin.x + ((visible.size.width - frame.size.width) / 2.0).max(0.0),
+                visible.origin.y + ((visible.size.height - frame.size.height) / 2.0).max(0.0),
+            ));
+        }
         if !deterministic {
             unsafe { window.setFrameAutosaveName(&autosave) };
         }
@@ -8495,6 +8505,25 @@ fn snapshot_view_cache(content: &NSView) -> Result<Vec<u8>, String> {
     NSGraphicsContext::restoreGraphicsState_class();
     unsafe { content.cacheDisplayInRect_toBitmapImageRep(bounds, &rep) };
     png_of_rep(&rep)
+}
+
+/// The screen a scripted run asked to open on: `DAY_WINDOW_SCREEN`, the CGDirectDisplayID of the
+/// capture display `day launch --script` provides when no attached display has the capture's
+/// scale. `None` when unset or when no screen has that id, which leaves the window where it was.
+fn capture_screen(mtm: MainThreadMarker) -> Option<Retained<objc2_app_kit::NSScreen>> {
+    let wanted: u32 = std::env::var("DAY_WINDOW_SCREEN")
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let key = NSString::from_str("NSScreenNumber");
+    objc2_app_kit::NSScreen::screens(mtm)
+        .into_iter()
+        .find(|screen| {
+            let number: Option<Retained<objc2_foundation::NSNumber>> =
+                unsafe { msg_send![&*screen.deviceDescription(), objectForKey: &*key] };
+            number.is_some_and(|n| n.unsignedIntValue() == wanted)
+        })
 }
 
 /// Recursively mark a view tree as needing display (startup first-frame fix, see `run`).

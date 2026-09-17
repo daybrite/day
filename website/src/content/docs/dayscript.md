@@ -137,6 +137,45 @@ The same scripts serve several jobs:
 - **Agent verification:** AI coding agents use dayscript to check their own work: write a
   change, run a script, read the assertions ([for agents](/docs/for-agents)).
 
+## Capture size
+
+A scripted run captures the desktop toolkits and the web build at a stated pixel size:
+2560×1600 by default, which is a 1280×800-point window rendered at 2×. It is one of the four
+sizes the Mac App Store takes for a screenshot (1280×800, 1440×900, 2560×1600, 2880×1800), and
+every desktop-class target produces the same size, so a gallery row lines up across platforms.
+Phones and tablets capture their device's own panel.
+
+Change it per app in `Day.toml`:
+
+```toml
+[screenshots]
+desktop-size = "2880x1800"   # pixels; "window" captures at the app's own [window] size
+desktop-scale = 2            # the window is desktop-size / desktop-scale points
+```
+
+or for one run, with a flag or an environment variable, which is how a CI workflow overrides it
+without editing the app:
+
+```sh
+day launch -p macos-appkit --script dayscript/walkthrough.yaml --capture-size 1440x900@1
+DAY_CAPTURE_SIZE=window day launch -p linux-gtk --script dayscript/walkthrough.yaml
+```
+
+The flag wins over the variable, and the variable over `Day.toml`. A size has to be a whole
+number of points at its scale; `2561x1600` is refused.
+
+`day launch` passes the window to the app as `DAY_WINDOW` and the scale as `DAY_CAPTURE_SCALE`.
+Set `DAY_WINDOW` yourself (`--env DAY_WINDOW=500x640`) and yours is kept, which is how a
+narrow-layout run stays narrow. How each target reaches the scale:
+
+| target | how |
+| --- | --- |
+| `linux-gtk`, `macos-gtk`, `windows-gtk` | renders its own snapshot through a scale transform, on any display, a 1× xvfb included |
+| `linux-qt`, `macos-qt`, `windows-qt` | renders the widget into a pixmap with that device pixel ratio |
+| `web-dom` | the driver browser's viewport and device scale factor |
+| `macos-appkit` | reads the window server's pixels, so the scale is the display's. Where no attached display has it (a CI runner's is 1×), `day launch` creates a HiDPI virtual display for the run and the app opens its window there. `DAY_CAPTURE_DISPLAY=native` turns that off; `=virtual` forces it |
+| `windows-xaml` | reads the window's real pixels at the desktop's scale, frame included. At 100% scaling the default capture is 1280×800, which the Mac App Store also takes |
+
 ## Recording
 
 `day::record` captures the taps, edits, selections, row activations, and navigation an app receives and turns them

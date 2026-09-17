@@ -56,11 +56,20 @@ const dropProfile = () => {
     /* best-effort; the OS temp dir reaps leftovers */
   }
 };
-// Match the showcase's desktop window (1000×720) at 2×, the same pixel density the native
-// macOS gallery captures have.
+// The capture size: `day launch --script` hands the viewport over as
+// DAY_WEB_DRIVER_VIEWPORT=<width>x<height>@<scale>, in points (Day.toml [screenshots], whose
+// default 2560x1600 pixels is 1280x800 at 2x, the same size the native desktop captures have).
+// Run by hand with nothing set, the driver uses that same default.
+const viewportSpec = /^(\d+)x(\d+)(?:@([\d.]+))?$/.exec(process.env.DAY_WEB_DRIVER_VIEWPORT ?? '');
+if (process.env.DAY_WEB_DRIVER_VIEWPORT && !viewportSpec) {
+  console.error(`webdom-driver: DAY_WEB_DRIVER_VIEWPORT=${process.env.DAY_WEB_DRIVER_VIEWPORT} is not <width>x<height>[@<scale>]; using 1280x800@2`);
+}
 const context = await browserType.launchPersistentContext(profile, {
-  viewport: { width: 1000, height: 720 },
-  deviceScaleFactor: 2,
+  viewport: {
+    width: viewportSpec ? Number(viewportSpec[1]) : 1280,
+    height: viewportSpec ? Number(viewportSpec[2]) : 800,
+  },
+  deviceScaleFactor: viewportSpec?.[3] ? Number(viewportSpec[3]) : 2,
 });
 const page = context.pages()[0] ?? (await context.newPage());
 page.on('console', (m) => {

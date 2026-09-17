@@ -920,7 +920,14 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
 
     DWORD style = WS_OVERLAPPEDWINDOW; // resizable; WM_SIZE reflows the island + day tree
     RECT r{ 0, 0, w, h };
-    AdjustWindowRect(&r, style, FALSE);
+    // A scripted run with a stated capture size (DAY_CAPTURE_SCALE, Day.toml [screenshots])
+    // names the pixels it captures, and this backend captures the whole window, frame included
+    // (snapshot_hwnd_png). There the stated size is the OUTER size; everywhere else it is the
+    // client area, and the frame is added around it.
+    char capture_scale[16];
+    bool capture_run =
+        GetEnvironmentVariableA("DAY_CAPTURE_SCALE", capture_scale, sizeof(capture_scale)) > 0;
+    if (!capture_run) AdjustWindowRect(&r, style, FALSE);
     HWND host = CreateWindowExW(0, L"day_xaml_host", hs(title).c_str(), style,
                                 CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top,
                                 nullptr, nullptr, wc.hInstance, nullptr);

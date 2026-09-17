@@ -130,6 +130,26 @@
       },
       "additionalProperties": false
     },
+    "screenshots": {
+      "type": "object",
+      "description": "What a scripted run (day launch --script) captures desktop-class targets at: the desktop toolkits and web-dom. Phones and tablets capture their device's own panel. Every key is optional; day launch --capture-size and the DAY_CAPTURE_SIZE environment variable override it for one run.",
+      "properties": {
+        "desktop-size": {
+          "type": "string",
+          "pattern": "^([0-9]+[xX×][0-9]+|window)$",
+          "default": "2560x1600",
+          "description": "The capture's size in pixels, <width>x<height>. The default is a size the Mac App Store accepts (1280x800, 1440x900, 2560x1600, 2880x1800). \"window\" captures at the app's own [window] size and the host display's scale."
+        },
+        "desktop-scale": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.5,
+          "maximum": 4,
+          "description": "The scale the capture is rendered at. The window is desktop-size divided by this, in points: 1280x800 by default."
+        }
+      },
+      "additionalProperties": false
+    },
     "store": {
       "type": "object",
       "description": "Where the app is listed (docs/store.md, Listed apps). A store id here means the listing is live: the project site shows that store's badge and links to it.",

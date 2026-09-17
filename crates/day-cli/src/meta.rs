@@ -26,6 +26,11 @@ pub struct Manifest {
     pub app: App,
     #[serde(default)]
     pub window: Window,
+    /// `[screenshots]`: the size scripted runs capture desktop-class targets at
+    /// (website docs "dayscript", "Capture size"). Every key has a default, so the table is
+    /// optional.
+    #[serde(default)]
+    pub screenshots: Screenshots,
     /// Code-signing / notarization configuration (§16.5, §17.3). Values may reference environment
     /// variables as `${VAR}`, resolved at use time (see `pack::settings::interpolate`), never at
     /// parse time, so `day sign --check` can report missing variables without failing the parse.
@@ -825,6 +830,44 @@ fn default_min_w() -> f64 {
 /// window tall enough for a nav bar, one row of content and a keyboard.
 fn default_min_h() -> f64 {
     400.0
+}
+
+/// `[screenshots]`: what a scripted run's desktop-class captures measure.
+///
+/// A capture is stated in PIXELS because that is what a store checks: the Mac App Store takes
+/// 1280x800, 1440x900, 2560x1600 or 2880x1800 and nothing else. The window that produces it is
+/// `desktop-size / desktop-scale` points, rendered at `desktop-scale`, so the default is a
+/// 1280x800-point window at 2x. `day launch --script` applies it to every desktop-class target
+/// and to web-dom; `--capture-size` overrides it for one run. Phones and tablets capture their
+/// device's own panel and ignore this table.
+#[derive(Debug, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Screenshots {
+    /// `"<width>x<height>"` in pixels, or `"window"` to capture at the app's own `[window]` size
+    /// and the host display's scale (the behavior before this table existed).
+    #[serde(default = "default_desktop_size")]
+    pub desktop_size: String,
+    /// The scale the capture is rendered at: 2 is a HiDPI capture, 1 a standard one.
+    #[serde(default = "default_desktop_scale")]
+    pub desktop_scale: f64,
+}
+
+impl Default for Screenshots {
+    fn default() -> Self {
+        Screenshots {
+            desktop_size: default_desktop_size(),
+            desktop_scale: default_desktop_scale(),
+        }
+    }
+}
+
+/// 2560x1600: the largest 16:10 size the Mac App Store accepts that a 2x render of a
+/// laptop-sized (1280x800-point) window produces exactly.
+fn default_desktop_size() -> String {
+    "2560x1600".to_string()
+}
+fn default_desktop_scale() -> f64 {
+    2.0
 }
 
 pub struct Project {

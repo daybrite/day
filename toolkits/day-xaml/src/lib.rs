@@ -3302,7 +3302,7 @@ extern "C" fn win_focused(node: u64, active: c_int) {
 /// Read from the root element rather than from `LAST_WINDOW_SIZE`, which the resize callback
 /// fills with the CONTENT size — what day's layout wants, and smaller than the window by exactly
 /// the chrome a cover must hide. Falls back to the content size if the root has not been laid out
-/// yet (a cover presented before the first frame), which is no worse than the old behaviour.
+/// yet (a cover presented before the first frame), which is no worse than the old behavior.
 fn cover_extent(window: *mut c_void) -> Size {
     let (mut w, mut h) = (0.0f64, 0.0f64);
     unsafe { ffi::day_xaml_window_chrome_size(window, &mut w, &mut h) };

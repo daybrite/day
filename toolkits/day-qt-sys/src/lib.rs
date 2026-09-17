@@ -356,7 +356,8 @@ unsafe extern "C" {
     pub fn day_qt_toolbar_set_suggestions(id: *const c_char, joined: *const c_char);
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_post_delayed(ms: c_int, cb: extern "C" fn(*mut c_void), data: *mut c_void);
-    pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char) -> c_int;
+    /// `scale` > 0 renders at that many pixels per point; 0 keeps the widget's own ratio.
+    pub fn day_qt_snapshot_png(widget: *mut c_void, path: *const c_char, scale: f64) -> c_int;
 
     // Canvas fonts (docs/fonts.md).
     /// The QFontDatabase families and styles in Day's font-list text format; a heap string to

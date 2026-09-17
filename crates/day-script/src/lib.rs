@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
@@ -736,6 +736,18 @@ fn handle_conn(stream: TcpStream, token: &str) {
         }
     }
 }
+
+/// How many times in a row a failed window snapshot is retried before the engine answers
+/// "unsupported" (the `screenshot` step): about three seconds at [`RETRY_MS`].
+const SNAPSHOT_RETRIES: u32 = 30;
+/// Consecutive failed snapshots of the current `screenshot` step.
+static SNAPSHOT_MISSES: AtomicU32 = AtomicU32::new(0);
+/// A snapshot has succeeded in this process, so a failure is a window not ready, not a backend
+/// that cannot capture.
+static SNAPSHOT_WORKS: AtomicBool = AtomicBool::new(false);
+/// The retries ran out before any snapshot ever succeeded: this backend does not capture, and
+/// later `screenshot` steps answer "unsupported" at once.
+static SNAPSHOT_NEVER: AtomicBool = AtomicBool::new(false);
 
 /// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout
 /// (the shared default, or the step's `timeout_secs` where it declares one).
@@ -1654,16 +1666,40 @@ fn exec(step: Step) -> Reply {
                     None => with_tree(|t| t.snapshot()),
                 };
                 match png {
-                    Ok(bytes) => Ok(Reply {
-                        ok: true,
-                        png_base64: Some(b64encode(&bytes)),
-                        ..Default::default()
-                    }),
-                    Err(_) => Ok(Reply {
-                        ok: true,
-                        screenshot_unsupported: true,
-                        ..Default::default()
-                    }),
+                    Ok(bytes) => {
+                        SNAPSHOT_MISSES.store(0, Ordering::Relaxed);
+                        SNAPSHOT_WORKS.store(true, Ordering::Relaxed);
+                        Ok(Reply {
+                            ok: true,
+                            png_base64: Some(b64encode(&bytes)),
+                            ..Default::default()
+                        })
+                    }
+                    // A backend also fails a snapshot it cannot take YET: a GTK window has no
+                    // render node until its first frame, and a large window (the 1280x800
+                    // capture size) is still laying out when a script's opening `screenshot`
+                    // arrives. Answering "unsupported" there dropped a run's first capture, so
+                    // the miss is retryable, a bounded number of times. A backend that has
+                    // never produced a snapshot pays that wait once and is then believed.
+                    Err(_)
+                        if (SNAPSHOT_WORKS.load(Ordering::Relaxed)
+                            || !SNAPSHOT_NEVER.load(Ordering::Relaxed))
+                            && SNAPSHOT_MISSES.fetch_add(1, Ordering::Relaxed)
+                                < SNAPSHOT_RETRIES =>
+                    {
+                        Err(Reply::fail("the window has nothing to capture yet", true))
+                    }
+                    Err(_) => {
+                        SNAPSHOT_MISSES.store(0, Ordering::Relaxed);
+                        if !SNAPSHOT_WORKS.load(Ordering::Relaxed) {
+                            SNAPSHOT_NEVER.store(true, Ordering::Relaxed);
+                        }
+                        Ok(Reply {
+                            ok: true,
+                            screenshot_unsupported: true,
+                            ..Default::default()
+                        })
+                    }
                 }
             }
             Step::Pause { secs } => {

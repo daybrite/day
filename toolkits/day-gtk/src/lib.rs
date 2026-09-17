@@ -6729,12 +6729,57 @@ fn snapshot_widget(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
     use gtk4::gdk::prelude::PaintableExt;
     let paintable = gtk4::WidgetPaintable::new(Some(widget));
     let snapshot = gtk4::Snapshot::new();
+    // A stated capture scale (`DAY_CAPTURE_SCALE`, Day.toml `[screenshots]`): render the node
+    // tree through a scale transform, so the texture is the widget's points times the scale on
+    // any display, a 1x xvfb included. The viewport is then the WHOLE widget rather than the
+    // node's drawn bounds (which stop at the last thing painted and made capture widths vary),
+    // over the window background the content Fixed does not paint itself. Together they make
+    // the capture exactly the size the run asked for.
+    //
+    // The widget is rendered on its own FIRST: before its first frame it yields no node at all,
+    // and that error is what makes the screenshot step retry until there is something to
+    // capture. Filling the background into the same snapshot would hide it behind a node that
+    // is never empty, and the run's first capture would come back a blank rectangle.
     paintable.snapshot(&snapshot, w, h);
-    let node = snapshot.to_node().ok_or("empty render node")?;
+    let content = snapshot.to_node().ok_or("empty render node")?;
+    let scale = day_spec::capture_scale();
+    let node = match scale {
+        Some(s) => {
+            let scaled = gtk4::Snapshot::new();
+            scaled.scale(s as f32, s as f32);
+            scaled.append_color(
+                &window_background(),
+                &gtk4::graphene::Rect::new(0.0, 0.0, w as f32, h as f32),
+            );
+            scaled.append_node(&content);
+            scaled.to_node().ok_or("empty render node")?
+        }
+        None => content,
+    };
     let native = widget.native().ok_or("no native")?;
     let renderer = native.renderer().ok_or("no renderer")?;
-    let texture = renderer.render_texture(&node, None);
+    let viewport =
+        scale.map(|s| gtk4::graphene::Rect::new(0.0, 0.0, (w * s) as f32, (h * s) as f32));
+    let texture = renderer.render_texture(&node, viewport.as_ref());
     Ok(texture.save_to_png_bytes().to_vec())
+}
+
+/// libadwaita's `window_bg_color` for the current appearance: what shows through Day's
+/// transparent content area on screen, and so what a whole-widget capture is filled with.
+/// The stylesheet's own values (libadwaita 1.5+), since GTK 4.10 deprecated the style-context
+/// lookup that could ask for them.
+fn window_background() -> gtk4::gdk::RGBA {
+    let (r, g, b): (u8, u8, u8) = if adw::StyleManager::default().is_dark() {
+        (0x22, 0x22, 0x26)
+    } else {
+        (0xfa, 0xfa, 0xfb)
+    };
+    gtk4::gdk::RGBA::new(
+        f32::from(r) / 255.0,
+        f32::from(g) / 255.0,
+        f32::from(b) / 255.0,
+        1.0,
+    )
 }
 
 /// Build one Day window: AdwApplicationWindow + ToolbarView/HeaderBar chrome + the filling
@@ -6911,8 +6956,37 @@ impl Platform for Gtk {
                 let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
                     return;
                 };
-                let (window, fixed, _header) =
+                let (window, fixed, header) =
                     build_day_window(app, &options.title, options.size, None);
+                // A run with a stated capture size (`DAY_CAPTURE_SCALE`, Day.toml
+                // `[screenshots]`) names the CONTENT it captures, and the capture is the content
+                // Fixed, below the header bar. Grow the window by the bar so the content is the
+                // stated size: by the bar's measured natural height now (the estimate is a pixel
+                // off under some themes, and the first capture can come before any correction),
+                // and by its allocated height once it has one, should the two differ.
+                let capture_run = day_spec::capture_scale().is_some();
+                if capture_run {
+                    let measured = header.measure(gtk4::Orientation::Vertical, -1).1;
+                    let planned = if measured > 0 {
+                        measured
+                    } else {
+                        HEADER_H as i32
+                    };
+                    window.set_default_size(
+                        options.size.width as i32,
+                        options.size.height as i32 + planned,
+                    );
+                    let (window, size) = (window.clone(), options.size);
+                    gtk4::glib::idle_add_local_once(move || {
+                        ffi_guard::contain((), || {
+                            let bar = header.height();
+                            if bar > 0 && bar != planned {
+                                window
+                                    .set_default_size(size.width as i32, size.height as i32 + bar);
+                            }
+                        })
+                    });
+                }
                 check_bundled_fonts(&window);
                 apply_app_icon(&window);
                 backend.window_fixed = Some(fixed.clone());
@@ -6936,7 +7010,11 @@ impl Platform for Gtk {
                     fixed.upcast(),
                     Size::new(
                         options.size.width,
-                        (options.size.height - HEADER_H).max(0.0),
+                        if capture_run {
+                            options.size.height
+                        } else {
+                            (options.size.height - HEADER_H).max(0.0)
+                        },
                     ),
                 );
                 // Lifecycle activation (docs/lifecycle.md): debounced across ALL Day windows —

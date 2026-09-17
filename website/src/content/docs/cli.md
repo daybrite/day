@@ -227,6 +227,11 @@ one command: `day launch --themes light,dark --locales en,fr,ar,zh-CN --script �
 expands the matrix internally, naming each run's variant `<theme>` (for the default locale) or
 `<theme>-<locale>`. The [gallery](/gallery) lets you flip every screenshot between those variants.
 
+A scripted run captures the desktop toolkits and the web build at 2560×1600 pixels, a
+1280×800-point window at 2×. `--capture-size 2880x1800`, the `DAY_CAPTURE_SIZE` variable, or a
+`[screenshots]` table in `Day.toml` changes it, and `window` captures at the app's own
+`[window]` size ([capture size](/docs/dayscript#capture-size)).
+
 ### Simulators, emulators, and devices
 
 Without a device flag, a launch goes to every runtime of that kind it can see: every booted iOS

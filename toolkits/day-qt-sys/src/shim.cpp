@@ -1464,8 +1464,21 @@ void day_qt_post(void (*cb)(void *), void *data) {
 void day_qt_post_delayed(int ms, void (*cb)(void *), void *data) {
     QTimer::singleShot(ms, qApp, [cb, data]() { cb(data); });
 }
-int day_qt_snapshot_png(void *widget, const char *path) {
-    QPixmap pm = static_cast<QWidget *>(widget)->grab();
+// `scale` > 0 renders at that many pixels per point (a scripted run's stated capture scale,
+// Day.toml [screenshots]); 0 keeps the widget's own device pixel ratio. The scaled path is what
+// grab() does internally, with the ratio chosen rather than read off the screen, so a capture
+// under a 1x xvfb measures the same pixels as one on a HiDPI display.
+int day_qt_snapshot_png(void *widget, const char *path, double scale) {
+    auto *w = static_cast<QWidget *>(widget);
+    QPixmap pm;
+    if (scale > 0.0) {
+        pm = QPixmap((QSizeF(w->size()) * scale).toSize());
+        pm.setDevicePixelRatio(scale);
+        pm.fill(Qt::transparent);
+        w->render(&pm);
+    } else {
+        pm = w->grab();
+    }
     return pm.save(QString::fromUtf8(path), "PNG") ? 0 : 1;
 }
 

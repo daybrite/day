@@ -332,6 +332,17 @@ enum Cmd {
         /// convention (website/gallery.config.mjs variant ids).
         #[arg(long = "themes", requires = "scripts")]
         themes: Vec<String>,
+        /// Pixel size of the scripted run's desktop-class captures: `2560x1600`,
+        /// `2880x1800@2` (`@` names the render scale), or `window` for the app's own `[window]`
+        /// size at the host display's scale. Overrides Day.toml `[screenshots]` and the
+        /// `DAY_CAPTURE_SIZE` environment variable; the default is 2560x1600 at 2x, a
+        /// 1280x800-point window. Phones and tablets capture their own panel and ignore it.
+        #[arg(
+            long = "capture-size",
+            value_name = "WxH[@SCALE]",
+            requires = "scripts"
+        )]
+        capture_size: Option<String>,
     },
     /// Rebuild a shipped artifact from its own provenance and report whether it matches
     Rebuild {
@@ -1652,6 +1663,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             skip_build,
             locales,
             themes,
+            capture_size,
             day_src,
         } => {
             // `--git` only decides where the launch starts from. It clones (or updates) the
@@ -1773,6 +1785,15 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 // loops into the CLI. No flags = one run with the plain --locale/--variant.
                 let matrix = capture_matrix(&themes, &locales, &locale, &variant, &envs)
                     .map_err(CliError::usage)?;
+                // The capture size (Day.toml `[screenshots]`): a scripted run's desktop-class
+                // captures are a stated pixel size, not whatever window the app happens to
+                // open. Resolved once; applied per target below, since a phone ignores it.
+                let capture_size = if script_mode {
+                    crate::screenshot::capture_size(project, capture_size.as_deref())
+                        .map_err(CliError::usage)?
+                } else {
+                    None
+                };
                 let mut handles = Vec::new();
                 let mut launched: Vec<(&'static crate::targets::Target, std::time::SystemTime)> =
                     Vec::new();
@@ -1780,6 +1801,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 // Engine losses across the whole run: the cap that keeps a dead app from
                 // relaunching once per variant until the job's own timeout kills it.
                 let mut losses = 0usize;
+                // The variables the capture size added for the previous target.
+                let mut capture_keys: Vec<String> = Vec::new();
                 for (ti, p) in platforms.iter().enumerate() {
                     let port = crate::script::pick_port(ti);
                     // The dayscript engine rides every launch (loopback, token-gated): scripted runs
@@ -1791,6 +1814,41 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     spec.envs.push(("DAYSCRIPT_TOKEN".into(), token.clone()));
                     let target =
                         crate::external::find_target(project, p).map_err(CliError::usage)?;
+                    // The capture size rides to the app as DAY_WINDOW + DAY_CAPTURE_SCALE, for
+                    // the targets it applies to. Dropped and re-added per target, like the port.
+                    spec.envs.retain(|(k, _)| !capture_keys.contains(k));
+                    capture_keys.clear();
+                    if let Some(size) =
+                        capture_size.filter(|_| crate::screenshot::is_desktop_class(target))
+                    {
+                        let given: Vec<(String, String)> = envs
+                            .iter()
+                            .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
+                            .collect();
+                        let (w, h) = size.points();
+                        ops::status(
+                            "Capture",
+                            &format!(
+                                "{}x{} px ({w}x{h} points at {}x) for {}",
+                                size.width, size.height, size.scale, target.name
+                            ),
+                        );
+                        for (k, v) in crate::screenshot::capture_envs(size, &given) {
+                            capture_keys.push(k.clone());
+                            spec.envs.push((k, v));
+                        }
+                        // AppKit captures are the window server's pixels, at the scale of the
+                        // display the window is on: where no attached display has the capture's
+                        // scale (a CI runner's is 1x), a virtual one does, and the app opens
+                        // its window there.
+                        if target.toolkit == "appkit"
+                            && !given.iter().any(|(k, _)| k == "DAY_WINDOW_SCREEN")
+                            && let Some(id) = crate::screenshot::capture_display(size)
+                        {
+                            capture_keys.push("DAY_WINDOW_SCREEN".into());
+                            spec.envs.push(("DAY_WINDOW_SCREEN".into(), id));
+                        }
+                    }
                     // The lock guard is scoped to the build, not to the run: the app may stay up
                     // for a long time afterwards, and the project's Cargo.lock should be correct
                     // again the moment the compiler is done with it.

@@ -774,19 +774,41 @@ pub fn desktop_launch_plan(
     let mut env: BTreeMap<String, OsString> = BTreeMap::new();
 
     // Headless CI (a linux host with no display server): give the toolkit what the CI shims used
-    // to wrap around the CLI: xvfb sized to `[window]` (the root-capture screenshot fallback
-    // then frames exactly the app), the WebKit flags for gtk, the xcb platform for qt. Qt could
+    // to wrap around the CLI: xvfb sized to the window the app opens (`[window]`, or a scripted
+    // run's capture window), the WebKit flags for gtk, the xcb platform for qt. Qt could
     // render displayless (QT_QPA_PLATFORM=offscreen, the previous plumbing), but X selections
     // need a display server to broker them, so the system clipboard (day-part-clipboard's xclip)
     // was a silent no-op there and every copy/paste walkthrough step failed empty-handed. This
     // knowledge lived in two workflow files (day's ci.yml and dayapp.yml) and drifted
     // between them; the CLI knows the target and the window, so it decides.
+    // …sized to the window the app will actually open: a scripted run's capture size arrives
+    // as `DAY_WINDOW` (screenshot.rs `capture_envs`), and a screen smaller than the window
+    // would clip it.
+    let (screen_w, screen_h) = spec
+        .envs
+        .iter()
+        .find(|(k, _)| k == "DAY_WINDOW")
+        .and_then(|(_, v)| v.split_once('x'))
+        .and_then(|(w, h)| Some((w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?)))
+        .filter(|(w, h)| *w > 0.0 && *h > 0.0)
+        .unwrap_or((
+            project.manifest.window.width,
+            project.manifest.window.height,
+        ));
+    // A capture run names the CONTENT it captures, and GTK's window is that plus its header
+    // bar: leave the screen room for the bar, so the window is never taller than its display.
+    let capture_run = spec.envs.iter().any(|(k, _)| k == "DAY_CAPTURE_SCALE");
+    let screen_h = if capture_run {
+        screen_h + 64.0
+    } else {
+        screen_h
+    };
     let wrap = headless_wrap(
         target.toolkit,
         crate::targets::host_os(),
         std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some(),
-        project.manifest.window.width,
-        project.manifest.window.height,
+        screen_w,
+        screen_h,
     );
     let wrapper = match &wrap {
         HeadlessWrap::Xvfb { width, height } => {

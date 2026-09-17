@@ -2061,6 +2061,11 @@ The backend's list host owns scrolling and recycling; Day owns row *content*:
    but the scroll-area emulation it justified never recycled either, so the Qt list became a
    real `QListWidget` with Day's cells attached as index widgets — native selection, keyboard
    walking, focus and drag — and keeps the append-only cell pool and the `Emulated` answer.
+   Qt can deliver viewport-resize and scroll signals synchronously while Day queries visible
+   rows or attaches cells. These callbacks queue their registry access onto the event loop,
+   after the current list-state borrow ends; scroll fills remain coalesced. Deferred work
+   rechecks that the list is still registered before accessing its native host. This avoids
+   reentrant `RefCell` panics with Linux's scrollbar/layout behavior.
 
 This was the single hardest backend feature, deferred past the MVP by design — and the
 pre-reserved spec hooks did their job: it landed later as a defaulted duty with no breaking
@@ -2576,7 +2581,13 @@ isolation marks ([§12.2](#122-api)).
 > a standalone `day script` command and JUnit XML output were not built. Screenshots land in
 > `build/day/screenshots/<target>/<locale-or-variant>/<name>.png` (`--variant` names themed
 > sets, e.g. `--variant dark --env DAY_THEME=dark`); JSON results ride the global
-> `--format json` NDJSON stream.
+> `--format json` NDJSON stream. A scripted run captures the desktop toolkits and web-dom at a
+> stated pixel size — Day.toml `[screenshots]`, 2560×1600 at 2× by default, a 1280×800-point
+> window and a size the Mac App Store accepts — carried to the app as `DAY_WINDOW` +
+> `DAY_CAPTURE_SCALE`; GTK and Qt render their snapshot at that scale, web-dom takes it as the
+> driver's viewport, and macos-appkit, whose capture is the window server's pixels, opens on a
+> HiDPI virtual display `day launch` creates when no attached display has the scale (website
+> docs "dayscript", "Capture size").
 
 ### §14.5 Transport and rendezvous
 
@@ -3269,7 +3280,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day version` | version, build profile, git ref — the tag or branch when there is one, and **always the commit** (`0.3.0 (release, branch main, bd026ff7)`), so a build can be told from another build of the same branch. Omitted entirely off a git checkout, which is what a crates.io build looks like |
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; a piece scaffold includes `demo/`, the app template rendered by the same code as `day new app` and cut to one page that shows the piece, on the targets its toolkits draw on (every target for a composite piece); `--no-demo` omits it; a piece's or part's Android Java goes to `src/Day<Name>.java`, declared as a single-file `java` entry (`--java-in-src=false` keeps a `platform/android/java/` tree); `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -p <target>… [--day-src <path\|url[@ref]>]` | build for one or more targets, in parallel; `--day-src` builds against a different `day` — a checkout, or a branch of the framework — for THAT build only ([`day launch`](#day-launch)) |
-| `day launch -p <target>… [--git <url>[@<ref>]] [--dir <d>] [--day-src <path\|url[@ref]>] [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own; `--day-src` swaps the FRAMEWORK for that one run — a checkout or a branch of `day`, patched in without writing anything to the project ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry |
+| `day launch -p <target>… [--git <url>[@<ref>]] [--dir <d>] [--day-src <path\|url[@ref]>] [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--capture-size WxH[@S]\|window] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own; `--day-src` swaps the FRAMEWORK for that one run — a checkout or a branch of `day`, patched in without writing anything to the project ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry; `--capture-size` states the pixel size of a scripted run's desktop-class captures for that run, over the `DAY_CAPTURE_SIZE` variable and Day.toml `[screenshots]` (default 2560×1600 at 2×; `window` = the app's own `[window]` size at the display's scale) |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
 | `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
@@ -3755,6 +3766,8 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 > **Status: shipped with a smaller schema.** The shipped manifest keeps the principles below;
 > the concrete sections in real projects are `schema`, `[app]` (id, title, artifact, build,
 > targets — any property overridable per platform/toolkit/target), `[window]` (width/height/min sizes),
+> `[screenshots]` (added 2026-09: `desktop-size` in pixels and `desktop-scale`, what a scripted
+> run captures desktop-class targets at — [§14.4](#144-results)),
 > `[signing.*]` (env-var interpolated, degrade-loudly), and — added 2026-07 —
 > `[permissions]`, which declares the OS permissions the app uses and the reason each prompt shows;
 > `day build` turns it into every platform's manifest entry ([docs/permissions.md](docs/permissions.md)); and — added
@@ -4296,22 +4309,35 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    toolchain and a `toolkit` row would mean a second copy of it: arkui needs the OpenHarmony SDK,
    dom the wasm32 target plus a wasm-capable clang for persistence's bundled SQLite
    ([docs/web.md](docs/web.md)).
-4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml; plus a
-   dedicated `ios-uikit` Simulator job and an Android emulator job): each checks out
-   daybrite/Day-Showcase, locks its day source to this commit (a release bump landing on
-   `main` mid-run would otherwise outrank the checkout — cargo keeps the newest version it can
-   see), points its day dependencies at the checkout (`day patch --check`,
-   [§16.5](#165-subcommands)), and runs `day doctor`, the **showcase walkthrough ×
-   light/dark/fr** with content-validated screenshot uploads, service round-trip scripts (e.g.
-   clipboard), and `day pack` — the generic app pipeline, nothing framework-shaped. Every leg packs at the dev tier: releasing and signing the showcase is its own
-   repository's business ([§20.2](#202-release-signing-isolation)), and these jobs exist for the
-   build/walkthrough/screenshot signal. A `web-dom` job builds the showcase's wasm
-   dist (`day build -p web-dom --profile release`) and runs the SAME walkthrough ×
-   light/dark × en/fr/ar/zh-CN in headless WebKit
-   (`DAY_WEB_DRIVER` = the CLI's bundled page-driver, `day web driver`; the dayscript WebSocket bridge, §14.5),
-   uploading `screenshots-web-dom` for the gallery's "Web DOM" column ([docs/web.md](docs/web.md)). It does not
-   publish the dist — the app deploys its own web build to daybrite.github.io/Day-Showcase from its
-   own repository, and daybrite.dev links there.
+4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml and an MSYS2
+   qt/gtk leg; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
+   host's toolkit dependencies and runs the checks that need it — above all
+   `scripts/ci/scaffold-check.sh`, which proves `day new` output still builds, lints, packs and
+   rebuilds against this commit. Three of them (`toolkit`, `harmony-arkui`, `web-dom`) also check
+   out daybrite/Day-Showcase, but only to lint a backend crate as the APP's dependency graph
+   resolves it — a framework check that happens to need an app on disk, not an app test.
+
+   > [!IMPORTANT]
+   > **Changed 2026-09.** These jobs used to build, drive, capture and pack the showcase
+   > themselves: nine hand-written copies of an app pipeline that `daybrite/actions`' `dayapp.yml`
+   > already provides to every other Day app. Each change to the app pipeline had to be made in
+   > both places and the two drifted anyway. The showcase legs are now ONE job — `showcase` — that
+   > calls `dayapp.yml` like any app repository does, with two inputs that make it test *this*
+   > commit: `day-source: artifact` takes the CLI from this run's own `day-cli-*` artifacts, and a
+   > `setup-command` clones the app and runs `day patch --local` so its day dependencies resolve
+   > to this checkout rather than to whatever is published. `ci.yml` lost 720 lines.
+   >
+   > What that buys beyond deduplication: the app pipeline's device matrix. `ios-devices` and
+   > `android-devices` take one line per device, each with its own `os`, and a row marked
+   > `optional=true` reports without failing the run — which is how the showcase is probed against
+   > the OS floors it claims to support (iOS 16, Android API 24) as well as the newest simulator
+   > and emulator the images ship. The OS joins the capture slug automatically, so a floor row and
+   > a current row on the same device keep separate artifacts and gallery columns.
+
+   The `showcase` job is branch/PR only and packs at the dev tier: releasing and signing the
+   showcase is its own repository's business ([§20.2](#202-release-signing-isolation)). It does not
+   publish the web dist either — the app deploys its own web build to
+   daybrite.github.io/Day-Showcase from its own repository, and daybrite.dev links there.
 5. **Release lane** (semver tags) — publishability check (`cargo publish --workspace
    --dry-run`), tag-vs-version check, GitHub release with the six CLI binaries and the installers,
    and crates.io Trusted Publishing (wired; crates not yet published —

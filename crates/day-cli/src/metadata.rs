@@ -100,6 +100,8 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
             "build": m.app.build,
             "targets": m.app.targets,
             "window": m.window,
+            // What scripted runs capture desktop-class targets at (`[screenshots]`).
+            "screenshots": m.screenshots,
             // Where the app is listed (docs/store.md "Listed apps"): ids plus the listing URLs
             // they resolve to, so a consumer need not know each store's URL shape.
             "store": {

@@ -6182,6 +6182,21 @@ pub trait Platform: Toolkit {
 // Open renderer registry (§8.2)
 // ---------------------------------------------------------------------------
 
+/// The scale a window snapshot is rendered at, when a scripted run states one
+/// (`DAY_CAPTURE_SCALE=2`, set by `day launch --script` from Day.toml `[screenshots]`).
+///
+/// For the backends that render their own snapshot (GTK, Qt): the capture then measures
+/// window points times this, whatever display the host has, which is what makes a CI capture
+/// under a 1x xvfb the same 2560x1600 pixels a HiDPI laptop produces. A backend that reads the
+/// compositor's pixels back (AppKit, XAML) captures at the display's own scale and ignores it.
+/// `None` when unset or unparseable: capture at the backend's natural scale.
+pub fn capture_scale() -> Option<f64> {
+    std::env::var("DAY_CAPTURE_SCALE")
+        .ok()
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .filter(|s| s.is_finite() && (0.5..=4.0).contains(s))
+}
+
 /// The user's language preference from the POSIX environment, newest-first, as BCP-47 tags.
 ///
 /// Seconds on a monotonic clock since the first call: the frame timestamp for a backend that

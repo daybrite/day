@@ -192,6 +192,249 @@ fn iso_utc_now() -> String {
 // The per-target index (written by the dayscript runner)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Capture size (website docs "dayscript", "Capture size")
+// ---------------------------------------------------------------------------
+
+/// What a scripted run captures a desktop-class target at: a pixel size and the scale it is
+/// rendered at. The window that produces it is `width / scale` by `height / scale` points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CaptureSize {
+    /// Capture width in pixels.
+    pub width: u32,
+    /// Capture height in pixels.
+    pub height: u32,
+    /// Pixels per point.
+    pub scale: f64,
+}
+
+impl CaptureSize {
+    /// The window (capture region) size in points.
+    pub fn points(&self) -> (u32, u32) {
+        (
+            (f64::from(self.width) / self.scale).round() as u32,
+            (f64::from(self.height) / self.scale).round() as u32,
+        )
+    }
+}
+
+/// Parse `"<width>x<height>"` or `"<width>x<height>@<scale>"` (pixels). `"window"` is `None`:
+/// capture at the app's own `[window]` size and the host display's scale.
+pub fn parse_capture_size(text: &str, default_scale: f64) -> Result<Option<CaptureSize>, String> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("window") {
+        return Ok(None);
+    }
+    let bad = || {
+        format!(
+            "capture size {text:?}: expected <width>x<height> in pixels, optionally @<scale> \
+             (2560x1600, 2880x1800@2), or \"window\""
+        )
+    };
+    let (dims, scale) = match text.split_once('@') {
+        Some((d, s)) => (d, s.trim().parse::<f64>().map_err(|_| bad())?),
+        None => (text, default_scale),
+    };
+    let (w, h) = dims.split_once(['x', 'X', '×']).ok_or_else(bad)?;
+    let width = w.trim().parse::<u32>().map_err(|_| bad())?;
+    let height = h.trim().parse::<u32>().map_err(|_| bad())?;
+    if width == 0 || height == 0 || !(scale.is_finite() && (0.5..=4.0).contains(&scale)) {
+        return Err(bad());
+    }
+    // A window is a whole number of points; a size the scale does not divide would come back a
+    // pixel off, which is exactly what a store's size check refuses.
+    let whole = |px: u32| (f64::from(px) / scale).fract().abs() < 1e-9;
+    if !whole(width) || !whole(height) {
+        return Err(format!(
+            "capture size {text:?}: {width}x{height} pixels is not a whole number of points at \
+             scale {scale}"
+        ));
+    }
+    Ok(Some(CaptureSize {
+        width,
+        height,
+        scale,
+    }))
+}
+
+/// The capture size a scripted run uses: `--capture-size`, else the `DAY_CAPTURE_SIZE`
+/// environment variable (what a CI workflow sets without touching the command line), else
+/// Day.toml `[screenshots]`, whose default is 2560x1600 at 2x.
+pub fn capture_size(project: &Project, flag: Option<&str>) -> Result<Option<CaptureSize>, String> {
+    let shots = &project.manifest.screenshots;
+    let from_env = std::env::var("DAY_CAPTURE_SIZE")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
+    match flag.map(str::to_string).or(from_env) {
+        Some(text) => parse_capture_size(&text, shots.desktop_scale),
+        None => parse_capture_size(&shots.desktop_size, shots.desktop_scale)
+            .map_err(|e| format!("Day.toml [screenshots]: {e}")),
+    }
+}
+
+/// Whether a target's captures follow the capture size: the desktop toolkits and the web build.
+/// A phone or tablet captures its device's own panel.
+pub fn is_desktop_class(target: &crate::targets::Target) -> bool {
+    matches!(
+        target.kind,
+        crate::targets::TargetKind::Desktop | crate::targets::TargetKind::Web
+    )
+}
+
+/// The variables that carry a capture size to the app: `DAY_WINDOW` (the window, in points) and
+/// `DAY_CAPTURE_SCALE` (what a backend that renders its own snapshot renders it at). A variable
+/// the caller already set, through `--env` or the environment `day` runs in, is left alone, so
+/// a responsive-layout run with `DAY_WINDOW=500x640` keeps its narrow window.
+pub fn capture_envs(size: CaptureSize, given: &[(String, String)]) -> Vec<(String, String)> {
+    let (w, h) = size.points();
+    let mut out = Vec::new();
+    let mut put = |key: &str, value: String| {
+        let taken = given.iter().any(|(k, _)| k == key) || std::env::var_os(key).is_some();
+        if !taken {
+            out.push((key.to_string(), value));
+        }
+    };
+    put("DAY_WINDOW", format!("{w}x{h}"));
+    put("DAY_CAPTURE_SCALE", format!("{}", size.scale));
+    out
+}
+
+/// The capture-display helper (resources/macos/capture-display.m, which says why it exists).
+#[cfg(target_os = "macos")]
+const CAPTURE_DISPLAY_M: &str = include_str!("../resources/macos/capture-display.m");
+
+/// The running helper and the display id it answered with. Held for the life of this process:
+/// the helper exits, and its display with it, when the pipe in here closes.
+#[cfg(target_os = "macos")]
+static CAPTURE_DISPLAY: std::sync::Mutex<Option<(std::process::Child, Option<String>)>> =
+    std::sync::Mutex::new(None);
+
+/// A display that composites at the capture's scale, for a macos-appkit scripted run: the
+/// `CGDirectDisplayID` to hand the app as `DAY_WINDOW_SCREEN`, or `None` when a display the
+/// host already has will do (or no virtual one could be made, which is reported and leaves the
+/// run capturing at the display's own scale). Started once per `day` process and shared by
+/// every run of a capture matrix.
+///
+/// `DAY_CAPTURE_DISPLAY=native` turns this off; `=virtual` makes the display even on a host
+/// that does not need one, which is how the path is exercised on a HiDPI Mac.
+#[cfg(target_os = "macos")]
+pub fn capture_display(size: CaptureSize) -> Option<String> {
+    use std::io::BufRead as _;
+    let mode = std::env::var("DAY_CAPTURE_DISPLAY").unwrap_or_default();
+    if mode == "native" {
+        return None;
+    }
+    let mut slot = CAPTURE_DISPLAY.lock().ok()?;
+    if let Some((_, id)) = slot.as_ref() {
+        return id.clone();
+    }
+    let note = |why: &str| {
+        let (w, h) = size.points();
+        crate::ops::status(
+            "Warning",
+            &format!(
+                "no {}x capture display ({why}); macos-appkit captures at this display's own \
+                 scale, {w}x{h} pixels on a 1x display",
+                size.scale
+            ),
+        );
+    };
+    let helper = match materialize_capture_display() {
+        Ok(path) => path,
+        Err(e) => {
+            note(&e);
+            return None;
+        }
+    };
+    let (w, h) = size.points();
+    let mut command = std::process::Command::new(&helper);
+    command
+        .args([w.to_string(), h.to_string(), size.scale.to_string()])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped());
+    if mode == "virtual" {
+        command.arg("force");
+    }
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            note(&format!("{}: {e}", helper.display()));
+            return None;
+        }
+    };
+    let mut line = String::new();
+    if let Some(out) = child.stdout.take() {
+        let _ = std::io::BufReader::new(out).read_line(&mut line);
+    }
+    let id = match line.trim().split_once(' ') {
+        Some(("display", id)) => {
+            crate::ops::status(
+                "Capture",
+                &format!(
+                    "virtual {}x display {id} ({})",
+                    size.scale,
+                    if mode == "virtual" {
+                        "DAY_CAPTURE_DISPLAY=virtual"
+                    } else {
+                        "no attached display has the scale"
+                    }
+                ),
+            );
+            crate::signals::register_child(child.id());
+            Some(id.to_string())
+        }
+        Some(("unavailable", why)) => {
+            note(why);
+            None
+        }
+        _ => None, // "native": an attached display already has the scale
+    };
+    *slot = Some((child, id.clone()));
+    id
+}
+
+/// Compile the helper with the host's clang into a version-stamped temp location, once. Xcode's
+/// command-line tools are already a macos-appkit prerequisite, so this adds none.
+#[cfg(target_os = "macos")]
+fn materialize_capture_display() -> Result<PathBuf, String> {
+    let digest = &sha256_hex(CAPTURE_DISPLAY_M.as_bytes())[..12];
+    let dir = std::env::temp_dir().join(format!(
+        "day-capture-display-{}-{digest}",
+        env!("CARGO_PKG_VERSION")
+    ));
+    let bin = dir.join("day-capture-display");
+    if bin.exists() {
+        return Ok(bin);
+    }
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let src = dir.join("capture-display.m");
+    std::fs::write(&src, CAPTURE_DISPLAY_M).map_err(|e| format!("{}: {e}", src.display()))?;
+    // Built beside its final name and renamed, so a concurrent `day` never runs half a binary.
+    let staged = dir.join(format!("day-capture-display.{}", std::process::id()));
+    let out = std::process::Command::new("xcrun")
+        .args(["clang", "-fobjc-arc", "-O1", "-framework", "Cocoa"])
+        .arg(&src)
+        .arg("-o")
+        .arg(&staged)
+        .output()
+        .map_err(|e| format!("xcrun clang: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "compiling the capture-display helper failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    std::fs::rename(&staged, &bin).map_err(|e| format!("{}: {e}", bin.display()))?;
+    Ok(bin)
+}
+
+/// No capture display off macOS: the other desktop backends render their own snapshot at the
+/// stated scale, or (XAML) read back a display this tool cannot stand in for.
+#[cfg(not(target_os = "macos"))]
+pub fn capture_display(_size: CaptureSize) -> Option<String> {
+    None
+}
+
 /// One capture in a target's `gallery.json` (`build/day/screenshots/<target>/gallery.json`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TargetEntry {
@@ -700,6 +943,60 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_size_parses_pixels_scale_and_the_window_opt_out() {
+        let size = parse_capture_size("2560x1600", 2.0).unwrap().unwrap();
+        assert_eq!((size.width, size.height, size.scale), (2560, 1600, 2.0));
+        assert_eq!(size.points(), (1280, 800));
+        // `@` names the scale, over the table's.
+        let one = parse_capture_size(" 1440X900@1 ", 2.0).unwrap().unwrap();
+        assert_eq!((one.points(), one.scale), ((1440, 900), 1.0));
+        assert_eq!(parse_capture_size("window", 2.0).unwrap(), None);
+        assert_eq!(parse_capture_size("Window", 2.0).unwrap(), None);
+    }
+
+    #[test]
+    fn capture_size_refuses_what_no_window_can_produce() {
+        for bad in [
+            "",
+            "2560",
+            "2560x",
+            "0x1600",
+            "2560x1600@0",
+            "2560x1600@9",
+            "axb",
+        ] {
+            assert!(parse_capture_size(bad, 2.0).is_err(), "{bad:?} parsed");
+        }
+        // 2561 pixels at 2x is half a point: the capture would come back a pixel off.
+        let e = parse_capture_size("2561x1600", 2.0).unwrap_err();
+        assert!(e.contains("whole number of points"), "{e}");
+    }
+
+    #[test]
+    fn the_default_capture_is_a_mac_app_store_size() {
+        let shots = crate::meta::Screenshots::default();
+        let size = parse_capture_size(&shots.desktop_size, shots.desktop_scale)
+            .unwrap()
+            .unwrap();
+        // The four sizes App Store Connect takes for a Mac screenshot.
+        let accepted = [(1280, 800), (1440, 900), (2560, 1600), (2880, 1800)];
+        assert!(accepted.contains(&(size.width, size.height)));
+        assert_eq!(size.points(), (1280, 800));
+    }
+
+    #[test]
+    fn capture_envs_leave_a_variable_the_caller_set() {
+        let size = parse_capture_size("2560x1600", 2.0).unwrap().unwrap();
+        let given = vec![("DAY_WINDOW".to_string(), "500x640".to_string())];
+        let envs = capture_envs(size, &given);
+        assert!(!envs.iter().any(|(k, _)| k == "DAY_WINDOW"));
+        // Only asserted when the test environment itself does not set it.
+        if std::env::var_os("DAY_CAPTURE_SCALE").is_none() {
+            assert!(envs.contains(&("DAY_CAPTURE_SCALE".to_string(), "2".to_string())));
+        }
+    }
 
     #[test]
     fn text_resolution_falls_back_language_then_english() {

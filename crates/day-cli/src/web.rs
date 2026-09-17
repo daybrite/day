@@ -740,7 +740,13 @@ pub fn launch_web(
     // back through the shim's `day_dom_env` (docs/web.md). DAYSCRIPT_PORT stays host-side,
     // and DAYSCRIPT_TOKEN/DAY_THEME already travel under their reserved names above.
     for (k, v) in &spec.envs {
-        if k == "DAYSCRIPT_PORT" || k == "DAYSCRIPT_TOKEN" || k == "DAY_THEME" {
+        // The capture size is the driver's business (its viewport), not the page's.
+        if k == "DAYSCRIPT_PORT"
+            || k == "DAYSCRIPT_TOKEN"
+            || k == "DAY_THEME"
+            || k == "DAY_WINDOW"
+            || k == "DAY_CAPTURE_SCALE"
+        {
             continue;
         }
         params.push(format!("{}={}", query_escape(k), query_escape(v)));
@@ -765,7 +771,13 @@ pub fn launch_web(
         *PAGE_WS.lock().expect("page slot") = None;
         *RUNNER.lock().expect("runner slot") = None;
     }
-    open_page(&url)?;
+    // A scripted run's capture size (screenshot.rs `capture_envs`) is the driver browser's
+    // viewport and device scale factor.
+    let viewport = env_of("DAY_WINDOW").map(|points| {
+        let scale = env_of("DAY_CAPTURE_SCALE").unwrap_or_else(|| "2".to_string());
+        format!("{points}@{scale}")
+    });
+    open_page(&url, viewport.as_deref())?;
     let handle = std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let dist = dist.clone();
@@ -780,7 +792,10 @@ pub fn launch_web(
 /// also answers screenshot requests; see [`driver_screenshot`]), else the default browser.
 /// The driver is spawned as `<cmd…> <url> <control-port>` and serves `GET /screenshot` (PNG)
 /// and `GET /quit` on the control port.
-fn open_page(url: &str) -> Result<(), String> {
+///
+/// `viewport` (`<width>x<height>@<scale>`, in points) reaches the driver as
+/// `DAY_WEB_DRIVER_VIEWPORT`; without it the driver keeps its own default.
+fn open_page(url: &str, viewport: Option<&str>) -> Result<(), String> {
     let Ok(driver) = std::env::var("DAY_WEB_DRIVER") else {
         open_in_browser(url);
         return Ok(());
@@ -796,10 +811,12 @@ fn open_page(url: &str) -> Result<(), String> {
     // A previous variant's browser (capture matrix) shows the old page: retire it first, or
     // its control port would keep answering screenshot requests with stale pixels.
     stop_driver();
-    let child = Command::new(program)
-        .args(words)
-        .arg(url)
-        .arg(control.to_string())
+    let mut command = Command::new(program);
+    command.args(words).arg(url).arg(control.to_string());
+    if let Some(viewport) = viewport {
+        command.env("DAY_WEB_DRIVER_VIEWPORT", viewport);
+    }
+    let child = command
         .spawn()
         .map_err(|e| format!("DAY_WEB_DRIVER {driver:?}: {e}"))?;
     crate::signals::register_child(child.id());
