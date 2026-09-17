@@ -8,6 +8,10 @@ import manifest from '../data/downloads.json';
 import gallery from '../data/gallery-manifest.json';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import CopyCommand from '../components/CopyCommand.astro';
+// The same component the landing page's hero uses, markup, styles and controller included. It is
+// imported rather than reproduced: the shot pool, the shuffle, the theme swap and the gallery
+// deep-links all live in that one file (components/HeroCarousel.astro).
+import HeroCarousel from '../components/HeroCarousel.astro';
 
 // The showcase's own gallery page, when this build could read its index — the hub otherwise, so
 // one app's site being unreachable costs a deep link rather than failing the whole build's
@@ -104,47 +108,98 @@ function richInstall(text: string): (string | { code: string })[] {
   return text.split('`').map((part, i) => (i % 2 ? { code: part } : part));
 }
 ---
-<BaseLayout title="Showcase downloads" description="Launch the Day Showcase on the web, get it from the App Store or Google Play, or install a packaged build for Android, iOS, HarmonyOS, macOS, Windows, and Linux, with approximate sizes and one-line install commands." active="showcase">
+<BaseLayout title="Day Showcase" description="Day Showcase is the catalog app for Day: every piece the framework implements, from one Rust codebase, drawn with each platform's own widgets. Run it in the browser, install a packaged build for Android, iOS, HarmonyOS, macOS, Windows, or Linux, or build it from source." active="showcase">
   <section class="section dl-hero">
+    {/* Prose and carousel side by side, on the shared `.hero-grid` from styles/global.css — the
+        landing page's hero is the same pairing, and both get the layout from that one rule. */}
+    <div class="container hero-grid">
+      <div>
+        <p class="eyebrow">Day Showcase</p>
+        <h1 class="dl-title">The catalog app for <span class="accent-text">Day</span></h1>
+        <p class="lead">
+          Day Showcase puts every piece the framework implements behind a native navigation host —
+          controls, lists, text, canvas, media, maps, localization — from one Rust codebase. Nothing
+          in it is drawn by Day: the switch on its Controls page is a <code>UISwitch</code> on
+          iPhone, a <code>MaterialSwitch</code> on Android, and an <code>NSSwitch</code> on a Mac.
+          It is the app in the <a href={galleryHref}>gallery</a>, and the fastest way to see what a
+          Day app looks like on your own device. Each card below carries that platform's packages,
+          its signing status, and what installing one takes.
+        </p>
+        {!release && (
+          <p class="dl-note">
+            Preview build: the packages come from the latest release, which this build could not
+            reach. It shows the layout with placeholders.
+          </p>
+        )}
+      </div>
+      <div class="hero-media"><HeroCarousel /></div>
+    </div>
+  </section>
+
+  <section class="section">
     <div class="container">
-      <p class="eyebrow">Showcase downloads</p>
-      <h1 class="dl-title">Try <span class="accent-text">Day Showcase</span></h1>
-      <p class="lead">
-        Explore the app shown in the <a href={galleryHref}>gallery</a> in your browser or install
-        a build for your device. The platform cards explain available packages, signing status,
-        and installation requirements.
-      </p>
-      <p class="dl-actions">
-        <a class="web-badge" href={site.showcaseWeb} aria-label="Launch on the web">
-          <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="16" cy="16" r="13" /><ellipse cx="16" cy="16" rx="6" ry="13" /><path d="M3 16h26M6 8h20M6 24h20" /></svg>
-          <span><span class="web-badge-small">Launch on the</span><span class="web-badge-name">web</span></span>
-        </a>
-        <a class="store-badge store-badge-apple" href={stores.apple.href} aria-label={stores.apple.alt}>
-          <img src={stores.apple.src} alt={stores.apple.alt} />
-        </a>
-        <a class="store-badge store-badge-google" href={stores.google.href} aria-label={stores.google.alt}>
-          <img src={stores.google.src} alt={stores.google.alt} />
-        </a>
-      </p>
-      {release ? (
-        <p class="dl-note">
-          Every link below downloads from the latest showcase release, whichever that is when you
-          click it. The names and sizes were read from <a href={release.url}>{release.tag}</a> of{' '}
-          {new Date(release.publishedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })},
-          so treat the sizes as approximate. Downloads are served from GitHub.
-        </p>
-      ) : (
-        <p class="dl-note">
-          Preview build: the packages come from the latest release, which this build could not
-          reach. It shows the layout with placeholders.
-        </p>
-      )}
+      <div class="dl-grid">
+        <article class="dl-card" data-pf="web-dom">
+          <div class="dl-head">
+            <PlatformIcon id="web-dom" class="dl-icon" />
+            <div class="dl-headings">
+              <p class="dl-os">Web</p>
+              <h2 class="dl-name">DOM</h2>
+              <code class="dl-id">web-dom</code>
+            </div>
+            <a class="dl-badge web-badge" href={site.showcaseWeb} aria-label="Launch on the web">
+              <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="16" cy="16" r="13" /><ellipse cx="16" cy="16" rx="6" ry="13" /><path d="M3 16h26M6 8h20M6 24h20" /></svg>
+              <span><span class="web-badge-small">Launch on the</span><span class="web-badge-name">web</span></span>
+            </a>
+          </div>
+          <p class="dl-install">
+            The WebAssembly build runs in the browser; this site hosts it as static files.
+          </p>
+        </article>
+        {targets.map((t) => {
+          const files = byId.get(t.id) ?? [];
+          return (
+            <article class="dl-card" data-pf={t.id}>
+              <div class="dl-head">
+                <PlatformIcon id={t.id} class="dl-icon" />
+                <div class="dl-headings">
+                  <p class="dl-os">{t.os}</p>
+                  <h2 class="dl-name">{t.name}</h2>
+                  <code class="dl-id">{t.id}</code>
+                </div>
+                {t.store && (
+                  <a class={`dl-badge store-badge store-badge-${t.store}`} href={stores[t.store].href} aria-label={stores[t.store].alt}>
+                    <img src={stores[t.store].src} alt={stores[t.store].alt} />
+                  </a>
+                )}
+              </div>
+              <p class="dl-install">
+                {richInstall(t.install).map((part) =>
+                  typeof part === 'string' ? part : <code>{part.code}</code>,
+                )}
+              </p>
+              {files.length > 0 ? (
+                <ul class="dl-files">
+                  {files.map((f) => (
+                    <li>
+                      <a class="dl-file" href={f.href}>⤓ {f.name}</a>
+                      <span class="dl-size" title="Size when this page was built">≈{human(f.bytes)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p class="dl-missing">Packaged as {t.kind}, but not attached to {release ? release.tag : 'the latest release'}.</p>
+              )}
+            </article>
+          );
+        })}
+      </div>
     </div>
   </section>
 
   <section class="section dl-quick">
     <div class="container">
-      <h2 class="dl-quick-title">Quick start</h2>
+      <h2 class="dl-quick-title">Launch from the CLI</h2>
       <p class="dl-quick-lead">Downloads, unpacks, and launches the app.</p>
 
       {/* Radio inputs rather than buttons, so the tabs work with the stylesheet alone — the
@@ -165,6 +220,30 @@ function richInstall(text: string): (string | { code: string })[] {
           <CopyCommand cmd={`irm ${winCmdUrl} | iex`} />
         </div>
       </div>
+    </div>
+  </section>
+
+  <section class="section dl-quick">
+    <div class="container">
+      <h2 class="dl-quick-title">Build and launch from source</h2>
+      <p class="dl-quick-lead">
+        Install the <code>day</code> CLI, then let it clone the repository, build the app, and run
+        it on this machine's desktop target. The launch prints where it put the checkout, so you
+        can open the code and change it.
+      </p>
+
+      <div class="qs-steps">
+        <CopyCommand cmd="cargo install day-cli" />
+        <CopyCommand cmd={`day launch --git ${site.showcaseRepo}.git`} />
+      </div>
+
+      <p class="dl-note dl-quick-note">
+        Both commands need a stable Rust toolchain (<a href="https://rustup.rs">rustup</a>). The
+        first run compiles the framework and the app from scratch, so expect minutes rather than
+        seconds. <code>day doctor</code> reports what this machine's toolkit is missing and prints
+        the command that installs it, and{' '}
+        <a href={url('docs/system-requirements')}>System requirements</a> lists them per platform.
+      </p>
     </div>
   </section>
 
@@ -209,77 +288,7 @@ function richInstall(text: string): (string | { code: string })[] {
     })();
   </script>
 
-  <section class="section">
-    <div class="container">
-      <div class="dl-grid">
-        <article class="dl-card" data-pf="web-dom">
-          <div class="dl-head">
-            <PlatformIcon id="web-dom" class="dl-icon" />
-            <div class="dl-headings">
-              <p class="dl-os">Web</p>
-              <h2 class="dl-name">DOM</h2>
-              <code class="dl-id">web-dom</code>
-            </div>
-          </div>
-          <p class="dl-install">
-            The WebAssembly build runs in the browser; this site hosts it as static files.
-          </p>
-          <p class="dl-files">
-            <a class="web-badge" href={site.showcaseWeb} aria-label="Launch on the web">
-          <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="16" cy="16" r="13" /><ellipse cx="16" cy="16" rx="6" ry="13" /><path d="M3 16h26M6 8h20M6 24h20" /></svg>
-          <span><span class="web-badge-small">Launch on the</span><span class="web-badge-name">web</span></span>
-        </a>
-          </p>
-        </article>
-        {targets.map((t) => {
-          const files = byId.get(t.id) ?? [];
-          return (
-            <article class="dl-card" data-pf={t.id}>
-              <div class="dl-head">
-                <PlatformIcon id={t.id} class="dl-icon" />
-                <div class="dl-headings">
-                  <p class="dl-os">{t.os}</p>
-                  <h2 class="dl-name">{t.name}</h2>
-                  <code class="dl-id">{t.id}</code>
-                </div>
-              </div>
-              <p class="dl-install">
-                {richInstall(t.install).map((part) =>
-                  typeof part === 'string' ? part : <code>{part.code}</code>,
-                )}
-              </p>
-              {t.store && (
-                <p class="dl-store">
-                  <a class={`store-badge store-badge-${t.store}`} href={stores[t.store].href} aria-label={stores[t.store].alt}>
-                    <img src={stores[t.store].src} alt={stores[t.store].alt} />
-                  </a>
-                </p>
-              )}
-              {files.length > 0 ? (
-                <ul class="dl-files">
-                  {files.map((f) => (
-                    <li>
-                      <a class="dl-file" href={f.href}>⤓ {f.name}</a>
-                      <span class="dl-size" title="Size when this page was built">≈{human(f.bytes)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p class="dl-missing">Packaged as {t.kind}, but not attached to {release ? release.tag : 'the latest release'}.</p>
-              )}
-            </article>
-          );
-        })}
-      </div>
-      <p class="dl-verify">
-        Verify a download against the <code>SHA256SUMS</code> file attached to the same release:{' '}
-        <code>shasum -a 256 &lt;file&gt;</code> (macOS/Linux) or{' '}
-        <code>Get-FileHash &lt;file&gt;</code> (Windows PowerShell) must print the digest listed
-        there for that name. The checksums live with the release rather than on this page, so they
-        describe the downloaded file.
-      </p>
-    </div>
-  </section>
+
 </BaseLayout>
 
 <style>
@@ -287,24 +296,46 @@ function richInstall(text: string): (string | { code: string })[] {
   .dl-title { font-size: clamp(1.9rem, 4vw, 2.8rem); margin: 0 0 16px; }
   .dl-title a { color: inherit; text-decoration: underline; text-decoration-color: var(--brand); }
   .dl-note { color: var(--faint); font-size: 0.92rem; }
-  .dl-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 18px 0 8px; }
-
-  .store-badge { --h: 56px; display: inline-block; height: var(--h); flex-shrink: 0; }
+  /* One badge height for the page, so an App Store plate, a Play plate and the web badge are the
+     same size in every card head. 44px clears the 40px floor both stores' brand guidelines set
+     for their artwork, and still sits inside the three title rows beside it.
+     The web badge is hand-built, so every dimension in it is a ratio of that height rather than
+     a number of its own; changing `--h` moves the whole set together. */
+  .store-badge, .web-badge { --h: 44px; }
+  .store-badge { display: inline-block; height: var(--h); flex-shrink: 0; }
   .store-badge img { display: block; max-width: none; width: auto; height: var(--h); }
   /* Google's artwork includes 10 units of clear space around its 135 × 40 plate. */
   .store-badge-google img { height: calc(var(--h) * 1.5); width: calc(var(--h) * 1.5 * 155 / 60); margin: calc(var(--h) * -0.25); }
-  .web-badge { display: inline-flex; align-items: center; gap: 10px; height: 56px; width: 174px; padding: 5px 12px; box-sizing: border-box; border: 1px solid #a6a6a6; border-radius: 8px; background: #000; color: #fff; font-family: Arial, Helvetica, sans-serif; text-decoration: none; flex-shrink: 0; }
-  .web-badge svg { width: 32px; height: 32px; flex-shrink: 0; }
-  .web-badge-small { display: block; font-size: 12px; line-height: 15px; }
-  .web-badge-name { display: block; font-size: 27px; line-height: 27px; letter-spacing: -0.5px; }
+  .web-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--h) * 10 / 56);
+    height: var(--h);
+    width: calc(var(--h) * 174 / 56);
+    padding: calc(var(--h) * 5 / 56) calc(var(--h) * 12 / 56);
+    box-sizing: border-box;
+    border: 1px solid #a6a6a6;
+    border-radius: calc(var(--h) * 8 / 56);
+    background: #000;
+    color: #fff;
+    font-family: Arial, Helvetica, sans-serif;
+    text-decoration: none;
+    flex-shrink: 0;
+  }
+  .web-badge svg { width: calc(var(--h) * 32 / 56); height: calc(var(--h) * 32 / 56); flex-shrink: 0; }
+  .web-badge-small { display: block; font-size: calc(var(--h) * 12 / 56); line-height: calc(var(--h) * 15 / 56); }
+  .web-badge-name { display: block; font-size: calc(var(--h) * 27 / 56); line-height: calc(var(--h) * 27 / 56); letter-spacing: calc(var(--h) * -0.5 / 56); }
   .web-badge:hover { color: #fff; text-decoration: none; }
   .store-badge:hover, .web-badge:hover { opacity: 0.85; }
   .store-badge:focus-visible, .web-badge:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 8px; }
-  .dl-store { margin: 0 0 12px; }
 
   .dl-quick { padding-top: 12px; padding-bottom: 12px; }
   .dl-quick-title { font-size: 1.35rem; margin: 0 0 10px; }
   .dl-quick-lead { margin: 0 0 14px; max-width: 68ch; color: var(--faint); }
+  /* `cargo install` then `day launch`: two commands run in order, so they stack rather than
+     sitting in tabs the way the platform-specific one-liners above do. */
+  .qs-steps { display: flex; flex-direction: column; gap: 10px; }
+  .dl-quick-note { margin: 14px 0 0; max-width: 68ch; }
   /* The command block and its Copy button style themselves (components/CopyCommand.astro). */
 
   /* The OS picker. The radios drive everything and stay in the accessibility tree — clipped
@@ -365,8 +396,14 @@ function richInstall(text: string): (string | { code: string })[] {
     text-transform: uppercase;
     color: color-mix(in srgb, var(--pf, var(--brand)) 78%, var(--text));
   }
-  /* The mark sits beside the three title rows, centered against the block as a whole. */
-  .dl-head { display: flex; align-items: center; gap: 14px; margin-bottom: 6px; }
+  /* The mark sits beside the three title rows, centered against the block as a whole, and the
+     store or web badge is pushed to the far end of the same row — `margin-left: auto` on the
+     badge rather than `space-between` on the row, so the icon and the titles stay together in a
+     card that has no badge to push against. Every card's badge therefore lands on the same
+     baseline, at the same right edge. It wraps to its own line when the card gets too narrow
+     for both, which is the single-column layout on a phone. */
+  .dl-head { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; row-gap: 10px; margin-bottom: 6px; }
+  .dl-badge { margin-left: auto; }
   .dl-headings { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
   /* :global — the <svg> lives in PlatformIcon's template, so it carries that component's
      scope attribute, not this page's, and an unscoped `.dl-icon` nav host never matches it. */
@@ -386,7 +423,7 @@ function richInstall(text: string): (string | { code: string })[] {
     background: color-mix(in srgb, var(--pf, var(--brand)) 13%, transparent);
   }
   .dl-install { margin: 10px 0 12px; color: var(--muted); font-size: 0.9rem; line-height: 1.55; }
-  .dl-install code, .dl-verify code { font-size: 0.85em; }
+  .dl-install code { font-size: 0.85em; }
 
   .dl-files { list-style: none; margin: auto 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   .dl-files li { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 2px; }
@@ -394,5 +431,4 @@ function richInstall(text: string): (string | { code: string })[] {
   .dl-size { color: var(--faint); font-size: 0.85rem; }
   .dl-missing { margin: auto 0 0; color: var(--faint); font-size: 0.88rem; font-style: italic; }
   .dl-btn { align-self: flex-start; }
-  .dl-verify { margin-top: 22px; color: var(--muted); font-size: 0.9rem; }
 </style>

@@ -27,7 +27,7 @@ const stages = [
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="container hero-grid">
       <div>
-        <p class="eyebrow">Day · The native app framework</p>
+        <p class="eyebrow">Day · The universal app framework</p>
         <h1>One app.<br />Every platform.<br /><span class="hero-day">All Day.</span></h1>
         <p class="lead">Bring your product to desktop, mobile, and web. Day gives your team a shared foundation to build, test, and deliver native apps across the consumer platforms your users call home.</p>
         <div class="actions">
@@ -123,8 +123,6 @@ const stages = [
 <style>
   .hero { position: relative; overflow: hidden; padding-block: 80px 30px; }
   .hero-glow { position: absolute; top: -280px; left: 50%; width: 1100px; height: 700px; transform: translateX(-50%); background: radial-gradient(closest-side, rgba(255,150,90,.22), rgba(106,164,255,.14) 55%, transparent 72%); pointer-events: none; }
-  .hero-grid, .split { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: center; }
-  .hero-grid > *, .split > * { min-width: 0; }
   h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); line-height: 1.05; letter-spacing: -.045em; margin: 0 0 26px; }
   .hero-day { color: var(--hero-accent, var(--brand)); transition: color 2.6s ease-in-out; }
   h2 { font-size: clamp(1.9rem, 3.8vw, 2.8rem); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 22px; }
@@ -164,7 +162,8 @@ const stages = [
   .cta-inner h2, .cta-inner p { margin: 0; }
   .cta-inner p { color: var(--muted); }
   @media (max-width: 1000px) { .stages { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-  @media (max-width: 880px) { .hero-grid, .split, .benefit-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; } .hero { padding-top: 40px; } .hero-media { max-width: 600px; width: 100%; margin-inline: auto; } }
+  /* .hero-grid/.split and .hero-media stack in styles/global.css, which owns that layout. */
+  @media (max-width: 880px) { .benefit-grid { grid-template-columns: minmax(0, 1fr); gap: 32px; } .hero { padding-top: 40px; } }
   @media (max-width: 560px) { .ownership-grid, .stages { grid-template-columns: minmax(0, 1fr); } .capability, .independent { padding: 24px; } .platform-strip { gap: 18px; } .performance-facts { padding-left: 22px; } }
   @media (prefers-reduced-motion: reduce) { .hero-day { transition: none; } }
 </style>

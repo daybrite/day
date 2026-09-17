@@ -28,7 +28,7 @@ use objc2_app_kit::NSDraggingInfo as _;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
     NSAffineTransformNSAppKitAdditions, NSClickGestureRecognizer, NSGestureRecognizer,
-    NSGestureRecognizerState, NSPanGestureRecognizer, NSPasteboard, NSPasteboardTypeString,
+    NSGestureRecognizerState, NSPanGestureRecognizer, NSPasteboard,
 };
 use objc2_app_kit::{
     NSAnimationContext, NSApplication, NSApplicationActivationPolicy, NSBackingStoreType,

@@ -79,6 +79,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --radius: 14px;
   --radius-lg: 22px;
   --maxw: 1080px;
+  /* The eyebrow's metrics, as tokens rather than numbers inside `.eyebrow`, because a hero's
+     second column has to step down by exactly the height of the eyebrow in the first to start
+     level with the <h1> beneath it. `--eyebrow-block` is that height: one line plus the gap. */
+  --eyebrow-size: 0.76rem;
+  --eyebrow-lh: 1.6;
+  --eyebrow-gap: 14px;
+  --eyebrow-block: calc(var(--eyebrow-size) * var(--eyebrow-lh) + var(--eyebrow-gap));
   --shadow: 0 18px 50px -20px rgba(0, 0, 0, 0.7);
 
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -188,12 +195,44 @@ code, pre { font-family: var(--mono); }
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  font-size: 0.76rem;
+  /* An explicit line-height, not the inherited 1.6, so `--eyebrow-block` is arithmetic rather
+     than a guess about what this element inherits. */
+  font-size: var(--eyebrow-size);
+  line-height: var(--eyebrow-lh);
   font-weight: 700;
   color: var(--sun);
-  margin: 0 0 14px;
+  margin: 0 0 var(--eyebrow-gap);
 }
 .lead { color: var(--muted); font-size: 1.12rem; max-width: 62ch; }
+
+/* The two-column hero: prose on one side, a figure on the other, collapsing to one column on a
+   narrow screen. Here rather than in a page's scoped <style> because the landing page and the
+   showcase page both lay their intro out this way around the same <HeroCarousel>; a second copy
+   of these four rules is how the two drift apart. `.hero-media` caps the figure's width once
+   stacked, so a carousel does not run the full bleed of a phone screen. */
+.hero-grid, .split {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 56px;
+  align-items: center;
+}
+.hero-grid > *, .split > * { min-width: 0; }
+/* The hero is the exception to the centering above: both columns start at the top of the row, and
+   the figure is pushed down by the height of the eyebrow, so its top edge lands level with the top
+   of the <h1> rather than with the small label above it. Centering made the two columns' heights
+   decide where the picture sat, which put it against the eyebrow on a short hero and below the
+   heading on a tall one. Both pages that use `.hero-grid` open with an eyebrow; the other `.split`
+   sections keep their centering, which is what suits a paragraph beside a figure. */
+.hero-grid { align-items: start; }
+.hero-grid .hero-media { margin-top: var(--eyebrow-block); }
+@media (max-width: 880px) {
+  .hero-grid, .split { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+  /* Stacked, the figure follows the prose instead of sitting beside it, so the step past the
+     eyebrow would just be a gap. */
+  .hero-media { max-width: 600px; width: 100%; margin-inline: auto; }
+  .hero-grid .hero-media { margin-top: 0; }
+}
 
 /* The highlighted phrase inside a heading. A plain color, so it needs no `background-clip: text`
    and the @supports guard that used to sit here for engines that cannot clip a background to the

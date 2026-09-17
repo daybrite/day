@@ -465,33 +465,54 @@ mod teardown_tests {
     use super::*;
 
     #[test]
-    fn bitmap_can_outlive_core_tls() {
+    fn bitmap_drop_during_core_tls_teardown() {
         const CHILD: &str = "DAY_CORE_BITMAP_TEARDOWN_CHILD";
         if std::env::var_os(CHILD).is_some() {
-            struct LateBitmap(Option<Bitmap>);
-            impl Drop for LateBitmap {
+            struct TeardownBitmap {
+                bitmap: Option<Bitmap>,
+                dropped: std::sync::mpsc::Sender<()>,
+            }
+            impl Drop for TeardownBitmap {
                 fn drop(&mut self) {
+                    // LocalKey access must fail while its own destructor runs. This does not
+                    // depend on the platform's ordering of unrelated TLS destructors.
                     assert!(crate::try_tls_root(|_| ()).is_err());
-                    drop(self.0.take());
+                    drop(self.bitmap.take());
+                    self.dropped.send(()).unwrap();
                 }
             }
-            std::thread_local! {
-                static LATE: RefCell<LateBitmap> = const { RefCell::new(LateBitmap(None)) };
-            }
-            std::thread::spawn(|| {
-                LATE.with(|slot| {
-                    slot.borrow_mut().0 = Some(bitmap_from((BitmapId(1), BitmapInfo::default())))
+            let (dropped, observed) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let held = TeardownBitmap {
+                    bitmap: Some(bitmap_from((BitmapId(1), BitmapInfo::default()))),
+                    dropped,
+                };
+                // A pending callback owns the bitmap until the core TLS root is destroyed.
+                // The callback is never invoked: dropping the registry drops its captures.
+                PENDING_ENCODE.with(|pending| {
+                    pending.borrow_mut().insert(
+                        1,
+                        Pending {
+                            shared: Rc::new(Shared::default()),
+                            callback: Some(Box::new(move |_| drop(held))),
+                        },
+                    );
                 });
-                assert!(crate::tree_absent()); // core initialized last, destroyed first
+                assert!(crate::try_tls_root(|_| ()).is_ok());
             })
             .join()
             .unwrap();
+            // Prove the destructor actually exercised the release path, rather than allowing
+            // a platform that skipped TLS cleanup to pass silently.
+            observed
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("bitmap was not dropped during core TLS teardown");
             return;
         }
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
-                "image::teardown_tests::bitmap_can_outlive_core_tls",
+                "image::teardown_tests::bitmap_drop_during_core_tls_teardown",
                 "--nocapture",
             ])
             .env(CHILD, "1")

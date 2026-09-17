@@ -5714,6 +5714,13 @@ paths while normal `.with` access retains its strict contract. See
 the subprocess regressions in `day-core` and `day-appkit`. Runtime image ownership
 and deferred releases are unchanged; this fix changes no drawing or persistence API.
 
+The core regression stores a bitmap in a pending callback owned by the core TLS root.
+Dropping that callback during root destruction verifies that root access fails and bitmap
+release completes. It also confirms that the destructor ran. This avoids assuming reverse
+initialization order for unrelated TLS keys, which failed in the Windows GTK and Qt jobs;
+production teardown behavior is unchanged.
+
+
 ### Typed clipboard representations
 
 `day-part-clipboard` now exposes a single logical clipboard item with alternate MIME/byte
@@ -5723,6 +5730,10 @@ local futures so the browser can capture a live clipboard event before its lifet
 Writes report accepted MIME types, rather than claiming every platform supports arbitrary
 formats, and reads negotiate in caller preference order. There is no stale-copy fallback
 in the new API. Apps defer Cut deletion until successful publication.
+
+AppKit canvas Paste validation checks for any advertised pasteboard type, alongside the
+canvas's `can_paste` flag, so binary content can enable Paste. It no longer reads or imports
+`NSPasteboardTypeString`; keeping the obsolete import breaks builds with warnings denied.
 
 Apple platforms use native binary pasteboard values, Android uses a contributed read-only
 URI provider backed by private cache files, Windows uses registered formats and an exact
