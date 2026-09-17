@@ -985,6 +985,27 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
         )?;
     }
 
+    // The `emulator` package, which `avdmanager create avd` refuses to run without: it checks the
+    // SDK's installed packages and stops with `Error: "emulator" package must be installed!`
+    // before it looks at the device profile at all. A runner image that ships the SDK need not
+    // ship the emulator — GitHub's ubuntu image does not — and the failure then reads as a bad
+    // `--device`, because that is the only thing avdmanager's exit code can be attributed to
+    // from the outside. Installing it here keeps the knowledge in the CLI, where a developer
+    // standing up their first AVD gets it too; it is a no-op wherever the package is present.
+    if !day_toolchain::android_sdk_dir().join("emulator").is_dir() {
+        crate::ops::status(
+            "Installing",
+            "the emulator package — avdmanager will not create an AVD without it",
+        );
+        run_sdk_tool(
+            Command::new(cmdline_tool("sdkmanager"))
+                .arg(format!("--sdk_root={}", sdk.display()))
+                .arg("emulator"),
+            "sdkmanager",
+            Some(&b"y\n".repeat(32)),
+        )?;
+    }
+
     let existing = avd_names().iter().any(|a| a == &name);
     if existing {
         crate::ops::status("Found", &format!("AVD {name}"));
@@ -1006,12 +1027,24 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
             Some(b"no\n"),
         )
         .map_err(|e| {
+            // Only blame the profile when the profile is in fact unknown. avdmanager exits
+            // non-zero for reasons that have nothing to do with `--device` — a missing emulator
+            // package is one, and it stops before reading the profile at all — and a message that
+            // asks "is X a device profile?" under a list CONTAINING X sends the reader looking in
+            // the wrong place. Measured: that cost a CI round trip and a wrong diagnosis.
+            let have = device_profiles();
+            if have.iter().any(|p| p == spec.device) {
+                return CliError::failure(format!(
+                    "{e} — could not create {name}; {:?} is a known device profile, so the cause \
+                     is above (avdmanager prints its own reason)",
+                    spec.device
+                ));
+            }
             // Name the profiles this machine has. The catalog ships inside the command-line
             // tools, and a CI image carries an older set than a desktop Android Studio (12.0
             // against 23.0 on the runners this was written for, 66 profiles against 96), so a
             // profile that exists on a laptop can be missing on the runner. Without the list,
             // that costs a round trip through CI to discover.
-            let have = device_profiles();
             let listed = if have.is_empty() {
                 String::new()
             } else {

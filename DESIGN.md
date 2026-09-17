@@ -4274,6 +4274,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    each with its reason: `cancelled` (pinned by `HttpError::Cancelled` and by GitHub Actions'
    own `cancelled()`), the deliberate misspellings that ARE test fixtures (`--profile relaese`,
    the `stlye:` Fluent lint case), and the starter-app translations, which are not English.
+   Native `.inc` fragments are excluded because platform identifiers trigger false positives.
    Clippy is a required status but NOT in
    the combos' `needs:`, so a lint error blocks merge without suppressing the platform
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
@@ -4330,9 +4331,15 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    > What that buys beyond deduplication: the app pipeline's device matrix. `ios-devices` and
    > `android-devices` take one line per device, each with its own `os`, and a row marked
    > `optional=true` reports without failing the run — which is how the showcase is probed against
-   > the OS floors it claims to support (iOS 16, Android API 24) as well as the newest simulator
-   > and emulator the images ship. The OS joins the capture slug automatically, so a floor row and
-   > a current row on the same device keep separate artifacts and gallery columns.
+   > the Android API level it claims to support (24) as well as the newest emulator the image
+   > ships. The OS joins the capture slug automatically, so a floor row and a current row on the
+   > same device keep separate artifacts and gallery columns.
+   >
+   > iOS has no floor row: a runner carries only the simulator runtimes its Xcode ships, and Apple
+   > does not serve older ones back. Against Xcode 27, `xcodebuild -downloadPlatform iOS
+   > -buildVersion <v>` refuses 16.4, 17.0, 17.5 and 18.0 alike. Xcode 27 can RUN an iOS 16
+   > simulator, so the coverage is available by provisioning that runtime onto the runner image
+   > once — not by downloading it per run.
 
    The `showcase` job is branch/PR only and packs at the dev tier: releasing and signing the
    showcase is its own repository's business ([§20.2](#202-release-signing-isolation)). It does not

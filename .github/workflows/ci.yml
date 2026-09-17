@@ -519,13 +519,23 @@ jobs:
       # emulator its image ships. The OS joins the capture slug automatically, so a floor row and
       # a current row on the same device keep separate artifacts and gallery columns.
       #
-      # iOS 16 and not 15: day-cli floors the generated DayPieces SwiftPM package at 16.0
-      # (crates/day-cli/src/pieces.rs), so an iOS 15 simulator refuses the install outright —
-      # verified locally against the showcase, which now declares 16.0.
+      # No iOS floor row, and it is not an oversight. The runner carries only the runtimes its
+      # Xcode ships — iOS 27.0 here — and Apple will not sell an older one back: measured against
+      # Xcode 27.0, `xcodebuild -downloadPlatform iOS -buildVersion <v>` answers "iOS <v> is not
+      # available for download" for 16.4, 17.0, 17.5 AND 18.0, so there is nothing to download for
+      # any version worth probing. (`-importPlatform` would take a runtime DMG, but that means
+      # hosting several gigabytes of Apple's redistributable ourselves.) Xcode 27 can RUN an iOS 16
+      # simulator — a laptop with the runtime left over from an older Xcode does it — so the way to
+      # get this coverage is to provision the runtime onto the runner image once, not per run.
+      # Until then the floor is checked by the Android row below and by hand.
+      #
+      # `os` tracks the runner's Xcode and nothing else: an image carries exactly the runtimes its
+      # Xcode ships, so this has to move with the `xcode-NN` label above (26 → 27 when the label
+      # did). `device` is matched as a prefix and needs no such care — `iPhone * Pro Max` finds
+      # whatever the newest Pro Max is, and `iPad Pro 13-inch` matches the `(M5)` the image names.
       ios-devices: |
-        device=iPhone * Pro Max, os=iOS 26, orientation=portrait,  slug=iphone
-        device=iPad Pro 13-inch, os=iOS 26, orientation=landscape, slug=ipad
-        device=iPhone * Pro Max, os=iOS 16, optional=true
+        device=iPhone * Pro Max, os=iOS 27, orientation=portrait,  slug=iphone
+        device=iPad Pro 13-inch, os=iOS 27, orientation=landscape, slug=ipad
       # `pixel_5` rather than the workflow's generic `medium_phone`, for the load ceiling the
       # showcase's own CI documents: a headless runner rasterizes in software and the Web view
       # page tips a 2.59 Mpx panel over. API 24 is the showcase's `minSdk`; verified locally.
