@@ -1638,6 +1638,11 @@ static WUXC::Canvas canvas_of(void* h) {
     return nullptr;
 }
 
+// Shared with image widgets; definitions live in the raster-image section below. Keep these
+// declarations in the same extern "C" block as the definitions so canvas replay can use them.
+static std::map<uint64_t, std::vector<uint8_t>>& xaml_bitmaps();
+static WUXM::Imaging::BitmapImage bitmap_from_bytes(const uint8_t* bytes, uint32_t len);
+
 // A function-try-block for the same reason `guard` exists: this repaints one canvas, a
 // best-effort side effect, and it is reached from Rust's non-unwindable post-trampoline, so a
 // WinRT HRESULT escaping here would abort the app. Degrade to a partly-drawn canvas instead.

@@ -2236,6 +2236,12 @@ made native nav containers possible without a scaffold migration.
 > so a drawing app can offer the platform's font list and frame its text
 > ([docs/fonts.md](docs/fonts.md); Day Sketch's Text node is the reference consumer).
 >
+> XAML canvas images and image widgets share the encoded-byte registry and `BitmapImage`
+> loader in `day-xaml-sys` ([docs/images.md](docs/images.md)). Each consumer creates its own
+> UI-thread image; releasing the bitmap removes its registry entry, so subsequent canvas replay
+> skips it. The shared helpers are declared before canvas replay in the same `extern "C"`
+> block as their definitions; Windows compiles this shim as one C++ translation unit.
+>
 > **2026-09 — decoded geometry is kept.** The two ops whose geometry rides a side channel, path
 > and polygon, now carry a `day_spec::geometry_key` — a hash of the geometry, masked to the 53
 > bits an `f64` wire slot holds exactly — in the record slot those kinds leave empty (`a`; for
