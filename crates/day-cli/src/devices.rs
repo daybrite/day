@@ -27,6 +27,7 @@
 //! design, not ours, but it is why this is a command a caller runs explicitly rather than
 //! something the CLI does on the side.
 
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::{Value, json};
@@ -373,8 +374,12 @@ pub struct BootSpec<'a> {
     pub os: Option<&'a str>,
     pub wait: bool,
     pub orientation: Option<&'a str>,
-    /// Run the Android emulator with no window (CI). Ignored by the other targets, which have no
-    /// equivalent: a simulator is already headless and the OpenHarmony emulator has no such flag.
+    /// Boot with no window (CI).
+    ///
+    /// Starts the Android emulator without one. On iOS it stops the boot from opening the
+    /// simulator's UI app, which is what a runner wants: there is no display to put it on, and
+    /// asking for one is how "Unable to find application named 'Simulator'" got into CI logs.
+    /// The OpenHarmony emulator has no equivalent and ignores it.
     pub headless: bool,
 }
 
@@ -565,6 +570,73 @@ fn runtime_matches(have: &str, want: &str) -> bool {
     wp.len() <= hp.len() && wp.iter().zip(&hp).all(|(w, h)| w == h)
 }
 
+/// The app that puts a booted simulator on screen, which differs by Xcode version.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SimulatorUi {
+    /// Xcode 26 and earlier: `Simulator.app`, which shows whatever is booted when opened.
+    Simulator(PathBuf),
+    /// Xcode 27 and later: Device Hub, which shows one device named through its URL scheme.
+    DeviceHub(PathBuf),
+}
+
+/// Which UI a developer directory ships, preferring Device Hub where both exist.
+///
+/// Split from [`simulator_ui`] so the lookup can be tested without an Xcode on the machine.
+fn simulator_ui_in(developer_dir: &Path) -> Option<SimulatorUi> {
+    // Device Hub sits beside `Developer` in the bundle rather than inside it.
+    let hub = developer_dir.join("../Applications/DeviceHub.app");
+    if hub.is_dir() {
+        return Some(SimulatorUi::DeviceHub(hub));
+    }
+    let app = developer_dir.join("Applications/Simulator.app");
+    app.is_dir().then_some(SimulatorUi::Simulator(app))
+}
+
+/// The app that shows a simulator, for the Xcode this build is using.
+///
+/// Xcode 27 removed `Simulator.app` and moved the job to **Device Hub**, which takes the device
+/// through its own URL scheme (`devices://manage/select?id=<udid>`) rather than showing whatever
+/// happens to be booted. Opening it with no route leaves it running with no window, which is why
+/// this hands it one. Xcode 26 and earlier ship `Simulator.app` and are opened directly.
+pub(crate) fn simulator_ui() -> Option<SimulatorUi> {
+    // `DEVELOPER_DIR` wins the same way it does for every `xcrun` this crate runs, so a caller
+    // pointing at another Xcode gets that Xcode's answer.
+    if let Ok(dir) = std::env::var("DEVELOPER_DIR")
+        && let Some(ui) = simulator_ui_in(Path::new(&dir))
+    {
+        return Some(ui);
+    }
+    let selected = Command::new("xcode-select").arg("-p").output().ok()?;
+    if !selected.status.success() {
+        return None;
+    }
+    let dir = String::from_utf8_lossy(&selected.stdout).trim().to_string();
+    simulator_ui_in(Path::new(&dir))
+}
+
+/// Put `udid` on screen, best-effort: a window is a convenience, and failing to get one is never
+/// a failed boot.
+pub(crate) fn show_simulator(udid: &str) {
+    match simulator_ui() {
+        Some(SimulatorUi::Simulator(app)) => {
+            let _ = Command::new("open").arg(&app).status();
+        }
+        // Device Hub opens windowless without a route, so the device is named in the URL.
+        Some(SimulatorUi::DeviceHub(app)) => {
+            let _ = Command::new("open")
+                .arg("-a")
+                .arg(&app)
+                .arg(format!("devices://manage/select?id={udid}"))
+                .status();
+        }
+        None => crate::ops::status(
+            "Headless",
+            "This Xcode ships neither Simulator.app nor Device Hub, so the simulator runs \
+             without a window. Builds, launches and dayscript captures are unaffected",
+        ),
+    }
+}
+
 pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
     let t = crate::targets::find(target)
         .ok_or_else(|| CliError::usage(format!("unknown target {target}")))?;
@@ -597,21 +669,38 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     err.trim()
                 )));
             }
-            // Without the UI the simulator boots headless, which is rarely what someone watching
-            // for their app to appear wants, and an orientation needs it (see below). Best-effort
-            // otherwise: a failure here is not a failed boot.
-            let _ = Command::new("open").args(["-a", "Simulator"]).status();
             // An orientation implies the wait even when the caller did not ask for one: turning
             // a simulator that is still booting was measured being accepted by devicectl and then
             // not happening; it reported the new orientation while the display stayed portrait.
-            if spec.wait || spec.orientation.is_some() {
-                let st = Command::new("xcrun")
+            //
+            // So does a window. Device Hub shows nothing for a device that is still coming up, and
+            // it does not correct itself later: the route is handled once, and a run that fired it
+            // early left Device Hub running with no window while the simulator finished booting.
+            // Only the first two make the wait part of what the caller asked for; a window is a
+            // convenience, so waiting for one must never turn a boot the caller did not ask to
+            // wait for into a failure. A wait that does not settle costs the window, nothing else.
+            let required = spec.wait || spec.orientation.is_some();
+            let settled = if required || !spec.headless {
+                match Command::new("xcrun")
                     .args(["simctl", "bootstatus", &udid, "-b"])
                     .status()
-                    .map_err(|e| CliError::failure(format!("xcrun: {e}")))?;
-                if !st.success() {
-                    return Err(CliError::failure(format!("{name} never finished booting")));
+                {
+                    Ok(st) if st.success() => true,
+                    Ok(_) if required => {
+                        return Err(CliError::failure(format!("{name} never finished booting")));
+                    }
+                    Err(e) if required => {
+                        return Err(CliError::failure(format!("xcrun: {e}")));
+                    }
+                    _ => false,
                 }
+            } else {
+                false
+            };
+            // The device is up, so the window can be asked for. Best-effort throughout: not
+            // getting one is never a failed boot.
+            if !spec.headless && settled {
+                show_simulator(&udid);
             }
             // Turning happens after the boot, and it is never gated on devicectl agreeing that
             // the simulator exists. Asking first looked like a cheap way to fail fast, and it cost
@@ -2258,6 +2347,39 @@ fn ohos() -> Report {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn simulator_ui_follows_what_the_xcode_ships() {
+        use super::{SimulatorUi, simulator_ui_in};
+        use std::fs;
+
+        let root = std::env::temp_dir().join(format!("day-simui-{}", std::process::id()));
+        let developer = root.join("Contents/Developer");
+        fs::create_dir_all(&developer).expect("temp developer dir");
+
+        // An Xcode carrying neither: the boot says so rather than opening nothing.
+        assert_eq!(simulator_ui_in(&developer), None);
+
+        // Xcode 26 and earlier: the standalone app, opened directly.
+        let app = developer.join("Applications/Simulator.app");
+        fs::create_dir_all(&app).expect("temp Simulator.app");
+        assert_eq!(
+            simulator_ui_in(&developer),
+            Some(SimulatorUi::Simulator(app))
+        );
+
+        // Xcode 27: Device Hub sits beside `Developer`, and wins where both are present.
+        let hub = root.join("Contents/Applications/DeviceHub.app");
+        fs::create_dir_all(&hub).expect("temp DeviceHub.app");
+        assert_eq!(
+            simulator_ui_in(&developer),
+            Some(SimulatorUi::DeviceHub(
+                developer.join("../Applications/DeviceHub.app")
+            ))
+        );
+
+        fs::remove_dir_all(&root).ok();
+    }
+
     #[test]
     fn device_pattern_prefix_and_wildcards() {
         use super::{device_matches, model_number};

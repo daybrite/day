@@ -274,6 +274,24 @@ also turns off its "isn't responding" and crash dialogs and its "Viewing full sc
 `day launch` does on every emulator, so they stay out of screenshots. Physical devices keep their
 own settings.
 
+`--headless` boots with no window, which is what a CI runner wants: it starts an Android emulator
+without one and keeps the iOS simulator's UI app closed. Leave it off at a desk, where the boot
+opens that app so you can watch your app arrive.
+
+Which app shows the simulator depends on the Xcode. Up to Xcode 26 it is `Simulator.app`, opened
+directly. Xcode 27 replaced it with **Device Hub**, which shows the one device it is told about,
+so Day opens it on the device being booted
+(`open -a DeviceHub.app "devices://manage/select?id=<udid>"`). Day picks whichever the selected
+Xcode ships, and `day doctor` names it as `simulator-ui`.
+
+`day launch -p ios-uikit` brings that window up too when it is launching onto a single simulator,
+so an app started against an already-booted device is something you can watch. A run that targets
+several simulators at once (a capture sweep) opens none of them.
+
+Device Hub shows nothing for a device that is still booting and does not correct itself
+afterwards, so a boot that is going to open a window waits for the device first. `--headless`
+skips both the wait and the window.
+
 `day devices shutdown` is the other direction. Both spellings of an Android emulator work — the adb
 serial the listing reports, or the AVD name you booted it by — and the command waits until the
 emulator has gone, so the next listing describes the machine you are about to act on. Stopping

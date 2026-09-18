@@ -1836,8 +1836,9 @@ pub fn launch_ios(
     let sims = booted_sims();
     if sims.is_empty() {
         return Err(
-            "no booted iOS simulator (open Simulator.app or `xcrun simctl boot <device>`); \
-                    physical devices need code signing and aren't supported here"
+            "no booted iOS simulator (`day devices boot -p ios-uikit <id>`, or \
+                    `xcrun simctl boot <device>`); physical devices need code signing and \
+                    aren't supported here"
                 .into(),
         );
     }
@@ -1850,6 +1851,10 @@ pub fn launch_ios(
     // hand, and used to photograph whichever simulator booted first (crate::ops::selected_*).
     if let [only] = sims.as_slice() {
         crate::ops::remember_ios_simulator(only.clone());
+        // Put the device on screen, so a launch onto an already-booted simulator is something you
+        // can watch rather than something you have to go and find. One simulator only: a capture
+        // sweep drives several at once and wants no windows opening over each other.
+        crate::devices::show_simulator(only);
     }
     let multi = sims.len() > 1;
     let mut log_threads = Vec::new();

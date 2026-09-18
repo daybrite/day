@@ -291,7 +291,24 @@ fn uikit_group() -> Group {
                     "bash",
                     &["-c", "xcrun simctl list devices booted | grep -m1 Booted"],
                 ),
-                "boot a simulator: `xcrun simctl boot <device>` (or open Simulator.app)",
+                "boot a simulator: `day devices boot -p ios-uikit <id>`",
+            )
+            .need(Need::Launch),
+            // Advisory: a build, a launch and a dayscript capture all work without a window.
+            // Which app provides one moved in Xcode 27 (Simulator.app out, Device Hub in), so
+            // naming the one in use turns "nothing appeared" into an answer.
+            Probe::new(
+                "simulator-ui",
+                crate::devices::simulator_ui().map(|ui| match ui {
+                    crate::devices::SimulatorUi::Simulator(p) => {
+                        format!("Simulator.app ({})", p.display())
+                    }
+                    crate::devices::SimulatorUi::DeviceHub(p) => {
+                        format!("Device Hub ({})", p.display())
+                    }
+                }),
+                "this Xcode ships neither Simulator.app (26 and earlier) nor Device Hub (27 and \
+                 later), so simulators run without a window; builds and captures are unaffected",
             )
             .need(Need::Launch),
             // Orientation (`day devices boot --orientation`, docs/screenshots.md) is the one

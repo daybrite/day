@@ -883,8 +883,8 @@ pub enum DevicesCmd {
         /// half of a capture profile (docs/screenshots.md). iOS simulators only.
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
-        /// Run an Android emulator with no window, for a machine with no display (CI). Ignored
-        /// by the other targets: a simulator is already headless.
+        /// Boot with no window, for a machine with no display (CI). Starts an Android emulator
+        /// without one and keeps the iOS simulator's UI app closed; OpenHarmony ignores it.
         #[arg(long)]
         headless: bool,
     },
