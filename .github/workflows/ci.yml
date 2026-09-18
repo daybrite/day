@@ -513,6 +513,12 @@ jobs:
         android-mdc: dayscript/walkthrough.yaml dayscript/clipboard-roundtrip.yaml dayscript/speech.yaml
         web-dom: dayscript/walkthrough.yaml dayscript/speech.yaml
         linux-gtk, linux-qt, windows-xaml, harmony-arkui: dayscript/walkthrough.yaml
+      # The crash pair runs ONCE rather than across the eight theme/locale variants: `crash.yaml`
+      # crashes the app to leave a report and `crash-report.yaml` asserts it is there and taps
+      # Clear, so a second run finds nothing — the first variant passed and the other seven failed
+      # on state the first had cleared. The inline leg this replaced ran the pair exactly once,
+      # without --themes/--locales; this restores that.
+      scripts-once: dayscript/crash.yaml dayscript/crash-report.yaml
       # The device matrix, and the floor probes. A row with `optional=true` reports without
       # failing the run: these ask "does the app still build and run at the version it claims to
       # support?", which nothing else asks — every other leg runs the newest simulator or

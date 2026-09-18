@@ -1884,8 +1884,26 @@ fn android_rotation(serial: &str) -> Option<u8> {
             return named(v);
         }
     }
-    out.split_whitespace()
+    if let Some(r) = out
+        .split_whitespace()
         .find_map(|w| named(w.strip_prefix("rotation=")?))
+    {
+        return Some(r);
+    }
+    // API 24 prints NEITHER: its `dumpsys window displays` carries no rotation at all, so the
+    // orientation check could never be satisfied and `day devices boot --orientation portrait`
+    // failed after twenty tries on a device that was already portrait. `dumpsys display` has it
+    // there as `mCurrentOrientation=<n>` — the display's current rotation, which is the same
+    // quantity under another name. Measured on a `system-images;android-24;google_apis` emulator.
+    let out = adb_shell(serial, &["dumpsys", "display"])?;
+    out.lines().find_map(|line| {
+        let i = line.find("mCurrentOrientation=")?;
+        named(
+            line[i + "mCurrentOrientation=".len()..]
+                .split_whitespace()
+                .next()?,
+        )
+    })
 }
 
 /// Point an AVD at a hardware keyboard, so the keys typed on this machine reach the app.
