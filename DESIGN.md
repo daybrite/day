@@ -1659,7 +1659,10 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > nothing left a canvas app with no commands at all (2026-09; `Cap::Toolbar` is Native on six
 > backends; [docs/toolbars.md](docs/toolbars.md)). `LinkActivated(String)` joined them for styled text runs (2026-08,
 [docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends,
-`Cap::TextLinks` on seven; ArkUI remains unwired. AppKit's `DayLabel` subclasses `NSTextField`
+`Cap::TextLinks` on seven; ArkUI remains unwired. The generated
+[coverage matrix](docs/coverage-matrix.md) records these answers; regenerate it with
+`scripts/ci/coverage-matrix.sh` whenever a backend's capability support changes.
+AppKit's `DayLabel` subclasses `NSTextField`
 and implements the field editor's `textView:clickedOnLink:atIndex:` callback directly. A separate
 control delegate does not receive that callback and lets macOS try to open `#route` as an external
 URL (system error -50). The subclass reports `LinkActivated` and returns handled, retaining

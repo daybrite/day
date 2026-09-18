@@ -85,7 +85,7 @@ An app branches on this rather than on the target name.
 | `TreeMove` | N | – | – | – | – | – | – | – |
 | `BaselineAlignment` | N | E | N | E | E | N | E | E |
 | `TextRuns` | N | N | N | N | N | N | N | N |
-| `TextLinks` | – | N | N | N | N | N | – | N |
+| `TextLinks` | N | N | N | N | N | N | – | N |
 | `Lottie` | – | – | – | – | – | – | – | – |
 | `NativeSymbols` | N | – | – | – | – | – | – | – |
 | `Snapshot` | N | N | N | N | N | N | N | – |
