@@ -8,6 +8,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[[test]]
+name = "native_links"
+harness = false # AppKit must be exercised on the process's main thread.
+
 [dependencies]
 log = { workspace = true }
 day-spec = { workspace = true }

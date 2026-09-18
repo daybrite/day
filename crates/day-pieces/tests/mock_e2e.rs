@@ -21,6 +21,174 @@ fn boot<P: Piece>(root: impl FnOnce() -> P + 'static) -> MockProbe {
     boot_with_env(None, move || root().any())
 }
 
+#[test]
+fn link_targets_navigate_or_open_external_urls() {
+    let section = Signal::new("welcome".to_string());
+    let probe = boot(move || {
+        column((
+            link("Navigate", "#navigate"),
+            link("Missing", "#missing"),
+            link("Website", "https://daybrite.dev/#docs"),
+            link("Email", "mailto:hello@example.com"),
+            nav(section)
+                .item("welcome", "Welcome", || label("welcome-page"))
+                .item("navigate", "Navigate", || label("navigate-page")),
+        ))
+    });
+    for title in ["Navigate", "Missing", "Website", "Email"] {
+        let (_, widget) = probe
+            .find_by_kind("day.label")
+            .into_iter()
+            .find(|(_, w)| w.text == title)
+            .unwrap();
+        probe.emit(
+            NodeId(widget.node),
+            Event::Tap(day_spec::Point::new(1.0, 1.0)),
+        );
+        flush_sync();
+        assert_eq!(section.get_untracked(), "navigate");
+    }
+    assert_eq!(
+        probe
+            .log()
+            .into_iter()
+            .filter(|op| op.starts_with("open_url "))
+            .collect::<Vec<_>>(),
+        [
+            "open_url https://daybrite.dev/#docs",
+            "open_url mailto:hello@example.com"
+        ]
+    );
+}
+
+#[test]
+fn markdown_route_links_keep_bold_and_reparse_reactive_targets() {
+    let section = Signal::new("welcome".to_string());
+    let text = Signal::new("Open [**Navigate**](#navigate).".to_string());
+    let probe = boot(move || {
+        column((
+            label(text).markdown(),
+            nav(section)
+                .item("welcome", "Welcome", || label("welcome-page"))
+                .item("navigate", "Navigate", || label("navigate-page"))
+                .item("settings", "Settings", || label("settings-page")),
+        ))
+    });
+    for (title, target, route) in [
+        ("Navigate", "#navigate", "navigate"),
+        ("Settings", "#settings", "settings"),
+    ] {
+        text.set(format!("Open [**{title}**]({target})."));
+        flush_sync();
+        let (_, widget) = probe
+            .find_by_kind("day.label")
+            .into_iter()
+            .find(|(_, w)| w.text.starts_with("Open "))
+            .unwrap();
+        assert_eq!(widget.text, format!("Open {title}."));
+        let run = widget.runs.iter().find(|r| r.link.is_some()).unwrap();
+        assert_eq!(&widget.text[run.range.clone()], title);
+        assert_eq!(run.font.weight, Some(day_spec::FontWeight::Bold));
+        assert_eq!(run.link.as_deref(), Some(target));
+        probe.emit(
+            NodeId(widget.node),
+            Event::LinkActivated(run.link.clone().unwrap()),
+        );
+        flush_sync();
+        assert_eq!(section.get_untracked(), route);
+        assert_eq!(current_route().as_deref(), Some(route));
+    }
+    assert!(!probe.log().iter().any(|op| op.starts_with("open_url ")));
+}
+
+#[test]
+fn text_builder_links_use_route_paths_and_query_parameters() {
+    let section = Signal::new("welcome".to_string());
+    let path = Signal::new(Vec::<String>::new());
+    let other_path = Signal::new(Vec::<String>::new());
+    let probe = boot(move || {
+        column((
+            label("").runs_from(
+                TextBuilder::new().link("Detail", "#drill/hello%20world?mode=edit%20item"),
+            ),
+            nav(section)
+                .style(NavStyle::Tabs)
+                .item("welcome", "Welcome", || label("welcome-page"))
+                .item("other", "Other", move || {
+                    nav_stack(other_path, label("other-root"))
+                        .destination(|key| label(key.to_string()))
+                })
+                .item("drill", "Drill", move || {
+                    nav_stack(path, label("root")).destination(|key| label(key.to_string()))
+                }),
+        ))
+    });
+    let (_, widget) = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text == "Detail")
+        .unwrap();
+    probe.emit(
+        NodeId(widget.node),
+        Event::LinkActivated(widget.runs[0].link.clone().unwrap()),
+    );
+    flush_sync();
+    assert_eq!(section.get_untracked(), "drill");
+    assert_eq!(path.get_untracked(), ["hello world"]);
+    assert!(
+        other_path.get_untracked().is_empty(),
+        "inactive tabs must not consume the route"
+    );
+    assert_eq!(route_param("mode").as_deref(), Some("edit item"));
+    open_link("#");
+    flush_sync();
+    assert!(path.get_untracked().is_empty());
+    assert!(!probe.log().iter().any(|op| op.starts_with("open_url ")));
+}
+
+#[test]
+fn markdown_on_link_overrides_routes_and_can_delegate_to_default() {
+    let section = Signal::new("welcome".to_string());
+    let probe = boot(move || {
+        column((
+            label("[Settings](#settings) and [Day](https://daybrite.dev)")
+                .markdown()
+                .on_link(|target| {
+                    if target == "#settings" {
+                        // The same override the starter uses for its desktop Settings window.
+                        day_core::open_preferences();
+                    } else {
+                        open_link(target);
+                    }
+                }),
+            nav(section)
+                .item("welcome", "Welcome", || label("welcome-page"))
+                .item("settings", "Settings", || label("settings-page")),
+        ))
+    });
+    day_core::register_preferences(|| label("preferences"));
+    let (_, widget) = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text == "Settings and Day")
+        .unwrap();
+    for target in ["#settings", "https://daybrite.dev"] {
+        probe.emit(NodeId(widget.node), Event::LinkActivated(target.into()));
+        flush_sync();
+    }
+    assert_eq!(
+        section.get_untracked(),
+        "welcome",
+        "custom handler overrides routing"
+    );
+    assert_eq!(probe.windows().len(), 1);
+    assert!(
+        probe
+            .log()
+            .contains(&"open_url https://daybrite.dev".to_string())
+    );
+}
+
 fn boot_with_env(
     env: Option<(&str, &str)>,
     root: impl FnOnce() -> AnyPiece + 'static,

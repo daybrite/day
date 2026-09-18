@@ -643,6 +643,9 @@ jobs:
           # shellcheck disable=SC2086 # $TARGET is a two-token flag or empty
           cargo clippy $TARGET ${{ matrix.clippy }} \
             --no-default-features --features ${{ matrix.toolkit }}
+      - name: Native AppKit link activation
+        if: matrix.toolkit == 'appkit'
+        run: cargo test --locked -p day-appkit --test native_links
       # The Windows implementation of this part compiles only here, so its lint rides the xaml
       # row rather than needing a Windows job of its own. (day-part-speech's C++ arm against SAPI
       # used to ride here too; it lives in its own repository now, whose CI has a Windows host leg.)

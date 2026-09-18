@@ -212,6 +212,15 @@ struct PieceMeta {
     /// declares a `[features]` entry for. Only these get `<pkg>/<backend>` unioned in.
     #[serde(default)]
     backends: Vec<String>,
+    /// Data-asset directories the piece ships (relative to its crate root), staged into every
+    /// target's bundle under `<crate-name>/` so the piece can resolve its own files by name on
+    /// any backend: `resource("day-piece-lottie/lottie/index.html")` wherever the app runs.
+    ///
+    /// The namespace is the crate name and is not configurable, so two pieces shipping a file of
+    /// the same name cannot collide, and an app reading its own `resource/assets/` never sees a
+    /// piece's files under a name it chose itself.
+    #[serde(default)]
+    assets: Vec<String>,
 }
 
 /// Compute the extra `--features` entries that wire each standalone piece's per-backend renderer into
@@ -255,6 +264,28 @@ pub fn feature_union(project: &Project, backend: &str) -> Vec<String> {
 
 /// Run `cargo metadata` for the app with a specific feature selection (no default features), so only
 /// pieces actually pulled in by that backend's features are considered.
+/// [`cargo_metadata`] with the piece-backend features the build unions in, for the scans that
+/// collect what pieces contribute.
+///
+/// Without the second half, a piece that depends on another piece is invisible: the inner one is
+/// an optional dependency behind the outer one's backend feature, so `cargo metadata` leaves it
+/// out of the resolve graph, and its Swift shims, frameworks, Java, permissions and assets never
+/// reach the app. day-piece-lottie's web-view arm (which depends on day-piece-webview) is the
+/// case that found this: the app linked no WebKit and died on its first `WKWebView`.
+pub(crate) fn cargo_metadata_for_contributions(
+    project: &Project,
+    features: &[&str],
+) -> Result<Metadata, String> {
+    let mut all: Vec<String> = features.iter().map(|f| f.to_string()).collect();
+    for f in features {
+        all.extend(feature_union(project, f));
+    }
+    all.sort();
+    all.dedup();
+    let refs: Vec<&str> = all.iter().map(String::as_str).collect();
+    cargo_metadata(project, &refs)
+}
+
 pub(crate) fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Metadata, String> {
     cargo_metadata_inner(project, features, false)
 }
@@ -517,7 +548,7 @@ fn is_env_name(name: &str) -> bool {
 /// The `features` are the ones the Android build compiles with (so only pieces actually pulled in
 /// by that feature set contribute); currently `["mdc"]`, no default features.
 pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPieces, String> {
-    let meta = cargo_metadata(project, features)?;
+    let meta = cargo_metadata_for_contributions(project, features)?;
 
     // Transitive closure of package ids reachable from the resolve root (the app).
     let in_closure = closure(&meta);
@@ -672,11 +703,52 @@ fn closure(meta: &Metadata) -> HashSet<String> {
     seen
 }
 
+/// Every data-asset directory pieces in the app's dependency closure declare with
+/// `[package.metadata.day.piece].assets`, as `(crate_name, absolute_dir)`.
+///
+/// The app package itself is in the closure and may use the key, though an app has
+/// `resource/assets/` for the same job. A directory that does not exist is dropped with a
+/// warning: a stale path is a piece's mistake, and failing the app's build for it would leave
+/// the app author nothing to do about it.
+pub fn contributed_assets(
+    project: &Project,
+    backends: &[&str],
+) -> Vec<(String, std::path::PathBuf)> {
+    let Ok(meta) = cargo_metadata_for_contributions(project, backends) else {
+        return Vec::new();
+    };
+    let want = closure(&meta);
+    let mut out: Vec<(String, std::path::PathBuf)> = Vec::new();
+    for pkg in meta.packages.iter().filter(|p| want.contains(&p.id)) {
+        let Some(piece) = piece_meta::<PieceMeta>(pkg, "piece") else {
+            continue;
+        };
+        let crate_dir = Path::new(&pkg.manifest_path)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        for rel in &piece.assets {
+            let dir = crate_dir.join(rel);
+            if dir.is_dir() {
+                out.push((pkg.name.clone(), dir));
+            } else {
+                eprintln!(
+                    "day: {} declares [package.metadata.day.piece].assets = \"{rel}\", which is not a directory",
+                    pkg.manifest_path
+                );
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// Every `[package.metadata.day.permissions].uses` in the app's dependency closure, as
 /// `(crate_name, permission)`. The app package itself participates (the closure starts at the
 /// resolve root), so an app may use the same key instead of Day.toml when it has no reason to give.
 pub fn contributed_permissions(project: &Project, backends: &[&str]) -> Vec<(String, String)> {
-    let Ok(meta) = cargo_metadata(project, backends) else {
+    let Ok(meta) = cargo_metadata_for_contributions(project, backends) else {
         return Vec::new();
     };
     let reachable = closure(&meta);
@@ -1097,7 +1169,7 @@ fn resolve_apple(
     features: &[&str],
     platform_key: &str,
 ) -> Result<ApplePieces, String> {
-    let meta = cargo_metadata(project, features)?;
+    let meta = cargo_metadata_for_contributions(project, features)?;
     let in_closure = closure(&meta);
 
     let mut pieces = ApplePieces::default();
@@ -1370,7 +1442,7 @@ struct OhosPieces {
 /// Resolve every piece in the app's HarmonyOS dependency closure (features = `["arkui"]`) and
 /// collect its ArkTS dirs.
 fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, String> {
-    let meta = cargo_metadata(project, features)?;
+    let meta = cargo_metadata_for_contributions(project, features)?;
     let in_closure = closure(&meta);
 
     let mut pieces = OhosPieces::default();

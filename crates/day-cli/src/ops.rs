@@ -894,6 +894,16 @@ pub fn desktop_launch_plan(
             "DAY_ASSET_ROOT".to_string(),
             project.root.join("resource/assets").into_os_string(),
         );
+        // A dev run reads the app's assets where they lie, so a piece's cannot be copied in
+        // beside them without writing into the app's source tree. They get their own root
+        // instead, staged under build/ and probed second (docs/extending.md).
+        let staged = project.root.join("build/day/assets");
+        if let Err(e) = crate::resources::stage_piece_assets(project, target.toolkit, &staged) {
+            eprintln!("day: staging piece assets: {e}");
+        }
+        if staged.is_dir() {
+            env.insert("DAY_PIECE_ASSET_ROOT".to_string(), staged.into_os_string());
+        }
         env.insert(
             "DAY_IMAGE_ROOT".to_string(),
             project.root.join("resource/images").into_os_string(),

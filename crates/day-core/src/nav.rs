@@ -477,6 +477,25 @@ fn navigate_absolute(segments: &[String]) -> bool {
     PENDING.with(|p| *p.borrow_mut() = segments[1..].to_vec());
     for c in controllers.iter() {
         if (c.push)(first) {
+            // Tabs may have already mounted the destination's nested surfaces. They will not
+            // register again on selection, so deliver the remaining segments here as well.
+            // Lazily mounted surfaces still consume the tail in `register_nav`.
+            let live = snapshot();
+            if let Some(anchor) = live.iter().position(|nav| Rc::ptr_eq(nav, c)) {
+                for child in nested_after(&live, anchor)
+                    .into_iter()
+                    .filter(|nav| (nav.active)())
+                {
+                    while let Some(front) = PENDING.with(|p| p.borrow().first().cloned()) {
+                        if !(child.enter)(&front) {
+                            break;
+                        }
+                        PENDING.with(|p| {
+                            p.borrow_mut().remove(0);
+                        });
+                    }
+                }
+            }
             return true;
         }
     }

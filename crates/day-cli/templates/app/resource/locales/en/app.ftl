@@ -17,9 +17,9 @@ nav_settings = Settings
 # editor's margin would be wrapped that way on screen too, mid-sentence.
 welcome_title = Welcome to Day
 welcome_body =
-    Glad you are here. This little app is yours to take apart — every screen in it is a few lines of Rust, and the widgets you are looking at are your platform's own.
+    This is a starting point for your next app. We’ve included a few everyday features so you have something to try, explore, and make your own.
 
-    Open **Navigate** for a list you can reorder, edit, and drill into, then resize the window and watch the navigation find a new shape. When you are ready to build something, the guides are at [daybrite.dev](https://daybrite.dev).
+    Open [**Navigate**](#navigate) to add and edit items, or visit [**Settings**](#settings) to change the appearance. Ready to start building? You’ll find guides at [daybrite.dev](https://daybrite.dev).
 
 # Menus and commands. One string per command, shared by the menu bar, the toolbar, and the row
 # context menus, so a command reads the same wherever the user finds it.

@@ -804,6 +804,7 @@ impl Toolkit for MockToolkit {
         if let Some(p) = props.downcast_ref::<LabelProps>() {
             w.text = p.text.clone();
             w.font = Some(p.font);
+            w.runs = p.runs.clone();
             detail = format!(" text={:?}", p.text);
         } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
             w.text = p.title.clone();

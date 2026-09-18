@@ -99,11 +99,6 @@ day_core::tls_group! {
     static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
         RefCell::new(HashMap::new());
 
-    /// A link label's delegate, kept alive for the label's lifetime (a delegate is a weak
-    /// reference, so nothing else retains it). Swept in `release`.
-    static LINK_DELEGATES: RefCell<HashMap<usize, Retained<DayTextLink>>> =
-        RefCell::new(HashMap::new());
-
     /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
     /// (replay inserted but nothing ever removed).
     static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
@@ -703,31 +698,27 @@ impl DayTextField {
     }
 }
 
-/// A label's link delegate (docs/text-runs.md).
-///
-/// A label is an `NSTextField`, and a text field routes its editing through the window's shared
-/// field editor, an `NSTextView` whose delegate messages the field forwards to its own delegate.
-/// `textView:clickedOnLink:atIndex:` is one of those, so a delegate here is what turns a click on
-/// an `NSLinkAttributeName` run into an event Day can route.
-///
-/// The field also has to be selectable: a label that cannot be selected never engages the field
-/// editor, so the click has nothing to hit-test against. Answering `true` means "handled", which
-/// is what stops AppKit opening the URL itself: the app's `.on_link()` decides, and its default
-/// opens the same URL by the route Day controls.
-struct LinkIvars {
+/// A label is the shared field editor's delegate. AppKit does not forward
+/// `textView:clickedOnLink:atIndex:` to an NSTextField's separate control delegate, so the
+/// label itself must handle it to prevent the field editor from opening the target externally.
+/// See Apple's "Working With the Field Editor" and docs/text-runs.md.
+struct LabelIvars {
     node: NodeId,
+    has_links: Cell<bool>,
+    selectable: Cell<bool>,
 }
 
 define_class!(
-    #[unsafe(super(NSObject))]
+    #[unsafe(super(NSTextField))]
     #[thread_kind = MainThreadOnly]
-    #[name = "DayTextLink"]
-    #[ivars = LinkIvars]
-    struct DayTextLink;
+    #[name = "DayLabel"]
+    #[ivars = LabelIvars]
+    struct DayLabel;
 
-    unsafe impl NSObjectProtocol for DayTextLink {}
+    unsafe impl NSObjectProtocol for DayLabel {}
+    unsafe impl NSTextDelegate for DayLabel {}
 
-    unsafe impl NSTextViewDelegate for DayTextLink {
+    unsafe impl NSTextViewDelegate for DayLabel {
         #[unsafe(method(textView:clickedOnLink:atIndex:))]
         fn clicked_on_link(
             &self,
@@ -736,28 +727,40 @@ define_class!(
             _index: usize,
         ) -> bool {
             ffi_guard::contain(true, || {
-                // The attribute is whatever was set on the run: an NSString here, but AppKit
-                // hands back an NSURL when the attribute holds one, so ask for the description
-                // either way.
+                // NSString targets stay verbatim (including #route); accept NSURL too.
                 let url: Retained<NSString> = unsafe { msg_send![link, description] };
                 emit(self.ivars().node, Event::LinkActivated(url.to_string()));
-                true
+                true // Handled: AppKit must never also open the target itself.
             })
         }
     }
-
-    unsafe impl NSTextDelegate for DayTextLink {}
-
-    // The field's delegate protocol, so `setDelegate:` accepts it. The text-view half above
-    // is what fires; a text field forwards the field editor's delegate messages here.
-    unsafe impl NSTextFieldDelegate for DayTextLink {}
-    unsafe impl NSControlTextEditingDelegate for DayTextLink {}
 );
 
-impl DayTextLink {
-    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(LinkIvars { node });
-        unsafe { msg_send![super(this), init] }
+impl DayLabel {
+    fn new(mtm: MainThreadMarker, node: NodeId, text: &str) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(LabelIvars {
+            node,
+            has_links: Cell::new(false),
+            selectable: Cell::new(false),
+        });
+        let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+        unsafe {
+            this.setStringValue(&NSString::from_str(text));
+            this.setEditable(false);
+            this.setSelectable(false);
+            this.setBordered(false);
+            this.setBezeled(false);
+            this.setDrawsBackground(false);
+        }
+        this
+    }
+
+    fn set_links(&self, has_links: bool) {
+        self.ivars().has_links.set(has_links);
+        unsafe {
+            self.setSelectable(has_links || self.ivars().selectable.get());
+            self.setAllowsEditingTextAttributes(has_links);
+        }
     }
 }
 
@@ -4866,8 +4869,8 @@ fn attributed_label(
                 );
             }
             if let Some(url) = r.link.as_deref() {
-                // The LINK attribute makes AppKit draw it as one and, on a selectable field,
-                // handle the click itself. Activation reaching Day is Cap::TextLinks (Phase 4).
+                // The native field editor hit-tests this attribute; DayLabel handles its
+                // delegate callback and reports LinkActivated without opening the URL itself.
                 let value = NSString::from_str(url);
                 s.addAttribute_value_range(objc2_app_kit::NSLinkAttributeName, &value, range);
             }
@@ -5140,7 +5143,8 @@ impl Toolkit for AppKit {
             // A REAL inspector NSSplitViewItem (`inspectorWithViewController:`): the system
             // trailing-pane material and full-height layout (docs/inspector.md).
             | Cap::Inspector
-            | Cap::TextRuns => Support::Native,
+            | Cap::TextRuns
+            | Cap::TextLinks => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
             Cap::Cover => Support::Emulated,
@@ -5191,7 +5195,7 @@ impl Toolkit for AppKit {
                 let Some(p) = props_of::<LabelProps>(kind, "appkit", props) else {
                     return placeholder_view(mtm, kind);
                 };
-                let tf = unsafe { NSTextField::labelWithString(&NSString::from_str(&p.text), mtm) };
+                let tf = DayLabel::new(mtm, id, &p.text);
                 configure_label_cell(&tf);
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
                 // The PLAIN path needs the role as much as the attributed one below: a label
@@ -5208,21 +5212,7 @@ impl Toolkit for AppKit {
                     let s = attributed_label(&p.text, &nsfont(p.font), p.color, p.role, &p.runs);
                     unsafe { tf.setAttributedStringValue(&s) };
                 }
-                // A link run needs a selectable field and a delegate (see DayTextLink): without
-                // the first the click never reaches the field editor, and without the second
-                // AppKit opens the URL behind Day's back.
-                if p.runs.iter().any(|r| r.link.is_some()) {
-                    let delegate = DayTextLink::new(mtm, id);
-                    unsafe {
-                        tf.setSelectable(true);
-                        tf.setAllowsEditingTextAttributes(true);
-                        tf.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-                    }
-                    LINK_DELEGATES.with(|m| {
-                        m.borrow_mut()
-                            .insert(ptr_of(&view_of(tf.clone())), delegate)
-                    });
-                }
+                tf.set_links(p.runs.iter().any(|r| r.link.is_some()));
                 // Alignment goes on last and, for a runs label, has to reach inside the
                 // attributed string. `setAlignment:` writes the cell's paragraph style, which an
                 // attributed string then overrides wholesale with its own — so a markdown label
@@ -5233,7 +5223,7 @@ impl Toolkit for AppKit {
                         set_paragraph_alignment(&tf, nstextalign(p.align));
                     }
                 }
-                view_of(tf)
+                view_of(Retained::into_super(tf))
             }
             Some(Builtin::Button) => {
                 let Some(p) = props_of::<ButtonProps>(kind, "appkit", props) else {
@@ -6037,7 +6027,12 @@ impl Toolkit for AppKit {
                     h.clone().downcast::<NSTextField>(),
                 ) {
                     match p {
-                        LabelPatch::Text(t) => unsafe { tf.setStringValue(&NSString::from_str(t)) },
+                        LabelPatch::Text(t) => {
+                            unsafe { tf.setStringValue(&NSString::from_str(t)) };
+                            if let Some(label) = h.downcast_ref::<DayLabel>() {
+                                label.set_links(false);
+                            }
+                        }
                         LabelPatch::Color(c) => unsafe {
                             tf.setTextColor(c.map(nscolor).as_deref())
                         },
@@ -6060,6 +6055,12 @@ impl Toolkit for AppKit {
                                 ),
                             };
                             unsafe { tf.setAttributedStringValue(&s) };
+                            // Preserve paragraph alignment and activate links introduced by a
+                            // reactive markdown update without replacing the native label.
+                            set_paragraph_alignment(&tf, unsafe { tf.alignment() });
+                            if let Some(label) = h.downcast_ref::<DayLabel>() {
+                                label.set_links(runs.iter().any(|r| r.link.is_some()));
+                            }
                         }
                     }
                 }
@@ -6734,9 +6735,6 @@ impl Toolkit for AppKit {
                 day_spec::sidetable::sweep(Retained::as_ptr(&outline) as usize);
             }
         });
-        LINK_DELEGATES.with(|m| {
-            m.borrow_mut().remove(&ptr_of(&h));
-        });
         // One call reclaims this handle's entry from every SideTable on this thread (canvas
         // OPS, PAGE_PANE, the picker/textarea state, and whatever lands later), running each
         // table's teardown hook (day-spec sidetable). The explicit removals above are the
@@ -7000,10 +6998,10 @@ impl Toolkit for AppKit {
     }
 
     fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {
-        // A plain label backs onto an NSTextField (docs/text.md); make its text selectable
-        // (copy/drag). The downcast is the guard: a backing that isn't a text field no-ops rather
-        // than mis-cast; a future rich/link label on NSTextView would add its own arm.
-        if let Some(tf) = h.downcast_ref::<NSTextField>() {
+        if let Some(label) = h.downcast_ref::<DayLabel>() {
+            label.ivars().selectable.set(selectable);
+            label.set_links(label.ivars().has_links.get());
+        } else if let Some(tf) = h.downcast_ref::<NSTextField>() {
             unsafe { tf.setSelectable(selectable) };
         }
         None

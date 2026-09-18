@@ -236,6 +236,9 @@ pub fn build_web(
     if data_src.is_dir() {
         crate::pack::copy_tree(&data_src, &dist.join("assets/data"))?;
     }
+    // And the assets pieces ship, under `<crate-name>/` (docs/extending.md): the same names the
+    // native stores resolve, so a piece addresses its files identically on every target.
+    crate::resources::stage_piece_assets(project, "dom", &dist.join("assets/data"))?;
 
     // Bundled fonts + the fonts.json manifest (family name from the font's own name table, the
     // same resolution day-build codegen uses); the shim registers each FontFace before the

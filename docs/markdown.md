@@ -56,11 +56,21 @@ A `[text](url)` run draws as a link and reports its target when tapped:
 ```rust
 label(tr("terms-blurb")).markdown()                          // opens the target
 label(tr("terms-blurb")).markdown().on_link(|url| route(url)) // or handle it yourself
+label("Open [**Navigate**](#navigate) or [Settings](#settings).").markdown()
 ```
 
-Without `.on_link()` the target opens in the platform's default handler, the same as the
-[`link`](./text.md) piece. With it, nothing opens until the handler decides to; it can route
-in-app or confirm first.
+Without `.on_link()`, a target beginning with `#` navigates to the route after the hash:
+`#settings` calls `navigate("settings")`. This uses the existing [navigation](./navigation.md)
+rules, including paths and query parameters (`#mail/inbox?filter=unread`), percent escapes,
+and the empty route (`#`, which pops the innermost stack to its root). Unknown routes are
+ignored; they never open externally. Other targets open in the platform's default handler,
+including URLs with a fragment such as `https://daybrite.dev/#docs`.
+
+The [`link`](./text.md) piece and `TextBuilder::link` use the same behavior. A custom
+`.on_link()` receives the original target and overrides both navigation and external opening.
+Call `open_link(target)` from the handler to use the default for targets you do not handle.
+The route must belong to a registered navigation surface; a separate Settings window, for
+example, needs an app handler that calls `day::open_preferences()`.
 
 Activation is `Cap::TextLinks`, which is narrower than run rendering. Where it is missing the
 link still draws; the tap does nothing. See [text-runs.md](./text-runs.md#per-toolkit) for the

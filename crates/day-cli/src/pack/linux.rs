@@ -59,6 +59,8 @@ pub(crate) fn stage_tree(
             super::copy_tree(&from, &share_app.join(dir))?;
         }
     }
+    // Piece-contributed assets, under `<crate-name>/` beside the app's (docs/extending.md).
+    crate::resources::stage_piece_assets(project, target.toolkit, &share_app.join("assets"))?;
 
     // Vector glyphs (docs/vectors.md): the raster cache plus the staged SVGs, under
     // `share/<name>/vectors/`. The launcher exports the same `DAY_VECTOR_*_ROOT` roots a

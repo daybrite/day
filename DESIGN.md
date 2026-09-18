@@ -748,8 +748,10 @@ label(text)                        // text: impl IntoText — value, Signal<Stri
     .markdown().on_link(f)         //   inline markdown parsed at RUN TIME — the case a macro
                                    //   cannot serve, since the string is a translation or typed
                                    //   (docs/markdown.md); a link run reports through on_link
-link(text, url)                    // tappable accent text → opens url in the system browser /
-                                   //   default handler (§8.1 open_url); .font() / .color() / .bold()
+link(text, url)                    // tappable accent text → #route navigates in-app; other targets
+                                   //   open in the default handler; .font() / .color() / .bold()
+open_link(target)                  // shared default for link(), markdown and TextBuilder links:
+                                   //   strip a leading # and call navigate; otherwise open_url
 button(text).action(f)             // .bordered() / .prominent() / .tint(color) (docs/buttons.md)
     .icon(Symbol::Play)            // native symbol; reactive symbol sources are supported
     .icon_only()                   // hide the visible title, retain its accessible name
@@ -833,6 +835,23 @@ with_environment(value, build_fn)   environment::<T>()
 focused_environment::<T>()          app_environment::<T>(make)
 trait Ambient { create; scoped(content); app(); ambient(); try_ambient(); focused() }
 ```
+
+Link activation is shared in `day-pieces::open_link`: `#route` delegates to the existing
+navigation registry, including paths, percent escapes and query parameters; `#` alone pops to
+root. Unknown routes stay in-app and do nothing. URLs with fragments remain external unless
+the target begins with `#`. Markdown and `TextBuilder` labels use the same default; their
+`.on_link()` override receives the original target and can call `open_link` to delegate.
+Reactive markdown updates replace text and runs together while retaining the activation handler.
+Inline activation still depends on the backend's `Cap::TextLinks` support
+([docs/text-runs.md](docs/text-runs.md)); standalone `link()` uses its ordinary tap handler.
+The starter handles desktop `#settings` with `open_preferences`, because its Settings surface
+is a separate window. On mobile it uses the registered navigation route. Regression coverage
+lives in the link tests in [mock_e2e.rs](crates/day-pieces/tests/mock_e2e.rs), including bold
+markdown links, reactive targets, handler overrides, external URL fragments, and route paths.
+Absolute route activation also feeds remaining segments to already-mounted destination stacks
+when switching tabs; those surfaces do not re-register on selection. Resident-page route gates
+read the selection signal directly, so the newly selected page can receive its nested route
+within the same event batch, before its native presentation updates.
 
 The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.id_keyed()`,
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
@@ -1639,9 +1658,15 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 > `Cap::Toolbar` probe ran before the window was built, so answering `Native` and then placing
 > nothing left a canvas app with no commands at all (2026-09; `Cap::Toolbar` is Native on six
 > backends; [docs/toolbars.md](docs/toolbars.md)). `LinkActivated(String)` joined them for styled text runs (2026-08,
-[docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends, `Cap::TextLinks` on six —
-AppKit needs an NSTextField→NSTextView swap it does not do yet, and ArkUI is unwired — so a
-`.link()` run always draws, and taps report on the six.
+[docs/text-runs.md](docs/text-runs.md)): `Cap::TextRuns` is Native on all eight backends,
+`Cap::TextLinks` on seven; ArkUI remains unwired. AppKit's `DayLabel` subclasses `NSTextField`
+and implements the field editor's `textView:clickedOnLink:atIndex:` callback directly. A separate
+control delegate does not receive that callback and lets macOS try to open `#route` as an external
+URL (system error -50). The subclass reports `LinkActivated` and returns handled, retaining
+native layout, selection and hit testing. Every label uses it, so reactive links work without
+replacing the native handle; link removal restores the explicit selection setting. The
+[native field-editor regression](toolkits/day-appkit/tests/native_links.rs) exercises initial and
+reactively added links on the process main thread without Accessibility automation.
 
 ```rust
 pub enum Event {
@@ -2879,6 +2904,11 @@ swift-packages = [{ path = "swiftui", products = ["MyViews"] }]  # local package
 [package.metadata.day.ohos]
 ets = ["platform/harmony/ets"]             # ArkTS source dirs, staged into the hvigor project
 
+[package.metadata.day.piece]
+backends = ["appkit", "dom"]               # backends this crate carries a renderer feature for
+assets = ["web"]                           # data-asset dirs staged into every app under the
+                                           # crate's name (docs/extending.md)
+
 [package.metadata.day.permissions]
 uses = ["camera"]                          # PORTABLE permissions this crate needs (docs/permissions.md)
 
@@ -2892,6 +2922,18 @@ toolkit = "qt"                             # set only when the user's environmen
 name = "QT_MEDIA_BACKEND"
 value = "ffmpeg"
 ```
+> [!NOTE]
+> **Assets a piece ships, and pieces that depend on pieces (2026-09).**
+> `[package.metadata.day.piece].assets` names directories the crate carries rather than code;
+> `day build` stages each into the app's bundle under the crate's own name, on every target, so a
+> piece resolves its files by that name everywhere and cannot collide with the app's or another
+> piece's. A dev desktop launch stages them under `build/day/assets/` and probes them through
+> `DAY_PIECE_ASSET_ROOT`, because the app's own assets are read where they lie.
+> The same change made every contribution scan resolve with the piece-backend feature union: an
+> inner piece is an optional dependency behind the outer one's backend feature, so without it its
+> frameworks, Java, ArkTS, permissions and assets never reached the app
+> ([docs/extending.md](docs/extending.md)).
+
 > [!NOTE]
 > **Localized reasons (2026-09).** A reason is a catalog message (`permission_<name>` in
 > `resource/locales/<tag>/app.ftl`) as well as inline Day.toml text; `day build` writes the

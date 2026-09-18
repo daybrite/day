@@ -2693,13 +2693,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 };
                 if chrome {
                     // Resident, so anything this page builds outlives the switch away from it and
-                    // has to say whether it is the page on screen. Reads `current` live: the build
-                    // itself runs before this page becomes current, and it changes on every switch.
-                    let (cur, mine) = (current.clone(), key.to_string());
-                    with_page_active(
-                        Rc::new(move || cur.borrow().as_deref() == Some(mine.as_str())),
-                        build,
-                    );
+                    // has to say whether it is selected. Read the selection itself: a route link
+                    // can switch tabs and enter a nested route in one batched event, before the
+                    // presentation effect updates `current`.
+                    with_page_active(destination_gate(selection.clone(), key.to_string()), build);
                 } else {
                     build();
                 }

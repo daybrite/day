@@ -167,7 +167,8 @@ impl TextBuilder {
             ..day_spec::TextRun::default()
         })
     }
-    /// A link run. Rendering it is `Cap::TextRuns`; activating it is `Cap::TextLinks`, which
+    /// A link run. A `#route` target navigates in-app, as with [`link`].
+    /// Rendering it is `Cap::TextRuns`; activating it is `Cap::TextLinks`, which
     /// fewer backends have, so check before relying on the tap (docs/text-runs.md).
     pub fn link(self, s: &str, target: &str) -> Self {
         let base = self.base;
@@ -202,8 +203,7 @@ pub struct Label {
     pub(crate) markdown: bool,
     /// How wrapped lines sit within the label's own width (docs/text.md).
     pub(crate) align: day_spec::props::TextAlign,
-    /// What a tapped link run does. `None` opens the target in the platform's default handler,
-    /// which is what a link in a paragraph of text is normally expected to do.
+    /// What a tapped link run does. `None` uses [`open_link`].
     pub(crate) on_link: Option<LinkHandler>,
 }
 
@@ -326,8 +326,9 @@ impl Label {
     }
     /// Handle a tapped link run yourself instead of opening its target.
     ///
-    /// Without this, a link opens in the platform's default handler, the same as the [`link`]
-    /// piece. Set it to route in-app (a `day://` scheme, a route name) or to confirm first.
+    /// Without this, a `#route` target navigates in-app and other targets open in the platform's
+    /// default handler, the same as the [`link`] piece. This handler overrides both behaviors;
+    /// call [`open_link`] to delegate targets you do not handle back to the default.
     ///
     /// Activation is `Cap::TextLinks`, which is narrower than run rendering: on a backend
     /// without it the link still draws, and nothing calls this (docs/text-runs.md).
@@ -491,8 +492,7 @@ impl Piece for Label {
                 if let Event::LinkActivated(url) = ev {
                     match &handler {
                         Some(f) => f(url),
-                        // The unhandled case is the common one: open it, like the `link` piece.
-                        None => day_core::open_url(url),
+                        None => open_link(url),
                     }
                 }
             });
@@ -530,9 +530,26 @@ impl Piece for Label {
 /// Override per-link with [`Link::color`] to match an app's accent.
 const LINK_BLUE: day_spec::Color = day_spec::Color::rgb(0.0, 0.478, 1.0);
 
-/// A tappable run of text that opens `url` in the platform's default handler: the system browser
-/// for `http`/`https`, the mail client for `mailto:`, and so on. This is Day's analogue of
-/// SwiftUI's `Link`.
+/// Activate a link target, using the same policy as [`link`] and markdown labels.
+///
+/// A leading `#` denotes an in-app route: `#settings` calls [`navigate`](crate::navigate) with
+/// `settings`. Route paths, percent escapes, and query parameters use the navigation system's
+/// existing rules; `#` alone navigates to the empty route (pop to root). An unknown route is
+/// ignored, never handed to an external application. All other targets go to
+/// [`day_core::open_url`] unchanged, including URLs with fragments such as `https://daybrite.dev/#docs`.
+///
+/// Use this from [`Label::on_link`] to keep the default behavior for targets your handler does
+/// not override.
+pub fn open_link(target: &str) {
+    if let Some(route) = target.strip_prefix('#') {
+        let _ = day_core::navigate(route);
+    } else {
+        day_core::open_url(target);
+    }
+}
+
+/// A tappable run of text that navigates to a `#route` or opens a URL in the platform's default
+/// handler: the system browser for `http`/`https`, the mail client for `mailto:`, and so on.
 ///
 /// It renders as accent-colored [`label`] text and announces itself as actionable to assistive
 /// technology. The opening itself is delegated to the running backend
@@ -541,6 +558,7 @@ const LINK_BLUE: day_spec::Color = day_spec::Color::rgb(0.0, 0.478, 1.0);
 ///
 /// ```ignore
 /// link("daybrite.dev", "https://daybrite.dev")
+/// link("Settings", "#settings")
 /// link(tr("email-us"), "mailto:hi@example.com").font(Font::Footnote)
 /// ```
 pub struct Link {
@@ -548,7 +566,7 @@ pub struct Link {
     url: String,
 }
 
-/// Build a [`Link`] that opens `url` when tapped.
+/// Build a [`Link`] that activates `url` through [`open_link`] when tapped.
 pub fn link<M>(text: impl IntoText<M>, url: impl Into<String>) -> Link {
     Link {
         label: label(text).color(LINK_BLUE),
@@ -578,7 +596,7 @@ impl Piece for Link {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let url = self.url;
         self.label
-            .on_tap(move || day_core::open_url(&url))
+            .on_tap(move || open_link(&url))
             .a11y(|b| b.role(Role::Button))
             .build(cx)
     }

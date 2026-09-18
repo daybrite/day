@@ -47,6 +47,9 @@ pub fn stage_payload(
             super::copy_tree(&src, &stage.join(dir)).map_err(PackError::Other)?;
         }
     }
+    // Piece-contributed assets, under `<crate-name>/` beside the app's (docs/extending.md).
+    crate::resources::stage_piece_assets(project, "xaml", &stage.join("assets"))
+        .map_err(PackError::Other)?;
     // Vector glyphs (docs/vectors.md): the raster fallbacks merge into `images/`, so one
     // exe-relative probe then serves both the `vector(…)` piece and the nav rows'
     // `ms-appx:///images/<file>` loads (the name namespace is shared, so a stem can't collide

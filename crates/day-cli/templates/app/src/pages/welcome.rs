@@ -15,6 +15,14 @@ pub(crate) fn welcome_page() -> impl Piece {
             .id("welcome-title"),
         label(crate::res::str::welcome_body())
             .markdown()
+            .on_link(|target| {
+                // Desktop Settings lives in its own window instead of the navigation host.
+                if target == "#settings" && crate::has_menu_bar() {
+                    day::open_preferences();
+                } else {
+                    open_link(target);
+                }
+            })
             .align(TextAlign::Center)
             .max_width(440.0)
             .id("welcome-body"),

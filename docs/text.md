@@ -95,6 +95,23 @@ preference), so a hard-coded size never turns into a fixed, unreadable pixel siz
 `Font::custom(res::fonts::family, pt)` (and the unchecked `Font::Custom`) scales the same way; a bundled font never opts out of accessibility
 sizing.
 
+## Links
+
+```rust
+link("Day", "https://daybrite.dev")
+link("Settings", "#settings").bold()
+```
+
+`link(text, target)` renders tappable accent text. A target starting with `#` calls `navigate`
+with the rest of the target; all other targets open in the platform's default URL handler.
+URLs containing a fragment (`https://daybrite.dev/#docs`) still open externally. Route paths,
+query parameters, and percent escapes follow the [navigation](./navigation.md) rules. Unknown
+routes do nothing; `#` alone pops the innermost stack to its root.
+
+[Markdown links](./markdown.md#links) and `TextBuilder::link` use the same `open_link(target)`
+function by default. Unlike a standalone `link`, inline links require `Cap::TextLinks` for
+activation; see the [toolkit support table](./text-runs.md#per-toolkit).
+
 ## Selectable text
 
 Text is **not** user-selectable by default on any backend: a label, a button's caption, and a

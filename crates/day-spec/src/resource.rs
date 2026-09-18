@@ -258,10 +258,12 @@ fn default_open(name: &str) -> Option<Resource> {
 /// Resolve a data-resource name to an on-disk path: `DAY_ASSET_ROOT` first (dev / CLI launch), then
 /// bundle-relative locations next to the executable (macOS `.app`, Linux `share`).
 fn resolve_resource_path(name: &str) -> Option<PathBuf> {
-    if let Ok(root) = std::env::var("DAY_ASSET_ROOT") {
-        let p = PathBuf::from(root).join(name);
-        if p.exists() {
-            return Some(p);
+    for var in ASSET_ROOT_VARS {
+        if let Ok(root) = std::env::var(var) {
+            let p = PathBuf::from(root).join(name);
+            if p.exists() {
+                return Some(p);
+            }
         }
     }
     if let Ok(exe) = std::env::current_exe()
@@ -282,6 +284,11 @@ fn resolve_resource_path(name: &str) -> Option<PathBuf> {
 /// takes a filepath, and its by-name initializer would otherwise look only at the bundle root,
 /// where Day stages nothing. Same probe order as [`resource`]: `DAY_ASSET_ROOT` (dev /
 /// `day launch`), then the bundle-relative roots.
+/// The roots a dev run probes for data assets, in order: the project's own `resource/assets/`,
+/// then the tree `day build` stages the assets its pieces ship into (docs/extending.md). A
+/// packaged app has one merged `assets/` directory beside the binary and needs neither.
+const ASSET_ROOT_VARS: [&str; 2] = ["DAY_ASSET_ROOT", "DAY_PIECE_ASSET_ROOT"];
+
 pub fn resolve_asset_file(name: &str) -> Option<PathBuf> {
     resolve_resource_path(name)
 }
@@ -295,10 +302,12 @@ pub fn resolve_asset_dir(rel: &str) -> Option<PathBuf> {
     // bundle probe below goes through `MacOS/../Resources`) breaks prefix comparison against
     // the standardized URLs engines report back.
     let canon = |p: PathBuf| p.canonicalize().ok().filter(|c| c.is_dir());
-    if let Ok(root) = std::env::var("DAY_ASSET_ROOT")
-        && let Some(p) = canon(PathBuf::from(root).join(rel))
-    {
-        return Some(p);
+    for var in ASSET_ROOT_VARS {
+        if let Ok(root) = std::env::var(var)
+            && let Some(p) = canon(PathBuf::from(root).join(rel))
+        {
+            return Some(p);
+        }
     }
     if let Ok(exe) = std::env::current_exe()
         && let Some(dir) = exe.parent()

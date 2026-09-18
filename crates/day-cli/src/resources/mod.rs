@@ -64,6 +64,13 @@ impl ResourceSet {
         // slashes; file-based stores mkdir the parents).
         let mut data = Vec::new();
         scan_data_tree(&project.root.join("resource/assets"), "", &mut data);
+        // Pieces ship their own data assets (docs/extending.md): a web view's inline site, a
+        // model, a shader. They stage under `<crate-name>/`, which is why a piece resolves its
+        // files by a name beginning with its own crate name and an app's names can never clash
+        // with one.
+        for (krate, dir) in crate::pieces::contributed_assets(project, &[toolkit]) {
+            scan_data_tree(&dir, &krate, &mut data);
+        }
         data.sort_by(|a, b| a.name.cmp(&b.name));
         ResourceSet { images, data }
     }
@@ -75,6 +82,23 @@ impl ResourceSet {
 
 /// Collect the data-asset tree under `dir`: every non-hidden file, recursively, named by its
 /// `/`-relative path (`rel` is the prefix so far, `""` at the root).
+/// Copy every piece-contributed asset tree into `dst/<crate-name>/`, the directory layout
+/// [`ResourceSet::scan`] names them by. For the stagers that copy the assets tree wholesale (the
+/// Apple bundles, the web dist, the Linux and Windows packages) rather than walking a
+/// [`ResourceSet`].
+pub fn stage_piece_assets(
+    project: &Project,
+    toolkit: &str,
+    dst: &std::path::Path,
+) -> Result<(), String> {
+    for (krate, dir) in crate::pieces::contributed_assets(project, &[toolkit]) {
+        let into = dst.join(&krate);
+        let _ = std::fs::remove_dir_all(&into);
+        crate::pack::copy_tree(&dir, &into).map_err(|e| format!("{krate}: {e}"))?;
+    }
+    Ok(())
+}
+
 fn scan_data_tree(dir: &std::path::Path, rel: &str, out: &mut Vec<ResourceFile>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;

@@ -126,15 +126,28 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 | Android | a `ClickableSpan` + `LinkMovementMethod` |
 | XAML | `Hyperlink.Click` |
 | web-dom | the anchor's click, with its navigation cancelled |
-| AppKit | **not yet**; an `NSTextField` cannot hit-test a link, so this needs the same swap to a text view that UIKit does |
+| AppKit | the native field editor reports to the `DayLabel` text-field subclass |
 | ArkUI | **not yet** |
 
 Every one of these reports the target to the app rather than opening it itself, so a label's
-`.on_link()` decides. Its default opens the URL through `Toolkit::open_url`, which is what a link
-in a paragraph is normally expected to do. Where activation is missing the run still draws as a
-link; the tap does nothing.
+`.on_link()` decides. Its default calls `open_link`: a leading `#` navigates to the route after
+the hash, and other targets open through `Toolkit::open_url`. This also applies to links made
+with `TextBuilder::link`; see [markdown links](./markdown.md#links) for the route contract and
+custom-handler behavior. Where activation is missing the run still draws as a link; the tap does
+nothing.
 
 Some backend details affect how runs are built.
+
+**On macOS the label itself handles the field editor's link callback.** AppKit makes the
+`NSTextField` the shared field editor's delegate; it does not forward
+`textView:clickedOnLink:atIndex:` to the field's separate control delegate. `DayLabel`, an
+`NSTextField` subclass, handles that callback and returns `true`, suppressing AppKit's external
+URL opening. It reports the original target through `Event::LinkActivated`, including `#route`
+targets. The subclass is used for plain labels too, so links added by reactive markdown patches
+work without replacing the view. Labels with links remain selectable for native hit testing;
+removing links restores the app's explicit selection setting. See Apple's
+[Working With the Field Editor](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/TextEditing/Tasks/FieldEditor.html)
+and the [native link regression](../toolkits/day-appkit/tests/native_links.rs).
 
 **GTK renders runs as markup, not as a `pango::AttrList`,** because Pango's attributes cannot
 express a link and the markup dialect can. A `GtkLabel`'s attribute list *overrides* the
@@ -161,5 +174,5 @@ string or something a user typed.
 
 ## What `Cap` answers
 
-`Cap::TextRuns` is Native on all eight backends. `Cap::TextLinks` is Native on six (GTK, Qt,
-UIKit, Android, XAML, web-dom) and Unsupported on AppKit and ArkUI.
+`Cap::TextRuns` is Native on all eight backends. `Cap::TextLinks` is Native on seven (AppKit,
+GTK, Qt, UIKit, Android, XAML, web-dom) and Unsupported on ArkUI.

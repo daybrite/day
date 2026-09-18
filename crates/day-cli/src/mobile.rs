@@ -375,12 +375,16 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
     ) {
         let src = project.root.join("resource/assets");
+        let dst = PathBuf::from(tbd).join(res).join("assets");
         if src.exists() {
-            let dst = PathBuf::from(tbd).join(res).join("assets");
             let _ = std::fs::remove_dir_all(&dst);
             copy_tree_flat(&src, &dst)
                 .map_err(|e| CliError::build(format!("day xcode-backend: stage assets: {e}")))?;
         }
+        // Pieces that ship their own data assets stage beside the app's, under `<crate-name>/`
+        // (docs/extending.md).
+        crate::resources::stage_piece_assets(&project, "uikit", &dst)
+            .map_err(|e| CliError::build(format!("day xcode-backend: stage piece assets: {e}")))?;
     }
     // The crate-named alias, for app projects generated before the staged name became this
     // constant; they link `-l<crate>` out of the same directory. A hard link, so the archive
@@ -446,6 +450,9 @@ pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
         copy_tree_flat(&src, &dst)
             .map_err(|e| CliError::build(format!("day xcode-backend: stage {sub}: {e}")))?;
     }
+    // Piece-contributed assets, under `<crate-name>/` beside the app's own (docs/extending.md).
+    crate::resources::stage_piece_assets(&project, "appkit", &resources.join("assets"))
+        .map_err(|e| CliError::build(format!("day xcode-backend: stage piece assets: {e}")))?;
     eprintln!(
         "day xcode-backend: staged resources → {}",
         resources.display()

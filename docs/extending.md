@@ -132,6 +132,31 @@ extension path so that code lives in the piece crate:
 > [day-part-speech](https://github.com/daybrite/day-part-speech) does six languages in one file that way, and
 > `parts/day-part-battery` migrated its Android half off the `java = [...]` mechanism below.
 
+### Data assets a piece ships (`[package.metadata.day.piece].assets`)
+
+A piece that carries files rather than code — a web view's inline site, a model, a shader, a
+sample — declares the directories holding them:
+
+```toml
+[package.metadata.day.piece]
+backends = ["appkit", "gtk", "qt", "xaml", "arkui", "dom"]
+assets = ["web"]        # directories, relative to the crate root
+```
+
+`day build` stages each one into the app's bundle under the **crate name**, beside the app's own
+`resource/assets/`, on every target: `web/index.html` in `day-piece-lottie` becomes
+`day-piece-lottie/index.html`, which the piece then resolves by that name with `resource(…)`,
+`AssetDir`, or a web view's inline site. The namespace is the crate's and is not configurable, so
+two pieces cannot collide with each other and neither can collide with a name the app chose.
+
+The app does nothing: it depends on the piece, and the files arrive. A dev `day launch` stages
+them under `build/day/assets/` and points `DAY_PIECE_ASSET_ROOT` there, because the app's own
+assets are read where they lie and nothing may be written into the app's source tree.
+
+[day-piece-lottie](https://github.com/daybrite/day-piece-lottie) is the worked example: on the six
+backends with no native Lottie player it ships lottie-web and a host page this way, and composes
+[day-piece-webview](https://github.com/daybrite/day-piece-webview) to show them.
+
 ### C++ shims: Qt & XAML (`build.rs`)
 
 The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-xaml-shim.cpp` and compiles them in `build.rs`
