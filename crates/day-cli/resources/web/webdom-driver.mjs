@@ -71,6 +71,15 @@ const context = await browserType.launchPersistentContext(profile, {
   },
   deviceScaleFactor: viewportSpec?.[3] ? Number(viewportSpec[3]) : 2,
 });
+// Scripted Edit actions arrive over the engine connection, without a browser user
+// gesture. Grant Chromium's real clipboard API access for this test origin so a
+// permission prompt cannot block the walkthrough. These permission names are not
+// supported by every engine; leave WebKit/Firefox's native behavior unchanged.
+if (browserName === 'chromium') {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: new URL(url).origin,
+  });
+}
 const page = context.pages()[0] ?? (await context.newPage());
 page.on('console', (m) => {
   if (m.type() === 'error' || m.type() === 'warning') console.error(`page ${m.type()}: ${m.text()}`);

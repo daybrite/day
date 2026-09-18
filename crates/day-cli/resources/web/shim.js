@@ -712,14 +712,15 @@ const env = {
   day_dom_modifiers: () => modifierMask,
   // The browser clipboard for day-part-clipboard (docs/menus.md). Inside a live copy/cut/
   // paste DOM event (dispatched below while the event is on the stack) the calls use the
-  // event's clipboardData, the only synchronous path; outside one, writes best-effort
-  // via navigator.clipboard and reads fall back to the page-local mirror of the last copy.
+  // event's clipboardData, the synchronous path; outside one, byte operations use
+  // navigator.clipboard and report permission failures to the caller.
   day_dom_clipboard_read_bytes: (req, p, n) => {
     const preferred = str(p, n).split('\n');
     const event = activeClipboardEvent;
     // Snapshot clipboardData while it is still accessible; File bytes may finish later.
     const files = event?.type === 'paste' ? Array.from(event.clipboardData?.files || []) : null;
     const strings = event?.type === 'paste' ? new Map(preferred.map(m => [m, event.clipboardData?.getData(m)])) : null;
+    const precedingWrites = Array.from(pendingClipboardWrites);
     Promise.resolve().then(async () => {
       if (files) {
         for (const mime of preferred) {
@@ -729,6 +730,10 @@ const env = {
         }
         return clipPacket([]);
       }
+      // A programmatic Paste can follow Copy before the browser has published it.
+      // Wait for writes already issued at the time of this read, not future copies.
+      // Native paste events above keep their own synchronous clipboard snapshot.
+      await Promise.allSettled(precedingWrites);
       if (!navigator.clipboard?.read) throw new TypeError();
       const items = await navigator.clipboard.read();
       for (const mime of preferred) for (const item of items) if (item.types.includes(mime)) {
@@ -758,7 +763,12 @@ const env = {
     }
     if (native.length && navigator.clipboard?.write) {
       const item = new ClipboardItem(Object.fromEntries(native.map(r => [r.mime,new Blob([r.bytes],{type:r.mime})])));
-      navigator.clipboard.write([item]).then(() => clipResult(req,0,utf8enc.encode(native.map(r=>r.mime).join('\n'))), () => {
+      const pending = navigator.clipboard.write([item]);
+      pendingClipboardWrites.add(pending);
+      // Track settlement separately from result delivery, and consume rejection so
+      // a failed write does not prevent a later read of the existing clipboard.
+      pending.then(() => pendingClipboardWrites.delete(pending), () => pendingClipboardWrites.delete(pending));
+      pending.then(() => clipResult(req,0,utf8enc.encode(native.map(r=>r.mime).join('\n'))), () => {
         clipResult(req,eventTypes.length ? 0 : 1,utf8enc.encode(eventTypes.join('\n')));
       });
     } else queueMicrotask(() => clipResult(req,eventTypes.length ? 0 : 2,utf8enc.encode(eventTypes.join('\n'))));
@@ -2153,6 +2163,7 @@ function clipPacket(reps) {
 // Clipboard plumbing (docs/menus.md): the live DOM clipboard event while wasm handles it,
 // the staged outbound bytes, and the page-local mirror of the last in-page copy.
 let activeClipboardEvent = null, clipboardStaged = null, clipboardMirror = null;
+const pendingClipboardWrites = new Set();
 // The modifier keys as last observed (bit0 shift, bit1 primary = meta|ctrl, bit2 alt);
 // wasm pulls this ambiently for interactions modifiers change (shift-click multi-select).
 let modifierMask = 0;

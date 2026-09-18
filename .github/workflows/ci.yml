@@ -1255,6 +1255,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+      - name: Clipboard promise ordering regression
+        run: node --test scripts/ci/webdom-clipboard-test.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

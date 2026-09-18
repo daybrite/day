@@ -372,6 +372,110 @@ fn shot_dir(
     dir.join(variant.or(locale).unwrap_or("default"))
 }
 
+/// Whole-screen Android capture is accepted only between two successful window checks.
+fn android_screenshot(serial: &str, path: &Path) -> Result<(), String> {
+    if path.exists() {
+        std::fs::remove_file(path).map_err(|e| e.to_string())?;
+    }
+    // A system dialog left over the app would be captured with it. Only emulators
+    // permit automatic dismissal; physical devices are inspected without mutation.
+    crate::mobile::clear_system_dialogs(serial)?;
+    let mut cmd = Command::new(day_toolchain::adb_bin());
+    cmd.args(["-s", serial, "exec-out", "screencap", "-p"]);
+    // Do not use the verbose text-command helper: its tee would log PNG bytes.
+    let out = cmd.output().map_err(|e| e.to_string())?;
+    if !out.status.success() || !out.stdout.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("adb screencap failed or returned no PNG".into());
+    }
+    crate::mobile::verify_android_capture(serial)?;
+    std::fs::write(path, &out.stdout).map_err(|e| e.to_string())
+}
+
+#[cfg(all(test, unix))]
+mod android_capture_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    // Run each fake SDK in a separate process: no global environment mutation or
+    // chance of changing settings on a developer's connected Android device.
+    #[test]
+    fn refuses_unverified_android_screenshots() {
+        const CHILD: &str = "DAY_TEST_CAPTURE_CASE";
+        if let Ok(case) = std::env::var(CHILD) {
+            let path = PathBuf::from(std::env::var_os("DAY_TEST_CAPTURE_PATH").unwrap());
+            std::fs::write(&path, b"stale image from previous run").unwrap();
+            let result = android_screenshot("test-physical-device", &path);
+            if case == "clean" {
+                assert!(result.is_ok(), "{result:?}");
+                assert!(
+                    std::fs::read(&path)
+                        .unwrap()
+                        .starts_with(b"\x89PNG\r\n\x1a\n")
+                );
+            } else {
+                assert!(result.is_err(), "accepted unsafe case: {case}");
+                assert!(!path.exists(), "left stale/unsafe image for {case}");
+            }
+            return;
+        }
+        let root = std::env::temp_dir().join(format!("day-capture-test-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("platform-tools")).unwrap();
+        let adb = root.join("platform-tools/adb");
+        std::fs::write(
+            &adb,
+            r#"#!/bin/sh
+case "$3" in
+  shell)
+    case "$DAY_TEST_CAPTURE_CASE" in
+      probe-failed) exit 1 ;;
+      empty-probe) exit 0 ;;
+      dialog) echo '  Window #0 Window{abc u0 Application Not Responding: com.android.systemui}:' ;;
+      appeared-during-capture)
+        if [ -f "$DAY_TEST_CAPTURE_PATH.captured" ]; then
+          echo '  Window #0 Window{abc u0 Application Error: dev.daybrite.showcase}:'
+        else echo '  Window #0 Window{abc u0 StatusBar}:'; fi ;;
+      *) echo '  Window #0 Window{abc u0 StatusBar}:' ;;
+    esac ;;
+  exec-out)
+    touch "$DAY_TEST_CAPTURE_PATH.captured"
+    [ "$DAY_TEST_CAPTURE_CASE" = capture-failed ] && exit 1
+    [ "$DAY_TEST_CAPTURE_CASE" = invalid-png ] && { echo 'not a PNG'; exit 0; }
+    printf '\211PNG\r\n\032\n' ;;
+esac
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for case in [
+            "clean",
+            "probe-failed",
+            "empty-probe",
+            "dialog",
+            "appeared-during-capture",
+            "capture-failed",
+            "invalid-png",
+        ] {
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "script::android_capture_tests::refuses_unverified_android_screenshots",
+                    "--nocapture",
+                ])
+                .env(CHILD, case)
+                .env("ANDROID_HOME", &root)
+                .env("DAY_TEST_CAPTURE_PATH", root.join(format!("{case}.png")))
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{case}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 /// Device-level capture fallback for targets whose in-process snapshot is unsupported.
 /// `prev` is the run's previous capture, when there is one: on HarmonyOS a shot that comes out
 /// byte-identical to it is treated as a stale frame and re-captured (see the arm's comment).
@@ -403,21 +507,9 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
             let serial = crate::mobile::android_devices()
                 .into_iter()
                 .next()
-                .map(|dev| dev.serial);
-            // A system dialog left over the app would be captured with it. Emulators only; a
-            // clear screen costs one window listing (mobile.rs `clear_system_dialogs`).
-            if let Some(serial) = &serial {
-                crate::mobile::clear_system_dialogs(serial);
-            }
-            let mut cmd = Command::new(day_toolchain::adb_bin());
-            if let Some(serial) = &serial {
-                cmd.args(["-s", serial]);
-            }
-            let out = cmd
-                .args(["exec-out", "screencap", "-p"])
-                .output()
-                .map_err(|e| e.to_string())?;
-            std::fs::write(path, &out.stdout).map_err(|e| e.to_string())
+                .map(|dev| dev.serial)
+                .ok_or("no Android device available for screenshot")?;
+            android_screenshot(&serial, path)
         }
         TargetKind::Desktop => {
             // Engine (in-process) snapshot unavailable. On an X11 session (the CI linux legs run
@@ -820,6 +912,10 @@ pub fn run_scripts(
             if op == "screenshot" && ok {
                 let name = step.get("name").and_then(|v| v.as_str()).unwrap_or("shot");
                 let path = dir.join(format!("{name}.png"));
+                // A failed recapture must not publish a previous run's image at this path.
+                if path.exists() {
+                    std::fs::remove_file(&path).map_err(|e| ScriptError::Other(e.to_string()))?;
+                }
                 let in_process = reply
                     .get("png_base64")
                     .and_then(|v| v.as_str())
@@ -901,6 +997,9 @@ pub fn run_scripts(
                         index_entries.push(entry);
                     }
                     run.screenshots.push(path);
+                } else {
+                    run.steps_failed += 1;
+                    eprintln!("  {ERROR}✗{ERROR:#} screenshot {name} — no safe capture available");
                 }
             }
         }

@@ -121,7 +121,12 @@ different goal, and it does **not** call this API directly.
   `day devices boot --wait` and `day launch` set `hide_error_dialogs=1` and
   `immersive_mode_confirmations=confirmed`, and each capture first closes an ANR dialog, a crash
   dialog, or the "Viewing full screen" hint left on screen before those settings landed
-  (`clear_system_dialogs` in `crates/day-cli/src/mobile.rs`). Where a mobile backend has an in-process capture it now serves as the
+  (`clear_system_dialogs` in `crates/day-cli/src/mobile.rs`). Android checks again after
+  `screencap`, before saving any bytes. A failed/empty window probe, surviving error dialog,
+  unsuccessful capture command, or non-PNG output refuses the device capture. Physical devices
+  get the same checks but no automatic dismissal or settings changes. If the app-only fallback
+  also fails, the screenshot step fails and no previous image at its path is retained.
+  Where a mobile backend has an in-process capture it now serves as the
   **fallback**; a refusing device tool used to abandon the shot outright. Because that image is
   wanted only when the device tool refuses, the runner tells the engine not to render one
   (`in_process: false` on the step) and re-asks on the failure path: rendering and encoding a

@@ -5646,7 +5646,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
-| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On an Android emulator the capture first closes a system dialog left on screen (an ANR or crash dialog, the "Viewing full screen" hint). `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
+| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
 | `pause` | `secs` | demos only |
 | `size_class` | `width`, `height?` | REPORT a size class the window is not actually at, so a nav host re-presents and a piece reading `day::size_class()` rebuilds. Changes no pixels — a screenshot after it shows the new layout at the old size. `width: auto` restores what the backend reports ([docs/size-classes.md](docs/size-classes.md)) |
 | `resize` | `width`, `height`, or `auto` | `size_class`'s complement: change the window's REAL geometry. Runner-side first (a device's window belongs to the system — android-mdc drives `adb shell wm size`), then the engine half waits for the app to report the new class. A target with no host-side lever FAILS the step rather than passing one that moved nothing ([docs/size-classes.md](docs/size-classes.md)) |
@@ -5654,6 +5654,13 @@ well-written scripts; `pause` exists for demos and settle-time.
 
 Acting steps synthesize Day events (`tap` = the action path, `input` = the controlled-text
 path) on the main thread between flushes — deterministic and toolkit-uniform, per DP-13. The
+bundled Chromium driver grants clipboard read/write permissions for the test origin because
+engine-driven Edit commands have no browser user gesture. They still use the real browser
+clipboard; interactive launches retain the browser's permission policy ([docs/web.md](docs/web.md)). The
+web byte clipboard adapter waits for preceding writes before programmatic reads, preserving
+Copy → Paste ordering without a timer. Native paste events retain their captured payload and
+do not wait; write failures cannot poison later reads. The promise-ordering regression in
+`scripts/ci/webdom-clipboard-test.mjs` runs in the web-dom CI job ([docs/clipboard.md](docs/clipboard.md)). The
 `focus` step is the deliberate exception that drives a real toolkit duty. The designed
 actionability preconditions (enabled/occlusion checks, auto-scroll-into-view) are **not
 implemented** — scripts scroll explicitly and the walkthrough is written accordingly.

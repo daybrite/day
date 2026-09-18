@@ -2003,7 +2003,7 @@ const FULL_SCREEN_HINT: &str = "ImmersiveModeConfirmation";
 
 /// How long an ANR dialog gets to dismiss itself before [`clear_system_dialogs`] closes it.
 const ANR_GRACE: Duration = Duration::from_secs(5);
-/// The longest [`clear_system_dialogs`] waits for a clear screen before the capture goes ahead.
+/// The longest [`clear_system_dialogs`] waits before refusing a device capture.
 const CLEAR_LIMIT: Duration = Duration::from_secs(30);
 /// One `adb shell` probe's deadline, so a wedged emulator cannot hang a capture.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -2049,8 +2049,10 @@ fn system_dialogs(titles: &[String]) -> Vec<&str> {
 fn android_window_titles(serial: &str) -> Option<Vec<String>> {
     // Filtered on the device: the full dump runs to hundreds of lines, and `--verbose` echoes
     // whatever comes back.
-    adb_shell_text(serial, "dumpsys window windows | grep 'Window #'")
-        .map(|dump| parse_window_titles(&dump))
+    adb_shell_text(serial, "dumpsys window windows | grep 'Window #'").and_then(|dump| {
+        let titles = parse_window_titles(&dump);
+        (!titles.is_empty()).then_some(titles)
+    })
 }
 
 /// EMULATORS ONLY: the settings that keep system dialogs off an emulator's screen.
@@ -2076,7 +2078,9 @@ pub(crate) fn quiet_system_dialogs(serial: &str) {
     );
 }
 
-/// EMULATORS ONLY: remove a system dialog already on screen, so the next capture shows the app.
+/// Verify the screen is free of system dialogs; on emulators, try dismissing them first.
+/// Physical devices are inspected without changing settings or dismissing their dialogs.
+/// Failed probes and cleanup timeouts refuse capture rather than accepting unknown pixels.
 ///
 /// [`quiet_system_dialogs`] stops new dialogs; this handles one raised before those settings
 /// landed. CI boots an emulator and installs onto it under the heaviest load of the run, and an
@@ -2090,16 +2094,15 @@ pub(crate) fn quiet_system_dialogs(serial: &str) {
 /// first; a process still stuck after that is one `hide_error_dialogs` would have ended anyway.
 /// When the process was SystemUI, the wait goes on until a new SystemUI has its status bar window
 /// back, so the capture keeps the system bars.
-pub(crate) fn clear_system_dialogs(serial: &str) {
-    if !serial.starts_with("emulator-") {
-        return;
-    }
-    let Some(titles) = android_window_titles(serial) else {
-        return;
-    };
+pub(crate) fn clear_system_dialogs(serial: &str) -> Result<(), String> {
+    let titles = android_window_titles(serial)
+        .ok_or_else(|| format!("cannot verify system windows on {serial}"))?;
     let found = system_dialogs(&titles).join(", ");
     if found.is_empty() {
-        return;
+        return Ok(());
+    }
+    if !serial.starts_with("emulator-") {
+        return Err(format!("system dialog on {serial}: {found}"));
     }
     quiet_system_dialogs(serial);
     let systemui = || adb_shell_text(serial, "pidof com.android.systemui");
@@ -2112,9 +2115,8 @@ pub(crate) fn clear_system_dialogs(serial: &str) {
     let mut last_close: Option<Instant> = None;
     loop {
         std::thread::sleep(Duration::from_millis(250));
-        let Some(titles) = android_window_titles(serial) else {
-            return;
-        };
+        let titles = android_window_titles(serial)
+            .ok_or_else(|| format!("cannot verify system windows on {serial}"))?;
         let left = system_dialogs(&titles);
         let systemui_restarting = last_close.is_some()
             && systemui_before.as_deref().is_some_and(|before| {
@@ -2141,14 +2143,26 @@ pub(crate) fn clear_system_dialogs(serial: &str) {
             } else {
                 format!("still showing {}", left.join(", "))
             };
-            status(
-                "Warning",
-                &format!("{serial} {what} after {}s", CLEAR_LIMIT.as_secs()),
-            );
-            return;
+            return Err(format!("{serial} {what} after {}s", CLEAR_LIMIT.as_secs()));
         }
     }
     status("Dismissed", &format!("{found} on {serial}"));
+    Ok(())
+}
+
+/// A second check after screencap: never save a frame taken while a dialog appeared.
+pub(crate) fn verify_android_capture(serial: &str) -> Result<(), String> {
+    let titles = android_window_titles(serial)
+        .ok_or_else(|| format!("cannot verify system windows after capture on {serial}"))?;
+    let dialogs = system_dialogs(&titles);
+    if dialogs.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "system dialog appeared during capture on {serial}: {}",
+            dialogs.join(", ")
+        ))
+    }
 }
 
 /// Every device in `adb devices` in the `device` state, paired with its primary ABI
@@ -2503,7 +2517,9 @@ pub fn launch_android(
         )?;
         // A dialog raised before those settings landed (during boot or the install) would
         // otherwise sit over the app for the whole run.
-        clear_system_dialogs(&dev.serial);
+        if let Err(error) = clear_system_dialogs(&dev.serial) {
+            status("Warning", &error);
+        }
         // DAY_THEME must be in effect before the activity inflates: the manifest handles the
         // uiMode config change itself (no recreation), so an in-app UiModeManager flip leaves the
         // already-resolved window theme in the old scheme. Setting the device night mode first

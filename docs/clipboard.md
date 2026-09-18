@@ -131,6 +131,14 @@ plain text, and HTML), and copy/cut events also receive textual custom represent
 The result reports whichever system/event write actually succeeded. Arbitrary MIME types
 are not universally writable by browsers.
 
+Outside a native paste event, a byte read waits for all byte writes already issued by this
+page to settle before asking the browser for clipboard contents. This preserves Copy → Paste
+ordering when a write is asynchronous. Failed writes still report their own errors and do not
+block a subsequent read; native paste events use their captured payload immediately.
+`node --test scripts/ci/webdom-clipboard-test.mjs` covers delayed/out-of-order writes,
+write rejection, and native paste snapshots. The real-browser regression is Day-Sketch's
+`dayscript/demo.yaml`, including immediate Copy/Paste, Cut/Paste, and Undo.
+
 ### Native representation mappings
 
 | Platform | Binary transport | Limits / interoperability |

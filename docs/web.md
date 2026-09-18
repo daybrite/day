@@ -182,6 +182,10 @@ runs on every platform. The differences from native are all internal:
   has OPFS and is the local default, but Playwright's Linux WebKit (the WPE port) ships no
   OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
   runs fail at the first screenshot; interactive `day launch` never needs one.
+  For Chromium, the driver grants clipboard read/write permissions only to the launched
+  origin. Scripted Edit commands arrive without a browser user gesture; this lets them use
+  the real clipboard without a permission prompt blocking the run. It does not replace the
+  clipboard with a mock or change permissions for interactive launches or other engines.
 - Storage lasts exactly as long as the launch: the driver's profile is created for the run
   and removed at quit, and the loopback origin's port changes per launch, so no OPFS state
   survives from one `day launch` to the next the way a native target's on-disk store does.
