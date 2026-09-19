@@ -245,6 +245,9 @@ pub enum Step {
         contains: Option<String>,
         #[serde(default)]
         text: Option<String>,
+        /// Override the shared wait for a cold browser engine or a slow page load.
+        #[serde(default)]
+        timeout_secs: Option<f64>,
     },
     /// Invoke an app-menu item programmatically (docs/menus.md): match a unique `Action`
     /// leaf in the installed app-menu model by exact `item` label, or by `key`, a Fluent
@@ -508,6 +511,10 @@ impl Step {
                 ..
             }
             | Step::AssertText {
+                timeout_secs: Some(t),
+                ..
+            }
+            | Step::WebEval {
                 timeout_secs: Some(t),
                 ..
             } if *t > 0.0 => *t,
@@ -1238,6 +1245,7 @@ fn exec(step: Step) -> Reply {
                 script,
                 contains,
                 text,
+                ..
             } => {
                 // The eval resolves at a later event drain, and a step handler cannot block
                 // the pump it needs, so the step is a retryable poll: the first pass starts
@@ -2093,6 +2101,25 @@ mod tests {
         assert_eq!(plain.wait_budget_secs(), DEFAULT_TIMEOUT_SECS);
         let waiting = step(r#"{"op":"wait_for","id":"state","timeout_secs":30}"#);
         assert_eq!(waiting.wait_budget_secs(), 30.0);
+    }
+
+    /// A cold WebView2 engine can take longer than five seconds. The serialized step's
+    /// budget must reach the engine poller, matching the CLI's socket timeout budget.
+    #[test]
+    fn web_eval_honors_its_own_timeout() {
+        for (timeout, expected) in [
+            (None, DEFAULT_TIMEOUT_SECS),
+            (Some(30.0), 30.0),
+            (Some(0.0), DEFAULT_TIMEOUT_SECS),
+            (Some(-1.0), DEFAULT_TIMEOUT_SECS),
+        ] {
+            let step: Step = serde_json::from_value(serde_json::json!({
+                "op": "web_eval", "id": "page", "script": "document.title",
+                "timeout_secs": timeout,
+            }))
+            .expect("web_eval step");
+            assert_eq!(step.wait_budget_secs(), expected);
+        }
     }
 
     /// `menu: { id: … }` is the address that survives a label change (which is exactly what a
