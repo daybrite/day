@@ -33,7 +33,7 @@ model = ["dep:day-model"]
 
 [dev-dependencies]
 day-mock = { workspace = true }
-day-macros = { path = "../day-macros", version = "=0.4.6" }
+day-macros = { path = "../day-macros", version = "=0.4.7" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
