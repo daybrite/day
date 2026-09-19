@@ -158,6 +158,14 @@ mod imp {
         /// scene instead of requesting another one, and reports the node it was given.
         static ADOPTING_SCENE: Cell<Option<NodeId>> = const { Cell::new(None) };
         static ADOPTING: Cell<bool> = const { Cell::new(false) };
+        /// Nonzero while a window is between size classes: `willTransitionToTraitCollection:`
+        /// through the coordinator's completion. A `UISplitViewController` merges its columns
+        /// when it collapses and takes them apart again when it expands, and the un-merge is a
+        /// real pop on the primary's controller — the same call a user's back makes
+        /// (docs/navigation.md).
+        static CLASS_TRANSITIONS: Cell<usize> = const { Cell::new(0) };
+        /// Bumped by each size-class transition, so a late ceiling releases only its own.
+        static CLASS_TRANSITION_GEN: Cell<u64> = const { Cell::new(0) };
         /// App-level lifecycle debounce across scenes: whether any scene was
         /// foreground-active / any scene was foregrounded at the last recompute.
         static ANY_SCENE_ACTIVE: Cell<bool> = const { Cell::new(false) };
@@ -2794,6 +2802,19 @@ mod imp {
         /// announced its own (`with_day_pop`).
         fn note_pop(&self, popped: Vec<Retained<UIViewController>>) {
             let host = self.ivars().host.get();
+            // A size-class transition is UIKit rearranging its own columns, not the user going
+            // back: expanding a split view takes the detail back out of the merged stack with
+            // this very call. Reported as a back it pops day's model, which deselects the row
+            // the user was on, and the widened split then fills its empty detail with the first
+            // row — the page they were reading replaced by the first one in the list.
+            if CLASS_TRANSITIONS.with(|c| c.get()) > 0 {
+                if *DIAG_NAV {
+                    log::debug!(
+                        "DAYDIAG pop during a size-class transition: UIKit's own, not reported"
+                    );
+                }
+                return;
+            }
             let day = NAV_STATE.with(|m| m.borrow().get(&host).map(|s| s.day_pop.get()));
             // `Some(true)` is Day's own pop; `None` a controller no host owns any more.
             if day == Some(false) {
@@ -4118,6 +4139,30 @@ mod imp {
             #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
             fn preferred_edges(&self) -> UIRectEdge {
                 rect_edges()
+            }
+
+            /// The window is crossing a size class — the whole reason a split view collapses or
+            /// expands. Hold the flag from here until the transition's own completion, so the
+            /// column restructuring UIKit performs in between is not read as the user
+            /// navigating (`note_pop`). The window root sees this before any descendant does,
+            /// which is what makes it early enough: UIKit un-merges the columns before it
+            /// reports the expansion.
+            #[unsafe(method(willTransitionToTraitCollection:withTransitionCoordinator:))]
+            fn will_transition_to_traits(
+                &self,
+                traits: &objc2_ui_kit::UITraitCollection,
+                coordinator: &ProtocolObject<
+                    dyn objc2_ui_kit::UIViewControllerTransitionCoordinator,
+                >,
+            ) {
+                let _: () = unsafe {
+                    msg_send![
+                        super(self),
+                        willTransitionToTraitCollection: traits,
+                        withTransitionCoordinator: coordinator,
+                    ]
+                };
+                day_spec::ffi_guard::contain((), || begin_class_transition(coordinator));
             }
         }
     );
@@ -10432,6 +10477,65 @@ mod imp {
     /// never captures the outgoing page before the incoming one has begun to slide in.
     fn note_ui_transition() {
         UI_LAST_ACTIVE.with(|t| t.set(Some(std::time::Instant::now())));
+    }
+
+    /// How long a size-class transition is given before its flag is released anyway. The
+    /// coordinator's completion is what normally ends it; this is the floor under a
+    /// completion that never arrives (an interrupted resize), because a stuck flag would
+    /// swallow the user's next back.
+    const CLASS_TRANSITION_CEILING: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// Hold the size-class flag for the length of `coordinator`'s transition
+    /// (`CLASS_TRANSITIONS`, and `DayRootVC::willTransitionToTraitCollection:`).
+    fn begin_class_transition(
+        coordinator: &ProtocolObject<dyn objc2_ui_kit::UIViewControllerTransitionCoordinator>,
+    ) {
+        use objc2_ui_kit::{
+            UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
+        };
+        CLASS_TRANSITIONS.with(|c| c.set(c.get() + 1));
+        let generation = CLASS_TRANSITION_GEN.with(|c| {
+            let g = c.get().wrapping_add(1);
+            c.set(g);
+            g
+        });
+        if *DIAG_NAV {
+            log::debug!(
+                "DAYDIAG size-class transition begins (depth {})",
+                CLASS_TRANSITIONS.with(|c| c.get())
+            );
+        }
+        let completion = block2::RcBlock::new(
+            move |_ctx: NonNull<
+                ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>,
+            >| {
+                day_spec::ffi_guard::contain((), || {
+                    CLASS_TRANSITIONS.with(|c| c.set(c.get().saturating_sub(1)));
+                    if *DIAG_NAV {
+                        log::debug!(
+                            "DAYDIAG size-class transition ends (depth {})",
+                            CLASS_TRANSITIONS.with(|c| c.get())
+                        );
+                    }
+                });
+            },
+        );
+        unsafe { coordinator.animateAlongsideTransition_completion(None, Some(&completion)) };
+        // The floor under a completion that never arrives (an interrupted resize): a flag left
+        // standing would swallow the user's next back. Generation-gated, so it only clears the
+        // transition it was scheduled for.
+        let when = dispatch2::DispatchTime::try_from(CLASS_TRANSITION_CEILING)
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, move || {
+            day_spec::ffi_guard::contain((), || {
+                if CLASS_TRANSITION_GEN.with(|c| c.get()) == generation
+                    && CLASS_TRANSITIONS.with(|c| c.get()) > 0
+                {
+                    log::warn!("size-class transition completion lost — releasing the flag");
+                    CLASS_TRANSITIONS.with(|c| c.set(0));
+                }
+            });
+        });
     }
 
     /// Switch a tabs host's selection once no ON-SCREEN navigation stack has a transition in

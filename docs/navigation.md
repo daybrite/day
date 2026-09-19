@@ -439,6 +439,19 @@ bugs of that month lived in the bookkeeping). UIKit's `viewControllers` is the s
   model and removing the page, and `pop_page` finds the page already gone: that no-op is the
   whole protocol between the two, and nothing is counted.
 
+- **A pop during a size-class transition is UIKit's own.** A split view merges its columns when
+  it collapses and takes them apart again when it expands, and the un-merge is a real
+  `popViewControllerAnimated:` on the primary's controller — indistinguishable at the call site
+  from the user's back. `DayRootVC`'s `willTransitionToTraitCollection:withTransitionCoordinator:`
+  raises a flag for the length of the transition (released by the coordinator's completion, with
+  a two-second floor under a completion that never arrives), and `note_pop` reports nothing while
+  it is up. Read as a back instead, the pop deselects the row the user is on, and the widened
+  split then obeys its own "never show an empty detail" rule and opens the FIRST row: resizing an
+  iPad window across the breakpoint threw away the page you were reading and replaced it with the
+  top of the list (2026-09-19). The window root is early enough to see it, because UIKit
+  restructures the columns before it reports the expansion. The cost is that a back tapped during
+  the resize animation itself is ignored, which is the trade this is worth.
+
 `NavPatch::ListInStack` is not consulted here: UIKit's collapse folds the content list onto the
 merged stack by itself (the list is the supplementary column's root), and `NavPatch::ListVisible`
 shows or pops it there. `NavPatch::Presentation` never reaches a toolkit whose container
