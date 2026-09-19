@@ -504,6 +504,15 @@ pub struct Notarize {
 pub struct IosSigning {
     /// Apple Developer team id (DEVELOPMENT_TEAM).
     pub team: String,
+    /// The provisioning profile `day sign apply` embeds when it re-signs a built `.ipa`
+    /// (docs/packaging.md). Unused by `day pack`, which exports through Xcode and lets it choose
+    /// the profile.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// The codesigning identity `day sign apply` signs with: a certificate name as `security
+    /// find-identity` prints it, or its SHA-1. Unused by `day pack`, for the same reason.
+    #[serde(default)]
+    pub identity: Option<String>,
     /// ExportOptions method; default "app-store-connect".
     #[serde(default)]
     pub export_method: Option<String>,

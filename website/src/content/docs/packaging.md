@@ -157,6 +157,71 @@ profile = "${DAY_OHOS_PROFILE}"
 `day sign check` reports each platform's readiness (env vars set, key files present) without
 printing any secret value.
 
+## Signing an existing package
+
+`day pack` builds and signs in one step, which is what a project's own CI wants. A distributor
+wants the two apart: build the submitted source with no credentials in reach, then sign the
+artifact that came out. Building runs the app's own code — build scripts, Gradle plugins, Xcode
+run scripts — and signing runs none of it, so the credentials only ever meet a finished file.
+
+```sh
+day sign apply app-release.aab                 # signs in place
+day sign apply app-release.apk --out signed.apk # leaves the input alone
+```
+
+The keys come from `[signing.android]`, resolved strictly: an unset `${VAR}` is an error naming
+the variable rather than a quiet drop to the dev keystore, because a dev-signed artifact looks
+finished and no store will take it. `.aab` goes through `jarsigner`, `.apk` through `zipalign`
+then `apksigner` (v4 off, so no `.idsig` litter), and passwords reach both through the
+environment rather than the argument list, which every other process on the machine can read.
+
+The signed copy is written beside the destination and moved into place only after it verifies, so
+a failure leaves the unsigned artifact exactly as it was. The report names both digests and the
+signing certificate, which is the field a store matches an upload against:
+
+```text
+      Signed app-release.aab
+      Digest 5f080ef8becf6015… → b9cc48e09326d9a1…
+ Certificate sha256 98860a7b9c357cb68fee7d1cb6944238f8316a02ca75972ffc89b56e8ed68e24
+```
+
+`--format json` prints the same four fields as `artifact`, `sha256`, `sha256_unsigned` and
+`certificate_sha256`, which is what a pipeline records to tie a published binary to the build it
+came from.
+
+### Apple packages
+
+An `.ipa` (or a bare `.app`, which comes back out as an `.ipa`) takes the steps Xcode's export
+performs, spelled out because no project is present to drive it: embed the provisioning profile,
+sign every nested framework and plug-in before the bundle that contains them, sign the app, then
+repack with `ditto`.
+
+```sh
+day sign apply app.ipa \
+  --profile "AppStore.mobileprovision" \
+  --identity "iPhone Distribution: The App Fair Project Inc (25KG25YA3R)"
+```
+
+`--profile` and `--identity` default to `signing.ios.profile` and `signing.ios.identity`. The
+flags matter more here than the Day.toml values do: a distributor signs an artifact built from
+someone else's project, whose `Day.toml` names the developer's profile and certificate rather
+than the distributor's.
+
+**Entitlements come from the profile** unless `--entitlements <file>` says otherwise. That is what
+Xcode does when a project overrides nothing, and it is the safe default in both directions:
+entitlements a profile does not grant are rejected at install, and asking for fewer than it grants
+silently drops capabilities the app shipped with. The profile's set is what lands —
+`application-identifier`, `aps-environment`, `beta-reports-active`, `get-task-allow=false` for a
+distribution profile.
+
+The signed bundle is verified with `codesign --verify --deep --strict` before it replaces
+anything, so a bad identity or an out-of-order nested signature fails with the artifact untouched.
+`certificate_sha256` is the signing certificate itself, the same field the Android path reports.
+
+Signing an Apple package needs macOS: `codesign`, `security` and `ditto` ship with Xcode. `.dmg`
+and `.pkg` are named as not-yet-implemented rather than refused as unknown; `day pack -p
+macos-appkit` signs and notarizes those during the build.
+
 ## Signing tiers
 
 Every artifact carries a tier: **release**, **dev-signed**, or **unsigned**. When a `${VAR}` is

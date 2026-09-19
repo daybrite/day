@@ -335,7 +335,7 @@ enum Cmd {
         #[arg(long = "artifact-name", value_name = "STEM")]
         artifact_name: Option<String>,
     },
-    /// Check signing settings or notarization status
+    /// Check signing settings, sign a built package, or query a notarization submission
     #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
     Sign {
         #[command(subcommand)]
@@ -877,6 +877,26 @@ pub enum SignCmd {
         /// Notarization submission ID
         id: String,
     },
+    /// Sign a package that already exists, without rebuilding it
+    #[command(
+        after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-an-existing-package"
+    )]
+    Apply {
+        /// The package to sign (.aab, .apk, .ipa, or .app)
+        artifact: PathBuf,
+        /// Write the signed package here instead of replacing the input
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// Apple: the provisioning profile to embed (default: signing.ios.profile)
+        #[arg(long, value_name = "FILE")]
+        profile: Option<PathBuf>,
+        /// Apple: the signing identity, by name or SHA-1 (default: signing.ios.identity)
+        #[arg(long, value_name = "NAME")]
+        identity: Option<String>,
+        /// Apple: the entitlements to sign with (default: the profile's own)
+        #[arg(long, value_name = "FILE")]
+        entitlements: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1107,6 +1127,23 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Cmd::Sign { cmd } => with_project(cli.project.as_deref(), |project| match cmd {
             SignCmd::Check => Ok(crate::sign::check(project)),
             SignCmd::Status { id } => crate::sign::notarize_status(project, &id),
+            SignCmd::Apply {
+                artifact,
+                out,
+                profile,
+                identity,
+                entitlements,
+            } => crate::sign::apply(
+                project,
+                &artifact,
+                out.as_deref(),
+                crate::sign::AppleOverrides {
+                    profile: profile.as_deref(),
+                    identity: identity.as_deref(),
+                    entitlements: entitlements.as_deref(),
+                },
+                cli.format == OutputFormat::Json,
+            ),
         }),
         Cmd::Project {
             cmd: ProjectCmd::AddTarget { targets, template },
@@ -2349,7 +2386,7 @@ mod error_tests {
         for (name, expected) in [
             ("project", vec!["add-target", "migrate-xcode"]),
             ("icon", vec!["build", "new", "check"]),
-            ("sign", vec!["check", "status"]),
+            ("sign", vec!["check", "status", "apply"]),
             ("doctor", vec!["verify"]),
         ] {
             let parent = tree.find_subcommand(name).unwrap();
