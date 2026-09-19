@@ -240,6 +240,16 @@ creation is asynchronous (a scene, an activity, an ability) answer `Pending` and
 later through `day_core::finish_window_open(id, raw, size)`, the type-erased `RawHandle`
 adoption path list cells use; day-core parks the record (build deferred) and a close before
 completion cancels it (`finish_window_open` answers `false`; the backend drops its window).
+**A window the platform opens by itself takes the same path in reverse.** iPadOS 26 offers
+Window ▸ New Window for any app that supports multiple scenes, an app icon dragged into Split
+View connects a scene, and a relaunch reconnects the sessions from the previous run — none of
+them carry the node id a `Toolkit::open_window` request does. day-uikit builds the window and
+then calls `day_core::open_new_window()`, so the content is whatever the app registered with
+[`register_new_window`](#new-window--the-macos-window-menu), the same builder behind File ▸ New Window on
+desktop; an app that registered none has nothing to put in the window, and the backend hands the
+scene back. Until 2026-09 those scenes were destroyed on sight, which is what made the system's
+New Window flash a window and lose it.
+
 `close_window`/`focus_window`/`set_window_title`/`snapshot_window_of` round out the duties;
 day-core releases the content handle after teardown, which is each backend's signal to
 destroy the native window (Qt/XAML defer destruction to exactly this point so child-widget
@@ -251,7 +261,7 @@ releases stay sound).
 | GTK | Native | additional `AdwApplicationWindow`s on the shared `GtkApplication`; app-level active-state debounced across windows |
 | Qt | Native | shim `DayWindow` carrying its node id; explicit quit policy (`quitOnLastWindowClosed(false)`) |
 | XAML | Native (CI-verified) | second Win32 host + its own `DesktopWindowXamlSource` island; accelerators in secondary islands are a noted v1 limit |
-| iOS | Native on iPad (`UIScene` request/connect; the whole backend runs the scene lifecycle) | iPhone answers Unsupported → cover; iPad runtime check pends a `day launch` device flag |
+| iOS | Native on iPad (`UIScene` request/connect; the whole backend runs the scene lifecycle, and a scene the system opens on its own is filled from `register_new_window`) | iPhone answers Unsupported → cover; iPad runtime check pends a `day launch` device flag |
 | Android | Native | document-style `DayWindowActivity` per window (own recents entry; split-screen/freeform); `Preferences` → cover |
 | HarmonyOS | Native (when the ArkTS host registers the launchers) | multiton `DayWindowAbility` per window; `Preferences` → cover. Pre-existing backend quirk: presented covers pass asserts and receive taps but device captures show the page beneath (affects the cover piece identically — follow-up) |
 | web | Unsupported → cover fallback | a second browser window cannot share the wasm instance |

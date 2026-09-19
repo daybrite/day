@@ -152,6 +152,12 @@ mod imp {
         /// Secondary opens in flight: the day root node ids handed to
         /// `requestSceneSessionActivation`, awaiting their scene's willConnect.
         static PENDING_WINDOWS: RefCell<Vec<(NodeId, String)>> = const { RefCell::new(Vec::new()) };
+        /// A scene the PLATFORM opened (iPadOS Window ▸ New Window, an app icon dragged into
+        /// Split View, a session restored from a previous run): set while the delegate asks
+        /// day-core for content, so the `open_window` that call comes back through adopts this
+        /// scene instead of requesting another one, and reports the node it was given.
+        static ADOPTING_SCENE: Cell<Option<NodeId>> = const { Cell::new(None) };
+        static ADOPTING: Cell<bool> = const { Cell::new(false) };
         /// App-level lifecycle debounce across scenes: whether any scene was
         /// foreground-active / any scene was foregrounded at the last recompute.
         static ANY_SCENE_ACTIVE: Cell<bool> = const { Cell::new(false) };
@@ -9870,6 +9876,14 @@ mod imp {
         ) -> day_spec::WindowOpenReply<Handle> {
             let m = mtm();
             let app = UIApplication::sharedApplication(m);
+            // A scene the platform already handed us is waiting for exactly one window's
+            // content (the scene delegate calls day-core from inside willConnect). Take it
+            // rather than asking for another scene, and name the node it is now the window of.
+            if ADOPTING.with(|a| a.get()) {
+                ADOPTING.with(|a| a.set(false));
+                ADOPTING_SCENE.with(|n| n.set(Some(id)));
+                return day_spec::WindowOpenReply::Pending;
+            }
             // iPhone (single visible scene) — and the Preferences kind everywhere on
             // mobile, where settings are modal, not a detached window (docs/windows.md).
             if !unsafe { app.supportsMultipleScenes() } || kind == day_spec::WindowKind::Preferences
@@ -11034,8 +11048,13 @@ mod imp {
                         return;
                     }
                     let Some(node) = node else {
-                        // A restored session from a previous run: nothing to mount behind it.
-                        request_scene_destruction(mtm, session);
+                        // A window the platform opened by itself: iPadOS's Window ▸ New Window,
+                        // an app icon dragged into Split View, or a session restored from a
+                        // previous run. Nothing named a root node, so ask day-core for another
+                        // window of the app's own new-window content and adopt this scene for
+                        // it (`open_window` above takes the flag). An app that registered no
+                        // new-window builder has nothing to show, and the scene goes back.
+                        adopt_platform_scene(mtm, win_scene, session);
                         return;
                     };
                     PENDING_WINDOWS.with(|p| p.borrow_mut().retain(|(n, _)| *n != node));
@@ -11202,6 +11221,50 @@ mod imp {
                 })
                 .and_then(|e| e.node)
         })
+    }
+
+    /// Fill a scene the platform opened on its own with another window of the app.
+    ///
+    /// iPadOS 26 offers Window ▸ New Window for any app that supports multiple scenes, and the
+    /// same connection arrives when an app icon is dragged into Split View or a session is
+    /// restored from a previous run. None of those name a day root node the way
+    /// `Toolkit::open_window` does, so the content comes from what the app registered with
+    /// `day::register_new_window` — the same builder behind File ▸ New Window on desktop.
+    ///
+    /// The window is built first so day-core has something to adopt, and `ADOPTING` makes the
+    /// `open_window` that `open_new_window` calls back into take this scene instead of asking
+    /// the system for another one. With no builder registered there is nothing to put in the
+    /// window, and the scene is handed back rather than left blank.
+    fn adopt_platform_scene(
+        mtm: MainThreadMarker,
+        win_scene: &objc2_ui_kit::UIWindowScene,
+        session: &objc2_ui_kit::UISceneSession,
+    ) {
+        let (window, root_view, inner) = build_scene_window(mtm, win_scene, None);
+        let size = Size::new(inner.size.width, inner.size.height);
+        let raw = Retained::as_ptr(&root_view) as *mut std::ffi::c_void as day_spec::RawHandle;
+        ADOPTING.with(|a| a.set(true));
+        ADOPTING_SCENE.with(|n| n.set(None));
+        let opened = day_core::open_new_window();
+        ADOPTING.with(|a| a.set(false));
+        let node = ADOPTING_SCENE.with(|n| n.take());
+        let (Some(_), Some(node)) = (opened, node) else {
+            log::info!("day-uikit: no new-window content registered; returning the scene");
+            request_scene_destruction(mtm, session);
+            return;
+        };
+        SCENES.with(|s| {
+            s.borrow_mut().push(SceneEntry {
+                window,
+                root_view,
+                base_frame: Cell::new(inner),
+                node: Some(node),
+            })
+        });
+        if !day_core::finish_window_open(node, raw, size) {
+            SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));
+            request_scene_destruction(mtm, session);
+        }
     }
 
     /// Ask the system to drop a scene session (no undo UI, no animation preference).
