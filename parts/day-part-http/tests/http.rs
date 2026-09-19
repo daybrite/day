@@ -380,11 +380,26 @@ fn fetch_future_two_concurrent() {
 fn drop_cancels_inflight() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+    let (connected, connection) = std::sync::mpsc::sync_channel(1);
     let saw_disconnect = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().ok()?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        return None;
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => return None,
+            }
+        };
         // Read the request head, then keep reading: a cancelled client tears the connection
         // down and the read returns 0/Err. A 10 s read timeout bounds the failure mode.
         let _ = read_request(&mut stream);
+        connected.send(()).ok()?;
         stream
             .set_read_timeout(Some(Duration::from_secs(10)))
             .ok()?;
@@ -398,8 +413,11 @@ fn drop_cancels_inflight() {
         }
     });
     let fut = day_part_http::fetch_future(Request::get(format!("http://127.0.0.1:{port}/")));
-    // Give the task time to actually connect + send, then cancel by dropping.
-    std::thread::sleep(Duration::from_millis(300));
+    // Cancel only after the server has received the request. A fixed delay could cancel
+    // before connection on a busy host, leaving the server blocked in accept forever.
+    connection
+        .recv_timeout(Duration::from_secs(15))
+        .expect("request reached the server");
     drop(fut);
     let elapsed = saw_disconnect
         .join()

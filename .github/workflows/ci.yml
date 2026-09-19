@@ -954,7 +954,7 @@ jobs:
     # Experimental (continue-on-error at the job level): the whole HarmonyOS job runs on one
     # x86_64 Linux runner so the x86_64 Oniro guest can run KVM-accelerated (same-arch guest +
     # /dev/kvm) instead of TCG software emulation; the boot + 8-variant walkthrough was ~25 min
-    # under TCG on macOS. `day ohos emulator launch` auto-selects `-accel kvm` when /dev/kvm
+    # under TCG on macOS. `day devices boot -p harmony-arkui` auto-selects `-accel kvm` when /dev/kvm
     # exists (else TCG). The job is marked experimental so a HarmonyOS regression, or an emulator
     # that still won't boot under KVM, never blocks the release jobs that `need` it.
     #

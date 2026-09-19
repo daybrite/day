@@ -131,7 +131,7 @@ fn file_platform(path: &str) -> Option<&str> {
 }
 
 /// Keep the target-agnostic files plus the `platform/<os>/` subtrees belonging to `targets`
-/// (`day new app` scaffolds only the host projects its targets need; `day app add-toolkit`
+/// (`day new app` scaffolds only the host projects its targets need; `day project add-target`
 /// materializes the rest later from the same template).
 pub fn filter_for_targets(files: Vec<TemplateFile>, targets: &[String]) -> Vec<TemplateFile> {
     // Resolve through the target table, not by splitting the name: `harmony-arkui`'s platform
@@ -158,7 +158,7 @@ pub fn filter_for_targets(files: Vec<TemplateFile>, targets: &[String]) -> Vec<T
         .collect()
 }
 
-/// The `platform/<os>/` subtrees belonging to `targets`, which is what `day app add-toolkit` adds
+/// The `platform/<os>/` subtrees belonging to `targets`, which is what `day project add-target` adds
 /// to an existing project (the target-agnostic files already exist there), plus the `store/`
 /// listing skeleton when any of them ships to a store: an app scaffolded desktop-only never
 /// got one, and gaining its first store target is exactly when it becomes needed. (The caller
@@ -314,7 +314,7 @@ mod tests {
         let gtk = filter_for_targets(builtin_app(), &["linux-gtk".to_string()]);
         assert!(!gtk.iter().any(|f| f.path.starts_with("platform/")));
 
-        // add-toolkit's view: the new target's subtree plus (for a store target) the store/
+        // add-target's view: the new target's subtree plus (for a store target) the store/
         // listing skeleton, and nothing else agnostic.
         let add = platform_files_for_targets(files, &["android-mdc".to_string()]);
         assert!(!add.is_empty());

@@ -103,7 +103,7 @@ WebAssembly module, images, and fonts.
 Use `--formats` to select a subset of output formats, as in the Android example above.
 `--no-sign` skips signing, and `--no-notarize` skips macOS notarization. To submit notarization
 without waiting for completion, pass `--no-wait` and check it later with
-`day sign --notarize-status <id>`.
+`day sign status <id>`.
 
 Artifact filenames follow this pattern:
 
@@ -154,7 +154,7 @@ cert = "${DAY_OHOS_CERT}"
 profile = "${DAY_OHOS_PROFILE}"
 ```
 
-`day sign --check` reports each platform's readiness (env vars set, key files present) without
+`day sign check` reports each platform's readiness (env vars set, key files present) without
 printing any secret value.
 
 ## Signing tiers

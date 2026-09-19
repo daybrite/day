@@ -6,12 +6,12 @@
 //! Mobile pipelines (xcodebuild/gradle callbacks) land with the M5 scaffolds.
 
 mod bridge;
-mod checkup;
 mod clean;
 mod cli;
 mod devices;
 mod diagnose;
 mod doctor;
+mod doctor_verify;
 mod drive;
 mod external;
 mod git;

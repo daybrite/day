@@ -382,6 +382,30 @@ fn a_tool_call_reaches_the_cli_and_answers_about_this_project() {
     assert_eq!(targets, Fixture::TARGETS);
 }
 
+#[test]
+fn doctor_tool_calls_the_quick_check_through_the_cli() {
+    let fixture = Fixture::new("doctor-call").expect("write fixture");
+    let mut server = Server::start(&fixture);
+    server.initialize();
+    // An invalid toolkit produces a deterministic diagnostic without relying on installed
+    // SDKs. This must reach doctor's validation, not merely appear in the MCP tool catalog.
+    let result = server.result(
+        "tools/call",
+        serde_json::json!({"name": "day_doctor", "arguments": {"toolkit": "missing-test-toolkit"}}),
+    );
+    let text = result["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|block| block["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("unknown toolkit") && text.contains("missing-test-toolkit"),
+        "{text}"
+    );
+}
+
 /// A failed tool reports in-band, with `isError`, so the model can read what went wrong and try
 /// again. Returning a JSON-RPC error instead would hide it from the model and abort the turn.
 #[test]

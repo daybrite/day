@@ -1,12 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Command tree (DESIGN.md §16.5). v0: new / build / launch / doctor; the remaining
-//! porcelain (sign / pack / lint / script) lands with M6–M8.
+//! Command tree and grouped root help (DESIGN.md §16.5).
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 use crate::meta;
 use crate::ops;
@@ -27,7 +26,7 @@ pub enum ErrKind {
     Build,
     /// A scripted run failed, or the device side of one stopped answering.
     Script,
-    /// `day icon --check` found outputs drifted from the master (the CI drift gate).
+    /// `day icon check` found outputs drifted from the master (the CI drift gate).
     Drift,
     /// Signing / notarization (`day sign`, pack's signing stages).
     Sign,
@@ -192,7 +191,12 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     Build {
         /// Targets to build (repeatable)
-        #[arg(short = 'p', long = "platform", required = true)]
+        #[arg(
+            short = 'p',
+            long = "platform",
+            visible_alias = "target",
+            required = true
+        )]
         platforms: Vec<String>,
         /// Build profile
         #[arg(long, value_enum, default_value = "debug")]
@@ -204,32 +208,14 @@ enum Cmd {
     /// Generate app icons for each platform
     #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
     Icon {
-        /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
-        master: Option<PathBuf>,
-        /// Check generated icons without writing files; exit 5 if they differ
-        #[arg(long, conflicts_with = "generate")]
-        check: bool,
-        /// Generate icons for these targets (repeatable; default: all)
-        #[arg(short = 'p', long = "platform")]
-        platforms: Vec<String>,
-        /// Create resource/icons/icon.svg and generate platform icons
-        #[arg(long, conflicts_with = "master")]
-        generate: bool,
-        /// Integer or text seed for --generate (default: random; printed in output)
-        #[arg(long, requires = "generate")]
-        seed: Option<String>,
-        /// Allow --generate to replace an existing source icon
-        #[arg(long, requires = "generate")]
-        overwrite: bool,
-        /// Write a preview SVG and PNG to this path; leave the project unchanged
-        #[arg(long, requires = "generate", value_name = "FILE.svg")]
-        out: Option<PathBuf>,
+        #[command(subcommand)]
+        cmd: IconCmd,
     },
     /// Build and run an app on one or more targets
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Launch {
         /// Targets to launch (repeatable; default: this host's desktop toolkit)
-        #[arg(short = 'p', long = "platform")]
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
         platforms: Vec<String>,
         /// Clone and run a trusted Git repository; append @REF for a branch, tag, or commit.
         /// Use --project to select an app within the repository
@@ -320,7 +306,12 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/")]
     Pack {
         /// Targets to build (repeatable)
-        #[arg(short = 'p', long = "platform", required = true)]
+        #[arg(
+            short = 'p',
+            long = "platform",
+            visible_alias = "target",
+            required = true
+        )]
         platforms: Vec<String>,
         /// Build profile for the package
         #[arg(long, value_enum, default_value = "release")]
@@ -347,60 +338,25 @@ enum Cmd {
     /// Check signing settings or notarization status
     #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
     Sign {
-        /// Check signing credentials and files without printing secrets
-        #[arg(long)]
-        check: bool,
-        /// Check a notarization submission by ID
-        #[arg(long = "notarize-status")]
-        notarize_status: Option<String>,
+        #[command(subcommand)]
+        cmd: SignCmd,
     },
     /// Check installed toolchains and SDKs
     #[command(after_help = "Docs: https://daybrite.dev/docs/system-requirements/")]
+    #[command(args_conflicts_with_subcommands = true)]
     Doctor {
+        #[command(subcommand)]
+        cmd: Option<DoctorCmd>,
         /// Check a toolkit and fail if required tools are missing (repeatable).
         /// Values: appkit, uikit, gtk, qt, xaml, android, harmonyos, dom
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
     },
-    /// Build and package test apps to check this machine
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#checking-the-machine")]
-    Checkup {
-        /// Targets to check (repeatable or comma-separated; default: available host targets)
-        #[arg(short = 'p', long = "platform")]
-        platforms: Vec<String>,
-        /// Build profile for both compilation and packaging
-        #[arg(long, value_enum, default_value = "debug")]
-        profile: Profile,
-        /// Build test apps without packaging them
-        #[arg(long)]
-        no_pack: bool,
-        /// Fail if missing tools prevent checking a target supported by this host
-        #[arg(long)]
-        strict: bool,
-        /// Create test projects in this directory instead of a temporary directory
-        #[arg(long)]
-        dir: Option<PathBuf>,
-        /// Keep the generated test projects
-        #[arg(long)]
-        keep: bool,
-        /// Use Day dependencies from Git (default)
-        #[arg(long)]
-        git: bool,
-        /// Use Day dependencies from crates.io at the selected version
-        #[arg(long)]
-        registry: bool,
-        /// Day version to check: release, latest, branch, or commit (default: this CLI)
-        #[arg(long = "day-version", value_name = "SPEC")]
-        day_version: Option<String>,
-        /// Use Day dependencies from a local checkout
-        #[arg(long, hide = true)]
-        local: Option<PathBuf>,
-    },
     /// Manage an existing app project
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
-    App {
+    Project {
         #[command(subcommand)]
-        cmd: AppCmd,
+        cmd: ProjectCmd,
     },
     /// Show project settings and supported targets
     #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
@@ -445,7 +401,7 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/#native-projects-and-ci")]
     Prepare {
         /// Targets to prepare (repeatable; default: all targets in Day.toml)
-        #[arg(short = 'p', long = "platform")]
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
         platforms: Vec<String>,
         /// Check generated files without writing; exit 5 if files are missing or stale
         #[arg(long, conflicts_with = "migrate")]
@@ -458,7 +414,7 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     Open {
         /// Target to open in Xcode, Android Studio, or DevEco Studio
-        #[arg(short = 'p', long = "platform")]
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
         platform: String,
     },
     /// Create and prepare app store listings
@@ -489,7 +445,7 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Stop {
         /// Targets to stop (repeatable)
-        #[arg(short = 'p', long = "platform")]
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
         platforms: Vec<String>,
         /// Stop all recorded sessions for this project
         #[arg(long)]
@@ -506,7 +462,7 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Relaunch {
         /// Targets to restart (repeatable; omit with --all-running)
-        #[arg(short = 'p', long = "platform")]
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
         platforms: Vec<String>,
         /// Restart all recorded sessions for this project
         #[arg(long)]
@@ -522,7 +478,7 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/for-agents/")]
     Drive {
         /// Target with the running app to control
-        #[arg(short = 'p', long = "platform")]
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
         platform: String,
         /// Dayscript steps as a JSON array
         #[arg(long)]
@@ -536,12 +492,6 @@ enum Cmd {
     Devices {
         #[command(subcommand)]
         cmd: DevicesCmd,
-    },
-    /// Tools for HarmonyOS and OpenHarmony
-    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/harmony-arkui/")]
-    Ohos {
-        #[command(subcommand)]
-        cmd: OhosCmd,
     },
     /// Run the native Xcode build callback (internal)
     #[command(name = "xcode-backend", hide = true)]
@@ -580,7 +530,7 @@ pub enum StoreCmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
     Stage {
         /// Target to prepare (default: all store targets)
-        #[arg(short = 'p', long = "platform")]
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
         target: Option<String>,
     },
 }
@@ -762,11 +712,11 @@ enum NewKind {
 }
 
 #[derive(clap::Subcommand)]
-pub enum AppCmd {
+pub enum ProjectCmd {
     /// Add targets to Day.toml and create their native projects
-    #[command(name = "add-toolkit")]
+    #[command(name = "add-target")]
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
-    AddToolkit {
+    AddTarget {
         /// Targets to add, such as android-mdc (repeatable or comma-separated)
         targets: Vec<String>,
         /// Original project template, if custom (directory or Git URL)
@@ -774,9 +724,9 @@ pub enum AppCmd {
         template: Option<String>,
     },
     /// Move Xcode build settings into DayApp.xcconfig files
-    #[command(name = "split-xcconfig")]
+    #[command(name = "migrate-xcode")]
     #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
-    SplitXcconfig,
+    MigrateXcode,
 }
 
 #[derive(clap::Subcommand)]
@@ -785,31 +735,43 @@ pub enum DevicesCmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     List {
         /// Filter by target: ios-uikit, android-mdc, or harmony-arkui
-        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        #[arg(
+            short = 'p',
+            long = "platform",
+            visible_alias = "target",
+            value_name = "TARGET"
+        )]
         platform: Option<String>,
     },
     /// Start a simulator or emulator
-    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
+    #[command(
+        after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\nID, --device, --os, and --orientation are not supported for this target.\n\nDocs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices"
+    )]
     Boot {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui
-        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        #[arg(
+            short = 'p',
+            long = "platform",
+            visible_alias = "target",
+            value_name = "TARGET"
+        )]
         platform: String,
-        /// Device ID from day devices list; omit when using --device
+        /// Device ID from day devices list (iOS/Android); omit when using --device
         #[arg(value_name = "ID")]
         id: Option<String>,
-        /// Device name prefix or wildcard pattern, such as "iPhone * Pro Max"; newest match wins
+        /// iOS/Android device name or pattern, such as "iPhone * Pro Max"; newest match wins
         #[arg(long, value_name = "NAME", conflicts_with = "id")]
         device: Option<String>,
         /// OS version for --device, such as "iOS 26"; newest matching minor version wins
         #[arg(long, value_name = "VERSION", requires = "device")]
         os: Option<String>,
-        /// Wait for the device to finish booting
+        /// Wait for boot completion (always enabled on OpenHarmony)
         #[arg(long)]
         wait: bool,
-        /// iOS simulator orientation: portrait or landscape
+        /// iOS/Android orientation: portrait or landscape
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
-        /// Hide the Android or iOS emulator window; ignored on OpenHarmony
+        /// Start the emulator without a window
         #[arg(long)]
         headless: bool,
     },
@@ -817,7 +779,12 @@ pub enum DevicesCmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     Shutdown {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui
-        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        #[arg(
+            short = 'p',
+            long = "platform",
+            visible_alias = "target",
+            value_name = "TARGET"
+        )]
         platform: String,
         /// iOS simulator name or UDID, or Android adb serial or AVD name
         #[arg(value_name = "ID")]
@@ -827,7 +794,12 @@ pub enum DevicesCmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     Setup {
         /// Device target (android-mdc only)
-        #[arg(short = 'p', long = "platform", value_name = "TARGET")]
+        #[arg(
+            short = 'p',
+            long = "platform",
+            visible_alias = "target",
+            value_name = "TARGET"
+        )]
         platform: String,
         /// Profile ID from avdmanager list device, such as pixel_7
         #[arg(long, value_name = "PROFILE")]
@@ -856,29 +828,142 @@ pub enum DevicesCmd {
     },
 }
 
-#[derive(clap::Subcommand)]
-pub enum OhosCmd {
-    /// Manage the OpenHarmony emulator
-    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/harmony-arkui/")]
-    Emulator {
-        #[command(subcommand)]
-        cmd: EmulatorCmd,
+#[derive(Subcommand)]
+pub enum IconCmd {
+    /// Build platform icons from an existing source icon
+    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
+    Build {
+        /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
+        master: Option<PathBuf>,
+        /// Targets to build icons for (repeatable; default: all)
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        platforms: Vec<String>,
+    },
+    /// Create a source icon and build its platform icons
+    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
+    New {
+        /// Targets to build icons for (repeatable; default: all)
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        platforms: Vec<String>,
+        /// Integer or text seed (default: random; printed in output)
+        #[arg(long)]
+        seed: Option<String>,
+        /// Allow replacing an existing source icon
+        #[arg(long)]
+        overwrite: bool,
+        /// Write a preview SVG and PNG at this path without changing the project
+        #[arg(long, value_name = "FILE.svg")]
+        out: Option<PathBuf>,
+    },
+    /// Check platform icons without writing files; exit 5 if they differ
+    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
+    Check {
+        /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
+        master: Option<PathBuf>,
+        /// Targets to check (repeatable; default: all)
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        platforms: Vec<String>,
     },
 }
 
-#[derive(clap::Subcommand)]
-pub enum EmulatorCmd {
-    /// Launch the Oniro OpenHarmony emulator
-    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/harmony-arkui/")]
-    Launch {
-        /// Run without a window; connect through hdc
-        #[arg(long)]
-        headless: bool,
+#[derive(Subcommand)]
+pub enum SignCmd {
+    /// Check signing credentials and files without printing secrets
+    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
+    Check,
+    /// Check a notarization submission
+    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
+    Status {
+        /// Notarization submission ID
+        id: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum DoctorCmd {
+    /// Build and package test apps to verify this machine
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#checking-the-machine")]
+    Verify {
+        /// Targets to check (repeatable or comma-separated; default: available host targets)
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        platforms: Vec<String>,
+        /// Build profile for both compilation and packaging
+        #[arg(long, value_enum, default_value = "debug")]
+        profile: Profile,
+        /// Build test apps without packaging them
+        #[arg(long)]
+        no_pack: bool,
+        /// Fail if missing tools prevent checking a target supported by this host
+        #[arg(long)]
+        strict: bool,
+        /// Create test projects in this directory instead of a temporary directory
+        #[arg(long)]
+        dir: Option<PathBuf>,
+        /// Keep the generated test projects
+        #[arg(long)]
+        keep: bool,
+        /// Use Day dependencies from Git (default)
+        #[arg(long)]
+        git: bool,
+        /// Use Day dependencies from crates.io at the selected version
+        #[arg(long)]
+        registry: bool,
+        /// Day version to check: release, latest, branch, or commit (default: this CLI)
+        #[arg(long = "day-version", value_name = "SPEC")]
+        day_version: Option<String>,
+        /// Use Day dependencies from a local checkout
+        #[arg(long, hide = true)]
+        local: Option<PathBuf>,
+    },
+}
+
+// Only membership and order live here. Names, parsing, and command-specific help belong to
+// clap's command tree; the coverage test requires every visible command exactly once.
+const HELP_GROUPS: &[(&str, &[&str])] = &[
+    (
+        "Develop",
+        &["new", "build", "launch", "relaunch", "stop", "open"],
+    ),
+    (
+        "Project",
+        &["project", "prepare", "patch", "metadata", "clean"],
+    ),
+    ("Check", &["doctor", "lint", "rebuild"]),
+    ("Resources", &["icon", "localize"]),
+    ("Distribute", &["pack", "sign", "store"]),
+    ("Devices", &["devices"]),
+    ("Automate", &["drive", "screenshot", "web", "mcp-server"]),
+    ("Reference", &["version", "help"]),
+];
+
+fn command() -> clap::Command {
+    let mut command = Cli::command();
+    command.build();
+    let styles = crate::term::help_styles();
+    let heading = styles.get_header();
+    let literal = styles.get_literal();
+    let mut template =
+        String::from("{before-help}{about-with-newline}\n{usage-heading} {usage}\n\n");
+    for (group, names) in HELP_GROUPS {
+        template.push_str(&format!("{heading}{group:12}{heading:#}"));
+        for (i, name) in names.iter().enumerate() {
+            let subcommand = command.find_subcommand(name).expect("help group command");
+            if i > 0 {
+                template.push_str("  ");
+            }
+            template.push_str(&format!("{literal}{}{literal:#}", subcommand.get_name()));
+        }
+        template.push('\n');
+    }
+    template.push_str(&format!(
+        "\n{heading}Options:{heading:#}\n{{options}}{{after-help}}"
+    ));
+    command.help_template(template)
 }
 
 pub fn run() -> i32 {
-    let mut cli = Cli::parse();
+    let matches = command().get_matches();
+    let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
     // `DAY_VERBOSE` is the environment spelling of the same switch ("1"/"true" = on): an
     // explicit `--verbose` always wins, and the variable covers the invocations a flag cannot
@@ -921,7 +1006,10 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             println!("day {}", env!("DAY_VERSION_LONG"));
             Ok(0)
         }
-        Cmd::Doctor { toolkits } => {
+        Cmd::Doctor {
+            toolkits,
+            cmd: None,
+        } => {
             // Doctor works outside a project too, so external discovery is best-effort: inside a
             // project, declared toolkits join the report; elsewhere (or on a discovery failure)
             // the builtin groups stand alone.
@@ -931,19 +1019,23 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 .unwrap_or(&[]);
             crate::doctor::run(&toolkits, external)
         }
-        // Project-less, like doctor and new: checkup SCAFFOLDS the projects it checks.
-        Cmd::Checkup {
-            platforms,
-            profile,
-            no_pack,
-            strict,
-            dir,
-            keep,
-            git,
-            registry,
-            day_version,
-            local,
-        } => crate::checkup::run(&crate::checkup::Options {
+        // Verification creates its own test projects.
+        Cmd::Doctor {
+            cmd:
+                Some(DoctorCmd::Verify {
+                    platforms,
+                    profile,
+                    no_pack,
+                    strict,
+                    dir,
+                    keep,
+                    git,
+                    registry,
+                    day_version,
+                    local,
+                }),
+            ..
+        } => crate::doctor_verify::run(&crate::doctor_verify::Options {
             platforms,
             profile,
             no_pack,
@@ -1012,27 +1104,17 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             }
             Ok(0)
         }),
-        Cmd::Sign {
-            check,
-            notarize_status,
-        } => with_project(cli.project.as_deref(), |project| {
-            if let Some(id) = &notarize_status {
-                return crate::sign::notarize_status(project, id);
-            }
-            if check {
-                return Ok(crate::sign::check(project));
-            }
-            Err(CliError::usage(
-                "day sign needs --check or --notarize-status <id>",
-            ))
+        Cmd::Sign { cmd } => with_project(cli.project.as_deref(), |project| match cmd {
+            SignCmd::Check => Ok(crate::sign::check(project)),
+            SignCmd::Status { id } => crate::sign::notarize_status(project, &id),
         }),
-        Cmd::App {
-            cmd: AppCmd::AddToolkit { targets, template },
+        Cmd::Project {
+            cmd: ProjectCmd::AddTarget { targets, template },
         } => with_project(cli.project.as_deref(), |project| {
-            crate::new::add_toolkit(project, &targets, template.as_deref()).map(|()| 0)
+            crate::new::add_target(project, &targets, template.as_deref()).map(|()| 0)
         }),
-        Cmd::App {
-            cmd: AppCmd::SplitXcconfig,
+        Cmd::Project {
+            cmd: ProjectCmd::MigrateXcode,
         } => with_project(cli.project.as_deref(), |project| {
             for platform in ["ios", "macos"] {
                 crate::xcconfig::ensure_split(project, platform).map_err(CliError::failure)?;
@@ -1268,14 +1350,6 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 density,
             },
         ),
-        Cmd::Ohos {
-            cmd:
-                OhosCmd::Emulator {
-                    cmd: EmulatorCmd::Launch { headless },
-                },
-        } => crate::ohos::emulator_launch(headless)
-            .map(|()| 0)
-            .map_err(CliError::script),
         Cmd::XcodeBackend { action } => match action.as_str() {
             "build" => crate::mobile::xcode_backend_build().map(|()| 0),
             "stage-resources" => crate::mobile::xcode_backend_stage_resources().map(|()| 0),
@@ -1384,19 +1458,24 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             )
             .map(|()| 0),
         },
-        Cmd::Icon {
-            master,
-            check,
-            platforms,
-            generate,
-            seed,
-            overwrite,
-            out,
-        } => {
-            let seed_value = generate.then(|| crate::icon::resolve_seed(seed.as_deref()));
+        Cmd::Icon { cmd } => {
+            let (master, check, platforms, seed, overwrite, out) = match cmd {
+                IconCmd::Build { master, platforms } => {
+                    (master, false, platforms, None, false, None)
+                }
+                IconCmd::Check { master, platforms } => {
+                    (master, true, platforms, None, false, None)
+                }
+                IconCmd::New {
+                    platforms,
+                    seed,
+                    overwrite,
+                    out,
+                } => (None, false, platforms, Some(seed), overwrite, out),
+            };
+            let seed_value = seed.map(|seed| crate::icon::resolve_seed(seed.as_deref()));
             // Preview mode stands alone: an SVG+PNG pair at the given path, no project.
-            if let (true, Some(path)) = (generate, out.as_ref()) {
-                let seed_value = seed_value.unwrap_or_default();
+            if let (Some(seed_value), Some(path)) = (seed_value, out.as_ref()) {
                 crate::icon::generate_preview(path, seed_value).map_err(CliError::build)?;
                 crate::ops::status(
                     "Generated",
@@ -2231,6 +2310,112 @@ fn capture_matrix(
 #[cfg(test)]
 mod error_tests {
     use super::*;
+
+    #[test]
+    fn grouped_help_covers_the_public_command_tree_once() {
+        let mut tree = command().term_width(100);
+        tree.clone().debug_assert();
+        let mut public: Vec<_> = tree
+            .get_subcommands()
+            .filter(|cmd| !cmd.is_hide_set())
+            .map(|cmd| cmd.get_name())
+            .collect();
+        let mut grouped: Vec<_> = HELP_GROUPS
+            .iter()
+            .flat_map(|(_, names)| names.iter().copied())
+            .collect();
+        public.sort_unstable();
+        grouped.sort_unstable();
+        assert_eq!(public, grouped);
+        let help = tree.render_help().to_string();
+        assert!(help.lines().count() <= 40, "{help}");
+        assert!(
+            help.lines().all(|line| line.chars().count() <= 100),
+            "{help}"
+        );
+        for args in [
+            vec!["day", "help"],
+            vec!["day", "help", "icon", "new"],
+            vec!["day", "doctor", "verify", "--help"],
+        ] {
+            let error = command().try_get_matches_from(args).unwrap_err();
+            assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+        }
+    }
+
+    #[test]
+    fn nested_commands_have_only_their_documented_spellings() {
+        let tree = command();
+        for (name, expected) in [
+            ("project", vec!["add-target", "migrate-xcode"]),
+            ("icon", vec!["build", "new", "check"]),
+            ("sign", vec!["check", "status"]),
+            ("doctor", vec!["verify"]),
+        ] {
+            let parent = tree.find_subcommand(name).unwrap();
+            assert_eq!(parent.get_all_aliases().count(), 0);
+            let children: Vec<_> = parent
+                .get_subcommands()
+                .filter(|cmd| cmd.get_name() != "help")
+                .collect();
+            assert_eq!(
+                children
+                    .iter()
+                    .map(|cmd| cmd.get_name())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            for child in children {
+                assert_eq!(child.get_all_aliases().count(), 0);
+            }
+        }
+        for args in [
+            vec!["day", "project", "add-target", "android-mdc"],
+            vec!["day", "project", "migrate-xcode"],
+            vec!["day", "icon", "build", "source.svg", "--target", "web-dom"],
+            vec![
+                "day",
+                "icon",
+                "new",
+                "--seed",
+                "sunrise",
+                "--out",
+                "preview.svg",
+            ],
+            vec!["day", "icon", "check", "-p", "web-dom"],
+            vec!["day", "sign", "check"],
+            vec!["day", "sign", "status", "submission-id"],
+            vec!["day", "doctor"],
+            vec!["day", "doctor", "--toolkit", "dom"],
+            vec![
+                "day",
+                "doctor",
+                "verify",
+                "--target",
+                "web-dom",
+                "--no-pack",
+            ],
+            vec![
+                "day",
+                "devices",
+                "boot",
+                "-p",
+                "harmony-arkui",
+                "--headless",
+                "--wait",
+            ],
+        ] {
+            Cli::try_parse_from(&args).unwrap_or_else(|error| panic!("{args:?}: {error}"));
+        }
+        for args in [
+            vec!["day", "icon"],
+            vec!["day", "sign"],
+            vec!["day", "project"],
+            vec!["day", "icon", "build", "--seed", "1"],
+        ] {
+            assert!(Cli::try_parse_from(&args).is_err(), "{args:?}");
+        }
+    }
 
     /// The exit-code contract, one assertion per kind. These numbers are frozen (CI
     /// walkthroughs assert them), so a change here is a breaking change, not a refactor.

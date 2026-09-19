@@ -242,7 +242,7 @@ pieces beside `index.html`:
   display mode, the theme and background colors, and the icons. Every URL in it is relative
   (`./`, `icons/…`), so the one file serves from a Pages root, a project subpath, or a project
   site's `webapp/` directory, and its `id` is the resolved start URL wherever it lands.
-- **`icons/icon-{64,192,512}.png`** — from the png family `day icon` renders; 192 and 512 are
+- **`icons/icon-{64,192,512}.png`** — from the png family `day icon build` renders; 192 and 512 are
   the sizes an install needs, and the 512 doubles as the maskable icon since the master's
   background layer fills the square. A project without an icon master ships no icons and the
   manifest lists none.

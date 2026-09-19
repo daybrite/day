@@ -842,7 +842,7 @@ pub fn build_ohos(
     if !harmony.join("build-profile.json5").exists() {
         return Err(format!(
             "harmony-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/harmony/` \
-             hvigor project, the one `day new` scaffolds (`day app add-toolkit harmony-arkui`). See \
+             hvigor project, the one `day new` scaffolds (`day project add-target harmony-arkui`). See \
              docs/harmonyos.md.",
             harmony.display()
         ));
@@ -1162,7 +1162,7 @@ pub fn launch_ohos(
             ),
             None => format!(
                 "no OpenHarmony target reachable (hdc). Boot an emulator \
-                 (`day ohos emulator launch`) or attach a device; the default connect key is {}.",
+                 (`day devices boot -p harmony-arkui`) or attach a device; the default connect key is {}.",
                 ohos_target()
             ),
         });

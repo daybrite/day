@@ -255,7 +255,7 @@ A simulator build can succeed while a device build or release package fails to s
 project directory, check the signing configuration:
 
 ```bash
-day sign --check
+day sign check
 ```
 
 This checks whether configured environment variables and files can be resolved. It does not

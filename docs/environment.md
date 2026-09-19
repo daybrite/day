@@ -84,7 +84,7 @@ the affected script instead of keeping stale results.
 | `DAY_SELF_COMMAND` | How `day mcp-server` re-invokes the CLI for each tool call, as a JSON array of argv[0] plus any leading arguments (`["cargo","run","--manifest-path","…/Cargo.toml","-q","-p","day-cli","--"]`). Unset, a tool call runs the server's own executable. The VS Code extension sets it when `day.cliSource` points at a day checkout, so an edit to day-cli reaches the agent's tools the same way it already reaches the editor's Build and Run — see [docs/agent.md](agent.md). An unusable value falls back to the default rather than failing every tool |
 | `DAY_SIGN_*`, `DAY_NOTARY_*`, `DAY_ASC_*`, `DAY_KS_PASS`, … | Release-signing secrets referenced from `Day.toml`'s `[signing]` tables via `${VAR}`; resolved at pack time, degrade to the dev signing tier when unset (§20) |
 
-Signing variables are listed exhaustively by `day sign --check`, which reports each platform's
+Signing variables are listed exhaustively by `day sign check`, which reports each platform's
 readiness without printing a secret value.
 
 ## Network

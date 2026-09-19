@@ -195,7 +195,7 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `linux-gtk` | Linux | GTK 4 | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
 | `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
 | `windows-xaml` | Windows | system XAML (XAML Islands in a Win32 host) | shipped; CI-verified (`.msix` + installer) |
-| `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day ohos` emulator helpers ([docs/harmonyos.md](docs/harmonyos.md)) |
+| `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day devices boot -p harmony-arkui` emulator helpers ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `web-dom` | any modern browser | the DOM (semantic HTML + ARIA) | experimental (2026-07); wasm32 cdylib + JS shim, `day launch` dev server ([docs/web.md](docs/web.md)) |
 
 An eighth backend, **`day-mock`**, is headless: it records toolkit ops and answers deterministic
@@ -209,7 +209,7 @@ Because GTK and Qt are themselves portable, the **non-default combinations** `ma
 `macos-qt`, `windows-qt`, and `windows-gtk` are also valid targets — a target is just an
 (OS, toolkit) pair whose toolkit supports that OS. Day's own development loop runs six targets
 on a single macOS host: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit` (Simulator),
-`android-mdc` (emulator), and `harmony-arkui` (cross-compile; emulator via `day ohos`).
+`android-mdc` (emulator), and `harmony-arkui` (cross-compile; emulator via `day devices boot -p harmony-arkui`).
 
 A `day` command-line tool — deliberately modeled on the architecture of `flutter_tools`
 (`flutter/packages/flutter_tools`) — creates, builds, signs, launches, packs, lints, scripts,
@@ -354,7 +354,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-fluent` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-l10n |
 | `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
 | `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
-| `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day prepare`, `day icon --generate`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
+| `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day prepare`, `day icon new`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
 | `day-async` | the std-only async support parts ([docs/async.md](docs/async.md)): a `oneshot` future any executor can await, the `TokenRegistry` a platform completion resolves through, and the process's one timer thread (`schedule`/`unschedule`) — no runtime, no reactor, no pool | — |
 | `day-bridge` | daybridge's runtime half ([§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api), [docs/bridge.md](docs/bridge.md)): the body-discarding `bridge!` macro, `Error`, the re-exported `Support`, the callback tier's `Done<T>`, `Registry<T>` and `Completion<T>`, and the stream tier's `Emit<T>`, `Streams<T>` and `Item<T>` | day-spec, day-async |
@@ -1847,7 +1847,7 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-qt` | `cc`-built C++ shim (`day-qt-sys`) | bare `QWidget` | shipped (Linux + macOS host); headless CI walkthrough |
 | `day-android` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
 | `day-xaml` | C++/WinRT shim (`day-xaml-sys`, cppwinrt-staged headers) | XAML `Canvas` in a `DesktopWindowXamlSource` island | shipped; CI-verified build/walkthrough/pack |
-| `day-arkui` | ArkUI **NDK C API** via a C++ shim (`day-arkui-sys`; `aarch64-unknown-linux-ohos`) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day ohos` ([docs/harmonyos.md](docs/harmonyos.md)) |
+| `day-arkui` | ArkUI **NDK C API** via a C++ shim (`day-arkui-sys`; `aarch64-unknown-linux-ohos`) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day devices boot -p harmony-arkui` ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`crates/day-cli/resources/web/shim.js`, embedded in the CLI; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental ([docs/web.md](docs/web.md)); `day build\|launch -p web-dom` |
 | `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
 
@@ -1941,7 +1941,7 @@ release fits everywhere) — scripted WebKit runs build `--profile release`, as 
 **harmony-arkui — shipped.** The "speculative sketch" bet paid off: ArkUI's C node API
 (`ArkUI_NativeNodeAPI_1`) matched day-spec's shape and the backend is now first-class — full
 walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` packing, and
-`day ohos` emulator helpers. [docs/harmonyos.md](docs/harmonyos.md) is the reference.
+`day devices boot -p harmony-arkui` emulator helpers. [docs/harmonyos.md](docs/harmonyos.md) is the reference.
 
 ---
 
@@ -3247,7 +3247,7 @@ paths are not shown in CLI help.
 > xcodebuild/hvigor/adb/codesign/…, so a build/launch/pack shows the full underlying log;
 > `DAY_VERBOSE=1` in the environment is the same switch, which is how CI turns a whole job
 > verbose — [docs/environment.md](docs/environment.md));
-> `--no-input` exists where prompting exists (`day new`, `day app`). `--yes`/`--color`/`-v`
+> `--no-input` exists where prompting exists (`day new`). `--yes`/`--color`/`-v`
 > (the short alias)/`--log-file` and the full event vocabulary below were not built — the `result`
 > event and stable exit codes were, and `day metadata --json` / `day help` cover machine
 > discovery. The design below remains the target shape for a future `day daemon`.
@@ -3329,10 +3329,27 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 
 ### §16.5 Subcommands
 
+Root help groups commands by task: Develop, Project, Check, Resources, Distribute, Devices,
+Automate, and Reference. The compact list is rendered from clap's command tree; the group map
+only defines membership and order. Tests require every visible command exactly once and at most
+40 lines at 100 columns. Nested help and argument parsing use the same clap definitions.
+`-p`, `--platform`, and `--target` select the same target wherever a platform option is offered.
+
+Command changes update this section, the public CLI reference, scaffold templates, reusable
+workflows, daysite, and day-vscode together. Removed command forms have no aliases or adapters.
+Consumers probe the required command's help and report an actionable update error when the
+installed CLI lacks it; support is determined by capability, not a release number. MCP tool names
+and response schemas remain stable; their CLI calls are covered by executable stdio tests.
+
+`day devices boot -p harmony-arkui [--headless]` starts the configured Oniro image and always
+waits for readiness (`--wait` is accepted). It rejects `ID`, `--device`, `--os`, and `--orientation`
+with usage errors because this image has no corresponding device-selection controls. The
+headless runtime path is exercised in HarmonyOS CI, never by a local emulator test.
+
 > [!IMPORTANT]
 > **Status: shipped, with a different final roster.** Of the designed set, `new`, `build`,
 > `sign`, `launch`, `pack`, `lint`, and `doctor` shipped; `day script` became `--script` on
-> launch plus **`day drive`**; `day clean` and `day config` were not built (machine-local
+> launch plus **`day drive`**; `day clean` removes project build artifacts; `day config` was not built (machine-local
 > settings ride `day doctor`'s guidance + environment variables, [docs/environment.md](docs/environment.md)). The
 > shipped roster (`day --help` is the authority):
 
@@ -3344,10 +3361,11 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day launch -p <target>… [--git <url>[@<ref>]] [--dir <d>] [--day-src <path\|url[@ref]>] [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--capture-size WxH[@S]\|window] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own; `--day-src` swaps the FRAMEWORK for that one run — a checkout or a branch of `day`, patched in without writing anything to the project ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry; `--capture-size` states the pixel size of a scripted run's desktop-class captures for that run, over the `DAY_CAPTURE_SIZE` variable and Day.toml `[screenshots]` (default 2560×1600 at 2×; `window` = the app's own `[window]` size at the display's scale) |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
-| `day sign` | signing utilities; `--check` validates `Day.toml [signing]` without printing secrets; `--notarize-status <id>` |
+| `day sign check` / `day sign status <id>` | validate `Day.toml [signing]` without printing secrets, or query a notarization submission. A subcommand is required |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
-| `day checkup [-p <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-p` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: checkup installs THAT day-cli and pins the app it scaffolds to the same one — what the scheduled `checkup.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
-| `day app` | grow an existing app's platform support: `add-toolkit <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `split-xcconfig` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
+| `day doctor verify [-p <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-p` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: the command installs that day-cli and pins the app it scaffolds to the same one — what the scheduled `doctor-verify.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
+| `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `migrate-xcode` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
+| `day icon build [master]` / `day icon new` / `day icon check [master]` | render platform assets, create a seeded source icon, or check for drift (exit 5). A subcommand is required; `new --out preview.svg` writes a preview without changing a project |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
@@ -3360,7 +3378,6 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
 | `day devices list [-p <target>] [--format json]` | what each mobile target can be launched onto right now: booted simulators and attached iPhones, adb devices and emulators, reachable hdc targets — plus shut-down simulators and defined AVDs under `bootable`. Every device names the FLAG that selects it (`--ios-simulator` and `--ios-device` differ per device), so an editor fills a picker without hard-coding that mapping; a target whose toolchain is missing reports `available: false` with a `note` rather than an empty list, so one absent SDK never blanks out the other two. Needs no project; the JSON envelope is schema-versioned and grow-only like `day metadata`. `day devices boot -p <target> <id>` starts one of the `bootable` entries — `simctl boot` plus the simulator's UI app, which is `Simulator.app` up to Xcode 26 and **Device Hub** from Xcode 27, opened on the device through its URL scheme (`devices://manage/select?id=<udid>`) because it shows nothing without one and does not correct itself once the route is handled, which is why a boot that will open a window waits for the device first; a detached `emulator -avd`, or the Oniro emulator — which is what makes a picker's "nothing running" one action from a device rather than a dead end (iOS cannot install onto a shut-down simulator). Booting an AVD also turns its hardware keyboard on (`hw.keyboard=yes`, announced when it changes anything): `avdmanager` creates AVDs with it off, the emulator has no flag that overrides it, and an emulator with it off silently ignores every key typed on the host — which reads as the app under development swallowing input. `boot` takes `--device`/`--os` (resolved the same way for a simulator: name PREFIX, OS major version), `--wait` (blocks on `sys.boot_completed` for Android, `simctl bootstatus` for iOS — adbd answering is minutes too early), `--headless` (no window: Android gets swiftshader, iOS leaves the simulator's UI app closed, which is what a CI runner with no display wants), and `--orientation portrait\|landscape`. Booting is IDEMPOTENT for Android: an emulator already running that AVD is reused rather than a second one started beside it, and the serial is printed on stdout (status lines go to stderr) so a workflow can capture it. Turning the display asks the WINDOW MANAGER (`cmd window fixed-to-user-rotation` + `user-rotation lock`), not `settings put system user_rotation`, which is only a request the foreground app may refuse — a portrait-locked launcher was measured reverting it while the write reported success; the target rotation is derived from the device's NATURAL orientation, which is landscape on a tablet and portrait on a phone, so the same request means different quarter-turns per device. `day devices shutdown -p <target> <id>` is the other direction, so an editor that can start a device can also give the machine back the gigabytes one holds. iOS hands the id to `simctl shutdown`, which resolves a name as readily as a UDID; Android accepts EITHER spelling of an emulator (the adb serial a listing reports, or the AVD name `boot` takes) because a serial is a console port rather than an identity — it slides when one is taken, and names nothing once the emulator stops — then `adb -s <serial> emu kill` and waits for it to leave `adb devices`, so the next listing describes the machine rather than one on its way out. Stopping something already stopped succeeds, the way booting something already booted does. A physical phone is refused rather than acted on: `emu kill` reaches only an emulator console, and the plausible alternative for real hardware (`adb reboot -p`) powers off a device someone is holding. The OpenHarmony emulator has no stop — it is a detached `qemu-system-x86_64` this command line never recorded, and a by-name match could only kill every QEMU on the machine. A running emulator's listing entry also carries the `avd` it is running (from `adb emu avd name`) and drops out of `bootable`, which is what lets an editor tie a stopped row back to something startable |
 | `day devices setup -p android-mdc --device <profile> --os <api> [--arch] [--tag] [--name] [--orientation] [--ram <MB>]` | create (or refresh) one AVD from a device profile, so CI and a developer stand a device up with the same command instead of the workflow carrying Android SDK trivia. Installs the system image when it is absent (`sdkmanager`), creates the AVD (`avdmanager create avd -d <profile>`), then writes the config that makes it usable — `hw.keyboard=yes`, and `hw.initialOrientation` when an orientation is named. Idempotent: an existing AVD of that name is left alone and only its config is brought up to date, which is what lets CI cache the system image (the slow part, hundreds of megabytes) and rebuild the AVD from it in about a second. `--os` accepts `36`, `API 36` or `android-36`; `--arch` defaults to the host's ABI, since an emulator only runs an image its CPU can execute. Prints the AVD name on stdout, and ONLY that: the SDK tools write progress to stdout, so their output is forwarded to stderr — a CI run captured three minutes of download bars along with the name and passed the whole blob to `--device`. The SDK root is pinned too (`sdkmanager --sdk_root`), and the SDK's own `cmdline-tools` are installed when absent: `avdmanager` takes its root from where the TOOL lives (`-Dcom.android.sdkmanager.toolsdir`) with no flag to override it, so a copy on PATH outside the SDK creates AVDs referencing images the emulator cannot resolve. `ANDROID_AVD_HOME` is pinned for every AVD tool for the same class of reason: `avdmanager` and the `emulator` resolve that directory INDEPENDENTLY from an overlapping set of variables (`ANDROID_USER_HOME`, the older `ANDROID_SDK_HOME`, `$HOME`) and need not agree — a CI runner created an AVD successfully and then reported having none. Listing AVDs unions `avdmanager list avd -c` (authoritative: the tool that created them), `emulator -list-avds` and a scan of every candidate directory, and an EMPTY union is read as "could not be asked" rather than "there are none", so a boot proceeds and lets the emulator give its own diagnosis. `--wait` NARRATES: a line whenever adb\'s view or the boot properties change, a heartbeat every 15s, and every poll under `--verbose`. The emulator\'s own output goes to a log file rather than `/dev/null` (its path printed), the child handle is watched so an emulator that EXITS fails in seconds instead of sitting out the timeout, and both that failure and a timeout quote the log\'s tail — the silent version printed "Waiting …" and then nothing for ten minutes, which is what a hung CI boot looked like. `adb` itself is resolved from `$ANDROID_HOME/platform-tools` before PATH, and the wait refuses to start when it cannot be run at all: a GitHub Linux runner sets `ANDROID_HOME` but does NOT put platform-tools on PATH, so every `adb` call answered "not found" — indistinguishable, to code reading `adb devices`, from a device that has not booted, and a CI boot polled the full ten minutes reporting "adb sees it: no" against an emulator whose own log said `Boot completed in 51826 ms` |
-| `day ohos` | HarmonyOS helpers (emulator management, …; [docs/harmonyos.md](docs/harmonyos.md)) |
 | `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)); the Xcode scaffolds also call `stage-resources` (macOS bundle resources) and `stage-strings` (iOS `[[shortcuts]]` label localizations) |
 
 > [!NOTE]
@@ -3387,7 +3404,7 @@ Which `day` a scaffold depends on is `--day-version` (2026-08): a release pins t
 release becomes the crates.io version instead; a branch has no version to ask for, so that pair is
 refused rather than silently ignored, as is `--day-version` alongside `--local`. Without the flag
 the scaffold takes the remote's default branch, exactly as before. This is what lets one CLI check
-several days — `day checkup --day-version` drives both halves through it.
+several days — `day doctor verify --day-version` drives both halves through it.
 
 > [!NOTE]
 > **`day new --describe` added 2026-08.** The prompts are a terminal conversation, and an editor
@@ -3421,7 +3438,7 @@ assembly for the cargo-driven desktop targets; MSBuild-free cargo + C++/WinRT sh
 statically linked macOS Swift contributions into the cargo binary; those now build inside the
 same xcodebuild run via the generated DayPieces package,
 [§15.2](#152-package-layout-and-aggregation), [docs/swiftui.md](docs/swiftui.md)). The scaffold
-ships by default and an app that predates it adopts it with `day app add-toolkit macos-appkit`
+ships by default and an app that predates it adopts it with `day project add-target macos-appkit`
 — without it, `day build -p macos-appkit` fails with that instruction. The build is a real
 `.app`: bundle identity, compiled appiconset, resources staged into `Contents/Resources` by the
 `day xcode-backend stage-resources` script phase (host-arch by default; `DAY_MACOS_UNIVERSAL=1`
@@ -3441,11 +3458,11 @@ its own, so a simulator or local desktop build signs ad-hoc and a device build t
 from the local file ([docs/project-structure](website/src/content/docs/project-structure.md)).
 Command-line settings still win, a
 fresh checkout builds in the IDE from the committed fallback lines, and `day build` migrates a
-pre-split scaffold in place (also available standalone as `day app split-xcconfig`; an
+pre-split scaffold in place (also available standalone as `day project migrate-xcode`; an
 unrecognized pbxproj degrades to a warning, never a half-edit).
 Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
 
-#### `day prepare`, `day open`, and `day icon`
+#### `day prepare`, `day open`, and `day icon build`
 
 > [!NOTE]
 > **Derived host files left git (2026-09).** Until then every app committed the icon
@@ -3481,10 +3498,10 @@ every build stage Day's Gradle plugins from day-android into `build/day/android/
 same way (§17.4), so Android Studio can sync a fresh clone. `day open -p <target>` prepares, then
 opens the target's host project in its IDE (Xcode, Android Studio, DevEco Studio).
 
-`day icon --generate [--seed <int|string>] [--overwrite] [--out <file.svg>]` writes a seeded
+`day icon new [--seed <int|string>] [--overwrite] [--out <file.svg>]` writes a seeded
 pseudo-random layered master (`day-vector`'s `icongen`) and prepares the outputs from it;
 `--out` is the project-less preview form (SVG + 512 px PNG at the given path). A plain
-`day icon` is `day prepare`. `day new app --icon-seed <seed>` overrides the scaffold's default
+`day icon build` is `day prepare`. `day new app --icon-seed <seed>` overrides the scaffold's default
 (the app id). Engine: `day-vector` (resvg with text shaping off; `<text>` masters are refused
 with an outline hint). Normative: [docs/icons.md](docs/icons.md).
 
@@ -3496,7 +3513,7 @@ manually over an installed App Store profile when one covers the app id (an API 
 Xcode's cloud-managed distribution certificate); windows =
 self-signed dev flow. Config in `Day.toml [signing]` with env-var interpolation — an unset
 variable degrades that section to the dev tier LOUDLY (ad-hoc / debug keystore / self-signed),
-it never fails the pack; `day sign --check` reports readiness without printing any secret.
+it never fails the pack; `day sign check` reports readiness without printing any secret.
 
 #### `day launch`
 
@@ -3684,18 +3701,18 @@ JSON on stdout — which is the shape agents need (act, observe, decide, repeat)
 Shipped as designed: per-toolkit workflows (`applicable? functional? missing?`) power both the
 report and actionable failures; `day doctor --json` for agents. The toolchain knowledge lives
 in `day-toolchain`, shared with the build scripts. Each probe declares what its absence blocks —
-build, packaging, or launch — and only a BUILD miss is ever an error; `day checkup` reads the same
+build, packaging, or launch — and only a BUILD miss is ever an error; `day doctor verify` reads the same
 classification to decide what it can build and what it can package.
 
-#### `day checkup`
+#### `day doctor verify`
 
 > [!NOTE]
-> **Added 2026-08.** `day checkup` moved the scheduled install workflow's YAML — focused doctor,
+> **Added 2026-08.** `day doctor verify` moved the scheduled install workflow's YAML — focused doctor,
 > `day new`, `day build` — into the CLI, and added the packaging step and `--day-version`.
-> `checkup.yml` is now one step per cell of a combo × day-version matrix
+> `doctor-verify.yml` is now one step per cell of a combo × day-version matrix
 > ([§20](#20-continuous-integration)).
 
-`day checkup [-p <target>…]` answers "can this machine take a user from `day new` to a shippable
+`day doctor verify [-p <target>…]` answers "can this machine take a user from `day new` to a shippable
 artifact?" for each platform-toolkit combo. It runs the doctor probes first and stops if they fail,
 then per combo: scaffold a throwaway app into a temporary directory, `day build` it, and `day pack`
 it — reporting the build time and the packaged artifact's size for each, on the console, in the
@@ -3708,7 +3725,7 @@ commands, so that is what runs. One scaffold per combo, not one shared
 multi-target project — the single-target scaffold path (`template::filter_for_targets`) is the one
 that broke silently when `harmony-arkui` was renamed.
 
-With no `-p`, checkup takes every combo this host can build whose BUILD prerequisites are present
+With no `-p`, `day doctor verify` selects every combo this host can build whose BUILD prerequisites are present
 and reports the rest as skips carrying doctor's own fix lines (experimental targets stay out unless
 named). With `-p`, the caller asserts the combos work here: their toolkits are checked in FOCUSED
 doctor mode, so a missing prerequisite is an error before anything is scaffolded. A missing
@@ -3723,7 +3740,7 @@ The CLI is `cargo install`ed into the run's scratch directory (skipped when the 
 already that version, which is what makes the `latest` cells cheap); the scaffold is pinned through
 `day new --day-version`, as a git tag for a release and a branch/rev otherwise, since the framework
 crates are not on crates.io yet. A CLI that predates `day new --day-version` cannot pin its
-scaffold, so checkup refuses it by name rather than building against the remote's default branch
+scaffold, so `day doctor verify` refuses it by name rather than building against the remote's default branch
 and reporting the result as that release. Omitting the flag checks the running binary with
 `day new`'s own defaults.
 
@@ -4273,7 +4290,7 @@ day/                                # THIS repository
                                     #   internal reference (scripts/website.sh builds it)
   scripts/                          # CI + release helpers (screenshot validation, duty matrix,
                                     #   installer packaging, API-docs build, website.sh)
-  .github/workflows/                # ci.yml (build/test/e2e/pack/release), checkup.yml
+  .github/workflows/                # ci.yml (build/test/e2e/pack/release), doctor-verify.yml
 ```
 
 Scaffold templates are embedded in `day-cli` (no `templates/` tree); the sample apps the design
@@ -4294,8 +4311,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 
 > [!IMPORTANT]
 > **Status: shipped, consolidated.** Instead of the designed four workflows, one `ci.yml`
-> carries the whole build pipeline, plus `checkup.yml` (scheduled end-user install checks — one
-> `day checkup -p <combo> --day-version <v> --strict --dir "<runner temp>/Day Project Root"` per
+> carries the whole build pipeline, plus `doctor-verify.yml` (scheduled end-user install checks — one
+> `day doctor verify -p <combo> --day-version <v> --strict --dir "<runner temp>/Day Project Root"` per
 > cell of an 11-combo × 2-version matrix, scaffolding under a directory whose name contains a space,
 > `main` and `latest`, [§16.5](#165-subcommands); it was `install.yml` until 2026-08, when the
 > doctor/new/build steps moved into the CLI and packaging and the version axis joined them) and

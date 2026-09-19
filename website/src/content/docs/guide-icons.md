@@ -20,7 +20,7 @@ build outputs.
 ## App icon source
 
 The scaffold includes `resource/icons/icon.svg`. Replacing that file sets the app icon.
-`day icon` can also take an explicit source path; otherwise it searches for `icon.svg`,
+`day icon build` can also take an explicit source path; otherwise it searches for `icon.svg`,
 `day-icon.svg`, then `icon.png` in `resource/icons/`.
 
 An SVG master can mark top-level elements as semantic layers by id:
@@ -36,7 +36,7 @@ formats. An unlayered SVG or PNG supplies the legacy formats and becomes the ada
 over a derived background color. Text must be converted to outlines; see
 [rendering limits](#rendering-limits).
 
-For temporary artwork, `day icon --generate` creates a layered icon. `--seed <int|string>` repeats
+For temporary artwork, `day icon new` creates a layered icon. `--seed <int|string>` repeats
 a design, and `--out preview.svg` saves a preview without requiring a project.
 
 <span id="2-run-day-prepare"></span>

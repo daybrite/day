@@ -379,7 +379,7 @@ pub struct BootSpec<'a> {
     /// Starts the Android emulator without one. On iOS it stops the boot from opening the
     /// simulator's UI app, which is what a runner wants: there is no display to put it on, and
     /// asking for one is how "Unable to find application named 'Simulator'" got into CI logs.
-    /// The OpenHarmony emulator has no equivalent and ignores it.
+    /// On OpenHarmony it selects QEMU's headless mode.
     pub headless: bool,
 }
 
@@ -806,17 +806,33 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             Ok(0)
         }
         TargetKind::HarmonyOs => {
-            // One bundled image rather than a list, so the id is advisory; `emulator_launch` owns
-            // the QEMU command line and the port slide.
-            crate::ohos::emulator_launch(false)
+            let headless = harmony_boot_options(spec)?;
+            // Oniro has one configured image; the launcher always waits for boot readiness.
+            crate::ohos::emulator_launch(headless)
                 .map(|()| 0)
-                .map_err(CliError::failure)
+                .map_err(CliError::script)
         }
         _ => Err(CliError::usage(format!(
             "{target} has no device to boot — `day devices` covers {}",
             MOBILE.join(", ")
         ))),
     }
+}
+
+fn harmony_boot_options(spec: &BootSpec<'_>) -> Result<bool, CliError> {
+    for (option, value) in [
+        ("ID", spec.id),
+        ("--device", spec.device),
+        ("--os", spec.os),
+        ("--orientation", spec.orientation),
+    ] {
+        if value.is_some() {
+            return Err(CliError::usage(format!(
+                "{option} is not supported for harmony-arkui: Oniro uses one configured emulator image"
+            )));
+        }
+    }
+    Ok(spec.headless)
 }
 
 /// `day devices shutdown`: stop a running simulator or emulator, the other half of `boot`.
@@ -2339,7 +2355,7 @@ fn ohos() -> Report {
         available: true,
         note: None,
         devices,
-        // The bundled Oniro emulator is started by `day ohos emulator launch` rather than picked
+        // The bundled Oniro emulator is started by `day devices boot -p harmony-arkui` rather than picked
         // from a list of images, so there is nothing to enumerate here yet.
         bootable: Vec::new(),
     }
@@ -2347,6 +2363,52 @@ fn ohos() -> Report {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn harmony_boot_supports_headless_and_always_waits() {
+        for headless in [false, true] {
+            for wait in [false, true] {
+                let spec = super::BootSpec {
+                    id: None,
+                    device: None,
+                    os: None,
+                    wait,
+                    orientation: None,
+                    headless,
+                };
+                assert_eq!(super::harmony_boot_options(&spec).unwrap(), headless);
+            }
+        }
+    }
+
+    #[test]
+    fn harmony_boot_rejects_device_selection_before_starting_an_emulator() {
+        for option in ["ID", "--device", "--os", "--orientation"] {
+            let mut spec = super::BootSpec {
+                id: None,
+                device: None,
+                os: None,
+                wait: false,
+                orientation: None,
+                headless: true,
+            };
+            match option {
+                "ID" => spec.id = Some("emulator"),
+                "--device" => spec.device = Some("emulator"),
+                "--os" => spec.os = Some("6"),
+                "--orientation" => spec.orientation = Some("landscape"),
+                _ => unreachable!(),
+            }
+            let error = super::boot("harmony-arkui", &spec).unwrap_err();
+            assert_eq!(error.exit_code(), 2);
+            assert!(error.to_string().contains(option));
+            assert!(
+                error
+                    .to_string()
+                    .contains("not supported for harmony-arkui")
+            );
+        }
+    }
+
     #[test]
     fn simulator_ui_follows_what_the_xcode_ships() {
         use super::{SimulatorUi, simulator_ui_in};

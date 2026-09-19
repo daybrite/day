@@ -16,26 +16,33 @@ project settings they use.
 
 ## The commands
 
+`day --help` groups commands by task. Use `day help <command>` for its options and subcommands,
+for example `day help icon new`. A target flag accepts `-p`, `--platform`, or `--target`.
+`icon`, `sign`, and `project` require a subcommand; bare `day doctor` runs quick toolchain checks.
+`day doctor verify` builds and packages test apps and can take several minutes.
+
 ```bash
 day new                      # interactive: scaffold an app, a piece, or a part
 day new app my-app           # scaffold a new app non-interactively (--no-website to skip the site config)
-day app add-toolkit android-mdc   # add a target to an existing app
+day project add-target android-mdc   # add a target to an existing app
 day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
 day prepare                  # render the derived host files (icon catalogs, mipmaps) under build/day/host (--check: CI gate)
 day open -p <target>         # prepare, then open the host project in Xcode / Android Studio / DevEco
-day icon --generate          # write a seeded master icon to resource/icons/icon.svg (--check: CI drift gate)
+day icon build              # render platform icons from the source icon
+day icon new                # create a seeded source icon and render its platform icons
+day icon check              # check for icon drift without writing files (exit 5)
 day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day launch  --git <url>      # clone a repository and run the app in it — no checkout needed
 day launch  --day-src <path|url>  # run this app against another day, for one build
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
-day sign    --check          # report release-signing readiness without printing secrets
+day sign check              # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
 day lint                     # check ids, Fluent coverage, project shape (--fix applies what it can)
 day devices list             # simulators, emulators and phones a mobile target can launch onto
 day devices boot -p ios-uikit <id>  # start a simulator/AVD so it can be launched onto
 day doctor                   # check toolchains for every target
-day checkup                  # doctor, then scaffold + build + pack a throwaway app per target
+day doctor verify           # doctor, then scaffold + build + pack a throwaway app per target
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
 day clean                    # remove all build artifacts (build/, target/, gradle/hvigor outputs); --dry-run lists them
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
@@ -105,11 +112,20 @@ becomes `.gitignore`, non-UTF-8 files (icons) copy verbatim, and an unknown `{{p
 is an error rather than silent empty output. Files under `platform/<os>/` belong to that OS's
 targets and are only scaffolded for targets that need them.
 
-Add a platform later with **`day app add-toolkit <target>`** (repeatable / comma-separated):
+Add a platform later with **`day project add-target <target>`** (repeatable / comma-separated):
 it appends the target to `Day.toml`'s `[app] targets` array (via toml_edit, so your comments
 and formatting survive) and materializes the target's native host project (`platform/android/`,
 `platform/ios/`, `platform/ohos/`) from the same template, never overwriting existing files.
 Pass the same `--template` the app was created with if it wasn't the built-in one.
+`day project migrate-xcode` moves Xcode build settings into `DayApp.xcconfig` files without
+building the app. `day build` also performs this migration when needed.
+
+Use `day sign check` to check signing configuration, or `day sign status <id>` to query a
+notarization submission. See [signing configuration](/docs/packaging#signing-configuration).
+
+CI and editor integrations check for the commands they need. If a command is unavailable,
+update the CLI from the same Day checkout or Git revision as the integration. Metadata JSON
+and MCP tool names remain stable.
 
 ### Running a repository directly
 
@@ -233,6 +249,11 @@ A scripted run captures the desktop toolkits and the web build at 2560×1600 pix
 `[window]` size ([capture size](/docs/dayscript#capture-size)).
 
 ### Simulators, emulators, and devices
+
+For HarmonyOS, run `day devices boot -p harmony-arkui --headless` to start the configured
+Oniro image without a window. It always waits for boot readiness, so `--wait` is accepted but
+unnecessary. `ID`, `--device`, `--os`, and `--orientation` are rejected for this target.
+
 
 Without a device flag, a launch goes to every runtime of that kind it can see: every booted iOS
 simulator, every connected Android device and emulator. That suits a capture sweep. To target one
@@ -388,16 +409,16 @@ Installing works on a locked phone; launching does not.
 
 ## Checking the machine
 
-`day doctor` reports what each toolkit needs and what's missing. `day checkup` tests the answer by
+`day doctor` reports what each toolkit needs and what's missing. `day doctor verify` tests the answer by
 doing the work: it runs the doctor checks, then for every target this machine supports it scaffolds
 a throwaway app in a temporary directory, builds it, and packages it. Each target's build time and
 packaged size are printed at the end.
 
 ```bash
-day checkup                                   # every target this machine can build
-day checkup -p ios-uikit,macos-appkit         # only these
-day checkup --no-pack --profile release       # stop after the build; use the release profile
-day checkup --day-version 0.2.0               # check that release, not the CLI you have
+day doctor verify                                   # every target this machine can build
+day doctor verify -p ios-uikit,macos-appkit         # only these
+day doctor verify --no-pack --profile release       # stop after the build; use the release profile
+day doctor verify --day-version 0.2.0               # check that release, not the CLI you have
 ```
 
 Run it with no arguments and a target whose prerequisites are missing is skipped, with the same fix
@@ -412,18 +433,18 @@ The scaffolded projects are deleted at the end unless you pass `--keep`.
 
 ### Checking a specific version of Day
 
-`--day-version` picks which Day the checkup is about. It sets both halves (the `day` CLI that
+`--day-version` picks which Day to verify. It sets both halves (the `day` CLI that
 scaffolds, builds, and packs, and the `day` your app depends on), so you never test one against the
 other:
 
 ```bash
-day checkup --day-version main       # the main branch on GitHub
-day checkup --day-version 0.2.0      # that release
-day checkup --day-version latest     # the newest release on crates.io
-day checkup --day-version a1b2c3d    # that commit
+day doctor verify --day-version main       # the main branch on GitHub
+day doctor verify --day-version 0.2.0      # that release
+day doctor verify --day-version latest     # the newest release on crates.io
+day doctor verify --day-version a1b2c3d    # that commit
 ```
 
-Unless the CLI you're running is already the version you named, checkup installs it into the run's
+Unless the CLI you're running is already the version you named, the command installs it into the run's
 temporary directory (`cargo install`), so nothing on your PATH changes. The same spec goes to
 `day new --day-version`, which is available on its own if you only want to pin a project:
 

@@ -1,9 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day sign` v0 (DESIGN.md §16.5): `--check` validates the presence and resolvability of the
+//! `day sign check` (DESIGN.md §16.5) validates the presence and resolvability of the
 //! Day.toml `signing:` configuration (env vars set, referenced files exist) without ever printing
-//! a secret value; `--notarize-status <id>` polls an async notarytool submission. Actual signing
+//! a secret value; `day sign status <id>` polls an async notarytool submission. Actual signing
 //! runs inside `day pack` (the per-format modules in pack/).
 
 use std::path::Path;
@@ -20,7 +20,7 @@ struct Check {
     problems: Vec<String>,
 }
 
-/// `day sign --check`: exit 0 when every configured section resolves; 6 when any fails (§16.3).
+/// `day sign check`: exit 0 when every configured section resolves; 6 when any fails (§16.3).
 /// The per-section report prints either way, so the verdict is a code, not an `error:` line;
 /// the number itself comes from the kind→code map in cli.rs.
 pub fn check(project: &Project) -> i32 {
@@ -223,7 +223,7 @@ pub fn check(project: &Project) -> i32 {
     }
 }
 
-/// `day sign --notarize-status <id>`: the async-CI half of `pack --no-wait` (§16.5). The Ok
+/// `day sign status <id>`: the async-CI half of `pack --no-wait` (§16.5). The Ok
 /// value is notarytool's verdict code (0 or the signing exit code); config errors are typed.
 pub fn notarize_status(project: &Project, id: &str) -> Result<i32, crate::cli::CliError> {
     let Some(n) = project

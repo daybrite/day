@@ -256,7 +256,7 @@ day launch  -p <target> --record s.yaml   # record your manual session as a repl
 day pack    -p <target>               # installable artifact (.dmg / .ipa / .aab / .hap / flatpak / installer)
 day lint                              # ids, Fluent coverage, project shape
 day doctor                            # toolchains per target
-day checkup [-p <target>,…]           # doctor, then scaffold + build + pack a throwaway app per target
+day doctor verify [-p <target>,…]           # doctor, then scaffold + build + pack a throwaway app per target
 #   --day-version <main|x.y.z|latest>  checks that Day: installs its CLI and pins the scaffold to it
 day relaunch --all-running            # stop + rebuild + relaunch — "apply my changes"
 day stop --all                        # stop every recorded session

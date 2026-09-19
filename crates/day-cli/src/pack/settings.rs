@@ -104,7 +104,7 @@ pub fn interpolate_full(raw: &str) -> Result<String, InterpolateError> {
     Ok(out)
 }
 
-/// String-error variant for callers that treat every failure alike (`day sign --check`).
+/// String-error variant for callers that treat every failure alike (`day sign check`).
 pub fn interpolate(raw: &str) -> Result<String, String> {
     interpolate_full(raw).map_err(|e| e.message())
 }

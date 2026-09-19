@@ -96,7 +96,7 @@
         },
         "targets": {
           "type": "array",
-          "description": "The platform-toolkit combos this app ships on (`day app add-toolkit` appends here).",
+          "description": "The platform-toolkit combos this app ships on (`day project add-target` appends here).",
           "items": {
             "type": "string",
             "examples": [
@@ -179,7 +179,7 @@
     },
     "signing": {
       "type": "object",
-      "description": "Release-signing configuration per platform (docs/signing.md). `day sign --check` validates it.",
+      "description": "Release-signing configuration per platform (docs/signing.md). `day sign check` validates it.",
       "properties": {
         "macos": {
           "type": "object",

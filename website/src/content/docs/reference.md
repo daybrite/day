@@ -62,7 +62,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [vectors](/docs/internal/vectors) | resolution-independent SVG glyphs and the `vector` piece |
 | [images](/docs/internal/images) | raster images from bytes: decode, draw, read, and write back out |
 | [color](/docs/internal/color) | the `Color`/`Paint` currency, what a native picker returns, and a proposal to widen it |
-| [icons](/docs/internal/icons) | `day icon`: every platform's app-icon set from one master |
+| [icons](/docs/internal/icons) | `day icon build`: every platform's app-icon set from one master |
 | [drag-and-drop](/docs/internal/drag-and-drop) | native data transfer within and between applications |
 | [drag-and-drop-plan](/docs/internal/drag-and-drop-plan) | transfer architecture, platform constraints, and implementation plan |
 | [files](/docs/internal/files) | file I/O and platform paths |

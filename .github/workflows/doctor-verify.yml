@@ -1,40 +1,36 @@
-# checkup: daily end-to-end check of the user path on every platform-toolkit combo and day version.
+# doctor-verify: daily end-to-end check of the user path on every platform-toolkit combo and day version.
 #
 # Each job does what a new user on a stock machine would: `cargo install day-cli` (from crates.io,
 # with the runner's preinstalled Rust), install that combo's toolkit prerequisites, and run
-# `day checkup -p <combo> --day-version <v> --strict`, one command that checks the environment (a
+# `day doctor verify -p <combo> --day-version <v> --strict`, one command that checks the environment (a
 # focused `day doctor`, whose checks are errors, so passing means the prerequisites really are
 # complete), scaffolds an app with `day new`, builds it, and packages it. It catches a broken or
 # yanked release, a dependency that stopped compiling, a scaffold that drifted from the API, and
 # OS-specific regressions before users hit them.
 #
 # Two axes, crossed: 11 combos × 2 day versions.
-#   main:     checkup installs day-cli from the git remote's main branch and scaffolds against it.
+#   main:     doctor-verify installs day-cli from the git remote's main branch and scaffolds against it.
 #             A regression is reported the day it lands, not at the next release.
 #   latest:   the newest day-cli published to crates.io, what a user who installs today gets. The
-#             CLI installed above is already that version, so checkup skips the second install
+#             CLI installed above is already that version, so doctor-verify skips the second install
 #             and runs it.
 # The day under test decides both halves (the CLI that scaffolds/builds/packs, and the `day`
 # dependency the scaffold carries), so a job can never test one against the other.
 #
-# `--strict` is why a broken prerequisite still fails the job: without it, checkup would skip the
+# `--strict` is why a broken prerequisite still fails the job: without it, doctor-verify would skip the
 # combo it can no longer build and report success. The per-combo matrix is kept (rather than one
-# `day checkup` per runner) so every combo reports its own red or green cell.
+# `day doctor verify` per runner) so every combo reports its own red or green cell.
 #
-# The job summary carries each combo's build time and packaged artifact size: `day checkup` writes
+# The job summary carries each combo's build time and packaged artifact size: `day doctor verify` writes
 # that table to $GITHUB_STEP_SUMMARY itself.
 #
-# NOTE: `day checkup` and `day new --day-version` are newer than the published CLI. Until a day-cli
-# release carrying them reaches crates.io, every job here fails at the `day checkup` step with
-# "unrecognized subcommand". That is expected, and it clears with that release (the same lag
-# install.yml's scaffold jobs had). Both axes clear at that same moment: `latest` because the CLI
-# installed above is then that release, and `main` because those cells only need a driver that has
-# `checkup`: the day-cli they install from main already carries the pin.
+# Probe the installed CLI's capabilities before provisioning the target SDK. An older CLI fails
+# with an update instruction instead of spending the job on setup and then failing to parse.
 #
 # NOTE: scaffolds take their `day` dependency from the git remote (a tag for a release, a branch
 # for `main`) because the framework crates are not yet published to crates.io. Once they are,
 # `--day-version <x.y.z>` can pair with `--registry` for the pure crates.io path.
-name: checkup
+name: doctor-verify
 
 on:
   # Twice daily (UTC) rather than the four times install.yml ran: a cell now packages as well as
@@ -55,7 +51,7 @@ env:
   DAY_VERBOSE: "1"
 
 jobs:
-  checkup:
+  doctor-verify:
     name: ${{ matrix.combo }} · day ${{ matrix.day-version }}
     strategy:
       fail-fast: false # report every combo independently; one break shouldn't hide the others
@@ -102,6 +98,12 @@ jobs:
       # fine with the default msvc toolchain on the runner.
       - name: cargo install day-cli
         run: cargo install day-cli
+      - name: Require the verification command
+        run: |
+          if ! day doctor verify --help >/dev/null 2>&1; then
+            echo "::error::The installed day CLI lacks 'doctor verify'. Install a CLI built from the current day revision."
+            exit 1
+          fi
 
       # --- everything this combo needs, in one step ----------------------------------------
       # The toolkit's dev libraries, the Rust std for its cross-compile, the SDK a mobile target
@@ -111,7 +113,7 @@ jobs:
       #
       # `java: false` because this workflow's claim is "what a new user on a stock machine
       # gets", and pinning a JDK it would not have weakens that. Day accepts 17+, which every
-      # runner image already has. `extras: false` for the same reason: checkup builds and packs
+      # runner image already has. `extras: false` for the same reason: doctor-verify builds and packs
       # a scaffolded app, it runs no walkthrough, so it needs no display or screenshot tools.
       - name: Set up ${{ matrix.combo }} dependencies
         uses: daybrite/actions/.github/actions/setup-day-deps@main
@@ -122,16 +124,16 @@ jobs:
           java: false
 
       # --- the check: doctor → new → build → pack, for this combo --------------------------
-      # `--day-version` decides both halves of what is under test: checkup installs that day-cli
+      # `--day-version` decides both halves of what is under test: doctor-verify installs that day-cli
       # (skipping the install when the CLI above is already that version: the `latest` cells) and
       # pins the app it scaffolds to the same day. The scaffold goes under `--dir`, a directory in
       # the runner's temp dir whose name holds a space, so new → build → pack (and the CLI install
-      # checkup puts in the same root) all run against a path containing one. Checkup removes each
+      # doctor-verify puts in the same root) all run against a path containing one. Doctor verification removes each
       # combo's project as it finishes; the run's build time and packaged artifact size land in the
       # job summary. `runner.temp` rather than `$RUNNER_TEMP`: the Windows legs run PowerShell.
       #
-      # --profile release, not checkup's own debug default: the sizes then describe what users
+      # --profile release, not doctor-verify's own debug default: the sizes then describe what users
       # actually download, and release is where the full format set exists (`day pack` builds the
       # Play .aab only for release, so a debug run would leave that pipeline unchecked).
-      - name: day checkup -p ${{ matrix.combo }} (day ${{ matrix.day-version }})
-        run: day checkup -p ${{ matrix.combo }} --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"
+      - name: day doctor verify -p ${{ matrix.combo }} (day ${{ matrix.day-version }})
+        run: day doctor verify -p ${{ matrix.combo }} --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"

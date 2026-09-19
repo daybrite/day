@@ -33,7 +33,7 @@ pub struct Manifest {
     pub screenshots: Screenshots,
     /// Code-signing / notarization configuration (§16.5, §17.3). Values may reference environment
     /// variables as `${VAR}`, resolved at use time (see `pack::settings::interpolate`), never at
-    /// parse time, so `day sign --check` can report missing variables without failing the parse.
+    /// parse time, so `day sign check` can report missing variables without failing the parse.
     #[serde(default)]
     pub signing: Option<Signing>,
     /// Native app sandbox policy, applied to development builds as well as packages.
@@ -602,7 +602,7 @@ pub struct App {
     /// Monotonic build number (versionCode / CFBundleVersion).
     #[serde(default = "default_build")]
     pub build: u64,
-    /// The platform-toolkit combos this app ships on (`day app add-toolkit` appends here).
+    /// The platform-toolkit combos this app ships on (`day project add-target` appends here).
     #[serde(default)]
     pub targets: Vec<String>,
     /// `[app.<platform|toolkit|target>]` override tables, validated by `day lint`.

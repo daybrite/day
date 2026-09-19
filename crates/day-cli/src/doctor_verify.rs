@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `day checkup` (DESIGN.md §16.5): prove this machine can take a user from `day new` to a
+//! `day doctor verify` (DESIGN.md §16.5): prove this machine can take a user from `day new` to a
 //! shippable artifact, per platform-toolkit combo.
 //!
 //! One command for what the scheduled install workflow used to spell out in YAML: run the doctor
@@ -35,8 +35,8 @@ use crate::term::{BOLD, DIM, ERROR, ERROR_BOLD, SUCCESS, SUCCESS_BOLD, WARN};
 /// The app every combo scaffolds. Kept short because it becomes a path component under the
 /// scratch root, and the deepest cargo target paths beneath it are what run into Windows' path
 /// limit.
-const APP: &str = "checkup";
-const APP_ID: &str = "dev.example.checkup";
+const APP: &str = "doctor-verify";
+const APP_ID: &str = "dev.example.doctorverify";
 /// The `day` git remote, for `--day-version <branch|commit>` installs.
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
 
@@ -167,7 +167,7 @@ fn plan(
 ) -> Result<Vec<Slot>, String> {
     if requested.is_empty() {
         // Automatic: everything this host can build, today, with what is installed. Experimental
-        // targets stay out; a default checkup should not spend minutes on a combo the user has
+        // targets stay out; a default doctor verify should not spend minutes on a combo the user has
         // not opted into.
         let mut slots = Vec::new();
         for target in targets::TARGETS {
@@ -347,7 +347,7 @@ fn missing_line(missing: &[doctor::Missing]) -> String {
         .join("; ")
 }
 
-/// `day checkup`. Exit codes (via the cli.rs kind→code map): 2 usage, 3 environment (doctor
+/// `day doctor verify`. Exit codes (via the cli.rs kind→code map): 2 usage, 3 environment (doctor
 /// failed, a strict skip, or nothing to check), 4 a build or pack failed. Verdicts the combo
 /// report already explains come back as Ok(code); everything else is a typed error.
 pub fn run(opts: &Options) -> Result<i32, CliError> {
@@ -380,7 +380,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
     }
     if doctor::run(&focus, &[])? != 0 {
         return Err(CliError::env(
-            "the environment check failed — checkup stops here",
+            "the environment check failed — doctor verify stops here",
         ));
     }
 
@@ -404,7 +404,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
 
     // `--strict` says every combo this machine could check must be checked, and that verdict is
     // already knowable, so report it now rather than after ten minutes of builds that cannot change
-    // it. (A CI cell naming its combo with `-p` has no skips to trip on; this is the bare-checkup
+    // it. (A CI cell naming its combo with `-p` has no skips to trip on; this is the bare-doctor verify
     // path.) The pack stages are the strict skips that can only be judged later.
     let unchecked: Vec<&&Slot> = skipped
         .iter()
@@ -423,7 +423,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
     }
 
     let root = opts.dir.clone().unwrap_or_else(|| {
-        std::env::temp_dir().join(format!("day-checkup-{}", std::process::id()))
+        std::env::temp_dir().join(format!("day-doctor-verify-{}", std::process::id()))
     });
     std::fs::create_dir_all(&root)
         .map_err(|e| CliError::build(format!("{}: {e}", root.display())))?;
@@ -440,7 +440,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
         }
     };
     status(
-        "Checkup",
+        "Verification",
         &format!(
             "{} ({} combo(s), {} skipped) against day {} in {}",
             checking
@@ -463,7 +463,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
         let target = slot.target;
         let dir = root.join(target.name);
         if opts.dir.is_some() && dir.exists() {
-            // A directory the caller named. Whatever is in it is theirs, and checkup deletes what
+            // A directory the caller named. Whatever is in it is theirs, and doctor verify deletes what
             // it scaffolds, so refuse rather than clear it out.
             return Err(CliError::usage(format!(
                 "{} already exists — remove it, or point --dir somewhere else",
@@ -494,7 +494,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
         // The caller's directory stays; the CLI this run installed into it does not.
         let _ = std::fs::remove_dir_all(root.join("cli"));
     } else {
-        // Only the scratch root checkup created. A `--dir` the caller named may hold anything
+        // Only the scratch root doctor verify created. A `--dir` the caller named may hold anything
         // else of theirs; the per-combo directories above are all this run is entitled to remove.
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -657,7 +657,7 @@ fn new_app_args(target: &Target, opts: &Options, under: &Under) -> Vec<String> {
         "--no-input".into(),
     ];
     // The dependency source rides through untouched: `day new`'s own default is the published
-    // user path, and that is what a checkup is checking.
+    // user path, and that is what a doctor verify is checking.
     if opts.git {
         args.push("--git".into());
     }
@@ -831,7 +831,7 @@ fn day(
 
 fn summarize(reports: &[(&'static Target, Report)], skipped: &[&Slot], total: f64, day: &str) {
     eprintln!();
-    eprintln!("{BOLD}checkup{BOLD:#} {DIM}— day {day}{DIM:#}");
+    eprintln!("{BOLD}doctor verify{BOLD:#} {DIM}— day {day}{DIM:#}");
     for (target, r) in reports {
         let pack = match (&r.pack_seconds, &r.pack_note) {
             (Some(s), _) => format!("pack {s:.1}s"),
@@ -856,7 +856,7 @@ fn summarize(reports: &[(&'static Target, Report)], skipped: &[&Slot], total: f6
                 // annotation too so the job page names the combo without opening the log.
                 if crate::ops::github_actions() {
                     println!(
-                        "::error title=day checkup {}::{}",
+                        "::error title=day doctor verify {}::{}",
                         target.name,
                         crate::ops::gha_escape(why)
                     );
@@ -901,7 +901,7 @@ fn write_step_summary(
         return;
     };
     use std::fmt::Write as _;
-    let mut md = format!("## day checkup — day {day}\n\n");
+    let mut md = format!("## day doctor verify — day {day}\n\n");
     md.push_str("| combo | result | build | pack | total | artifacts |\n");
     md.push_str("| --- | --- | --: | --: | --: | --- |\n");
     for (target, r) in reports {
@@ -947,7 +947,7 @@ fn write_step_summary(
         skipped.len()
     );
     // Appending, not truncating: earlier steps' summaries are theirs to keep. Best-effort, since a
-    // failed summary write must never fail the checkup.
+    // failed summary write must never fail the doctor verify.
     if let Ok(mut file) = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
@@ -998,7 +998,7 @@ fn print_json(
     println!(
         "{}",
         serde_json::json!({
-            "event": "result", "command": "checkup", "ok": ok,
+            "event": "result", "command": "doctor verify", "ok": ok,
             "day": day, "seconds": total, "targets": targets,
         })
     );
@@ -1042,7 +1042,7 @@ mod tests {
         plan(host, &resolved, ready)
     }
 
-    /// Bare `day checkup` on a fully-equipped macOS host: the macOS-hosted and host-agnostic
+    /// Bare `day doctor verify` on a fully-equipped macOS host: the macOS-hosted and host-agnostic
     /// combos, and neither the Linux/Windows ones nor the experimental web target.
     #[test]
     fn auto_selects_what_this_host_can_build() {
@@ -1060,7 +1060,7 @@ mod tests {
 
     /// `--strict` fails on combos this machine could have checked and didn't. A combo that builds
     /// on another OS, or an experimental one nobody named, is out by definition; counting those
-    /// would make `day checkup --strict` impossible to pass anywhere.
+    /// would make `day doctor verify --strict` impossible to pass anywhere.
     #[test]
     fn only_a_machine_this_host_could_fix_counts_as_a_strict_skip() {
         let ready = |id: &str| {
@@ -1224,7 +1224,8 @@ mod tests {
     /// (what `day build` reports) resolves against the project it was built in.
     #[test]
     fn artifacts_are_read_from_the_child_result_event() {
-        let dir = std::env::temp_dir().join(format!("day-checkup-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("day-doctor-verify-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let file = dir.join("app.dmg");
         std::fs::write(&file, vec![7u8; 2048]).unwrap();

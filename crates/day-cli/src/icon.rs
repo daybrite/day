@@ -20,9 +20,9 @@
 //! background color. `day:monochrome`/`day:dark` are reserved for the modern formats
 //! (Icon Composer, themed icons) and are excluded from every composite today.
 //!
-//! Everything renders in memory first; `--check` compares those bytes against `build/day/host`
+//! Everything renders in memory first; `day icon check` compares those bytes against `build/day/host`
 //! and exits 5 when anything is missing or stale (the duty-matrix pattern: CI's gate, and what
-//! `day lint` and the VS Code extension ask before opening a native project), a plain run writes
+//! `day lint` and the VS Code extension ask before opening a native project). `day icon build` writes
 //! them plus `host.lock.json` recording the master and generator. [`ensure`] is the cheap form
 //! every build takes: it regenerates only when the lock says the master or the generator moved.
 
@@ -81,7 +81,7 @@ pub fn resolve_seed(spec: Option<&str>) -> u64 {
     }
 }
 
-/// `day icon --generate`: write the seeded master to `resource/icons/icon.svg`. Refuses to
+/// `day icon new`: write the seeded master to `resource/icons/icon.svg`. Refuses to
 /// clobber an existing master (any discovery candidate) unless `overwrite`, because a hand-drawn
 /// icon is unrecoverable. The caller then runs [`run`] to regenerate every output.
 pub fn generate_master(project: &Project, seed: u64, overwrite: bool) -> Result<PathBuf, String> {
@@ -108,7 +108,7 @@ pub fn generate_master(project: &Project, seed: u64, overwrite: bool) -> Result<
     Ok(dest)
 }
 
-/// `day icon --generate --out <file.svg>`: preview mode. Write the seeded master to an
+/// `day icon new --out <file.svg>`: preview mode. Write the seeded master to an
 /// arbitrary path (no project needed, nothing else touched) plus a 512 px PNG render beside
 /// it, so seeds can be browsed before committing to one.
 pub fn generate_preview(path: &Path, seed: u64) -> Result<(), String> {
@@ -291,7 +291,7 @@ pub fn ensure(project: &Project, platforms: &[&str]) -> Result<(), String> {
             status(
                 "Note",
                 "no resource/icons/icon.svg (or icon.png) master — host icon files are not \
-                 generated; add one (`day icon --generate`) and run `day prepare --migrate`",
+                 generated; add one (`day icon new`) and run `day prepare --migrate`",
             );
         });
         return Ok(());
@@ -521,7 +521,7 @@ fn link_dir(root: &Path, link: &str, target: &str) -> Result<(), String> {
         }
     }
     // Creating the link proves nothing about where it points: prove it resolves here, in the
-    // command that made it, rather than one command later in `--check`.
+    // command that made it, rather than one command later in `day icon check`.
     if link_path.is_dir() {
         Ok(())
     } else {

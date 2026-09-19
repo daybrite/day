@@ -86,7 +86,7 @@ impl PackError {
 }
 
 /// The formats this target packs into, or day's explanation of why it packs none: the answer
-/// `day checkup` quotes when it reports a combo as build-only.
+/// `day doctor verify` quotes when it reports a combo as build-only.
 pub(crate) fn default_formats(target: &Target) -> Result<Vec<&'static str>, String> {
     Ok(match target.name {
         "macos-appkit" => vec!["dmg"],
@@ -340,7 +340,7 @@ pub fn run(
     })
 }
 
-/// Validate that the windows signing config resolves (shared with `day sign --check`).
+/// Validate that the windows signing config resolves (shared with `day sign check`).
 pub(crate) fn msix_check(project: &Project) -> Result<(), String> {
     msix::resolve_signing(project)
         .map(|_| ())

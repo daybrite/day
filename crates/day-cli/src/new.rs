@@ -20,7 +20,7 @@
 //! `--local <path>` flag (or the `DAY_LOCAL` env var) emits `path` deps rooted at a local `day`
 //! checkout, which CI uses to build a freshly-scaffolded crate against the day tree under test.
 //! `--day-version <spec>` pins whichever of those applies to one day: a `vX.Y.Z` tag, a branch, a
-//! commit, or (with `--registry`) a crates.io version. `day checkup` drives that flag to check
+//! commit, or (with `--registry`) a crates.io version. `day doctor verify` drives that flag to check
 //! several days from one CLI.
 
 use std::path::{Path, PathBuf};
@@ -45,7 +45,7 @@ const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 /// Which `day` a scaffold builds against, from `--day-version`: a released version, a branch, or
 /// a commit. `latest` resolves to the newest day-cli published on crates.io ([`DaySource::parse`]).
 ///
-/// This is the scaffold half of the answer; `day checkup` uses the same spec to decide which
+/// This is the scaffold half of the answer; `day doctor verify` uses the same spec to decide which
 /// day-cli binary to run, so the tool and the framework it scaffolds against stay in step.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DaySource {
@@ -401,7 +401,7 @@ pub fn describe() -> serde_json::Value {
                     {
                         "id": "targets",
                         "label": "Platform-toolkits",
-                        "help": "Each one is a platform and the native toolkit to draw with. More can be added later with `day app add-toolkit`.",
+                        "help": "Each one is a platform and the native toolkit to draw with. More can be added later with `day project add-target`.",
                         "type": "multi-select",
                         "flag": "--toolkit",
                         "list": "repeat",
@@ -1019,7 +1019,7 @@ pub fn app(
     } else if p.enabled() {
         let opts: Vec<String> = targets::TARGETS.iter().map(target_menu_label).collect();
         // Every target pre-selected. An app is cheaper to narrow than to widen: dropping one is
-        // deleting a line from `[app] targets`, while adding one back means `day app add-toolkit`
+        // deleting a line from `[app] targets`, while adding one back means `day project add-target`
         // and a host project that was never generated. Day's whole claim is that the same source
         // runs everywhere, so the scaffold says so from the first build.
         let all: Vec<usize> = (0..targets::TARGETS.len()).collect();
@@ -1115,7 +1115,7 @@ fn write_app(
     // default, so the same id always scaffolds the same icon; `--icon-seed` overrides. The
     // template's placeholder master is replaced, then every platform output is rendered from
     // it. Best-effort: a fresh scaffold without its icon set regenerated is still a valid
-    // project (`day icon` finishes the job), so failures warn rather than abort.
+    // project (`day icon build` finishes the job), so failures warn rather than abort.
     let seed = match app.icon_seed {
         Some(spec) => crate::icon::resolve_seed(Some(spec)),
         None => day_vector::icongen::seed_from_str(&app.repl.id),
@@ -1128,7 +1128,7 @@ fn write_app(
                 // `res::vectors::app_mark` (docs/vectors.md). Copied rather than referenced:
                 // `resource/icons/` is the icon pipeline's input and is not a resource bucket,
                 // and an app that later redraws its welcome art should not thereby change every
-                // platform's launcher icon. Scaffold-time only; `day icon` never rewrites it.
+                // platform's launcher icon. Scaffold-time only; `day icon build` never rewrites it.
                 let mark = project.root.join("resource/vectors/app_mark.svg");
                 let staged = mark
                     .parent()
@@ -1144,12 +1144,15 @@ fn write_app(
                     platforms: Vec::new(),
                 };
                 if let Err(crate::icon::IconError::Other(e)) = crate::icon::run(&project, &opts) {
-                    ops::status("Warning", &format!("icon outputs: {e} — run `day icon`"));
+                    ops::status(
+                        "Warning",
+                        &format!("icon outputs: {e} — run `day icon build`"),
+                    );
                 }
             }
-            Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon --generate`")),
+            Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon new`")),
         },
-        Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon --generate`")),
+        Err(e) => ops::status("Warning", &format!("icon: {e} — run `day icon new`")),
     }
     Ok(())
 }
@@ -1164,7 +1167,7 @@ fn render_app(
         demo.adjust_context(&mut ctx, app.deps);
     }
     let files = load_template(app.template)?;
-    // Only the host projects the chosen targets need; `day app add-toolkit` materializes the
+    // Only the host projects the chosen targets need; `day project add-target` materializes the
     // rest from the same template later.
     let mut files = crate::template::filter_for_targets(files, &app.targets);
     // website/ ships by default: two small files that make the shared CI workflow build and
@@ -1325,7 +1328,7 @@ fn demo_gitignore(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// The template context (docs/cli.md): every {{placeholder}} a template may use, built once
-/// here so `day new app` and `day app add-toolkit` render the same template identically.
+/// here so `day new app` and `day project add-target` render the same template identically.
 fn template_context(
     repl: &Repl,
     title: String,
@@ -1421,10 +1424,10 @@ fn load_template(source: Option<&str>) -> Result<Vec<crate::template::TemplateFi
     }
 }
 
-/// `day app add-toolkit <target>…` adds targets to an existing app: it appends them to
+/// `day project add-target <target>…` adds targets to an existing app: it appends them to
 /// Day.toml's `targets:` (textually, preserving comments and formatting) and materializes any
 /// native host projects they need from the same template `day new app` scaffolds from.
-pub fn add_toolkit(
+pub fn add_target(
     project: &crate::meta::Project,
     requested: &[String],
     template: Option<&str>,
@@ -1441,7 +1444,7 @@ pub fn add_toolkit(
     }
     if wanted.is_empty() {
         return Err(CliError::usage(
-            "no target given\n       usage: day app add-toolkit <target>… (e.g. android-mdc)",
+            "no target given\n       usage: day project add-target <target>… (e.g. android-mdc)",
         ));
     }
     for t in &wanted {
@@ -1464,7 +1467,7 @@ pub fn add_toolkit(
         .collect();
     // Already-declared targets still materialize below (never overwriting): that is how an
     // app adopts a host project the scaffold gained after it was created, e.g. running
-    // `day app add-toolkit macos-appkit` on an app that predates platform/macos/.
+    // `day project add-target macos-appkit` on an app that predates platform/macos/.
     for already in wanted.iter().filter(|t| existing.contains(t)) {
         eprintln!("day: {already} is already in Day.toml — materializing any missing files");
     }
@@ -1481,7 +1484,7 @@ pub fn add_toolkit(
         .title
         .clone()
         .unwrap_or_else(|| default_title(&app.name));
-    // `add-toolkit` only materializes host projects into an app that already declares its own day
+    // `add-target` only materializes host projects into an app that already declares its own day
     // dependency, so there is no version to pick here; the plain remote form is never written.
     let deps = Deps::resolve(None, false, false, None).unwrap_or(Deps::Git(None));
     let all_targets: Vec<String> = existing.iter().chain(new_targets.iter()).cloned().collect();

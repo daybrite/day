@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! SVG parsing + PNG rasterization: the render path both `day icon` and vector staging share.
+//! SVG parsing + PNG rasterization: the render path both `day icon build` and vector staging share.
 
 use resvg::tiny_skia;
 use resvg::usvg;

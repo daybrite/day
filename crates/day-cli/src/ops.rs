@@ -67,7 +67,7 @@ pub fn verbose() -> bool {
 
 /// Whether this process runs inside a GitHub Actions job. The documented signal is
 /// `GITHUB_ACTIONS=true`, set for every step of every runner. Shared by the commands that report
-/// into a job (`day lint`'s findings, `day checkup`'s combo table).
+/// into a job (`day lint`'s findings, `day doctor verify`'s combo table).
 pub fn github_actions() -> bool {
     std::env::var("GITHUB_ACTIONS").is_ok_and(|v| v == "true")
 }
@@ -504,7 +504,7 @@ pub fn build(
             return Err(format!(
                 "macos-appkit builds through the Xcode host project, and this app has no \
                  platform/macos/DayApp.xcodeproj.\n  {}",
-                "Run `day app add-toolkit macos-appkit` to adopt the scaffold."
+                "Run `day project add-target macos-appkit` to adopt the scaffold."
             ));
         }
         crate::mobile::build_macos_xcode(project, target, profile, start)

@@ -21,7 +21,7 @@ myapp/
     images/    # raster UI images, with @2x/@3x density variants
     vectors/   # SVG glyphs, staged natively per backend
     fonts/     # custom fonts (.ttf/.otf), referenced by family name
-    icons/     # one app-icon master; day icon generates the renditions
+    icons/     # one app-icon master; day icon build generates the renditions
 ```
 
 All five subdirectories **use each platform's native resource system**. On Android your images

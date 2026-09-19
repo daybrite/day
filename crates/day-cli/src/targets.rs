@@ -25,9 +25,8 @@ pub struct Target {
     pub kind: TargetKind,
     /// The platform key: the `platform/<os>/` scaffold dir, the `[app.<os>]` override table, and
     /// the per-platform namespace generally. Not derivable from `name`: `harmony-arkui`'s
-    /// platform key is `ohos` (the scaffold dir, signing table, and `day ohos` all predate the
-    /// target's rename and keep the OS's own name). Deriving this by splitting the target name
-    /// is what silently broke `day new`'s HarmonyOS scaffold when the target was renamed.
+    /// platform key is `ohos` for the signing table. Resolve platform paths through the target
+    /// metadata rather than assuming every namespace uses the target name's first component.
     pub os: &'static str,
     /// Host OS that can build this target.
     pub host: &'static str,

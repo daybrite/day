@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- The app-icon master (docs/icons.md). `day icon` renders every platform's icon set from
+  <!-- The app-icon master (docs/icons.md). `day icon build` renders every platform's icon set from
        this one file. Top-level ids mark semantic layers:
          day:background  — the full-bleed backdrop (Android adaptive background)
          day:foreground* — the motif (Android adaptive foreground, safe-zone scaled)
-       Replace the placeholder art below; run `day icon` after every edit. -->
+       Replace the placeholder art below; run `day icon build` after every edit. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#3E4A5A"/>

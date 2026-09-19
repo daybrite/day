@@ -490,7 +490,7 @@ today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#suppo
 [Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
 
 Signing works headless and in CI: identities and keys are `${ENV_VAR}` references in
-`Day.toml`, `day sign --check` reports readiness without printing secrets, and a missing
+`Day.toml`, `day sign check` reports readiness without printing secrets, and a missing
 variable degrades that platform to a dev-signed artifact with a warning instead of failing the
 build. [Packaging](/docs/packaging) has the details.
 

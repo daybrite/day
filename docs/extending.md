@@ -533,7 +533,7 @@ metadata` (the catalog entry carries `external: true` and the declaring `crate`)
 What a declared target does **not** get:
 
 - **`day pack`** — packaging formats are per-OS CLI code; the guard says so explicitly.
-- **`day new` / `day app add`** — scaffolding stays builtin; the toolkit crate documents its own
+- **`day new` / `day project add-target`** — scaffolding stays builtin; the toolkit crate documents its own
   project shape.
 - **The pieces' native renderers:** no in-repo piece ships a `wxwidgets` feature arm, and neither
   does the external `day-piece-webview`, so extension-piece kinds render Day's visible `⟨kind⟩`

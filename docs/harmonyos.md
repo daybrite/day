@@ -166,7 +166,7 @@ You don't run any of the above by hand; `day launch -p harmony-arkui` does the w
 ```bash
 # A native OpenHarmony emulator window (QEMU cocoa on macOS; no VNC, no password, no DevEco).
 # Point DAY_OHOS_EMULATOR at the Oniro image dir (default ~/ohos/emulator/images); --headless for CI.
-day ohos emulator launch
+day devices boot -p harmony-arkui
 
 # Then build + install + launch the app on every connected target (see "Multiple devices" below):
 day launch --project Day-Showcase -p harmony-arkui
@@ -235,7 +235,7 @@ TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmo
 3. patch + sign the `.hap` with `sign-hap.mjs` (compileSdkType → OpenHarmony + the public release
    material), then install/launch it on the Oniro emulator over `hdc` and drive the dayscript
    walkthrough, uploading screenshots for the gallery, like the other targets. CI boots the emulator
-   with `day ohos emulator launch --headless` (the same Oniro v6.1 image openharmony-rs's
+   with `day devices boot -p harmony-arkui --headless` (the same Oniro v6.1 image openharmony-rs's
    emulator-action uses) rather than the action itself: the action's QEMU command has **no GPU
    device** (`-nographic`), so the guest has no display: the keyguard never dismisses, `aa start`
    is refused with error 10106102, and screenshots capture nothing. Day's launcher adds
@@ -263,8 +263,7 @@ until diagnosed:
 
 - **The default hdc forward port 55555 is often already occupied**, since GitHub's macOS runners
   hold it, and so do some local services; QEMU then dies instantly ("Could not set up host
-  forwarding rule"), leaving no reachable target and blank screenshot sets. `day ohos emulator
-  launch` probes and slides to the first free port, `tconn`s the chosen key (so device discovery
+  forwarding rule"), leaving no reachable target and blank screenshot sets. `day devices boot -p harmony-arkui` probes and slides to the first free port, `tconn`s the chosen key (so device discovery
   finds it), and exports `DAY_OHOS_TARGET` through `GITHUB_ENV` so later CI steps target it too.
 
 - **`ohos.permission.INTERNET` is required for the loopback dayscript socket**; without it in

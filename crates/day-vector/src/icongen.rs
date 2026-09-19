@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Seeded app-icon generator (docs/icons.md): one `u64` seed → a deterministic layered SVG
-//! master (`day:background` / `day:foreground` / `day:monochrome`, the contract `day icon`
+//! master (`day:background` / `day:foreground` / `day:monochrome`, the contract `day icon build`
 //! consumes), designed to read well through every downstream form: iOS squircle, Android
 //! adaptive + themed monochrome, plain PNG.
 //!
@@ -23,7 +23,7 @@
 //!   visual equilibrium.
 //!
 //! Determinism is part of the contract: `day new` seeds from the app id so the same id
-//! always regenerates the same icon, and `day icon --generate --seed N` reproduces exactly.
+//! always regenerates the same icon, and `day icon new --seed N` reproduces exactly.
 
 use std::fmt::Write as _;
 

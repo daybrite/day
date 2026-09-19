@@ -26,7 +26,7 @@ day doctor --toolkit android     # focus one toolkit, with full setup instructio
 
 Bare `day doctor` treats a missing toolkit as a warning and exits 0, because you only need the
 toolkits you build for. Naming a toolkit with `--toolkit` turns its misses into errors and prints
-that toolkit's setup text. For a full check, `day checkup` scaffolds a throwaway app and builds
+that toolkit's setup text. For a full check, `day doctor verify` scaffolds a throwaway app and builds
 (and packs) it for each target; see [CLI & projects](/docs/cli).
 
 For build errors or device connection problems, see [Troubleshooting](/docs/troubleshooting).
@@ -86,7 +86,7 @@ rustup target add aarch64-apple-ios-sim
 
 A scaffolded app carries `platform/macos/DayApp.xcodeproj`, and `macos-appkit` builds through
 `xcodebuild`, so it wants full Xcode too. (An app that predates the scaffold adopts it with
-`day app add-toolkit macos-appkit`.)
+`day project add-target macos-appkit`.)
 
 [Homebrew](https://brew.sh) provides the rest:
 
@@ -277,7 +277,7 @@ public image download:
 brew install qemu                        # or your distro's qemu-system-x86_64
 # download oniro_emulator.zip and unpack its images, then:
 export DAY_OHOS_EMULATOR=~/ohos/emulator/images
-day ohos emulator launch                 # --headless for CI
+day devices boot -p harmony-arkui                 # --headless for CI
 ```
 
 The image comes from the

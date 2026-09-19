@@ -38,7 +38,7 @@ day launch -p harmony-arkui      # installs and starts on an emulator or device
 artifact without a vendor account. `day pack -p harmony-arkui` produces the release `.hap`, signed
 with your own material when configured.
 
-The [`day ohos`](/docs/cli) subcommand wraps the emulator: `day ohos emulator launch` (add
+The [`day devices boot`](/docs/cli#simulators-emulators-and-devices) command starts the emulator: `day devices boot -p harmony-arkui` (add
 `--headless` for CI) boots the Oniro QEMU image and connects `hdc`. It does not download images:
 point `DAY_OHOS_EMULATOR` at a directory holding the Oniro emulator images (default
 `~/ohos/emulator/images`), or the command errors naming what is missing.

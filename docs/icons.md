@@ -1,6 +1,6 @@
 ---
 title: "App icons"
-description: "day icon generates every platform's icon family from one master SVG, including the seeded generator for new apps."
+description: "Build platform icon families from one master SVG, create seeded source icons, and check for drift."
 ---
 
 <!--
@@ -8,11 +8,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# App icons (`day icon`)
+# App icons (`day icon build`)
 
-`day icon` renders every platform's icon set from one master and keeps the copies in sync. It
+`day icon build` renders every platform's icon set from one master and keeps the copies in sync. It
 renders the master into `build/day/host/`, the derived tree every host project references and no repository
-build consumes; `day icon --check` verifies nothing drifted (exit 5; it is a CI gate beside the
+build consumes; `day icon check` verifies nothing drifted (exit 5; it is a CI gate beside the
 duty-matrix check).
 
 ## The master
@@ -44,7 +44,7 @@ masters do this.
 
 ## Generate
 
-`day icon --generate` writes a seeded pseudo-random layered master (background gradient +
+`day icon new` writes a seeded pseudo-random layered master (background gradient +
 foreground motif + hidden monochrome silhouette) to `resource/icons/icon.svg` and renders
 every output from it. It refuses to replace an existing master unless `--overwrite`.
 
@@ -86,7 +86,7 @@ icons there, and hvigor — whose resource roots are fixed — gets gitignored s
 | `windows/` | multi-size `day.ico` (16/32/48/256, PNG-compressed) + `day-icon-256.png` |
 
 `-p <target>` limits a run to that target's family. Everything renders in memory first, so
-`--check` compares bytes without touching the tree. Unchanged outputs are not rewritten, so
+`day icon check` compares bytes without touching the tree. Unchanged outputs are not rewritten, so
 actool and aapt2 see no new mtimes.
 
 ## Overrides

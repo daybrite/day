@@ -19,7 +19,7 @@ use crate::targets::host_os;
 
 /// What a missing probe blocks. Only [`Need::Build`] is ever an error: everything else degrades a
 /// stage that either still works without it (the resource compilers) or isn't part of compiling at
-/// all (packaging tools, a booted device). `day checkup` reads the same field to decide which
+/// all (packaging tools, a booted device). `day doctor verify` reads the same field to decide which
 /// toolkits it can build and which it can package (see [`readiness`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Need {
@@ -263,7 +263,7 @@ fn appkit_group() -> Group {
                 host project with xcodebuild, which needs a full Xcode (`xcode-select -s\n\
                 /Applications/Xcode.app`) — the command-line tools alone are not enough. No\n\
                 extra Rust target: the host toolchain builds the staticlib. An app that\n\
-                predates the scaffold adopts it with `day app add-toolkit macos-appkit`.\n\
+                predates the scaffold adopts it with `day project add-target macos-appkit`.\n\
                 Swift contributions (SwiftUI embedding, docs/swiftui.md) build inside the same\n\
                 xcodebuild run through the generated DayPieces package.",
     }
@@ -699,7 +699,7 @@ fn harmonyos_group() -> Group {
                 • hvigor + ohpm — from the OpenHarmony command-line-tools (bundled with DevEco Studio);\n\
                   put their bin/ on PATH. These package the .hap and are not part of the public SDK.\n\
                 An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build —\n\
-                start the bundled Oniro emulator with `day ohos emulator launch`.",
+                start the bundled Oniro emulator with `day devices boot -p harmony-arkui`.",
     }
 }
 
@@ -749,12 +749,12 @@ fn all_groups() -> Vec<Group> {
     ]
 }
 
-// --- structured readiness (what `day checkup` asks) ------------------------
+// --- structured readiness (what `day doctor verify` asks) ------------------------
 
 /// The doctor group id for a target's toolkit. Two mobile toolkits are spelled differently in the
 /// two vocabularies (the target table names the backend feature (`mdc`, `arkui`), doctor groups
 /// by OS toolchain (`android`, `harmonyos`)), and every caller that bridges them (`day new`'s
-/// next-steps hint, `day checkup`'s selection) must bridge them the same way.
+/// next-steps hint, `day doctor verify`'s selection) must bridge them the same way.
 pub fn group_id(toolkit: &str) -> &str {
     match toolkit {
         "mdc" => "android",
@@ -770,7 +770,7 @@ pub struct Missing {
     pub fix: String,
 }
 
-/// What a toolkit is missing, split by the stage the miss blocks: the answer `day checkup` needs
+/// What a toolkit is missing, split by the stage the miss blocks: the answer `day doctor verify` needs
 /// to decide whether it can build a combo, package it, or must skip it with a reason.
 /// [`Need::BuildOptional`] / [`Need::PackOptional`] misses are left out: they degrade a stage that
 /// still succeeds, so failing or skipping on them would be wrong.
@@ -791,8 +791,8 @@ impl Readiness {
 /// Run one toolkit group's probes and report what is missing, by stage. `None` for an id that is
 /// not a builtin group (an externally declared toolkit; day has no house knowledge of it).
 ///
-/// This runs the same probes `day doctor` prints, so a checkup's skip reason is doctor's own
-/// diagnosis rather than a second, drifting copy of it.
+/// This runs the same probes `day doctor` prints, so verification reports doctor's own skip reasons
+/// rather than a second copy of its diagnosis.
 pub fn readiness(group: &str) -> Option<Readiness> {
     let g = all_groups().into_iter().find(|g| g.id == group)?;
     let mut out = Readiness::default();
@@ -1001,7 +1001,7 @@ mod tests {
 
     /// Every shipped target's toolkit maps onto a real doctor group. The two vocabularies drifted
     /// once already (`harmony-arkui`'s rename), and the failure mode is silent: `day new`'s hint
-    /// and `day checkup`'s selection would name a toolkit doctor rejects as unknown.
+    /// and `day doctor verify`'s selection would name a toolkit doctor rejects as unknown.
     #[test]
     fn every_target_toolkit_has_a_doctor_group() {
         let groups: Vec<&str> = all_groups().iter().map(|g| g.id).collect();
@@ -1019,7 +1019,7 @@ mod tests {
 
     /// Every toolkit group states at least one build prerequisite. A group whose probes were all
     /// reclassified as optional would report "ready" on a machine with nothing installed, and
-    /// `day checkup` would select it and fail deep inside cargo instead of skipping with a fix.
+    /// `day doctor verify` would select it and fail deep inside cargo instead of skipping with a fix.
     #[test]
     fn every_toolkit_group_states_a_build_prerequisite() {
         for g in all_groups() {

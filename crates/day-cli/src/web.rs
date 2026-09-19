@@ -298,7 +298,7 @@ pub struct HomeScreen {
     pub display: crate::meta::WebDisplay,
 }
 
-/// The icon sizes the dist ships under `icons/icon-<px>.png`, from the png family `day icon`
+/// The icon sizes the dist ships under `icons/icon-<px>.png`, from the png family `day icon build`
 /// renders: 64 for the tab favicon, 192 and 512 for the manifest (the sizes Chrome requires
 /// for an install), 192 doubling as the apple-touch-icon (iOS scales it).
 const HOME_ICON_SIZES: [u32; 3] = [64, 192, 512];

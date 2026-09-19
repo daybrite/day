@@ -272,7 +272,7 @@ fn notarize(project: &Project, opts: &PackOptions, dmg: &Path) -> Result<(), Pac
     if opts.no_wait {
         status(
             "Notarize",
-            &format!("submitted {id} — check later: day sign --notarize-status {id}"),
+            &format!("submitted {id} — check later: day sign status {id}"),
         );
         return Ok(());
     }
