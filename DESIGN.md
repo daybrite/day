@@ -3222,6 +3222,22 @@ command tree with flags and descriptions for agent consumption).
 > cancellation spec and error-code/diagnostic framework are kept in this file's history as the
 > shape to grow into if the CLI's surface demands it.
 
+Help and argument diagnostics use clap's generated layout with Day's **Daybreak** `anstyle`
+palette from `day-cli/src/term.rs`: bold sunshine-yellow headings, bold sky-blue command/option
+names, italic sky-cyan value placeholders, and conventional red/yellow diagnostics and green
+successes. Status headers share the sunshine accent. Colors use the terminal's ANSI palette,
+with no fixed backgrounds or truecolor requirement; body text keeps the terminal's default
+foreground. Root help adds a compact sunrise signature with “Rise and shine.” and styled
+getting-started commands; nested help keeps its own description and inherits the palette (`-h`, `--help`, and
+`day help …`). Clap's `wrap_help` feature wraps to the terminal
+width, capped at 100 columns (also the fallback when no width is available). Color remains
+automatic through `anstream`: redirected output and `NO_COLOR` stay plain; `CLICOLOR_FORCE=1`
+can explicitly request ANSI output. Help remains generated from the argument definitions.
+Command and option descriptions state the action, important defaults, and file-changing effects
+briefly. Each command's help ends with a full `https://daybrite.dev/docs/` URL for its topic;
+links and implementation details stay out of the root command list. Repository-relative document
+paths are not shown in CLI help.
+
 ### §16.3 Global contract (every subcommand)
 
 > [!IMPORTANT]

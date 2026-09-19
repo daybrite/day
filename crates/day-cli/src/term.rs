@@ -28,8 +28,45 @@ const fn fg(color: AnsiColor) -> Style {
     Style::new().fg_color(Some(Color::Ansi(color)))
 }
 
-/// cargo-style status header: bold green (`   Launching`, `  Building`); the caller right-aligns.
-pub const HEADER: Style = fg(AnsiColor::Green).effects(Effects::BOLD);
+// Daybreak: warm sunlight for structure, sky blue for commands, and cyan for values.
+// Use the terminal's ANSI palette so the theme works without truecolor support or a fixed
+// background. Keep body text unstyled and errors/successes in their familiar semantic colors.
+const SUN: Style = fg(AnsiColor::BrightYellow).bold();
+const SKY_BOLD: Style = fg(AnsiColor::BrightCyan).bold();
+const SKY: Style = fg(AnsiColor::Cyan);
+
+/// Day's help and usage palette, inherited by every subcommand. Clap handles color detection.
+pub const fn help_styles() -> clap::builder::Styles {
+    clap::builder::Styles::styled()
+        .header(SUN)
+        .usage(SUN)
+        .literal(SKY_BOLD)
+        .placeholder(SKY.italic())
+        .error(ERROR_BOLD)
+        .valid(SUCCESS_BOLD)
+        .invalid(WARN.bold())
+}
+
+/// A compact sunrise signature for the root help page. No emoji or background-color blocks;
+/// it also reads cleanly when clap strips styling for a pipe or NO_COLOR.
+pub fn help_banner() -> String {
+    format!(
+        "{SUN}   \\ | /{SUN:#}    {SKY_BOLD}d a y{SKY_BOLD:#}\n\
+         {SUN}  ── ◒ ──{SUN:#}   {SKY}Rise and shine.{SKY:#}"
+    )
+}
+
+/// A short, styled way into the command tree, shown only on the root help page.
+pub fn help_footer() -> String {
+    format!(
+        "{SUN}Create an app:{SUN:#}  {SKY_BOLD}day new app{SKY_BOLD:#}\n\
+         {SUN}Command help:{SUN:#}   {SKY_BOLD}day help{SKY_BOLD:#} {SKY}<COMMAND>{SKY:#}\n\n\
+         Docs: https://daybrite.dev/docs/cli/"
+    )
+}
+
+/// Daybreak status header: bold yellow (`   Launching`, `  Building`); the caller right-aligns.
+pub const HEADER: Style = SUN;
 /// Success: green (`✓`, "no findings").
 pub const SUCCESS: Style = fg(AnsiColor::Green);
 /// Emphatic success: bold green (summary "✓ all good").

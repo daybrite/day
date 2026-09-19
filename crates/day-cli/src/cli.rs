@@ -154,19 +154,20 @@ pub enum OutputFormat {
 #[command(
     name = "day",
     version = env!("DAY_VERSION_LONG"),
-    about = "Day — cross-platform apps in Rust with native toolkits"
+    about = "Day — cross-platform apps in Rust with native toolkits",
+    styles = crate::term::help_styles(),
+    before_help = crate::term::help_banner(),
+    after_help = crate::term::help_footer(),
+    max_term_width = 100
 )]
 pub(crate) struct Cli {
-    /// Project directory (default: nearest ancestor with Day.toml)
+    /// Project directory (default: nearest Day.toml in this directory or its parents)
     #[arg(long, global = true)]
     project: Option<PathBuf>,
-    /// Output format: plain (default) or json (NDJSON result events)
+    /// Output format for command results
     #[arg(long, global = true, value_enum, default_value = "plain")]
     format: OutputFormat,
-    /// Forward every sub-command's raw output (cargo, gradle, xcodebuild, hvigor, adb, codesign, …)
-    /// to the terminal as it runs, instead of capturing it and showing only day's own status lines.
-    /// `DAY_VERBOSE=1` in the environment does the same, which is how CI turns a whole workflow
-    /// verbose without threading the flag through every generated command.
+    /// Show output from build tools and other subprocesses (also DAY_VERBOSE=1)
     #[arg(long, global = true)]
     verbose: bool,
     #[command(subcommand)]
@@ -175,168 +176,121 @@ pub(crate) struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Print the version, build profile (`*` = debug), and the git ref it was built from
+    /// Print the CLI version and build information
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Version,
-    /// Scaffold a new Day project: an app, a piece, or a part (interactive when run bare)
+    /// Create an app, piece, or part; prompt when no kind is given
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     New {
         #[command(subcommand)]
         what: Option<NewKind>,
-        /// Print the questions a GUI must ask (every field, its options and the flag it fills)
-        /// as a versioned JSON document, and exit. Output is JSON by definition, so no
-        /// `--format` is needed. Nothing is scaffolded.
+        /// Print the project-creation options as JSON without creating files
         #[arg(long)]
         describe: bool,
     },
-    /// Build the app for one or more targets
+    /// Build an app for one or more targets
+    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     Build {
+        /// Targets to build (repeatable)
         #[arg(short = 'p', long = "platform", required = true)]
         platforms: Vec<String>,
+        /// Build profile
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
-        /// Build against a different `day` for this build only: a path to a day checkout, or a
-        /// git URL with an optional `@<REF>`. Nothing in the project is written (unlike
-        /// `day patch`, which is a mode you stay in), so the next build without the flag resolves
-        /// the app's declared dependency. Each day-src keeps its own build tree, so comparing two
-        /// of them is an incremental rebuild each way.
+        /// Use a Day checkout or Git URL for this build only; leave project settings unchanged
         #[arg(long = "day-src", value_name = "PATH|URL[@REF]")]
         day_src: Option<String>,
     },
-    /// Generate every platform's app-icon set from one master (docs/icons.md)
+    /// Generate app icons for each platform
+    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
     Icon {
-        /// Master file (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
+        /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
         master: Option<PathBuf>,
-        /// Verify the outputs still match the master without writing anything (the CI drift
-        /// gate); exits 5 and lists the drift when they don't
+        /// Check generated icons without writing files; exit 5 if they differ
         #[arg(long, conflicts_with = "generate")]
         check: bool,
-        /// Limit generation to these targets' icon families (repeatable; default: all)
+        /// Generate icons for these targets (repeatable; default: all)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// Generate a seeded pseudo-random layered master (docs/icons.md#generate), set it as
-        /// `resource/icons/icon.svg`, and regenerate every output from it
+        /// Create resource/icons/icon.svg and generate platform icons
         #[arg(long, conflicts_with = "master")]
         generate: bool,
-        /// Seed for --generate: an integer, or any string (hashed, the `day new` app-id
-        /// convention). Default: fresh entropy; the seed used is always printed
+        /// Integer or text seed for --generate (default: random; printed in output)
         #[arg(long, requires = "generate")]
         seed: Option<String>,
-        /// Let --generate replace an existing master (otherwise it refuses)
+        /// Allow --generate to replace an existing source icon
         #[arg(long, requires = "generate")]
         overwrite: bool,
-        /// Preview mode for --generate: write the master SVG (plus a 512 px PNG beside it) to
-        /// this path instead of the project, touching nothing else; no project required
+        /// Write a preview SVG and PNG to this path; leave the project unchanged
         #[arg(long, requires = "generate", value_name = "FILE.svg")]
         out: Option<PathBuf>,
     },
-    /// Build + launch on one or more targets (in parallel)
+    /// Build and run an app on one or more targets
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Launch {
-        /// Targets to launch. Omit it to launch the host's default desktop target: appkit on
-        /// macOS, XAML on Windows, and on Linux the toolkit matching the running desktop (Qt
-        /// under Plasma/LXQt, GTK otherwise).
+        /// Targets to launch (repeatable; default: this host's desktop toolkit)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// Repository to run instead of a project on this machine: clone it, find the Day project
-        /// inside it, and launch that. `<URL>@<REF>` picks a branch, tag, or commit (`#<REF>` is
-        /// accepted too); without one, the remote's default branch. The checkout is cached per
-        /// URL and ref, so a later run fetches and fast-forwards rather than starting over, and
-        /// its build tree is reused. `day launch --git https://github.com/daybrite/Day-Rise.git`
-        /// is the whole of trying an app. In a repository holding several Day projects,
-        /// `--project` names one by its path inside the repo. This builds and runs code from a
-        /// URL, so pass ones you trust.
+        /// Clone and run a trusted Git repository; append @REF for a branch, tag, or commit.
+        /// Use --project to select an app within the repository
         #[arg(long, value_name = "URL[@REF]")]
         git: Option<String>,
-        /// Where `--git` clones, instead of the cache. The path is printed either way.
+        /// Clone --git into this directory instead of the cache
         #[arg(long, requires = "git", value_name = "DIR")]
         dir: Option<PathBuf>,
-        /// Launch against a different `day` for this run only: a path to a day checkout, or a
-        /// git URL with an optional `@<REF>`: how you put a PR branch of the framework under an
-        /// app and look at it. Nothing in the project is written, unlike `day patch`. Each
-        /// day-src keeps its own build tree and its own binary, so two of them can run at once
-        /// and switching between them is an incremental rebuild.
+        /// Use a Day checkout or Git URL for this run only; leave project settings unchanged
         #[arg(long = "day-src", value_name = "PATH|URL[@REF]")]
         day_src: Option<String>,
+        /// Build profile
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
-        /// BCP-47 locale override passed to the app
+        /// App locale as a BCP-47 tag, such as en or fr-CA
         #[arg(long)]
         locale: Option<String>,
-        /// Extra environment K=V passed to the app (repeatable)
+        /// Environment variable passed to the app as K=V (repeatable)
         #[arg(long = "env")]
         envs: Vec<String>,
-        /// Physical iPhone/iPad to launch on, by name or UDID (`xcrun devicectl list devices`).
-        /// Naming one switches the iOS build to the device SDK and signs it against the
-        /// provisioning profile installed for this app.
+        /// Physical iPhone or iPad name or UDID; requires a provisioning profile
         #[arg(long = "ios-device", value_name = "NAME|UDID")]
         ios_device: Option<String>,
-        /// Booted iOS simulator to launch on, by name or UDID. Without it every booted simulator
-        /// gets the app, which is right for a capture sweep and wrong when you mean one.
+        /// iOS simulator name or UDID (default: all booted simulators)
         #[arg(long = "ios-simulator", alias = "device", value_name = "NAME|UDID")]
         ios_simulator: Option<String>,
-        /// Android device or emulator to launch on, by adb serial (`adb devices`). Without it
-        /// every connected one gets the app. Takes precedence over `ANDROID_SERIAL`.
+        /// Android adb serial (default: ANDROID_SERIAL, then all connected devices)
         #[arg(long = "android-device", value_name = "SERIAL")]
         android_device: Option<String>,
-        /// OpenHarmony device or emulator to launch on, by hdc connect key
-        /// (`day devices list`, or `hdc list targets`). Without it every reachable target gets
-        /// the app. Takes precedence over `DAY_OHOS_TARGET`.
+        /// OpenHarmony hdc key (default: DAY_OHOS_TARGET, then all reachable devices)
         #[arg(long = "ohos-device", value_name = "KEY")]
         ohos_device: Option<String>,
-        /// Build, launch, and exit, leaving the apps running in the background. `day` streams no
-        /// logs and owns nothing afterwards, so there is no Ctrl-C to take them down with it;
-        /// stop them later with `day stop`. Also accepted as `--detached`.
+        /// Leave apps running in the background; stop them with day stop
         #[arg(long, alias = "detached")]
         detach: bool,
-        /// Keep the app running after its dayscript completes (interactive script development:
-        /// the session stays drivable via `day drive`)
+        /// Keep the app running after its scripts finish
         #[arg(long)]
         keep_alive: bool,
-        /// Record the user's actions to a replayable dayscript at PATH for the app's lifetime
-        /// (§14.6): tap, type, and navigate the app yourself, then replay the file with `--script`.
-        /// Combine with a desktop target you drive by hand; the file is rewritten continuously, so
-        /// it survives a kill.
+        /// Record app interactions to a dayscript file
         #[arg(long = "record", value_name = "PATH")]
         record: Option<PathBuf>,
-        /// dayscript file(s) to execute after launch (repeatable). Attachment is unaffected:
-        /// `day` stays in the foreground streaming the app's output unless `--detach` says
-        /// otherwise, so Ctrl-C still takes the app down with it.
+        /// Run a dayscript file after launch (repeatable)
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
-        /// Screenshot set name: saves shots under `build/day/screenshots/<target>/<variant>/`
-        /// instead of the locale-derived default, for capturing themed/localized variations
-        /// of the same script run (e.g. `--variant dark --env DAY_THEME=dark`)
+        /// Screenshot variant directory (default: derived from the locale)
         #[arg(long)]
         variant: Option<String>,
-        /// Device slug for the capture tree: saves shots under
-        /// `build/day/screenshots/<target>/<device>/<variant>/` instead of omitting the level.
-        /// What lets one target's captures come from more than one form factor without
-        /// colliding: an iPhone run and an iPad run of the same script write disjoint paths,
-        /// and the published gallery gives each its own column (docs/screenshots.md).
-        /// Orthogonal to `--variant`: theme and locale still vary underneath it.
-        ///
-        /// A label, not a device nav host: `--ios-simulator` picks what to launch on, and
-        /// already answers to `--device`, which is why this one is spelled out.
+        /// Device label in screenshot paths; use device-selection flags to choose hardware
         #[arg(long = "device-slug")]
         device: Option<String>,
-        /// Reuse the previous build's artifact instead of building (errors if none exists).
-        /// For runs whose variants share one binary (theme and locale are runtime inputs),
-        /// e.g. CI capture loops that pay xcodebuild/hvigor once, then launch per variant.
+        /// Launch the existing build; fail if no build is available
         #[arg(long)]
         skip_build: bool,
-        /// Run the script(s) once per locale (comma- or space-separated; repeatable). Each run
-        /// passes `--locale <l>` and saves screenshots under variant `<l>`, the capture
-        /// convention app CIs use. Builds once; later runs reuse the artifact.
+        /// Run scripts for each locale (comma- or space-separated; repeatable)
         #[arg(long = "locales", requires = "scripts")]
         locales: Vec<String>,
-        /// Cross the scripted runs with forced themes (sets DAY_THEME per run). Variants become
-        /// `<theme>` for `en` and `<theme>-<locale>` otherwise, the day-CI / gallery
-        /// convention (website/gallery.config.mjs variant ids).
+        /// Run scripts for each theme, setting DAY_THEME (combine with --locales)
         #[arg(long = "themes", requires = "scripts")]
         themes: Vec<String>,
-        /// Pixel size of the scripted run's desktop-class captures: `2560x1600`,
-        /// `2880x1800@2` (`@` names the render scale), or `window` for the app's own `[window]`
-        /// size at the host display's scale. Overrides Day.toml `[screenshots]` and the
-        /// `DAY_CAPTURE_SIZE` environment variable; the default is 2560x1600 at 2x, a
-        /// 1280x800-point window. Phones and tablets capture their own panel and ignore it.
+        /// Desktop screenshot size: WxH, WxH@SCALE, or window. Overrides Day.toml and
+        /// DAY_CAPTURE_SIZE; default: 2560x1600@2. Ignored on phones and tablets
         #[arg(
             long = "capture-size",
             value_name = "WxH[@SCALE]",
@@ -344,273 +298,264 @@ enum Cmd {
         )]
         capture_size: Option<String>,
     },
-    /// Rebuild a shipped artifact from its own provenance and report whether it matches
+    /// Rebuild a package from its recorded sources and compare the result
+    #[command(after_help = "Docs: https://daybrite.dev/docs/reproducible-builds/")]
     Rebuild {
-        /// The artifact to verify (.dmg / .ipa / .apk / .flatpak / .msix / .hap)
+        /// Package to verify (.dmg, .ipa, .apk, .flatpak, .msix, or .hap)
         artifact: std::path::PathBuf,
-        /// Ignore a tool-version mismatch for one tool (repeatable). `--force-tool=all` ignores
-        /// every mismatch. A forced rebuild that differs proves nothing, so this is opt-in.
+        /// Ignore a tool-version mismatch (repeatable; use all for every tool)
         #[arg(long = "force-tool")]
         force_tool: Vec<String>,
-        /// Keep the temporary checkout and rebuild instead of deleting them
+        /// Keep the temporary checkout and build files
         #[arg(long)]
         keep: bool,
-        /// Fail when the payload could not be compared at all, instead of reporting "not checked".
-        /// CI wants this: an unopenable container means the code went unverified.
+        /// Fail if the package contents cannot be compared
         #[arg(long)]
         strict: bool,
-        /// Rebuild from this project directory instead of cloning the commit the SBOM records,
-        /// for artifacts whose source is not in git, e.g. a freshly scaffolded project in CI.
-        /// Tool gating still applies when a .buildinfo.json sits beside the artifact.
+        /// Rebuild from a local project instead of cloning the recorded source
         #[arg(long = "from-dir", value_name = "DIR")]
         from_dir: Option<std::path::PathBuf>,
     },
-    /// Build + sign + produce installable artifacts (.dmg / .ipa / .apk+.aab / .flatpak / .msix+setup.exe / .hap)
+    /// Build, sign, and package an app for distribution
+    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/")]
     Pack {
+        /// Targets to build (repeatable)
         #[arg(short = 'p', long = "platform", required = true)]
         platforms: Vec<String>,
-        /// Pack defaults to release (distribution artifacts); pass debug for a dev-install pack.
+        /// Build profile for the package
         #[arg(long, value_enum, default_value = "release")]
         profile: Profile,
-        /// Comma-separated format subset (e.g. `--formats apk` to skip the aab)
+        /// Package formats to produce, comma-separated (for example, apk)
         #[arg(long)]
         formats: Option<String>,
-        /// Skip signing entirely (artifacts are marked unsigned)
+        /// Produce an unsigned package
         #[arg(long)]
         no_sign: bool,
-        /// Sign but skip notarization (macOS)
+        /// Skip macOS notarization
         #[arg(long)]
         no_notarize: bool,
-        /// Submit for notarization without waiting (check later: day sign --notarize-status <id>)
+        /// Submit for notarization without waiting for the result
         #[arg(long)]
         no_wait: bool,
-        /// Omit the app version from artifact filenames (app-android-mdc.aab, not
-        /// app-1.0.0-android-mdc.aab) so a `releases/latest/download/<name>` URL stays stable
+        /// Omit the app version from package filenames
         #[arg(long)]
         no_version_in_name: bool,
-        /// Filename stem for every artifact, before the `-<target>` suffix (day-showcase →
-        /// day-showcase-macos-appkit.dmg). Overrides Day.toml `[app] artifact`; always slugged.
+        /// Package filename prefix; overrides [app] artifact in Day.toml
         #[arg(long = "artifact-name", value_name = "STEM")]
         artifact_name: Option<String>,
     },
-    /// Signing utilities: --check validates Day.toml signing config (never prints secrets)
+    /// Check signing settings or notarization status
+    #[command(after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-configuration")]
     Sign {
-        /// Validate signing config resolvability (env vars set, files present)
+        /// Check signing credentials and files without printing secrets
         #[arg(long)]
         check: bool,
-        /// Poll an async notarization submission by id
+        /// Check a notarization submission by ID
         #[arg(long = "notarize-status")]
         notarize_status: Option<String>,
     },
-    /// Check the development environment, grouped by toolkit
+    /// Check installed toolchains and SDKs
+    #[command(after_help = "Docs: https://daybrite.dev/docs/system-requirements/")]
     Doctor {
-        /// Focus a toolkit (repeatable): its checks become errors + print setup help.
-        /// One of: appkit, uikit, gtk, qt, xaml, android, harmonyos, dom.
+        /// Check a toolkit and fail if required tools are missing (repeatable).
+        /// Values: appkit, uikit, gtk, qt, xaml, android, harmonyos, dom
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
     },
-    /// End-to-end check of this machine: doctor, then scaffold + build + pack a throwaway app
-    /// for every platform-toolkit combo it supports
+    /// Build and package test apps to check this machine
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#checking-the-machine")]
     Checkup {
-        /// Combo(s) to check (repeatable / comma-separated), e.g. `-p ios-uikit,macos-appkit`.
-        /// Omit to check every combo this host can build with what is installed; naming one
-        /// asserts it works here, so a missing prerequisite becomes an error instead of a skip.
+        /// Targets to check (repeatable or comma-separated; default: available host targets)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// The profile both the build and the pack use. `day pack` alone defaults to release;
-        /// one profile here means one compile rather than two.
+        /// Build profile for both compilation and packaging
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
-        /// Stop after the build instead of packaging each combo
+        /// Build test apps without packaging them
         #[arg(long)]
         no_pack: bool,
-        /// Fail on a combo this host could have checked but is not set up for, and on a pack
-        /// step skipped for missing tooling. CI wants this: a prerequisite that silently
-        /// disappeared must not report success. A combo that builds on another OS is never
-        /// counted.
+        /// Fail if missing tools prevent checking a target supported by this host
         #[arg(long)]
         strict: bool,
-        /// Scaffold into this directory instead of a fresh one under the system temp dir
+        /// Create test projects in this directory instead of a temporary directory
         #[arg(long)]
         dir: Option<PathBuf>,
-        /// Keep the scaffolded projects instead of deleting them
+        /// Keep the generated test projects
         #[arg(long)]
         keep: bool,
-        /// Scaffold `day` deps from the git remote (passed through to `day new`)
+        /// Use Day dependencies from Git (default)
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io (passed through to `day new`)
+        /// Use Day dependencies from crates.io at the selected version
         #[arg(long)]
         registry: bool,
-        /// Which `day` to check: a release (`0.2.0`), `latest` (the newest published day-cli),
-        /// a branch (`main`), or a commit. The CLI that scaffolds, builds, and packs is
-        /// installed at that version, and the app it scaffolds depends on the same one.
-        /// Omitted, the running binary checks whatever `day new` scaffolds by default.
+        /// Day version to check: release, latest, branch, or commit (default: this CLI)
         #[arg(long = "day-version", value_name = "SPEC")]
         day_version: Option<String>,
-        /// Use `path` deps rooted at a local day checkout (CI / framework development)
+        /// Use Day dependencies from a local checkout
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
     },
-    /// App-project maintenance: add platforms/toolkits to an existing app
+    /// Manage an existing app project
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     App {
         #[command(subcommand)]
         cmd: AppCmd,
     },
-    /// Machine-readable project metadata: app identity, targets, per-target overrides, and
-    /// the target catalog. IDE tooling (day-vscode) consumes `--json` instead of parsing
-    /// Day.toml itself; the envelope is versioned and grow-only.
+    /// Show project settings and supported targets
+    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     Metadata {
-        /// Emit the versioned JSON envelope instead of the human summary
+        /// Print project metadata as JSON
         #[arg(long)]
         json: bool,
-        /// Emit the Day.toml JSON Schema (for editor TOML validation) and exit
+        /// Print the Day.toml JSON Schema and exit
         #[arg(long)]
         schema: bool,
     },
-    /// Check the project for common errors (fluent coverage, ids)
+    /// Check project files, translations, and element IDs
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#linting")]
     Lint {
-        /// Exit non-zero (10) when findings exist
+        /// Exit 10 if findings remain, except codes listed with --allow
         #[arg(long)]
         strict: bool,
-        /// A finding code that may stand: `store-placeholder`, or the full
-        /// `day::lint::store-placeholder`. Still reported; never fails `--strict`. Repeatable.
+        /// Report this finding code without failing --strict (repeatable)
         #[arg(long = "allow", value_name = "CODE")]
         allow: Vec<String>,
-        /// Emit the versioned JSON envelope (every finding with its file, line and proposed fix)
-        /// instead of the human report. Same as the global `--format json`.
+        /// Print findings as JSON (same as --format json)
         #[arg(long)]
         json: bool,
-        /// Apply the fixes the rules proposed, reporting each one. Only findings whose repair is
-        /// safe and unambiguous carry one, and a waived code is never rewritten.
+        /// Apply available automatic fixes, excluding allowed finding codes
         #[arg(long)]
         fix: bool,
     },
-    /// Build a standalone app against a local day checkout (writes .cargo/config.toml), and
-    /// verify no day crate is still resolving from git
+    /// Change Day dependency sources in .cargo/config.toml, or verify them
+    #[command(after_help = "Docs: https://daybrite.dev/docs/local-development/")]
     Patch {
-        /// A checkout to build against (repeatable): the day framework, or an external piece or
-        /// part repository. Omit everything to only verify the current resolution.
+        /// Local Day, piece, or part checkout to use (repeatable)
         #[arg(long, value_name = "CHECKOUT")]
         local: Vec<std::path::PathBuf>,
-        /// A fork of the day repository to build against, as `URL[@REF]`; `REF` is a branch, a
-        /// 40-hex commit, or an explicit `tag=`/`branch=`/`rev=`. Written for the whole graph, so
-        /// external pieces follow the fork too. Meant to be committed.
+        /// Day Git fork to use for all dependencies; append @REF for a branch, tag, or commit
         #[arg(long, value_name = "URL[@REF]")]
         git: Option<String>,
-        /// Exit non-zero when a patched source still resolves from git (CI's guard against a
-        /// stale table)
+        /// Fail if patched dependencies still resolve to the original Git source
         #[arg(long)]
         check: bool,
     },
-    /// Render the derived host files (icon catalogs, launcher mipmaps, HarmonyOS media) under
-    /// build/day/host from resource/icons/icon.svg (what the Xcode, Gradle, and hvigor projects
-    /// reference, and never checked in; docs/icons.md), and stage the HarmonyOS host's ArkTS
-    /// from the day-arkui crate. Every build runs this itself; run it by hand before opening a
-    /// native project on a fresh clone
+    /// Generate the icons and source files required by native projects
+    #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/#native-projects-and-ci")]
     Prepare {
-        /// Limit to these targets' families (repeatable; default: every target in Day.toml)
+        /// Targets to prepare (repeatable; default: all targets in Day.toml)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// Verify the host files are present and current without writing; exits 5 and lists
-        /// what is missing or stale (CI's gate, and what the editor asks before opening Xcode)
+        /// Check generated files without writing; exit 5 if files are missing or stale
         #[arg(long, conflicts_with = "migrate")]
         check: bool,
-        /// Move a project from committed derived files to the generated layout: delete the
-        /// files the old lock proves were generated, repoint the Xcode and Gradle projects at
-        /// build/day/host, and gitignore the HarmonyOS links. Prints what it removed; commit
-        /// the deletions yourself
+        /// Migrate to generated assets: remove old generated files and update native projects
         #[arg(long)]
         migrate: bool,
     },
-    /// Open a target's native project in its IDE (Xcode for ios-uikit and macos-appkit,
-    /// Android Studio for android-mdc, DevEco Studio for harmony-arkui) after `day prepare`,
-    /// so the generated catalogs and media the project references are in place
+    /// Prepare and open a native project in its IDE
+    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     Open {
-        /// The target whose host project to open
+        /// Target to open in Xcode, Android Studio, or DevEco Studio
         #[arg(short = 'p', long = "platform")]
         platform: String,
     },
-    /// Store listings: scaffold `store/`, or stage the fastlane tree a release uploads
+    /// Create and prepare app store listings
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
     Store {
         #[command(subcommand)]
         cmd: StoreCmd,
     },
-    /// One locale set across the project's surfaces: list it, or add/remove a locale everywhere
+    /// Manage locales across the app, store listings, and website
+    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
     Localize {
         #[command(subcommand)]
         cmd: LocalizeCmd,
     },
-    /// Screenshot tooling: the machine-readable gallery index (DESIGN.md §14.7)
+    /// Build a gallery index from screenshots
+    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
     Screenshot {
         #[command(subcommand)]
         cmd: ScreenshotCmd,
     },
-    /// Web-target helpers (docs/web.md)
+    /// Tools for web apps
+    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/web-dom/")]
     Web {
         #[command(subcommand)]
         cmd: WebCmd,
     },
-    /// Stop running launches (and drop their sessions)
+    /// Stop apps launched by Day
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Stop {
-        /// Target(s) to stop (repeatable)
+        /// Targets to stop (repeatable)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// Stop every recorded session
+        /// Stop all recorded sessions for this project
         #[arg(long)]
         all: bool,
     },
-    /// Remove every build artifact: build/, target/, and the platform scaffolds' generated
-    /// outputs (gradle, hvigor, SwiftPM scratch). Stops recorded sessions first
+    /// Stop recorded sessions and remove build outputs
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Clean {
-        /// Report what would be removed (and its size) without removing anything
+        /// List files and their sizes without deleting them
         #[arg(long)]
         dry_run: bool,
     },
-    /// Stop, rebuild, and relaunch targets: "apply my code changes"
+    /// Stop, rebuild, and restart apps
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Relaunch {
-        /// Target(s) to relaunch (repeatable); omit with --all-running
+        /// Targets to restart (repeatable; omit with --all-running)
         #[arg(short = 'p', long = "platform")]
         platforms: Vec<String>,
-        /// Relaunch every recorded session
+        /// Restart all recorded sessions for this project
         #[arg(long)]
         all_running: bool,
+        /// Build profile
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
-        /// BCP-47 locale override passed to the app
+        /// App locale as a BCP-47 tag, such as en or fr-CA
         #[arg(long)]
         locale: Option<String>,
     },
-    /// Execute dayscript steps against a running app (see docs/agent.md)
+    /// Run dayscript steps in a running app
+    #[command(after_help = "Docs: https://daybrite.dev/docs/for-agents/")]
     Drive {
-        /// The target whose live session to drive
+        /// Target with the running app to control
         #[arg(short = 'p', long = "platform")]
         platform: String,
-        /// JSON array of steps, e.g. '[{"navigate":{"route":"controls"}},{"screenshot":"x"}]'
+        /// Dayscript steps as a JSON array
         #[arg(long)]
         steps_json: String,
     },
-    /// Serve Day tools to coding agents over the Model Context Protocol (stdio)
+    /// Serve Day tools over MCP using standard input and output
+    #[command(after_help = "Docs: https://daybrite.dev/docs/for-agents/")]
     McpServer {},
-    /// Simulators, emulators and phones the mobile targets can launch onto
+    /// List and manage simulators, emulators, and devices
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     Devices {
         #[command(subcommand)]
         cmd: DevicesCmd,
     },
-    /// HarmonyOS / OpenHarmony helpers (emulator, …)
+    /// Tools for HarmonyOS and OpenHarmony
+    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/harmony-arkui/")]
     Ohos {
         #[command(subcommand)]
         cmd: OhosCmd,
     },
-    /// PLUMBING: invoked by the Xcode script phase (reads Xcode's env)
+    /// Run the native Xcode build callback (internal)
     #[command(name = "xcode-backend", hide = true)]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     XcodeBackend {
+        /// Build action requested by the native project
         #[arg(default_value = "build")]
         action: String,
     },
-    /// PLUMBING: invoked by the gradle scaffold (reads DAY_* env)
+    /// Run the native Gradle build callback (internal)
     #[command(name = "gradle-backend", hide = true)]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     GradleBackend {
+        /// Build action requested by the native project
         #[arg(default_value = "build")]
         action: String,
     },
@@ -628,11 +573,13 @@ enum Cmd {
 /// `day store …`: the canonical listing under `store/`, and the fastlane trees it generates.
 #[derive(Subcommand)]
 pub enum StoreCmd {
-    /// Write `store/<locale>/` skeletons for every locale the app ships (never overwrites)
+    /// Create store listing files for each locale without replacing existing files
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
     Init,
-    /// Generate the fastlane metadata tree under `build/day/fastlane/<target>/`
+    /// Prepare store listings for upload with fastlane
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
     Stage {
-        /// Target to stage for (default: every store target in Day.toml)
+        /// Target to prepare (default: all store targets)
         #[arg(short = 'p', long = "platform")]
         target: Option<String>,
     },
@@ -642,23 +589,20 @@ pub enum StoreCmd {
 /// (`resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`), kept in step.
 #[derive(Subcommand)]
 pub enum WebCmd {
-    /// Print the path of the bundled DAY_WEB_DRIVER page-driver script (materialized to a
-    /// temp location): DAY_WEB_DRIVER="node $(day web driver)". Playwright resolves from
-    /// DAY_WEB_DRIVER_PLAYWRIGHT; DAY_WEB_DRIVER_BROWSER picks webkit/chromium/firefox
+    /// Print the path to the bundled browser automation driver
+    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/web-dom/")]
     Driver,
 }
 
 #[derive(Subcommand)]
 pub enum ScreenshotCmd {
-    /// Merge captured screenshot trees into gallery.json, the published machine-readable
-    /// index of every capture (URL, localized title/caption, theme, locale, platform,
-    /// dimensions, byte size, sha-256), which app sites serve at /gallery/gallery.json
+    /// Merge screenshot directories into gallery.json
+    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
     Index {
-        /// Capture tree(s), `<target>/<variant>/<shot>.png` (repeatable).
-        /// Default: build/day/screenshots
+        /// Screenshot directories (repeatable; default: build/day/screenshots)
         #[arg(long = "screenshot-paths", value_name = "PATH", num_args = 1..)]
         screenshot_paths: Vec<PathBuf>,
-        /// Output file (default: gallery.json at the first tree's root)
+        /// Output file (default: gallery.json in the first screenshot directory)
         #[arg(long)]
         out: Option<PathBuf>,
     },
@@ -666,55 +610,59 @@ pub enum ScreenshotCmd {
 
 #[derive(Subcommand)]
 pub enum LocalizeCmd {
-    /// Print each surface's locales, then any out-of-sync warnings (always exits 0)
+    /// List locales and report differences between app, store, and website
+    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
     List,
-    /// Add locale(s) to every surface the project has (Day tags; repeatable / comma-separated)
-    Add { locales: Vec<String> },
-    /// Remove locale(s) from every surface (the default locale is refused)
-    Remove { locales: Vec<String> },
+    /// Add locales to the app, store listings, and website
+    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
+    Add {
+        /// Locale tags, such as fr or de (repeatable or comma-separated)
+        locales: Vec<String>,
+    },
+    /// Remove locales from the project; the default locale cannot be removed
+    #[command(after_help = "Docs: https://daybrite.dev/docs/localization/")]
+    Remove {
+        /// Locale tags to remove (repeatable or comma-separated)
+        locales: Vec<String>,
+    },
 }
 
 #[derive(Subcommand)]
 enum NewKind {
-    /// Scaffold a Day piece crate (a reusable widget). No `--toolkits` ⇒ a composite piece.
+    /// Create a reusable UI component
+    #[command(after_help = "Docs: https://daybrite.dev/docs/extending/")]
     Piece {
-        /// Crate name (prompted if omitted in an interactive terminal).
+        /// Crate name (prompted if omitted)
         name: Option<String>,
-        /// Comma-separated toolkits for a native piece (appkit,gtk,qt,uikit,mdc,xaml). Omit for a
-        /// composite piece (pure composition; works on every backend with no per-backend code).
+        /// Native toolkits, comma-separated (appkit, gtk, qt, uikit, mdc, xaml).
+        /// Omit to create a component using existing pieces
         #[arg(long)]
         toolkits: Option<String>,
-        /// Force a composite piece even if `--toolkits` is given.
+        /// Create a component using existing pieces, even when --toolkits is set
         #[arg(long)]
         composite: bool,
-        /// Package id (reverse-DNS); default `dev.example.<name>`. Also the piece kind + Java
-        /// package.
+        /// Package ID in reverse-DNS form (default: dev.example.<name>)
         #[arg(long)]
         id: Option<String>,
-        /// Scaffold `day` deps from the git remote, currently the default (the day framework
-        /// crates are not yet on crates.io); kept for forward compatibility.
+        /// Use Day dependencies from Git (default)
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version; for use
-        /// once the day framework crates are published.
+        /// Use Day dependencies from crates.io at the selected version
         #[arg(long)]
         registry: bool,
-        /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
-        /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
-        /// (a git tag/branch/rev today, or the crates.io version with `--registry`).
+        /// Day dependency version: release, latest, branch, or commit
         #[arg(long = "day-version", value_name = "SPEC")]
         day_version: Option<String>,
-        /// Use `path` deps rooted at a local day checkout (CI / framework development).
+        /// Use Day dependencies from a local checkout
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
-        /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
+        /// Use flags and defaults without prompting (automatic when stdin is not a terminal)
         #[arg(long)]
         no_input: bool,
-        /// Skip `demo/`, the one-page app beside the crate that shows the piece.
+        /// Skip the demo app
         #[arg(long)]
         no_demo: bool,
-        /// Where a native piece's Android Java goes: `src/Day<Name>.java`, beside its Rust sources
-        /// (the default), or under `platform/android/java/` with `--java-in-src=false`.
+        /// Put Android Java in src/ (default); use false for platform/android/java/
         #[arg(
             long,
             value_name = "BOOL",
@@ -724,37 +672,33 @@ enum NewKind {
         )]
         java_in_src: Option<bool>,
     },
-    /// Scaffold a Day part crate (a headless, UI-less capability).
+    /// Create a platform service without a user interface
+    #[command(after_help = "Docs: https://daybrite.dev/docs/tutorial-part/")]
     Part {
-        /// Crate name (prompted if omitted in an interactive terminal).
+        /// Crate name (prompted if omitted)
         name: Option<String>,
-        /// Comma-separated platforms (macos,ios,android,linux,windows); default: all.
+        /// Platforms, comma-separated (macos, ios, android, linux, windows; default: all)
         #[arg(long)]
         platforms: Option<String>,
-        /// Package id (reverse-DNS); default `dev.example.<name>`. Also the Java package.
+        /// Package ID in reverse-DNS form (default: dev.example.<name>)
         #[arg(long)]
         id: Option<String>,
-        /// Scaffold `day` deps from the git remote, currently the default (the day framework
-        /// crates are not yet on crates.io); kept for forward compatibility.
+        /// Use Day dependencies from Git (default)
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version; for use
-        /// once the day framework crates are published.
+        /// Use Day dependencies from crates.io at the selected version
         #[arg(long)]
         registry: bool,
-        /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
-        /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
-        /// (a git tag/branch/rev today, or the crates.io version with `--registry`).
+        /// Day dependency version: release, latest, branch, or commit
         #[arg(long = "day-version", value_name = "SPEC")]
         day_version: Option<String>,
-        /// Use `path` deps rooted at a local day checkout (CI / framework development).
+        /// Use Day dependencies from a local checkout
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
-        /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
+        /// Use flags and defaults without prompting (automatic when stdin is not a terminal)
         #[arg(long)]
         no_input: bool,
-        /// Where the Android Java shim goes: `src/Day<Name>.java`, beside the Rust sources (the
-        /// default), or under `platform/android/java/` with `--java-in-src=false`.
+        /// Put Android Java in src/ (default); use false for platform/android/java/
         #[arg(
             long,
             value_name = "BOOL",
@@ -764,64 +708,54 @@ enum NewKind {
         )]
         java_in_src: Option<bool>,
     },
-    /// Scaffold a new Day app (the canonical app command).
+    /// Create an app
+    #[command(after_help = "Docs: https://daybrite.dev/docs/getting-started/")]
     App {
-        /// App name (prompted if omitted in an interactive terminal).
+        /// App name (prompted if omitted)
         name: Option<String>,
-        /// A target to support (repeatable): e.g. `--toolkit ios-uikit --toolkit macos-appkit`.
-        /// Values may also be comma-separated. Omit to choose interactively.
+        /// Targets to support (repeatable or comma-separated; prompted if omitted)
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
-        /// Application id / bundle id (reverse-DNS); default `dev.example.<name>`.
+        /// Application ID in reverse-DNS form (default: dev.example.<name>)
         #[arg(long)]
         appid: Option<String>,
-        /// Alias for --appid (Android application id / Apple bundle id).
+        /// Alias for --appid
         #[arg(long)]
         bundleid: Option<String>,
-        /// Back-compat alias for --appid.
+        /// Legacy alias for --appid
         #[arg(long, hide = true)]
         id: Option<String>,
-        /// Window / app-store display title; default: the name, title-cased (`hello-world` ⇒
-        /// `Hello World`).
+        /// App display name (default: the app name converted to title case)
         #[arg(long)]
         title: Option<String>,
-        /// Scaffold from a custom template instead of the built-in one: a local directory, or
-        /// a git URL (optionally `#ref`). Files are rendered with {{name}}/{{title}}/{{id}}/…
-        /// placeholders in contents and paths (see the docs for the full list + conventions).
+        /// Template directory or Git URL with an optional #REF
         #[arg(long)]
         template: Option<String>,
-        /// Skip the website/ scaffold (site.toml + theme.css, the config the daysite template
-        /// and the shared CI workflow turn into a GitHub Pages site).
+        /// Skip website configuration files
         #[arg(long = "no-website")]
         no_website: bool,
-        /// Locales the app ships from day one (Day tags, comma/space-separated, repeatable).
-        /// Each tag beyond `en` is applied to the fresh scaffold via `day localize add`.
+        /// Initial locales (comma- or space-separated; repeatable; always includes en)
         #[arg(long = "locales")]
         locales: Vec<String>,
-        /// Seed for the generated app icon (docs/icons.md#generate): an integer or any
-        /// string. Default: the app id, so the same id always scaffolds the same icon.
+        /// Integer or text seed for the app icon (default: application ID)
         #[arg(long = "icon-seed", value_name = "SEED")]
         icon_seed: Option<String>,
-        /// Back-compat: comma-separated target list (prefer repeated --toolkit).
+        /// Legacy comma-separated target list; prefer --toolkit
         #[arg(long, hide = true)]
         targets: Option<String>,
-        /// Scaffold `day` deps from the git remote, currently the default (the day framework
-        /// crates are not yet on crates.io); kept for forward compatibility.
+        /// Use Day dependencies from Git (default)
         #[arg(long)]
         git: bool,
-        /// Scaffold versioned `day` deps from crates.io, pinned to this CLI's version; for use
-        /// once the day framework crates are published.
+        /// Use Day dependencies from crates.io at the selected version
         #[arg(long)]
         registry: bool,
-        /// Which `day` to build against: a release (`0.2.0`), `latest` (the newest published
-        /// day-cli), a branch (`main`), or a commit. Pins the scaffold's day dependencies to it
-        /// (a git tag/branch/rev today, or the crates.io version with `--registry`).
+        /// Day dependency version: release, latest, branch, or commit
         #[arg(long = "day-version", value_name = "SPEC")]
         day_version: Option<String>,
-        /// Use `path` deps rooted at a local day checkout (CI / framework development).
+        /// Use Day dependencies from a local checkout
         #[arg(long, hide = true)]
         local: Option<PathBuf>,
-        /// Never prompt; use flags + defaults only (also implied when stdin is not a terminal).
+        /// Use flags and defaults without prompting (automatic when stdin is not a terminal)
         #[arg(long)]
         no_input: bool,
     },
@@ -829,105 +763,94 @@ enum NewKind {
 
 #[derive(clap::Subcommand)]
 pub enum AppCmd {
-    /// Add target(s) to this app: appends to Day.toml `targets:` (comments/formatting
-    /// preserved) and materializes any native host projects (platform/…) the targets need,
-    /// from the same template `day new app` used.
+    /// Add targets to Day.toml and create their native projects
     #[command(name = "add-toolkit")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     AddToolkit {
-        /// Target(s) to add, e.g. `android-mdc` (repeatable / comma-separated)
+        /// Targets to add, such as android-mdc (repeatable or comma-separated)
         targets: Vec<String>,
-        /// The template the app was scaffolded from, when not the built-in one (dir or git URL)
+        /// Original project template, if custom (directory or Git URL)
         #[arg(long)]
         template: Option<String>,
     },
-    /// Move the Xcode projects' user-adjustable build settings into DayApp.xcconfig files
-    /// (platform/ios, platform/macos): what `day new` scaffolds and `day build` migrates
-    /// automatically; this runs the same migration without building.
+    /// Move Xcode build settings into DayApp.xcconfig files
     #[command(name = "split-xcconfig")]
+    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     SplitXcconfig,
 }
 
 #[derive(clap::Subcommand)]
 pub enum DevicesCmd {
-    /// List what each mobile target can be launched onto right now
+    /// List available simulators, emulators, and connected devices
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     List {
-        /// Only this target (`ios-uikit`, `android-mdc`, `harmony-arkui`)
+        /// Filter by target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: Option<String>,
     },
-    /// Start a simulator, emulator or AVD so it can be launched onto
+    /// Start a simulator or emulator
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     Boot {
-        /// Which target's device to start
+        /// Device target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// The device's id from `day devices list`: a simulator UDID or an AVD name.
-        /// Omit it and name the device with `--device` instead.
+        /// Device ID from day devices list; omit when using --device
         #[arg(value_name = "ID")]
         id: Option<String>,
-        /// Pick the device by name prefix instead of by id: `--device "iPad Pro"` takes the
-        /// first iPad Pro the machine has. What CI wants, since runner images retire exact device
-        /// names every few months, and a pinned one starts failing the day the image moves.
-        /// A `*` stands for any run of characters and the newest model wins, so
-        /// `--device "iPhone * Pro Max"` is the largest iPhone whatever its model year.
+        /// Device name prefix or wildcard pattern, such as "iPhone * Pro Max"; newest match wins
         #[arg(long, value_name = "NAME", conflicts_with = "id")]
         device: Option<String>,
-        /// Narrow `--device` to an OS version: `--os "iOS 26"` takes the newest 26.x installed.
-        /// Matched as a major version for the same reason `--device` is a prefix.
+        /// OS version for --device, such as "iOS 26"; newest matching minor version wins
         #[arg(long, value_name = "VERSION", requires = "device")]
         os: Option<String>,
-        /// Wait until the device has finished booting, rather than returning once the boot has
-        /// been asked for. What a script that installs onto it next needs.
+        /// Wait for the device to finish booting
         #[arg(long)]
         wait: bool,
-        /// Start the simulator in this orientation (`portrait` or `landscape`), the form factor
-        /// half of a capture profile (docs/screenshots.md). iOS simulators only.
+        /// iOS simulator orientation: portrait or landscape
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
-        /// Boot with no window, for a machine with no display (CI). Starts an Android emulator
-        /// without one and keeps the iOS simulator's UI app closed; OpenHarmony ignores it.
+        /// Hide the Android or iOS emulator window; ignored on OpenHarmony
         #[arg(long)]
         headless: bool,
     },
     /// Stop a running simulator or emulator
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     Shutdown {
-        /// Which target's device to stop
+        /// Device target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// The device to stop: a simulator's UDID or name, or, for Android, either the
-        /// emulator's adb serial or the name of the AVD it is running.
+        /// iOS simulator name or UDID, or Android adb serial or AVD name
         #[arg(value_name = "ID")]
         id: String,
     },
-    /// Create (or update) an Android AVD from a device profile, ready to boot
+    /// Create or update an Android virtual device
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices")]
     Setup {
-        /// Target this device belongs to (only `android-mdc` has AVDs to create)
+        /// Device target (android-mdc only)
         #[arg(short = 'p', long = "platform", value_name = "TARGET")]
         platform: String,
-        /// Device profile id from `avdmanager list device`: `pixel_7`, `Nexus 7 2013`
+        /// Profile ID from avdmanager list device, such as pixel_7
         #[arg(long, value_name = "PROFILE")]
         device: String,
-        /// API level: `36`, `API 36` or `android-36`
+        /// Android API level, such as 36 or android-36
         #[arg(long, value_name = "LEVEL")]
         os: String,
-        /// ABI of the system image; defaults to the host's (`x86_64` on a CI runner)
+        /// System image ABI (default: this host's architecture)
         #[arg(long, value_name = "ABI")]
         arch: Option<String>,
-        /// System-image tag; defaults to `google_apis`
+        /// System image tag (default: google_apis)
         #[arg(long, value_name = "TAG")]
         tag: Option<String>,
-        /// AVD name; defaults to one derived from the device and API level
+        /// Virtual device name (default: derived from profile and API level)
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
-        /// Orientation the emulator starts in (`portrait` or `landscape`)
+        /// Emulator orientation: portrait or landscape
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
-        /// Panel density in dpi, overriding the profile's. The pixel panel is unchanged, so a
-        /// screenshot keeps its size and the layout gets more points: `Nexus 7 2013` at
-        /// `--density 240` captures 1920x1200 laid out as 1280x800 points
+        /// Display density in DPI; does not change screenshot pixel dimensions
         #[arg(long, value_name = "DPI")]
         density: Option<u32>,
-        /// Guest RAM in MB. Without it a tablet-sized display (past three million pixels)
-        /// gets 4096 where the profile grants less; phones keep the profile's value.
+        /// Emulator RAM in MB (default: profile value, with at least 4096 for large displays)
         #[arg(long, value_name = "MB")]
         ram: Option<u32>,
     },
@@ -936,6 +859,7 @@ pub enum DevicesCmd {
 #[derive(clap::Subcommand)]
 pub enum OhosCmd {
     /// Manage the OpenHarmony emulator
+    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/harmony-arkui/")]
     Emulator {
         #[command(subcommand)]
         cmd: EmulatorCmd,
@@ -944,9 +868,10 @@ pub enum OhosCmd {
 
 #[derive(clap::Subcommand)]
 pub enum EmulatorCmd {
-    /// Launch the Oniro/OpenHarmony QEMU emulator as a native window (no VNC/password)
+    /// Launch the Oniro OpenHarmony emulator
+    #[command(after_help = "Docs: https://daybrite.dev/docs/platforms/harmony-arkui/")]
     Launch {
-        /// No window (hdc-only), for CI / headless hosts.
+        /// Run without a window; connect through hdc
         #[arg(long)]
         headless: bool,
     },
