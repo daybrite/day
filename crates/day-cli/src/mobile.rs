@@ -202,7 +202,7 @@ pub(crate) fn cargo_apple_staticlibs(
                 ),
             )
             .env("CARGO_TARGET_DIR", &target_dir);
-        crate::ops::apply_app_identity(&mut cmd, project);
+        crate::ops::apply_app_identity(&mut cmd, project, target_dir_name);
         // The DayPieces package staged before this build carries every bridged crate's Swift arm,
         // so the cfg that switches those arms on rides the same cargo run (docs/bridge.md).
         crate::bridge::apply_staged(&mut cmd, project, target_dir_name);
@@ -2313,7 +2313,7 @@ fn build_android_so(
         )
         .env("CARGO_TARGET_DIR", &target_dir)
         .env("ANDROID_NDK_HOME", &ndk_home);
-    crate::ops::apply_app_identity(&mut cmd, project);
+    crate::ops::apply_app_identity(&mut cmd, project, "android-mdc");
     crate::bridge::apply_staged(&mut cmd, project, "android-mdc");
     cmd.arg("ndk");
     for abi in abis {

@@ -337,15 +337,16 @@ pub fn died_on_signal(code: i32) -> bool {
 /// `build.rs` bakes these into the binary so crash reports carry id/version/build without
 /// reading platform manifests at runtime (docs/break.md); on launch commands they double as the
 /// runtime fallback for dev flows whose binary predates the vars.
-pub fn apply_app_identity(cmd: &mut Command, project: &Project) {
-    for (k, v) in app_identity_env(project) {
+/// `DAY_APP_TITLE` carries the target-resolved display name for `day_build::app_title()`.
+pub fn apply_app_identity(cmd: &mut Command, project: &Project, target: &str) {
+    for (k, v) in app_identity_env(project, target) {
         cmd.env(k, v);
     }
 }
 
 /// The same variables as a map, for callers that report an environment instead of spawning with
 /// one (`desktop_launch_plan`, and `day build --format json` through it).
-pub fn app_identity_env(project: &Project) -> BTreeMap<String, OsString> {
+pub fn app_identity_env(project: &Project, target: &str) -> BTreeMap<String, OsString> {
     let mut env = BTreeMap::from([
         (
             "DAY_APP_ID".to_string(),
@@ -360,6 +361,10 @@ pub fn app_identity_env(project: &Project) -> BTreeMap<String, OsString> {
             project.manifest.app.build.to_string().into(),
         ),
     ]);
+    env.insert(
+        "DAY_APP_TITLE".to_string(),
+        project.manifest.resolve(target).title.into(),
+    );
     env.extend(determinism_env());
     // The active flavor's build inputs (DESIGN.md §16.6): its `[env]`, and the merged resource
     // tree, which `day-build` reads in the app's build.rs so the generated constants and the
@@ -602,7 +607,7 @@ fn build_native(
             cmd.current_dir(&project.root)
                 .env("CARGO_TARGET_DIR", cargo_dir(project, target, profile));
             crate::patch::apply_day_src(&mut cmd);
-            apply_app_identity(&mut cmd, project);
+            apply_app_identity(&mut cmd, project, target.name);
             crate::bridge::apply_staged(&mut cmd, project, target.name);
             apply_mingw_registration_guard(&mut cmd, target);
             // The toolkit feature (e.g. `appkit`) + every standalone piece's `<pkg>/<toolkit>`
@@ -972,7 +977,7 @@ pub fn desktop_launch_plan(
             "DAY_FONT_ROOT".to_string(),
             project.resource_root().join("fonts").into_os_string(),
         );
-        env.extend(app_identity_env(project));
+        env.extend(app_identity_env(project, target.name));
     }
 
     // App icon (§18.2): the backend applies it to the dock / taskbar at startup (QApplication
@@ -1227,6 +1232,39 @@ pub(crate) fn headless_wrap(
 #[cfg(test)]
 mod build_root_tests {
     use super::*;
+
+    #[test]
+    fn build_title_uses_resolved_app_metadata() {
+        let tmp = std::env::temp_dir().join(format!("day-build-title-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = 'fork-games'\nversion = '1.0.0'\n",
+        )
+        .unwrap();
+        std::fs::write(tmp.join("Day.toml"), "schema = 1\n[app]\nid = 'dev.example.games'\ntitle = 'Fork Games'\n[app.macos]\ntitle = 'Mac Games'\n[app.macos-appkit]\ntitle = 'Native Games'\n").unwrap();
+        let mut project = crate::meta::find_project(Some(&tmp)).unwrap();
+        assert_eq!(
+            app_identity_env(&project, "android-mdc")["DAY_APP_TITLE"],
+            "Fork Games"
+        );
+        assert_eq!(
+            app_identity_env(&project, "macos-appkit")["DAY_APP_TITLE"],
+            "Native Games"
+        );
+        // Flavor merging updates this same manifest before the build environment is formed.
+        project.manifest.app.title = Some("Fair Games".into());
+        assert_eq!(
+            app_identity_env(&project, "ios-uikit")["DAY_APP_TITLE"],
+            "Fair Games"
+        );
+        project.manifest.app.title = None;
+        assert_eq!(
+            app_identity_env(&project, "ios-uikit")["DAY_APP_TITLE"],
+            "fork-games"
+        );
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
 
     /// Without `--day-src`, every derived path is exactly where it has always been. This is the
     /// half that must not move: an existing project's `build/day/cargo` tree stays valid, and a

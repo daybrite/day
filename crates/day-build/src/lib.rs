@@ -39,6 +39,50 @@ pub mod bridge;
 pub mod permissions;
 pub mod swiftui;
 
+/// The app's display title for embedding in its UI from `build.rs`.
+///
+/// `day build` supplies `DAY_APP_TITLE` after resolving flavor and target overrides. A plain
+/// Cargo build reads `[app].title` from Day.toml, falling back to the Cargo package name.
+/// Registers both inputs so changing the title invalidates the generated output.
+pub fn app_title() -> Result<String, String> {
+    println!("cargo:rerun-if-env-changed=DAY_APP_TITLE");
+    println!("cargo:rerun-if-changed=Day.toml");
+    if let Ok(title) = std::env::var("DAY_APP_TITLE") {
+        return Ok(title);
+    }
+    let root = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
+    let source = std::fs::read_to_string(root.join("Day.toml"))
+        .map_err(|e| format!("day-build: reading Day.toml: {e}"))?;
+    manifest_title(&source, &env("CARGO_PKG_NAME")?)
+}
+
+fn manifest_title(source: &str, package_name: &str) -> Result<String, String> {
+    let manifest: toml::Value =
+        toml::from_str(source).map_err(|e| format!("day-build: parsing Day.toml: {e}"))?;
+    match manifest.get("app").and_then(|app| app.get("title")) {
+        Some(title) => title
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "day-build: app.title must be a string".to_string()),
+        None => Ok(package_name.to_owned()),
+    }
+}
+
+#[cfg(test)]
+mod app_title_tests {
+    use super::manifest_title;
+
+    #[test]
+    fn metadata_title_supports_renames_and_toml_escaping() {
+        assert_eq!(
+            manifest_title("[app]\ntitle = 'Fork \"Games\" 🎲'", "day-games").unwrap(),
+            "Fork \"Games\" 🎲"
+        );
+        assert_eq!(manifest_title("[app]", "fork-games").unwrap(), "fork-games");
+        assert!(manifest_title("[app]\ntitle = 123", "fork-games").is_err());
+    }
+}
+
 /// A single generated constant: its Rust `symbol`, the `value` string it wraps (the wire name the
 /// backend resolves by), and the `source` file (for the doc comment).
 #[derive(Debug, Clone, PartialEq, Eq)]

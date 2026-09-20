@@ -4297,6 +4297,13 @@ family at runtime falls back to the system font with a log line, never a crash.
 
 ### §18.5 Typed resource constants ([docs/resources.md](docs/resources.md))
 
+An app can embed its display name with `day_build::app_title()` in `build.rs`. Day passes
+`DAY_APP_TITLE` to every Cargo backend after resolving the active flavor and target's app
+metadata; the helper tracks changes to that variable and `Day.toml`. Plain Cargo builds use
+`[app].title` from `Day.toml`, or the Cargo package name if absent. The returned title can be
+written as a Rust string constant and passed to a Fluent message parameter, keeping the home
+header and window title consistent with the packaged app without a second hardcoded brand.
+
 Every bundled resource is also surfaced to app code as a **typed constant**, so a reference is
 checked at compile time instead of failing at runtime on whichever backend can't find the name. An
 app's `build.rs` calls `day_build::generate_resources()`, which scans `resource/{images,assets,fonts}`

@@ -885,7 +885,7 @@ pub fn build_ohos(
         status("Building", &format!("{} (cargo cdylib {abi})", target.name));
         let mut cmd = Command::new(&cargo);
         crate::patch::apply_day_src(&mut cmd);
-        crate::ops::apply_app_identity(&mut cmd, project);
+        crate::ops::apply_app_identity(&mut cmd, project, target.name);
         // The hvigor module staged before this build carries every bridged crate's ArkTS arm, so
         // the cfg that switches those arms on rides the same cargo run (docs/bridge.md).
         crate::bridge::apply_staged(&mut cmd, project, "harmony-arkui");

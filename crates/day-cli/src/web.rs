@@ -68,7 +68,7 @@ pub fn build_web(
         .args(["rustc", "-p", name, "--lib", "--no-default-features"])
         .args(["--features", &features])
         .args(["--target", "wasm32-unknown-unknown"]);
-    apply_app_identity(&mut cmd, project);
+    apply_app_identity(&mut cmd, project, target.name);
     crate::bridge::apply_staged(&mut cmd, project, "web-dom");
     if profile == Profile::Release {
         cmd.arg("--release");
