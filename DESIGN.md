@@ -3524,8 +3524,13 @@ it never fails the pack; `day sign check` reports readiness without printing any
 signs in separate hands: building runs the app's own code, signing runs none of it, so the
 credentials only ever meet a finished file (the App Fair's pipeline is the case this exists for).
 Android ships first — `.aab` through `jarsigner`, `.apk` through `zipalign` + `apksigner` with v4
-off — resolving `[signing.android]` STRICTLY, the one place the dev-tier degradation above is
-wrong: a dev-signed artifact looks finished and no store will take it. Passwords cross through the
+off — resolving `[signing.android]` strictly, the one place the dev-tier degradation above is
+wrong: a dev-signed artifact looks finished and no store will take it. `--keystore` and
+`--key-alias` (2026-09) name the key outright, with the passwords in `DAY_SIGN_STORE_PASS` and
+`DAY_SIGN_KEY_PASS`; given them, the submitted app's manifest is never read and no project has to
+be present at all, so a queue can sign in a directory holding the package alone. That matters for
+the same reason the verb exists: a manifest the submitter wrote would otherwise choose which of
+the signer's environment variables are resolved and reported. Passwords cross through the
 child's environment, never argv; the signed copy is verified beside the destination and moved into
 place only after it verifies, so a failure leaves the unsigned input untouched; the report and
 `--format json` carry both digests and the signing certificate's SHA-256, which is what a store

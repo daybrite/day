@@ -312,15 +312,34 @@ pub struct AppleOverrides<'a> {
     pub entitlements: Option<&'a Path>,
 }
 
+/// Android signing material passed on the command line, for a caller that signs a package
+/// without the project that built it.
+///
+/// A submission queue is the case this exists for: it signs other people's packages with its own
+/// release key, and reading `[signing.android]` out of the submitted app would let that app
+/// choose which of the queue's environment variables are read and reported. With both values
+/// here, the manifest is never consulted; the passwords still come from `DAY_KS_PASS` and
+/// `DAY_KEY_PASS`, which keep them off the command line.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AndroidOverrides<'a> {
+    pub keystore: Option<&'a Path>,
+    pub key_alias: Option<&'a str>,
+}
+
 /// `day sign apply <artifact>`: sign an existing package in place, or into `--out`.
 ///
 /// The input is never modified until the signed copy exists and verifies, so a failure leaves the
 /// unsigned artifact exactly as it was rather than a half-signed one.
+///
+/// `project` is optional. Given the material on the command line, this signs a package that has
+/// no project beside it at all, which is what lets a signing step run in a directory holding
+/// nothing but the package it was handed.
 pub fn apply(
-    project: &Project,
+    project: Option<&Project>,
     artifact: &Path,
     out: Option<&Path>,
     apple: AppleOverrides<'_>,
+    android: AndroidOverrides<'_>,
     json: bool,
 ) -> Result<i32, CliError> {
     if !artifact.is_file() {
@@ -335,10 +354,10 @@ pub fn apply(
         .unwrap_or_default()
         .to_ascii_lowercase();
     let signed = match ext.as_str() {
-        "aab" => android_keys(project).and_then(|keys| {
+        "aab" => android_keys(project, android).and_then(|keys| {
             sign_android(artifact, out, &keys, Format::Aab).map_err(CliError::sign)
         }),
-        "apk" => android_keys(project).and_then(|keys| {
+        "apk" => android_keys(project, android).and_then(|keys| {
             sign_android(artifact, out, &keys, Format::Apk).map_err(CliError::sign)
         }),
         "ipa" | "app" => apple_material(project, apple)
@@ -389,7 +408,46 @@ enum Format {
 /// still installs. Here the opposite is right: the caller asked for a distribution signature, and
 /// quietly producing a dev-signed artifact would hand them something that looks finished and is
 /// rejected by every store.
-fn android_keys(project: &Project) -> Result<AndroidKeys, CliError> {
+fn android_keys(
+    project: Option<&Project>,
+    over: AndroidOverrides<'_>,
+) -> Result<AndroidKeys, CliError> {
+    // Material on the command line stands alone: the keystore, the alias, and the two passwords
+    // from the environment. Nothing about the package's own project is read.
+    if let (Some(keystore), Some(alias)) = (over.keystore, over.key_alias) {
+        if !keystore.is_file() {
+            return Err(CliError::sign(format!(
+                "--keystore not found: {}",
+                keystore.display()
+            )));
+        }
+        let pass = |var: &str| -> Result<String, CliError> {
+            std::env::var(var).map_err(|_| {
+                CliError::sign(format!(
+                    "{var} is not set — `day sign apply --keystore` takes the passwords from the \
+                     environment so they stay off the command line"
+                ))
+            })
+        };
+        return Ok(AndroidKeys {
+            keystore: keystore.to_path_buf(),
+            key_alias: alias.to_string(),
+            store_pass: pass(STORE_PASS_VAR)?,
+            key_pass: pass(KEY_PASS_VAR)?,
+        });
+    }
+    if over.keystore.is_some() || over.key_alias.is_some() {
+        return Err(CliError::sign(
+            "--keystore and --key-alias go together; naming one without the other would sign with \
+             half this key and half the project's",
+        ));
+    }
+    let Some(project) = project else {
+        return Err(CliError::sign(
+            "no project here, and no key on the command line — run `day sign apply` inside the \
+             app, or pass --keystore and --key-alias (docs/packaging.md#signing-an-existing-package)",
+        ));
+    };
     let Some(a) = project
         .manifest
         .signing
@@ -588,11 +646,14 @@ struct AppleMaterial {
 }
 
 /// Resolve the Apple signing material: the command line first, then `[signing.ios]`.
-fn apple_material(project: &Project, over: AppleOverrides<'_>) -> Result<AppleMaterial, CliError> {
+fn apple_material(
+    project: Option<&Project>,
+    over: AppleOverrides<'_>,
+) -> Result<AppleMaterial, CliError> {
+    // The same rule as the Android half: what the command line states is what is used, and the
+    // project is consulted only for what it leaves out.
     let ios = project
-        .manifest
-        .signing
-        .as_ref()
+        .and_then(|p| p.manifest.signing.as_ref())
         .and_then(|s| s.ios.as_ref());
     let from_manifest = |raw: Option<&String>, what: &str| -> Result<Option<String>, CliError> {
         match interpolate_opt(raw) {
@@ -603,7 +664,11 @@ fn apple_material(project: &Project, over: AppleOverrides<'_>) -> Result<AppleMa
     let profile = match over.profile {
         Some(p) => p.to_path_buf(),
         None => match from_manifest(ios.and_then(|i| i.profile.as_ref()), "profile")? {
-            Some(p) => project.root.join(p),
+            // Relative to the project that declared it; with no project here, the manifest was
+            // never read and this arm is unreachable.
+            Some(p) => project
+                .map(|pr| pr.root.join(&p))
+                .unwrap_or_else(|| p.into()),
             None => {
                 return Err(CliError::sign(
                     "no provisioning profile — pass --profile <file>, or set signing.ios.profile \

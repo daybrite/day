@@ -899,6 +899,12 @@ pub enum SignCmd {
         /// Apple: the entitlements to sign with (default: the profile's own)
         #[arg(long, value_name = "FILE")]
         entitlements: Option<PathBuf>,
+        /// Android: the keystore to sign with (default: signing.android.keystore)
+        #[arg(long, value_name = "FILE")]
+        keystore: Option<PathBuf>,
+        /// Android: the key alias inside that keystore; passwords come from DAY_KS_PASS and DAY_KEY_PASS
+        #[arg(long, value_name = "NAME")]
+        key_alias: Option<String>,
     },
 }
 
@@ -1130,6 +1136,39 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             }
             Ok(0)
         }),
+        // `sign apply` is the one verb here that works on a package alone, so it resolves the
+        // project loosely: present, it supplies whatever the command line leaves out; absent, the
+        // command line has to carry the key. A queue signing other people's packages runs it in a
+        // directory that holds nothing but the package.
+        Cmd::Sign {
+            cmd:
+                SignCmd::Apply {
+                    artifact,
+                    out,
+                    profile,
+                    identity,
+                    entitlements,
+                    keystore,
+                    key_alias,
+                },
+        } => {
+            let project = meta::find_project(cli.project.as_deref()).ok();
+            crate::sign::apply(
+                project.as_ref(),
+                &artifact,
+                out.as_deref(),
+                crate::sign::AppleOverrides {
+                    profile: profile.as_deref(),
+                    identity: identity.as_deref(),
+                    entitlements: entitlements.as_deref(),
+                },
+                crate::sign::AndroidOverrides {
+                    keystore: keystore.as_deref(),
+                    key_alias: key_alias.as_deref(),
+                },
+                cli.format == OutputFormat::Json,
+            )
+        }
         Cmd::Sign { cmd } => with_project(cli.project.as_deref(), |project| match cmd {
             SignCmd::Check => Ok(crate::sign::check(project)),
             SignCmd::Status { id } => crate::sign::notarize_status(project, &id),
@@ -1139,14 +1178,20 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 profile,
                 identity,
                 entitlements,
+                keystore,
+                key_alias,
             } => crate::sign::apply(
-                project,
+                Some(project),
                 &artifact,
                 out.as_deref(),
                 crate::sign::AppleOverrides {
                     profile: profile.as_deref(),
                     identity: identity.as_deref(),
                     entitlements: entitlements.as_deref(),
+                },
+                crate::sign::AndroidOverrides {
+                    keystore: keystore.as_deref(),
+                    key_alias: key_alias.as_deref(),
                 },
                 cli.format == OutputFormat::Json,
             ),

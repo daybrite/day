@@ -171,7 +171,17 @@ day sign apply app-release.apk --out signed.apk # leaves the input alone
 
 The keys come from `[signing.android]`, resolved strictly: an unset `${VAR}` is an error naming
 the variable rather than a quiet drop to the dev keystore, because a dev-signed artifact looks
-finished and no store will take it. `.aab` goes through `jarsigner`, `.apk` through `zipalign`
+finished and no store will take it. A distributor names its own key instead, and then the
+submitted app's manifest is never read:
+
+```sh
+DAY_SIGN_STORE_PASS=… DAY_SIGN_KEY_PASS=… \
+  day sign apply app-release.aab --keystore upload.keystore --key-alias upload
+```
+
+With both flags given there is no need for a project at all: `day sign apply` runs in a directory
+holding the package alone, which is how a submission queue keeps the app it signs away from the
+runner that holds the key. The passwords stay in the environment, out of the argument list. `.aab` goes through `jarsigner`, `.apk` through `zipalign`
 then `apksigner` (v4 off, so no `.idsig` litter), and passwords reach both through the
 environment rather than the argument list, which every other process on the machine can read.
 
