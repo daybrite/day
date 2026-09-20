@@ -17,6 +17,9 @@
 // The app's name: the .app bundle, the executable, and what Xcode shows.
 // Renaming a fork is this line (plus the id below) and nothing in the pbxproj.
 PRODUCT_NAME = {{pascal}}
+// The name on the home screen. The generated include below rewrites it from Day.toml [app]
+// title on every `day build`; this line only carries a checkout that has not built yet.
+DAY_APP_TITLE = {{title}}
 PRODUCT_BUNDLE_IDENTIFIER = {{id}}
 MARKETING_VERSION = 0.1.0
 CURRENT_PROJECT_VERSION = 1

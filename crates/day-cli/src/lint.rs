@@ -741,6 +741,80 @@ fn apply_fixes(project: &Project, findings: &[Finding], allow: &[String]) -> usi
     applied
 }
 
+/// The Apple host projects' `Info.plist`: does it still pin values Day.toml owns?
+///
+/// `day new` baked the app's name and URL scheme into that file as literals until 2026-09, so a
+/// project that renamed itself in Day.toml kept the scaffolded name on the home screen, and a
+/// build flavor — whose business is a different name for the same source — could not change it
+/// at all (docs/flavors.md). Both now ride the generated xcconfig as `$(DAY_APP_TITLE)` and
+/// `$(DAY_URL_SCHEME)`, and `--fix` rewrites the two lines.
+fn lint_apple_plists(project: &Project, findings: &mut Vec<Finding>) {
+    for rel in [
+        "platform/ios/Runner/Info.plist",
+        "platform/macos/Runner/Info.plist",
+    ] {
+        let path = project.root.join(rel);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let mut fixed = text.clone();
+        for (code, key, want, note) in [
+            (
+                "plist-pinned-title",
+                "CFBundleDisplayName",
+                "$(DAY_APP_TITLE)",
+                "the app's name on the home screen",
+            ),
+            (
+                "plist-pinned-scheme",
+                "CFBundleURLSchemes",
+                "$(DAY_URL_SCHEME)",
+                "the deep-link scheme",
+            ),
+        ] {
+            let Some((value, offset)) = plist_string_after(&fixed, key) else {
+                continue;
+            };
+            if value == want {
+                continue;
+            }
+            let replacement = fixed.replacen(
+                &format!("<string>{value}</string>"),
+                &format!("<string>{want}</string>"),
+                1,
+            );
+            findings.push(
+                Finding {
+                    code,
+                    message: format!(
+                        "{rel}: {key} pins {note} to {value:?} — Day.toml owns it, \
+                         and this file takes it as {want}"
+                    ),
+                    location: None,
+                    fix: Some(Fix {
+                        title: format!("Take {key} from Day.toml"),
+                        file: rel.to_string(),
+                        contents: replacement.clone(),
+                    }),
+                }
+                .located(Location::in_file(rel, &fixed, offset)),
+            );
+            fixed = replacement;
+        }
+    }
+}
+
+/// The first `<string>…</string>` after `<key>NAME</key>` in a text plist, with its byte offset.
+/// A scanner, not a parser: these are the scaffold's own files, written by `day new` in a fixed
+/// shape, and the rule above only ever compares one value and swaps it for a build setting.
+fn plist_string_after(text: &str, key: &str) -> Option<(String, usize)> {
+    let at = text.find(&format!("<key>{key}</key>"))?;
+    let rest = &text[at..];
+    let open = rest.find("<string>")? + "<string>".len();
+    let close = rest[open..].find("</string>")?;
+    Some((rest[open..open + close].to_string(), at + open))
+}
+
 /// Every `Day-<name>.toml` in the project: does it parse, and does each flavor name an app that
 /// is distinct from the base app and from every other flavor?
 fn lint_flavors(project: &Project, findings: &mut Vec<Finding>) {
@@ -825,6 +899,10 @@ fn collect(project: &Project) -> Vec<Finding> {
     // building a single flavor: two of them resolving to the same app id, which installs as one
     // app and overwrites the other on every device.
     lint_flavors(project, &mut findings);
+
+    // --- platform/{ios,macos}/Runner/Info.plist ---
+    // Identity Day.toml owns, pinned in a file that predates the build setting for it.
+    lint_apple_plists(project, &mut findings);
 
     // --- resource/vectors/ (docs/vectors.md) ---
     // Parse every vector source and surface the problems a device test would otherwise find

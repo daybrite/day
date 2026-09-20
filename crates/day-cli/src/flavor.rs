@@ -50,6 +50,9 @@ pub struct FlavorInputs {
     pub resources: Option<String>,
     /// The `store/`-shaped listing this flavor publishes with, relative to the project root.
     pub store: Option<String>,
+    /// Whether the flavor named the artifact stem itself, anywhere in its `[app]` tables. When it
+    /// did, [`crate::pack::naming::stem`] leaves the name alone instead of appending the flavor.
+    pub names_artifact: bool,
 }
 
 /// Record the flavor this run builds. Called once, before the project is loaded.
@@ -75,6 +78,7 @@ pub fn inputs() -> &'static FlavorInputs {
         env: BTreeMap::new(),
         resources: None,
         store: None,
+        names_artifact: false,
     };
     INPUTS.get().unwrap_or(&EMPTY)
 }
@@ -120,6 +124,12 @@ struct FlavorManifest {
     /// A `store/`-shaped listing directory, because a flavor is usually its own store record.
     #[serde(default)]
     store: Option<String>,
+    /// `[signing.*]`, per platform, for a flavor that ships under someone else's account: a
+    /// white-label build signed by the customer, or an app continuing a listing that belongs to
+    /// another team. Each platform table the flavor states replaces the base app's for that
+    /// platform; the ones it leaves out are inherited, values and `${VAR}` references alike.
+    #[serde(default)]
+    signing: Option<crate::meta::Signing>,
 }
 
 /// `[app]` in a flavor: the overridable identity, the target list, and the same
@@ -128,6 +138,15 @@ struct FlavorManifest {
 struct FlavorApp {
     #[serde(default)]
     id: Option<String>,
+    /// The marketing version this flavor ships, in place of the crate's.
+    ///
+    /// The one `[app]` value a plain `Day.toml` cannot state, because a project has one version
+    /// and Cargo owns it. A flavor is where it earns a second: a flavor that continues another
+    /// app's store record inherits that record's release history, and both stores refuse a build
+    /// whose version does not climb past what is already published there — a number the crate
+    /// knows nothing about.
+    #[serde(default)]
+    version: Option<String>,
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
@@ -163,6 +182,14 @@ struct FlavorCargo {
 /// nothing and saves a build that looks right everywhere except the thing it was meant to change.
 fn parse(text: &str) -> Result<FlavorManifest, String> {
     let flavor: FlavorManifest = toml::from_str(text).map_err(|e| e.to_string())?;
+    if flavor
+        .app
+        .as_ref()
+        .and_then(|a| a.version.as_deref())
+        .is_some_and(|v| v.trim().is_empty())
+    {
+        return Err("[app] version is empty — state a version or leave the key out".to_string());
+    }
     for key in ["app", "cargo", "env", "resources", "store"] {
         if flavor.env.contains_key(key) {
             return Err(format!(
@@ -203,13 +230,18 @@ pub fn apply(root: &Path, manifest: &mut Manifest) -> Result<(), String> {
         )
     })?;
     let flavor = parse(&text).map_err(|e| format!("{}: {e}", manifest_name(name)))?;
+    let names_artifact = flavor.app.as_ref().is_some_and(|app| {
+        app.artifact.is_some() || app.overrides.values().any(|over| over.artifact.is_some())
+    });
     merge_app(&mut manifest.app, flavor.app);
+    merge_signing(&mut manifest.signing, flavor.signing);
     let cargo = flavor.cargo.unwrap_or_default();
     let _ = INPUTS.set(FlavorInputs {
         features: cargo.features,
         env: flavor.env,
         resources: flavor.resources,
         store: flavor.store,
+        names_artifact,
     });
     Ok(())
 }
@@ -221,6 +253,9 @@ fn merge_app(base: &mut App, flavor: Option<FlavorApp>) {
     let Some(f) = flavor else { return };
     if let Some(v) = f.id {
         base.id = v;
+    }
+    if let Some(v) = f.version {
+        base.version = v;
     }
     if f.title.is_some() {
         base.title = f.title;
@@ -254,6 +289,29 @@ fn merge_app(base: &mut App, flavor: Option<FlavorApp>) {
         if over.build.is_some() {
             slot.build = over.build;
         }
+    }
+}
+
+/// Overlay a flavor's `[signing]` on the base app's, platform by platform. A platform the flavor
+/// states is the flavor's, whole — an identity and a key belong together, and half of each would
+/// sign nothing.
+fn merge_signing(base: &mut Option<crate::meta::Signing>, flavor: Option<crate::meta::Signing>) {
+    let Some(f) = flavor else { return };
+    let base = base.get_or_insert_with(Default::default);
+    if f.macos.is_some() {
+        base.macos = f.macos;
+    }
+    if f.ios.is_some() {
+        base.ios = f.ios;
+    }
+    if f.android.is_some() {
+        base.android = f.android;
+    }
+    if f.windows.is_some() {
+        base.windows = f.windows;
+    }
+    if f.ohos.is_some() {
+        base.ohos = f.ohos;
     }
 }
 
@@ -496,6 +554,52 @@ mod tests {
         // A misspelled top-level key is named outright.
         let err = toml::from_str::<FlavorManifest>("resource = \"r\"\n").unwrap_err();
         assert!(err.to_string().contains("resource"), "{err}");
+    }
+
+    #[test]
+    fn a_flavor_may_carry_its_own_release_train() {
+        let mut base = app();
+        let f = flavor("[app]\nversion = \"1.9.0\"\nbuild = 36\n");
+        merge_app(&mut base, f.app);
+        assert_eq!(base.version, "1.9.0");
+        assert_eq!(base.build, 36);
+        // The crate keeps its version when the flavor states none.
+        let mut base = app();
+        merge_app(&mut base, flavor("[app]\nbuild = 2\n").app);
+        assert_eq!(base.version, "1.0.0");
+        // An empty version would name an artifact `fair-games--android-mdc.aab`.
+        let err = parse("[app]\nversion = \"\"\n").expect_err("caught");
+        assert!(err.contains("version is empty"), "{err}");
+    }
+
+    #[test]
+    fn signing_is_overlaid_one_platform_at_a_time() {
+        let base: Option<crate::meta::Signing> = Some(
+            toml::from_str(
+                "[macos]\nidentity = \"Developer ID Application: Base\"\n\
+                 [android]\nkeystore = \"base.keystore\"\nkey-alias = \"base\"\n\
+                 store-pass = \"x\"\nkey-pass = \"x\"\n",
+            )
+            .expect("base signing"),
+        );
+        let mut merged = base;
+        let flavor: crate::meta::Signing = toml::from_str(
+            "[android]\nkeystore = \"${FLAVOR_KEYSTORE}\"\nkey-alias = \"${FLAVOR_ALIAS}\"\n\
+                 store-pass = \"${FLAVOR_STORE_PASS}\"\nkey-pass = \"${FLAVOR_KEY_PASS}\"\n",
+        )
+        .expect("flavor signing");
+        merge_signing(&mut merged, Some(flavor));
+        let merged = merged.expect("merged");
+        // The platform the flavor states is the flavor\'s...
+        assert_eq!(
+            merged.android.map(|a| a.keystore).as_deref(),
+            Some("${FLAVOR_KEYSTORE}")
+        );
+        // ...and the one it says nothing about is still the base app\'s.
+        assert_eq!(
+            merged.macos.and_then(|m| m.identity).as_deref(),
+            Some("Developer ID Application: Base")
+        );
     }
 
     #[test]

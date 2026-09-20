@@ -77,12 +77,19 @@ pub fn write_generated(project: &Project, platform: &str) -> Result<(), String> 
          PRODUCT_BUNDLE_IDENTIFIER = {}\n\
          MARKETING_VERSION = {}\n\
          CURRENT_PROJECT_VERSION = {}\n\
+         DAY_APP_TITLE = {}\n\
          DAY_URL_SCHEME = {}\n\
          DAY_WINDOW_MIN_WIDTH = {}\n\
          DAY_WINDOW_MIN_HEIGHT = {}\n",
         resolved.id,
         resolved.version,
         resolved.build,
+        // The name on the home screen, which the checked-in Info.plist takes as
+        // `$(DAY_APP_TITLE)`. Baked into that file at scaffold time until 2026-09, so an app
+        // that renamed itself in Day.toml kept the old name on Apple platforms — and a build
+        // flavor, whose whole business is a different name, could not change it at all
+        // (docs/flavors.md). `day lint` migrates a plist that still pins the literal.
+        resolved.title,
         resolved.scheme(),
         win.min_width.round() as i64,
         win.min_height.round() as i64,

@@ -45,11 +45,15 @@ pub fn stem(project: &Project, target: &Target, opts: &PackOptions) -> String {
         Some(explicit) => return crate::meta::slug(explicit),
         None => project.manifest.resolve(target.name).artifact,
     };
-    // A flavor that renames the artifact has said what it wants; one that does not still needs a
-    // name of its own, or two flavors of one app write the same file into the same dist directory
-    // and the second wins silently (DESIGN.md §16.6).
+    // A flavor that names the artifact itself has said what it wants — `fair-games-1.9.0-…`, not
+    // `fair-games-appfair-1.9.0-…`. One that does not still needs a name of its own, or two
+    // flavors of an app write the same file into the same dist directory and the second wins
+    // silently (DESIGN.md §16.6).
     match crate::flavor::active() {
-        Some(flavor) if !base.ends_with(&format!("-{flavor}")) => {
+        Some(flavor)
+            if !crate::flavor::inputs().names_artifact
+                && !base.ends_with(&format!("-{flavor}")) =>
+        {
             format!("{base}-{}", crate::meta::slug(flavor))
         }
         _ => base,

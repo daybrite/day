@@ -40,6 +40,7 @@ store = "store-custom"
 
 [app]
 id = "dev.example.notes.custom"     # a different app id: installs beside the base app
+version = "1.9.0"                   # this flavor's release train, where Cargo's is the crate's
 title = "Notes Custom"
 scheme = "notescustom"              # the deep-link scheme is published, so a separate app takes a separate one
 build = 7
@@ -59,6 +60,7 @@ NOTES_ACCENT = "#FF6B35"
 | Key | Effect |
 |---|---|
 | `app.id` | The bundle id / application id / package name. A flavor that sets a different one installs beside the base app instead of replacing it |
+| `app.version` | The marketing version, in place of the crate's. The one `[app]` value `Day.toml` itself cannot state: a project has one version and Cargo owns it, but a flavor that continues another app's store record has to climb past what that record already published |
 | `app.title` | The display name, and the default the artifact name is slugged from |
 | `app.artifact` | The artifact stem, when the default (`<base>-<flavor>`) is not what you want to publish |
 | `app.scheme` | The deep-link scheme |
@@ -69,6 +71,7 @@ NOTES_ACCENT = "#FF6B35"
 | `[env]` | Environment for every build tool the run spawns: what `build.rs` and `option_env!()` read |
 | `resources` | A `resource/`-shaped directory merged over the app's, by relative path |
 | `store` | A `store/`-shaped listing directory this flavor publishes with |
+| `[signing.<platform>]` | Release signing for this flavor, platform by platform, in the shape `Day.toml` takes. A platform the flavor states is the flavor's, whole; the rest are inherited. For a flavor that ships under another account — a white-label build the customer signs, or an app continuing a listing another team owns |
 
 Unknown keys are an error. A misspelled key that still parsed would build the base app under the
 flavor's name, and nothing in the output would say so.
@@ -133,6 +136,25 @@ const EDITION: &str = match option_env!("NOTES_EDITION") { Some(v) => v, None =>
 ```
 
 Strings that differ per flavor belong in the resource overlay instead, so they stay translatable.
+
+## What each platform picks up
+
+Identity reaches the host projects the way it always has, through generated files rather than
+edits to checked-in ones: the iOS and macOS projects read `PRODUCT_BUNDLE_IDENTIFIER`,
+`MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `DAY_APP_TITLE` and `DAY_URL_SCHEME` from the
+generated xcconfig, and the Android project reads `applicationId`, `namespace`, `versionCode`,
+`versionName` and the title from `build/day/android/day-app.properties`. Both are rewritten from
+the merged manifest on every build, so a flavor changes what they carry without touching a
+tracked file.
+
+Two values stay where they are, because they name files rather than the app: the Xcode
+`PRODUCT_NAME` (the `.app` bundle and the executable inside it) and the crate's lib name. The
+store reads the display name and the bundle id, so neither affects a submission — the app the
+store shows is the flavor's.
+
+An app scaffolded before 2026-09 pins the name and the scheme in `platform/<p>/Runner/Info.plist`
+instead. `day lint` reports that (`plist-pinned-title`, `plist-pinned-scheme`) and `--fix`
+rewrites the two lines to the build settings.
 
 ## Dayscripts
 

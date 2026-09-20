@@ -438,11 +438,11 @@ mod tests {
     #[test]
     fn reads_top_level_string_keys() {
         let keys = read_string_keys(SHOWCASE);
-        // The template's value is still a handlebars placeholder; what matters is that the key is
-        // seen at all, and that whatever text it holds round-trips.
+        // The template takes the name from the generated xcconfig; what matters here is that the
+        // key is seen at all, and that whatever text it holds round-trips.
         assert_eq!(
             keys.get("CFBundleDisplayName").map(String::as_str),
-            Some("{{title}}")
+            Some("$(DAY_APP_TITLE)")
         );
         assert_eq!(
             keys.get("CFBundlePackageType").map(String::as_str),

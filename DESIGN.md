@@ -3791,10 +3791,13 @@ written in a `Day-<name>.toml` beside it, activated with `day build --flavor <na
 `DAY_FLAVOR`, which is how a CI matrix leg sets it). [docs/flavors.md](docs/flavors.md) is the
 normative reference; what follows is the shape and the reasoning.
 
-A flavor may restate the app identity (`id`, `title`, `artifact`, `scheme`, `build`), the target
-list, and the `[app.<platform|toolkit|target>]` override tables; and it adds four build inputs of
-its own: `[cargo] features`, `[env]`, a `resource/`-shaped overlay directory, and a
-`store/`-shaped listing directory. It may not change the crate name, the `day` dependency or the
+A flavor may restate the app identity (`id`, `title`, `artifact`, `scheme`, `build`, and
+`version` — the one `[app]` value `Day.toml` cannot state, since a project has one version and
+Cargo owns it, while a flavor shipping into an existing store record has to climb past what that
+record published), the target list, and the `[app.<platform|toolkit|target>]` override tables; and it adds five build inputs of
+its own: `[cargo] features`, `[env]`, a `resource/`-shaped overlay directory, a `store/`-shaped
+listing directory, and `[signing.<platform>]` tables for a flavor that ships under an account the
+base app does not use. It may not change the crate name, the `day` dependency or the
 schema version — those make it a different project, which is what `day new` is for.
 
 Precedence is one rule: the flavor is a layer above the whole manifest, and inside each layer the
@@ -4112,7 +4115,12 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
 > and `day-pieces.json` ([§15.2](#152-package-layout-and-aggregation)); iOS and macOS convey
 > identity through `build/day/xcconfig/<platform>.xcconfig` (2026-08), `#include?`d LAST by the
 > committed `platform/<p>/DayApp.xcconfig` holding the user-adjustable settings ([§16.5](#165-the-command-surface) day build),
-> with the callback phase failing on mid-build drift as designed below — plus the `DayPieces`
+> with the callback phase failing on mid-build drift as designed below. That file carries
+> `PRODUCT_BUNDLE_IDENTIFIER`, `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `DAY_URL_SCHEME`,
+> the `[window]` minimum, and — since 2026-09 — `DAY_APP_TITLE`, the name the scaffold used to
+> bake into `Info.plist` at `day new` time, which left an app that renamed itself in Day.toml
+> showing the old name and gave a build flavor ([§16.6](#166-build-flavors)) no way to rename the
+> app at all. `day lint` migrates a plist that still pins it. Plus the `DayPieces`
 > SwiftPM package; the Rust side's "generated metadata" became the `day-build` resource
 > constants ([§18.5](#185-typed-resource-constants-docsresourcesmd)). The `day-meta` shared library was folded into `day-cli` (its `meta`
 > module) + `day-build`. The table below records the designed shape:

@@ -23,6 +23,7 @@ store = "store-custom"
 
 [app]
 id = "dev.example.notes.custom"
+version = "1.9.0"
 title = "Notes Custom"
 scheme = "notescustom"
 targets = ["macos-appkit", "ios-uikit", "android-mdc", "web-dom"]
@@ -52,6 +53,9 @@ is what a CI job sets for a matrix leg.
 - **Identity.** `id`, `title`, `artifact`, `scheme` and `build`, including the
   `[app.<platform>]` override tables [Day.toml](/docs/project-structure) already takes. A
   different `id` installs beside the base app rather than replacing it.
+- **The version.** `version` replaces the one Cargo.toml carries, which `Day.toml` itself cannot
+  do. A flavor that ships under an app id with a release history behind it needs a version above
+  what that record already published, and the crate has no way to know that number.
 - **Targets.** `targets` replaces the base list, so a flavor can ship on fewer platforms or more.
 - **Code.** `[cargo] features` adds cargo features, on top of the backend feature and the ones
   the app's [pieces](/docs/glossary#piece) need.
@@ -62,6 +66,9 @@ is what a CI job sets for a matrix leg.
   is replaced whole, so an overlay of `locales/en/app.ftl` carries every key the app reads.
 - **The store listing.** `store` names the `store/` directory `day store stage` reads, because a
   flavor with a different app id is a different store record.
+- **Release signing.** `[signing.<platform>]` tables, in the shape `Day.toml` takes, for a flavor
+  that ships under another account: a white-label build the customer signs, or an app continuing
+  a store listing another team owns.
 
 The crate name, the `day` dependency and the manifest schema stay in `Day.toml`. Changing those
 makes a different project, which is what `day new` is for.
