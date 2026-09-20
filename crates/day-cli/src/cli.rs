@@ -169,6 +169,9 @@ pub(crate) struct Cli {
     /// Show output from build tools and other subprocesses (also DAY_VERBOSE=1)
     #[arg(long, global = true)]
     verbose: bool,
+    /// Build this flavor of the app: the overrides in `Day-<FLAVOR>.toml` (also DAY_FLAVOR)
+    #[arg(long, global = true, value_name = "FLAVOR")]
+    flavor: Option<String>,
     #[command(subcommand)]
     command: Cmd,
 }
@@ -996,6 +999,9 @@ pub fn run() -> i32 {
         );
     }
     crate::ops::set_verbose(cli.verbose);
+    // Before any project is loaded: `find_project` merges this flavor's manifest, and every
+    // builder reads it back from `crate::flavor` (DESIGN.md §16.6).
+    crate::flavor::set(cli.flavor.clone());
     // Kick off the background crates.io update check now, so it runs while the command does. Silent for
     // the build-system plumbing callbacks (Xcode/Gradle) and for machine `--format json` output.
     let update = crate::update::spawn(

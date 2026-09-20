@@ -89,7 +89,7 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
             .map_err(|e| CliError::failure(e.to_string()))?,
     );
 
-    let shot_dir = project.root.join("build/day/screenshots/_drive");
+    let shot_dir = crate::ops::staged_root(project).join("screenshots/_drive");
     let _ = std::fs::create_dir_all(&shot_dir);
 
     let mut results: Vec<serde_json::Value> = Vec::new();

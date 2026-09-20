@@ -57,13 +57,13 @@ impl ResourceSet {
     /// only the glyphs its vector pipeline could not express, which on most projects is none;
     /// on gtk/qt, which have no vector arm, it is every glyph.
     pub fn scan(project: &Project, toolkit: &str) -> ResourceSet {
-        let mut images = scan_dir(&project.root.join("resource/images"), true);
+        let mut images = scan_dir(&project.resource_root().join("images"), true);
         images.extend(scan_dir(&vector_fallback_dir(project, toolkit), true));
         // Data assets are a tree (§18.5): names are `/`-relative paths, and each stager
         // recreates the hierarchy in its native store (gresource/qrc aliases carry the
         // slashes; file-based stores mkdir the parents).
         let mut data = Vec::new();
-        scan_data_tree(&project.root.join("resource/assets"), "", &mut data);
+        scan_data_tree(&project.resource_root().join("assets"), "", &mut data);
         // Pieces ship their own data assets (docs/extending.md): a web view's inline site, a
         // model, a shader. They stage under `<crate-name>/`, which is why a piece resolves its
         // files by a name beginning with its own crate name and an app's names can never clash
@@ -204,7 +204,7 @@ impl FontFile {
 /// by), or two families that collide after identifier sanitization (they'd overwrite each other
 /// in `res/font/`).
 pub fn scan_fonts(project: &Project) -> Result<Vec<FontFile>, String> {
-    let dir = project.root.join("resource/fonts");
+    let dir = project.resource_root().join("fonts");
     let mut out: Vec<FontFile> = Vec::new();
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Ok(out);
@@ -281,7 +281,7 @@ pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
     // the legacy export tree under resource/icons/ is the fallback for a project that has not
     // migrated.
     let host = project.root.join(crate::icon::HOST_DIR);
-    let icons = project.root.join("resource/icons");
+    let icons = project.resource_root().join("icons");
     // Windows taskbar icons are .ico; everything else takes a PNG (dock, icon theme, dialogs).
     let (subdirs, ext): (&[&str], &str) = match toolkit {
         "xaml" => (&["windows", ""], "ico"),
@@ -384,7 +384,7 @@ pub struct VectorAsset {
 /// directory is an input, not a shipping form; what a target carries is
 /// [`vector_fallback_dir`], which holds only the glyphs that target cannot draw as a vector.
 pub fn vector_raster_dir(project: &Project) -> PathBuf {
-    project.root.join("build/day/vectors/raster")
+    crate::ops::staged_root(project).join("vectors/raster")
 }
 
 /// Toolkits that draw `resource/vectors/` glyphs from a vector form (docs/vectors.md).
@@ -422,9 +422,8 @@ fn vector_fallback_names(toolkit: &str, vectors: &[VectorAsset]) -> Vec<String> 
 /// Where `toolkit`'s raster fallbacks are staged: a per-toolkit directory, so building two
 /// targets never races over one shared tree the way filtering the cache in place would.
 pub fn vector_fallback_dir(project: &Project, toolkit: &str) -> PathBuf {
-    project
-        .root
-        .join("build/day/vectors/fallback")
+    crate::ops::staged_root(project)
+        .join("vectors/fallback")
         .join(toolkit)
 }
 
@@ -476,7 +475,7 @@ pub fn write_vector_fallbacks(
 /// preserve-vector imagesets, and day-appkit's `DAY_VECTOR_SVG_ROOT` probe loads them directly
 /// (NSImage renders SVG at display size on macOS 11+).
 pub fn vector_svg_dir(project: &Project) -> PathBuf {
-    project.root.join("build/day/vectors/svg")
+    crate::ops::staged_root(project).join("vectors/svg")
 }
 
 /// Where the prepared XAML geometry lives (docs/vectors.md): day-xaml loads these as real
@@ -485,7 +484,7 @@ pub fn vector_svg_dir(project: &Project) -> PathBuf {
 /// parser, the same split Android's VectorDrawable emission uses. A glyph outside the
 /// convertible subset has no file here and falls back to the raster cache.
 pub fn vector_xaml_dir(project: &Project) -> PathBuf {
-    project.root.join("build/day/vectors/xaml")
+    crate::ops::staged_root(project).join("vectors/xaml")
 }
 
 /// The raster edge for cached vector PNGs: sized for icon duty (nav rows, grids) at high-dpi.
@@ -494,7 +493,7 @@ const VECTOR_RASTER_PX: u32 = 256;
 /// Scan `resource/vectors/` (plain `.svg`, SF-template `.svg`, `.symbolset/` bundles), reduce
 /// each to a standalone glyph, and (re)write the raster cache. Returns the prepared glyphs.
 pub fn prepare_vectors(project: &Project) -> Result<Vec<VectorAsset>, String> {
-    let src = project.root.join("resource/vectors");
+    let src = project.resource_root().join("vectors");
     let cache = vector_raster_dir(project);
     let svgs = vector_svg_dir(project);
     let geom = vector_xaml_dir(project);

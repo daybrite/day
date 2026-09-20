@@ -374,7 +374,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         get("TARGET_BUILD_DIR"),
         get("UNLOCALIZED_RESOURCES_FOLDER_PATH"),
     ) {
-        let src = project.root.join("resource/assets");
+        let src = project.resource_root().join("assets");
         let dst = PathBuf::from(tbd).join(res).join("assets");
         if src.exists() {
             let _ = std::fs::remove_dir_all(&dst);
@@ -430,9 +430,9 @@ pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
         .map_err(|e| CliError::build(format!("day xcode-backend: vectors: {e}")))?;
     let resources = PathBuf::from(tbd).join(res);
     let pairs: [(PathBuf, &str); 5] = [
-        (project.root.join("resource/images"), "images"),
-        (project.root.join("resource/assets"), "assets"),
-        (project.root.join("resource/fonts"), "fonts"),
+        (project.resource_root().join("images"), "images"),
+        (project.resource_root().join("assets"), "assets"),
+        (project.resource_root().join("fonts"), "fonts"),
         (
             crate::resources::vector_fallback_dir(&project, "appkit"),
             "vectors/raster",
@@ -729,6 +729,11 @@ pub fn build_macos_xcode(
     // Carries `--day-src` across to the `day xcode-backend build` script phase, which runs the
     // cargo half in its own process and would otherwise resolve the app's declared day.
     if let Some(setting) = crate::patch::day_src_setting() {
+        cmd.arg(setting);
+    }
+    // And the build flavor (§16.6), for the same reason: the backend process resolves the app's
+    // identity again, and would write the base app's into a flavored bundle.
+    if let Some(setting) = crate::flavor::setting() {
         cmd.arg(setting);
     }
     cmd.arg("build");
@@ -1306,6 +1311,9 @@ pub fn build_ios_for(
             .arg(oso_prefix_setting(&project.root));
         // As on macOS: the cargo half runs in the xcode-backend process, which reads this.
         if let Some(setting) = crate::patch::day_src_setting() {
+            cmd.arg(setting);
+        }
+        if let Some(setting) = crate::flavor::setting() {
             cmd.arg(setting);
         }
         if let Some(f) = &floor {
@@ -2424,6 +2432,7 @@ pub fn build_android(
     if let Some(dir) = crate::patch::day_src_dir() {
         cmd.env(crate::patch::DAY_SRC_DIR_ENV, dir);
     }
+    crate::flavor::apply_env(&mut cmd);
     // Day narrates the phase and surfaces gradle's tail on failure, so gradle runs quiet by default.
     // `--verbose` drops `-q` so it emits its full build log, forwarded live by `run_capture`.
     if !crate::ops::verbose() {

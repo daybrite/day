@@ -365,7 +365,9 @@ fn shot_dir(
     variant: Option<&str>,
     device: Option<&str>,
 ) -> PathBuf {
-    let mut dir = project.root.join("build/day/screenshots").join(target.name);
+    let mut dir = crate::ops::staged_root(project)
+        .join("screenshots")
+        .join(target.name);
     if let Some(device) = device {
         dir = dir.join(device);
     }
@@ -744,6 +746,15 @@ pub fn run_scripts(
         // Desktop renders in-process (there is no device tool to ask); everything else is
         // captured from the device, which decides whether the engine's payload is wanted.
         let device_first = target.kind != TargetKind::Desktop;
+        // What the per-step gates below match, beyond the target name and toolkit: the build
+        // flavor (§16.6), as `flavor:<name>`, or `flavor:none` for the base app. A flavor changes
+        // what the app says and which pages it has, so the script that covers both says which
+        // step belongs to which — `skip_on: [flavor:custom]` beside `only_on: [flavor:custom]`,
+        // rather than a second copy of the whole walkthrough.
+        let flavor_gate = match crate::flavor::active() {
+            Some(name) => format!("flavor:{name}"),
+            None => "flavor:none".to_string(),
+        };
         for (op, step) in steps {
             run.steps_total += 1;
             // The target gates run before the runner-side steps below (`pause`, `expect_exit`):
@@ -758,7 +769,7 @@ pub fn run_scripts(
                 let hit = skips
                     .iter()
                     .filter_map(|v| v.as_str())
-                    .any(|s| s == target.name || s == target.toolkit);
+                    .any(|s| s == target.name || s == target.toolkit || s == flavor_gate);
                 if hit {
                     eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
                     continue;
@@ -771,9 +782,21 @@ pub fn run_scripts(
                 let hit = onlys
                     .iter()
                     .filter_map(|v| v.as_str())
-                    .any(|s| s == target.name || s == target.toolkit);
+                    .any(|s| s == target.name || s == target.toolkit || s == flavor_gate);
                 if !hit {
-                    eprintln!("  {WARN}\u{2013}{WARN:#} {op} (not for {})", target.name);
+                    // Name what actually excluded it: a step kept for one flavor reads as
+                    // "not for flavor:none" on the base app, where "not for macos-appkit" would
+                    // point at the wrong reason.
+                    let scope = if onlys
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .any(|s| s.starts_with("flavor:"))
+                    {
+                        flavor_gate.as_str()
+                    } else {
+                        target.name
+                    };
+                    eprintln!("  {WARN}\u{2013}{WARN:#} {op} (not for {scope})");
                     continue;
                 }
             }
@@ -1041,13 +1064,13 @@ pub fn run_scripts(
     // `day screenshot index` merges those per-target files into the published gallery.json.
     if !index_entries.is_empty() {
         crate::screenshot::record_target_entries(
-            &project.root.join("build/day/screenshots"),
+            &crate::ops::staged_root(project).join("screenshots"),
             target.name,
             index_entries,
         );
     }
     if !run.screenshots.is_empty() {
-        write_gallery(&project.root.join("build/day/screenshots"));
+        write_gallery(&crate::ops::staged_root(project).join("screenshots"));
     }
     Ok(run)
 }

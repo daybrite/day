@@ -247,9 +247,11 @@ impl Listing {
     }
 }
 
-/// The project's `store/` directory.
+/// The project's `store/` directory — the active flavor's when it declares one, since a flavor
+/// is usually its own store record with its own name, description and screenshots
+/// (DESIGN.md §16.6).
 pub fn dir(project: &Project) -> PathBuf {
-    project.root.join("store")
+    crate::flavor::store_overlay(&project.root).unwrap_or_else(|| project.root.join("store"))
 }
 
 /// Read `store/`. A project without one gets an empty listing rather than an error: store metadata
@@ -661,6 +663,13 @@ fn tidy_keywords(text: &str) -> String {
 /// exists, it is held to the stores' rules, because the alternative is finding out at upload time.
 pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
     let mut out = Vec::new();
+    // The listing directory this run read: `store/`, or the flavor's (DESIGN.md §16.6). Findings
+    // name paths relative to the project, and `--fix` writes to the path a finding names, so a
+    // flavored run has to point at the files it actually read.
+    let store = dir(project)
+        .strip_prefix(&project.root)
+        .map(|rel| rel.display().to_string())
+        .unwrap_or_else(|_| "store".to_string());
     let targets = &project.manifest.app.targets;
     let to_apple = targets.iter().any(|t| t == "ios-uikit");
     let to_play = targets.iter().any(|t| t == "android-mdc");
@@ -673,7 +682,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
             out.push(Problem {
                 code: "day::lint::store-missing",
                 message: format!(
-                    "this app ships to {} but has no store/ listing — run `day store init`",
+                    "this app ships to {} but has no {store}/ listing — run `day store init`",
                     if to_apple && to_play {
                         "the App Store and Google Play"
                     } else if to_apple {
@@ -694,7 +703,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
             out.push(Problem {
                 code: "day::lint::store-missing-locale",
                 message: format!(
-                    "the app is translated into {tag} but store/{tag}/ has no listing — the store \
+                    "the app is translated into {tag} but {store}/{tag}/ has no listing — the store \
                      shows those users the default language"
                 ),
                 ..Default::default()
@@ -706,7 +715,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
             out.push(Problem {
                 code: "day::lint::store-orphan-locale",
                 message: format!(
-                    "store/{tag}/ has a listing for a locale the app is not translated into \
+                    "{store}/{tag}/ has a listing for a locale the app is not translated into \
                      (resource/locales/{tag}/ does not exist)"
                 ),
                 ..Default::default()
@@ -716,7 +725,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
             out.push(Problem {
                 code: "day::lint::store-unmapped-locale",
                 message: format!(
-                    "store/{tag}/: no App Store or Play locale is known for {tag:?} — a listing \
+                    "{store}/{tag}/: no App Store or Play locale is known for {tag:?} — a listing \
                      uploaded under an unknown locale is dropped without an error"
                 ),
                 ..Default::default()
@@ -745,7 +754,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                 {
                     out.push(Problem {
                         code: "day::lint::store-missing-field",
-                        message: format!("store/{tag}/{} is required", f.file()),
+                        message: format!("{store}/{tag}/{} is required", f.file()),
                         ..Default::default()
                     });
                 }
@@ -761,10 +770,10 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                     out.push(Problem {
                         code: "day::lint::store-too-long",
                         message: format!(
-                            "store/{tag}/{}: {chars} characters, {store} allows {limit}",
+                            "{store}/{tag}/{}: {chars} characters, {store} allows {limit}",
                             f.file()
                         ),
-                        file: Some(format!("store/{tag}/{}", f.file())),
+                        file: Some(format!("{store}/{tag}/{}", f.file())),
                         ..Default::default()
                     });
                 }
@@ -776,8 +785,8 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
             {
                 out.push(Problem {
                     code: "day::lint::store-bad-url",
-                    message: format!("store/{tag}/{}: must be an https:// URL", f.file()),
-                    file: Some(format!("store/{tag}/{}", f.file())),
+                    message: format!("{store}/{tag}/{}: must be an https:// URL", f.file()),
+                    file: Some(format!("{store}/{tag}/{}", f.file())),
                     ..Default::default()
                 });
             }
@@ -785,11 +794,11 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                 // Apple counts the whole string including separators, and a space after a comma is
                 // a wasted character rather than a formatting nicety.
                 if text.contains(", ") {
-                    let file = format!("store/{tag}/keywords.txt");
+                    let file = format!("{store}/{tag}/keywords.txt");
                     out.push(Problem {
                         code: "day::lint::store-bad-keywords",
                         message: format!(
-                            "store/{tag}/keywords.txt: drop the spaces after commas — the App \
+                            "{store}/{tag}/keywords.txt: drop the spaces after commas — the App \
                              Store counts them against the 100-character budget"
                         ),
                         file: Some(file.clone()),
@@ -805,18 +814,18 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
                 out.push(Problem {
                     code: "day::lint::store-placeholder",
                     message: format!(
-                        "store/{tag}/{}: still the scaffold's TODO — it would upload verbatim",
+                        "{store}/{tag}/{}: still the scaffold's TODO — it would upload verbatim",
                         f.file()
                     ),
-                    file: Some(format!("store/{tag}/{}", f.file())),
+                    file: Some(format!("{store}/{tag}/{}", f.file())),
                     ..Default::default()
                 });
             }
             if text.trim() != text {
-                let file = format!("store/{tag}/{}", f.file());
+                let file = format!("{store}/{tag}/{}", f.file());
                 out.push(Problem {
                     code: "day::lint::store-whitespace",
-                    message: format!("store/{tag}/{}: leading or trailing whitespace", f.file()),
+                    message: format!("{store}/{tag}/{}: leading or trailing whitespace", f.file()),
                     file: Some(file.clone()),
                     fix: Some(crate::lint::Fix {
                         title: "Trim the surrounding whitespace".into(),
@@ -832,7 +841,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
             out.push(Problem {
                 code: "day::lint::store-missing-field",
                 message: format!(
-                    "store/{tag}/short.txt is required by Google Play (short description)"
+                    "{store}/{tag}/short.txt is required by Google Play (short description)"
                 ),
                 ..Default::default()
             });
@@ -841,7 +850,7 @@ pub fn lint(project: &Project, listing: &Listing) -> Vec<Problem> {
             out.push(Problem {
                 code: "day::lint::store-missing-field",
                 message: format!(
-                    "store/{tag}/privacy-url.txt is required — the App Store rejects an app \
+                    "{store}/{tag}/privacy-url.txt is required — the App Store rejects an app \
                      without a privacy policy URL"
                 ),
                 ..Default::default()

@@ -126,6 +126,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [logging](/docs/internal/logging) | the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers |
 | [break](/docs/internal/break) | `day-break` crash capture, reports, and delivery |
 | [store](/docs/internal/store) | store listings and `day store` |
+| [flavors](/docs/internal/flavors) | `Day-<name>.toml` and `--flavor`: one source tree, several shipped apps |
 | [agent](/docs/internal/agent) | dayscript sessions, `day drive`, and the agent-facing tooling |
 | [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
 | [vscode](/docs/internal/vscode) | editor setup |

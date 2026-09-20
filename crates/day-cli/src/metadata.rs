@@ -85,6 +85,10 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
         .collect();
     let doc = serde_json::json!({
         "schema": 1,
+        // The flavor this document describes (DESIGN.md §16.6): every identity below is already
+        // merged, so a consumer reads one shape either way and this says which app it got.
+        "flavor": crate::flavor::active(),
+        "flavors": crate::flavor::declared(&project.root),
         "project": {
             "root": project.root,
             "name": m.app.name,

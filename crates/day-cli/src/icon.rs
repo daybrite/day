@@ -847,12 +847,12 @@ fn discover(project: &Project, explicit: Option<&Path>) -> Result<PathBuf, Strin
             Err(format!("master {} does not exist", p.display()))
         };
     }
-    for candidate in [
-        "resource/icons/icon.svg",
-        "resource/icons/day-icon.svg",
-        "resource/icons/icon.png",
-    ] {
-        let p = project.root.join(candidate);
+    // Through the resource root, so a flavor that overlays `icons/icon.svg` is the icon every
+    // host file is derived from — the thing that makes two flavors distinguishable on a home
+    // screen (DESIGN.md §16.6).
+    let icons = project.resource_root().join("icons");
+    for candidate in ["icon.svg", "day-icon.svg", "icon.png"] {
+        let p = icons.join(candidate);
         if p.is_file() {
             return Ok(p);
         }

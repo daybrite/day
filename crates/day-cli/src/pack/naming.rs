@@ -41,9 +41,18 @@ use super::PackOptions;
 /// `[app.<target>]` override) > a slug of the app title. Always slugged, so an override cannot
 /// introduce a space or a capital that GitHub would rewrite on upload.
 pub fn stem(project: &Project, target: &Target, opts: &PackOptions) -> String {
-    match &opts.artifact_name {
-        Some(explicit) => crate::meta::slug(explicit),
+    let base = match &opts.artifact_name {
+        Some(explicit) => return crate::meta::slug(explicit),
         None => project.manifest.resolve(target.name).artifact,
+    };
+    // A flavor that renames the artifact has said what it wants; one that does not still needs a
+    // name of its own, or two flavors of one app write the same file into the same dist directory
+    // and the second wins silently (DESIGN.md §16.6).
+    match crate::flavor::active() {
+        Some(flavor) if !base.ends_with(&format!("-{flavor}")) => {
+            format!("{base}-{}", crate::meta::slug(flavor))
+        }
+        _ => base,
     }
 }
 

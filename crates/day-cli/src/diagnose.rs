@@ -588,9 +588,8 @@ fn which(bin: &str) -> bool {
 
 /// The built executable, for a debugger that needs symbols to go with a core.
 fn process_path(project: &Project, target: &'static Target) -> Option<PathBuf> {
-    let stamp = project
-        .root
-        .join("build/day/artifacts")
+    let stamp = crate::ops::build_root(project)
+        .join("artifacts")
         .join(format!("{}-debug.path", target.name));
     let path = std::fs::read_to_string(stamp).ok()?.trim().to_string();
     (!path.is_empty()).then(|| PathBuf::from(path))

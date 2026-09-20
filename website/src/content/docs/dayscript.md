@@ -99,6 +99,14 @@ Any step can be gated per target: `skip_on:` drops it on the named targets or to
 `assert_no_placeholders` allow list, say). One walkthrough then covers every
 [backend](/docs/glossary#backend).
 
+The same two gates match a [build flavor](/docs/flavors), written `flavor:<name>`, with
+`flavor:none` for the base app. A paid build and a free one then share one walkthrough:
+
+```yaml
+- assert_text: { id: welcome-title, text: "Welcome to Notes", skip_on: [flavor:paid] }
+- assert_text: { id: welcome-title, text: "Welcome to Notes Pro", only_on: [flavor:paid] }
+```
+
 ## How it works
 
 The engine lives in `day-script`, compiled into your app. It activates only when the launcher enables it: the

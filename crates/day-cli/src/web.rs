@@ -215,7 +215,7 @@ pub fn build_web(
     )
     .map_err(|e| format!("index: {e}"))?;
     // Bundled images, flat under assets/images/, the paths day-dom writes into `src` attrs.
-    let images_src = project.root.join("resource/images");
+    let images_src = project.resource_root().join("images");
     if images_src.is_dir() {
         let images = dist.join("assets/images");
         std::fs::create_dir_all(&images).map_err(|e| format!("images dir: {e}"))?;
@@ -232,7 +232,7 @@ pub fn build_web(
 
     // Bundled data assets, the whole tree (§18.5), under assets/data/: same-origin URLs for
     // anything that browses them (the inline web view's `assets/data/<site>/…` base above all).
-    let data_src = project.root.join("resource/assets");
+    let data_src = project.resource_root().join("assets");
     if data_src.is_dir() {
         crate::pack::copy_tree(&data_src, &dist.join("assets/data"))?;
     }

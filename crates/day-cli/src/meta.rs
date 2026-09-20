@@ -885,6 +885,16 @@ pub struct Project {
 }
 
 impl Project {
+    /// The `resource/` tree this run stages from: the app's own, or the flavor's merge of it with
+    /// an overlay (DESIGN.md §16.6). Every stager reads this rather than `root.join("resource")`,
+    /// which is what lets a flavor ship different icons, locales or assets from one source tree.
+    ///
+    /// Authoring commands (`day localize`, `day lint`'s translation rules) keep reading the app's
+    /// own tree: they edit what a human maintains, and an overlay is generated output.
+    pub fn resource_root(&self) -> PathBuf {
+        crate::flavor::merged_resources(self).unwrap_or_else(|| self.root.join("resource"))
+    }
+
     /// The app's lib target name, what cargo names every artifact after: `libdayapp.a`,
     /// `libdayapp.so`, `dayapp.wasm`, and the `dayapp::` path `src/main.rs` imports.
     ///
@@ -1072,7 +1082,11 @@ pub fn find_project(start: Option<&Path>) -> Result<Project, String> {
                 )
             })?;
             let inherited = workspace_package_version(&dir);
-            let manifest = parse_manifest(&day_toml, &cargo_toml, inherited.as_deref())?;
+            let mut manifest = parse_manifest(&day_toml, &cargo_toml, inherited.as_deref())?;
+            // The active flavor is a layer over this manifest (DESIGN.md §16.6): merged here, so
+            // every command downstream reads one manifest and cannot tell a flavored project from
+            // a plain one.
+            crate::flavor::apply(&dir, &mut manifest)?;
             // Always hand back an absolute root. A relative `--project` (e.g. `apps/example`) would
             // otherwise flow into build-tool arguments like xcodebuild's `SYMROOT` as a relative path;
             // xcodebuild resolves relative build paths against each target's own working directory, so

@@ -741,6 +741,76 @@ fn apply_fixes(project: &Project, findings: &[Finding], allow: &[String]) -> usi
     applied
 }
 
+/// Every `Day-<name>.toml` in the project: does it parse, and does each flavor name an app that
+/// is distinct from the base app and from every other flavor?
+fn lint_flavors(project: &Project, findings: &mut Vec<Finding>) {
+    let names = crate::flavor::declared(&project.root);
+    if names.is_empty() {
+        return;
+    }
+    // The base app's id, to compare each flavor against — read from Day.toml rather than from
+    // the loaded manifest, which under `--flavor` is already the merged one and would report the
+    // active flavor as colliding with itself.
+    let base_id = std::fs::read_to_string(project.root.join("Day.toml"))
+        .ok()
+        .and_then(|text| toml::from_str::<toml::Value>(&text).ok())
+        .and_then(|doc| doc.get("app")?.get("id")?.as_str().map(|id| id.to_string()))
+        .unwrap_or_else(|| project.manifest.app.id.clone());
+    let mut seen: BTreeMap<String, String> = BTreeMap::new();
+    seen.insert(base_id.clone(), "Day.toml".to_string());
+    for name in names {
+        let file = crate::flavor::manifest_name(&name);
+        let path = project.root.join(&file);
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        match crate::flavor::preview(&text) {
+            Err(e) => findings.push(
+                Finding {
+                    code: "flavor-unparsed",
+                    message: format!("{file}: {e}"),
+                    location: None,
+                    fix: None,
+                }
+                .located(Location::head(path.display().to_string())),
+            ),
+            Ok(preview) => {
+                let id = preview.id.unwrap_or_else(|| base_id.clone());
+                if let Some(owner) = seen.insert(id.clone(), file.clone()) {
+                    findings.push(
+                        Finding {
+                            code: "flavor-id-collision",
+                            message: format!(
+                                "{file} and {owner} both build {id} — two flavors that share an \
+                                 app id install as one app, each overwriting the other"
+                            ),
+                            location: None,
+                            fix: None,
+                        }
+                        .located(Location::head(path.display().to_string())),
+                    );
+                }
+                for feature in preview.features {
+                    if !crate::flavor::cargo_declares_feature(project, &feature) {
+                        findings.push(
+                            Finding {
+                                code: "flavor-unknown-feature",
+                                message: format!(
+                                    "{file} enables cargo feature {feature:?}, which Cargo.toml \
+                                     does not declare — the build fails when this flavor is asked for"
+                                ),
+                                location: None,
+                                fix: None,
+                            }
+                            .located(Location::head(path.display().to_string())),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Everything the rules found, in no particular order; the reporting below decides what to do
 /// with them. Split out so `--fix` can re-check after writing without re-entering the report.
 fn collect(project: &Project) -> Vec<Finding> {
@@ -748,6 +818,13 @@ fn collect(project: &Project) -> Vec<Finding> {
     // The manifest as text. It parsed to reach here, but the parsed form keeps no spans, so the
     // checks below find their own value in the source to report a line.
     let manifest_src = std::fs::read_to_string(project.root.join("Day.toml")).ok();
+
+    // --- Day-<flavor>.toml (docs/flavors.md) ---
+    // A flavor is only ever exercised when someone asks for it, so a broken one can sit in a
+    // repository for months. Parse each, and check the one thing that cannot be found by
+    // building a single flavor: two of them resolving to the same app id, which installs as one
+    // app and overwrites the other on every device.
+    lint_flavors(project, &mut findings);
 
     // --- resource/vectors/ (docs/vectors.md) ---
     // Parse every vector source and surface the problems a device test would otherwise find

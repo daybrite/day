@@ -80,6 +80,7 @@ the architecture-level view and the rationale.
 | cursor — `.cursor()`, the CSS vocabulary as `Cursor`, per-toolkit realization and `Cap::Cursor`, the `day::cursor::<toolkit>` extras | [docs/cursor.md](docs/cursor.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; resizable windows on ios-uikit and android-mdc and what each platform requires; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
 | app icons — `day prepare`, the layered master, the generated `build/day/host` tree the host projects reference, `--check` gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
+| build flavors — `Day-<name>.toml`, `--flavor`, the merged manifest, the `[cargo]`/`[env]`/resource/store overlays, the per-flavor build subtree and artifact names | [docs/flavors.md](docs/flavors.md) | [§16.6](#166-build-flavors) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | [docs/vectors.md](docs/vectors.md) | [§18.3](#183-images-and-data) |
 | raster images from bytes — `day::decode_image`, the `Bitmap` handle, `ImageSource`, `Draw::image`, per-backend decode/encode/metadata | [docs/images.md](docs/images.md) | [§8.1](#81-the-toolkit-trait), [§11](#11-canvas) |
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
@@ -3247,6 +3248,8 @@ paths are not shown in CLI help.
 > xcodebuild/hvigor/adb/codesign/…, so a build/launch/pack shows the full underlying log;
 > `DAY_VERBOSE=1` in the environment is the same switch, which is how CI turns a whole job
 > verbose — [docs/environment.md](docs/environment.md));
+> `--flavor <name>` (build the app described by `Day-<name>.toml`, [§16.6](#166-build-flavors);
+> `DAY_FLAVOR` is the same switch); and
 > `--no-input` exists where prompting exists (`day new`). `--yes`/`--color`/`-v`
 > (the short alias)/`--log-file` and the full event vocabulary below were not built — the `result`
 > event and stable exit codes were, and `day metadata --json` / `day help` cover machine
@@ -3258,6 +3261,8 @@ paths are not shown in CLI help.
 --verbose                # forward every sub-command's raw output to the terminal (unfiltered);
                          # DAY_VERBOSE=1 in the environment is the same switch
 --no-input               # never prompt (new/app); missing required input = error
+--flavor <name>          # build the Day-<name>.toml flavor of this app (§16.6);
+                         # DAY_FLAVOR=<name> in the environment is the same switch
 ```
 
 JSON event stream (machine mode). The protocol is versioned and hardened: the first event is
@@ -3357,7 +3362,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 |---|---|
 | `day version` | version, build profile, git ref — the tag or branch when there is one, and **always the commit** (`0.3.0 (release, branch main, bd026ff7)`), so a build can be told from another build of the same branch. Omitted entirely off a git checkout, which is what a crates.io build looks like |
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; a piece scaffold includes `demo/`, the app template rendered by the same code as `day new app` and cut to one page that shows the piece, on the targets its toolkits draw on (every target for a composite piece); `--no-demo` omits it; a piece's or part's Android Java goes to `src/Day<Name>.java`, declared as a single-file `java` entry (`--java-in-src=false` keeps a `platform/android/java/` tree); `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
-| `day build -p <target>… [--day-src <path\|url[@ref]>]` | build for one or more targets, in parallel; `--day-src` builds against a different `day` — a checkout, or a branch of the framework — for THAT build only ([`day launch`](#day-launch)) |
+| `day build -p <target>… [--day-src <path\|url[@ref]>] [--flavor <name>]` | build for one or more targets, in parallel; `--day-src` builds against a different `day` — a checkout, or a branch of the framework — for that build only ([`day launch`](#day-launch)); `--flavor` builds the app described by `Day-<name>.toml` ([§16.6](#166-build-flavors)) |
 | `day launch -p <target>… [--git <url>[@<ref>]] [--dir <d>] [--day-src <path\|url[@ref]>] [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--capture-size WxH[@S]\|window] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own; `--day-src` swaps the FRAMEWORK for that one run — a checkout or a branch of `day`, patched in without writing anything to the project ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry; `--capture-size` states the pixel size of a scripted run's desktop-class captures for that run, over the `DAY_CAPTURE_SIZE` variable and Day.toml `[screenshots]` (default 2560×1600 at 2×; `window` = the app's own `[window]` size at the display's scale) |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
@@ -3367,7 +3372,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `migrate-xcode` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
 | `day icon build [master]` / `day icon new` / `day icon check [master]` | render platform assets, create a seeded source icon, or check for drift (exit 5). A subcommand is required; `new --out preview.svg` writes a preview without changing a project |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
-| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
+| `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
 | `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
@@ -3778,7 +3783,52 @@ nobody named, is out by definition and never turns a strict run red; counting th
 installing would otherwise shorten the check and still report success. Selecting nothing at all is
 an error with or without it. Exit codes: 2 usage, 3 environment, 4 a build or pack failed.
 
-### §16.6–16.8 (reserved: command reference details live in Appendix D and `day help`)
+### §16.6 Build flavors
+
+One source tree ships as more than one app — a paid build beside a free one, a white-label build
+per customer, a demo build on a shorter target list — through a flavor: a layer over `Day.toml`
+written in a `Day-<name>.toml` beside it, activated with `day build --flavor <name>` (or
+`DAY_FLAVOR`, which is how a CI matrix leg sets it). [docs/flavors.md](docs/flavors.md) is the
+normative reference; what follows is the shape and the reasoning.
+
+A flavor may restate the app identity (`id`, `title`, `artifact`, `scheme`, `build`), the target
+list, and the `[app.<platform|toolkit|target>]` override tables; and it adds four build inputs of
+its own: `[cargo] features`, `[env]`, a `resource/`-shaped overlay directory, and a
+`store/`-shaped listing directory. It may not change the crate name, the `day` dependency or the
+schema version — those make it a different project, which is what `day new` is for.
+
+Precedence is one rule: the flavor is a layer above the whole manifest, and inside each layer the
+existing specificity applies, so `flavor[app.<target>]` beats `flavor[app]` beats
+`base[app.<target>]` beats `base[app]`. The merge happens in `find_project`, which is why no
+command downstream can tell a flavored project from a plain one — `day metadata` prints the
+merged identity, `day pack` packs it, `day lint` checks it.
+
+Three consequences shape the implementation:
+
+1. **Isolation.** Compiled and staged output goes to `build/day/flavors/<name>/`, for the reason
+   `--day-src` gets a subtree: two flavors otherwise share one cargo directory and overwrite each
+   other's binaries, so switching between them recompiles everything each way and only one app
+   exists at a time. Artifact stems gain the flavor as a suffix unless `app.artifact` states one,
+   so a release directory can hold every flavor.
+2. **Resources are merged, not replaced.** The overlay lands over the app's `resource/` by
+   relative path into the flavor's build subtree, and `DAY_RESOURCE_ROOT` names the result to
+   `day-build`, so the generated `res::` constants and compiled-in strings are the flavor's. A
+   flavor that ships one icon and one locale file contains two files. Authoring commands
+   (`day localize`, the translation lint rules) keep reading the app's `resource/`: they edit what
+   a human maintains, and the merge is generated output.
+3. **The checks a single build cannot make.** `day lint` parses every `Day-<name>.toml` in the
+   project and reports a file that does not parse, a cargo feature `Cargo.toml` does not declare,
+   and two flavors that resolve to the same app id — which installs as one app on every device,
+   each build overwriting the other. A flavor is only exercised when someone asks for it, so
+   without this a broken one sits in a repository until release day.
+
+Flutter's `--flavor` names "a custom Android product flavor or an Xcode scheme", which puts the
+definition in the native build systems and leaves the tool reading it back out — recovering the
+flavor from an Xcode configuration name, predicting the filenames Gradle will write. Day
+generates its host projects, so a flavor changes files Day already writes and neither Xcode nor
+Gradle learns the concept.
+
+### §16.7–16.8 (reserved: command reference details live in Appendix D and `day help`)
 
 ### §16.9 The inner loop (no hot reload — the honest story)
 
@@ -3806,6 +3856,8 @@ promise.
 ```
 fieldnotes/
   Day.toml
+  Day-<flavor>.toml          # optional, one per build flavor (§16.6, docs/flavors.md):
+                             #   `day build --flavor <flavor>` layers it over Day.toml
   Cargo.toml                 # normal cargo project; `cargo build`/`test`/`clippy` work standalone
   build.rs                   # day_build::generate_resources() → typed res:: constants (§18.5)
   README.md
@@ -3871,7 +3923,9 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 > `day build` turns it into every platform's manifest entry ([docs/permissions.md](docs/permissions.md)); and — added
 > 2026-08 — `[[shortcuts]]`, launcher shortcuts as saved deep links (a route plus a Fluent label
 > id, resolved per locale at build and conveyed into each platform's native declaration —
-> [docs/deep-links.md](docs/deep-links.md)). Locales, images,
+> [docs/deep-links.md](docs/deep-links.md)); and — added 2026-09 — a flavor layer, where a
+> `Day-<name>.toml` beside the manifest restates whatever `--flavor <name>` should change
+> ([§16.6](#166-build-flavors), [docs/flavors.md](docs/flavors.md)). Locales, images,
 > assets, and fonts
 > are **convention, not configuration** — the `resource/` tree is scanned ([§18](#18-resources-icons-and-theming)). The extended
 > schema sketched below (`[localization]`, `[assets]`, `[icons]`, `[scripting]`, `[lint]`,
@@ -5769,7 +5823,11 @@ genuinely absent capabilities (the showcase walkthrough skips its file-picker an
 loopback-HTTP steps on `web-dom` — [docs/web.md](docs/web.md)). Its mirror `only_on: [...]` (2026-07) runs a step
 ONLY on the named targets, for a step whose expectation is per-target — the walkthrough's
 `assert_no_placeholders` allow-lists differ sharply between, say, `macos-appkit` (none) and
-`web-dom` (six).
+`web-dom` (six). Both gates also match the build flavor ([§16.6](#166-build-flavors)) as
+`flavor:<name>`, with `flavor:none` standing for the base app, so one walkthrough covers a
+flavored build and the plain one: the step that asserts the base title carries
+`skip_on: [flavor:custom]` among its own fields, the one that asserts the flavor's carries
+`only_on: [flavor:custom]`.
 
 ---
 

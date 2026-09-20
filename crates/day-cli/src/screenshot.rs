@@ -695,7 +695,7 @@ fn variant_dirs(tdir: &Path) -> Vec<(Option<String>, String, PathBuf)> {
 /// `<host>/gallery/gallery.json` and site builds parse). Returns the path written.
 pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> {
     let roots = if opts.screenshot_paths.is_empty() {
-        vec![project.root.join("build/day/screenshots")]
+        vec![crate::ops::staged_root(project).join("screenshots")]
     } else {
         opts.screenshot_paths.clone()
     };

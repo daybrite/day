@@ -14,6 +14,7 @@ mod doctor;
 mod doctor_verify;
 mod drive;
 mod external;
+mod flavor;
 mod git;
 mod icon;
 mod interactive;

@@ -102,24 +102,35 @@ pub struct ResourcePlan {
 pub fn generate_resources() -> Result<(), String> {
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let out = PathBuf::from(env("OUT_DIR")?);
-    let plan = plan_resources(&root)?;
+    // A build flavor may ship a different `resource/` tree (docs/flavors.md): `day build --flavor`
+    // merges the app's with the flavor's overlay and names the result here, so the generated
+    // constants and the compiled-in strings are the flavor's, not the base app's. Unset for a
+    // plain build, which is every build that is not flavored.
+    let resources = match std::env::var("DAY_RESOURCE_ROOT") {
+        Ok(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
+        _ => root.join("resource"),
+    };
+    println!("cargo:rerun-if-env-changed=DAY_RESOURCE_ROOT");
+    let plan = plan_resources_in(&resources)?;
     let code = render(&plan);
     std::fs::write(out.join("day_resources.rs"), code)
         .map_err(|e| format!("day-build: writing day_resources.rs: {e}"))?;
-    // Regenerate when a resource is added/removed/renamed (a proc-macro could not do this reliably).
-    // Only buckets that exist: cargo treats a `rerun-if-changed` path that is missing as always
-    // stale, so naming an absent `resource/assets` made every app's build script (and so the app
-    // crate) rebuild on every cargo run, including the no-op pass an Xcode phase makes after
-    // `day build` has already compiled. `resource/` itself is registered so a bucket created
-    // later still triggers a rerun (creating a subdirectory changes the parent's mtime).
-    let resource = root.join("resource");
-    if resource.is_dir() {
-        println!("cargo:rerun-if-changed=resource");
-        for bucket in ["images", "vectors", "assets", "fonts", "locales"] {
-            if resource.join(bucket).is_dir() {
-                println!("cargo:rerun-if-changed=resource/{bucket}");
-            }
-        }
+    // Regenerate when a resource is added/removed/renamed (a proc-macro could not do this
+    // reliably). `resource/` itself is registered so a bucket created later still triggers a
+    // rerun (creating a subdirectory changes the parent's mtime), and the no-op pass an Xcode
+    // phase makes after `day build` has already compiled stays a no-op.
+    watch_resources(&root.join("resource"), "resource");
+    // A flavor's overlay, when this build has one. The merged tree DAY_RESOURCE_ROOT names is not
+    // watched: `day build --flavor` rewrites it on every run, so depending on it would recompile
+    // the app crate every time. What a person edits is the app's tree and the overlay, so those
+    // are what a rebuild follows.
+    println!("cargo:rerun-if-env-changed=DAY_RESOURCE_OVERLAY");
+    if let Ok(overlay) = std::env::var("DAY_RESOURCE_OVERLAY")
+        && !overlay.trim().is_empty()
+    {
+        let dir = PathBuf::from(&overlay);
+        let shown = dir.display().to_string();
+        watch_resources(&dir, &shown);
     }
     // Typed constructors for the SwiftUI views exported by declared local SwiftPM packages
     // (docs/swiftui.md): always written, surfaced by an app that wants them via
@@ -129,19 +140,41 @@ pub fn generate_resources() -> Result<(), String> {
     Ok(())
 }
 
+/// Register one resource tree for `cargo:rerun-if-changed`, by the path cargo should print.
+///
+/// Only the buckets that exist: cargo treats a missing `rerun-if-changed` path as always stale,
+/// and naming an absent `resource/assets` once made every app rebuild on every cargo run.
+fn watch_resources(dir: &Path, shown: &str) {
+    if !dir.is_dir() {
+        return;
+    }
+    println!("cargo:rerun-if-changed={shown}");
+    for bucket in ["images", "vectors", "assets", "fonts", "locales"] {
+        if dir.join(bucket).is_dir() {
+            println!("cargo:rerun-if-changed={shown}/{bucket}");
+        }
+    }
+}
+
 fn env(key: &str) -> Result<String, String> {
     std::env::var(key).map_err(|_| format!("day-build: ${key} is not set (call from a build.rs)"))
 }
 
 /// Scan and validate a project's resources into a [`ResourcePlan`] (the pure, testable core).
 pub fn plan_resources(root: &Path) -> Result<ResourcePlan, String> {
+    plan_resources_in(&root.join("resource"))
+}
+
+/// The same, given the resource tree itself rather than the project root: what a flavored build
+/// passes, because its tree is the merge of the app's and the flavor's and lives under `build/`.
+pub fn plan_resources_in(resource: &Path) -> Result<ResourcePlan, String> {
     Ok(ResourcePlan {
-        images: plan_images(&root.join("resource/images"))?,
-        vectors: plan_vectors(&root.join("resource/vectors"))?,
-        assets: plan_assets(&root.join("resource/assets"))?,
-        fonts: plan_fonts(&root.join("resource/fonts"))?,
-        strings: plan_strings(&root.join("resource/locales"))?,
-        locales: plan_locales(&root.join("resource/locales")),
+        images: plan_images(&resource.join("images"))?,
+        vectors: plan_vectors(&resource.join("vectors"))?,
+        assets: plan_assets(&resource.join("assets"))?,
+        fonts: plan_fonts(&resource.join("fonts"))?,
+        strings: plan_strings(&resource.join("locales"))?,
+        locales: plan_locales(&resource.join("locales")),
     })
 }
 

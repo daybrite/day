@@ -35,7 +35,29 @@ pub struct BuildOutcome {
 /// own build directories stay on the shared path: they are cheap to regenerate, and duplicating
 /// them would buy nothing.
 pub(crate) fn build_root(project: &Project) -> PathBuf {
-    crate::patch::day_src_dir().unwrap_or_else(|| project.root.join("build/day"))
+    let base = crate::patch::day_src_dir().unwrap_or_else(|| project.root.join("build/day"));
+    // A flavor is a different app — its own id, its own features — so it gets its own subtree for
+    // the same reason `--day-src` does: switching between them stays incremental, and both apps
+    // exist at once instead of overwriting each other's binaries. The default flavor keeps the
+    // plain path, so every existing tool, workflow and .gitignore still finds what it expects.
+    match crate::flavor::active() {
+        Some(name) => base.join("flavors").join(name),
+        None => base,
+    }
+}
+
+/// Where this run's *staged* output goes: `<project>/build/day`, plus the flavor's subtree.
+///
+/// The difference from [`build_root`] is `--day-src`, which moves compiled output and leaves
+/// staged output where it is: staged files are cheap to regenerate and identical whichever day
+/// built them. A flavor moves both, because its assets, its icons and its strings are different
+/// files, and a run that staged the base app's over them would ship the wrong app.
+pub(crate) fn staged_root(project: &Project) -> PathBuf {
+    let base = project.root.join("build/day");
+    match crate::flavor::active() {
+        Some(name) => base.join("flavors").join(name),
+        None => base,
+    }
 }
 
 pub(crate) fn cargo_dir(project: &Project, target: &Target, profile: Profile) -> PathBuf {
@@ -339,6 +361,18 @@ pub fn app_identity_env(project: &Project) -> BTreeMap<String, OsString> {
         ),
     ]);
     env.extend(determinism_env());
+    // The active flavor's build inputs (DESIGN.md §16.6): its `[env]`, and the merged resource
+    // tree, which `day-build` reads in the app's build.rs so the generated constants and the
+    // compiled-in strings are the flavor's. Empty for an unflavored build.
+    env.extend(crate::flavor::build_env());
+    if let Some(resources) = crate::flavor::merged_resources(project) {
+        env.insert("DAY_RESOURCE_ROOT".to_string(), resources.into_os_string());
+        // And the overlay it was merged from, which is what the build script watches for changes:
+        // the merged tree is rewritten on every run and would rebuild the app crate every time.
+        if let Some(overlay) = crate::flavor::resource_overlay(project) {
+            env.insert("DAY_RESOURCE_OVERLAY".to_string(), overlay.into_os_string());
+        }
+    }
     env
 }
 
@@ -394,6 +428,9 @@ pub fn determinism_env() -> BTreeMap<String, OsString> {
 pub fn feature_selection(project: &Project, backend: &str) -> String {
     let mut features = vec![backend.to_string()];
     features.extend(crate::pieces::feature_union(project, backend));
+    // A flavor's features come last and are additive: the backend feature and the pieces' union
+    // are what makes the app build at all, and a flavor chooses what it is, not how it is drawn.
+    features.extend(crate::flavor::inputs().features.iter().cloned());
     features.join(",")
 }
 
@@ -892,12 +929,12 @@ pub fn desktop_launch_plan(
     if !bundled {
         env.insert(
             "DAY_ASSET_ROOT".to_string(),
-            project.root.join("resource/assets").into_os_string(),
+            project.resource_root().join("assets").into_os_string(),
         );
         // A dev run reads the app's assets where they lie, so a piece's cannot be copied in
         // beside them without writing into the app's source tree. They get their own root
         // instead, staged under build/ and probed second (docs/extending.md).
-        let staged = project.root.join("build/day/assets");
+        let staged = staged_root(project).join("assets");
         if let Err(e) = crate::resources::stage_piece_assets(project, target.toolkit, &staged) {
             eprintln!("day: staging piece assets: {e}");
         }
@@ -906,7 +943,7 @@ pub fn desktop_launch_plan(
         }
         env.insert(
             "DAY_IMAGE_ROOT".to_string(),
-            project.root.join("resource/images").into_os_string(),
+            project.resource_root().join("images").into_os_string(),
         );
         // The vector raster cache (docs/vectors.md): how the file-loading desktop backends resolve
         // `vector(…)` names, written by resources::stage at build. The fallback rasters, not the
@@ -933,7 +970,7 @@ pub fn desktop_launch_plan(
         // the platform font system at startup.
         env.insert(
             "DAY_FONT_ROOT".to_string(),
-            project.root.join("resource/fonts").into_os_string(),
+            project.resource_root().join("fonts").into_os_string(),
         );
         env.extend(app_identity_env(project));
     }

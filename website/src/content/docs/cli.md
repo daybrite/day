@@ -35,6 +35,7 @@ day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day launch  --git <url>      # clone a repository and run the app in it — no checkout needed
 day launch  --day-src <path|url>  # run this app against another day, for one build
+day build   --flavor custom  # build the Day-custom.toml flavor of this app (/docs/flavors)
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign check              # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
@@ -52,6 +53,10 @@ day patch --git <url>[@<ref>] # build against a fork of day, for the whole graph
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
 day version                  # print the CLI version, build profile, and git ref (always the commit)
 ```
+
+`--flavor <name>` applies to every command, not only `build`: it layers `Day-<name>.toml` over
+`Day.toml` so one source tree ships as several apps. [Build flavors](/docs/flavors) covers the
+file and what each key changes.
 
 `day patch` switches an app from the published git dependency to a local checkout of day, or
 of an external [piece](/docs/glossary#piece) or part, or to a fork of day, and verifies the switch took; [Developing Day and an app together](/docs/local-development) covers
