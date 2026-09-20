@@ -1285,7 +1285,7 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
                     "shell",
                     "am",
                     "force-stop",
-                    &project.manifest.app.id,
+                    &project.manifest.resolve(target.name).id,
                 ]),
                 DEVICE_CMD,
             );

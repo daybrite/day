@@ -2497,7 +2497,8 @@ pub fn launch_android(
     outcome: &BuildOutcome,
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
-    let app_id = project.manifest.app.id.clone();
+    // Match the identity written to Gradle, including platform/target overrides in a flavor.
+    let app_id = project.manifest.resolve(outcome.target).id;
     let devices = android_devices_for(spec.android_device.as_deref());
     if devices.is_empty() {
         return Err(match spec.android_device.as_deref() {

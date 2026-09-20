@@ -3811,6 +3811,14 @@ existing specificity applies, so `flavor[app.<target>]` beats `flavor[app]` beat
 command downstream can tell a flavored project from a plain one — `day metadata` prints the
 merged identity, `day pack` packs it, `day lint` checks it.
 
+Android device operations resolve that merged identity for the target, just as Gradle packaging
+does: install/launch cleanup, activity launch, attached log streaming and Ctrl-C teardown, and
+`day stop`/dayscript cleanup all address the resolved Android package. A flavor may keep a
+hyphenated Apple bundle id in `[app].id` and override it with an underscore in `[app.android].id`;
+device commands must not fall back to the general id. The CLI regression test
+[`android_identity.rs`](crates/day-cli/tests/android_identity.rs) exercises launch and stop with
+both the base app and that flavor against a fake adb.
+
 Three consequences shape the implementation:
 
 1. **Isolation.** Compiled and staged output goes to `build/day/flavors/<name>/`, for the reason
