@@ -3,7 +3,8 @@
 
 //! day-build: resource-constant codegen for a Day app's `build.rs` (DESIGN.md §18.5).
 //!
-//! An app's `build.rs` calls [`generate_resources`], which scans the project's
+//! An app's `build.rs` calls [`prebuild_project`], the one entry point a Day project needs. It
+//! performs [`generate_resources`], which scans the project's
 //! `resource/{images,assets,fonts}` directories and writes typed symbolic constants to
 //! `$OUT_DIR/day_resources.rs`:
 //!
@@ -142,10 +143,31 @@ pub struct ResourcePlan {
     pub locales: Vec<LocaleEntry>,
 }
 
-/// The build-script entry point: scan `resource/{images,assets,fonts}` under `CARGO_MANIFEST_DIR`,
-/// emit `$OUT_DIR/day_resources.rs`, and register the resource dirs for `cargo:rerun-if-changed`.
+/// Everything a Day project's `build.rs` has to do, in one call:
+///
+/// ```text
+/// // build.rs
+/// fn main() {
+///     day_build::prebuild_project().expect("day-build: prebuild");
+/// }
+/// ```
+///
+/// Today that is the resource codegen of [`generate_resources`], and nothing else. It exists as
+/// its own name so that a step day-build needs to add later — another codegen pass, a manifest
+/// check, a stamp — arrives in every project that already calls this, rather than as a second
+/// line every app has to be told to add.
+///
+/// An app that wants only part of it can keep calling the narrower functions; they stay public.
+pub fn prebuild_project() -> Result<(), String> {
+    generate_resources()
+}
+
+/// Scan `resource/{images,assets,fonts}` under `CARGO_MANIFEST_DIR`, emit
+/// `$OUT_DIR/day_resources.rs`, and register the resource dirs for `cargo:rerun-if-changed`.
 /// Returns `Err` (with a fix hint) on a name that is not portable or a symbol collision; the app
 /// `build.rs` should `.expect(...)` this so the problem fails the build loudly.
+///
+/// [`prebuild_project`] is what a scaffolded `build.rs` calls; this is the one step it performs.
 pub fn generate_resources() -> Result<(), String> {
     let root = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let out = PathBuf::from(env("OUT_DIR")?);

@@ -7,7 +7,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Build-script codegen for Day apps: every bundled resource becomes a typed Rust constant.
 
-An app's `build.rs` calls `day_build::generate_resources()`, which scans the project's
+An app's `build.rs` calls `day_build::prebuild_project()`, which performs the resource pass —
+scanning the project's
 `resource/` folder and generates a `res` module: a constant per image
 (`res::images::logo`), per data file, and per bundled font, plus one function per
 localized string — `res::str::greeting(name)` instead of a bare string key. Rename a file

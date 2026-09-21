@@ -88,7 +88,7 @@ pub mod swiftui {
 }
 ```
 
-Your `build.rs` (the scaffold's `day_build::generate_resources()`) scans the package and writes one
+Your `build.rs` (the scaffold's `day_build::prebuild_project()`) scans the package and writes one
 constructor per exported view; `day build` compiles the package into the app and generates the
 hosting glue. On iOS the package joins the generated `DayPieces` SwiftPM package the Xcode scaffold
 already links; on macOS the same package is referenced by the `platform/macos/` Xcode host project

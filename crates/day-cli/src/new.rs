@@ -3605,7 +3605,7 @@ mod scaffold_tests {
                     || path == "dayscript/toolbar-enable.yaml";
                 assert!(!starter, "the starter's {path} is in the demo");
             }
-            assert!(text("build.rs").contains("generate_resources"));
+            assert!(text("build.rs").contains("prebuild_project"));
             assert!(!text("resource/icons/icon.svg").is_empty());
             assert!(!text("src/main.rs").is_empty());
 

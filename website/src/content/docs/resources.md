@@ -32,7 +32,7 @@ automatically, per [target](/docs/glossary#target), before the platform build ru
 ## Typed names, generated at build
 
 You reference bundled resources through generated constants, not bare strings. The scaffold's
-`build.rs` calls `day_build::generate_resources()`, which writes a typed constant per file:
+`build.rs` calls `day_build::prebuild_project()`, which writes a typed constant per file:
 
 ```rust
 image(res::images::wave)                  // ← resource/images/wave.png

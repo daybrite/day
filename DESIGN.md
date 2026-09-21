@@ -3942,7 +3942,7 @@ fieldnotes/
   Day-<flavor>.toml          # optional, one per build flavor (§16.6, docs/flavors.md):
                              #   `day build --flavor <flavor>` layers it over Day.toml
   Cargo.toml                 # normal cargo project; `cargo build`/`test`/`clippy` work standalone
-  build.rs                   # day_build::generate_resources() → typed res:: constants (§18.5)
+  build.rs                   # day_build::prebuild_project() → typed res:: constants (§18.5)
   README.md
   AGENTS.md                  # instructions for coding agents (day drive, day mcp-server, conventions)
   .gitignore
@@ -4276,7 +4276,7 @@ scaffold pbxproj sets `GENERATE_INFOPLIST_FILE = NO`, and changing that would br
 straight from Xcode).
 
 **`cargo build` works standalone — really.** The shipped mechanism: the app's own `build.rs`
-calls `day_build::generate_resources()` (scanning `resource/` relative to the manifest — no CLI
+calls `day_build::prebuild_project()` (scanning `resource/` relative to the manifest — no CLI
 required), and the `mock` backend is the default cargo feature, so bare `cargo build`, `cargo
 test`, `cargo clippy`, and rust-analyzer work in any checkout. `day build` adds what only the
 CLI can: backend feature selection, conveyance files, native pipelines, and the
@@ -4373,7 +4373,7 @@ header and window title consistent with the packaged app without a second hardco
 
 Every bundled resource is also surfaced to app code as a **typed constant**, so a reference is
 checked at compile time instead of failing at runtime on whichever backend can't find the name. An
-app's `build.rs` calls `day_build::generate_resources()`, which scans `resource/{images,assets,fonts}`
+app's `build.rs` calls `day_build::prebuild_project()`, whose resource pass scans `resource/{images,assets,fonts}`
 and emits (into `$OUT_DIR`, surfaced by the scaffold's one-line `pub mod res { include!(…) }`):
 `res::images::<stem>: ImageName`, `res::assets::<file>: AssetName`, `res::fonts::<family>: FontFamily`.
 `resource/assets/` is a TREE: subdirectories generate nested modules, each directory doubling as

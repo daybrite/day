@@ -19,7 +19,7 @@ workflows. This reference defines the generation, lookup, and tooling contracts.
 
 | Entry point in `build.rs` | Output in `OUT_DIR` | Include macro | Lookup |
 | --- | --- | --- | --- |
-| `day_build::generate_resources()` | `day_resources.rs` | `day::resources!()` | Global app/core catalogs |
+| `day_build::prebuild_project()` | `day_resources.rs` | `day::resources!()` | Global app/core catalogs |
 | `day_build::generate_locales()` | `day_locales.rs` | `day_fluent::locales!()` | Private crate/file catalog |
 
 Both generators normally read `resource/locales/` relative to the crate and emit embedded
@@ -28,7 +28,7 @@ Fluent sources. The app resource generator can read a merged flavor tree through
 next build.
 The generated files belong in Cargo's output directory and are not edited by hand.
 
-`generate_resources()` also emits image, vector, asset, and font names. Its localization API
+`prebuild_project()` also emits image, vector, asset, and font names. Its localization API
 is unchanged: files within a locale concatenate into one source, and `res::str` accessors use
 the global `tr` lookup. The app supplies `res::locales::CATALOG` through
 `WindowOptions::locales`. See [resources](resources.md) for the other generated modules.
@@ -83,7 +83,7 @@ outputs in separate modules. For example:
 ```rust
 // build.rs
 fn main() {
-    day_build::generate_resources().expect("resource codegen");
+    day_build::prebuild_project().expect("day-build: prebuild");
     day_build::generate_locales().expect("localization codegen");
 }
 ```

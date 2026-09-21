@@ -25,7 +25,7 @@ can keep them beside its code. Within a crate, you can split the catalog by sour
 
 | Catalog | Build function | Include macro | Generated accessor |
 | --- | --- | --- | --- |
-| App resources | `day_build::generate_resources()` | `day::resources!()` | `res::str::greeting(name)` |
+| App resources | `day_build::prebuild_project()` | `day::resources!()` | `res::str::greeting(name)` |
 | Private crate catalog | `day_build::generate_locales()` | `day_fluent::locales!()` | `blockblast::res::str::game_title()` |
 | Private file catalog, such as `board.ftl` | `day_build::generate_locales()` | `day_fluent::locales!()` | `blockblast::res::board::str::moves(count)` |
 
@@ -40,7 +40,7 @@ from `build.rs`:
 
 ```rust
 fn main() {
-    day_build::generate_resources().expect("resource codegen");
+    day_build::prebuild_project().expect("day-build: prebuild");
 }
 ```
 

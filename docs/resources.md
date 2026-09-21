@@ -29,7 +29,7 @@ You don't reference bundled resources by bare string. An app's `build.rs` (one l
 
 ```rust
 // build.rs
-fn main() { day_build::generate_resources().expect("day-build: resource codegen"); }
+fn main() { day_build::prebuild_project().expect("day-build: prebuild"); }
 ```
 
 ```rust
