@@ -138,6 +138,13 @@ pub fn pack(
         // `archive` already implies DEPLOYMENT_POSTPROCESSING, but state it so the signed and
         // unsigned lanes ship the same shape of binary.
         .args(REPRODUCIBLE_BUILD_SETTINGS);
+    // Xcode exports its build settings to the script phases, which is how `day xcode-backend`
+    // learns which flavor it is building. Without it that phase reads Day.toml alone and rewrites
+    // the generated xcconfig with the base app's identity, which its freshness check reports as
+    // "app metadata changed since Xcode read it" (§16.6).
+    if let Some(setting) = crate::flavor::setting() {
+        cmd.arg(setting);
+    }
     if let Some(f) = &floor {
         cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
     }
@@ -395,6 +402,10 @@ fn unsigned_ipa(
         ))
         .arg(format!("DAY_BIN={}", day_bin.display()))
         .args(REPRODUCIBLE_BUILD_SETTINGS);
+    // The same crossing as the archive build above: the script phase calls `day` back.
+    if let Some(setting) = crate::flavor::setting() {
+        cmd.arg(setting);
+    }
     if let Some(f) = &floor {
         cmd.arg(format!("IPHONEOS_DEPLOYMENT_TARGET={f}"));
     }

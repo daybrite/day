@@ -141,6 +141,11 @@ pub fn pack(
             .env("DAY_PROJECT_ROOT", &project.root)
             .env("DAY_PROFILE", opts.profile.as_str())
             .args(["bundleRelease", "-q", "--console=plain"]);
+        // Gradle's callbacks into `day` inherit this, as they do for the assemble build.
+        if let Some(dir) = crate::patch::day_src_dir() {
+            cmd.env(crate::patch::DAY_SRC_DIR_ENV, dir);
+        }
+        crate::flavor::apply_env(&mut cmd);
         if std::env::var_os("JAVA_HOME").is_none()
             && let Some(jdk) = day_toolchain::jdk_home()
         {
