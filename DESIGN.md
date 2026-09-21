@@ -3413,6 +3413,11 @@ for a composite piece) and cuts it to one page that shows the piece, with `daysc
 the piece's on-device test; `--no-demo` omits it. An app scaffold gets a unique generated icon ([docs/icons.md#generate](docs/icons.md#generate)), seeded
 by the app id so the same id always scaffolds the same icon; `--icon-seed` overrides.
 
+The app template defines its initial version (`0.1.0`) once in `[workspace.package]` and
+inherits it with `[package] version.workspace = true`. Additional workspace members can use
+the same inheritance, so a release needs only one Cargo version edit. Piece demos use this
+same app manifest format. Day's metadata loader resolves the inherited version for packaging.
+
 Which `day` a scaffold depends on is `--day-version` (2026-08): a release pins the matching
 `vX.Y.Z` git tag, `main` or any other branch name pins `branch`, a 7–40 character hex string pins
 `rev`, and `latest` asks crates.io for the newest published day-cli first. With `--registry` a

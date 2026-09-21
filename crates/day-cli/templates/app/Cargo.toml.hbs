@@ -1,6 +1,6 @@
 [package]
 name = "{{name}}"
-version = "0.1.0"
+version.workspace = true
 edition = "2024"
 # Generates typed `res::` constants from `resource/` (see build.rs).
 build = "build.rs"
@@ -37,3 +37,6 @@ serde_json = "1"
 
 
 [workspace]
+
+[workspace.package]
+version = "0.1.0"
