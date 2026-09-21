@@ -400,11 +400,16 @@ pub fn stage(
         }
     }
 
+    // The id this target publishes under, not the app's top-level one: an `[app.android]` id is
+    // how a bundle id with a hyphen becomes a legal Play package name, and `supply` refuses the
+    // unresolved one ("Invalid package name"). A listing that names its own `bundle-id` still
+    // wins, since it describes a record that already exists.
+    let resolved = project.manifest.resolve(target.name);
     let id = listing
         .app
         .bundle_id
         .clone()
-        .unwrap_or_else(|| project.manifest.app.id.clone());
+        .unwrap_or_else(|| resolved.id.clone());
     if apple {
         if let Some(c) = &listing.app.copyright {
             write("fastlane/metadata/copyright.txt", &format!("{c}\n"))?;
@@ -1121,6 +1126,51 @@ mod tests {
         assert!(
             !out.join("fastlane/metadata/android/zh-CN/keywords.txt")
                 .exists()
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Play refuses a package name with a hyphen, which is why an app whose bundle id has one
+    /// states an `[app.android] id`. The staged Appfile has to carry the id the store it is for
+    /// knows, or `supply` stops with "Invalid package name".
+    #[test]
+    fn the_staged_id_is_the_one_each_store_knows() {
+        let tmp = std::env::temp_dir().join(format!("day-store-id-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::fs::write(
+            tmp.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app-x\"\nbuild = 7\n\
+             targets = [\"ios-uikit\", \"android-mdc\"]\n\
+             [app.android]\nid = \"dev.example.app_x\"\n",
+        )
+        .expect("Day.toml");
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .expect("Cargo.toml");
+        let project = crate::meta::find_project(Some(&tmp)).expect("project");
+        let mut fields = BTreeMap::new();
+        fields.insert(Field::Name, "Example".to_string());
+        let mut listing = Listing::default();
+        listing.locales.insert("en".to_string(), fields);
+
+        let android = crate::targets::find("android-mdc").expect("android");
+        stage(&project, android, &listing, &tmp.join("out-android")).expect("stage android");
+        let play = std::fs::read_to_string(tmp.join("out-android/fastlane/Appfile")).expect("read");
+        assert!(
+            play.contains("package_name(\"dev.example.app_x\")"),
+            "Play takes the resolved android id: {play}"
+        );
+
+        let ios = crate::targets::find("ios-uikit").expect("ios");
+        stage(&project, ios, &listing, &tmp.join("out-ios")).expect("stage ios");
+        let apple = std::fs::read_to_string(tmp.join("out-ios/fastlane/Appfile")).expect("read");
+        assert!(
+            apple.contains("app_identifier(\"dev.example.app-x\")"),
+            "the App Store keeps the bundle id: {apple}"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
