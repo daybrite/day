@@ -28,7 +28,7 @@ cancelling = "cancelling"
 
 # --- platform and toolkit vocabulary -------------------------------------------------------
 UDID = "UDID"                  # Apple's Unique Device Identifier, not a UUID
-SEH = "SEH"                    # Windows Structured Exception Handling (day-break)
+SEH = "SEH"                    # Windows Structured Exception Handling (day-piece-break)
 seeked = "seeked"              # the HTML media event name
 criticals = "criticals"        # GTK's own term for g_log CRITICAL records
 unparented = "unparented"      # GTK widget state: detached from its parent
@@ -41,7 +41,7 @@ nd = "nd"                      # node, in the web shim
 clen = "clen"                  # chunk length, in the icns reader
 iit = "iit"                    # ArkUI_AttributeItem local in the arkui shim
 ot = "ot"                      # offset-top, in DayCover.java's layout params
-pendings = "pendings"          # day-break's queued-report field
+pendings = "pendings"          # day-piece-break's queued-report field
 optin = "optin"                # test names ending "_without_optin"
 noen = "noen"                  # a fixture directory named "locales-default-noen"
 ba = "ba"                      # byte-buffer locals (ba/bb) in rebuild.rs's text differ

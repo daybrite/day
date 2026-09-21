@@ -70,7 +70,6 @@ members = [
     "crates/day-toolchain",
     "crates/day-build",
     "crates/day-cli",
-    "crates/day-break",
 ]
 # The quick-iteration set: what a flagless `cargo build`/`check`/`test` compiles, kept small so
 # editor loops stay fast (the CLI and the piece/part catalog are left out). This list is not the
@@ -163,7 +162,6 @@ day-toolchain = { path = "crates/day-toolchain", version = "0.4.7" }
 day-build = { path = "crates/day-build", version = "0.4.7" }
 day-async = { path = "crates/day-async", version = "0.4.7" }
 day-bridge = { path = "crates/day-bridge", version = "0.4.7" }
-day-break = { path = "crates/day-break", version = "0.4.7" }
 day-appkit = { path = "toolkits/day-appkit", version = "0.4.7" }
 day-gtk = { path = "toolkits/day-gtk", version = "0.4.7" }
 day-qt = { path = "toolkits/day-qt", version = "0.4.7" }

@@ -5,6 +5,9 @@
 //! (DESIGN.md §5, §7). Build-once: pieces are constructed exactly once; all dynamism flows
 //! through reactive bindings (day-reactive) writing to the thread-local tree.
 
+/// The linked Day runtime version, for diagnostics from independently versioned extensions.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 day_reactive::tls_root! {
     layout: crate::layout::TlsGroupSlots,
     ambient: crate::ambient::TlsGroupSlots,
@@ -180,7 +183,7 @@ use day_spec::{Platform, WindowOptions};
 
 /// Observer called after day-core contains a panic at one of its trampoline boundaries
 /// (`contain_posted_panic` here, `tree::pump_events`), on the panicking thread, after the
-/// reactive-runtime reset. A crash reporter (day-break, docs/break.md) registers one to
+/// reactive-runtime reset. A crash reporter (day-piece-break, docs/break.md) registers one to
 /// downgrade the report its panic hook just wrote: the panic was caught, the process is not
 /// dying. A plain `fn` (no closure) so the containment path allocates nothing.
 static CONTAINED_PANIC_OBSERVER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();

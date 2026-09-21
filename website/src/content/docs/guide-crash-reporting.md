@@ -10,7 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day-break` saves crash reports on the device. On the next launch, the app can show the report
+`day-piece-break` saves crash reports on the device. On the next launch, the app can show the report
 and offer to send it by HTTP, GitHub issue, or email. Reports are sent only through an explicit user action. The steps below show how to capture
 a crash, display the report after restarting, and let the user decide whether to send it.
 
@@ -27,18 +27,18 @@ startup is still recorded:
 
 ```toml
 [dependencies]
-day-break = { git = "https://github.com/daybrite/day.git" }
+day-piece-break = { git = "https://github.com/daybrite/day-piece-break" }
 ```
 
 The showcase wraps it in a helper called from every entry point:
 
 ```rust
-/// Arm crash reporting. Idempotent (day-break's `init` is single-shot); safe to call from
+/// Arm crash reporting. Idempotent (day-piece-break's `init` is single-shot); safe to call from
 /// every entry point.
 pub fn install_crash_reporting() {
-    let _ = day_break::Config::new()
+    let _ = day_piece_break::Config::new()
         // "Send report" opens a prefilled email to the developer (no server needed).
-        .reporter(day_break::EmailReporter::new("crashdemo@daybrite.dev"))
+        .reporter(day_piece_break::EmailReporter::new("crashdemo@daybrite.dev"))
         .init();
 }
 ```
@@ -73,14 +73,14 @@ reporter (Android tombstones, HarmonyOS faultlogs) still runs alongside.
 ask what happened:
 
 ```rust
-match day_break::last_session() {
-    day_break::SessionEnd::Crashed { .. } => show_crash_prompt(), // your UI, or consent_banner()
-    day_break::SessionEnd::Unknown => {} // an OS kill — not a crash; usually ignore
-    day_break::SessionEnd::Clean => {}
+match day_piece_break::last_session() {
+    day_piece_break::SessionEnd::Crashed { .. } => show_crash_prompt(), // your UI, or consent_banner()
+    day_piece_break::SessionEnd::Unknown => {} // an OS kill — not a crash; usually ignore
+    day_piece_break::SessionEnd::Clean => {}
 }
 ```
 
-Use `day_break::consent_banner()` from the `ui` feature (on by
+Use `day_piece_break::consent_banner()` from the `ui` feature (on by
 default): a piece that appears while reports are pending, shows the full report text, and
 offers send and discard. To build your own (the showcase's Crash Reporting page does),
 compose the queries: `pending()` is a reactive `Signal<Vec<ReportMeta>>`, newest first;
@@ -90,10 +90,10 @@ uploads; `discard(&meta)` deletes. The showcase keeps its viewer current with on
 
 ```rust
 let report = Signal::new(String::new());
-let pending = day_break::pending();
+let pending = day_piece_break::pending();
 Effect::new(move || {
     pending.get(); // track
-    report.set(day_break::latest_report_text().unwrap_or_default());
+    report.set(day_piece_break::latest_report_text().unwrap_or_default());
 });
 ```
 
@@ -131,7 +131,7 @@ a failure.
   `day::launch`.
 - Release backtraces carry symbols, not lines. The release profile ships no debug info by
   default. For `file:line` in release reports, add `[profile.release] debug =
-  "line-tables-only"` in your own workspace; day-break doesn't change the global profile. For
+  "line-tables-only"` in your own workspace; day-piece-break doesn't change the global profile. For
   native faults, `signal.pc - signal.slide` is the module-relative address to symbolize
   offline.
 - `Unknown` is not a crash. A leftover session with no crash artifact (an OS kill, power

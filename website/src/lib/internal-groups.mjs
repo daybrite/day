@@ -120,7 +120,7 @@ export const groups = [
       ['duty-matrix', 'which backend implements which Toolkit duty (generated, CI-gated)'],
       ['recorder-matrix', 'event → recorded dayscript step coverage (generated, CI-gated)'],
       ['logging', 'the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers'],
-      ['break', '`day-break` crash capture, reports, and delivery'],
+      ['break', '`day-piece-break` crash capture, reports, and delivery'],
       ['store', 'store listings and `day store`'],
       ['flavors', '`Day-<name>.toml` and `--flavor`: one source tree, several shipped apps'],
       ['agent', 'dayscript sessions, `day drive`, and the agent-facing tooling'],

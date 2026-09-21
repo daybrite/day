@@ -226,7 +226,7 @@ Known gaps, in rough order of interest:
   `day-part-location` rides `navigator.geolocation`, and `day-part-permissions` answers from
   `navigator.permissions`. All three need a secure context, and iOS Safari's motion prompt must be
   requested from inside a button action while the user gesture is still live.
-- **day-break** — no signal handlers on wasm; init succeeds and every API degrades to its
+- **day-piece-break** — no signal handlers on wasm; init succeeds and every API degrades to its
   documented stub.
 - **Window control** — the page can set `document.title`; size, minimum size, and multi-window
   do not apply.

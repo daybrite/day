@@ -798,7 +798,7 @@ fn run_on_main(step: Step, budget: Duration) -> Reply {
             return;
         }
         // The engine listens from the moment `day_script::init` runs, which is before the
-        // backend has built the tree; a runner that connects during a slow startup (day-break
+        // backend has built the tree; a runner that connects during a slow startup (day-piece-break
         // reconciling a crash from the previous launch is the reliable way to be slow) can land
         // a step in that window. Answering "retryable" hands it back to the bounded wait, which
         // is exactly the "not there yet" case that machinery exists for; running it anyway would

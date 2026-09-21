@@ -115,7 +115,7 @@ the architecture-level view and the rationale.
 | web — the `web-dom` backend (wasm32 + DOM) | [docs/web.md](docs/web.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | day-lite — JS/TS miniapps, superapp embedding, a headless miniapp test runner (in its own repository since 2026-09); the dyn piece registry it drives stays in day-pieces | [daybrite/day-lite](https://github.com/daybrite/day-lite) (its `docs/lite.md`) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | logging — the `log` facade every day crate emits through, the auto-installed default logger, per-platform sinks (stderr / logcat / the browser console), `DAY_LOG` | [docs/logging.md](docs/logging.md) | [§8.5](#85-panics-and-crashes) |
-| day-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
+| day-piece-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
 | secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
 | toolchain & environment discovery | [docs/environment.md](docs/environment.md) | [§16](#16-the-day-cli) |
 | API design conventions | [docs/api-style.md](docs/api-style.md) | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
@@ -362,7 +362,6 @@ scripts), and `day-cli` (the `day` binary).
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
-| `day-break` | OPTIONAL consent-first crash reporting ([docs/break.md](docs/break.md), [§8.5](#85-panics-and-crashes)): chained panic hook + POSIX signal handlers + Android UEH, session sentinel, next-launch reconcile into a schema-versioned JSON report, pluggable `Reporter` upload (never automatic) | day-core, day-pieces (`ui`), day-part-http, day-part-deviceinfo |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui` (+`day-arkui-sys`), `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec (NOT day-core) |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
@@ -1765,11 +1764,22 @@ and `update` ([§8.1](#81-the-toolkit-trait)), no-op in MVP backends. The post-M
 
 ### §8.5 Panics and crashes
 
+Crash reporting is an external compose Piece, [`day-piece-break`](https://github.com/daybrite/day-piece-break),
+with independent releases and bare canonical git dependencies on Day. Its default `ui` feature
+provides a localized consent banner with report review, Send, and Discard; disabling it leaves
+the capture/storage/transport APIs available. The framework supplies public lifecycle and
+contained-panic observer hooks, and `day_core::VERSION` identifies the linked runtime in reports.
+The Android Java shim is discovered through the dependency's `[package.metadata.day.android]`.
+Extraction preserves the schema-1 report format, `day-break` storage directory, `DAY_BREAK_*`
+environment variables, Java/JNI names, and `dbreak-*` UI IDs. Day CLI diagnosis still reads
+those legacy paths without depending on the optional reporter. Tests now live in the external
+repository; Day-Showcase consumes it through its git dependency.
+
 > [!IMPORTANT]
 > **Status: partially shipped.** The event pump runs handler dispatch under `catch_unwind`
 > (day-core), which covers the main native-callback surface. The release panic hook, native
-> signal handlers, and the crash-reporter hook now ship in the **optional** `day-break` crate
-> ([docs/break.md](docs/break.md)) — the hook is `day_break::on_crash` (the `day` umbrella crate can't depend on an
+> signal handlers, and the crash-reporter hook now ship in the **optional** `day-piece-break` crate
+> ([docs/break.md](docs/break.md)) — the hook is `day_piece_break::on_crash` (the `day` umbrella crate can't depend on an
 > optional reporter), and day-core notifies it of contained panics via
 > `set_contained_panic_observer`. day-core now contains panics at three backend-agnostic
 > trampoline boundaries — the event pump, posted main-thread tasks, and lifecycle dispatch (a

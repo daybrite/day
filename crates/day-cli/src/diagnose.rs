@@ -5,7 +5,7 @@
 //! connection is lost (docs/agent.md, docs/break.md).
 //!
 //! A scripted run that ends in "engine connection lost" says only that the app is gone. The
-//! evidence for why is on the machine and nobody looks at it: day-break's crash artifacts in the
+//! evidence for why is on the machine and nobody looks at it: day-piece-break's crash artifacts in the
 //! app's store, the OS crash report, the emulator's crash buffer. In CI nobody can look, because
 //! the runner is deleted minutes later, so this gathers what it can and prints it into the job
 //! log while the machine still exists.
@@ -42,7 +42,7 @@ const MAX_FRAMES: usize = 25;
 
 /// One thing worth reading, and where it came from.
 struct Finding {
-    /// What produced it, for the header: `day-break report`, `macOS crash report (…ips)`.
+    /// What produced it, for the header: `day-piece-break report`, `macOS crash report (…ips)`.
     source: String,
     body: String,
 }
@@ -92,7 +92,7 @@ pub fn after_app_death(project: &Project, target: &'static Target, since: System
     true
 }
 
-/// The app's day-break store (docs/break.md). Richest when it is there: the panic message or
+/// The app's day-piece-break store (docs/break.md). Richest when it is there: the panic message or
 /// signal, the location, and the backtrace the app itself captured, the same text the user would
 /// have been shown on the next launch.
 ///
@@ -193,15 +193,15 @@ fn describes_this_run(text: &str, target: &'static Target, since: SystemTime) ->
     started + 1000 >= since_ms
 }
 
-/// Where this target keeps its day-break store. Desktop is the host's own path; the iOS simulator
+/// Where this target keeps its day-piece-break store. Desktop is the host's own path; the iOS simulator
 /// keeps it inside the app's data container, which `simctl` can resolve. Android and OpenHarmony
 /// hold theirs in a device sandbox this does not reach into; their OS crash buffer is the source
 /// [`os_crash_findings`] uses instead.
 fn break_store_dir(project: &Project, target: &'static Target, app_id: &str) -> Option<PathBuf> {
     match target.kind {
         TargetKind::Desktop => {
-            // The same layout day-break computes (day-break/src/store.rs `store_dir`), for the
-            // host it is running on. Kept as a copy rather than a dependency: day-break pulls in
+            // The same layout day-piece-break computes (day-piece-break/src/store.rs `store_dir`), for the
+            // host it is running on. Kept as a copy rather than a dependency: day-piece-break pulls in
             // day-pieces for its consent surface, which has no business inside the CLI.
             let home = std::env::var_os("HOME").map(PathBuf::from)?;
             let slug = slug(app_id);
@@ -244,7 +244,7 @@ fn break_store_dir(project: &Project, target: &'static Target, app_id: &str) -> 
     }
 }
 
-/// The operating system's own account of the death, for the crashes day-break cannot catch (a
+/// The operating system's own account of the death, for the crashes day-piece-break cannot catch (a
 /// kill, a fault inside the toolkit, an app that never armed it).
 fn os_crash_findings(
     project: &Project,
@@ -310,7 +310,7 @@ fn os_crash_findings(
             }
         }
         // Linux has no per-crash report file: what exists is a core, if the kernel was asked for
-        // one, and a debugger to read it with. day-break's artifact already names the signal and
+        // one, and a debugger to read it with. day-piece-break's artifact already names the signal and
         // the faulting address; this is the half that gets FRAMES.
         TargetKind::Desktop if cfg!(target_os = "linux") => {
             looked.push("systemd-coredump (coredumpctl)".into());
@@ -686,7 +686,7 @@ fn summarize_ips(text: &str) -> Option<String> {
     Some(out.join("\n"))
 }
 
-/// Render a day-break report (docs/break.md) as its answer rather than its JSON: what kind of
+/// Render a day-piece-break report (docs/break.md) as its answer rather than its JSON: what kind of
 /// death, the message and location a panic carries, the signal a fault carries, and the backtrace
 /// the app captured for itself. `None` when the text is not a finalized report; the raw session
 /// artifacts are `k=v` lines, which read fine as they are.
@@ -732,14 +732,14 @@ fn summarize_break(text: &str) -> Option<String> {
             out.push(head(bt, MAX_LINES));
         }
         // A signal death has no Rust backtrace to give: the handler runs on a broken stack and
-        // day-break does not walk it. The OS report carries the frames instead.
+        // day-piece-break does not walk it. The OS report carries the frames instead.
         _ => out
             .push("backtrace: none recorded (the OS crash report below carries the frames)".into()),
     }
     Some(out.join("\n"))
 }
 
-/// The `<slug>` day-break namespaces its store under (day-break/src/store.rs `slug`).
+/// The `<slug>` day-piece-break namespaces its store under (day-piece-break/src/store.rs `slug`).
 fn slug(app_id: &str) -> String {
     let s: String = app_id
         .chars()
@@ -782,7 +782,7 @@ fn head(text: &str, max: usize) -> String {
     s
 }
 
-/// The one line worth putting in a CI annotation: a day-break `message`/`kind`, or an `.ips`
+/// The one line worth putting in a CI annotation: a day-piece-break `message`/`kind`, or an `.ips`
 /// termination reason. Falls back to the first non-empty line.
 fn headline_of(body: &str) -> Option<String> {
     let keyed = body.lines().find_map(|l| {
@@ -806,7 +806,7 @@ fn headline_of(body: &str) -> Option<String> {
     })
 }
 
-/// The POSIX name for a signal number, for the raw `sig=<n>` artifacts (day-break spells these
+/// The POSIX name for a signal number, for the raw `sig=<n>` artifacts (day-piece-break spells these
 /// out itself in a finalized report; this is the same table for the pre-finalize shape).
 fn signal_name(signo: i32) -> String {
     match signo {
@@ -832,7 +832,7 @@ fn indent(body: &str) -> String {
 mod tests {
     use super::*;
 
-    /// The store path day-break itself computes, for the two host layouts.
+    /// The store path day-piece-break itself computes, for the two host layouts.
     #[test]
     fn the_slug_matches_day_breaks_own_rule() {
         assert_eq!(slug("dev.daybrite.showcase"), "dev.daybrite.showcase");

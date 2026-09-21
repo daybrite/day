@@ -466,24 +466,6 @@ name = "day-async"
 version = "0.4.7"
 
 [[package]]
-name = "day-break"
-version = "0.4.7"
-dependencies = [
- "day-android",
- "day-core",
- "day-fluent",
- "day-l10n",
- "day-mock",
- "day-part-deviceinfo",
- "day-part-http",
- "day-pieces",
- "day-reactive",
- "day-spec",
- "fluent-bundle",
- "libc",
-]
-
-[[package]]
 name = "day-bridge"
 version = "0.4.7"
 dependencies = [

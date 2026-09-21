@@ -333,7 +333,7 @@ pub fn died_on_signal(code: i32) -> bool {
     matches!(code, 132 | 134 | 135 | 136 | 138 | 139 | 141)
 }
 
-/// Export the app identity (Day.toml `[app]`) to a cargo/build or launch command. day-break's
+/// Export the app identity (Day.toml `[app]`) to a cargo/build or launch command. day-piece-break's
 /// `build.rs` bakes these into the binary so crash reports carry id/version/build without
 /// reading platform manifests at runtime (docs/break.md); on launch commands they double as the
 /// runtime fallback for dev flows whose binary predates the vars.

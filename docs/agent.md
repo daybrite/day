@@ -55,7 +55,7 @@ A scripted run whose app crashes ends in `engine connection lost`, which says on
 gone. The runner then prints a post-mortem (`crates/day-cli/src/diagnose.rs`) from whatever this
 host can produce:
 
-- **day-break's own artifacts** ([docs/break.md](break.md)), when the app arms it: the kind of death, the
+- **day-piece-break's own artifacts** ([docs/break.md](break.md)), when the app arms it: the kind of death, the
   panic message and location, the signal, how long the app lived, and the backtrace it captured.
   Reports are finalized on the app's next launch, so a fresh crash shows its raw session artifacts
   instead; either way, only the ones whose backend and session start match the run that just
