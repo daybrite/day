@@ -34,15 +34,29 @@ The ArkTS host is the framework's, not the app's. It lives in the day-arkui crat
 `Index` page and the secondary-window `DayWindow` page; `types/Index.d.ts` declares the native
 module's exports, so it always matches the `day-arkui-sys` shim the app links. `day build`
 (and `day prepare`/`day open`) resolves the crate through cargo metadata and stages the
-directory into the app's hvigor project: the pages and abilities under
+directory into `build/day/harmony/project/`: the pages and abilities under
 `entry/src/main/ets/day/`, the typings (with their `oh-package.json5`) under
 `entry/src/main/cpp/types/libentry/`, plus the generated page list and start-window colors.
-All of it is gitignored — the same arrangement as the Java shim Gradle reads from
-`day-android`. What an app checks in is the hvigor skeleton alone: the build profiles,
+The staged project is a copy of `platform/harmony/`. Day writes permission strings, shortcut
+labels and profiles, manifest changes, and raw resources into the copy, then runs hvigor
+there. All generated output stays under `build/day/`. What an app checks in is the hvigor
+skeleton: the build profiles,
 `AppScope/app.json5`, `module.json5` (whose `srcEntry` paths name the staged files), the
 string tables, and the `hvigor` config. An app that predates this (2026-09) still carries its
 own copies under `ets/pages/` and `ets/entryability/`; `day build` leaves those alone and
 prints a note on how to adopt the staged host.
+
+`day open -p harmony-arkui` prepares and opens the staged project in DevEco Studio. Edit
+native source files under `platform/harmony/`, then run `day prepare -p harmony-arkui` again;
+edits made only in the staged copy are overwritten. Each preparation refreshes the source
+copy and removes obsolete resources while keeping hvigor's build and dependency caches.
+Symlinked inputs, including generated icon media, are copied as files so native generators
+cannot write through to their sources. The old `platform/ohos/` source layout also works.
+Flavors use `build/day/flavors/<name>/harmony/project/`.
+
+Keep native module dependencies and custom build-script paths relative to the native host,
+or use absolute paths for external tools. A path that climbs out of `platform/harmony/`
+will resolve from a different directory in the staged project.
 
 - **`day-arkui-sys`**: a C++ shim (like `day-qt-sys`/`day-xaml-sys`) exposing a flat C ABI over
   `arkui/native_node.h` (`createNode`/`setAttribute`/`addChild`/`registerNodeEvent`/`measureNode`),
@@ -132,33 +146,23 @@ Point `OHOS_NDK_HOME` at the public mac SDK's `native` dir and `OHOS_BASE_SDK_HO
 SDK layout (`<dir>/<api>/…`, e.g. a symlink `18 -> .../openharmony`).
 
 ```bash
-cd Day-Showcase/platform/harmony
+cd Day-Showcase
+day build -p harmony-arkui
 
-# 0) Stage the framework's ArkTS host + the pieces' ArkTS into the project (gitignored):
-day prepare -p harmony-arkui
-
-# 1) Cross-compile the app to libentry.so for the emulator (x86_64) and device (arm64):
-./build.sh both                                # drops entry/libs/<abi>/libentry.so
-
-# 2) Assemble an (unsigned) .hap with hvigor; build-profile.json5 declares no signingConfig:
-ohpm install
-hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
-
-# 3) Patch + sign it with the OpenHarmony public release material (no account/secrets needed).
-#    sign-hap.mjs — the CLI's own script, written to build/day/harmony/ by `day build` — rewrites
-#    module.json's compileSdkType to "OpenHarmony" so the emulator skips code-sign verification
-#    (an OpenHarmony device does not trust the public cert's code signature, install error
-#    9568393, but skips the check entirely for OpenHarmony-declared apps), then signs the
-#    provision profile + the .hap. Run from the platform/harmony/ project (it reads AppScope/app.json5):
-node ../../build/day/harmony/sign-hap.mjs entry/build/*/outputs/*/entry-default-unsigned.hap \
-  entry/build/showcase-signed.hap
-
-# 4) Launch the HarmonyOS emulator, then install/run:
-hdc install entry/build/showcase-signed.hap
-hdc shell aa start -b dev.daybrite.showcase -a EntryAbility
+# Inspect the prepared native project in DevEco Studio:
+day open -p harmony-arkui
 ```
 
-(Opening `platform/harmony/` in DevEco Studio and pressing Run ▶ with auto-sign does all of 2–4 too.)
+For native packaging work after a Day build, run hvigor from the staged project:
+
+```bash
+cd build/day/harmony/project
+ohpm install
+hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
+```
+
+Use DevEco Studio's auto-sign configuration when installing on a physical device. Configure
+it in the source host if it must survive the next preparation.
 
 You don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:

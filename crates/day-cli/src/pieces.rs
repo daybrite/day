@@ -1499,8 +1499,8 @@ fn resolve_ohos(project: &Project, features: &[&str]) -> Result<OhosPieces, Stri
 /// the two files the host page leans on: `DayPiece.ets` (the `DayPieceModule` interface both sides
 /// implement) and `DayPieces.ets` (the aggregator whose `registerDayPieces(uiContext)` hands the
 /// native shim one factory + command sink + disposer for all pieces). Hvigor compiles ArkTS only
-/// from inside the module, so unlike the android/iOS legs these land in the project (the scaffold
-/// gitignores the directory). Always writes both generated files, even with no contributing piece,
+/// from inside the module, so these land in the staged hvigor project under build/day.
+/// Always writes both generated files, even with no contributing piece,
 /// because the host page imports them unconditionally.
 pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String> {
     let pieces = resolve_ohos(project, &["arkui"]).unwrap_or_else(|e| {
@@ -1538,7 +1538,7 @@ pub fn write_ohos_pieces(project: &Project, harmony: &Path) -> Result<(), String
 /// Stage the framework's ArkTS host into the hvigor project (docs/harmonyos.md): the abilities
 /// and pages into `entry/src/main/ets/day/`, the native module's typings (with the
 /// `oh-package.json5` that makes them a local ohpm package) into `entry/src/main/cpp/types/libentry/`,
-/// plus the page list and start-window colors those files reference. All gitignored; a
+/// plus the page list and start-window colors those files reference. All in the staged project; a
 /// scaffold since 2026-09 checks in only the hvigor skeleton (module.json5 points here).
 ///
 /// A project that still carries its own host page (`entry/src/main/ets/pages/Index.ets`, the

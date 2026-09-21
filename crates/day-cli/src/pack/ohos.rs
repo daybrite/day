@@ -47,7 +47,8 @@ pub fn pack(
         Some(m) => {
             let unsigned = crate::ohos::find_unsigned_hap(project).ok_or_else(|| {
                 PackError::Other(
-                    "no unsigned .hap found under the harmony host project's entry/build".into(),
+                    "no unsigned .hap found under the staged harmony host project's entry/build"
+                        .into(),
                 )
             })?;
             let signed = project.root.join("build/day/pack/ohos-release.hap");

@@ -30,8 +30,8 @@ const ARTIFACT_DIRS: &[&str] = &[
     "platform/android/app/build",
     "platform/android/app/.cxx",
     // hvigor (platform/harmony/.gitignore): caches, installed modules, module outputs, and
-    // the ArkTS/resource staging the CLI regenerates into the scaffold every build (hvigor
-    // compiles only from inside the module, which is why these are not under build/).
+    // ArkTS/resource staging left by older CLIs. Current builds stage the entire hvigor
+    // project under build/day/harmony/project, removed above with build/.
     "platform/harmony/.hvigor",
     "platform/harmony/oh_modules",
     "platform/harmony/entry/oh_modules",

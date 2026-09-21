@@ -2989,7 +2989,7 @@ value = "ffmpeg"
 > **Localized reasons (2026-09).** A reason is a catalog message (`permission_<name>` in
 > `resource/locales/<tag>/app.ftl`) as well as inline Day.toml text; `day build` writes the
 > translations to `platform/ios/Runner/InfoPlist.xcstrings` and to per-locale HarmonyOS
-> `string.json`s, `day lint` reports the locale that lacks one, and `day metadata --json` carries
+> `string.json`s under `build/day/harmony/project/`, `day lint` reports the locale that lacks one, and `day metadata --json` carries
 > `reasons` per locale ([docs/permissions.md](docs/permissions.md), "Localized reasons").
 
 
@@ -3009,8 +3009,9 @@ extra-combo case the design worried about.
 
 > [!NOTE]
 > **Status: one deliberate exception (2026-07).** Permission declarations ([docs/permissions.md](docs/permissions.md)) are
-> written into two CHECKED-IN scaffold files: iOS/macOS `Info.plist` usage-description keys, and a
-> marker region in HarmonyOS's `module.json5`. `sync_uiappfonts` already set that precedent for
+> written into CHECKED-IN Apple scaffold files: iOS/macOS `Info.plist` usage-description keys
+> and localized catalogs. HarmonyOS now merges permissions into its staged native project.
+> `sync_uiappfonts` already set that precedent for
 > `UIAppFonts`. Two alternatives were evaluated and rejected: `INFOPLIST_KEY_*` build settings are
 > consumed only when `GENERATE_INFOPLIST_FILE = YES`, which the scaffold pbxproj sets to `NO`
 > (flipping it is a full scaffold rewrite plus a migration); and pointing `INFOPLIST_FILE` at a
@@ -3020,7 +3021,7 @@ extra-combo case the design worried about.
 > managed set derived from the declaration table, every other byte is preserved, and two consecutive
 > builds produce a byte-identical file.
 >
-> HarmonyOS manifests are parsed as JSON5 with `json-five`'s round-trip AST. Identity edits
+> The staged HarmonyOS manifests are parsed as JSON5 with `json-five`'s round-trip AST. Identity edits
 > operate on string properties; permission regions belong to `module.requestPermissions`;
 > shortcuts read the named `EntryAbility` and merge its metadata array. Comments, quoting,
 > unrelated entries and whitespace survive, and malformed JSON5 is rejected before a write.
@@ -3528,9 +3529,9 @@ Multiple `-p` build in parallel. Results land in `build/day/<target>/…`.
 > live under `build/day/host/<family>/`, written by `day prepare` and never checked in; the
 > Xcode projects reference `../../build/day/host/{ios,macos}/Assets.xcassets` by relative
 > path, the Gradle module adds `build/day/host/android/res` to its `res` source set, `day pack`
-> reads the Linux and Windows icons there, and hvigor — the one host with a fixed resource
-> root — gets gitignored symlinks from both `resources/base/media` directories to
-> `build/day/host/harmony/media`. The rule is one sentence: a file in git is a source; a
+> reads the Linux and Windows icons there. HarmonyOS keeps gitignored symlinks from both
+> source `resources/base/media` directories to `build/day/host/harmony/media`; preparing the
+> hvigor project copies their contents into its staged resource directories. A file in git is a source; a
 > derived file is under `build/`.
 
 `day prepare [-p <target>]… [--check] [--migrate]` renders every derived host file from the
@@ -3547,10 +3548,24 @@ gitignores the HarmonyOS links. Every `day build`/`launch`/`pack` calls `crate::
 first (a no-op while the lock vouches for the master and the generator), and so does the Xcode
 target's "Build Rust (day)" phase, so a GUI build never compiles a stale catalog.
 
-For `harmony-arkui`, `day prepare` (and every build) also stages the framework's ArkTS host —
-the abilities, pages and native typings that live in the day-arkui crate — into the hvigor
-project, gitignored, the way Gradle reads the Java shim from day-android (2026-09; before that
-every app carried its own copy and drifted). For `android-mdc`, `day prepare`, `day open`, and
+For `harmony-arkui`, `day prepare` (and every build) copies the source host from
+`platform/harmony/` (or legacy `platform/ohos/`) into `build/day/harmony/project/`.
+The framework's ArkTS host, pieces and bridges, raw assets, fonts, localized permission
+strings and shortcut resources are generated there. Identity, permission and shortcut
+manifest changes apply only to the copy. hvigor, dev signing, release signing, and
+`day open` all use this staged project. The source host stays unchanged when a locale or
+permission is added. Flavor projects live under `build/day/flavors/<name>/harmony/project/`.
+
+Preparation removes obsolete staged inputs and generated files, preserves hand-written
+resources from the source host, and retains hvigor build/dependency caches. Symlinked inputs
+are copied by value, never written through; cycles fail with a source path. Edit native
+files in the source host and prepare again: edits in the staged project are disposable.
+Custom native scripts and dependency paths must resolve within the host or use absolute
+external paths. `ohos::staging::tests` covers Git cleanliness, localized permissions and
+shortcuts, resource removal, cache retention, symlink isolation, legacy layouts and the
+release-signing input path. See [docs/harmonyos.md](docs/harmonyos.md).
+
+For `android-mdc`, `day prepare`, `day open`, and
 every build stage Day's Gradle plugins from day-android into `build/day/android/gradle-plugin` the
 same way (§17.4), so Android Studio can sync a fresh clone. `day open -p <target>` prepares, then
 opens the target's host project in its IDE (Xcode, Android Studio, DevEco Studio).
@@ -4220,7 +4235,7 @@ removed each copy:
 | Android `namespace`, deep-link scheme | the generated `day-app.properties` + a `${dayScheme}` manifest placeholder |
 | Apple `CFBundleURLName`/`CFBundleURLSchemes` | `$(PRODUCT_BUNDLE_IDENTIFIER)` and a generated `DAY_URL_SCHEME`, the indirection `CFBundleIdentifier` already used |
 | `store/app.toml bundle-id` | omitted — `day store` falls back to `Day.toml [app] id` |
-| HarmonyOS `bundleName`, `uris` scheme | rewritten in place on every build (OHOS has no include/properties channel), the way permissions and shortcuts already are |
+| HarmonyOS `bundleName`, `uris` scheme | merged into the staged host under `build/day/harmony/project/`, alongside permissions and shortcuts |
 
 The CLI reads `[lib].name` by parsing Cargo.toml as TOML, not scanning its text: comments
 mentioning `[lib]`, quoted names and trailing comments must not change which artifact it stages.
@@ -4254,7 +4269,7 @@ crate-level `allow(non_snake_case)`). Only one file uses the repository spelling
 a canonical URL at a 404. Everything else derives from the package name.
 
 Permission declarations ([docs/permissions.md](docs/permissions.md), added 2026-07) follow the same touch-only-when-changed
-rule but two of their three destinations are CHECKED-IN scaffold files rather than generated ones —
+rule but their Apple destinations are CHECKED-IN scaffold files rather than generated ones —
 see the exception note in [§15.2](#152-package-layout-and-aggregation), which also records why the
 `Day-Generated.xcconfig` + `INFOPLIST_KEY_*` route above was evaluated for them and rejected (the
 scaffold pbxproj sets `GENERATE_INFOPLIST_FILE = NO`, and changing that would break running the app

@@ -1634,8 +1634,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             match crate::icon::run(project, &opts) {
                 Ok(n) => {
                     // The HarmonyOS host's ArkTS is staged from the day-arkui crate, not
-                    // checked in (docs/harmonyos.md); put it in place too, so the project
-                    // DevEco Studio opens on a fresh clone has its abilities and pages. A
+                    // checked in (docs/harmonyos.md); prepare the native project too, so it
+                    // has its abilities, resources and manifests when DevEco opens it. A
                     // `--check` writes nothing.
                     let harmony = platforms.is_empty()
                         && project

@@ -523,7 +523,10 @@ pub fn build(
     // it's missing the resource blob is skipped (day loads assets from the filesystem roots
     // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON), so a missing tool must not fail the
     // build.
-    if let Err(e) = crate::resources::stage(project, target) {
+    // HarmonyOS stages resources after copying its native project in stage_host.
+    if target.toolkit != "arkui"
+        && let Err(e) = crate::resources::stage(project, target)
+    {
         status("Warning", &format!("resource staging skipped ({e})"));
     }
     // Day.toml [[shortcuts]] → staged Android shortcut resources, after the image stage that
@@ -1442,7 +1445,7 @@ pub fn open_native(
             "Xcode",
         ),
         "android-mdc" => (project.root.join("platform/android"), "Android Studio"),
-        "harmony-arkui" => (crate::ohos::harmony_dir(project), "DevEco-Studio"),
+        "harmony-arkui" => (crate::ohos::staged_harmony_dir(project), "DevEco-Studio"),
         other => {
             return Err(crate::cli::CliError::usage(format!(
                 "{other} has no native IDE project to open (Xcode: ios-uikit, macos-appkit; \

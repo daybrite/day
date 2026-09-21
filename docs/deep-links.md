@@ -199,7 +199,8 @@ string with no formatter behind it) and writes the platform's native declaration
   confirmation dialog), so OS-delivered activation relies on the same intake path the
   walkthrough and the other platforms exercise.
 - **HarmonyOS** — a generated `$profile:shortcuts_config` plus an `ohos.ability.shortcuts`
-  metadata entry on the ability, labels merged into each locale's `string.json`
+  metadata entry on the ability, labels merged into each locale's `string.json` in the
+  staged host under `build/day/harmony/project/`
   (`day_shortcut_` prefix is the ownership marker, `base/` carries the default locale). The
   want carries the URL in `parameters["day.uri"]`; EntryAbility forwards it through the same
   `deepLink` call a `uris` launch uses. Verified cold and warm on the Oniro emulator with

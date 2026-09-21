@@ -3,7 +3,7 @@
 
 //! ArkUI (HarmonyOS) resource staging (§18.3).
 //!
-//! Both images and data go into `platform/harmony/entry/src/main/resources/rawfile/day/` (hvigor packages
+//! Both images and data go into `build/day/harmony/project/entry/src/main/resources/rawfile/day/` (hvigor packages
 //! rawfile uncompressed, and the OpenHarmony NDK can only reach `rawfile`, not `media`, from native
 //! code). `day-arkui` sets an image node's src to `resource://RAWFILE/day/<name>.png` and its rawfile
 //! opener mmaps `day/<name>` for random-access data.
@@ -14,7 +14,7 @@ use super::{FontFile, ResourceSet, sanitize_ident};
 use crate::meta::Project;
 
 pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result<(), String> {
-    let harmony = crate::ohos::harmony_dir(project);
+    let harmony = crate::ohos::staged_harmony_dir(project);
     if !harmony.exists() {
         return Ok(());
     }

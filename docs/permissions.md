@@ -229,12 +229,14 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   ships an empty catalog already wired into the target; an older project gets the file and its
   four project entries the first time a build has a translation to write. Regenerated from the
   same plan as the plist and byte-stable, so open it in Xcode to read, not to edit.
-- **HarmonyOS** — a marker region in `module.json5` (`// day:permissions-begin` … `-end`), inserted
-  once on an older scaffold and replaced thereafter, plus `day_perm_reason_*` entries in
-  `string.json`: the default locale's in `resources/base/`, and each translation in its own
-  qualifier directory (`resources/zh_CN/`, `resources/fr/`, the tag's hyphen replaced), created
-  when missing. Region editing rather than JSON5 parsing, because a round-trip would delete the
-  file's comments.
+- **HarmonyOS** — Day copies the native host into `build/day/harmony/project/` and merges
+  permissions into that copy's `entry/src/main/module.json5`. The referenced
+  `day_perm_reason_*` strings go into the staged `resources/base/element/string.json` and
+  per-locale files such as `resources/fr/element/string.json` and
+  `resources/zh_CN/element/string.json`. Hand-written strings survive the merge; obsolete
+  generated translations are removed. The source host under `platform/harmony/` stays
+  unchanged, so adding a locale requires no generated native files in git. `day prepare`
+  prepares these files too, and `day open -p harmony-arkui` opens the staged project.
 
 ## `day lint`
 
