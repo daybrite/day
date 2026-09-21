@@ -1400,6 +1400,9 @@ fn template_context(
             .collect::<Vec<_>>()
             .join(", "),
     );
+    // The same list unquoted, which is the form a CI workflow's `targets:` input takes. A
+    // template that ships CI can then build exactly what the app was scaffolded with.
+    ctx.insert("targets_list", targets.join(", "));
     // Not the host's target (`targets::suggested`): a template renders into
     // files that get committed and read on other machines, and the scaffold is diffed against a
     // fresh `day new` on a Linux runner. A placeholder whose value depended on the desktop that
@@ -3371,6 +3374,18 @@ mod tests {
         let mut repl = Repl::new(&kebab_name("Day-Rise"), Some("dev.daybrite.dayrise"));
         repl.repo = "Day-Rise".to_string();
         let ctx = template_context(&repl, "Day Rise".to_string(), &Deps::Git(None), &[]);
+        // Both spellings of the target list: quoted for Day.toml, bare for a CI input.
+        let with_targets = template_context(
+            &repl,
+            "Day Rise".to_string(),
+            &Deps::Git(None),
+            &["macos-appkit".to_string(), "ios-uikit".to_string()],
+        );
+        assert_eq!(
+            with_targets["targets_toml"],
+            "\"macos-appkit\", \"ios-uikit\""
+        );
+        assert_eq!(with_targets["targets_list"], "macos-appkit, ios-uikit");
         assert_eq!(ctx["name"], "day-rise");
         assert_eq!(ctx["repo"], "Day-Rise");
         assert_eq!(ctx["ident"], "day_rise");

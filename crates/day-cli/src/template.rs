@@ -17,8 +17,10 @@
 //! * A trailing `.hbs` on a filename is stripped after rendering; used where the literal name
 //!   would confuse tooling scanning the template tree (`Cargo.toml.hbs` keeps cargo from
 //!   treating the template as a nested package).
-//! * A file named `_gitignore` becomes `.gitignore` (a real dot-file inside the template would
-//!   be applied by git and `cargo package` instead of shipped).
+//! * A file named `_gitignore` becomes `.gitignore`, and `_vscode/` and `_github/` become
+//!   `.vscode/` and `.github/` (a real dot-file inside the template would be applied by git and
+//!   `cargo package` instead of shipped, and a template repository's own `.github/` is its own
+//!   CI rather than the scaffolded app's).
 
 use std::path::Path;
 use std::process::Command;
@@ -54,7 +56,7 @@ fn collect_embedded(dir: &Dir, out: &mut Vec<TemplateFile>) {
 }
 
 /// Load a `--template` source: a local directory, or a git URL (optionally `#ref`) that is
-/// shallow-cloned to a temp dir. Returns the file set with `.git`/`target` pruned.
+/// shallow-cloned to a temp dir. Returns the file set with `.git`, `target` and `.github` pruned.
 pub fn load(source: &str) -> Result<Vec<TemplateFile>, String> {
     if !is_git_url(source) {
         let root = Path::new(source);
@@ -102,7 +104,10 @@ fn read_tree(root: &Path) -> Result<Vec<TemplateFile>, String> {
             let p = e.path();
             let name = e.file_name().to_string_lossy().to_string();
             if p.is_dir() {
-                if name == ".git" || name == "target" {
+                // `.git` and `target` are the checkout's own; `.github` is the TEMPLATE
+                // repository's CI, which has nothing to do with the app being scaffolded — an
+                // app's workflows travel as `_github/` and are mapped on the way out.
+                if name == ".git" || name == "target" || name == ".github" {
                     continue;
                 }
                 walk(root, &p, out)?;
@@ -205,6 +210,9 @@ pub fn render<S: serde::Serialize>(
         if let Some(rest) = path.strip_prefix("_vscode/") {
             path = format!(".vscode/{rest}");
         }
+        if let Some(rest) = path.strip_prefix("_github/") {
+            path = format!(".github/{rest}");
+        }
         let bytes = match std::str::from_utf8(&f.bytes) {
             Ok(text) => hb
                 .render_template(text, ctx)
@@ -241,6 +249,8 @@ mod tests {
             "day-build = { version = \"0.0.0\" }".to_string(),
         );
         m.insert("targets_toml", "\"macos-appkit\"".to_string());
+        // The same targets unquoted, for a workflow input (new.rs `targets_list`).
+        m.insert("targets_list", "macos-appkit".to_string());
         m.insert("first_target", "macos-appkit".to_string());
         m.insert(
             "day_piece_deps",
@@ -277,6 +287,66 @@ mod tests {
         let cargo = std::str::from_utf8(&cargo.1).unwrap();
         assert!(cargo.contains("name = \"hello-world\""));
         assert!(cargo.contains("day = { version = \"0.0.0\" }"));
+    }
+
+    /// The dot-directory conventions: a template repository keeps its own CI under `.github/`,
+    /// so the app's travels as `_github/` and is mapped on the way out — the same trick
+    /// `_gitignore` and `_vscode/` use.
+    #[test]
+    fn underscore_directories_become_dot_directories() {
+        let files = vec![
+            TemplateFile {
+                path: "_github/workflows/ci.yml".into(),
+                bytes: b"name: ci\n".to_vec(),
+            },
+            TemplateFile {
+                path: "_vscode/extensions.json".into(),
+                bytes: b"{}".to_vec(),
+            },
+            TemplateFile {
+                path: "_gitignore".into(),
+                bytes: b"/target\n".to_vec(),
+            },
+        ];
+        let rendered = render(&files, &ctx()).expect("renders");
+        let paths: Vec<&str> = rendered.iter().map(|(p, _)| p.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                ".github/workflows/ci.yml",
+                ".vscode/extensions.json",
+                ".gitignore"
+            ]
+        );
+    }
+
+    /// A template repository's own CI, and the app's. Only the second is the app's business.
+    #[test]
+    fn a_templates_own_github_directory_is_not_the_apps() {
+        let tmp = std::env::temp_dir().join(format!("day-template-github-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        for (rel, body) in [
+            (".github/workflows/template.yml", "name: template\n"),
+            (".github/README.md", "the template's own docs\n"),
+            ("_github/workflows/ci.yml", "name: ci\n"),
+            ("Day.toml", "schema = 1\n"),
+        ] {
+            let path = tmp.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, body).unwrap();
+        }
+        let files = load(tmp.to_str().unwrap()).expect("loads");
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, vec!["Day.toml", "_github/workflows/ci.yml"]);
+        let rendered = render(&files, &ctx()).expect("renders");
+        assert!(
+            rendered
+                .iter()
+                .any(|(p, _)| p == ".github/workflows/ci.yml"),
+            "the app's workflow arrives as .github/: {rendered:?}",
+            rendered = rendered.iter().map(|(p, _)| p).collect::<Vec<_>>()
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

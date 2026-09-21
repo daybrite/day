@@ -86,9 +86,24 @@ pins them to your CLI's version from crates.io and will become the default.
 [reactive](/docs/glossary#reactive) counter, a controls tour, a canvas dial, and a drill-down stack), with [locales](/docs/glossary#locale), a
 [dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), and the native
 host projects the mobile targets build through. The scaffold comes from a **template**: a plain
-directory tree whose file contents *and paths* are rendered with mustache-style placeholders
-(`{{name}}`, `{{ident}}`, `{{snake}}`, `{{pascal}}`, `{{title}}`, `{{id}}`, `{{scheme}}`,
-`{{day_dep}}`, `{{day_build_dep}}`, `{{targets_toml}}`, `{{first_target}}`). The built-in template is embedded in the
+directory tree whose file contents *and paths* are rendered with mustache-style placeholders:
+
+| placeholder | what it renders to |
+|---|---|
+| `{{name}}` | the cargo package name, lowercase kebab |
+| `{{repo}}` | the name as typed, case intact — the scaffold directory and the Pages path |
+| `{{ident}}` | the crate's Rust extern name (hyphens → underscores) |
+| `{{snake}}` / `{{pascal}}` | a snake_case stem and its PascalCase form |
+| `{{title}}` | the app's display name |
+| `{{id}}` | the application id, reverse-DNS |
+| `{{org}}` | the id's organization segment, which the generated website claims as its Pages host |
+| `{{scheme}}` | the deep-link scheme derived from the name |
+| `{{day_dep}}` / `{{day_build_dep}}` / `{{day_piece_deps}}` | dependency lines for the source the app was scaffolded against (git, crates.io, or a local checkout) |
+| `{{targets_toml}}` | the chosen targets, quoted, for `Day.toml` |
+| `{{targets_list}}` | the same targets bare, for a CI workflow's `targets:` input |
+| `{{first_target}}` | the first chosen target, for the commands a README prints |
+
+The built-in template is embedded in the
 CLI (a fresh `cargo install day-cli` scaffolds offline); bring your own with:
 
 ```bash
@@ -113,9 +128,14 @@ day new --describe | jq '.kinds[] | {id, fields: [.fields[].id]}'
 
 Template conventions: a trailing `.hbs` on a filename is stripped after rendering (use
 `Cargo.toml.hbs` so tooling doesn't mistake the template for a Rust package), `_gitignore`
-becomes `.gitignore`, non-UTF-8 files (icons) copy verbatim, and an unknown `{{placeholder}}`
-is an error rather than silent empty output. Files under `platform/<os>/` belong to that OS's
-targets and are only scaffolded for targets that need them.
+becomes `.gitignore`, `_vscode/` and `_github/` become `.vscode/` and `.github/`, non-UTF-8 files
+(icons) copy verbatim, and an unknown `{{placeholder}}` is an error rather than silent empty
+output. Files under `platform/<os>/` belong to that OS's targets and are only scaffolded for
+targets that need them.
+
+A template repository's own `.git`, `target/` and `.github/` are skipped on load: the workflows
+under `.github/` are that repository's CI, and the ones a scaffolded app should get travel as
+`_github/`.
 
 Add a platform later with **`day project add-target <target>`** (repeatable / comma-separated):
 it appends the target to `Day.toml`'s `[app] targets` array (via toml_edit, so your comments
