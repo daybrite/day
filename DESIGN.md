@@ -270,6 +270,14 @@ release lane is since **wired for crates.io** (publishability verified per PR; T
 Publishing on semver tags, [§20](#20-continuous-integration)) but the crates are **not yet published** — scaffolds default to
 git dependencies (`day new --git`), with `--registry` ready for the day they are.
 
+**Workspace versions.** Every framework crate inherits `[workspace.package].version` through
+`version.workspace = true`. Internal dependencies use workspace paths, including `day-macros`,
+so unpublished crates do not repeat a release version in dependency requirements. The four
+dependencies used by published packages (`day-fonts`, `day-vector`, `day-toolchain`, and
+`day-build`) retain explicit versions in `[workspace.dependencies]`: crates.io requires them,
+and Cargo cannot inherit a dependency requirement from `[workspace.package]`. Releases update
+the shared package version and these four requirements; member manifests need no version edits.
+
 **Target strings** are the canonical identifiers everywhere: `Day.toml` `targets:`, `day launch
 --platform`, CI job names, screenshot directory names, `PerTarget` style values. The toolkit half
 also exists alone (`uikit`, `mdc`, `appkit`, `gtk`, `qt`, `xaml`, `arkui`, `mock`) for cases
