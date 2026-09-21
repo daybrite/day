@@ -33,6 +33,9 @@
 //! declarations from that table while `day-part-permissions` queries the same permissions at
 //! runtime, and the two must never disagree (docs/permissions.md).
 
+mod scoped_locales;
+pub use scoped_locales::{generate_locales, render_crate_locales};
+
 use std::path::{Path, PathBuf};
 
 pub mod bridge;
@@ -539,15 +542,19 @@ pub fn message_keys(ftl_src: &str) -> Vec<String> {
 /// typed numeric if *any* locale uses it numerically; the generated doc shows the value from the
 /// reference locale (`en` if present).
 fn plan_strings(dir: &Path) -> Result<Vec<StrEntry>, String> {
+    plan_strings_from_files(&ftl_files(dir))
+}
+
+fn plan_strings_from_files(files: &[PathBuf]) -> Result<Vec<StrEntry>, String> {
     // key -> (params: name -> numeric, the locale file that first defined it)
     let mut agreed: std::collections::BTreeMap<String, (Params, String)> = Default::default();
     // key -> (reference value text, whether it came from `en`)
     let mut docs: std::collections::BTreeMap<String, (String, bool)> = Default::default();
-    for path in ftl_files(dir) {
-        let src = std::fs::read_to_string(&path)
-            .map_err(|e| format!("day-build: reading {}: {e}", display(&path)))?;
-        let loc = display(&path);
-        let is_en = locale_of(&path) == "en";
+    for path in files {
+        let src = std::fs::read_to_string(path)
+            .map_err(|e| format!("day-build: reading {}: {e}", display(path)))?;
+        let loc = display(path);
+        let is_en = locale_of(path) == "en";
         for msg in ftl_messages(&src) {
             let ident_ok = match msg.key.split_once('.') {
                 // `message.attr` (an attribute entry): both halves become one generated fn
@@ -1094,6 +1101,10 @@ pub fn render(plan: &ResourcePlan) -> String {
 /// in one locale directory `concat!` into a single source (Fluent bundles are per-locale, and
 /// `day_l10n::install` keys them by tag, so two entries for one tag would shadow, not merge).
 fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
+    render_locales_for(s, locales, None);
+}
+
+fn render_locales_for(s: &mut String, locales: &[LocaleEntry], scope: Option<&str>) {
     s.push_str("#[allow(dead_code)]\npub mod locales {\n");
     s.push_str(&format!(
         "    /// The fallback locale — the one whose strings show when the running locale has no\n\
@@ -1114,7 +1125,9 @@ fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
             .map(|p| format!("include_str!({:?})", p.display().to_string()))
             .collect();
         // `concat!` of one argument is the identity, so the single-file case stays readable.
-        let src = if sources.len() == 1 {
+        let src = if sources.is_empty() {
+            "\"\"".to_string()
+        } else if sources.len() == 1 {
             sources.into_iter().next().unwrap_or_default()
         } else {
             format!("concat!({}, \"\\n\")", sources.join(", \"\\n\", "))
@@ -1136,12 +1149,21 @@ fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
         ));
     }
     s.push_str("    ];\n\n");
-    s.push_str(
+    if let Some(name) = scope {
+        s.push_str(&format!(
+            "    /// Private namespace; ordinary app installation never replaces this catalog.\n\
+             pub static SCOPE: day_fluent::Catalog = day_fluent::Catalog {{ name: {name:?}, default: DEFAULT, locales: CATALOG }};\n\
+             /// Register for qualified scripting lookups. Accessors also do this automatically.\n\
+             pub fn register() {{ day_fluent::register_catalog(&SCOPE); }}\n"
+        ));
+    } else {
+        s.push_str(
         "    /// Register [`CATALOG`] under [`DEFAULT`] — call once, before the first localized\n\
      \x20   /// string is read (the top of the app's `root()`). For a different fallback:\n\
      \x20   /// `day::install_locales(\"fr\", res::locales::CATALOG)`.\n\
      \x20   pub fn install() {\n        day::install_locales(DEFAULT, CATALOG);\n    }\n",
     );
+    }
     s.push_str("}\n\n");
 }
 
@@ -1172,6 +1194,10 @@ fn language_name(l: &LocaleEntry) -> Option<String> {
 /// parameters, so `res::str::greeting(name)` == `tr("greeting").arg("name", name)`, checked at
 /// compile time (a missing key or wrong arity is an error).
 fn render_strings(s: &mut String, entries: &[StrEntry]) {
+    render_strings_for(s, entries, "day", "day::tr(");
+}
+
+fn render_strings_for(s: &mut String, entries: &[StrEntry], api: &str, constructor: &str) {
     s.push_str("#[allow(dead_code, unused_imports, non_snake_case, clippy::too_many_arguments)]\n");
     s.push_str("pub mod str {\n");
     for e in entries {
@@ -1190,7 +1216,7 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
                     "IntoFArg"
                 };
                 format!(
-                    "{}: impl day::{ty}<M{i}>",
+                    "{}: impl {api}::{ty}<M{i}>",
                     ident_token(&sanitize_ident(&p.name))
                 )
             })
@@ -1200,7 +1226,7 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
         } else {
             format!("<{}>", generics.join(", "))
         };
-        let mut body = format!("day::tr({:?})", e.key);
+        let mut body = format!("{constructor}{:?})", e.key);
         for p in &e.params {
             body.push_str(&format!(
                 ".arg({:?}, {})",
@@ -1215,7 +1241,7 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
             format!("`{}` — `{}`", e.key, e.doc)
         };
         s.push_str(&format!(
-            "    /// {doc}\n    pub fn {}{generic_list}({}) -> day::LocalizedText {{ {body} }}\n",
+            "    /// {doc}\n    pub fn {}{generic_list}({}) -> {api}::LocalizedText {{ {body} }}\n",
             ident_token(&res_str_ident(&e.key)),
             sig_params.join(", "),
         ));
@@ -1277,7 +1303,8 @@ fn ident_token(sym: &str) -> String {
         "as", "break", "const", "continue", "dyn", "else", "enum", "extern", "false", "fn", "for",
         "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return",
         "static", "struct", "trait", "true", "type", "union", "unsafe", "use", "where", "while",
-        "async", "await", "try",
+        "async", "await", "try", "gen", "abstract", "become", "box", "do", "final", "macro",
+        "override", "priv", "typeof", "unsized", "virtual", "yield",
     ];
     if KEYWORDS.contains(&sym) {
         format!("r#{sym}")

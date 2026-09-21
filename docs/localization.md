@@ -1,6 +1,6 @@
 ---
 title: "Localization"
-description: "Fluent catalogs, checked keys, plurals and formatting, runtime locale switching, RTL, and the pseudolocale."
+description: "Catalog generation, private namespaces, locale selection, fallback, formatting, and translation checks."
 ---
 
 <!--
@@ -10,429 +10,350 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Localization (§12)
 
-Day localizes with [Mozilla Fluent](https://projectfluent.org). Text is a **key** resolved against
-the current locale; the current locale is a `Signal`, so every `tr()` binding re-runs on a locale
-switch, followed by one incremental relayout.
+Day embeds Fluent catalogs and generates Rust accessors for their messages. The runtime
+resolves each message using a shared locale signal and the catalog attached to the accessor.
+The [localization guide](https://daybrite.dev/docs/localization) covers setup and translation
+workflows. This reference defines the generation, lookup, and tooling contracts.
+
+## Catalog generators
+
+| Entry point in `build.rs` | Output in `OUT_DIR` | Include macro | Lookup |
+| --- | --- | --- | --- |
+| `day_build::generate_resources()` | `day_resources.rs` | `day::resources!()` | Global app/core catalogs |
+| `day_build::generate_locales()` | `day_locales.rs` | `day_fluent::locales!()` | Private crate/file catalog |
+
+Both generators normally read `resource/locales/` relative to the crate and emit embedded
+Fluent sources. The app resource generator can read a merged flavor tree through
+`DAY_RESOURCE_ROOT`. Cargo tracks the resource inputs, so changes regenerate the code on the
+next build.
+The generated files belong in Cargo's output directory and are not edited by hand.
+
+`generate_resources()` also emits image, vector, asset, and font names. Its localization API
+is unchanged: files within a locale concatenate into one source, and `res::str` accessors use
+the global `tr` lookup. The app supplies `res::locales::CATALOG` through
+`WindowOptions::locales`. See [resources](resources.md) for the other generated modules.
+
+`generate_locales()` requires `day-fluent` at runtime. It reads the crate's resource directory
+even when an app build sets `DAY_RESOURCE_ROOT`. An app's flavor overlay therefore does not
+replace its dependencies' catalogs. Private catalog generation does not currently apply
+flavor overlays.
+
+## Private catalogs for reusable crates and source modules
+
+The private generator accepts `resource/locales/<locale>/<file>.ftl`. A filename can correspond
+to a Rust source module, but there is no source-file discovery step.
+
+| Source | Accessor | Catalog descriptor | Script key |
+| --- | --- | --- | --- |
+| `app.ftl`, message `game_title` | `res::str::game_title()` | `res::locales::SCOPE` | `blockblast::game_title` |
+| `board.ftl`, message `moves` | `res::board::str::moves(count)` | `res::board::locales::SCOPE` | `blockblast::board::moves` |
+
+These examples assume the Cargo package is named `blockblast`. Script namespaces use the
+package name with hyphens replaced by underscores, even if a dependent crate uses a Cargo
+alias for that package.
+
+Each named file imports the same locale's `app.ftl` messages and terms. The generated module
+also exposes accessors for imported messages. A missing `app.ftl` is allowed. Duplicate
+entries within a file, or collisions between a named file and its imports, fail generation.
+Sibling files can reuse message names and use different argument lists.
+
+File stems must be Rust identifiers. `app` selects the crate-wide catalog. `str`, `locales`,
+`self`, `Self`, `super`, and `crate` are reserved. Nested directories beneath a locale are
+rejected. Fluent syntax errors in private catalogs fail the build.
+
+Each generated `locales` module contains:
+
+| Item | Meaning |
+| --- | --- |
+| `DEFAULT` | `en` when present; otherwise the first locale in sorted order |
+| `CATALOG` | Embedded `(tag, source)` pairs for this namespace |
+| `ALL` | `(tag, display name)` pairs; names come from a literal `language_name` message, falling back to the tag |
+| `SCOPE` | A static `day_fluent::Catalog` containing the namespace, default, and sources |
+| `register()` | Makes this catalog available to qualified script lookups without changing the app locale |
+
+The global resource generator emits `DEFAULT`, `CATALOG`, and `ALL`, plus `install()` instead
+of `SCOPE` and `register()`. Normal app startup uses `WindowOptions::locales`; the explicit
+install function remains available for code that manages installation itself.
+
+### Combining resource and private catalog generation
+
+Both include macros declare `pub mod res`. A crate using both generators must place the
+outputs in separate modules. For example:
 
 ```rust
-use day::prelude::*;
-
-// Hand the catalog to `launch` — it registers it for you, at the right moment (below).
-day::WindowOptions {
-    locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
-    title_fn: Some(|| res::str::app_title().format()),   // a title from the catalog, too
-    ..Default::default()
+// build.rs
+fn main() {
+    day_build::generate_resources().expect("resource codegen");
+    day_build::generate_locales().expect("localization codegen");
 }
-
-label(tr("greeting").arg("name", user_name))   // reactive, localized
-set_locale("fr");                               // every visible string updates
 ```
-
-### Install the catalog through WindowOptions
-
-Pass the catalog in `WindowOptions`; `launch` installs it after receiving the OS language
-preferences and before creating the window. Installing it yourself before `launch` is too
-early to use those preferences, so the app may open in the default language. Installing it
-in the root builder is too late for the window title.
-
-So `WindowOptions::locales` carries the catalog and `WindowOptions::title_fn` computes the
-title once it is installed. Both entry points (`src/main.rs` and the `day_start!` platform
-shells) hand `launch` the same `WindowOptions`, so they cannot drift. `install_locales` stays
-public for a second catalog or a different fallback; an app that registers one itself does so
-after `launch` is running.
-
-## The catalog is the directory (§18.5)
-
-`res::locales::{DEFAULT, CATALOG}` are generated by `build.rs` from `resource/locales/`
-(alongside a `res::locales::install()` for the rare app that registers a catalog by hand).
-**Adding a language is adding a directory**, with no source list to keep in step:
-
-```text
-resource/locales/en/app.ftl      →  res::locales::CATALOG = &[("ar", …), ("en", …), ("fr", …)]
-resource/locales/fr/app.ftl         res::locales::DEFAULT = "en"
-resource/locales/ar/app.ftl         res::locales::install()
-```
-
-- **`DEFAULT`** is the fallback locale: `en` when the app ships it, else the first tag
-  alphabetically. For a different fallback, keep the generated catalog and name your own:
-  `install_locales("fr", res::locales::CATALOG)`.
-- **Several `.ftl` files in one locale directory** (`app.ftl`, `errors.ftl`, …) concatenate into
-  that locale's bundle, so a large catalog can be split by area.
-- **`ALL`** lists every bundled locale as `(tag, display name)`: the data a language picker
-  needs. The display name is the catalog's own `language_name` message (each language naming
-  itself: `language_name = Français`), read at build time; a catalog without one falls back to
-  its tag. Switch at runtime with `day::set_locale(tag)`. Strings re-resolve live, but layout
-  direction is fixed at launch, so an LTR↔RTL change fully applies on the next start.
-- The directory is a build input (`cargo:rerun-if-changed`), so a new, renamed, or deleted locale
-  reaches the next build without a `cargo clean`.
-
-The underlying call is still public and unchanged: `install_locales(default, &[(tag, source)])`
-takes any list an app assembles itself (locales fetched at runtime, a subset chosen per build).
-The generated catalog is the default and needs no maintenance.
-
-## Adding a language: `day localize add`
-
-Adding the directory by hand works, but `day localize add <tag>` does the whole job: the Fluent
-directory, the `store/<tag>/` listing text, the Xcode `knownRegions` entry, and the locale list in
-`website/site.toml`. `day new app --locales <tags>` runs the same code path per tag, so a fresh
-project and an existing one mean the same thing by "add a locale". `day localize list` reports any
-surface that has drifted.
-
-New Fluent files are the default locale's, copied under a `TODO: translate` header: a
-complete-but-untranslated locale that the key lints still track, rather than an empty directory
-nothing checks. The CLI cannot translate an app's own strings, since it does not know what they
-mean.
-
-It does know the strings **it** wrote. For the handful of keys `day new app` scaffolds and shows
-on the opening screen (`home_greeting`, `home_welcome`, and the four `nav_*` labels), the CLI
-carries real translations for 20 languages (`crates/day-cli/src/starter_l10n.rs`) and writes those
-instead of an English copy, interpolating the project's own title. A generated app therefore
-greets its user in their language on first launch, and the header records how many lines arrived
-translated:
-
-```text
-# TODO: translate — 6 starter string(s) translated; the rest copied from en/ by `day localize add ja-JP`.
-```
-
-A tag the table does not carry gets the English copy, so the fallback is the old behavior.
-
-## Checked keys: `res::str::…()` (§18.5)
-
-`tr("…")` is stringly-typed: a typo or a wrong `.arg` name only shows up at runtime as `⟨key⟩`. Day's
-`build.rs` (`day_build::generate_resources()`, wired into `day new`) also generates a **function per
-Fluent key** under `res::str`, so the same text is checked at compile time and autocompletes:
 
 ```rust
-label(res::str::greeting(user_name))            // == tr("greeting").arg("name", user_name)
-label(res::str::counter_value(count))           // params come from the message's { $variables }
-label(res::str::nav_home())                      // 0-param keys are nullary functions
+// src/lib.rs
+day::resources!();
+
+pub mod messages {
+    include!(concat!(env!("OUT_DIR"), "/day_locales.rs"));
+}
 ```
 
-- The function's **signature mirrors the message's parameters** (each `impl IntoFArg`, so it accepts
-  `&str`/`String`/`i64`/`f64`/`Signal`), so a missing key or wrong argument count is a build error.
-- A variable used as a **plural / `select` selector** (`{ $count -> [one]… }`) is typed
-  `impl IntoNumberFArg` instead, so you can't pass a string where CLDR plural rules need a number:
-  ```rust
-  res::str::counter_value(count)   // ok: i64 / f64 / Signal<i64|f64>
-  res::str::counter_value("3")     // compile error: &str: IntoNumberFArg is not satisfied
-  ```
-  (A string `select` such as `$gender -> [male] [female]` is *not* forced numeric.)
-- Each function's **doc comment shows the reference-locale value**, so IDE hover reveals the actual
-  text, e.g. `` /// `greeting` — `Hello, { $name }!` ``.
-- Keys must be **valid Rust identifiers → snake_case** (`nav_home`, not the Fluent-legal `nav-home`);
-  `day-build` fails the build with a rename hint otherwise.
-- **All locales must agree on a key's parameter names**: `en` `{ $name }` vs `fr` `{ $nom }` is a
-  build error (numeric-ness is OR-ed across locales, so a plural in *any* locale makes the param numeric).
-- Using the functions is **optional**: `tr("…")` stays for keys built at runtime, and `day lint`
-  counts a `res::str::key` reference as a use just like `tr("key")`.
+This exposes global resources under `res` and private translations under `messages`.
+The resource generator still scans the same Fluent files as one global catalog. Files with
+colliding names or different parameter lists that are valid in separate private namespaces
+cannot also pass that global scan. Apps with reusable components can keep the global root
+catalog and use private generation in the component crates.
 
-> [!NOTE]
-> **One Fluent parser.** The codegen, `day lint`'s coverage checks (`day_build::message_keys`),
-> and the runtime resolver (`fluent-bundle`) all use `fluent-syntax`, so what the tooling accepts is what
-> resolves at runtime.
+## Generated message functions
 
-## Keyboard shortcuts: localizable, but stable by default
+Generated functions return `LocalizedText`. Function parameters follow the message's
+`$variables`, sorted by name. Variable names must agree across translations. Arguments accept
+strings, numbers, or supported signals through `IntoFArg`. A variable used numerically in any
+translation requires `IntoNumberFArg`, which accepts `i64`, `f64`, `Signal<i64>`, and
+`Signal<f64>`.
 
-Shortcut letters are not translated the way labels are. The convention Apple and Microsoft
-both follow keeps ⌘C/⌘S/⌘G the same characters in every language: they bind to the command
-rather than to the translated word (French macOS quits with ⌘Q and saves with ⌘S, whatever
-"Quitter" and "Enregistrer" start with), because cross-application muscle memory and
-documentation outweigh mnemonic spelling. The keyboard layout does vary, and the operating
-system handles that: macOS remaps a key equivalent the current layout cannot type and mirrors
-directional pairs (⌘[ / ⌘]) under right-to-left languages. day-appkit opts every chorded item
-into both behaviors.
+Plural selectors and `NUMBER()` arguments are numeric. String selectors, such as a selection
+on `$gender`, remain string-capable. The generator unions message keys across locales;
+translation completeness is a separate lint check. Generated documentation prefers the
+English message when available.
 
-For the rare locale that needs a different letter, the shortcut key is catalog data like any
-other string: a Fluent **attribute** on the command's own message, so the translator sees the
-two together:
+A Fluent attribute such as `menu_group.key` generates `menu_group_key()`. Generation fails if
+another key produces the same Rust name. A locale may omit an attribute and inherit the
+catalog default's value; coverage lint requires message keys, not every attribute.
+
+`LocalizedText` implements the text conversion used by pieces. A text binding tracks both
+the locale signal and signal arguments. Calling `.format()` resolves a `String` immediately;
+it remains reactive only when the call runs inside a reactive computation.
+
+## Runtime implementation
+
+[`day-build`](https://github.com/daybrite/day/tree/main/crates/day-build) parses Fluent sources
+and generates the accessors. [`day-l10n`](https://github.com/daybrite/day/tree/main/crates/day-l10n)
+manages Fluent bundles, locale selection, formatting, and the core catalog.
+[`day-fluent`](https://github.com/daybrite/day/tree/main/crates/day-fluent) adds `LocalizedText`
+and the `tr_in` constructor used by private accessors.
+
+A private accessor calls `tr_in(&SCOPE, key)`. Registration parses its catalog on first use
+and caches the bundles in thread-local runtime state. The static descriptor's address
+identifies the catalog; its diagnostic name does not determine typed lookup. Two versions of
+a crate can therefore keep separate translations even when their script namespace is the same.
+Reinstalling the global app catalog preserves private caches and the shared locale signal.
+
+The registration path uses ordinary Rust calls on native targets and WebAssembly. It does not
+require platform initializers or an app-maintained dependency registration list. Catalog
+sources are embedded in the binary; registration does not read translation files from disk.
+
+## Lookup and fallback
+
+For a requested locale, bundle selection tries the exact tag, the tag without a `-u-…`
+extension, and then its language subtag. Once it selects a bundle, a missing message or
+attribute follows the relevant default-catalog fallback below.
+
+| Lookup | Resolution order |
+| --- | --- |
+| Private accessor | Selected private bundle → that private catalog's default bundle |
+| Global `tr(key)` | Selected app bundle → app default → selected core bundle → English core |
+
+Private lookup never searches the app, core, or another private catalog for a matching key.
+An unresolved global key renders as `⟨key⟩`; a private key renders as
+`⟨package::key⟩` or `⟨package::file::key⟩`. Fallback permits partial translations to render,
+but a project that requires complete translations must also enforce coverage checks.
+
+Message lookup recognizes these Chinese aliases when the earlier candidates are absent:
+
+| Requested tag | Catalog tag |
+| --- | --- |
+| `zh-Hans`, `zh-Hans-CN`, `zh-SG` | `zh-CN` |
+| `zh-Hant`, `zh-Hant-TW` | `zh-TW` |
+
+Launch negotiation checks the app's registered tags separately. An app shipping `zh-CN` may
+need a compatible root-catalog alias, such as `zh`, to accept the platform's script-based
+preference before message lookup runs. Day Games registers that alias using the same source;
+it keeps one translation file and one store listing per language.
+
+## Which language an app opens in
+
+`day::launch` collects backend locale hints, installs `WindowOptions::locales`, computes
+`title_fn`, and then builds the UI. The app catalog declares supported launch languages;
+private catalogs do not add languages to that declaration.
+
+If `DAY_LOCALE` is set, it supplies the launch candidate. Otherwise Day considers the ordered
+host preferences, including an explicit web `?locale=` value before browser preferences.
+It selects the first candidate the app catalog can serve, or the configured default if none
+matches. Launch matching accepts exact tags, tags without Unicode extensions, language
+subtags, and pseudolocales. Core catalogs determine availability only when the app registers
+no catalog entries.
+
+`set_locale` from `day::prelude` changes the shared signal at runtime. It does not persist a
+preference. An app that saves a selection must restore it through its startup flow. Locale
+strings passed to `set_locale` normalize underscores to hyphens.
+
+## Core strings the framework provides
+
+The core catalog supplies standard dialog buttons, menu roles, window commands, and settings
+labels. It ships `en`, `fr`, `es`, `de`, `ja`, `zh`, and `ar`. Examples include `day-ok`,
+`day-cancel`, `day-copy`, and `day-about-app`; the last accepts the app name as `$app`.
+Framework code resolves these through the global lookup, so an installed app catalog can
+override them. Private catalog messages do not override core strings.
+
+Native dialogs and permission UI may also contain text supplied by the operating system.
+Those strings follow the system's language rules and may not follow an in-app locale switch.
+
+## Formatted values: NUMBER() and DATETIME()
+
+Every Day Fluent bundle registers ICU4X-backed `NUMBER()` and `DATETIME()` functions. Plain
+numeric interpolations also use locale-aware decimal formatting.
+
+```ftl
+amount = { NUMBER($value, minimumFractionDigits: 2) }
+percentage = { NUMBER($value, style: "percent") }
+saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
+```
+
+| Function | Supported behavior |
+| --- | --- |
+| `NUMBER` | Grouping, minimum integer digits, minimum/maximum fraction digits, minimum/maximum significant digits, and decimal or percent style |
+| `DATETIME` | ISO date, time, or date/time strings; numeric Unix seconds as UTC; `dateStyle` and `timeStyle` values `full`, `long`, `medium`, `short`, or `none` |
+
+Decimal formatting defaults to at most three fraction digits unless options request more.
+Percent formatting multiplies by 100 and adds a localized percent sign. Currency style is
+not implemented; it renders as decimal and produces a lint finding.
+
+Date/time formatting uses the Gregorian calendar. Civil strings carry no time zone. Numeric
+timestamps use seconds, not milliseconds. Defaults depend on the input: medium date style
+and short time style where those parts exist. An unparseable input remains visible as text.
+
+`day lint` checks function names and options in each catalog. Findings distinguish unknown
+functions, invalid option names or values, and options that Day does not support.
+
+## Numbers outside a message
+
+`day::format_decimal(value, fraction_digits)` formats a number using the selected locale.
+`day::format_decimal_in(locale, value, fraction_digits)` takes an explicit locale. The first
+tracks the locale signal, so it can update a readout inside a reactive closure:
+
+```rust
+label(move || day::format_decimal(total.get(), 2))
+```
+
+Grouping, decimal separators, and digits come from locale data. Non-finite values or missing
+data fall back to Rust formatting.
+
+## Sorting: locale-aware collation
+
+`day::compare`, `day::compare_in`, and `day::sort_localized` use ICU4X collation. The first and
+last track the selected locale. `compare_in` accepts locale extensions, such as
+`zh-u-co-stroke`, for an alternate collation. Sort translated display strings; keep stable
+IDs unchanged when the display order changes.
+
+## Searching: localized match
+
+`day::matches_search(text, query)` performs a case-insensitive prefix match at word starts.
+`matches_search_in` takes an explicit locale. An empty query matches everything, and the
+start of the text is always a candidate. Multi-word prefixes are supported.
+
+ICU4X segmentation supplies word boundaries for scripts that do not separate words with
+spaces. Unicode case folding handles cases such as `Straße` and `STRASSE`; Turkish and
+Azerbaijani use Turkic folding. Matching does not remove accents: `é` and `e` remain distinct.
+
+## Locale data
+
+ICU4X components use compiled locale data independently of the app's Fluent locale list.
+Changing that list changes the app's translations, not the embedded ICU data selection.
+Unused components can be removed by the linker. Builds that supply custom baked data can
+use `ICU4X_DATA_DIR`; the Day CLI does not run ICU data generation as part of app builds.
+
+## Keyboard shortcuts
+
+Fluent attributes can provide localized shortcut characters:
 
 ```ftl
 menu_group = Group
     .key = g
 ```
 
-`day-build` generates a `res::str::menu_group_key()` accessor beside `menu_group()`, and the
-app builds its `Shortcut` from it:
+This generates `res::str::menu_group()` and `res::str::menu_group_key()`. A missing translated
+attribute falls back to the default locale. Modifiers remain command behavior in Rust, and
+standard menu roles retain platform shortcuts. See [menus](menus.md).
 
-```rust
-menu_item(res::str::menu_group().format())
-    .action(group_selection)
-    .shortcut(Shortcut { key: res::str::menu_group_key().format(), primary: true, ..Default::default() })
-```
+## Permission reasons and store metadata
 
-A locale that omits `.key` inherits the default locale's through the ordinary fallback chain,
-so shortcuts stay stable across languages unless a locale overrides one, and the coverage lint
-does not demand the attribute anywhere. It does count the attribute as *referenced* under
-either spelling (`res::str::menu_group_key()` in Rust and `menu_group.key` in the catalog are
-the same key), so a shortcut is never reported as both an unknown key and an unused one at
-once. Modifier schemes
-(primary/shift/alt) are command semantics and stay in code. Role items
-(`menu_role(MenuRole::Copy)`, [docs/menus.md](menus.md)) keep the platform's system
-shortcuts and never localize them.
+Platform metadata tools read the app root's catalogs. Keep permission reasons there using
+`permission_<name>` keys, including raw platform keys where required. These messages are
+consumed during platform generation and are exempt from the app's unused-key lint.
+See [permissions](permissions.md) for the key mapping and generated platform files.
 
-## Permission reasons
+Store copy lives in `store/<locale>/`, separate from UI messages. `day store stage` maps
+project locale tags to each store's spelling and generates fastlane metadata. Website locale
+configuration lives in `website/site.toml`; the app site uses store text and localized
+screenshot metadata. See [store listings](store.md) and [DayScript](https://daybrite.dev/docs/dayscript).
 
-The text a phone shows when the app asks for the camera or your location is catalog copy too:
-a `permission_<name>` message per declared permission (`permission_camera`,
-`permission_NSBluetoothAlwaysUsageDescription` for a raw key), which `day build` writes into
-`Info.plist` and its `InfoPlist.xcstrings` and into HarmonyOS's per-locale `string.json`.
-No `res::str` accessor is needed, since the app never renders these itself; the coverage lint
-therefore never reports them unused, and `missing-reason` names the locale that lacks one.
-[docs/permissions.md](permissions.md), "Localized reasons".
+## Adding and removing locales
 
-## Formatted values: `NUMBER()` and `DATETIME()`
+`day localize list` surveys the app root's Fluent directories, store directories, Xcode
+`knownRegions`, and website locale list. `day localize add <tags>` copies the default Fluent
+files and updates the other surfaces when present. It translates recognized scaffold
+messages where a starter translation exists; the remaining messages need translation.
+Store text is copied verbatim. Existing locale directories are left in place.
 
-Every bundle (app and core, registered automatically by `day-l10n`) provides icu4x-backed
-formatting, so translations render numbers and dates ICU-correctly for their locale with zero app
-setup:
+`day localize remove <tags>` removes the corresponding root surfaces. It refuses to remove
+the default locale. Neither command edits private catalogs in dependency crates or the CI
+locale matrix. Those changes belong in the app's translation workflow.
 
-```fluent
-price      = { NUMBER($n, minimumFractionDigits: 2) }
-discount   = { NUMBER($p, style: "percent") }
-last_saved = Saved { DATETIME($when, dateStyle: "long", timeStyle: "short") }
-```
+Project tags use a lowercase language, optional titlecase script, and optional uppercase or
+numeric region, such as `fr`, `zh-Hans`, or `es-419`. Store support is checked separately.
+Metadata mappings such as `zh-CN` to Apple's `zh-Hans` do not rename the source directory.
 
-- **Plain `{ $n }` interpolations localize too** (a bundle-wide formatter, not just the explicit
-  calls): `1234567.891` renders `1,234,567.891` in `en`, `1.234.567,891` in `de`,
-  `1 234 567,891` (narrow no-break space) in `fr`; locales that resolve to a non-Latin
-  numbering system (e.g. `ar-EG` → Arabic-Indic digits) get their own digits. Plural/`select`
-  still selects on the numeric value.
-- **`NUMBER` options** (ECMA-402 names): `useGrouping`, `minimumIntegerDigits`,
-  `minimum`/`maximumFractionDigits` (default max 3, so float noise like `0.30000000000000004`
-  never reaches a translation), `minimum`/`maximumSignificantDigits`, `style: "decimal" |
-  "percent"`. Percent is a documented v1 approximation (×100 + a localized percent sign);
-  `style: "currency"` is **not implemented yet**: it formats as a plain decimal and `day lint`
-  flags it.
-- **`DATETIME` input** is civil and zoneless, matching `day-piece-datetime`'s conventions:
-  ISO-8601 strings (`"2026-07-18"`, `"14:45[:30]"`, `"2026-07-18T14:45"`) or a number of **epoch
-  seconds rendered as UTC**. Options: `dateStyle` / `timeStyle` ∈ `full|long|medium|short|none`
-  (defaults: medium date, short time, by input shape). Formatting is fixed-Gregorian (the small
-  data path); unparseable input echoes back visibly rather than erroring.
-- `day lint` validates every call across every locale file: unknown functions
-  (`day::lint::unknown-function`), misspelled options or bad values
-  (`day::lint::bad-format-option`), and not-yet-supported options
-  (`day::lint::unsupported-format-option`).
+## Lint coverage and stale translations
 
-## Numbers outside a message
+`day lint --strict` fails when findings remain; `day localize list` is informational.
+The compiler and generator check typed call sites and parameter consistency. The linter
+adds coverage and metadata checks:
 
-Not every number a person reads has a message to hang on: an axis label, a table column, a live
-readout. `day::format_decimal(v, fraction_digits)` renders one through the same icu4x formatter
-`NUMBER()` uses, and `format_decimal_in(locale, v, digits)` does it for a named locale:
+| Finding | Scope |
+| --- | --- |
+| `unknown-key`, `unused-key` | Heuristic source-reference checks for the global app catalog |
+| `missing-translation` | Default-locale message keys absent from another existing locale |
+| `invalid-catalog` | Private catalog generation errors, including invalid syntax and collisions |
+| `unknown-function`, `bad-format-option`, `unsupported-format-option` | Fluent formatting calls |
 
-```rust
-label(move || format_decimal(total.get(), 2))   // 1,234.50 · 1 234,50 · 1.234,50
-```
+Private catalog lint recognizes workspace source roots whose `build.rs` calls
+`generate_locales()`. It checks files separately and does not report unused public accessors.
+It does not audit arbitrary downloaded dependencies or require every crate to ship the app's
+full locale set. Project checks can enforce exact locale, filename, key, and argument parity.
 
-- **Grouping follows the locale's own rule**, not a fixed every-three: `en-IN` groups by lakh
-  (`12,34,567`), and several locales leave four-digit numbers ungrouped.
-- **The decimal mark and the digits are the locale's too** — a comma in `fr` and `de`,
-  Arabic-Indic digits where the locale resolves to that numbering system.
-- `format_decimal` reads the locale signal (**tracked**), so a label inside a reactive closure
-  re-renders on a locale switch; `format_decimal_in` does not.
-- A locale with no data, or a non-finite value, degrades to Rust's own formatting rather than
-  erroring — the digits always come out.
-
-`day-piece-charts` formats every numeric axis label this way, which is why a log axis reads
-`1,000,000` rather than `1e6`.
-
-## Sorting: locale-aware collation
-
-`day::compare(a, b)`, `day::compare_in(locale, a, b)`, and `day::sort_localized(&mut items)`
-(prelude: `sort_localized`) compare with icu4x's collator instead of code points: French sorts
-`cote < coté < côte`, and Chinese sorts by **pinyin** (`北京 < 广州 < 上海`), or by stroke order
-via a locale extension, `compare_in("zh-u-co-stroke", …)`. `compare`/`sort_localized` read the
-locale signal (tracked), so a sort inside a reactive closure re-runs on locale switch:
-
-```rust
-label(move || {
-    let mut fruits = localized_fruit_names();
-    sort_localized(&mut fruits);          // re-sorts when the locale changes
-    fruits.join(" · ")
-})
-```
-
-## Searching: localized match
-
-`day::matches_search(text, query)` and `day::matches_search_in(locale, text, query)` answer the
-question a search field asks: does this row match what the user typed? The rule is
-**case-insensitive prefix of any word**. In an English UI, `s` matches
-
-| title | why |
-|---|---|
-| Canvas & shapes | `shapes` |
-| Device & sensors | `sensors` |
-| Files & storage | `storage` |
-| Stack | `Stack` |
-
-and not "Toolbars" or "Controls", whose only `s` is inside a word. An empty query matches
-everything, so an empty box filters nothing.
-
-The **start of the text is always a word start**, whatever the segmenter reports, so a title
-always matches itself and any leading prefix of it: `canvas &` matches "Canvas & shapes", and a
-localized title typed verbatim is a query that works in every locale (which is how a dayscript
-filters a sidebar without knowing the language). This matters most where the segmenter types a
-whole run as not-word-like: a Han title like `堆栈` has no interior word start under the invariant
-break options, and without the leading one it could not be matched at all. `matches_search` reads the locale signal (tracked);
-`matches_search_in` takes the locale explicitly and reads nothing.
-
-```rust
-let hits = titles.iter().filter(|t| matches_search(t, &query.get()));
-```
-
-Two icu4x components make this correct outside English.
-
-**Word segmentation** finds where words begin. Splitting on spaces is an English assumption:
-`日本語入力` is two words to a reader and one to `split_whitespace`, so search would find nothing
-in Chinese, Japanese, Thai, Khmer, Lao or Burmese. The segmenter carries dictionaries and LSTM
-models for exactly those scripts: `matches_search_in("ja", "日本語入力", "入力")` is true, and
-`"語"` (mid-word) is false. Punctuation and spaces are not word starts, so the `&` in
-"Canvas & shapes" is not somewhere a search can begin.
-
-**Case folding** is used rather than `to_lowercase`, because folding is the operation Unicode
-defines for caseless matching. `Straße` matches `STRASSE`, and `Σ`/`σ`/`ς` match each other.
-Turkish and Azerbaijani get the Turkic variant, which keeps the dotted and dotless I apart: in
-`tr`, `i` does *not* match `Irmak`, and `ı` does; in `en`, `i` matches it.
-
-Because the word start at offset 0 is a candidate like any other, a multi-word query works with
-no separate rule: `canvas &` matches "Canvas & shapes".
-
-> [!NOTE]
-> Matching is on **case** only. `é` does not match `e`, and `ä` does not match `a`. Accent-
-> insensitive search would mean comparing at the collator's primary strength, which is a
-> different (and slower) operation than a prefix test; it is a possible follow-up, not a
-> current behavior.
-
-The segmenter's `auto` models are the reason this section's data footprint is not free. See the
-next section.
-
-## Locale data
-
-The icu4x components ship `compiled_data` for every locale, and a Day app embeds it as-is. That
-sounds expensive and mostly is not: the tables that dominate (script-keyed segmentation
-dictionaries and normalization data) are the same size whatever locales an app declares, and
-only the locale-keyed material (collation tailorings, date patterns, decimal symbols, timezone
-names) scales. Measured on the showcase (4 declared locales, macos-gtk release): all-locale data
-costs 650 KB of an 11.3 MB binary, 165 KB of it after compression. Components the app never
-constructs are dead-code-eliminated regardless of locale count, which is why `day-l10n` depends
-on individual icu4x components rather than the `icu` meta-crate.
-
-`day build` used to thin this data to the declared locale set by running icu4x's datagen
-(2026-08: removed). Thinning saved those 650 KB per app, and cost the CLI 57% of its dependency
-graph, 19% of its compile time, and 2 MB of its own binary, including a wasm interpreter to
-run one trie builder. An app that needs the smaller data can still bake its own directory and set
-`ICU4X_DATA_DIR`, which icu4x honors directly.
-
-## Which language an app opens in
-
-The initial locale is the first of these that the app can actually serve:
-
-1. **`DAY_LOCALE`** — the launch override. `day launch --locales fr` sets it (on a device too:
-   through an intent extra on Android, `SIMCTL_CHILD_DAY_LOCALE` on the iOS simulator), which is
-   what makes CI's per-locale screenshot variants deterministic.
-2. **A host override** — web-dom's `?locale=` query parameter, set by the page glue.
-3. **The device's own language preference**, in the user's ranked order. Each backend reports it
-   through `Toolkit::locale_hints`: `NSLocale.preferredLanguages` on iOS and macOS, the
-   configuration's `LocaleList` on Android (which honors a per-app language override), the
-   browser's languages on the web, `LANGUAGE`/`LC_ALL`/`LC_MESSAGES`/`LANG` on Linux.
-4. **The catalog default** passed to `install`.
-
-"Can serve" is decided against **your** catalogs, not the core one: a device set to a language your
-app has not been translated into falls through to the next preference rather than opening with your
-English text under German dialog buttons. A regional tag resolves through its language half, so a
-phone set to `fr-CA` reaches an app that ships `fr`.
-
-> [!NOTE]
-> A locale the user picks in-app (`set_locale`, or a settings piece that persists one) overrides
-> all of this on the next launch; it is stored by the app, not by Day.
-
-## Two layers: the app catalog and the core catalog
-
-There are two tiers of Fluent bundles:
-
-- **App catalog**: the locales your app registers (`res::locales::install()`, or `install_locales`
-  directly). It holds your keys and your translations.
-- **Core catalog**: a built-in set of standard UI strings the framework itself needs (dialog
-  buttons, standard menu commands), shipped inside `day-l10n` in several languages (English, French,
-  Spanish, German, Japanese, Simplified Chinese). Always present, even before `install_locales`.
-
-Lookup order for any key: app[locale] → app[default] → core[locale] → core English. So your
-strings always win, and the core catalog is the fallback for the `day-*` keys the framework emits and
-your app didn't define. You can override any core string just by defining the same key in your own
-catalog.
-
-Because the engine (`day-l10n`) sits low in the crate graph, the central crates localize their own UI
-without the app doing anything: dialog buttons and standard menu-command labels come out in the
-user's language automatically.
-
-## Core strings the framework provides
-
-Keys are namespaced `day-*`. The catalog covers the strings Day emits itself:
-
-| Purpose | Keys |
-|---|---|
-| Dialog buttons | `day-ok` `day-cancel` `day-yes` `day-no` `day-done` `day-save` `day-close` `day-delete` |
-| Menu commands (`MenuRole`) | `day-cut` `day-copy` `day-paste` `day-select-all` `day-undo` `day-redo` `day-about` `day-quit` `day-preferences` `day-minimize` `day-fullscreen` `day-new-window` |
-| App-name commands | `day-about-app` (`About {$app}`), `day-quit-app` (`Quit {$app}`), `day-edit` |
-| Window management ([docs/windows.md](windows.md)) | `day-window` `day-zoom` `day-bring-all-front` |
-| Settings pieces (day-piece-settings) | `day-settings-language` `day-settings-theme` `day-theme-light` `day-theme-dark` `day-theme-system` |
-
-The catalog ships en, fr, es, de, ja, zh, and ar (Arabic joined with the windows work; the
-showcase/sample-app `ar` CI variants localize the core strings instead of falling back to
-English).
-
-Concretely:
-
-- **`confirm(...)`/`prompt(...)`** default their buttons to `day-ok`/`day-cancel`. In French the
-  buttons read *OK* / *Annuler*; `.confirm_label`/`.cancel_label` still override.
-- **`menu_role(MenuRole::Cut)`** (and the rest) get their label from the core catalog (*Couper* in
-  French, *Ausschneiden* in German) instead of each backend hardcoding English.
-- The AppKit **standard App menu** ("About X" / "Quit X") uses `day-about-app`/`day-quit-app`, whose
-  `{$app}` interpolation gives correct per-language word order (e.g. Japanese `Dayを終了`).
-
-Adding a language for the core strings is a `catalog/<lang>.ftl` in `day-l10n`; adding a core key is
-one line per language.
-
-## How it's layered
-
-```
-day-reactive
-  └── day-l10n     ← the engine: bundles, the locale Signal, format_in, the built-in core catalog
-        ├── day-pieces (dialogs, menu-role labels)   ← localize their own strings
-        ├── day-appkit (menu chrome)
-        └── day-fluent  ← adds the reactive `tr()` text source; re-exports the engine
-```
-
-`day-fluent` re-exports the engine, so the app-facing API (`install_locales`, `tr`, `set_locale`) is
-unchanged. Core crates call `day_l10n::t("day-cancel")` (resolve once, in the current locale) for the
-framework's own one-shot strings.
+Coverage checks detect missing messages, not outdated wording. Day does not store a source
+revision or review state for each translation. An unchanged key with changed English text
+can pass every structural check. Copied text can pass too. Review reference-catalog diffs,
+resolve translation TODOs, and check the rendered screens. Remove obsolete keys from all
+locales; extra translated keys are not a reliable signal of a current catalog.
 
 ## Right-to-left locales
 
-An RTL locale (Arabic, Hebrew, Farsi, …) flips the whole UI (resolved once at startup, from
-`DAY_LOCALE` or the locale `install_locales` settles on; runtime `set_locale` switches strings
-but not direction):
+Day chooses layout direction at launch. Its layout engine mirrors horizontal placement,
+while toolkits configure widget text and internal behavior for the selected direction.
+Leading and trailing layout values follow that direction. Canvas drawings and other leaf
+content are not automatically mirrored.
 
-- **Day's layout engine mirrors every horizontal placement** in the place pass (`day-core`):
-  rows reverse, `leading` means right, padding swaps sides, the form label column right-aligns.
-  No layout implementation knows about direction. Leaf content (canvas drawing, text runs) is
-  not mirrored. Children whose frames are native-owned (nav pages in splitter panes /
-  nav-controller views) place via `place_child_native` and are never mirrored.
-- **Each toolkit enables its native RTL mode** for widget-internal behavior: AppKit registers
-  `AppleTextDirection` (volatile, registration domain) before `NSApplication` init; UIKit forces
-  `semanticContentAttribute` on the window + content roots; GTK calls
-  `gtk_widget_set_default_direction` (which also flips the Adw split view's sidebar side); Qt
-  switches label/field text direction only (its app-wide `setLayoutDirection` would re-mirror
-  containers underneath Day's absolute frames); Android sets the decor view's layout direction
-  (`android:supportsRtl` rides the manifest template).
-
-The showcase ships an Arabic locale (`--locale ar`) exercising all of this; CI captures every
-walkthrough screenshot in light/dark × en/fr/ar/zh-CN, and `dayscript/rtl-check.yaml` is a quick
-local check.
+Runtime locale changes update strings but do not recompute the launch-time layout direction.
+A direction change requires relaunching. Real right-to-left locales, such as Arabic, are used
+for layout verification; Day does not provide an `ar-XB` pseudolocale.
 
 ## Pseudolocale
 
-Setting the locale to `en-XA` accents and expands every string (`Cáncél ・ロング`) to stress-test
-layout for longer translations and non-Latin glyphs, without needing a real translation. The
-suffix works on any locale: `fr-XA` is the French catalog under the same transform, so a
-translation can be stressed as well as the source. The showcase's View ▸ Toggle Pseudo-Locale
-(⌘⇧X) adds and removes the suffix on whatever locale is in force.
+The `-XA` suffix accents and expands messages from the locale beneath it. `en-XA` exercises
+the English catalog, and `fr-XA` exercises French. The transformation applies to formatted
+output, including interpolated values, in global and private catalogs. It is a layout test,
+not a translation-completeness check.
+
+## DayScript catalog keys
+
+A private assertion uses `package::key` or `package::file::key`. The catalog must already be
+registered by an accessor call or by the generated `register()` function. Bare keys continue
+to resolve globally. Two registered descriptors with the same script namespace make the
+qualified lookup ambiguous; it returns an unresolved marker. Typed accessor calls remain
+isolated by descriptor identity.
+
+Use the same element IDs across locales and pass message arguments through the assertion's
+`args` field. `day launch --locales 'en fr ar' --script dayscript/walkthrough.yaml` runs the
+script per locale. A reusable `dayapp.yml` job takes the locale list in its `locales` input.
+The CLI's locale-add command does not update that input.

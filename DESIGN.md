@@ -2405,6 +2405,35 @@ increment = Increment
 decrement = Decrement
 ```
 
+Crate-owned catalogs are an opt-in alternative to the app-global catalog above.
+`day_build::generate_locales()` writes `day_locales.rs`; `day_fluent::locales!()` exposes
+`res::str` for `app.ftl` and `res::<file>::str` for other `<locale>/<file>.ftl` files.
+Each file imports the crate's `app.ftl` messages and terms; duplicate imported names are
+build errors, while sibling files and independent crates may reuse keys. The legacy
+`generate_resources()` generator retains its global `res::str` behavior unchanged.
+
+Generated private accessors bind a `day_l10n::Catalog` static to `LocalizedText`. Its address
+identifies the namespace, independently of message names. Thread-local parsed bundle caches
+are loaded on first accessor use and survive app-catalog reinstallation. Resolution stays
+inside that catalog (requested locale → catalog default), with shared reactive locale and
+argument signals, numeric formatting, attributes and pseudolocales. Libraries do not change
+the selected app locale or leak keys into the app/core fallback chain. They read their own
+resource trees, never the application's flavor overlay. Root app resources still declare
+launch languages and platform metadata. No native initializer or linker registry is needed,
+so the lifecycle is identical on native backends and WebAssembly; layout direction remains
+chosen at launch.
+
+Dayscript accepts explicit `package::key` / `package::file::key` names after first accessor
+use or explicit generated `register()`. Duplicate diagnostic names fail closed for scripts;
+static identity still isolates typed calls from two versions of a crate. `day lint` handles
+private workspace catalogs separately from app-global references. The
+[website guide](https://daybrite.dev/docs/localization) documents setup, migration, and
+translation review. `day localize add/remove` updates the app root's locale surfaces;
+dependency catalogs and CI locale lists require separate edits. Structural lint does not
+track source-text revisions or determine whether a translation's wording is current. See
+[Private catalogs](docs/localization.md#private-catalogs-for-reusable-crates-and-source-modules),
+`day-build/src/scoped_locales.rs` and `day-l10n`'s `scoped_tests` for contracts and regressions.
+
 ### §12.2 API
 
 > [!IMPORTANT]

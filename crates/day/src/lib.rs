@@ -384,6 +384,7 @@ pub fn env(key: &str) -> Option<String> {
 }
 // Same reason: the generated `res::locales::install()` names `day::install_locales` (§18.5).
 pub use day_fluent::install as install_locales;
+pub use day_fluent::{Catalog, FArg, format_catalog, register_catalog, tr_in};
 // Locale-aware comparison/sorting (docs/localization.md "Sorting"): icu4x collation, so e.g. a
 // Chinese list sorts by pinyin. `compare` and `sort_localized` track the locale signal.
 pub use day_fluent::{compare, compare_in, sort_localized};

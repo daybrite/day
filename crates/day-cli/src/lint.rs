@@ -130,6 +130,7 @@ pub fn severity_of(code: &str) -> Severity {
         "day::lint::unknown-target",
         "day::lint::unknown-override",
         "day::lint::unknown-function",
+        "day::lint::invalid-catalog",
         "day::lint::bad-format-option",
         "day::lint::undeclared-permission",
         "day::lint::duplicate-id",
@@ -248,6 +249,17 @@ fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
         const PAT: &str = "res::str::";
         for at in matches_of(src, PAT) {
+            // `other_crate::res` is that crate's generated API, not an app-global key.
+            // Rust checks the symbol; attributing it to the app catalog creates false errors.
+            let prefix = src[..at]
+                .rsplit(|c: char| !is_ident_char(c) && c != ':')
+                .next()
+                .unwrap_or("");
+            if prefix.ends_with("::")
+                && !matches!(prefix.trim_end_matches(':'), "crate" | "self" | "super")
+            {
+                continue;
+            }
             let rest = &src[at + PAT.len()..];
             let s = rest.strip_prefix("r#").unwrap_or(rest);
             let end = s
@@ -258,6 +270,87 @@ fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
             }
         }
     });
+}
+
+fn uses_private_locales(root: &Path) -> bool {
+    std::fs::read_to_string(root.join("build.rs")).is_ok_and(|s| s.contains("generate_locales("))
+}
+
+/// Private catalog keys are checked by generated Rust signatures, not against the app catalog.
+/// Still report source validation, missing translations and invalid Fluent function options.
+fn lint_private_catalogs(project: &Path, root: &Path, findings: &mut Vec<Finding>) {
+    let dir = root.join("resource/locales");
+    if let Err(message) = day_build::render_crate_locales(&dir, "lint_catalog") {
+        findings.push(
+            Finding {
+                code: "day::lint::invalid-catalog",
+                message,
+                ..Default::default()
+            }
+            .located(Location::head(rel(project, &dir))),
+        );
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+    let mut locales: BTreeMap<String, BTreeMap<String, (String, String)>> = BTreeMap::new();
+    for locale in entries.flatten().filter(|e| e.path().is_dir()) {
+        let tag = locale.file_name().to_string_lossy().to_string();
+        let mut files = BTreeMap::new();
+        if let Ok(entries) = std::fs::read_dir(locale.path()) {
+            for file in entries
+                .flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x == "ftl"))
+            {
+                if let Ok(source) = std::fs::read_to_string(file.path()) {
+                    let path = rel(project, &file.path());
+                    for call in day_build::function_calls(&source) {
+                        findings.extend(lint_ftl_call(&tag, &path, &source, &call));
+                    }
+                    files.insert(
+                        file.file_name().to_string_lossy().to_string(),
+                        (path, source),
+                    );
+                }
+            }
+        }
+        locales.insert(tag, files);
+    }
+    let default = if locales.contains_key("en") {
+        "en"
+    } else {
+        locales.keys().next().map(String::as_str).unwrap_or("en")
+    };
+    let Some(reference) = locales.get(default) else {
+        return;
+    };
+    for (tag, files) in &locales {
+        if tag == default {
+            continue;
+        }
+        for (filename, (_, source)) in reference {
+            let translated: BTreeSet<_> = files
+                .get(filename)
+                .map(|(_, s)| day_build::message_keys(s))
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+            for key in day_build::message_keys(source) {
+                if !translated.contains(&key) {
+                    let path = rel(project, &dir.join(tag).join(filename));
+                    findings.push(
+                        Finding {
+                            code: "day::lint::missing-translation",
+                            message: format!("{path}: missing {key}"),
+                            ..Default::default()
+                        }
+                        .located(Location::head(path)),
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Collect portable permissions referenced in code as `Permission::<Variant>` (docs/permissions.md).
@@ -1188,7 +1281,9 @@ fn collect(project: &Project) -> Vec<Finding> {
     let mut locales: BTreeMap<String, BTreeMap<String, Location>> = BTreeMap::new();
     // locale → one .ftl to blame for a key the catalog is missing, which has no line of its own.
     let mut locale_files: BTreeMap<String, String> = BTreeMap::new();
-    if let Ok(entries) = std::fs::read_dir(&locales_dir) {
+    if !uses_private_locales(&project.root)
+        && let Ok(entries) = std::fs::read_dir(&locales_dir)
+    {
         for e in entries.flatten() {
             if e.path().is_dir() {
                 let name = e.file_name().to_string_lossy().to_string();
@@ -1222,7 +1317,12 @@ fn collect(project: &Project) -> Vec<Finding> {
         scan_sources(r, "tr(\"", &mut used_keys);
         // Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5):
         // the symbol is the key (snake_case), so they count as used like a `tr("key")` literal.
-        scan_res_str(r, &mut used_keys);
+        let crate_root = r.parent().unwrap();
+        if uses_private_locales(crate_root) {
+            lint_private_catalogs(&project.root, crate_root, &mut findings);
+        } else {
+            scan_res_str(r, &mut used_keys);
+        }
     }
     let used = texts(&used_keys);
     // Where each key is first referenced, so `unknown-key` points at the `tr("…")` that will fail.
@@ -2124,6 +2224,66 @@ e = { PLATFORM() }
         // is the receiver, and skipping on it would find nothing at all.
         let dotted = r#"sidebar.item("home", …).item("stack", …)"#;
         assert_eq!(matches_of(dotted, ".item(\"").count(), 2);
+    }
+
+    #[test]
+    fn workspace_catalogs_are_private_and_still_checked() {
+        let (dir, project) = app(
+            "scoped",
+            &[
+                ("resource/locales/en/app.ftl", "app_title = App\n"),
+                (
+                    "src/lib.rs",
+                    "fn root() { res::str::app_title(); game::res::str::game_title(); }",
+                ),
+                (
+                    "game/Cargo.toml",
+                    "[package]\nname = \"game\"\nversion = \"0.1.0\"\n",
+                ),
+                (
+                    "game/build.rs",
+                    "fn main() { day_build::generate_locales().unwrap(); }",
+                ),
+                (
+                    "game/src/lib.rs",
+                    "fn title() { crate::res::str::game_title(); }",
+                ),
+                ("game/resource/locales/en/app.ftl", "game_title = Game\n"),
+                ("game/resource/locales/fr/app.ftl", "game_title = Jeu\n"),
+                ("game/resource/locales/en/ui.ftl", "close = Close\n"),
+                ("game/resource/locales/fr/ui.ftl", "close = Fermer\n"),
+            ],
+        );
+        let relevant = |p: &Project| {
+            collect(p)
+                .into_iter()
+                .filter(|f| {
+                    matches!(
+                        f.code,
+                        "day::lint::unknown-key"
+                            | "day::lint::unused-key"
+                            | "day::lint::missing-translation"
+                            | "day::lint::invalid-catalog"
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(relevant(&project).is_empty());
+        std::fs::write(
+            dir.join("game/resource/locales/fr/ui.ftl"),
+            "# untranslated\n",
+        )
+        .unwrap();
+        let issues = relevant(&project);
+        assert_eq!(issues.len(), 1);
+        assert!(
+            issues[0]
+                .message
+                .contains("game/resource/locales/fr/ui.ftl: missing close")
+        );
+        std::fs::write(dir.join("game/resource/locales/fr/ui.ftl"), "close = {\n").unwrap();
+        assert_eq!(relevant(&project)[0].code, "day::lint::invalid-catalog");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A throwaway project on disk, so the coverage checks can be exercised end to end; the

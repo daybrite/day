@@ -13,9 +13,10 @@ use day_pieces::{IntoText, TextSource};
 
 // Re-export the engine so the app-facing API (`install_locales`, `set_locale`, …) is unchanged.
 pub use day_l10n::{
-    FArg, IntoFArg, IntoNumberFArg, SigM, ValM, add_launch_locales, compare, compare_in,
-    format_decimal, format_decimal_in, format_in, locale, matches_search, matches_search_in,
-    set_launch_locale, set_launch_locales, set_locale, sort_localized, strip_isolates, t,
+    Catalog, FArg, IntoFArg, IntoNumberFArg, SigM, ValM, add_launch_locales, compare, compare_in,
+    format_catalog, format_decimal, format_decimal_in, format_in, locale, matches_search,
+    matches_search_in, register_catalog, set_launch_locale, set_launch_locales, set_locale,
+    sort_localized, strip_isolates, t,
 };
 
 /// Register the app's locales (see [`day_l10n::install`]) and fix the layout direction from the
@@ -33,14 +34,37 @@ pub fn install(default: &str, locales: &[(&str, &str)]) {
 #[derive(Clone)]
 pub struct LocalizedText {
     key: String,
+    catalog: Option<&'static Catalog>,
     args: Vec<(String, FArg)>,
 }
 
 pub fn tr(key: &str) -> LocalizedText {
     LocalizedText {
         key: key.to_owned(),
+        catalog: None,
         args: Vec::new(),
     }
+}
+
+/// Bind a key to a private crate/file catalog. Prefer generated typed accessors.
+pub fn tr_in(catalog: &'static Catalog, key: &str) -> LocalizedText {
+    register_catalog(catalog);
+    LocalizedText {
+        key: key.to_owned(),
+        catalog: Some(catalog),
+        args: Vec::new(),
+    }
+}
+
+/// Include the private localization modules written by `day_build::generate_locales()`.
+/// Usable by reusable pieces without depending on the `day` umbrella crate.
+#[macro_export]
+macro_rules! locales {
+    () => {
+        pub mod res {
+            include!(concat!(env!("OUT_DIR"), "/day_locales.rs"));
+        }
+    };
 }
 
 impl LocalizedText {
@@ -51,7 +75,10 @@ impl LocalizedText {
 
     /// Tracked format: reads the locale signal + any signal args.
     pub fn format(&self) -> String {
-        format_in(&locale().get(), &self.key, &self.args)
+        match self.catalog {
+            Some(catalog) => format_catalog(catalog, &locale().get(), &self.key, &self.args),
+            None => format_in(&locale().get(), &self.key, &self.args),
+        }
     }
 }
 
