@@ -790,6 +790,56 @@ pub fn slug(raw: &str) -> String {
     }
 }
 
+/// Whether `id` is an app id the platforms of `os` accept.
+///
+/// Apple takes letters, digits, hyphens and periods (TN2435). Android and HarmonyOS take a Java
+/// package name, so every segment starts with a letter and carries no hyphen: AGP refuses
+/// `io.github.fair-starter` as a namespace, and HarmonyOS refuses the same shape in `bundleName`.
+/// Both want at least two segments.
+///
+/// `os` is a target's `os` (`ios`, `macos`, `android`, `harmony`, `linux`, `windows`, `web`);
+/// anything that is not android or harmony is held to the Apple rule, which is the looser one.
+pub fn validate_app_id(id: &str, os: &str) -> Result<(), String> {
+    let java = matches!(os, "android" | "harmony" | "ohos");
+    let segments: Vec<&str> = id.split('.').collect();
+    if segments.len() < 2 {
+        return Err(format!(
+            "{id:?} is one segment; an app id is reverse-DNS, such as `io.github.{id}`"
+        ));
+    }
+    for segment in &segments {
+        if segment.is_empty() {
+            return Err(format!("{id:?} has an empty segment"));
+        }
+        let first = segment.chars().next().unwrap_or('.');
+        let body_ok = segment
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || (!java && c == '-'));
+        if !body_ok {
+            return Err(if java && segment.contains('-') {
+                format!(
+                    "{os} builds under {id:?}, and {segment:?} is not a Java package segment: \
+                     Android and HarmonyOS take no hyphen. Write it with an underscore \
+                     ({:?}), or override the id for those platforms.",
+                    id.replace('-', "_")
+                )
+            } else {
+                format!("{id:?} carries characters {os} does not accept in {segment:?}")
+            });
+        }
+        if java && !first.is_ascii_alphabetic() {
+            return Err(format!(
+                "{os} builds under {id:?}, and {segment:?} does not start with a letter, which a \
+                 Java package segment has to"
+            ));
+        }
+        if !java && !first.is_ascii_alphanumeric() {
+            return Err(format!("{id:?} has a segment starting with {first:?}"));
+        }
+    }
+    Ok(())
+}
+
 /// `[window]`: the app's window geometry, in points/dp.
 ///
 /// One declaration, two layers (docs/size-classes.md "Declaring a minimum size"). The minimum has
@@ -1149,6 +1199,45 @@ mod tests {
     use super::*;
 
     const CARGO: &str = "[package]\nname = \"demo-app\"\nversion = \"1.2.3\"\n";
+
+    /// What each platform accepts as an app id, and what it says when it does not.
+    #[test]
+    fn an_app_id_is_held_to_the_rules_of_the_platform_that_builds_it() {
+        // Every platform takes the plain reverse-DNS form.
+        for os in [
+            "ios", "macos", "android", "harmony", "linux", "windows", "web",
+        ] {
+            assert!(
+                validate_app_id("io.github.fair_starter", os).is_ok(),
+                "{os}"
+            );
+            assert!(validate_app_id("dev.example.demo", os).is_ok(), "{os}");
+        }
+        // A hyphen is Apple's to take: AGP reads the id as a namespace and HarmonyOS as a
+        // bundleName, and a Java package segment carries none.
+        assert!(validate_app_id("org.appfair.app.Faire-Games", "ios").is_ok());
+        assert!(validate_app_id("org.appfair.app.Faire-Games", "macos").is_ok());
+        for os in ["android", "harmony", "ohos"] {
+            let why = validate_app_id("org.appfair.app.Faire-Games", os).unwrap_err();
+            assert!(why.contains("no hyphen"), "{why}");
+            assert!(why.contains("Faire_Games"), "{why}"); // the remedy, spelled out
+        }
+        // A Java package segment starts with a letter; Apple's may start with a digit.
+        assert!(validate_app_id("io.github.2048", "ios").is_ok());
+        assert!(validate_app_id("io.github.2048", "android").is_err());
+        // And both want a reverse-DNS id with something in every segment.
+        assert!(
+            validate_app_id("demo", "ios")
+                .unwrap_err()
+                .contains("one segment")
+        );
+        assert!(
+            validate_app_id("io..demo", "ios")
+                .unwrap_err()
+                .contains("empty segment")
+        );
+        assert!(validate_app_id("io.github.a b", "ios").is_err());
+    }
 
     #[test]
     fn identity_derives_from_cargo_toml() {

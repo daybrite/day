@@ -82,6 +82,12 @@ can be made non-interactively, e.g. `day new app my-app --toolkit ios-uikit --to
 remote (the framework crates are not yet published to crates.io); once they are, `--registry`
 pins them to your CLI's version from crates.io and will become the default.
 
+`--appid` has to name an id every chosen target accepts, since one id serves them all. Android and
+HarmonyOS read it as a Java package name, so each segment starts with a letter and carries no
+hyphen (`io.github.fair_starter`, not `io.github.fair-starter`); Apple also takes hyphens. `day
+new` refuses an id a chosen target would reject, and derives one that works when the flag is
+left out.
+
 `day new app` scaffolds a working starter: a typed-route [sidebar](/docs/glossary#sidebar) over four sample panels (a
 [reactive](/docs/glossary#reactive) counter, a controls tour, a canvas dial, and a drill-down stack), with [locales](/docs/glossary#locale), a
 [dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), and the native
@@ -519,7 +525,9 @@ title = "Showcase Mobile"
 `--json` emits a versioned, machine-readable envelope (this is what the VS Code extension
 consumes instead of parsing Day.toml itself, and it also carries the full target catalog).
 `day lint` validates the manifest's structure. Unknown targets and override tables that name
-no known platform/toolkit/target are findings.
+no known platform/toolkit/target are findings, and so is an `[app] id` a declared target does not
+accept: `day::lint::app-id` resolves the id per target and holds Android and HarmonyOS to a Java
+package name, which is the check `day new` runs on `--appid`.
 
 ## Store listings
 

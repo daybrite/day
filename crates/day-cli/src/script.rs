@@ -1225,6 +1225,15 @@ fn await_exit(pattern: &str, budget: Duration) -> bool {
     }
 }
 
+/// The `pkill -f` pattern for a desktop app built into `build_root`, matching both desktop
+/// layouts: `<build_root>/cargo/<target>/…` and `<build_root>/<target>/…`.
+fn desktop_pattern(build_root: &Path, target: &str) -> String {
+    format!(
+        "^{}/(cargo/)?{target}/",
+        ere_escape(&build_root.to_string_lossy())
+    )
+}
+
 pub(crate) fn terminate(project: &Project, target: &Target) {
     match target.kind {
         TargetKind::Desktop if cfg!(windows) => {
@@ -1238,8 +1247,8 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
             // because macos-appkit now builds through a scaffolded Xcode host project (§17.4)
             // while every other desktop target is still a bare cargo binary:
             //
-            //   <root>/build/day/cargo/<target>/<profile>/<name>                     cargo
-            //   <root>/build/day/<target>/<config>/<Name>.app/Contents/MacOS/<Name>  xcodebuild
+            //   <build_root>/cargo/<target>/<profile>/<name>                     cargo
+            //   <build_root>/<target>/<config>/<Name>.app/Contents/MacOS/<Name>  xcodebuild
             //
             // and the executable's name is not common ground between them: `app.name` is the
             // crate name (`day-skies`), while an Xcode bundle's binary is named by the pbxproj's
@@ -1248,12 +1257,15 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
             // also what makes this project-specific: two checkouts building the same target
             // would otherwise terminate each other's apps.
             //
+            // The root is `ops::build_root`, the one the launch built into, not a literal
+            // `build/day`: a flavor builds under `build/day/flavors/<flavor>/` and `--day-src`
+            // under `build/day/day-src/<slug>/`, and a pattern that misses those matches nothing.
+            //
             // Getting this wrong is not a leaked process so much as a corrupted run: the
             // survivor holds the dayscript engine's port, the next launch cannot bind, and the
             // runner then drives the old app, which shares the run's token and answers every
             // step, so a locale sweep quietly re-photographs the first locale.
-            let root = ere_escape(&project.root.to_string_lossy());
-            let pattern = format!("^{root}/build/day/(cargo/)?{}/", target.name);
+            let pattern = desktop_pattern(&crate::ops::build_root(project), target.name);
             let _ = Command::new("pkill").args(["-f", &pattern]).status();
             // `pkill` only delivers the signal; the app still has to run its teardown, and
             // it holds the engine port until it does. Returning here would hand the next launch
@@ -1375,6 +1387,48 @@ pub fn make_token() -> String {
             .map(|d| d.as_millis())
             .unwrap_or(0)
     )
+}
+
+#[cfg(test)]
+mod terminate_tests {
+    use super::desktop_pattern;
+    use std::path::Path;
+
+    /// The pattern is anchored at the build root the launch used, so it matches both desktop
+    /// layouts under it and nothing under another root. A flavor builds under
+    /// `build/day/flavors/<flavor>/`; when the pattern missed that, the old app survived
+    /// `terminate`, kept the engine port, and answered the next variant's steps out of the
+    /// previous run's state.
+    #[test]
+    fn the_pattern_is_anchored_at_the_root_the_launch_built_into() {
+        assert_eq!(
+            desktop_pattern(Path::new("/w/App/build/day"), "macos-appkit"),
+            "^/w/App/build/day/(cargo/)?macos-appkit/"
+        );
+        assert_eq!(
+            desktop_pattern(
+                Path::new("/w/App/build/day/flavors/appfair"),
+                "macos-appkit"
+            ),
+            "^/w/App/build/day/flavors/appfair/(cargo/)?macos-appkit/"
+        );
+        assert_eq!(
+            desktop_pattern(
+                Path::new("/w/App/build/day/day-src/main-2d77edbf"),
+                "linux-gtk"
+            ),
+            "^/w/App/build/day/day-src/main-2d77edbf/(cargo/)?linux-gtk/"
+        );
+    }
+
+    /// A checkout path with regex punctuation in it stays a literal.
+    #[test]
+    fn a_path_with_regex_punctuation_matches_itself() {
+        assert_eq!(
+            desktop_pattern(Path::new("/w/App (2)/build/day"), "linux-gtk"),
+            "^/w/App \\(2\\)/build/day/(cargo/)?linux-gtk/"
+        );
+    }
 }
 
 #[cfg(test)]

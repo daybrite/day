@@ -138,6 +138,7 @@ pub fn severity_of(code: &str) -> Severity {
         "day::lint::vector-unreadable",
         "day::lint::store-unreadable",
         "day::lint::shortcut-label",
+        "day::lint::app-id",
     ];
     if ERRORS.contains(&code) {
         Severity::Error
@@ -978,6 +979,38 @@ fn lint_flavors(project: &Project, findings: &mut Vec<Finding>) {
     }
 }
 
+/// The id every declared target builds under, against what that platform accepts.
+///
+/// `day new` checks the id it is given, but a manifest is edited afterwards: a hyphen added to
+/// `[app] id`, or a target added to an app whose id Apple alone accepts. Android and HarmonyOS
+/// read the id as a Java package name, and refuse a hyphen at configuration time, so this is a
+/// build that fails rather than a preference.
+fn lint_app_ids(project: &Project, findings: &mut Vec<Finding>, manifest_src: Option<&str>) {
+    let mut reported: BTreeSet<String> = BTreeSet::new();
+    for target in &project.manifest.app.targets {
+        let os = crate::targets::find(target)
+            .map(|t| t.os)
+            .unwrap_or_default();
+        let id = project.manifest.resolve(target).id;
+        if !reported.insert(format!("{os}:{id}")) {
+            continue;
+        }
+        if let Err(why) = crate::meta::validate_app_id(&id, os) {
+            let at = manifest_src
+                .and_then(|src| locate_in("Day.toml", src, &format!("\"{id}\"")))
+                .unwrap_or_else(|| Location::head("Day.toml"));
+            findings.push(
+                Finding {
+                    code: "day::lint::app-id",
+                    message: format!("{target}: {why}"),
+                    ..Default::default()
+                }
+                .located(at),
+            );
+        }
+    }
+}
+
 /// Everything the rules found, in no particular order; the reporting below decides what to do
 /// with them. Split out so `--fix` can re-check after writing without re-entering the report.
 fn collect(project: &Project) -> Vec<Finding> {
@@ -992,6 +1025,9 @@ fn collect(project: &Project) -> Vec<Finding> {
     // building a single flavor: two of them resolving to the same app id, which installs as one
     // app and overwrites the other on every device.
     lint_flavors(project, &mut findings);
+
+    // --- [app] id, per target (docs/cli.md) ---
+    lint_app_ids(project, &mut findings, manifest_src.as_deref());
 
     // --- platform/{ios,macos}/Runner/Info.plist ---
     // Identity Day.toml owns, pinned in a file that predates the build setting for it.
@@ -2028,6 +2064,59 @@ fn check_permission_reasons(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The id rule reports once per platform that cannot build it, and stays quiet when the
+    /// manifest overrides the id for those platforms.
+    #[test]
+    fn an_app_id_is_checked_against_every_target_the_manifest_declares() {
+        let project = |day_toml: &str| crate::meta::Project {
+            root: std::path::PathBuf::from("."),
+            manifest: crate::meta::parse_manifest(
+                day_toml,
+                "[package]\nname = \"demo\"\nversion = \"1.0.0\"\n",
+                None,
+            )
+            .expect("manifest"),
+        };
+        let targets = "targets = [\"ios-uikit\", \"android-mdc\", \"harmony-arkui\"]\n";
+
+        let mut findings = Vec::new();
+        lint_app_ids(
+            &project(&format!(
+                "schema = 1\n[app]\nid = \"io.github.demo-app\"\n{targets}"
+            )),
+            &mut findings,
+            None,
+        );
+        // Apple takes the hyphen; the two Java-package platforms do not.
+        let messages: Vec<&str> = findings.iter().map(|f| f.message.as_str()).collect();
+        assert_eq!(messages.len(), 2, "{messages:?}");
+        assert!(messages.iter().all(|m| m.contains("io.github.demo_app")));
+        assert!(messages.iter().any(|m| m.starts_with("android-mdc:")));
+        assert!(messages.iter().any(|m| m.starts_with("harmony-arkui:")));
+        assert_eq!(severity_of(findings[0].code), Severity::Error);
+
+        // Overridden for those platforms, and there is nothing left to report.
+        let overridden = format!(
+            "schema = 1\n[app]\nid = \"io.github.demo-app\"\n{targets}\
+             [app.android]\nid = \"io.github.demo_app\"\n\
+             [app.harmony]\nid = \"io.github.demo_app\"\n"
+        );
+        let mut findings = Vec::new();
+        lint_app_ids(&project(&overridden), &mut findings, None);
+        assert!(findings.is_empty(), "{:?}", findings[0].message);
+
+        // An id every platform accepts reports nothing at all.
+        let mut findings = Vec::new();
+        lint_app_ids(
+            &project(&format!(
+                "schema = 1\n[app]\nid = \"io.github.demo\"\n{targets}"
+            )),
+            &mut findings,
+            None,
+        );
+        assert!(findings.is_empty());
+    }
 
     #[test]
     fn ftl_function_lint() {

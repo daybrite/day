@@ -1044,6 +1044,21 @@ pub fn app(
             .collect()
     };
 
+    // The id has to be one every chosen target accepts, because one id serves them all until
+    // the project adds an override. Android and HarmonyOS take a Java package name, which is the
+    // strict end: AGP refuses a hyphen in a namespace, and so does HarmonyOS in `bundleName`.
+    for target in &targets {
+        let os = crate::targets::find(target)
+            .map(|t| t.os)
+            .unwrap_or_default();
+        if let Err(why) = crate::meta::validate_app_id(&rid, os) {
+            return Err(CliError::usage(format!(
+                "{why}\n       `--appid` names the id every target builds under; \
+                 `day new app <name>` without it derives one that always works"
+            )));
+        }
+    }
+
     let title = match title.map(str::trim).filter(|t| !t.is_empty()) {
         Some(t) => t.to_string(),
         None => {
