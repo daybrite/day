@@ -205,7 +205,7 @@ on the Oniro emulator:
   extent of 0 (day's content nodes are layout-only) and neither touch nor `scroll_to` moves.
 - **Frame clock** (§8.4) — `Platform::request_frame` rides a ~16 ms one-shot `uv_timer` on the
   JS loop (the NodeAPI has no re-armable vsync callback), so `frame_clock` game loops and
-  self-driven animations run; Day-Games' breakout/sirtet/2048 play on the emulator.
+  self-driven animations run; Games Fair's breakout/sirtet/2048 play on the emulator.
 - **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 

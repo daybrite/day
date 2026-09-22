@@ -167,8 +167,8 @@ Message lookup recognizes these Chinese aliases when the earlier candidates are 
 
 Launch negotiation checks the app's registered tags separately. An app shipping `zh-CN` may
 need a compatible root-catalog alias, such as `zh`, to accept the platform's script-based
-preference before message lookup runs. Day Games registers that alias using the same source;
-it keeps one translation file and one store listing per language.
+preference before message lookup runs. The alias reads the same file, so one translation file
+and one store listing per language stay enough.
 
 ## Which language an app opens in
 
@@ -355,5 +355,6 @@ isolated by descriptor identity.
 
 Use the same element IDs across locales and pass message arguments through the assertion's
 `args` field. `day launch --locales 'en fr ar' --script dayscript/walkthrough.yaml` runs the
-script per locale. A reusable `dayapp.yml` job takes the locale list in its `locales` input.
-The CLI's locale-add command does not update that input.
+script per locale. A reusable `dayapp.yml` job takes the locale list in its `locales` input, or
+`all`, which is every locale the app ships — `day localize add` then reaches CI too, since both
+lists are read from `resource/locales/`.

@@ -193,30 +193,44 @@ export const apps = [
     hero: 'browse',
   },
   {
-    id: 'Day-Games',
-    label: 'Day Games',
+    id: 'Games-Fair',
+    label: 'Games Fair',
     blurb:
-      'Block Blast, Breakout, Sirtet, Sudoku and 2048 in one app, each game drawn on a canvas by the game itself and playable offline.',
-    repo: 'https://github.com/daybrite/Day-Games',
-    metadata: 'https://daybrite.github.io/Day-Games/gallery/gallery.json',
+      'Ten classic games in one app, from solitaire and sudoku to minesweeper, charades and reversi, each board drawn on a canvas by the game itself and playable offline.',
+    repo: 'https://github.com/Games-Fair/Games-Fair',
+    metadata: 'https://games-fair.github.io/Games-Fair/gallery/gallery.json',
     hero: 'home',
-    // The route keys in the app's src/lib.rs. `sudoku` is the one shot named after its route;
-    // the rest capture a moment inside a game, and the difficulty picker is a sheet no
-    // fragment opens.
-    webShots: ['sudoku'],
+    // Every game is a route (`day::routes!` in the app's src/lib.rs) and web-dom mirrors the
+    // current route into the URL hash, so a gallery row opens the screen it photographs.
+    // `webShots` are the shots whose id IS the route; `webRoutes` covers the rest. Each fragment
+    // was loaded against the published build rather than read off the enum.
+    webShots: ['blockblast', 'charades', 'mines', 'pipes', 'reversi', 'solitaire', 'sudoku'],
     webRoutes: {
       home: '',
       'breakout-a': 'breakout',
       'sirtet-b': 'sirtet',
       g2048: 'twentyfortyeight',
-      'g2048-easy': 'twentyfortyeight',
+      // A difficulty sheet, a rules panel and a solved board are states inside a game, which a
+      // fragment cannot open on its own.
       'g2048-difficulty': null,
+      'reversi-rules': null,
+      'pipes-complete': null,
     },
-    // The walkthrough pairs each game's titled shot with an untitled twin taken a moment
-    // later (the same board, the piece one row down); the twins add nothing to a gallery
-    // row, and `smoke` is the launch check.
-    hide: ['smoke', 'breakout-b', 'sirtet-a'],
-    labels: { 'g2048-easy': '2048 · easy, with undo' },
+    // The gallery shows one row per game, plus the two states worth a second look. Left out:
+    // `smoke`, which is the launch check, the untitled twin each game's walkthrough takes a
+    // moment after its titled shot, and the steps Reversi's and Pipes' own scripts walk through.
+    order: [
+      'home', 'solitaire', 'blockblast', 'breakout-a', 'sirtet-b', 'sudoku', 'g2048',
+      'g2048-difficulty', 'mines', 'charades', 'reversi', 'reversi-rules', 'pipes',
+      'pipes-complete',
+    ],
+    hide: [
+      'smoke', 'blockblast-lift', 'solitaire-flight', 'charades-card', 'breakout-b', 'sirtet-a',
+      'g2048-easy', 'reversi-opening', 'reversi-two-players', 'reversi-settings',
+      'reversi-computer', 'pipes-opening', 'pipes-locked', 'pipes-settings', 'pipes-rules',
+      'pipes-medium', 'pipes-large',
+    ],
+    labels: { 'reversi-rules': 'Reversi · how to play', 'pipes-complete': 'Pipes · solved' },
   },
 ];
 

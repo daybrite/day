@@ -79,7 +79,7 @@ mod app_title_tests {
     #[test]
     fn metadata_title_supports_renames_and_toml_escaping() {
         assert_eq!(
-            manifest_title("[app]\ntitle = 'Fork \"Games\" 🎲'", "day-games").unwrap(),
+            manifest_title("[app]\ntitle = 'Fork \"Games\" 🎲'", "fork-games").unwrap(),
             "Fork \"Games\" 🎲"
         );
         assert_eq!(manifest_title("[app]", "fork-games").unwrap(), "fork-games");

@@ -4639,7 +4639,7 @@ impl Toolkit for Gtk {
                                 // the size a resize would give it. Not an allocation read off
                                 // the widget tree: the root Fixed is allocated its children's
                                 // bounding box, and the scroll viewport around it followed the
-                                // page's natural size, which is how the Day-Games cover once
+                                // page's natural size, which is how the Games Fair cover once
                                 // opened as a strip a third of the window wide (2026-09-11).
                                 let size = crate::toolbar::header_of(&root.clone().upcast())
                                     .map(|(window, header)| {

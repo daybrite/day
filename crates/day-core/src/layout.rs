@@ -263,7 +263,7 @@ pub(crate) fn place_node<B: Toolkit>(
     // the tree it measures zero (`CoverLayout`), so applying the parent's placement (a
     // zero-size rect at the parent's center) would collapse a presented cover to a line
     // the moment anything re-lays the parent out. A window resize did exactly that on
-    // macOS (Day-Games, 2026-09-11): the game vanished into a one-pixel strip over the home
+    // macOS (Games Fair, 2026-09-11): the game vanished into a one-pixel strip over the home
     // page. Its content is still placed below, at the size the backend reported.
     let native_frame = tree
         .node(node)

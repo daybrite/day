@@ -1121,7 +1121,7 @@ fn generate(
 /// Empty once both manifests are current. Re-asserted on every build, not only when the host
 /// set is rendered: a manifest entry added by hand after the first render (a second ability,
 /// say) would otherwise pass every local build, whose lock is current, and fail CI's pristine
-/// check, whose fresh checkout renders and rewrites it (Day-Games, 2026-09-11).
+/// check, whose fresh checkout renders and rewrites it (Games Fair, 2026-09-11).
 fn harmony_manifest_rewrites(project: &Project) -> Vec<(String, Vec<u8>)> {
     let hroot = crate::ohos::harmony_dir(project);
     let hrel = hroot

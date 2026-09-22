@@ -1271,7 +1271,7 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > **AppKit (2026-09-10).** A Day window's content view is full-size (`FullSizeContentView`,
 > for the unified toolbar), so the root ran under the title bar and only a root-level
 > `NSScrollView` — which AppKit insets on its own — looked right; a canvas at the top of a
-> window, and every presented cover, drew its first rows under the window title (Day-Games'
+> window, and every presented cover, drew its first rows under the window title (Games Fair's
 > Breakout HUD). The backend now pins the content view's coordinate space below
 > `contentLayoutRect` (`pin_below_title_bar`: the bounds origin moves up by the bar's height,
 > re-applied on every resize and whenever a toolbar comes or goes) and reports that layout
@@ -1754,7 +1754,7 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 >
 > **Frame clock on every backend (2026-09).** `Platform::request_frame` was implemented only
 > by the mobile and web backends, so `frame_clock` game loops and self-driven canvas
-> animations were inert on macos-appkit, gtk, qt, and windows-xaml (Day-Games' clocks and
+> animations were inert on macos-appkit, gtk, qt, and windows-xaml (Games Fair's clocks and
 > physics stood still on a desktop). The desktop backends now approximate vsync with a
 > ~16 ms one-shot on their main loop — a main-queue dispatch on AppKit, a glib timeout on
 > GTK, `QTimer::singleShot` on Qt, and the trait's threaded delay riding `post` on XAML —
@@ -4613,8 +4613,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    `preferReleaseScreenshots` in `website/gallery.config.mjs` is on (2026-09-13). The other is the
    fallback, and so is any index whose first capture URL does not resolve. daybrite.dev links those
    hosted images: one copy of the bytes, owned by the app that captured them, and `/gallery/<App>/`
-   for each of Day-Showcase, Day-Rise, Day-Skies, Day-Trader, Day-News, Day-Sketch and Day-Games
-   under a hub at `/gallery/`.
+   for each of Day-Showcase, Day-Rise, Day-Skies, Day-Trader, Day-News, Day-Sketch, Day-Tunes and
+   Games-Fair under a hub at `/gallery/`.
    Adding an app is one entry in `website/gallery.config.mjs`; its rows, columns, themes and
    languages come from its index, so a newly captured screen appears with no change here. An
    unreachable app site falls back to the cached copy of its last index and says so on the page.

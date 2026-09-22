@@ -2083,7 +2083,7 @@ fn android_window_titles(serial: &str) -> Option<Vec<String>> {
 /// With the setting on, the system ends an unresponsive process without asking; the ANR itself
 /// still lands in logcat. `immersive_mode_confirmations=confirmed` is what tapping "Got it" on the
 /// "Viewing full screen" hint stores. A fresh AVD has never had that tap, so every page that hides
-/// the system bars (Day-Games' boards) was captured under the hint. WindowManager observes both
+/// the system bars (Games Fair's boards) was captured under the hint. WindowManager observes both
 /// settings, so a write takes effect at once and also removes a hint already on screen.
 ///
 /// Never touched on a physical device (global, persistent settings); best-effort.

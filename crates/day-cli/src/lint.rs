@@ -375,7 +375,7 @@ fn scan_permission_uses(dir: &Path, out: &mut Vec<Hit>) {
 
 /// Every Rust source root the lint scans: the project package's `src/` plus each workspace
 /// member crate's `src/` inside the project directory (a multi-crate app keeps its
-/// `tr("key")` / `.id("…")` literals in member crates too; Day-Games' games live in
+/// `tr("key")` / `.id("…")` literals in member crates too; Games Fair's games live in
 /// `games/<name>/src`). A member is any `src/` directory beside a `Cargo.toml`, found by a
 /// shallow walk that skips build products and the native host projects.
 fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {

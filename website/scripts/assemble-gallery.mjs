@@ -67,6 +67,30 @@ function indexCandidates(app) {
 }
 
 /**
+ * The site root an index's `path` values are relative to: the `site` it names, else the channel
+ * root it was fetched from (`<host>/` for both channels, since a branch build's paths already
+ * carry its segment).
+ */
+function siteRoot(index, source) {
+  if (typeof index?.site === 'string' && index.site) return `${index.site.replace(/\/+$/, '')}/`;
+  if (!source?.url) return null;
+  return new URL(source.channel === 'main' ? '../../' : '../', source.url).href;
+}
+
+/**
+ * Where a capture lives. An index carries an absolute `url` per shot once its app's
+ * `website/site.toml` names a host; one published before that names only `path`, relative to the
+ * site root, and resolving it there is what keeps an app's first build from showing as an app
+ * with no screenshots.
+ */
+function captureURL(shot, index, source) {
+  if (typeof shot?.url === 'string' && shot.url) return shot.url;
+  if (typeof shot?.path !== 'string' || !shot.path) return null;
+  const base = siteRoot(index, source);
+  return base ? new URL(shot.path, base).href : null;
+}
+
+/**
  * Whether an index's images are actually where it says. One HEAD on the first linkable capture.
  *
  * An index can be served and still link nothing: daysite before 2026-09-13 republished a build
@@ -75,11 +99,11 @@ function indexCandidates(app) {
  * candidate that fails this is passed over for the next one rather than rendered as a page of
  * broken images.
  */
-async function linksResolve(index) {
-  const first = index.screenshots.find((s) => typeof s?.url === 'string');
+async function linksResolve(index, source) {
+  const first = index.screenshots.map((s) => captureURL(s, index, source)).find(Boolean);
   if (!first) return true; // nothing linkable at all; assembleApp leaves such an app out itself
   try {
-    const res = await fetch(first.url, { method: 'HEAD', signal: AbortSignal.timeout(15_000) });
+    const res = await fetch(first, { method: 'HEAD', signal: AbortSignal.timeout(15_000) });
     return res.ok;
   } catch {
     return false;
@@ -128,7 +152,7 @@ async function loadIndex(app, log) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       if (!Array.isArray(data.screenshots)) throw new Error('no screenshots[] in the index');
-      if (!(await linksResolve(data))) throw new Error('its screenshot URLs do not resolve');
+      if (!(await linksResolve(data, source))) throw new Error('its screenshot URLs do not resolve');
       mkdirSync(CACHE_DIR, { recursive: true });
       writeFileSync(cacheFile, JSON.stringify({ source, data }));
       return { data, source, stale: false };
@@ -156,15 +180,17 @@ async function loadIndex(app, log) {
 
 /** Turn one published index into the app's manifest entry. */
 function assembleApp(app, index, stale, source) {
-  // Group every usable capture by (shot, column, theme+locale). `url` is what this site links;
-  // an index published by a site with no configured host has none, and contributes nothing.
+  // Group every usable capture by (shot, column, theme+locale). Each tile links the capture where
+  // its own site hosts it (`captureURL`); a capture whose index gives neither a URL nor a path
+  // this site can resolve contributes nothing.
   const byShot = new Map();
   const columnShots = new Map();
   const themes = [];
   const locales = [];
   let captures = 0;
   for (const s of index.screenshots) {
-    if (!s.url || !s.shot || !s.platform) continue;
+    const src = captureURL(s, index, source);
+    if (!src || !s.shot || !s.platform) continue;
     const column = columnFor(s.platform, s.device);
     if (app.platforms && !app.platforms.includes(column)) continue;
     if (app.hide?.includes(s.shot)) continue;
@@ -176,7 +202,7 @@ function assembleApp(app, index, stale, source) {
     tiles.set(column, tile);
     const key = captureKey(s.theme, s.locale);
     if (key in tile) continue; // first capture of a combination wins, in the index's own order
-    tile[key] = { src: s.url, width: s.width ?? undefined, height: s.height ?? undefined };
+    tile[key] = { src, width: s.width ?? undefined, height: s.height ?? undefined };
     captures += 1;
     columnShots.set(column, (columnShots.get(column) ?? 0) + 1);
   }

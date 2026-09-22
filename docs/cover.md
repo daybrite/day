@@ -14,7 +14,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > window overlay + slide transition on android-mdc; a topmost full-window child (`Cap::Cover` =
 > `Emulated`: no transition, no interactive dismissal) on harmony-arkui, macos-appkit, gtk, qt,
 > xaml, and web-dom; probe-visible patches on mock. The emulated tier defaults to an opaque
-> theme-background surface so a cover always occludes the window. Exercised end-to-end by Day-Games (a grid home page
+> theme-background surface so a cover always occludes the window. Exercised end-to-end by Games Fair (a grid home page
 > whose tiles present each game fullscreen) and `mock_e2e::cover_presents_lays_out_and_dismisses`.
 >
 > **macos-appkit (2026-09).** The cover filled the full-size content view, so its content ran
@@ -24,14 +24,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 >
 > **gtk (2026-09).** The emulated cover took the root `GtkFixed`'s allocation for its size,
 > and that Fixed sits in an External-policy scroll wrapper that allocates it its children's
-> bounding box, so a small home page (Day-Games' tile grid) presented a cover the size of
+> bounding box, so a small home page (Games Fair's tile grid) presented a cover the size of
 > the grid. The cover now takes the wrapper's allocation, the window content area.
 
 > **Window resize (2026-09-11).** A presented cover's frame is the backend's alone: the core
 > never applies the parent's placement to the COVER node (where it sits in the tree it measures
 > zero, so that placement is a zero-size rect at the parent's center). Until this landed, any
 > relayout of the parent — a window resize on the emulated tiers — collapsed the presented cover
-> to a line and showed the page beneath it; Day-Games lost its game on every macOS resize.
+> to a line and showed the page beneath it; Games Fair lost its game on every macOS resize.
 > GTK sizes a presenting cover from the window's content area (its live default size minus
 > the header bar), the same arithmetic its resize path uses, rather than from an allocation
 > read off the widget tree, which followed the page's natural size.
@@ -109,7 +109,7 @@ game_page()
 
 A mounted cover registers a string-route adapter ([docs/navigation.md](navigation.md)): `navigate("<key>")`
 presents the parsed route, `nav_back()` dismisses, and the presented key is the cover's
-contribution to `current_route()`. Day-Games' walkthrough drives games with plain
+contribution to `current_route()`. Games Fair's walkthrough drives games with plain
 `- navigate: { route: breakout }` / `- nav_back:` steps.
 
 ### `.unrouted()`: a cover that belongs to a control

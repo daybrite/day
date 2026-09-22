@@ -43,7 +43,7 @@ missing or unreadable clip is logged once and stays silent, and so does a platfo
 engine. Call them from the UI thread, where the rest of an app's code runs.
 
 A clip is named by its generated `res::assets::…` constant ([resources.md](resources.md)), or by
-path with `AssetName::from_static("sounds/tap.wav")` where a `const` needs one. Day-Games keeps
+path with `AssetName::from_static("sounds/tap.wav")` where a `const` needs one. Games Fair keeps
 its cues as statics that pair a clip with a haptic phrase; its `gamekit/src/chrome.rs` is a worked
 example.
 

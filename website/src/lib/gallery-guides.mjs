@@ -6,7 +6,7 @@ const guides = {
   'Day-Trader': ['reactivity', 'Updating the UI from state'],
   'Day-News': ['navigation', 'Building app navigation'],
   'Day-Sketch': ['rendering', 'Drawing and rendering'],
-  'Day-Games': ['rendering', 'Drawing and rendering'],
+  'Games-Fair': ['rendering', 'Drawing and rendering'],
 };
 const screens = {
   controls: ['pieces', 'Composing UI controls'],

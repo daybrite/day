@@ -4,114 +4,72 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { url } from '../lib/site';
 
-// The privacy policy the Daybrite apps' store listings point at. Both stores require a reachable
-// privacy URL per app; these apps collect nothing, so one accurate page serves them all.
-// Per-app rows exist because "collects nothing" is not the same as "contacts nothing" — an app that
-// fetches a forecast sends an IP address to whoever serves it, and that belongs in writing.
-const apps = [
-  {
-    name: 'Day Showcase',
-    id: 'dev.daybrite.showcase',
-    network: 'None. Every screen runs on data built into the app.',
-    permissions:
-      'Camera, location and motion appear on the Device & sensors page to demonstrate how a permission prompt works. The app reads the sensors only while that page is open, shows the values on screen, and stores none of them.',
-  },
-  {
-    name: 'Day Skies',
-    id: 'dev.daybrite.dayskies',
-    network:
-      'Sends the coordinates of the cities in your list to Open-Meteo (or to a host you configure) to fetch the forecast.',
-    permissions:
-      'Location, only if you use “Use current location”. The coordinates go to the weather service to fetch that forecast and are not stored anywhere else.',
-  },
-  {
-    name: 'Day Trader',
-    id: 'dev.daybrite.daytrader',
-    network: 'Requests end-of-day quotes from stooq.com for the symbols you track.',
-    permissions: 'None.',
-  },
-  {
-    name: 'Day Sheets',
-    id: 'dev.daybrite.sheets',
-    network: 'Fetches the feeds you subscribe to, from the servers that publish them.',
-    permissions: 'None.',
-  },
-  {
-    name: 'Day Games',
-    id: 'dev.daybrite.games',
-    network: 'None. Every game runs offline.',
-    permissions: 'None.',
-  },
-  {
-    name: 'Day Bench',
-    id: 'dev.daybrite.daybench',
-    network: 'None.',
-    permissions: 'None.',
-  },
-  {
-    name: 'Matrix',
-    id: 'dev.daybrite.matrix',
-    network:
-      'Connects to the Matrix homeserver you sign in to. Messages are end-to-end encrypted by the Matrix protocol; Daybrite operates no server and sees none of your traffic.',
-    permissions: 'None.',
-  },
-];
+// The policy for the two things Daybrite operates: the `day` command-line tool and this site.
+// An app built with Day belongs to whoever publishes it, and its store listing points at that
+// publisher's own policy — so no app is described here.
 ---
 <BaseLayout
   title="Privacy"
-  description="What the Daybrite apps do with your data: they collect nothing, and this page says exactly which of them contact a server and why."
+  description="What the day command-line tool and daybrite.dev do with your data: one version check you can switch off, and a static site that runs no analytics."
 >
   <section class="section">
     <div class="container prose">
       <p class="eyebrow">Privacy</p>
       <h1>Privacy policy</h1>
       <p class="lead">
-        The Daybrite apps collect no personal data. There is no account, no analytics, no
-        advertising, and no tracking of any kind. Nothing you do in these apps is sent to Daybrite,
-        because Daybrite runs no server that could receive it.
+        This policy covers the <code>day</code> command-line tool and this website. Neither
+        collects personal data, and Daybrite runs no server that could receive any.
       </p>
 
-      <h2>What stays on your device</h2>
+      <h2>The day CLI</h2>
       <p>
-        Everything you create or configure — your city list, your subscriptions, your watchlist,
-        your game progress, your preferences — is stored on your device. It is included in your
-        device's own backup if you have one enabled, and it is removed when you uninstall the app.
+        <code>day</code> runs on your machine, on the project in front of it. The one request it
+        makes on its own account is a version check against{' '}
+        <a href="https://crates.io">crates.io</a>, which asks what the current release of
+        <code>day-cli</code> is and prints a line when yours is older. Setting
+        <code>DAY_NO_UPDATE_CHECK</code> to any value turns it off, and it is skipped already in
+        development builds and whenever a command prints machine-readable output.
+      </p>
+      <p>
+        Everything else that reaches the network is a tool <code>day</code> runs for you, when the
+        command you typed asks for it: cargo fetching crates, git cloning a template repository you
+        named, the platform toolchains fetching their SDKs, fastlane uploading a build you told it
+        to upload. Each one sends what it sends under its own policy.
+      </p>
+      <p>
+        What <code>day</code> writes stays on your machine: build outputs under the project's
+        <code>build/</code> directory, and clones of anything you asked it to fetch under the
+        platform's standard cache directory (<code>$XDG_CACHE_HOME/day</code>,
+        <code>~/.cache/day</code>, or <code>%LOCALAPPDATA%\day</code>). Deleting those directories
+        is the whole of removing it.
       </p>
 
-      <h2>What leaves your device</h2>
+      <h2>This website</h2>
       <p>
-        Some of these apps are useful only because they fetch something. When an app makes a
-        request, the service it contacts necessarily sees your IP address and what you asked for,
-        under that service's own policy — not ours. The table says which apps do this and why.
+        daybrite.dev is a set of static pages served by GitHub Pages. It runs no analytics and sets
+        no cookie, and its search index runs in your browser rather than on a server. A theme you
+        pick with the light/dark control is remembered in your browser's local storage and goes
+        nowhere else. GitHub serves the files and records requests in its own logs, the way any web
+        server does, under{' '}
+        <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement">
+          GitHub's privacy statement</a>.
+      </p>
+      <p>
+        The screenshot gallery links each capture where the app that took it publishes it, so
+        opening a gallery page fetches those images from those sites, and they see the request.
       </p>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr><th>App</th><th>Network requests</th><th>Permissions</th></tr>
-          </thead>
-          <tbody>
-            {apps.map((a) => (
-              <tr>
-                <td><strong>{a.name}</strong><br /><code>{a.id}</code></td>
-                <td>{a.network}</td>
-                <td>{a.permissions}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <h2>Children</h2>
+      <h2>Apps built with Day</h2>
       <p>
-        These apps are not directed at children and collect nothing from anyone, of any age.
+        An app someone builds with Day is that publisher's, and this policy says nothing about it.
+        Its store listing points at the policy its own publisher wrote.
       </p>
 
       <h2>Changes</h2>
       <p>
         If this policy changes, the new version replaces this page and the date below changes with
-        it. The apps are open source, so any change to what an app sends is visible in its commit
-        history.
+        it. The tool and this site are open source, so any change to what either one sends is
+        visible in the commit history.
       </p>
 
       <h2>Contact</h2>
@@ -119,7 +77,7 @@ const apps = [
         Questions about this policy: <a href="mailto:hello@daybrite.dev">hello@daybrite.dev</a>, or
         open an issue on <a href="https://github.com/daybrite/day">GitHub</a>.
       </p>
-      <p class="gen">Last updated 5 August 2026. Applies to the apps listed above.</p>
+      <p class="gen">Last updated 21 September 2026.</p>
       <p><a href={url('')}>← Back to daybrite.dev</a></p>
     </div>
   </section>
@@ -128,10 +86,5 @@ const apps = [
 <style>
   .prose { max-width: 62rem; }
   .prose h2 { margin-top: 2rem; }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; margin: 1rem 0 2rem; font-size: 0.95rem; }
-  th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--border); }
-  th { font-weight: 700; }
-  td code { font-size: 0.8em; color: var(--muted); }
   .gen { color: var(--muted); font-size: 0.9rem; }
 </style>

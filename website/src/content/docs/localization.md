@@ -228,9 +228,9 @@ A file can correspond to `board.rs`, but Day does not scan Rust source files to 
 connection. It derives the module name from the `.ftl` filename. Use the flat layout
 `<locale>/<file>.ftl`; nested directories are not supported by the private generator.
 
-[Day Games](https://github.com/daybrite/Day-Games) uses a catalog per game and a separate
-`gamekit` catalog for shared controls. Its `chrome.ftl` demonstrates the file-level form,
-including `gamekit::res::chrome::str::done()`.
+A workspace can keep one catalog per game crate and a separate catalog for the controls they
+share. A `chrome.ftl` in that shared crate produces the file-level form, and the games reach its
+strings as `gamekit::res::chrome::str::done()`.
 
 ## Move existing translations into a crate
 
@@ -312,8 +312,8 @@ fails when findings remain.
 Private catalog lint does not report unused public accessors. Another crate may use them.
 It also does not require every dependency to support every app language. If your app promises
 complete translation coverage, add a project check that compares the locale directories and
-file/key sets in every maintained crate. Day Games includes an example in
-[`scripts/check-locales.py`](https://github.com/daybrite/Day-Games/blob/main/scripts/check-locales.py).
+file/key sets in every maintained crate: a script that walks each crate's `resource/locales/` and
+diffs the tags and keys it finds covers it.
 
 A green lint result does not prove that a translation is current. Changing an English sentence
 without changing its key or parameters leaves the translated message structurally valid.
@@ -389,11 +389,13 @@ In an existing job that calls `daybrite/actions/.github/workflows/dayapp.yml`, s
 
 ```yaml
 with:
-  locales: en fr ar
+  locales: all   # or name them: en fr ar
   scripts: dayscript/walkthrough.yaml
 ```
 
-Update this locale list when you add or remove a language. Localized screenshot titles and
+`all` is every locale the app ships, read from its `resource/locales/` catalogs with the default
+locale first, so `day localize add` reaches CI as well. Name the locales instead and that list is
+yours to update. Localized screenshot titles and
 captions belong in the DayScript screenshot metadata; the generated app website uses those
 alongside the translated store descriptions. See [DayScript](/docs/dayscript) for assertions,
 captures, and gallery metadata.
