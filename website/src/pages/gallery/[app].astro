@@ -5,6 +5,7 @@ import { guideFor } from '../../lib/gallery-guides.mjs';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import manifest from '../../data/gallery-manifest.json';
 import { url } from '../../lib/site';
+import { localeLabel } from '../../lib/locale-names';
 import DeviceShell from '../../components/DeviceShell.astro';
 import PlatformIcon from '../../components/PlatformIcon.astro';
 
@@ -42,13 +43,6 @@ const initialLocale = app.locales.includes('en') ? 'en' : (app.locales[0] ?? 'de
 const key = (theme: string, locale: string) => `${theme || 'default'}|${locale || 'default'}`;
 /** The data-attribute suffix for a capture key: `light|zh-CN` → `light-zh-cn`. */
 const slug = (k: string) => k.replace(/\|/g, '-').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
-
-const LOCALE_LABEL: Record<string, string> = {
-  en: 'English',
-  fr: 'Français',
-  ar: 'العربية',
-  'zh-CN': '中文',
-};
 
 /** The fragment a shot opens in the app's hosted web build, or null when it is not reachable. */
 function webRoute(shotId: string): string | null {
@@ -107,14 +101,25 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
             ))}
           </div>
         )}
+        {/* A menu rather than a second segmented control: an app that ships thirteen languages
+            lays them out down the page instead of across a toolbar that has to stay one line. */}
         {locales.length > 0 && (
-          <div class="seg" role="radiogroup" aria-label="Language" data-seg="locale">
-            {locales.map((l) => (
-              <button type="button" role="radio" aria-checked={l === initialLocale ? 'true' : 'false'} data-value={l}>
-                {LOCALE_LABEL[l] ?? l}
-              </button>
-            ))}
-          </div>
+          <details class="menu" data-seg="locale">
+            <summary aria-label="Language">
+              <span class="menu-value">{localeLabel(initialLocale)}</span>
+              <svg class="menu-chevron" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+                <path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6"
+                      stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </summary>
+            <div class="menu-list" role="radiogroup" aria-label="Language">
+              {locales.map((l) => (
+                <button type="button" role="radio" aria-checked={l === initialLocale ? 'true' : 'false'} data-value={l}>
+                  {localeLabel(l)}
+                </button>
+              ))}
+            </div>
+          </details>
         )}
       </div>
     </div>
@@ -249,12 +254,12 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
   // when the app captured one: a dark-mode visitor lands on the dark captures. It keeps tracking
   // the site theme toggle until the visitor picks a preview theme themselves.
   const root = document.querySelector<HTMLElement>('.rows')!;
-  const segs = document.querySelectorAll<HTMLElement>('.seg[data-seg]');
-  const valuesOf = (which: string) =>
-    Array.from(
-      document.querySelectorAll<HTMLElement>(`.seg[data-seg="${which}"] button[data-value]`),
-      (b) => b.dataset.value!,
-    );
+  // The theme control is a segmented pill and the language control a menu; both carry data-seg
+  // and hold one button[data-value] per choice, so everything below reads them the same way.
+  const segs = document.querySelectorAll<HTMLElement>('[data-seg]');
+  const buttonsOf = (which: string) =>
+    Array.from(document.querySelectorAll<HTMLElement>(`[data-seg="${which}"] button[data-value]`));
+  const valuesOf = (which: string) => buttonsOf(which).map((b) => b.dataset.value!);
   const themes = valuesOf('theme');
   const locales = valuesOf('locale');
 
@@ -296,10 +301,13 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
     });
   }
 
+  // Each language's name, read off the menu the page rendered (ICU named them there), so the
+  // badge that says which capture a tile fell back to speaks the same words as the menu.
+  const localeNames = new Map(buttonsOf('locale').map((b) => [b.dataset.value!, b.textContent!.trim()]));
+
   function label(theme: string, locale: string): string {
-    const names: Record<string, string> = { fr: 'Français', ar: 'العربية', 'zh-CN': '中文', en: 'English' };
     const parts = [];
-    if (locales.length > 1) parts.push(names[locale] ?? locale);
+    if (locales.length > 1) parts.push(localeNames.get(locale) ?? locale);
     if (themes.length > 1) parts.push(theme);
     return parts.join(' · ');
   }
@@ -358,7 +366,7 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
   );
 
   function reflectThemeSeg(): void {
-    for (const b of document.querySelectorAll<HTMLElement>('.seg[data-seg="theme"] button')) {
+    for (const b of buttonsOf('theme')) {
       b.setAttribute('aria-checked', b.dataset.value === state.theme ? 'true' : 'false');
     }
   }
@@ -370,12 +378,29 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
       if (!btn) return;
       if (which === 'theme') themePinned = true;
       state[which] = btn.dataset.value!;
-      for (const b of seg.querySelectorAll('button')) {
+      for (const b of seg.querySelectorAll('button[data-value]')) {
         b.setAttribute('aria-checked', b === btn ? 'true' : 'false');
       }
+      // A menu names its choice on the button that opens it, and closes behind the choice.
+      const value = seg.querySelector<HTMLElement>('.menu-value');
+      if (value) value.textContent = btn.textContent!.trim();
+      if (seg instanceof HTMLDetailsElement) seg.open = false;
       applyCaptures();
     });
   }
+
+  // The two ways out of an open menu that its own markup does not give it.
+  const menus = () => document.querySelectorAll<HTMLDetailsElement>('details.menu[open]');
+  document.addEventListener('click', (e) => {
+    for (const menu of menus()) if (!menu.contains(e.target as Node)) menu.open = false;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    for (const menu of menus()) {
+      menu.open = false;
+      menu.querySelector('summary')?.focus();
+    }
+  });
 
   // Land on the site theme's captures, and follow the site theme toggle live while unpinned.
   reflectThemeSeg();
@@ -546,6 +571,41 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
     transition: background 0.15s ease, color 0.15s ease;
   }
   .seg button[aria-checked='true'] { background: var(--hover); color: var(--fg, inherit); }
+
+  /* The language menu wears the same pill as .seg, and opens a list under it. */
+  .menu { position: relative; }
+  .menu > summary {
+    display: inline-flex; align-items: center; gap: 8px;
+    list-style: none; cursor: pointer;
+    padding: 7px 14px 7px 16px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+    font-size: 0.86rem; font-weight: 650; color: var(--muted);
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .menu > summary::-webkit-details-marker { display: none; }
+  .menu > summary:hover, .menu[open] > summary { background: var(--hover); color: var(--fg, inherit); }
+  .menu-chevron { transition: transform 0.15s ease; }
+  .menu[open] .menu-chevron { transform: rotate(180deg); }
+  .menu-list {
+    /* Anchored to the button's trailing edge: this is the last control in the toolbar, so on a
+       phone the list opens inward instead of past the screen. */
+    position: absolute; z-index: 20; inset-inline-end: 0; top: calc(100% + 8px);
+    display: flex; flex-direction: column; gap: 2px;
+    min-width: 100%; max-width: calc(100vw - 32px);
+    max-height: min(60vh, 420px); overflow-y: auto;
+    padding: 6px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); box-shadow: var(--shadow);
+  }
+  .menu-list button {
+    appearance: none; border: 0; cursor: pointer; white-space: nowrap;
+    font: inherit; font-size: 0.86rem; font-weight: 600; text-align: start;
+    color: var(--muted); background: transparent;
+    padding: 7px 14px; border-radius: 9px;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .menu-list button:hover { background: var(--hover); color: var(--fg, inherit); }
+  .menu-list button[aria-checked='true'] { background: var(--hover); color: var(--fg, inherit); font-weight: 700; }
 
   .rows { padding-block: 8px 28px; }
   /* Anchor landings (hero-carousel links, #<shot> URLs) must clear the sticky site header

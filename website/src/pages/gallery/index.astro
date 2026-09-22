@@ -4,6 +4,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import manifest from '../../data/gallery-manifest.json';
 import { url } from '../../lib/site';
+import { localeLabel } from '../../lib/locale-names';
 import PlatformIcon from '../../components/PlatformIcon.astro';
 
 // The gallery hub: one card per Day app, each carrying a carousel of its own screenshots and a
@@ -26,12 +27,6 @@ const generated = manifest.generatedAt
     })
   : null;
 
-const LOCALE_LABEL: Record<string, string> = {
-  en: 'English',
-  fr: 'Français',
-  ar: 'العربية',
-  'zh-CN': '中文',
-};
 const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c) => c.id === id)!;
 ---
 <BaseLayout
@@ -98,7 +93,7 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
               </ul>
               <p class="card-meta">
                 {app.counts.shots} screens · {app.counts.captures} captures
-                {app.locales.length > 1 && <span> · {app.locales.map((l) => LOCALE_LABEL[l] ?? l).join(', ')}</span>}
+                {app.locales.length > 1 && <span> · {app.locales.map(localeLabel).join(', ')}</span>}
                 {app.themes.length > 1 && <span> · light and dark</span>}
               </p>
               <p class="card-links">
