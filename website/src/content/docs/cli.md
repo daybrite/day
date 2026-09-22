@@ -136,8 +136,10 @@ Template conventions: a trailing `.hbs` on a filename is stripped after renderin
 `Cargo.toml.hbs` so tooling doesn't mistake the template for a Rust package), `_gitignore`
 becomes `.gitignore`, `_vscode/` and `_github/` become `.vscode/` and `.github/`, non-UTF-8 files
 (icons) copy verbatim, and an unknown `{{placeholder}}` is an error rather than silent empty
-output. Files under `platform/<os>/` belong to that OS's targets and are only scaffolded for
-targets that need them.
+output. A literal `{{` is written `\{{`, which is what a GitHub Actions expression in a template's
+workflow needs (`flavors: $\{{ github.ref }}` scaffolds as `flavors: ${{ github.ref }}`), and
+`{{!-- a note --}}` is a comment the scaffolded app never sees. Files under `platform/<os>/` belong
+to that OS's targets and are only scaffolded for targets that need them.
 
 A template repository's own `.git`, `target/` and `.github/` are skipped on load: the workflows
 under `.github/` are that repository's CI, and the ones a scaffolded app should get travel as
