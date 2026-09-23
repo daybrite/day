@@ -9,8 +9,13 @@ const choices = [
   { id: 'system', label: 'System' },
   { id: 'dark', label: 'Dark' },
 ] as const;
+interface Props {
+  /** Smaller buttons, sized to sit in the nav bar. */
+  compact?: boolean;
+}
+const { compact = false } = Astro.props;
 ---
-<div class="seg" role="radiogroup" aria-label="Color theme" data-theme-toggle>
+<div class:list={['seg', { compact }]} role="radiogroup" aria-label="Color theme" data-theme-toggle>
   {choices.map((c) => (
     <button type="button" role="radio" aria-checked="false" tabindex="-1" data-theme-choice={c.id} aria-label={c.label} title={c.label}>
       {c.id === 'light' && (
@@ -76,7 +81,16 @@ const choices = [
     reflect(getPref());
 
     for (const b of buttons) {
-      b.addEventListener('click', () => choose(b.dataset.themeChoice!, false));
+      b.addEventListener('click', () => {
+        // Collapsed (compact, narrow screen): only the current choice shows, and a press moves on.
+        const collapsed = buttons.some((x) => x !== b && x.offsetParent === null);
+        const pref = b.dataset.themeChoice!;
+        if (collapsed && pref === getPref()) {
+          choose(ORDER[(ORDER.indexOf(pref) + 1) % ORDER.length], true);
+        } else {
+          choose(pref, false);
+        }
+      });
       b.addEventListener('keydown', (e) => {
         const i = ORDER.indexOf(getPref());
         if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
@@ -126,4 +140,11 @@ const choices = [
   }
   .seg button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   .seg svg { width: 15px; height: 15px; }
+  .seg.compact { padding: 2px; }
+  .seg.compact button { width: 30px; height: 26px; }
+  .seg.compact svg { width: 14px; height: 14px; }
+  @media (max-width: 560px) {
+    .seg.compact button:not(.on) { display: none; }
+    .seg.compact button.on { box-shadow: none; background: transparent; color: var(--muted); }
+  }
 </style>

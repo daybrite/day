@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import Logo from './Logo.astro';
 import Search from './Search.astro';
+import ThemeToggle from './ThemeToggle.astro';
 import { url, site } from '../lib/site';
 interface Props { active?: string }
 const { active } = Astro.props;
@@ -23,7 +24,8 @@ const links = [
       {links.map((l) => (
         <a href={l.href} class:list={['nav-link', { on: active === l.key }]}>{l.label}</a>
       ))}
-      <a class="nav-link" href={site.repo} rel="noopener">GitHub ↗</a>
+      <a class="nav-link nav-repo" href={site.repo} rel="noopener">GitHub ↗</a>
+      <ThemeToggle compact />
     </nav>
   </div>
 </header>
@@ -51,7 +53,9 @@ const links = [
   .nav-link:hover { color: var(--text); }
   .nav-link.on { color: var(--text); }
   @media (max-width: 560px) {
-    .nav-links { gap: 16px; }
+    .nav-links { gap: 12px; }
     .brand-name { display: none; }
+    /* Room for the theme toggle; the footer keeps a link to the source. */
+    .nav-repo { display: none; }
   }
 </style>
