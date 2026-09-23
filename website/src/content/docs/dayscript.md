@@ -56,6 +56,20 @@ given, else the [locale](/docs/glossary#locale), else `default`. Several `--scri
 `--locale` makes the run a localization test at the same time; assertions can reference [Fluent](/docs/glossary#fluent)
 keys instead of literal strings, so the same script passes in every language.
 
+A `screenshot:` step can carry what the gallery shows about the capture, and what the store
+listing takes from it:
+
+```yaml
+- screenshot: { name: home, title: Home, caption: "Every game one tap away.", store: 1 }
+```
+
+`title` and `caption` (a string, or a map keyed by locale) label the capture on the app's site;
+`source` names the file the screen is drawn from; `store: N` makes the capture the Nth
+screenshot of the App Store and Google Play listing, in every locale, theme and device the
+walkthrough runs on. `day store stage --screenshots` places the marked captures in the fastlane
+tree ([store listings](/docs/store#screenshots)). The keys never reach the app: the runner
+strips them and folds them into the target's `gallery.json`.
+
 ## The step vocabulary
 
 | Group | Steps |

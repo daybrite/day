@@ -15,7 +15,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > generated trees parse under real fastlane 2.237 (`fastlane lanes` lists the lanes), the artifact
 > globs resolve to `build/day/dist`, and the lint rules are unit-tested. What is not verified: an
 > actual upload; no App Store Connect or Play credentials exist yet, so no listing has been
-> accepted by either store. Screenshots are not generated or uploaded yet.
+> accepted by either store. Screenshots are placed from a gallery index (`stage --screenshots`)
+> and go up with the listing; the App Fair's queue is the first pipeline to run that path.
 
 An app's store listing is localized user-facing copy, so it lives beside the app's other localized
 copy, as plain text a translator can edit:
@@ -168,11 +169,44 @@ than failing (the secrets are optional, so a fork still gets a green run), and a
 uploads the generated tree as an artifact, so what was sent to the store is reviewable after the
 fact.
 
+## Screenshots
+
+Both stores take screenshots per locale and per device class, and a dayscript walkthrough
+captures far more screens than a listing shows. The walkthrough says which ones the listing
+uses, and in what order, with `store: N` on the `screenshot:` step:
+
+```yaml
+- screenshot: { name: home, title: Home, store: 1 }
+- screenshot: { name: editor, title: Editing, store: 2 }
+- screenshot: debug-overlay          # captured, indexed, and not in the listing
+```
+
+The position rides into every capture of that step: each locale, each theme, each device the
+walkthrough runs on, so one mark covers the whole matrix. `day screenshot index` publishes it as
+the entry's `store` field in `gallery.json`.
+
+`day store stage --screenshots <gallery.json | URL>` reads an index, takes the marked captures
+in one theme (`screenshot-theme` in `store/app.toml`, `light` by default; a capture with no theme
+is taken as it is) for every locale the store knows, and places them where fastlane reads them:
+
+| store | where | device |
+|---|---|---|
+| App Store | `fastlane/screenshots/<locale>/<NN>-<device>-<shot>.png` | deliver reads it from the image's size |
+| Google Play | `fastlane/metadata/android/<locale>/images/<kind>Screenshots/<NN>-<shot>.png` | the capture's device slug: `phone`, `tablet-7`, or `tablet` for ten inches |
+
+The generated lanes upload screenshots only when some were staged, so a run without the flag
+leaves what the store already shows. The index can be the app's published site
+(`https://<host>/main/gallery/gallery.json`, the latest build) or a local `gallery.json` beside
+its capture tree, in which case the images are read from that tree.
+
+Sizes are the stores' business: Apple takes exact sizes per device class (the iPhone 6.9" and
+iPad 13" ones the default CI device profiles produce), and Google a range whose long side is at
+most twice the short, which the default 20:9 phone profile exceeds. A pipeline that publishes
+through the App Fair has those rules checked before anything is signed; an app publishing on its
+own should capture on a 9:16 phone profile for Play.
+
 ## Not done yet
 
-- **Screenshots:** both stores take them per locale and per device class, and the dayscript
-  walkthrough already captures exactly that shape (`build/day/screenshots/<target>/<variant>/`).
-  Wiring those into `fastlane/screenshots/` is the obvious next step and is not built.
 - **Review information** beyond notes and an email: the demo-account fields and the phone number
   are missing.
 - **Age rating / content declarations**, which both stores require before a first submission and

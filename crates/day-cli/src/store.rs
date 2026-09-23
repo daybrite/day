@@ -231,6 +231,9 @@ pub struct AppMeta {
     pub contact_phone: Option<String>,
     /// Free-form notes for the reviewer (deliver's `review_information/notes.txt`).
     pub review_notes: Option<String>,
+    /// Which theme's captures the listing's screenshots come from (`light` when unset), for a
+    /// walkthrough that captures both. A capture with no theme is taken either way.
+    pub screenshot_theme: Option<String>,
 }
 
 /// A listing: the non-localized metadata plus one map of fields per locale.
@@ -315,6 +318,7 @@ fn read_app_meta(path: &Path) -> Result<AppMeta, String> {
         contact_last_name: get("contact-last-name"),
         contact_phone: get("contact-phone"),
         review_notes: get("review-notes"),
+        screenshot_theme: get("screenshot-theme"),
     })
 }
 
@@ -359,6 +363,7 @@ pub fn stage(
     target: &'static crate::targets::Target,
     listing: &Listing,
     out: &Path,
+    screenshots: Option<&ScreenshotSource>,
 ) -> Result<Vec<PathBuf>, String> {
     let apple = match target.toolkit {
         "uikit" => true,
@@ -367,6 +372,16 @@ pub fn stage(
     };
     let _ = std::fs::remove_dir_all(out);
     let mut written = Vec::new();
+    // The screenshots first, so a listing whose index cannot be read fails before anything is
+    // written: a tree with the copy and no images would upload a listing with none.
+    let with_screenshots = match screenshots {
+        Some(source) => {
+            let placed = stage_screenshots(source, target, listing, out)?;
+            written.extend(placed.iter().cloned());
+            !placed.is_empty()
+        }
+        None => false,
+    };
     let mut write = |rel: &str, body: &str| -> Result<(), String> {
         let path = out.join(rel);
         if let Some(parent) = path.parent() {
@@ -434,13 +449,190 @@ pub fn stage(
             }
         }
         write("fastlane/Appfile", &apple_appfile(&id, &listing.app))?;
-        write("fastlane/Fastfile", &apple_fastfile(project))?;
+        write(
+            "fastlane/Fastfile",
+            &apple_fastfile(project, with_screenshots),
+        )?;
     } else {
         write("fastlane/Appfile", &play_appfile(&id))?;
-        write("fastlane/Fastfile", &play_fastfile(project))?;
+        write(
+            "fastlane/Fastfile",
+            &play_fastfile(project, with_screenshots),
+        )?;
     }
     write("fastlane/.env.default", FASTLANE_ENV)?;
     written.sort();
+    Ok(written)
+}
+
+/// Where `day store stage --screenshots` reads the gallery index (§14.7) from: the published
+/// `gallery.json` of the app's site, or a local one beside its capture tree.
+#[derive(Debug, Clone)]
+pub enum ScreenshotSource {
+    Url(String),
+    File(PathBuf),
+}
+
+impl ScreenshotSource {
+    pub fn parse(text: &str) -> ScreenshotSource {
+        if text.starts_with("http://") || text.starts_with("https://") {
+            ScreenshotSource::Url(text.to_string())
+        } else {
+            ScreenshotSource::File(PathBuf::from(text))
+        }
+    }
+
+    fn index(&self) -> Result<serde_json::Value, String> {
+        match self {
+            ScreenshotSource::Url(url) => {
+                let text = ureq::get(url)
+                    .call()
+                    .map_err(|e| format!("{url}: {e}"))?
+                    .into_body()
+                    .with_config()
+                    // An index of a few thousand captures runs to a few megabytes.
+                    .limit(64 * 1024 * 1024)
+                    .read_to_string()
+                    .map_err(|e| format!("{url}: {e}"))?;
+                serde_json::from_str(&text).map_err(|e| format!("{url}: {e}"))
+            }
+            ScreenshotSource::File(path) => {
+                let text = std::fs::read_to_string(path)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
+            }
+        }
+    }
+
+    /// One capture's bytes: over HTTP from the entry's `url`, or from the file its `path`
+    /// names. A path is `gallery/<target>/…`, relative to the site root a published index sits
+    /// under (`<root>/gallery/gallery.json`); an index `day screenshot index` wrote sits in the
+    /// capture tree itself (`<tree>/gallery.json` beside `<tree>/<target>/…`), so the same path
+    /// is tried there without its first segment.
+    fn fetch(&self, entry: &serde_json::Value) -> Result<Vec<u8>, String> {
+        match self {
+            ScreenshotSource::Url(_) => {
+                let url = entry["url"].as_str().ok_or("an index entry with no url")?;
+                ureq::get(url)
+                    .call()
+                    .map_err(|e| format!("{url}: {e}"))?
+                    .into_body()
+                    .with_config()
+                    .limit(64 * 1024 * 1024)
+                    .read_to_vec()
+                    .map_err(|e| format!("{url}: {e}"))
+            }
+            ScreenshotSource::File(index) => {
+                let rel = entry["path"]
+                    .as_str()
+                    .ok_or("an index entry with no path")?;
+                let dir = index.parent().unwrap_or(Path::new("."));
+                let site = dir.parent().unwrap_or(Path::new(".")).join(rel);
+                let tree = dir.join(rel.split_once('/').map(|(_, r)| r).unwrap_or(rel));
+                let path = if site.exists() { site } else { tree };
+                std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))
+            }
+        }
+    }
+}
+
+/// A screenshot the listing takes, chosen from the index.
+struct StoreShot {
+    position: u32,
+    device: String,
+    shot: String,
+    locale: String,
+    entry: serde_json::Value,
+}
+
+/// The listing's screenshots for `target`, placed where fastlane reads them.
+///
+/// The index marks a capture for the listing with `store: N` (the dayscript step's `store:`,
+/// §14.7). Of the theme variants, the one `store/app.toml`'s `screenshot-theme` names is taken,
+/// `light` by default; a capture with no theme is taken as it is. Every locale in the index that
+/// the store knows gets its own set, so the listing is as localized as the walkthrough.
+///
+/// Apple: `fastlane/screenshots/<locale>/<NN>-<device>-<shot>.png`; deliver reads the device
+/// from the image's size and orders by name. Play: `fastlane/metadata/android/<locale>/images/
+/// <phoneScreenshots|sevenInchScreenshots|tenInchScreenshots>/<NN>-<shot>.png`, the folder
+/// chosen by the capture's device slug.
+fn stage_screenshots(
+    source: &ScreenshotSource,
+    target: &'static crate::targets::Target,
+    listing: &Listing,
+    out: &Path,
+) -> Result<Vec<PathBuf>, String> {
+    let apple = target.toolkit == "uikit";
+    let index = source.index()?;
+    let entries = index["screenshots"]
+        .as_array()
+        .ok_or("the gallery index has no `screenshots` list")?;
+    let wanted_theme = listing
+        .app
+        .screenshot_theme
+        .clone()
+        .unwrap_or_else(|| "light".to_string());
+    let mut chosen: Vec<StoreShot> = Vec::new();
+    for e in entries {
+        let Some(position) = e["store"].as_u64() else {
+            continue;
+        };
+        if e["os"].as_str() != Some(target.os) {
+            continue;
+        }
+        if let Some(theme) = e["theme"].as_str()
+            && theme != wanted_theme
+        {
+            continue;
+        }
+        let Some(locale) = e["locale"].as_str() else {
+            continue;
+        };
+        chosen.push(StoreShot {
+            position: position as u32,
+            device: e["device"].as_str().unwrap_or("phone").to_string(),
+            shot: e["shot"].as_str().unwrap_or("shot").to_string(),
+            locale: locale.to_string(),
+            entry: e.clone(),
+        });
+    }
+    chosen.sort_by(|a, b| {
+        (a.locale.as_str(), a.device.as_str(), a.position).cmp(&(
+            b.locale.as_str(),
+            b.device.as_str(),
+            b.position,
+        ))
+    });
+
+    let mut written = Vec::new();
+    for shot in chosen {
+        let Some(loc) = store_locale(&shot.locale, apple) else {
+            continue; // a locale the store does not know; lint reports it
+        };
+        let rel = if apple {
+            format!(
+                "fastlane/screenshots/{loc}/{:02}-{}-{}.png",
+                shot.position, shot.device, shot.shot
+            )
+        } else {
+            let folder = match shot.device.as_str() {
+                "tablet-7" | "tablet7" => "sevenInchScreenshots",
+                d if d.starts_with("tablet") => "tenInchScreenshots",
+                _ => "phoneScreenshots",
+            };
+            format!(
+                "fastlane/metadata/android/{loc}/images/{folder}/{:02}-{}.png",
+                shot.position, shot.shot
+            )
+        };
+        let bytes = source.fetch(&shot.entry)?;
+        let path = out.join(&rel);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        std::fs::write(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        written.push(path);
+    }
     Ok(written)
 }
 
@@ -477,7 +669,18 @@ fn play_appfile(id: &str) -> String {
     )
 }
 
-fn apple_fastfile(_project: &Project) -> String {
+fn apple_fastfile(_project: &Project, with_screenshots: bool) -> String {
+    // `deliver` uploads the screenshot tree beside the metadata when told to; without any staged
+    // there is nothing to send, and skipping keeps what the record already shows.
+    let screenshots = if with_screenshots {
+        "skip_screenshots: false,\n      overwrite_screenshots: true,"
+    } else {
+        "skip_screenshots: true,"
+    };
+    apple_fastfile_text().replace("skip_screenshots: true,", screenshots)
+}
+
+fn apple_fastfile_text() -> String {
     // The artifact is found by glob, not by name: `day pack` names an unsigned device build
     // `<stem>-ios-uikit-unsigned.ipa` and a signed one `<stem>-ios-uikit.ipa` (pack/naming.rs),
     // and a lane that hardcoded one of those would break on exactly the day signing was
@@ -591,7 +794,17 @@ end
     .to_string()
 }
 
-fn play_fastfile(_project: &Project) -> String {
+fn play_fastfile(_project: &Project, with_screenshots: bool) -> String {
+    // `supply` sends every image directory it finds under the listing. The feature graphic and
+    // icon are never staged, and the screenshots only when some were.
+    let images = format!(
+        "skip_upload_apk: true,\n      skip_upload_images: true,\n      skip_upload_screenshots: {},",
+        !with_screenshots
+    );
+    play_fastfile_text().replace("skip_upload_apk: true,", &images)
+}
+
+fn play_fastfile_text() -> String {
     r##"# Generated by `day store stage` — edit store/ in the project, not this file.
 #
 # No metrics: fastlane reports usage to its own servers unless a Fastfile opts out, and a lane
@@ -998,7 +1211,11 @@ fn init(project: &Project) {
     crate::ops::status("Next", "fill in every TODO, then `day lint`");
 }
 
-fn stage_cmd(project: &Project, want: Option<&str>) -> Result<(), CliError> {
+fn stage_cmd(
+    project: &Project,
+    want: Option<&str>,
+    screenshots: Option<&ScreenshotSource>,
+) -> Result<(), CliError> {
     let listing = read(project).map_err(CliError::failure)?;
     if listing.is_empty() {
         return Err(CliError::failure(
@@ -1034,7 +1251,7 @@ fn stage_cmd(project: &Project, want: Option<&str>) -> Result<(), CliError> {
     }
     for t in targets {
         let out = stage_dir(project, t);
-        let files = stage(project, t, &listing, &out)
+        let files = stage(project, t, &listing, &out, screenshots)
             .map_err(|e| CliError::failure(format!("{}: {e}", t.name)))?;
         crate::ops::status(
             "Staged",
@@ -1051,7 +1268,13 @@ pub fn run(project: &Project, cmd: &crate::cli::StoreCmd) -> Result<(), CliError
             init(project);
             Ok(())
         }
-        crate::cli::StoreCmd::Stage { target } => stage_cmd(project, target.as_deref()),
+        crate::cli::StoreCmd::Stage {
+            target,
+            screenshots,
+        } => {
+            let source = screenshots.as_deref().map(ScreenshotSource::parse);
+            stage_cmd(project, target.as_deref(), source.as_ref())
+        }
     }
 }
 
@@ -1124,7 +1347,7 @@ mod tests {
 
         let ios = crate::targets::find("ios-uikit").expect("ios");
         let out = tmp.join("out-ios");
-        stage(&project, ios, &listing, &out).expect("stage ios");
+        stage(&project, ios, &listing, &out, None).expect("stage ios");
         // Apple: `zh-Hans`, deliver's file names, and no short description (it has no such field).
         assert!(out.join("fastlane/metadata/zh-Hans/name.txt").is_file());
         assert!(
@@ -1153,7 +1376,7 @@ mod tests {
 
         let android = crate::targets::find("android-mdc").expect("android");
         let out = tmp.join("out-android");
-        stage(&project, android, &listing, &out).expect("stage android");
+        stage(&project, android, &listing, &out, None).expect("stage android");
         // Google: `zh-CN`, supply's names, and the changelog keyed by versionCode (= [app] build).
         assert!(
             out.join("fastlane/metadata/android/zh-CN/title.txt")
@@ -1207,7 +1430,7 @@ mod tests {
         listing.locales.insert("en".to_string(), fields);
 
         let android = crate::targets::find("android-mdc").expect("android");
-        stage(&project, android, &listing, &tmp.join("out-android")).expect("stage android");
+        stage(&project, android, &listing, &tmp.join("out-android"), None).expect("stage android");
         let play = std::fs::read_to_string(tmp.join("out-android/fastlane/Appfile")).expect("read");
         assert!(
             play.contains("package_name(\"dev.example.app_x\")"),
@@ -1215,7 +1438,7 @@ mod tests {
         );
 
         let ios = crate::targets::find("ios-uikit").expect("ios");
-        stage(&project, ios, &listing, &tmp.join("out-ios")).expect("stage ios");
+        stage(&project, ios, &listing, &tmp.join("out-ios"), None).expect("stage ios");
         let apple = std::fs::read_to_string(tmp.join("out-ios/fastlane/Appfile")).expect("read");
         assert!(
             apple.contains("app_identifier(\"dev.example.app-x\")"),
@@ -1223,6 +1446,141 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The listing's screenshots land where each store's fastlane tool reads them, in listing
+    /// order, one set per locale, the light theme only, from an index `day screenshot index`
+    /// wrote beside its capture tree.
+    #[test]
+    fn staging_places_the_listing_screenshots_for_each_store() {
+        let tmp = std::env::temp_dir().join(format!("day-store-shots-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::fs::write(
+            tmp.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\nbuild = 7\n\
+             targets = [\"ios-uikit\", \"android-mdc\"]\n",
+        )
+        .expect("Day.toml");
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .expect("Cargo.toml");
+        let project = crate::meta::find_project(Some(&tmp)).expect("project");
+        let mut listing = Listing::default();
+        for loc in ["en", "fr"] {
+            let mut fields = BTreeMap::new();
+            fields.insert(Field::Name, "Example".to_string());
+            listing.locales.insert(loc.to_string(), fields);
+        }
+
+        // A capture tree as the runner leaves it, and the index over it.
+        let tree = tmp.join("screenshots");
+        let mut entries = Vec::new();
+        let captures = [
+            ("ios-uikit", "iphone", "light", "en", "home", Some(1)),
+            ("ios-uikit", "iphone", "light", "en", "play", Some(2)),
+            ("ios-uikit", "iphone", "light", "en", "debug", None),
+            ("ios-uikit", "iphone", "dark", "en", "home", Some(1)),
+            ("ios-uikit", "iphone", "light", "fr", "home", Some(1)),
+            ("ios-uikit", "ipad", "light", "en", "home", Some(1)),
+            ("android-mdc", "phone", "light", "en", "home", Some(1)),
+            ("android-mdc", "tablet", "light", "en", "home", Some(1)),
+        ];
+        for (target, device, theme, locale, shot, store) in captures {
+            let variant = if locale == "en" {
+                theme.to_string()
+            } else {
+                format!("{theme}-{locale}")
+            };
+            let rel = format!("{target}/{device}/{variant}/{shot}.png");
+            let path = tree.join(&rel);
+            std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+            std::fs::write(&path, rel.as_bytes()).expect("capture");
+            entries.push(serde_json::json!({
+                "path": format!("gallery/{rel}"),
+                "shot": shot, "device": device, "os": target.split('-').next(),
+                "theme": theme, "locale": locale, "store": store,
+            }));
+        }
+        let index = tree.join("gallery.json");
+        std::fs::write(
+            &index,
+            serde_json::json!({ "screenshots": entries }).to_string(),
+        )
+        .expect("index");
+        let source = ScreenshotSource::parse(index.to_str().expect("utf-8"));
+
+        let ios = crate::targets::find("ios-uikit").expect("ios");
+        let out = tmp.join("out-ios");
+        stage(&project, ios, &listing, &out, Some(&source)).expect("stage ios");
+        let placed = |rel: &str| std::fs::read_to_string(out.join(rel)).ok();
+        assert_eq!(
+            placed("fastlane/screenshots/en-US/01-iphone-home.png").as_deref(),
+            Some("ios-uikit/iphone/light/home.png"),
+            "the capture's own bytes, from the tree beside the index"
+        );
+        assert!(placed("fastlane/screenshots/en-US/02-iphone-play.png").is_some());
+        assert!(placed("fastlane/screenshots/en-US/01-ipad-home.png").is_some());
+        assert!(placed("fastlane/screenshots/fr-FR/01-iphone-home.png").is_some());
+        let apple: Vec<String> = walk(&out.join("fastlane/screenshots"));
+        assert_eq!(
+            apple.len(),
+            4,
+            "no unmarked step, no dark theme, no Android: {apple:?}"
+        );
+        let fastfile = std::fs::read_to_string(out.join("fastlane/Fastfile")).expect("Fastfile");
+        assert!(
+            fastfile.contains("skip_screenshots: false")
+                && fastfile.contains("overwrite_screenshots: true"),
+            "deliver uploads what was staged: {fastfile}"
+        );
+
+        let android = crate::targets::find("android-mdc").expect("android");
+        let out = tmp.join("out-android");
+        stage(&project, android, &listing, &out, Some(&source)).expect("stage android");
+        let placed = |rel: &str| out.join(rel).is_file();
+        assert!(placed(
+            "fastlane/metadata/android/en-US/images/phoneScreenshots/01-home.png"
+        ));
+        assert!(placed(
+            "fastlane/metadata/android/en-US/images/tenInchScreenshots/01-home.png"
+        ));
+        let fastfile = std::fs::read_to_string(out.join("fastlane/Fastfile")).expect("Fastfile");
+        assert!(
+            fastfile.contains("skip_upload_screenshots: false"),
+            "{fastfile}"
+        );
+
+        // Without a source the Fastfiles keep the stores' current screenshots.
+        let out = tmp.join("out-none");
+        stage(&project, android, &listing, &out, None).expect("stage android");
+        let fastfile = std::fs::read_to_string(out.join("fastlane/Fastfile")).expect("Fastfile");
+        assert!(
+            fastfile.contains("skip_upload_screenshots: true"),
+            "{fastfile}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Every file under `dir`, as paths relative to it.
+    fn walk(dir: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return out;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                out.extend(walk(&p).into_iter().map(|f| format!("{name}/{f}")));
+            } else {
+                out.push(e.file_name().to_string_lossy().into_owned());
+            }
+        }
+        out
     }
 
     #[test]

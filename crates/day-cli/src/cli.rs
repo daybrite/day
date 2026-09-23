@@ -535,6 +535,10 @@ pub enum StoreCmd {
         /// Target to prepare (default: all store targets)
         #[arg(short = 'p', long = "platform", visible_alias = "target")]
         target: Option<String>,
+        /// Place the listing's screenshots from a gallery index: the site's published
+        /// gallery.json by URL, or a local one. Takes the captures marked `store: N`
+        #[arg(long, value_name = "URL|PATH")]
+        screenshots: Option<String>,
     },
 }
 

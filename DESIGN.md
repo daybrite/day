@@ -2787,11 +2787,23 @@ on one backend, replay on any.
 ### §14.7 Screenshot metadata and the gallery index
 
 A `screenshot:` step may carry gallery metadata beside its capture keys: `title:` and
-`caption:` (a plain string, or a locale-keyed map — `title: { en: "Home", fr: "Accueil" }`)
-and `source:` (the path of the code the screen renders from, relative to the app repository).
-The metadata lives on the step because that is where the capture is declared; it is
+`caption:` (a plain string, or a locale-keyed map — `title: { en: "Home", fr: "Accueil" }`),
+`source:` (the path of the code the screen renders from, relative to the app repository), and
+`store: N` (this capture is the Nth screenshot of the app's store listing; `store: true` is the
+first). The metadata lives on the step because that is where the capture is declared; it is
 **runner-side only** — day-cli strips the keys before the step reaches the engine, so apps and
 the day-script protocol are untouched (Appendix C lists the keys).
+
+`store:` is how a walkthrough that captures dozens of screens says which few the listing shows,
+and in what order. Each entry the index publishes carries the position, so a consumer selects on
+it without knowing the shot names: `day store stage --screenshots <gallery.json | URL>` reads
+the index, takes the marked captures in one theme (`store/app.toml`'s `screenshot-theme`,
+`light` by default) for every locale the store knows, and places them in the fastlane tree
+(`fastlane/screenshots/<locale>/` for deliver; `fastlane/metadata/android/<locale>/images/
+<phone|sevenInch|tenInch>Screenshots/` for supply, the folder from the capture's device slug),
+whereupon the generated lanes stop skipping screenshots. The App Fair's queue is the first
+consumer: its review shows the marked captures alone, its checks hold their sizes to what each
+store accepts, and its signing stage stages them from the app's published gallery (2026-09-24).
 
 The runner folds every capture it saves into `build/day/screenshots/<target>/gallery.json`
 (upserted across runs and variants; entries whose files are gone are pruned), carrying the
@@ -3422,7 +3434,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
-| `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)) |
+| `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures a walkthrough marked `store: N` (§14.7), from a gallery index |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256. App sites serve it at `/gallery/gallery.json`; `--out` places it |
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
@@ -5893,7 +5905,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
-| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
+| `screenshot` | name, `window?`, `title?`, `caption?`, `source?`, `store?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map), `source` and `store` (the listing position) are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
 | `pause` | `secs` | demos only |
 | `size_class` | `width`, `height?` | REPORT a size class the window is not actually at, so a nav host re-presents and a piece reading `day::size_class()` rebuilds. Changes no pixels — a screenshot after it shows the new layout at the old size. `width: auto` restores what the backend reports ([docs/size-classes.md](docs/size-classes.md)) |
 | `resize` | `width`, `height`, or `auto` | `size_class`'s complement: change the window's REAL geometry. Runner-side first (a device's window belongs to the system — android-mdc drives `adb shell wm size`), then the engine half waits for the app to report the new class. A target with no host-side lever FAILS the step rather than passing one that moved nothing ([docs/size-classes.md](docs/size-classes.md)) |

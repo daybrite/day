@@ -24,7 +24,7 @@ const links = [
       {links.map((l) => (
         <a href={l.href} class:list={['nav-link', { on: active === l.key }]}>{l.label}</a>
       ))}
-      <a class="nav-link nav-repo" href={site.repo} rel="noopener">GitHub ↗</a>
+      <a class="nav-link nav-repo" href={site.repo} rel="noopener">GitHub</a>
       <ThemeToggle compact />
     </nav>
   </div>

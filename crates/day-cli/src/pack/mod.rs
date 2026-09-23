@@ -251,7 +251,7 @@ pub fn run(
         match crate::store::read(project) {
             Ok(listing) if !listing.is_empty() => {
                 let out = crate::store::stage_dir(project, target);
-                match crate::store::stage(project, target, &listing, &out) {
+                match crate::store::stage(project, target, &listing, &out, None) {
                     Ok(files) => status(
                         "Listing",
                         &format!(

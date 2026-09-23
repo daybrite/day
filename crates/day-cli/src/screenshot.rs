@@ -456,6 +456,10 @@ pub struct TargetEntry {
     pub caption: Option<Text>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The capture's position in the store listing, when the step declared `store:` (§14.7).
+    /// Absent for the captures a walkthrough takes as evidence rather than for the listing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub store: Option<u32>,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub bytes: u64,
@@ -489,6 +493,7 @@ pub fn target_entry(
         title: meta.and_then(|m| m.title.clone()),
         caption: meta.and_then(|m| m.caption.clone()),
         source: meta.and_then(|m| m.source.clone()),
+        store: meta.and_then(|m| m.store),
         width: dims.map(|d| d.0),
         height: dims.map(|d| d.1),
         bytes: bytes.len() as u64,
@@ -548,6 +553,9 @@ pub struct ShotMeta {
     pub title: Option<Text>,
     pub caption: Option<Text>,
     pub source: Option<String>,
+    /// `store: N`: this capture is the Nth screenshot of the store listing, in every locale and
+    /// on every device the walkthrough runs on. `store: true` is position 1.
+    pub store: Option<u32>,
 }
 
 /// Take the metadata out of a runner step object (leaving the step engine-clean).
@@ -559,6 +567,11 @@ pub fn extract_meta(step: &mut serde_json::Map<String, serde_json::Value>) -> Sh
         source: step
             .remove("source")
             .and_then(|v| v.as_str().map(str::to_string)),
+        store: step.remove("store").and_then(|v| match v {
+            serde_json::Value::Bool(true) => Some(1),
+            serde_json::Value::Number(n) => n.as_u64().filter(|n| *n > 0).map(|n| n as u32),
+            _ => None,
+        }),
     }
 }
 
@@ -820,6 +833,9 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             if m.source.is_none() {
                 m.source = e.source.clone();
             }
+            if m.store.is_none() {
+                m.store = e.store;
+            }
         }
     }
 
@@ -895,6 +911,9 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 "height": e.height,
                 "bytes": e.bytes,
                 "sha256": e.sha256,
+                // The listing position, when the step declared one: what `day store stage
+                // --screenshots` and a catalog's review select on.
+                "store": e.store.or_else(|| meta.and_then(|m| m.store)),
             }));
         }
     }
@@ -908,6 +927,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 "title": m.title.map(|t| t.to_map(&fallback_locale)),
                 "caption": m.caption.map(|c| c.to_map(&fallback_locale)),
                 "source": m.source,
+                "store": m.store,
             })
         })
         .collect();
@@ -1044,7 +1064,7 @@ mod tests {
     #[test]
     fn extract_meta_strips_the_step() {
         let mut step = serde_json::from_str::<serde_json::Map<_, _>>(
-            r#"{"op":"screenshot","name":"home","title":{"en":"Home","fr":"Accueil"},"caption":"The hub","source":"src/lib.rs"}"#,
+            r#"{"op":"screenshot","name":"home","title":{"en":"Home","fr":"Accueil"},"caption":"The hub","source":"src/lib.rs","store":2}"#,
         )
         .unwrap();
         let meta = extract_meta(&mut step);
@@ -1052,10 +1072,20 @@ mod tests {
             !step.contains_key("title")
                 && !step.contains_key("caption")
                 && !step.contains_key("source")
+                && !step.contains_key("store")
         );
         assert_eq!(meta.title.unwrap().resolve("fr"), Some("Accueil"));
         assert_eq!(meta.caption.unwrap().resolve("en"), Some("The hub"));
         assert_eq!(meta.source.as_deref(), Some("src/lib.rs"));
+        assert_eq!(meta.store, Some(2));
+        // `store: true` is the first position; zero and a string are no position at all.
+        for (raw, want) in [("true", Some(1)), ("0", None), ("\"first\"", None)] {
+            let mut step = serde_json::from_str::<serde_json::Map<_, _>>(&format!(
+                r#"{{"op":"screenshot","name":"x","store":{raw}}}"#
+            ))
+            .unwrap();
+            assert_eq!(extract_meta(&mut step).store, want, "store: {raw}");
+        }
     }
 
     #[test]
@@ -1100,6 +1130,7 @@ mod tests {
             title: None,
             caption: None,
             source: None,
+            store: None,
             width: None,
             height: None,
             bytes: 0,
