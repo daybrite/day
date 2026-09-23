@@ -95,7 +95,7 @@ default-members = [
 # `publish = false`, so `cargo publish --workspace` (and the `release` CI job) selects those six
 # in dependency order. To publish another crate later, drop its `publish = false`.
 [workspace.package]
-version = "0.4.7"
+version = "0.4.8"
 authors = ["Daybrite <hello@daybrite.dev>"]
 edition = "2024"
 description = "Declarative app development API using native UI toolkits"
@@ -112,7 +112,7 @@ rust-version = "1.89"
 # published crates depend on them, and crates.io requires a registry version requirement.
 # Cargo cannot inherit these requirements from workspace.package; update them when releasing.
 day-geometry = { path = "crates/day-geometry" }
-day-fonts = { path = "crates/day-fonts", version = "0.4.7" }
+day-fonts = { path = "crates/day-fonts", version = "0.4.8" }
 day-reactive = { path = "crates/day-reactive" }
 day-spec = { path = "crates/day-spec" }
 day-mock = { path = "crates/day-mock" }
@@ -121,7 +121,7 @@ day-pieces = { path = "crates/day-pieces" }
 day-l10n = { path = "crates/day-l10n" }
 day-fluent = { path = "crates/day-fluent" }
 day-script = { path = "crates/day-script" }
-day-vector = { path = "crates/day-vector", version = "0.4.7" }
+day-vector = { path = "crates/day-vector", version = "0.4.8" }
 day-model = { path = "crates/day-model" }
 day-macros = { path = "crates/day-macros" }
 # default-features = false so trait-only and engine-agnostic consumers can inherit without an
@@ -161,8 +161,8 @@ day-tweak-button-bezel = { path = "tweaks/day-tweak-button-bezel" }
 day-tweak-tooltip = { path = "tweaks/day-tweak-tooltip" }
 day-tweak-tree-style = { path = "tweaks/day-tweak-tree-style" }
 day-tweak-slider-tickmarks = { path = "tweaks/day-tweak-slider-tickmarks" }
-day-toolchain = { path = "crates/day-toolchain", version = "0.4.7" }
-day-build = { path = "crates/day-build", version = "0.4.7" }
+day-toolchain = { path = "crates/day-toolchain", version = "0.4.8" }
+day-build = { path = "crates/day-build", version = "0.4.8" }
 day-async = { path = "crates/day-async" }
 day-bridge = { path = "crates/day-bridge" }
 day-appkit = { path = "toolkits/day-appkit" }
