@@ -1,6 +1,6 @@
 ---
 title: Is Day a good fit?
-description: "Decide whether native controls, shared Rust code, and Day’s workflow suit your app."
+description: "Decide whether native controls, a shared codebase, and Day’s workflow suit your app."
 order: 2
 section: Start here
 ---
@@ -18,7 +18,7 @@ your interface will vary with the platform, and you will still need to test thos
 
 A settings screen, a document window, or a list of records usually benefits from familiar
 controls: text fields that select text as expected, menus with keyboard shortcuts, and
-scrolling that feels like the rest of the system. Day lets you describe these in one Rust
+scrolling that feels like the rest of the system. Day lets you describe these in one
 codebase. The toolkit supplies their native appearance and behavior.
 
 If your design depends on identical controls and elaborate custom animation everywhere,

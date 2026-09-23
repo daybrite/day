@@ -1,6 +1,6 @@
 ---
 title: Menus, toolbars, and windows
-description: "Install a native menu bar with standard roles and shortcuts, put commands in the window's toolbar, and open secondary windows, including the standard Settings window, from Rust."
+description: "Install a native menu bar with standard roles and shortcuts, put commands in the window's toolbar, and open secondary windows, including the standard Settings window, from your app."
 order: 32
 section: Guides
 ---

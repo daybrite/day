@@ -108,7 +108,7 @@ function richInstall(text: string): (string | { code: string })[] {
   return text.split('`').map((part, i) => (i % 2 ? { code: part } : part));
 }
 ---
-<BaseLayout title="Day Showcase" description="Day Showcase is the catalog app for Day: every piece the framework implements, from one Rust codebase, drawn with each platform's own widgets. Run it in the browser, install a packaged build for Android, iOS, HarmonyOS, macOS, Windows, or Linux, or build it from source." active="showcase">
+<BaseLayout title="Day Showcase" description="Day Showcase is the catalog app for Day: every piece the framework implements, from one codebase, drawn with each platform's own widgets. Run it in the browser, install a packaged build for Android, iOS, HarmonyOS, macOS, Windows, or Linux, or build it from source." active="showcase">
   <section class="section dl-hero">
     {/* Prose and carousel side by side, on the shared `.hero-grid` from styles/global.css — the
         landing page's hero is the same pairing, and both get the layout from that one rule. */}
@@ -118,7 +118,7 @@ function richInstall(text: string): (string | { code: string })[] {
         <h1 class="dl-title">The catalog app for <span class="accent-text">Day</span></h1>
         <p class="lead">
           Day Showcase puts every piece the framework implements behind a native navigation host —
-          controls, lists, text, canvas, media, maps, localization — from one Rust codebase. Nothing
+          controls, lists, text, canvas, media, maps, localization — from one codebase. Nothing
           in it is drawn by Day: the switch on its Controls page is a <code>UISwitch</code> on
           iPhone, a <code>MaterialSwitch</code> on Android, and an <code>NSSwitch</code> on a Mac.
           It is the app in the <a href={galleryHref}>gallery</a>, and the fastest way to see what a

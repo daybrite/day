@@ -84,7 +84,7 @@ export const apps = [
     id: 'Day-Showcase',
     label: 'Day Showcase',
     blurb:
-      'One Rust program showing every implemented Piece, rendered with native widgets on each target.',
+      'One app showing every implemented Piece, rendered with native widgets on each target.',
     repo: 'https://github.com/daybrite/Day-Showcase',
     site: 'https://showcase.daybrite.dev',
     metadata: 'https://showcase.daybrite.dev/gallery/gallery.json',
