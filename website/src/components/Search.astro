@@ -12,7 +12,6 @@ const pagefindCss = url('pagefind/pagefind-ui.css');
     <circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" />
   </svg>
   <span class="st-text">Search</span>
-  <kbd>⌘K</kbd>
 </button>
 
 <dialog class="search-modal" data-search-dialog aria-label="Search the site" data-pagefind-ignore>
@@ -92,15 +91,6 @@ const pagefindCss = url('pagefind/pagefind-ui.css');
   }
   .search-trigger:hover { color: var(--text); border-color: var(--brand); }
   .search-trigger svg { width: 15px; height: 15px; }
-  .search-trigger kbd {
-    font-family: var(--mono);
-    font-size: 0.72rem;
-    color: var(--faint);
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 1px 5px;
-  }
 
   .search-modal {
     /* Pagefind UI theming — inherited by the widget mounted inside. */
@@ -131,7 +121,7 @@ const pagefindCss = url('pagefind/pagefind-ui.css');
   .search-unavailable { color: var(--muted); font-size: 0.92rem; margin: 6px 2px; }
 
   @media (max-width: 620px) {
-    .search-trigger .st-text, .search-trigger kbd { display: none; }
+    .search-trigger .st-text { display: none; }
     .search-trigger { padding: 0 9px; }
   }
 </style>

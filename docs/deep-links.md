@@ -192,7 +192,9 @@ string with no formatter behind it) and writes the platform's native declaration
   scaffold's `Stage Day Strings` script phase (`day xcode-backend stage-strings`, injected
   into pre-existing scaffolds on first use) stages `<locale>.lproj/InfoPlist.strings` into
   the built bundle, keyed by that default text so an unlocalized device falls back to
-  readable English. A quick action's type string is the URL itself; the scene delegate feeds
+  readable English. The default locale gets its own `.lproj` too: those dirs are the
+  bundle's localization list, and iOS 15 resolves a device language outside the list to the
+  first entry, not to `CFBundleDevelopmentRegion`. A quick action's type string is the URL itself; the scene delegate feeds
   it into `day_core::request_route`, warm via `performActionForShortcutItem` and cold via the
   connection options. Conveyance is verified in the built bundle; the tap itself cannot be
   automated on a simulator (no touch injection, and `simctl openurl` sits behind a

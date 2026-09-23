@@ -367,10 +367,12 @@ pub fn stage_ios_strings(project: &Project, bundle: &Path) -> Result<(), String>
         return Ok(());
     }
     let locales: Vec<String> = shortcuts[0].labels.keys().cloned().collect();
+    // The default locale is staged too, though its strings only restate the Info.plist text:
+    // the `.lproj` dirs are the bundle's localization list, and a device language that matches
+    // none of them is resolved against it. iOS 15 does not fall back to
+    // `CFBundleDevelopmentRegion` there; it takes the first listed, so an English device ran an
+    // app with only `ar`/`fr`/`zh-Hans` staged as Arabic, with the whole layout mirrored.
     for loc in &locales {
-        if loc == DEFAULT_LOCALE {
-            continue; // the Info.plist value IS the default-locale text
-        }
         let dir = bundle.join(format!("{}.lproj", lproj_name(loc)));
         std::fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
         let mut s = String::from(

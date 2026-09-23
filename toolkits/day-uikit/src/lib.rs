@@ -1158,7 +1158,11 @@ mod imp {
             unsafe {
                 bar.setEnabled(item.enabled);
                 bar.setAccessibilityLabel(Some(&title), mtm);
-                if let Some(rep) = menu_representation(mtm, item, root, &bar) {
+                // `menuRepresentation` is iOS 16's, as is the overflow it feeds: iOS 15 has no
+                // item groups to fold (see `apply_items_styled`).
+                if os_at_least(16)
+                    && let Some(rep) = menu_representation(mtm, item, root, &bar)
+                {
                     bar.setMenuRepresentation(Some(&rep));
                 }
             }
@@ -1548,6 +1552,9 @@ mod imp {
         groups_ok: bool,
     ) {
         use day_spec::ToolbarPlacement as P;
+        // Item groups, and the overflow they give a bar, are iOS 16's (`trailingItemGroups`,
+        // `UIBarButtonItemGroup`'s fixed/optional constructors); iOS 15 takes plain items.
+        let groups_ok = groups_ok && os_at_least(16);
         let all: Vec<day_spec::ToolbarItem> = window_items.to_vec();
 
         let take = |ps: &[P], all: &[day_spec::ToolbarItem]| -> Vec<day_spec::ToolbarItem> {
@@ -1582,38 +1589,38 @@ mod imp {
             // Primary items ride a FIXED group so a crowded bar never folds them; everything
             // else rides one optional group apiece, which is what lets UIKit take them into the
             // overflow one at a time from the trailing end (docs/toolbars.md).
-            let mut groups: Vec<Retained<objc2_ui_kit::UIBarButtonItemGroup>> = Vec::new();
-            let auto: Vec<_> = trailing
-                .iter()
-                .filter(|i| i.placement != P::Primary)
-                .cloned()
-                .collect();
-            let prime: Vec<_> = trailing
-                .iter()
-                .filter(|i| i.placement == P::Primary)
-                .cloned()
-                .collect();
-            groups.extend(optional_item_groups(
-                mtm,
-                &auto,
-                build_toolbar_items(mtm, root, &auto, &mut targets),
-            ));
-            if !prime.is_empty() {
-                let built = build_toolbar_items(mtm, root, &prime, &mut targets);
-                groups.push(
-                    objc2_ui_kit::UIBarButtonItemGroup::fixedGroupWithRepresentativeItem_items(
-                        None,
-                        &objc2_foundation::NSArray::from_retained_slice(&built),
-                        mtm,
-                    ),
-                );
-            }
-            groups.extend(optional_item_groups(
-                mtm,
-                &secondary,
-                build_toolbar_items(mtm, root, &secondary, &mut targets),
-            ));
             if groups_ok {
+                let mut groups: Vec<Retained<objc2_ui_kit::UIBarButtonItemGroup>> = Vec::new();
+                let auto: Vec<_> = trailing
+                    .iter()
+                    .filter(|i| i.placement != P::Primary)
+                    .cloned()
+                    .collect();
+                let prime: Vec<_> = trailing
+                    .iter()
+                    .filter(|i| i.placement == P::Primary)
+                    .cloned()
+                    .collect();
+                groups.extend(optional_item_groups(
+                    mtm,
+                    &auto,
+                    build_toolbar_items(mtm, root, &auto, &mut targets),
+                ));
+                if !prime.is_empty() {
+                    let built = build_toolbar_items(mtm, root, &prime, &mut targets);
+                    groups.push(
+                        objc2_ui_kit::UIBarButtonItemGroup::fixedGroupWithRepresentativeItem_items(
+                            None,
+                            &objc2_foundation::NSArray::from_retained_slice(&built),
+                            mtm,
+                        ),
+                    );
+                }
+                groups.extend(optional_item_groups(
+                    mtm,
+                    &secondary,
+                    build_toolbar_items(mtm, root, &secondary, &mut targets),
+                ));
                 item.setTrailingItemGroups(&objc2_foundation::NSArray::from_retained_slice(
                     &groups,
                 ));
@@ -1725,7 +1732,6 @@ mod imp {
         let mut targets = Vec::new();
         let controls = bar_controls(&items);
         let bar_items = build_toolbar_items(mtm, root, &controls, &mut targets);
-        let groups = optional_item_groups(mtm, &controls, bar_items);
         let existing =
             WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).and_then(|w| w.docked.clone()));
         let bar = existing.unwrap_or_else(|| {
@@ -1741,9 +1747,23 @@ mod imp {
         });
         // `topItem` is the one pushed above; a bar with no item would drop the groups.
         if let Some(item) = unsafe { bar.topItem() } {
-            unsafe {
-                item.setTrailingItemGroups(&objc2_foundation::NSArray::from_retained_slice(&groups))
-            };
+            if os_at_least(16) {
+                let groups = optional_item_groups(mtm, &controls, bar_items);
+                unsafe {
+                    item.setTrailingItemGroups(&objc2_foundation::NSArray::from_retained_slice(
+                        &groups,
+                    ))
+                };
+            } else {
+                // iOS 15 has no item groups: plain items, rightmost first (as in
+                // `apply_items_styled`), and a bar too narrow for them all clips.
+                let ordered: Vec<_> = bar_items.into_iter().rev().collect();
+                unsafe {
+                    item.setRightBarButtonItems(Some(
+                        &objc2_foundation::NSArray::from_retained_slice(&ordered),
+                    ))
+                };
+            }
         }
         WINDOW_TOOLBARS.with(|t| {
             if let Some(w) = t.borrow_mut().get_mut(&root) {
@@ -4853,8 +4873,14 @@ mod imp {
                     // environment. The class method `listCellConfiguration:` would do as well,
                     // but it is iOS 18+, and calling it on anything older is not a missing
                     // background — it is `+[UIBackgroundConfiguration listCellConfiguration]:
-                    // method not found` and an abort before the first frame.
-                    cell.setBackgroundConfiguration(Some(&cell.defaultBackgroundConfiguration()));
+                    // method not found` and an abort before the first frame. The instance method is
+                    // itself iOS 16's; on iOS 15 a list cell already takes its background from the
+                    // list environment, so there is nothing to set.
+                    if os_at_least(16) {
+                        cell.setBackgroundConfiguration(Some(
+                            &cell.defaultBackgroundConfiguration(),
+                        ));
+                    }
                     cell.setAccessories(&nav_accessories(mtm, bimg.as_deref(), btint));
                 }
                 objc2::rc::Retained::into_super(cell)
