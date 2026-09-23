@@ -1335,10 +1335,8 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     collect_files(&sources.join("fonts"), &mut expected);
     prune_except(&sources, &expected.into_iter().collect());
 
-    // The package floor: the shipped default unless a contribution needs more. The package floor
-    // may never exceed the effective app target (xcodebuild errors), which is what the returned
-    // override guarantees.
-    let floor = max_platform("16.0", pieces.platform.as_deref().unwrap_or("16.0"));
+    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "16.0".into());
+    let floor = ios_package_floor(&pbx, pieces.platform.as_deref());
     write_if_changed(
         &pkg_dir.join("Package.swift"),
         &package_swift(
@@ -1352,9 +1350,23 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     )?;
 
     // Override only when the contributions exceed the scaffold's checked-in target, and never
-    // lower a value the user raised by hand.
-    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "16.0".into());
+    // lower a value the user set by hand.
     Ok((max_platform(&pbx, &floor) != pbx).then_some(floor))
+}
+
+/// The generated `DayPieces` package's minimum iOS: the APP's own checked-in deployment target,
+/// raised by a contribution that needs more (docs/swiftui.md).
+///
+/// The baseline is the app's, not a constant. A hardcoded one cuts both ways: it may never
+/// EXCEED the effective app target (xcodebuild errors, which is what the returned override
+/// guarantees), and a target the app had lowered below it was silently raised back on every
+/// xcodebuild invocation — so `IPHONEOS_DEPLOYMENT_TARGET` in `DayApp.xcconfig` decided nothing
+/// and an app could not ship below the scaffold's 16.0.
+fn ios_package_floor(app_target: &str, contributed: Option<&str>) -> String {
+    match contributed {
+        Some(p) => max_platform(app_target, p),
+        None => app_target.to_string(),
+    }
 }
 
 /// The scaffold's checked-in `IPHONEOS_DEPLOYMENT_TARGET` (the max across every place it can
@@ -2371,6 +2383,18 @@ mod tests {
         assert_eq!(max_platform("9.9", "10.0"), "10.0");
         assert_eq!(max_platform("13.0", "13.0"), "13.0");
         assert_eq!(max_platform("13.0.1", "13.0"), "13.0.1");
+    }
+
+    #[test]
+    fn the_ios_package_floor_follows_the_app_target() {
+        // No contribution: the package matches the app, wherever the app put it. The 15.0 case
+        // is the one that regressed — a hardcoded 16.0 baseline re-raised it on every build.
+        assert_eq!(ios_package_floor("16.0", None), "16.0");
+        assert_eq!(ios_package_floor("15.0", None), "15.0");
+        assert_eq!(ios_package_floor("18.0", None), "18.0");
+        // A contribution raises from there, and never lowers what the app asked for.
+        assert_eq!(ios_package_floor("15.0", Some("16.0")), "16.0");
+        assert_eq!(ios_package_floor("18.0", Some("16.0")), "18.0");
     }
 
     #[test]

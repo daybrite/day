@@ -177,12 +177,19 @@ prepass and `cargo rustc` link; both went with that path in 2026-08.)
 
 ### Deployment floors
 
-The generated packages default to iOS 16 / macOS 13; a contribution's `platform` key raises the
-floor (the max across contributions wins). On iOS the raise must also reach the app target;
-`day build` passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild, which covers the app and
-the SwiftPM package targets without editing the scaffold. Command-line settings do not apply to
-⌘R builds inside Xcode, so for IDE work raise `IPHONEOS_DEPLOYMENT_TARGET` in
-`platform/ios/DayApp.xcconfig` (a user-raised value is never lowered).
+The macOS package defaults to macOS 13. The iOS package takes the app's own
+`IPHONEOS_DEPLOYMENT_TARGET` — the one in `platform/ios/DayApp.xcconfig`, which the scaffold
+writes as 16.0 — so lowering that line lowers the package with it, down to the 15.0 floor the
+iOS SDK still accepts. A contribution's `platform` key raises the floor from there (the max
+across contributions wins), and on iOS the raise must also reach the app target: `day build`
+passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild, which covers the app and the SwiftPM
+package targets without editing the scaffold. Command-line settings do not apply to ⌘R builds
+inside Xcode, so for IDE work raise the value in `DayApp.xcconfig` itself.
+
+Lowering it is the app's call, and the app owns what follows: Day's own backends call a handful
+of UIKit APIs that arrived in iOS 16 without asking the runtime first — navigation-bar item
+groups (`docs/toolbars.md`) and a list or tree cell's default background configuration among
+them — so an app below that floor should stay off those surfaces until each call is guarded.
 
 ## Failure behavior
 

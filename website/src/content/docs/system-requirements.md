@@ -301,8 +301,10 @@ and opens a browser.
 
 ## What your apps require
 
-These are the minimums your *users* need, which the scaffold sets and you can raise in your
-project's platform configuration. They are unrelated to what your development machine needs.
+These are the minimums your *users* need, which the scaffold sets and you can change in your
+project's platform configuration — up to whatever your code needs, or down as far as the
+platform's own tooling still allows (iOS 15 under the current SDK, for instance). They are
+unrelated to what your development machine needs.
 
 | Target | Minimum |
 |---|---|
