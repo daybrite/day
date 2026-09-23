@@ -542,7 +542,271 @@ struct StoreShot {
     device: String,
     shot: String,
     locale: String,
+    width: u32,
+    height: u32,
     entry: serde_json::Value,
+}
+
+/// The captures an index marks for `target`'s store, in listing order: `store: N` entries of
+/// that OS, in the theme the listing asked for (a capture with no theme is taken as it is), with
+/// a locale.
+fn listing_shots(
+    index: &serde_json::Value,
+    target: &'static crate::targets::Target,
+    theme: &str,
+) -> Result<Vec<StoreShot>, String> {
+    let entries = index["screenshots"]
+        .as_array()
+        .ok_or("the gallery index has no `screenshots` list")?;
+    let mut chosen: Vec<StoreShot> = Vec::new();
+    for e in entries {
+        let Some(position) = e["store"].as_u64() else {
+            continue;
+        };
+        if e["os"].as_str() != Some(target.os) {
+            continue;
+        }
+        if let Some(t) = e["theme"].as_str()
+            && t != theme
+        {
+            continue;
+        }
+        let Some(locale) = e["locale"].as_str() else {
+            continue;
+        };
+        chosen.push(StoreShot {
+            position: position as u32,
+            device: e["device"].as_str().unwrap_or("phone").to_string(),
+            shot: e["shot"].as_str().unwrap_or("shot").to_string(),
+            locale: locale.to_string(),
+            width: e["width"].as_u64().unwrap_or(0) as u32,
+            height: e["height"].as_u64().unwrap_or(0) as u32,
+            entry: e.clone(),
+        });
+    }
+    chosen.sort_by(|a, b| {
+        (a.locale.as_str(), a.device.as_str(), a.position).cmp(&(
+            b.locale.as_str(),
+            b.device.as_str(),
+            b.position,
+        ))
+    });
+    Ok(chosen)
+}
+
+/// What a store takes for one device kind of screenshot (docs/store.md).
+struct ShotRule {
+    /// The capture's device slug, or its prefix for `tablet*`.
+    kind: &'static str,
+    /// Whether every locale needs at least one: App Store Connect refuses a version whose
+    /// localization has none, and Play refuses a listing without phone screenshots.
+    required: bool,
+    /// The store's ceiling per locale.
+    max: usize,
+    /// Apple: the exact sizes it takes for the kind.
+    sizes: &'static [(u32, u32)],
+    /// Google: the short side at least, the long side at most, and the long side at most this
+    /// many times the short.
+    range: Option<(u32, u32, f64)>,
+}
+
+/// The App Store's 6.9" iPhone and 13" iPad sizes: what the default CI device profiles
+/// (`iPhone * Pro Max`, `iPad Pro 13-inch`) produce.
+const APPLE_RULES: &[ShotRule] = &[
+    ShotRule {
+        kind: "iphone",
+        required: true,
+        max: 10,
+        sizes: &[
+            (1320, 2868),
+            (2868, 1320),
+            (1290, 2796),
+            (2796, 1290),
+            (1260, 2736),
+            (2736, 1260),
+        ],
+        range: None,
+    },
+    ShotRule {
+        kind: "ipad",
+        required: true,
+        max: 10,
+        sizes: &[(2064, 2752), (2752, 2064), (2048, 2732), (2732, 2048)],
+        range: None,
+    },
+];
+
+/// Google Play's rules: any size from 320 to 3840 px a side whose long side is at most twice the
+/// short, which the 20:9 `medium_phone` profile exceeds and a 9:16 one such as `pixel` meets.
+const PLAY_RULES: &[ShotRule] = &[
+    ShotRule {
+        kind: "phone",
+        required: true,
+        max: 8,
+        sizes: &[],
+        range: Some((320, 3840, 2.0)),
+    },
+    ShotRule {
+        kind: "tablet",
+        required: false,
+        max: 8,
+        sizes: &[],
+        range: Some((320, 3840, 2.0)),
+    },
+];
+
+fn rule_for<'a>(rules: &'a [ShotRule], device: &str) -> Option<&'a ShotRule> {
+    rules
+        .iter()
+        .find(|r| device == r.kind || (r.kind == "tablet" && device.starts_with("tablet")))
+}
+
+/// What `target`'s store would refuse about the listing's screenshots in `index`, read from the
+/// index alone (its `width`/`height`): each capture's size, the ceiling per locale, and a
+/// screenshot for every locale the index carries that the store knows, on each required kind.
+/// Empty when the listing would go through.
+pub fn screenshot_problems(
+    index: &serde_json::Value,
+    target: &'static crate::targets::Target,
+    theme: &str,
+) -> Vec<String> {
+    let apple = target.toolkit == "uikit";
+    let store = if apple {
+        "the App Store"
+    } else {
+        "Google Play"
+    };
+    let rules = if apple { APPLE_RULES } else { PLAY_RULES };
+    let chosen = match listing_shots(index, target, theme) {
+        Ok(c) => c,
+        Err(e) => return vec![e],
+    };
+    let mut problems = Vec::new();
+    // Every locale the index carries that the store knows; a capture's own locale when the
+    // index lists none.
+    let mut locales: Vec<String> = index["locales"]
+        .as_array()
+        .map(|l| {
+            l.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    if locales.is_empty() {
+        for s in &chosen {
+            if !locales.contains(&s.locale) {
+                locales.push(s.locale.clone());
+            }
+        }
+    }
+    locales.retain(|l| store_locale(l, apple).is_some());
+    for s in &chosen {
+        if rule_for(rules, &s.device).is_none() {
+            problems.push(format!(
+                "{store}: the screenshot {:?} ({}) was captured on device {:?}, which is not a \
+                 kind the store lists; the CI device profile's `slug=` names it: {}",
+                s.shot,
+                s.locale,
+                s.device,
+                rules.iter().map(|r| r.kind).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+    for rule in rules {
+        let mine: Vec<&StoreShot> = chosen
+            .iter()
+            .filter(|s| rule_for(rules, &s.device).is_some_and(|r| r.kind == rule.kind))
+            .collect();
+        for s in &mine {
+            let (w, h) = (s.width, s.height);
+            let (lo, hi) = (w.min(h), w.max(h));
+            if !rule.sizes.is_empty() && !rule.sizes.contains(&(w, h)) {
+                problems.push(format!(
+                    "{store}: the {} screenshot {:?} ({}) is {w}×{h}, which the store does not \
+                     take for {}; it takes {}. Capture on a device profile that produces one of \
+                     those",
+                    rule.kind,
+                    s.shot,
+                    s.locale,
+                    rule.kind,
+                    rule.sizes
+                        .iter()
+                        .map(|(a, b)| format!("{a}×{b}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                continue;
+            }
+            if let Some((min_side, max_side, ratio)) = rule.range {
+                if lo < min_side {
+                    problems.push(format!(
+                        "{store}: the {} screenshot {:?} ({}) is {w}×{h}; the short side has to \
+                         be at least {min_side} px",
+                        rule.kind, s.shot, s.locale
+                    ));
+                }
+                if hi > max_side {
+                    problems.push(format!(
+                        "{store}: the {} screenshot {:?} ({}) is {w}×{h}; the long side has to \
+                         be at most {max_side} px",
+                        rule.kind, s.shot, s.locale
+                    ));
+                }
+                if lo > 0 && f64::from(hi) / f64::from(lo) > ratio + 1e-9 {
+                    problems.push(format!(
+                        "{store}: the {} screenshot {:?} ({}) is {w}×{h}, {:.2}:1; the store \
+                         takes at most {ratio}:1 (the long side no more than {ratio}× the \
+                         short). Capture on a {} profile with a shorter screen, such as a 9:16 \
+                         one",
+                        rule.kind,
+                        s.shot,
+                        s.locale,
+                        f64::from(hi) / f64::from(lo),
+                        rule.kind
+                    ));
+                }
+            }
+        }
+        let mut per_locale: BTreeMap<&str, usize> = BTreeMap::new();
+        for s in &mine {
+            *per_locale.entry(s.locale.as_str()).or_default() += 1;
+        }
+        for (locale, n) in &per_locale {
+            if *n > rule.max {
+                problems.push(format!(
+                    "{store}: {n} {} screenshots for {locale}, and the store takes at most {}; \
+                     lower the `store:` marks in the walkthrough to {}",
+                    rule.kind, rule.max, rule.max
+                ));
+            }
+        }
+        if rule.required {
+            if mine.is_empty() {
+                problems.push(format!(
+                    "{store} needs {} screenshots and the index marks none. Add `store: N` to \
+                     the `screenshot:` steps the listing should show, and capture on a {} \
+                     profile",
+                    rule.kind, rule.kind
+                ));
+            } else {
+                let missing: Vec<&str> = locales
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|l| !per_locale.contains_key(l))
+                    .collect();
+                if !missing.is_empty() {
+                    problems.push(format!(
+                        "{store}: no {} screenshots for {}; the walkthrough captured other \
+                         locales, so run it for these too",
+                        rule.kind,
+                        missing.join(", ")
+                    ));
+                }
+            }
+        }
+    }
+    problems
 }
 
 /// The listing's screenshots for `target`, placed where fastlane reads them.
@@ -550,7 +814,8 @@ struct StoreShot {
 /// The index marks a capture for the listing with `store: N` (the dayscript step's `store:`,
 /// §14.7). Of the theme variants, the one `store/app.toml`'s `screenshot-theme` names is taken,
 /// `light` by default; a capture with no theme is taken as it is. Every locale in the index that
-/// the store knows gets its own set, so the listing is as localized as the walkthrough.
+/// the store knows gets its own set, so the listing is as localized as the walkthrough. A set the
+/// store would refuse ([`screenshot_problems`]) is refused here, before anything is uploaded.
 ///
 /// Apple: `fastlane/screenshots/<locale>/<NN>-<device>-<shot>.png`; deliver reads the device
 /// from the image's size and orders by name. Play: `fastlane/metadata/android/<locale>/images/
@@ -564,48 +829,16 @@ fn stage_screenshots(
 ) -> Result<Vec<PathBuf>, String> {
     let apple = target.toolkit == "uikit";
     let index = source.index()?;
-    let entries = index["screenshots"]
-        .as_array()
-        .ok_or("the gallery index has no `screenshots` list")?;
-    let wanted_theme = listing
-        .app
-        .screenshot_theme
-        .clone()
-        .unwrap_or_else(|| "light".to_string());
-    let mut chosen: Vec<StoreShot> = Vec::new();
-    for e in entries {
-        let Some(position) = e["store"].as_u64() else {
-            continue;
-        };
-        if e["os"].as_str() != Some(target.os) {
-            continue;
-        }
-        if let Some(theme) = e["theme"].as_str()
-            && theme != wanted_theme
-        {
-            continue;
-        }
-        let Some(locale) = e["locale"].as_str() else {
-            continue;
-        };
-        chosen.push(StoreShot {
-            position: position as u32,
-            device: e["device"].as_str().unwrap_or("phone").to_string(),
-            shot: e["shot"].as_str().unwrap_or("shot").to_string(),
-            locale: locale.to_string(),
-            entry: e.clone(),
-        });
+    let theme = listing_theme(listing);
+    let problems = screenshot_problems(&index, target, &theme);
+    if !problems.is_empty() {
+        return Err(format!(
+            "the listing's screenshots would be refused:\n  {}",
+            problems.join("\n  ")
+        ));
     }
-    chosen.sort_by(|a, b| {
-        (a.locale.as_str(), a.device.as_str(), a.position).cmp(&(
-            b.locale.as_str(),
-            b.device.as_str(),
-            b.position,
-        ))
-    });
-
     let mut written = Vec::new();
-    for shot in chosen {
+    for shot in listing_shots(&index, target, &theme)? {
         let Some(loc) = store_locale(&shot.locale, apple) else {
             continue; // a locale the store does not know; lint reports it
         };
@@ -634,6 +867,16 @@ fn stage_screenshots(
         written.push(path);
     }
     Ok(written)
+}
+
+/// The theme the listing's screenshots come from: `screenshot-theme` in `store/app.toml`,
+/// `light` by default.
+fn listing_theme(listing: &Listing) -> String {
+    listing
+        .app
+        .screenshot_theme
+        .clone()
+        .unwrap_or_else(|| "light".to_string())
 }
 
 /// fastlane opens its analytics session before it parses the Fastfile, so `opt_out_usage` there
@@ -1211,17 +1454,12 @@ fn init(project: &Project) {
     crate::ops::status("Next", "fill in every TODO, then `day lint`");
 }
 
-fn stage_cmd(
+/// The store targets a command acts on: the one named, or every App Store / Google Play target
+/// the app declares.
+fn store_targets(
     project: &Project,
     want: Option<&str>,
-    screenshots: Option<&ScreenshotSource>,
-) -> Result<(), CliError> {
-    let listing = read(project).map_err(CliError::failure)?;
-    if listing.is_empty() {
-        return Err(CliError::failure(
-            "no store/ listing in this project — run `day store init` first",
-        ));
-    }
+) -> Result<Vec<&'static crate::targets::Target>, CliError> {
     let targets: Vec<&'static crate::targets::Target> = match want {
         Some(name) => match crate::targets::find(name) {
             Some(t) if is_store_target(t) => vec![t],
@@ -1249,7 +1487,21 @@ fn stage_cmd(
             "this app declares no App Store or Google Play target",
         ));
     }
-    for t in targets {
+    Ok(targets)
+}
+
+fn stage_cmd(
+    project: &Project,
+    want: Option<&str>,
+    screenshots: Option<&ScreenshotSource>,
+) -> Result<(), CliError> {
+    let listing = read(project).map_err(CliError::failure)?;
+    if listing.is_empty() {
+        return Err(CliError::failure(
+            "no store/ listing in this project — run `day store init` first",
+        ));
+    }
+    for t in store_targets(project, want)? {
         let out = stage_dir(project, t);
         let files = stage(project, t, &listing, &out, screenshots)
             .map_err(|e| CliError::failure(format!("{}: {e}", t.name)))?;
@@ -1261,7 +1513,57 @@ fn stage_cmd(
     Ok(())
 }
 
-/// `day store <init|stage>`.
+/// `day store screenshots <index>`: what each store's listing would take from the index, and
+/// what it would refuse. Fails on any refusal, so a release pipeline can check the published
+/// gallery before it signs anything.
+fn screenshots_cmd(
+    project: &Project,
+    want: Option<&str>,
+    source: &ScreenshotSource,
+) -> Result<(), CliError> {
+    let listing = read(project).map_err(CliError::failure)?;
+    let theme = listing_theme(&listing);
+    let index = source.index().map_err(CliError::failure)?;
+    let mut refused = 0;
+    for t in store_targets(project, want)? {
+        let shots = listing_shots(&index, t, &theme).map_err(CliError::failure)?;
+        // One line per device kind: how many captures each locale contributes.
+        let mut per_device: BTreeMap<&str, BTreeMap<&str, usize>> = BTreeMap::new();
+        for s in &shots {
+            *per_device
+                .entry(s.device.as_str())
+                .or_default()
+                .entry(s.locale.as_str())
+                .or_default() += 1;
+        }
+        let summary = if per_device.is_empty() {
+            "no capture marked `store: N`".to_string()
+        } else {
+            per_device
+                .iter()
+                .map(|(device, locales)| {
+                    let counts: Vec<String> =
+                        locales.iter().map(|(l, n)| format!("{l} {n}")).collect();
+                    format!("{device}: {}", counts.join(", "))
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        };
+        crate::ops::status("Listing", &format!("{} ({theme}): {summary}", t.name));
+        for p in screenshot_problems(&index, t, &theme) {
+            eprintln!("error: {}: {p}", t.name);
+            refused += 1;
+        }
+    }
+    if refused > 0 {
+        return Err(CliError::failure(format!(
+            "{refused} screenshot problem(s); the stores would refuse the listing"
+        )));
+    }
+    Ok(())
+}
+
+/// `day store <init|stage|screenshots>`.
 pub fn run(project: &Project, cmd: &crate::cli::StoreCmd) -> Result<(), CliError> {
     match cmd {
         crate::cli::StoreCmd::Init => {
@@ -1274,6 +1576,9 @@ pub fn run(project: &Project, cmd: &crate::cli::StoreCmd) -> Result<(), CliError
         } => {
             let source = screenshots.as_deref().map(ScreenshotSource::parse);
             stage_cmd(project, target.as_deref(), source.as_ref())
+        }
+        crate::cli::StoreCmd::Screenshots { index, target } => {
+            screenshots_cmd(project, target.as_deref(), &ScreenshotSource::parse(index))
         }
     }
 }
@@ -1485,7 +1790,9 @@ mod tests {
             ("ios-uikit", "iphone", "dark", "en", "home", Some(1)),
             ("ios-uikit", "iphone", "light", "fr", "home", Some(1)),
             ("ios-uikit", "ipad", "light", "en", "home", Some(1)),
+            ("ios-uikit", "ipad", "light", "fr", "home", Some(1)),
             ("android-mdc", "phone", "light", "en", "home", Some(1)),
+            ("android-mdc", "phone", "light", "fr", "home", Some(1)),
             ("android-mdc", "tablet", "light", "en", "home", Some(1)),
         ];
         for (target, device, theme, locale, shot, store) in captures {
@@ -1498,16 +1805,23 @@ mod tests {
             let path = tree.join(&rel);
             std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
             std::fs::write(&path, rel.as_bytes()).expect("capture");
+            // A store size for each kind, so the rules let the set through.
+            let (w, h) = match device {
+                "iphone" => (1320, 2868),
+                "ipad" => (2752, 2064),
+                "tablet" => (2560, 1600),
+                _ => (1080, 1920),
+            };
             entries.push(serde_json::json!({
                 "path": format!("gallery/{rel}"),
                 "shot": shot, "device": device, "os": target.split('-').next(),
-                "theme": theme, "locale": locale, "store": store,
+                "theme": theme, "locale": locale, "store": store, "width": w, "height": h,
             }));
         }
         let index = tree.join("gallery.json");
         std::fs::write(
             &index,
-            serde_json::json!({ "screenshots": entries }).to_string(),
+            serde_json::json!({ "locales": ["en", "fr"], "screenshots": entries }).to_string(),
         )
         .expect("index");
         let source = ScreenshotSource::parse(index.to_str().expect("utf-8"));
@@ -1527,7 +1841,7 @@ mod tests {
         let apple: Vec<String> = walk(&out.join("fastlane/screenshots"));
         assert_eq!(
             apple.len(),
-            4,
+            5,
             "no unmarked step, no dark theme, no Android: {apple:?}"
         );
         let fastfile = std::fs::read_to_string(out.join("fastlane/Fastfile")).expect("Fastfile");
@@ -1563,6 +1877,143 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// An index entry as `day screenshot index` writes it, marked for the listing.
+    fn marked(
+        os: &str,
+        device: &str,
+        locale: &str,
+        shot: &str,
+        w: u32,
+        h: u32,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "shot": shot, "device": device, "os": os, "theme": "light", "locale": locale,
+            "store": 1, "width": w, "height": h, "path": format!("gallery/x/{shot}.png"),
+        })
+    }
+
+    fn index(locales: &[&str], entries: Vec<serde_json::Value>) -> serde_json::Value {
+        serde_json::json!({ "locales": locales, "screenshots": entries })
+    }
+
+    /// The rules are the stores': Apple takes exact sizes for its two device kinds, Google a
+    /// range whose long side is at most twice the short, and each required kind needs a capture
+    /// in every locale the index carries.
+    #[test]
+    fn the_stores_rules_refuse_what_the_stores_refuse() {
+        let ios = crate::targets::find("ios-uikit").expect("ios");
+        let android = crate::targets::find("android-mdc").expect("android");
+        let ok = |t, i: &serde_json::Value| screenshot_problems(i, t, "light");
+
+        let good = index(
+            &["en", "fr"],
+            vec![
+                marked("ios", "iphone", "en", "home", 1320, 2868),
+                marked("ios", "iphone", "fr", "home", 1320, 2868),
+                marked("ios", "ipad", "en", "home", 2752, 2064),
+                marked("ios", "ipad", "fr", "home", 2752, 2064),
+                marked("android", "phone", "en", "home", 1080, 1920),
+                marked("android", "phone", "fr", "home", 1080, 1920),
+                marked("android", "tablet", "en", "home", 2560, 1600),
+            ],
+        );
+        assert_eq!(ok(ios, &good), Vec::<String>::new());
+        assert_eq!(
+            ok(android, &good),
+            Vec::<String>::new(),
+            "a tablet set is optional"
+        );
+
+        // The default 20:9 phone profile, refused by the ratio rule and by nothing else.
+        let tall = index(
+            &["en"],
+            vec![marked("android", "phone", "en", "home", 1080, 2400)],
+        );
+        let problems = ok(android, &tall);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("2.22:1") && problems[0].contains("9:16"),
+            "{problems:?}"
+        );
+
+        // An iPhone capture from a profile that is not a 6.9" one.
+        let small = index(
+            &["en"],
+            vec![
+                marked("ios", "iphone", "en", "home", 1179, 2556),
+                marked("ios", "ipad", "en", "home", 2752, 2064),
+            ],
+        );
+        let problems = ok(ios, &small);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("1179×2556") && problems[0].contains("1320×2868"));
+
+        // Marks on the iPhone only: the iPad is required too.
+        let no_ipad = index(
+            &["en"],
+            vec![marked("ios", "iphone", "en", "home", 1320, 2868)],
+        );
+        let problems = ok(ios, &no_ipad);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("needs ipad screenshots"),
+            "{problems:?}"
+        );
+
+        // A locale the index carries with no capture on a required kind; one the store does
+        // not know is not asked for.
+        let partial = index(
+            &["en", "fr", "kl"],
+            vec![
+                marked("ios", "iphone", "en", "home", 1320, 2868),
+                marked("ios", "ipad", "en", "home", 2752, 2064),
+                marked("ios", "ipad", "fr", "home", 2752, 2064),
+            ],
+        );
+        let problems = ok(ios, &partial);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(
+            problems[0].contains("no iphone screenshots for fr"),
+            "{problems:?}"
+        );
+
+        // Over the ceiling.
+        let mut many: Vec<serde_json::Value> = (0..9)
+            .map(|n| {
+                let mut e = marked("android", "phone", "en", &format!("s{n}"), 1080, 1920);
+                e["store"] = serde_json::json!(n + 1);
+                e
+            })
+            .collect();
+        many.push(marked("android", "tablet", "en", "home", 2560, 1600));
+        let problems = ok(android, &index(&["en"], many));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("9 phone screenshots") && problems[0].contains("at most 8"));
+
+        // Nothing marked at all, and a device slug the store has no kind for.
+        let none = index(&["en"], vec![]);
+        assert_eq!(ok(android, &none).len(), 1);
+        let odd = index(
+            &["en"],
+            vec![
+                marked("android", "phone", "en", "home", 1080, 1920),
+                marked("android", "watch", "en", "home", 400, 400),
+            ],
+        );
+        let problems = ok(android, &odd);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("\"watch\""), "{problems:?}");
+
+        // Only the listing's theme counts: a dark capture at a refused size is not looked at.
+        let mut dark = marked("android", "phone", "en", "home", 1080, 2400);
+        dark["theme"] = serde_json::json!("dark");
+        let themed = index(
+            &["en"],
+            vec![marked("android", "phone", "en", "home", 1080, 1920), dark],
+        );
+        assert_eq!(ok(android, &themed), Vec::<String>::new());
     }
 
     /// Every file under `dir`, as paths relative to it.

@@ -547,7 +547,13 @@ fastlane project per target under `build/day/store/<target>/`, with `validate` a
 
 `day lint` checks the listing against the stores' rules before an upload can reject it: length
 limits per store, required fields, URL format, leftover `TODO` placeholders, and locale parity with
-the app's translations, so a new app locale also requires a listing in that locale. See
+the app's translations, so a new app locale also requires a listing in that locale.
+
+The listing's screenshots come from the walkthrough: a `screenshot:` step marked `store: N` is
+the Nth screenshot of both stores' listings, in every locale and on every device it runs on.
+`day store screenshots <gallery.json | URL>` checks the marked set against each store's sizes
+and coverage rules, and `day store stage --screenshots <gallery.json | URL>` places it where
+fastlane uploads it. See
 [Store listings](/docs/internal/store) for the full field table and the credential variables.
 
 In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh scaffold trips one

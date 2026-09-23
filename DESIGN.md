@@ -2801,9 +2801,16 @@ the index, takes the marked captures in one theme (`store/app.toml`'s `screensho
 `light` by default) for every locale the store knows, and places them in the fastlane tree
 (`fastlane/screenshots/<locale>/` for deliver; `fastlane/metadata/android/<locale>/images/
 <phone|sevenInch|tenInch>Screenshots/` for supply, the folder from the capture's device slug),
-whereupon the generated lanes stop skipping screenshots. The App Fair's queue is the first
-consumer: its review shows the marked captures alone, its checks hold their sizes to what each
-store accepts, and its signing stage stages them from the app's published gallery (2026-09-24).
+whereupon the generated lanes stop skipping screenshots. The stores' rules live beside the
+placement: `day store screenshots <index>` holds the marked set to Apple's exact sizes per
+device, Play's range and 2:1 ratio, each store's ceiling per locale and a capture in every locale
+on every required device, and `stage --screenshots` refuses a set the check refuses. The App
+Fair's queue is the first consumer: its review shows the marked captures alone, its checks hold
+their sizes to the same rules, and its signing stage stages them from the app's published
+gallery (2026-09-24). The shared `dayapp.yml` workflow does the same for an app that uploads on
+its own with `store-screenshots: true`: its upload jobs index the run's own
+`screenshots-<target>` artifact, check it, and stage with it, so no site stands between the
+walkthrough and the store (2026-09-25).
 
 The runner folds every capture it saves into `build/day/screenshots/<target>/gallery.json`
 (upserted across runs and variants; entries whose files are gone are pruned), carrying the
@@ -3434,7 +3441,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
-| `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures a walkthrough marked `store: N` (§14.7), from a gallery index |
+| `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures a walkthrough marked `store: N` (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256. App sites serve it at `/gallery/gallery.json`; `--out` places it |
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |

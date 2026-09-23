@@ -199,11 +199,32 @@ leaves what the store already shows. The index can be the app's published site
 (`https://<host>/main/gallery/gallery.json`, the latest build) or a local `gallery.json` beside
 its capture tree, in which case the images are read from that tree.
 
-Sizes are the stores' business: Apple takes exact sizes per device class (the iPhone 6.9" and
-iPad 13" ones the default CI device profiles produce), and Google a range whose long side is at
-most twice the short, which the default 20:9 phone profile exceeds. A pipeline that publishes
-through the App Fair has those rules checked before anything is signed; an app publishing on its
-own should capture on a 9:16 phone profile for Play.
+### What the stores take
+
+`day store screenshots <gallery.json | URL>` holds the marked set to each store's rules and
+fails on any refusal; `day store stage --screenshots` runs the same check before it places a
+file, so a set a store would refuse never reaches an upload.
+
+| store | device slug | rule |
+|---|---|---|
+| App Store | `iphone` | 1320×2868, 1290×2796 or 1260×2736, either way up (the 6.9" sizes); at most 10 per locale |
+| App Store | `ipad` | 2064×2752 or 2048×2732, either way up (the 13" sizes); at most 10 per locale |
+| Google Play | `phone` | 320 to 3840 px a side, the long side at most twice the short; at most 8 per locale |
+| Google Play | `tablet`, `tablet-7` | the same range; the set is optional |
+
+The default CI device profiles `iPhone * Pro Max` and `iPad Pro 13-inch` produce the Apple sizes.
+Play's ratio rule refuses the default 20:9 `medium_phone` profile (1080×2400), so an app that
+uploads screenshots captures its phone set on a 9:16 profile such as `pixel` (1080×1920). Every
+locale the index carries that the store knows needs a capture on each required device, since
+App Store Connect refuses a version whose localization has none; a device slug the store has no
+kind for is refused too.
+
+The shared `dayapp.yml` workflow does all of this on a tag with `store-screenshots: true`: each
+upload job takes the run's own `screenshots-<target>` artifact, indexes it, checks it, stages
+the listing with it, and uploads, so the set is the tagged version's without a website in
+between. The App Fair's queue rebuilds an app from its tag and takes the set from the app's
+published gallery instead, and its pull-request checks hold it to these rules before anything
+is built.
 
 ## Not done yet
 

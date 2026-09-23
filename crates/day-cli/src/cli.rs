@@ -540,6 +540,16 @@ pub enum StoreCmd {
         #[arg(long, value_name = "URL|PATH")]
         screenshots: Option<String>,
     },
+    /// Check a gallery index's listing screenshots against each store's rules
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    Screenshots {
+        /// The gallery index: the site's published gallery.json by URL, or a local one
+        #[arg(value_name = "URL|PATH")]
+        index: String,
+        /// Target to check (default: all store targets)
+        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        target: Option<String>,
+    },
 }
 
 /// `day localize …`: the four places a conventional project spells its locale set
