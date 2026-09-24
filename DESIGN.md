@@ -2806,17 +2806,23 @@ placement: `day store screenshots <index>` holds the marked set to Apple's exact
 device, Play's range and 2:1 ratio, each store's ceiling per locale and a capture in every locale
 on every required device, and `stage --screenshots` refuses a set the check refuses. The App
 Fair's queue is the first consumer: its review shows the marked captures alone, its checks hold
-their sizes to the same rules, and its signing stage stages them from the app's published
-gallery (2026-09-24). The shared `dayapp.yml` workflow does the same for an app that uploads on
+their sizes to the same rules, and its signing stage stages them from the release's
+`gallery.json` and `screenshots.zip` (2026-09-24). The shared `dayapp.yml` workflow does the same for an app that uploads on
 its own with `store-screenshots: true`: its upload jobs index the run's own
 `screenshots-<target>` artifact, check it, and stage with it, so no site stands between the
 walkthrough and the store (2026-09-25).
 
-The runner folds every capture it saves into `build/day/screenshots/<target>/gallery.json`
-(upserted across runs and variants; entries whose files are gone are pruned), carrying the
+The runner folds every capture it saves into `build/day/screenshots/<target>/gallery.json`,
+or `<target>/<device>/gallery.json` for a run on a device profile, so two profiles' CI legs
+never write one file (a merged download once garbled the colliding index and the captures
+lost their metadata, 2026-09-24) (upserted across runs and variants; entries whose files are
+gone are pruned), carrying the
 step's metadata plus the file's facts — pixel dimensions, byte size, sha-256, and the run's
 actual locale. `day screenshot index` (§16.5) merges those per-target files into one
-`gallery.json`: shot order is the dayscript's declaration order, titles/captions ship as
+`gallery.json`, reading a target's index and each device's beside it, and taking several
+capture trees as separate roots (one per CI artifact, which is how the workflows call it, since
+two artifacts can still carry an index at one path): shot order is the dayscript's declaration
+order, titles/captions ship as
 locale maps in `shots[]` and resolved per-capture (each entry's own locale, falling back by
 primary language then English), and `website/site.toml`'s `host` turns paths into published
 URLs. App sites serve the result at `<host>/gallery/gallery.json` — the machine-readable

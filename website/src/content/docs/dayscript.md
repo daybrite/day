@@ -68,7 +68,8 @@ listing takes from it:
 screenshot of the App Store and Google Play listing, in every locale, theme and device the
 walkthrough runs on. `day store stage --screenshots` places the marked captures in the fastlane
 tree ([store listings](/docs/store#screenshots)). The keys never reach the app: the runner
-strips them and folds them into the target's `gallery.json`.
+strips them and folds them into the target's `gallery.json` (a run on a device profile writes
+`<target>/<device>/gallery.json`, so two profiles never share one file).
 
 ## The step vocabulary
 

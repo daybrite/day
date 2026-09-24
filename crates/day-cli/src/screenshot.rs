@@ -512,13 +512,44 @@ pub fn record_target_entries(screenshots_root: &Path, target: &str, entries: Vec
         return;
     }
     let target_dir = screenshots_root.join(target);
-    let path = target_dir.join("gallery.json");
+    // A device profile's captures get their own index, `<target>/<device>/gallery.json`. Two
+    // profiles of one target run on two CI runners and upload two artifacts, and when both
+    // carried `<target>/gallery.json` the two files collided on merge: `download-artifact`
+    // extracts artifacts concurrently, so the survivor was garbled, and every capture of the
+    // target lost its metadata (Day-Showcase, 2026-09-24). `index` reads both layouts.
+    let device = entries
+        .iter()
+        .map(|e| e.device.clone())
+        .reduce(|a, b| if a == b { a } else { None })
+        .flatten();
+    let path = match &device {
+        Some(d) => target_dir.join(d).join("gallery.json"),
+        None => target_dir.join("gallery.json"),
+    };
     let mut index: TargetIndex = std::fs::read_to_string(&path)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
         .unwrap_or_default();
     index.generator = "day launch --script".into();
     index.target = target.into();
+    // A target-level index from before the per-device layout may still describe this device;
+    // its entries would shadow the fresh ones, so they leave that file now.
+    if let Some(d) = &device {
+        let shared = target_dir.join("gallery.json");
+        if let Some(mut old) = std::fs::read_to_string(&shared)
+            .ok()
+            .and_then(|t| serde_json::from_str::<TargetIndex>(&t).ok())
+            && old
+                .screenshots
+                .iter()
+                .any(|e| e.device.as_deref() == Some(d))
+        {
+            old.screenshots.retain(|e| e.device.as_deref() != Some(d));
+            if let Ok(json) = serde_json::to_string_pretty(&old) {
+                let _ = std::fs::write(&shared, json + "\n");
+            }
+        }
+    }
     for e in entries {
         if let Some(slot) = index
             .screenshots
@@ -664,7 +695,9 @@ fn capture_path(tdir: &Path, device: Option<&str>, variant: &str, file: &str) ->
 ///
 /// Distinguishes a device level from a variant level by content: a directory whose children are
 /// all directories is a device holding variants; one that holds files is a variant holding
-/// captures. An empty directory counts as a variant, which contributes nothing either way.
+/// captures. A device's own `gallery.json` (the index the runner writes beside its variants)
+/// does not make it a variant. An empty directory counts as a variant, which contributes
+/// nothing either way.
 fn variant_dirs(tdir: &Path) -> Vec<(Option<String>, String, PathBuf)> {
     fn subdirs(p: &Path) -> Vec<(String, PathBuf)> {
         let mut v: Vec<(String, PathBuf)> = std::fs::read_dir(p)
@@ -684,6 +717,9 @@ fn variant_dirs(tdir: &Path) -> Vec<(Option<String>, String, PathBuf)> {
             return false;
         };
         for e in rd.flatten() {
+            if e.file_name() == "gallery.json" {
+                continue;
+            }
             any = true;
             if !e.path().is_dir() {
                 return false;
@@ -736,10 +772,33 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             if !tdir.is_dir() || SKIP_DIRS.contains(&target.as_str()) {
                 continue;
             }
-            let known: TargetIndex = std::fs::read_to_string(tdir.join("gallery.json"))
+            // The target's index, and each device profile's own (`<target>/<device>/
+            // gallery.json`, which is how the runner writes a device's captures so two
+            // profiles' artifacts never collide on one file).
+            let mut known: TargetIndex = std::fs::read_to_string(tdir.join("gallery.json"))
                 .ok()
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or_default();
+            for (device, _, _) in variant_dirs(&tdir) {
+                let Some(device) = device else {
+                    continue;
+                };
+                let per_device = tdir.join(&device).join("gallery.json");
+                if known
+                    .screenshots
+                    .iter()
+                    .any(|e| e.device.as_deref() == Some(device.as_str()))
+                    && !per_device.exists()
+                {
+                    continue;
+                }
+                if let Some(more) = std::fs::read_to_string(&per_device)
+                    .ok()
+                    .and_then(|s| serde_json::from_str::<TargetIndex>(&s).ok())
+                {
+                    known.screenshots.extend(more.screenshots);
+                }
+            }
             if !known.screenshots.is_empty() && !script_ordered.contains(&target) {
                 script_ordered.push(target.clone());
             }
@@ -1142,6 +1201,185 @@ mod tests {
         )
         .unwrap();
         assert!(idx.screenshots.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Each device profile's captures go to their own index, `<target>/<device>/gallery.json`,
+    /// and `index` reads those beside the target's own, so two profiles that ran on two
+    /// machines never wrote the same file. Two artifacts from an older runner, each with its
+    /// device in `<target>/gallery.json`, still merge whole when handed over as two roots.
+    #[test]
+    fn device_indexes_live_apart_and_merge_whole() {
+        let dir = std::env::temp_dir().join(format!("day-shots-split-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+        png.extend(b"IHDR");
+        png.extend(2u32.to_be_bytes());
+        png.extend(3u32.to_be_bytes());
+        // A project, for `index` to read its locale and site from.
+        let project_dir = dir.join("project");
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            project_dir.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\ntargets = [\"ios-uikit\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project_dir.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let project = crate::meta::find_project(Some(&project_dir)).unwrap();
+        let marked = |store: u32| ShotMeta {
+            title: Some(Text::Plain("Home".into())),
+            store: Some(store),
+            ..ShotMeta::default()
+        };
+
+        // One tree, two device profiles recorded one after the other, as a local run does.
+        let tree = dir.join("one");
+        for device in ["iphone", "ipad"] {
+            let vdir = tree.join("ios-uikit").join(device).join("light");
+            std::fs::create_dir_all(&vdir).unwrap();
+            std::fs::write(vdir.join("home.png"), &png).unwrap();
+            let entry = target_entry(
+                &vdir.join("home.png"),
+                "light",
+                Some(device),
+                "home",
+                Some("en"),
+                Some(&marked(1)),
+            )
+            .unwrap();
+            record_target_entries(&tree, "ios-uikit", vec![entry]);
+        }
+        assert!(tree.join("ios-uikit/iphone/gallery.json").is_file());
+        assert!(tree.join("ios-uikit/ipad/gallery.json").is_file());
+        assert!(
+            !tree.join("ios-uikit/gallery.json").exists(),
+            "no shared file to collide on"
+        );
+        let out = dir.join("one.json");
+        index(
+            &project,
+            &IndexOptions {
+                screenshot_paths: vec![tree.clone()],
+                out: Some(out.clone()),
+            },
+        )
+        .unwrap();
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        let marked_devices = |doc: &serde_json::Value| -> Vec<String> {
+            let mut v: Vec<String> = doc["screenshots"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|e| e["store"].as_u64() == Some(1) && e["title"].is_string())
+                .map(|e| e["device"].as_str().unwrap().to_string())
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(marked_devices(&doc), ["ipad", "iphone"]);
+
+        // Two artifacts of an older runner: each root has its device in
+        // `ios-uikit/gallery.json`. Handed over as two roots, both keep their metadata.
+        for device in ["iphone", "ipad"] {
+            let root = dir.join("artifacts").join(format!("screenshots-{device}"));
+            let vdir = root.join("ios-uikit").join(device).join("light");
+            std::fs::create_dir_all(&vdir).unwrap();
+            std::fs::write(vdir.join("home.png"), &png).unwrap();
+            let entry = target_entry(
+                &vdir.join("home.png"),
+                "light",
+                Some(device),
+                "home",
+                Some("en"),
+                Some(&marked(1)),
+            )
+            .unwrap();
+            let idx = TargetIndex {
+                generator: "test".into(),
+                target: "ios-uikit".into(),
+                screenshots: vec![entry],
+            };
+            std::fs::write(
+                root.join("ios-uikit/gallery.json"),
+                serde_json::to_string(&idx).unwrap(),
+            )
+            .unwrap();
+        }
+        let out = dir.join("two.json");
+        index(
+            &project,
+            &IndexOptions {
+                screenshot_paths: vec![
+                    dir.join("artifacts/screenshots-iphone"),
+                    dir.join("artifacts/screenshots-ipad"),
+                ],
+                out: Some(out.clone()),
+            },
+        )
+        .unwrap();
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(marked_devices(&doc), ["ipad", "iphone"]);
+
+        // A stale shared index from before the split gives up the device it re-records.
+        let tree = dir.join("stale");
+        let vdir = tree.join("ios-uikit/iphone/light");
+        std::fs::create_dir_all(&vdir).unwrap();
+        std::fs::write(vdir.join("home.png"), &png).unwrap();
+        let old = target_entry(
+            &vdir.join("home.png"),
+            "light",
+            Some("iphone"),
+            "home",
+            Some("en"),
+            None,
+        )
+        .unwrap();
+        std::fs::write(
+            tree.join("ios-uikit/gallery.json"),
+            serde_json::to_string(&TargetIndex {
+                generator: "test".into(),
+                target: "ios-uikit".into(),
+                screenshots: vec![old],
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let fresh = target_entry(
+            &vdir.join("home.png"),
+            "light",
+            Some("iphone"),
+            "home",
+            Some("en"),
+            Some(&marked(3)),
+        )
+        .unwrap();
+        record_target_entries(&tree, "ios-uikit", vec![fresh]);
+        let shared: TargetIndex = serde_json::from_str(
+            &std::fs::read_to_string(tree.join("ios-uikit/gallery.json")).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            shared.screenshots.is_empty(),
+            "the shared file no longer describes the iphone"
+        );
+        let out = dir.join("stale.json");
+        index(
+            &project,
+            &IndexOptions {
+                screenshot_paths: vec![tree.clone()],
+                out: Some(out.clone()),
+            },
+        )
+        .unwrap();
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert_eq!(doc["screenshots"][0]["store"].as_u64(), Some(3));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
