@@ -758,6 +758,9 @@ pub fn run_scripts(
             Some(name) => format!("flavor:{name}"),
             None => "flavor:none".to_string(),
         };
+        // A gate token nothing can match is a typo, reported once per token: `only_on: [iso]`
+        // would otherwise drop the step on every target without a word.
+        let mut warned_gates: std::collections::HashSet<String> = std::collections::HashSet::new();
         for (op, step) in steps {
             run.steps_total += 1;
             // The target gates run before the runner-side steps below (`pause`, `expect_exit`):
@@ -768,11 +771,27 @@ pub fn run_scripts(
             // `skip_on:` is a per-step target filter: the step is dropped on the named targets
             // or toolkits (`skip_on: [web-dom]`), so one walkthrough runs across platforms
             // that lack a capability (docs/agent.md).
+            for list in ["skip_on", "only_on"] {
+                for token in step
+                    .get(list)
+                    .and_then(|v| v.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str())
+                {
+                    if !gate_is_known(token) && warned_gates.insert(token.to_string()) {
+                        eprintln!(
+                            "  {WARN}!{WARN:#} {op}: `{list}: [{token}]` names no target, toolkit, \
+                             platform or flavor — check the spelling"
+                        );
+                    }
+                }
+            }
             if let Some(skips) = step.get("skip_on").and_then(|v| v.as_array()) {
                 let hit = skips
                     .iter()
                     .filter_map(|v| v.as_str())
-                    .any(|s| s == target.name || s == target.toolkit || s == flavor_gate);
+                    .any(|s| gate_names(s, target, &flavor_gate));
                 if hit {
                     eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
                     continue;
@@ -785,7 +804,7 @@ pub fn run_scripts(
                 let hit = onlys
                     .iter()
                     .filter_map(|v| v.as_str())
-                    .any(|s| s == target.name || s == target.toolkit || s == flavor_gate);
+                    .any(|s| gate_names(s, target, &flavor_gate));
                 if !hit {
                     // Name what actually excluded it: a step kept for one flavor reads as
                     // "not for flavor:none" on the base app, where "not for macos-appkit" would
@@ -1400,6 +1419,73 @@ pub fn make_token() -> String {
             .map(|d| d.as_millis())
             .unwrap_or(0)
     )
+}
+
+/// The platform a target belongs to, as its `skip_on:`/`only_on:` token: the first part of the
+/// target name (`ios-uikit` → `ios`, `web-dom` → `web`, `harmony-arkui` → `harmony`).
+fn gate_platform(target_name: &str) -> &str {
+    target_name.split('-').next().unwrap_or(target_name)
+}
+
+/// Whether one `skip_on:`/`only_on:` token names this run: the target (`ios-uikit`), its
+/// toolkit (`uikit`), its platform (`ios`, `android`, `macos`, `linux`, `windows`, `harmony`,
+/// `web`), or the build flavor as `flavor:<name>` (`flavor:none` for the base app). The
+/// platform form is what lets a step opt IN by where it applies, `only_on: [ios, android]`,
+/// instead of listing every toolkit it does not.
+fn gate_names(token: &str, target: &crate::targets::Target, flavor_gate: &str) -> bool {
+    token == target.name
+        || token == target.toolkit
+        || token == gate_platform(target.name)
+        || token == flavor_gate
+}
+
+/// Whether a gate token could name anything at all (some target, toolkit or platform in the
+/// catalog, or a `flavor:` token), so a misspelling is reported rather than matching nothing.
+fn gate_is_known(token: &str) -> bool {
+    token.starts_with("flavor:")
+        || crate::targets::TARGETS
+            .iter()
+            .any(|t| token == t.name || token == t.toolkit || token == gate_platform(t.name))
+}
+
+#[cfg(test)]
+mod gate_tests {
+    use super::{gate_is_known, gate_names};
+
+    /// A gate opts a step in or out by target, toolkit, platform or flavor; nothing else.
+    #[test]
+    fn a_gate_matches_the_target_its_toolkit_its_platform_or_the_flavor() {
+        let ios = crate::targets::find("ios-uikit").expect("ios-uikit");
+        let web = crate::targets::find("web-dom").expect("web-dom");
+        let harmony = crate::targets::find("harmony-arkui").expect("harmony-arkui");
+        for token in ["ios-uikit", "uikit", "ios", "flavor:none"] {
+            assert!(gate_names(token, ios, "flavor:none"), "{token}");
+        }
+        for token in ["android", "mdc", "web-dom", "flavor:paid", "iOS", ""] {
+            assert!(!gate_names(token, ios, "flavor:none"), "{token}");
+        }
+        assert!(gate_names("web", web, "flavor:none"));
+        assert!(gate_names("harmony", harmony, "flavor:none"));
+        assert!(gate_names("flavor:paid", ios, "flavor:paid"));
+    }
+
+    #[test]
+    fn a_token_naming_nothing_is_a_typo() {
+        for token in [
+            "ios",
+            "android",
+            "harmony",
+            "web",
+            "arkui",
+            "macos-appkit",
+            "flavor:x",
+        ] {
+            assert!(gate_is_known(token), "{token}");
+        }
+        for token in ["iso", "iOS", "phone", "ohos", "flavr:x", ""] {
+            assert!(!gate_is_known(token), "{token}");
+        }
+    }
 }
 
 #[cfg(test)]

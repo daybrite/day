@@ -92,9 +92,11 @@ flow:
   # --- Settings -----------------------------------------------------------------------------
   # A section on the phones; a Settings window on the desktops, where the route does not exist.
   - navigate: { route: settings, skip_on: [appkit, gtk, qt, xaml] }
-  # The theme row appears only where the toolkit can override the appearance at runtime.
-  # android-mdc cannot, so the row is left out there. The language row is always present.
-  - assert_visible: { id: theme-picker, skip_on: [appkit, gtk, qt, xaml, mdc] }
+  # The theme row appears only where the toolkit can override the appearance at runtime
+  # (`Cap::Appearance`, docs/coverage-matrix.md): iOS, Android and the web have it, HarmonyOS
+  # does not. Opted IN by platform rather than opted out toolkit by toolkit, so a new backend
+  # that lacks the capability needs no edit here. The language row is always present.
+  - assert_visible: { id: theme-picker, only_on: [ios, android, web] }
   - assert_visible: { id: language-picker, skip_on: [appkit, gtk, qt, xaml] }
   - screenshot: settings
 

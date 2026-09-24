@@ -110,10 +110,13 @@ so run the walkthrough on the targets you intend to ship.
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
 
-Any step can be gated per target: `skip_on:` drops it on the named targets or toolkits (`skip_on:
-[web-dom]`), and `only_on:` is its mirror, for a step whose expectations differ per target (an
-`assert_no_placeholders` allow list, say). One walkthrough then covers every
-[backend](/docs/glossary#backend).
+Any step can be gated per target: `skip_on:` drops it where it names, and `only_on:` is its
+mirror, keeping the step only where it names. Both take a target (`web-dom`), a toolkit
+(`uikit`), or a platform, the first part of a target name: `ios`, `android`, `macos`, `linux`,
+`windows`, `harmony`, `web`. Opt a step in by platform when it belongs to a few places
+(`only_on: [ios, web]`), and opt it out when one place lacks what it needs (`skip_on:
+[web-dom]`). A token that names nothing is reported as a likely misspelling. One walkthrough then
+covers every [backend](/docs/glossary#backend).
 
 The same two gates match a [build flavor](/docs/flavors), written `flavor:<name>`, with
 `flavor:none` for the base app. A paid build and a free one then share one walkthrough:

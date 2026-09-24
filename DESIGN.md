@@ -6008,13 +6008,16 @@ do not wait; write failures cannot poison later reads. The promise-ordering regr
 actionability preconditions (enabled/occlusion checks, auto-scroll-into-view) are **not
 implemented** — scripts scroll explicitly and the walkthrough is written accordingly.
 
-Any step may carry `skip_on: [<target-or-toolkit>, …]` (2026-07): the RUNNER drops it on the
+Any step may carry `skip_on: [<target-or-toolkit-or-platform>, …]` (2026-07): the RUNNER drops it on the
 named targets before sending, so one script drives every platform while staying honest about
 genuinely absent capabilities (the showcase walkthrough skips its file-picker and
 loopback-HTTP steps on `web-dom` — [docs/web.md](docs/web.md)). Its mirror `only_on: [...]` (2026-07) runs a step
 ONLY on the named targets, for a step whose expectation is per-target — the walkthrough's
 `assert_no_placeholders` allow-lists differ sharply between, say, `macos-appkit` (none) and
-`web-dom` (six). Both gates also match the build flavor ([§16.6](#166-build-flavors)) as
+`web-dom` (six). A token is a target name, a toolkit, or (2026-09) a platform — the target
+name's first part, `ios`, `android`, `macos`, `linux`, `windows`, `harmony`, `web` — which is
+what lets a step opt IN by where it belongs (`only_on: [ios, web]`) rather than opt out toolkit
+by toolkit; a token naming none of these is warned about as a misspelling. Both gates also match the build flavor ([§16.6](#166-build-flavors)) as
 `flavor:<name>`, with `flavor:none` standing for the base app, so one walkthrough covers a
 flavored build and the plain one: the step that asserts the base title carries
 `skip_on: [flavor:custom]` among its own fields, the one that asserts the flavor's carries
