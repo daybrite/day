@@ -210,8 +210,9 @@ artifact and nothing else, and the Fastfile owns the store policy.
   "Created via API" certificates in the developer portal; the workflow now packs unsigned and
   signs with the certificate you give it.
 - **Play refuses the screenshots: "Dimensions out of range".** Its API takes 1080 to 7680 px a
-  side and at most 2.3:1; a CI tablet past three million pixels captures halved. Use the `Nexus 7
-  2013` profile with `density=240` for the tablet set, or leave the tablet set out.
+  side and at most 2.3:1. A CI tablet past three million pixels captures halved (1280×800), and
+  `day store stage` scales such a capture up ×2 for Play's tablet slots; a phone past 2.3:1
+  needs a shorter profile (`pixel`, 1080×1920).
 - **App Store Connect refuses a locale.** A locale the listing carries has no screenshots in it,
   or the store does not know the tag. `day store screenshots gallery.json` names the locale and
   the device kind before an upload does.

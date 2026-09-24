@@ -2855,7 +2855,10 @@ generated lanes stop skipping screenshots. The stores' rules live beside the pla
 or the project's `store/rules.toml`): `day store screenshots <index>` holds each
 list to Apple's exact sizes per device, Play's 1080 to 7680 px range and 2.3:1 ratio as its API
 enforces them, each store's ceiling per locale and a capture in every locale on every required
-device, and `stage --screenshots` refuses a set the check refuses. The app's website reads the
+device, and `stage --screenshots` refuses a set the check refuses. A kind marked `upscale = true`
+(Play's, in the shipped rules) has a capture under the floor scaled up by the smallest whole
+factor that clears it before placing (the halved CI tablet, 1280×800, goes up ×2), since the
+store checks the pixels' count; the check judges the size the store receives (2026-09-24). The app's website reads the
 same index: a target's page shows one carousel per device kind, each its `website` list in
 order (daysite's landing rows), the gallery page every capture. The App Fair's queue is the first store consumer: its review shows
 the declared captures per store and device, its checks hold their sizes to the same rules, and

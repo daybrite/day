@@ -190,14 +190,19 @@ release-notes = { file = "changelog", limit = 500 }
 # What Google Play's publishing API enforces: "min size: [1080], max size: [7680], max aspect
 # ratio: [2.3]" is the refusal it sends (2026-09-24), not the 320 px and 2:1 its help page
 # states. The floor is what catches a CI tablet: `day devices boot` halves a headless panel past
-# three million pixels, so `medium_tablet` captures 1280x800; `Nexus 7 2013` with `density=240`
-# captures 1920x1200. `folder` is where supply reads the kind's images; a capture slug that
-# starts with `tablet` and names no kind of its own (`tablet-10`) counts as `tablet`.
+# three million pixels (the layout is untouched; the emulator would not survive rasterizing the
+# whole panel), so `medium_tablet` captures 1280x800. `upscale = true` lets `day store stage`
+# scale such a capture up by the smallest whole factor that clears `min-side` (1280x800 x2 is
+# 2560x1600, the panel's own size) before placing it; Play's API checks the pixels' count and
+# takes it. A scaled capture is softer than a native one, so the key is per kind and off where
+# a store checks more than size. `folder` is where supply reads the kind's images; a capture
+# slug that starts with `tablet` and names no kind of its own (`tablet-10`) counts as `tablet`.
 [google-play-store.screenshots.phone]
 label = "Handset"
 folder = "phoneScreenshots"
 required = true
 max = 8
+upscale = true
 min-side = 1080
 max-side = 7680
 max-ratio = 2.3
@@ -207,6 +212,7 @@ label = "Tablet"
 folder = "tenInchScreenshots"
 required = false
 max = 8
+upscale = true
 min-side = 1080
 max-side = 7680
 max-ratio = 2.3
@@ -216,6 +222,7 @@ label = "7-inch tablet"
 folder = "sevenInchScreenshots"
 required = false
 max = 8
+upscale = true
 min-side = 1080
 max-side = 7680
 max-ratio = 2.3

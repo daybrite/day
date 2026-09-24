@@ -144,7 +144,7 @@ fn parse_variant(name: &str) -> (Option<&str>, Option<&str>) {
 // ---------------------------------------------------------------------------
 
 /// Width/height straight out of the PNG IHDR; no image library for 8 fixed bytes.
-fn png_dims(bytes: &[u8]) -> Option<(u32, u32)> {
+pub(crate) fn png_dims(bytes: &[u8]) -> Option<(u32, u32)> {
     if bytes.len() < 24 || &bytes[12..16] != b"IHDR" {
         return None;
     }

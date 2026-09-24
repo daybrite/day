@@ -1728,8 +1728,12 @@ struct StoreShot {
     device: String,
     shot: String,
     locale: String,
+    /// The size the store receives: the capture's, times `scale`.
     width: u32,
     height: u32,
+    /// The whole factor the capture is scaled up by before placing (`ShotRule::scale_for`); 1
+    /// places it as captured.
+    scale: u32,
     entry: serde_json::Value,
 }
 
@@ -1745,9 +1749,10 @@ fn listing_shots(
         .as_array()
         .ok_or("the gallery index has no `screenshots` list")?;
     let mut chosen: Vec<StoreShot> = Vec::new();
-    let Some((store, _)) = rules.store_for(target.name) else {
+    let Some((store, rule)) = rules.store_for(target.name) else {
         return Ok(chosen);
     };
+    let rule_kinds = rule.kinds();
     let Some(kinds) = index["listings"][target.name]["stores"][store].as_object() else {
         return Ok(chosen);
     };
@@ -1777,13 +1782,21 @@ fn listing_shots(
                     {
                         continue;
                     }
+                    let (w, h) = (
+                        e["width"].as_u64().unwrap_or(0) as u32,
+                        e["height"].as_u64().unwrap_or(0) as u32,
+                    );
+                    let scale = rule_for(&rule_kinds, kind)
+                        .map(|(_, r)| r.scale_for(w, h))
+                        .unwrap_or(1);
                     chosen.push(StoreShot {
                         position: i as u32 + 1,
                         device: kind.clone(),
                         shot: shot.to_string(),
                         locale: locale.clone(),
-                        width: e["width"].as_u64().unwrap_or(0) as u32,
-                        height: e["height"].as_u64().unwrap_or(0) as u32,
+                        width: w * scale,
+                        height: h * scale,
+                        scale,
                         entry: e.clone(),
                     });
                 }
@@ -1839,6 +1852,31 @@ pub struct ShotRule {
     /// Google: the long side at most this many times the short.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_ratio: Option<f64>,
+    /// Whether a capture under `min-side` is scaled up to clear it (by the smallest whole
+    /// factor) rather than refused: a headless CI tablet is captured halved, and the store
+    /// checks the pixels' count, not their provenance.
+    #[serde(default)]
+    pub upscale: bool,
+}
+
+impl ShotRule {
+    /// The whole factor a `w`×`h` capture is scaled by to clear `min-side`, or 1: none when the
+    /// rule does not allow scaling, the capture already clears the floor, or the scaled long
+    /// side would pass `max-side`.
+    pub fn scale_for(&self, w: u32, h: u32) -> u32 {
+        let (lo, hi) = (w.min(h), w.max(h));
+        let Some(min) = self.min_side.filter(|_| self.upscale) else {
+            return 1;
+        };
+        if lo == 0 || lo >= min {
+            return 1;
+        }
+        let k = min.div_ceil(lo);
+        match self.max_side {
+            Some(max) if hi * k > max => 1,
+            _ => k,
+        }
+    }
 }
 
 /// One store's rules: what it is called, which targets publish to it, the fastlane layout its
@@ -2132,8 +2170,9 @@ pub fn screenshot_problems(
                 problems.push(format!(
                     "{store}: the {} screenshot {:?} ({}) is {w}×{h}; the short side has to \
                          be at least {min_side} px. A CI tablet past three million pixels is \
-                         captured halved (`medium_tablet` at 1280×800); `Nexus 7 2013` with \
-                         `density=240` captures 1920×1200",
+                         captured halved (`medium_tablet` at 1280×800); such a capture is \
+                         scaled up to the floor only where the store rules say `upscale = true` \
+                         for the kind",
                     kind, s.shot, s.locale
                 ));
             }
@@ -2222,12 +2261,13 @@ fn stage_screenshots(
     target: &'static crate::targets::Target,
     out: &Path,
 ) -> Result<Vec<PathBuf>, String> {
-    let Some((_, rule)) = rules.store_for(target.name) else {
+    let Some((store_key, rule)) = rules.store_for(target.name) else {
         return Err(format!(
             "{}: no store the rules stage publishes this target",
             target.name
         ));
     };
+    let store = rule.name(store_key);
     let deliver = rule.layout.as_deref() == Some("deliver");
     let kinds = rule.kinds();
     let index = source.index()?;
@@ -2257,7 +2297,20 @@ fn stage_screenshots(
                 shot.position, shot.shot
             )
         };
-        let bytes = source.fetch(&shot.entry)?;
+        let mut bytes = source.fetch(&shot.entry)?;
+        if shot.scale > 1 {
+            // A halved CI capture, brought up to the floor the store checks. The layout and
+            // the content are the device's own; only the raster is coarser than a native one.
+            bytes = upscale_png(&bytes, shot.scale)
+                .map_err(|e| format!("{}: scaling ×{}: {e}", shot.shot, shot.scale))?;
+            crate::ops::status(
+                "Scaled",
+                &format!(
+                    "{} ({}, {}) ×{} to {}×{} for {}",
+                    shot.shot, shot.device, shot.locale, shot.scale, shot.width, shot.height, store
+                ),
+            );
+        }
         let path = out.join(&rel);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
@@ -2266,6 +2319,28 @@ fn stage_screenshots(
         written.push(path);
     }
     Ok(written)
+}
+
+/// A PNG scaled up by a whole factor, resampled bicubically: a capture the store's floor is
+/// reached by scaling, not a native one, and the caller says so.
+fn upscale_png(png: &[u8], factor: u32) -> Result<Vec<u8>, String> {
+    use day_vector::tiny_skia;
+    let src = tiny_skia::Pixmap::decode_png(png).map_err(|e| e.to_string())?;
+    let mut out = tiny_skia::Pixmap::new(src.width() * factor, src.height() * factor)
+        .ok_or("an empty capture")?;
+    let paint = tiny_skia::PixmapPaint {
+        quality: tiny_skia::FilterQuality::Bicubic,
+        ..Default::default()
+    };
+    out.draw_pixmap(
+        0,
+        0,
+        src.as_ref(),
+        &paint,
+        tiny_skia::Transform::from_scale(factor as f32, factor as f32),
+        None,
+    );
+    out.encode_png().map_err(|e| e.to_string())
 }
 
 /// fastlane opens its analytics session before it parses the Fastfile, so `opt_out_usage` there
@@ -3588,12 +3663,16 @@ fn screenshots_cmd(
         let shots = listing_shots(&index, t, &rules).map_err(CliError::failure)?;
         // One line per device kind: how many captures each locale contributes.
         let mut per_device: BTreeMap<&str, BTreeMap<&str, usize>> = BTreeMap::new();
+        let mut scaled: BTreeMap<&str, (u32, u32, u32)> = BTreeMap::new();
         for s in &shots {
             *per_device
                 .entry(s.device.as_str())
                 .or_default()
                 .entry(s.locale.as_str())
                 .or_default() += 1;
+            if s.scale > 1 {
+                scaled.insert(s.device.as_str(), (s.scale, s.width, s.height));
+            }
         }
         let summary = if per_device.is_empty() {
             "nothing declared for it in store/storefront.toml [storefront…screenshots], or \
@@ -3605,7 +3684,12 @@ fn screenshots_cmd(
                 .map(|(device, locales)| {
                     let counts: Vec<String> =
                         locales.iter().map(|(l, n)| format!("{l} {n}")).collect();
-                    format!("{device}: {}", counts.join(", "))
+                    match scaled.get(device) {
+                        Some((k, w, h)) => {
+                            format!("{device}: {} (scaled ×{k} to {w}×{h})", counts.join(", "))
+                        }
+                        None => format!("{device}: {}", counts.join(", ")),
+                    }
                 })
                 .collect::<Vec<_>>()
                 .join("; ")
@@ -4181,7 +4265,9 @@ mod tests {
         let problems = ok(android, &taller);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(problems[0].contains("2.31:1"), "{problems:?}");
-        // The halved CI tablet: 800 px on the short side, under the API's 1080 floor.
+        // The halved CI tablet: 800 px on the short side, under the API's 1080 floor. The
+        // shipped rules let `day store stage` scale it up (×2, to 2560×1600), so it passes;
+        // rules without `upscale` refuse it and say why.
         let halved = index(
             &["en"],
             vec![
@@ -4189,11 +4275,32 @@ mod tests {
                 marked("android", "tablet", "en", "home", 1280, 800),
             ],
         );
-        let problems = ok(android, &halved);
+        assert_eq!(ok(android, &halved), Vec::<String>::new());
+        let mut strict = rules.clone();
+        strict
+            .0
+            .get_mut("google-play-store")
+            .expect("play")
+            .screenshots
+            .get_mut("tablet")
+            .expect("tablet")
+            .upscale = false;
+        let problems = screenshot_problems(&halved, android, &strict);
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
-            problems[0].contains("1280×800") && problems[0].contains("Nexus 7 2013"),
+            problems[0].contains("1280×800") && problems[0].contains("upscale = true"),
             "{problems:?}"
+        );
+        // The factor is the smallest whole one that clears the floor, and never past the
+        // long side's ceiling.
+        let play = &rules.0["google-play-store"].screenshots["tablet"];
+        assert_eq!(play.scale_for(1280, 800), 2);
+        assert_eq!(play.scale_for(1920, 1200), 1);
+        assert_eq!(play.scale_for(700, 500), 3);
+        assert_eq!(
+            play.scale_for(4000, 500),
+            1,
+            "×3 would pass 7680 on the long side"
         );
         // What the runner tablet captures instead.
         let seven = index(
@@ -5822,6 +5929,50 @@ storefront:
         assert_eq!(
             crate::lint::severity_of("day::lint::store-unknown-store"),
             crate::lint::Severity::Warning
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A halved CI tablet capture is placed scaled up to the store's floor, a real PNG twice
+    /// the size; a capture already at a store size is placed as it is.
+    #[test]
+    fn staging_scales_a_halved_tablet_capture_up_for_play() {
+        use day_vector::tiny_skia;
+        let (tmp, project) = temp_project("upscale", "\"android-mdc\"", &["en"]);
+        let listing = listing_of("en", &[("en", &[(Field::Name, "Example")])]);
+        let tree = tmp.join("screenshots");
+        let mut entries = Vec::new();
+        for (device, w, h) in [("phone", 1080u32, 1920u32), ("tablet", 1280, 800)] {
+            let rel = format!("android-mdc/{device}/light/home.png");
+            let path = tree.join(&rel);
+            std::fs::create_dir_all(path.parent().expect("dir")).expect("mkdir");
+            let mut pm = tiny_skia::Pixmap::new(w, h).expect("pixmap");
+            pm.fill(tiny_skia::Color::from_rgba8(30, 60, 90, 255));
+            std::fs::write(&path, pm.encode_png().expect("png")).expect("capture");
+            entries.push(serde_json::json!({
+                "path": format!("gallery/{rel}"), "shot": "home", "device": device,
+                "os": "android", "platform": "android-mdc", "theme": "light", "locale": "en",
+                "store": 1, "width": w, "height": h,
+            }));
+        }
+        let index_path = tree.join("gallery.json");
+        std::fs::write(&index_path, index(&["en"], entries).to_string()).expect("index");
+        let source = ScreenshotSource::parse(index_path.to_str().expect("utf-8"));
+        let rules = StoreRules::parse(DEFAULT_RULES).expect("rules");
+        let android = crate::targets::find("android-mdc").expect("android");
+        let out = tmp.join("out-android");
+        stage(&project, android, &listing, &out, Some(&source), &rules).expect("stage");
+        let dims =
+            |rel: &str| crate::screenshot::png_dims(&std::fs::read(out.join(rel)).expect("placed"));
+        assert_eq!(
+            dims("fastlane/metadata/android/en-US/images/tenInchScreenshots/01-home.png"),
+            Some((2560, 1600)),
+            "the halved capture goes up ×2"
+        );
+        assert_eq!(
+            dims("fastlane/metadata/android/en-US/images/phoneScreenshots/01-home.png"),
+            Some((1080, 1920)),
+            "a capture at a store size is placed as captured"
         );
         let _ = std::fs::remove_dir_all(&tmp);
     }

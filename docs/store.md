@@ -465,6 +465,7 @@ label = "Handset"
 folder = "phoneScreenshots"              # supply's folder for the kind
 required = true
 max = 8
+upscale = true                           # a capture under min-side is scaled up to it, not refused
 min-side = 1080
 max-side = 7680
 max-ratio = 2.3
@@ -488,15 +489,19 @@ rules', and a store with a `layout` is one the CLI stages.
 | App Store | `iphone` | 1320×2868, 1290×2796 or 1260×2736, either way up (the 6.9" sizes); at most 10 per locale |
 | App Store | `ipad` | 2064×2752 or 2048×2732, either way up (the 13" sizes); at most 10 per locale |
 | Google Play | `phone` | 1080 to 7680 px a side, the long side at most 2.3× the short; at most 8 per locale |
-| Google Play | `tablet`, `tablet-7` | the same range; the set is optional |
+| Google Play | `tablet`, `tablet-7` | the same range; the set is optional; a capture under the floor is scaled up (`upscale = true`) |
 
 Play's numbers are what its publishing API enforces ("min size: [1080], max size: [7680], max
 aspect ratio: [2.3]"), not the 320 px and 2:1 its help page states. The default CI device
 profiles `iPhone * Pro Max` and `iPad Pro 13-inch` produce the Apple sizes, and a 1080-wide
-phone such as `medium_phone` or `pixel` clears Play. The default `medium_tablet` does not: `day
-devices boot` halves a headless panel past three million pixels, so it captures 1280×800, under
-the floor. `Nexus 7 2013` with `density=240` captures 1920×1200 and lays out as the same
-1280×800 points. Every locale the index carries that the store knows needs a capture on each
+phone such as `medium_phone` or `pixel` clears Play. The default `medium_tablet` does not as
+captured: `day devices boot` halves a headless panel past three million pixels, so it captures
+1280×800, under the floor. A kind whose rule says `upscale = true` (Play's tablet and phone
+kinds in the shipped rules) has such a capture scaled up by the smallest whole factor that
+clears the floor, ×2 to 2560×1600 here, before it is placed; the check judges the size the store
+receives, and `day store screenshots` reports the factor. A scaled capture is softer than a
+native one, which is why the key is per kind and off for the App Store, whose exact sizes a
+scale cannot hit. Every locale the index carries that the store knows needs a capture on each
 required device, since App Store Connect refuses a version whose localization has none; a
 device slug the store has no kind for is refused too.
 
