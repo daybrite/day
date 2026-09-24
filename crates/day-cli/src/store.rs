@@ -306,15 +306,17 @@ impl<'a> Source<'a> {
     /// A `-ref` path is project-relative and stays inside the project: a test resource lives in
     /// the repository, never at a path one machine happens to have.
     pub fn check_ref(path: &str) -> Result<(), String> {
-        let p = Path::new(path);
-        if p.is_absolute() || path.starts_with('~') {
+        // Judged as text rather than through `Path`, so the answer is the same on every host:
+        // `Path::is_absolute` says no to `/etc/passwd` on Windows (rooted, no drive) and to
+        // `C:\\Users\\…` on Unix, and a listing is read on both.
+        let bytes = path.as_bytes();
+        let drive = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+        if path.starts_with(['/', '\\', '~']) || drive {
             return Err(format!(
                 "{path:?} is not project-relative; a `-ref` names a file inside the project"
             ));
         }
-        if p.components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
+        if path.split(['/', '\\']).any(|c| c == "..") {
             return Err(format!(
                 "{path:?} leaves the project; a `-ref` names a file inside it"
             ));
@@ -1097,9 +1099,14 @@ impl Storefront {
         out
     }
 
-    /// Whether anything is declared for `target`.
-    pub fn declares(&self, target: &str) -> bool {
-        self.targets.contains_key(target)
+    /// Whether `target` declares any screenshot list, its own or a store's. A target table
+    /// that holds submission info or text alone (the scaffold's commented store stub, say)
+    /// declares nothing about screenshots, and a listing built from it would be empty lists
+    /// that hide every capture the walkthrough took.
+    pub fn declares_screenshots(&self, target: &str) -> bool {
+        self.targets.get(target).is_some_and(|te| {
+            !te.screenshots.is_empty() || te.stores.values().any(|se| !se.screenshots.is_empty())
+        })
     }
 
     /// The list a target's website page shows on device `kind` in `locale`: the target's
@@ -5242,6 +5249,14 @@ storefront:
             ),
             (
                 "[storefront.metadata]\ndescription-ref = \"/etc/passwd\"\n",
+                "not project-relative",
+            ),
+            (
+                "[storefront.metadata]\ndescription-ref = \"C:\\\\Users\\\\me\\\\description.txt\"\n",
+                "not project-relative",
+            ),
+            (
+                "[storefront.metadata]\ndescription-ref = \"~/description.txt\"\n",
                 "not project-relative",
             ),
             (

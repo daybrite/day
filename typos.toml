@@ -73,6 +73,12 @@ Elemente = "Elemente"          # de-DE
 Elementy = "Elementy"          # pl-PL
 Juli = "Juli"                  # de
 invalide = "invalide"          # fr
+# The French listing text in the storefront examples: day-cli's store.rs (its docs and the
+# TOML/YAML fixtures its tests resolve), docs/store.md, and the store-submission guide.
+Exemple = "Exemple"            # fr
+listes = "listes"              # fr
+sur = "sur"                    # fr
+appareil = "appareil"          # fr
 
 # Whole identifiers, so the words inside them stay checked everywhere else — "labelled" on its
 # own is still a finding, it is only `ariaLabelledBy` that is spelled that way by its spec.

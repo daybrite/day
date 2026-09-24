@@ -942,7 +942,7 @@ pub enum SignCmd {
         /// Android: the keystore to sign with (default: signing.android.keystore)
         #[arg(long, value_name = "FILE")]
         keystore: Option<PathBuf>,
-        /// Android: the key alias inside that keystore; passwords come from DAY_KS_PASS and DAY_KEY_PASS
+        /// Android: the key alias inside that keystore; passwords come from DAY_SIGN_STORE_PASS and DAY_SIGN_KEY_PASS
         #[arg(long, value_name = "NAME")]
         key_alias: Option<String>,
     },

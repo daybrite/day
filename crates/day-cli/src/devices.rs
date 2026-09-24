@@ -191,10 +191,12 @@ fn set_orientation(udid: &str, orientation: &str) -> Result<(), CliError> {
             )));
         }
     };
-    // When the device already faces that way, nothing needs actuating. This is the common case
-    // for `portrait` (a simulator boots that way), and skipping it keeps the usual CI job off
-    // devicectl's write path entirely.
-    if device_orientation(udid).as_deref() == Some(want) {
+    // When the device already faces that way, nothing needs actuating. A simulator boots in
+    // portrait, so that is the one orientation worth asking about: it keeps the usual CI job
+    // off devicectl's write path entirely. Landscape is never where a fresh boot stands, and the
+    // question is not free: on GitHub's xcode-27 image `orientation get` sat in CoreDevice
+    // discovery for three minutes before answering (2026-09-24), while `set` took seconds.
+    if want == "portrait" && device_orientation(udid).as_deref() == Some(want) {
         return Ok(());
     }
     crate::ops::status("Orienting", orientation);
@@ -222,6 +224,10 @@ fn set_orientation(udid: &str, orientation: &str) -> Result<(), CliError> {
         Err(e) => Err(e),
     }
 }
+
+/// How long one `devicectl` call may take, in seconds. devicectl waits on CoreDevice discovery
+/// with no limit of its own; a call past this is a device it will not find.
+const DEVICECTL_TIMEOUT: &str = "30";
 
 /// What gates simulator orientation, spelled out wherever it is reported.
 ///
@@ -263,6 +269,8 @@ fn rotate(udid: &str, want: &str, orientation: &str) -> Result<(), CliError> {
             udid,
             want,
             "--quiet",
+            "--timeout",
+            DEVICECTL_TIMEOUT,
         ])
         .output()
         .map_err(|e| {
@@ -343,6 +351,8 @@ fn simulator_is_landscape(udid: &str) -> Option<bool> {
 /// The device's own current orientation (`portrait`, `landscapeLeft`, …), ignoring face-up and
 /// face-down. `None` when devicectl cannot answer.
 fn device_orientation(udid: &str) -> Option<String> {
+    // Bounded: an answer that takes longer than this is CoreDevice not finding the device,
+    // and `None` is the honest reading of that.
     let out = Command::new("xcrun")
         .args([
             "devicectl",
@@ -354,6 +364,8 @@ fn device_orientation(udid: &str) -> Option<String> {
             "-j",
             "-",
             "--quiet",
+            "--timeout",
+            DEVICECTL_TIMEOUT,
         ])
         .output()
         .ok()?;

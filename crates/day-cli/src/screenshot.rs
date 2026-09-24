@@ -997,7 +997,10 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
         .unwrap_or_default();
     let mut listings = serde_json::Map::new();
     for platform in &platforms {
-        if !declared.declares(platform) {
+        // Only a target with screenshot lists gets a listing: a target table holding submission
+        // info alone would resolve to empty lists, and a consumer reads an empty list as "show
+        // nothing" (Day-Rise's iOS page showed no captures while its gallery had 16, 2026-09-24).
+        if !declared.declares_screenshots(platform) {
             continue;
         }
         let target = crate::targets::find(platform);
@@ -1397,6 +1400,32 @@ mod tests {
         assert!(
             doc["screenshots"][0].get("store").is_none(),
             "the per-capture mark is gone"
+        );
+        // A target table with submission info and no screenshot lists declares nothing about
+        // screenshots: no listing, so a site falls back to showing every capture rather than
+        // obeying an empty list.
+        std::fs::write(
+            project_dir.join("store/storefront.toml"),
+            "[storefront.ios-uikit.apple-app-store.submission-info]\napple-category = \"GAMES\"\n",
+        )
+        .unwrap();
+        std::fs::remove_file(project_dir.join("store/app.toml")).ok();
+        let project = crate::meta::find_project(Some(&project_dir)).unwrap();
+        let out = dir.join("stub.json");
+        index(
+            &project,
+            &IndexOptions {
+                screenshot_paths: vec![tree.clone()],
+                out: Some(out.clone()),
+            },
+        )
+        .unwrap();
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        assert!(
+            doc["listings"].get("ios-uikit").is_none(),
+            "no screenshot lists, no listing: {}",
+            doc["listings"]
         );
 
         // Two artifacts of an older runner: each root has its device in
