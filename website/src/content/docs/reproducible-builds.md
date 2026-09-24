@@ -324,7 +324,8 @@ with uncommitted changes is refused.
 SBOM records, for a source tree that is not in git; Day's CI uses it to verify an artifact
 packed from a freshly scaffolded project. The directory is copied to a scratch path first, minus
 `.git` and any build products, so a build path baked into the binary still surfaces as a payload
-mismatch. The `.buildinfo` beside the artifact still gates tool versions.
+mismatch, and so does anything the pack took from an earlier build's leftovers instead of
+staging for itself. The `.buildinfo` beside the artifact still gates tool versions.
 
 ## Verifying a build yourself
 

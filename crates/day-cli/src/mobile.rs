@@ -1215,6 +1215,16 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     // `write_ios_pieces`, whose deployment floor reads the (possibly just-moved) setting.
     crate::xcconfig::ensure_split(project, "ios")?;
     crate::xcconfig::write_generated(project, "ios")?;
+    // The resource caches the DayPieces catalog is generated from (docs/vectors.md): the glyph
+    // SVGs and the uikit raster fallbacks under build/day/vectors/. Staged here, not only in
+    // `ops::build`, because `day pack` reaches this function without a build, and a catalog
+    // written from whatever an earlier command left under build/ is not reproducible: a pack
+    // after `day prepare` carried the glyphs the HarmonyOS staging had cached, a pack of a fresh
+    // copy carried none, and the scaffold rebuild check failed on the two disagreeing (2026-09).
+    // A hard failure, unlike the build's best-effort staging: nothing here needs a native tool,
+    // and an iOS app packed without its glyphs is the bug this exists to end.
+    let target = crate::external::find_target(project, "ios-uikit")?;
+    crate::resources::stage(project, target)?;
     let floor = crate::pieces::write_ios_pieces(project)?;
     sync_uiappfonts(project)?;
     sync_usage_descriptions(project, false)?;
@@ -2922,5 +2932,64 @@ mod xcode_setting_tests {
     fn list_items_escape_quotes_and_backslashes() {
         assert_eq!(xcode_list_item("plain"), "\"plain\"");
         assert_eq!(xcode_list_item("a \"b\" c\\d"), "\"a \\\"b\\\" c\\\\d\"");
+    }
+}
+
+#[cfg(test)]
+mod prepare_ios_tests {
+    use super::prepare_ios;
+    use crate::meta::Project;
+
+    /// The iOS staging step stages the glyph catalog's inputs itself, from a tree nothing has
+    /// built yet. `day pack` reaches `prepare_ios` without `ops::build`, so a catalog written
+    /// from a vector cache only a build had left behind shipped an app with its glyphs, or
+    /// without them, depending on what had run in the tree before (2026-09).
+    #[test]
+    fn stages_the_vector_glyphs_it_catalogs_without_a_prior_build() {
+        let root = std::env::temp_dir().join(format!("day-prepare-ios-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let manifest = crate::meta::parse_manifest(
+            r#"schema = 1
+[app]
+id = "dev.test.glyphs"
+title = "Glyphs"
+targets = ["ios-uikit"]
+"#,
+            "[package]\nname = 'glyphs'\nversion = '0.1.0'\n",
+            None,
+        )
+        .expect("manifest");
+        let project = Project {
+            root: root.clone(),
+            manifest,
+        };
+        let write = |rel: &str, text: &str| {
+            let path = root.join(rel);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, text).expect("write");
+        };
+        write(
+            "Cargo.toml",
+            "[package]\nname = 'glyphs'\nversion = '0.1.0'\n[features]\nuikit = []\n",
+        );
+        write("src/lib.rs", "");
+        write(
+            "resource/vectors/tab_home.svg",
+            r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/></svg>"#,
+        );
+
+        prepare_ios(&project).expect("prepare_ios");
+
+        let catalog = root.join("build/day/ios/DayPieces/Sources/DayPieces/Media.xcassets");
+        assert!(
+            catalog.join("tab_home.imageset/tab_home.svg").is_file(),
+            "the glyph is not in the catalog: {}",
+            catalog.display()
+        );
+        assert!(
+            crate::resources::vector_fallback_dir(&project, "uikit").is_dir(),
+            "the uikit fallback root was not staged"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

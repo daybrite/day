@@ -38,7 +38,9 @@ Text must be outlined (`<text>` is a hard build error; shaping is not compiled i
 
 At build, every glyph gets a raster cache PNG (`build/day/vectors/raster/`, 256 px), a
 staged glyph SVG (`build/day/vectors/svg/`), and, where the art converts, XAML geometry
-(`build/day/vectors/xaml/`).
+(`build/day/vectors/xaml/`). `day pack` stages the same caches on the one path that does not
+run a build first (iOS packs straight through xcodebuild), so a packed app carries its glyphs
+whether or not the tree was built before.
 
 The raster cache is a build input, not a shipping form. What a target carries is
 `build/day/vectors/fallback/<toolkit>/`: on gtk that is every glyph, on qt every glyph the

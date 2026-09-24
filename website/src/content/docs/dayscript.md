@@ -67,7 +67,7 @@ listing takes from it:
 `source` names the file the screen is drawn from. Which captures the App Store and Google Play
 listings show, and which the website's page for each target shows, is declared apart from the
 walkthrough, in `store/storefront.toml` `[storefront]`, by naming these steps
-([store listings](/docs/store#screenshots)); the older `store: N` key on a step is ignored with
+([store listings](/docs/internal/store#screenshots)); the older `store: N` key on a step is ignored with
 a warning. The keys never reach the app: the runner strips them and folds them into the
 target's `gallery.json` (a run on a device profile writes `<target>/<device>/gallery.json`, so
 two profiles never share one file).

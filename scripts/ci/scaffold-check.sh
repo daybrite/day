@@ -11,11 +11,13 @@
 # four surfaces have to agree, and `day lint` is what checks that they do, so a scaffold that
 # lints clean is the cheapest proof the whole `day new` → `day localize add` path still works.
 #
-# With a combo argument the check keeps going: `day pack` builds the scaffold into a release
-# artifact, `day rebuild --from-dir` packs the same tree again from a scratch copy and compares
-# the two (§20.3; the scaffold is not in git, which is exactly what --from-dir is for), and on a
-# desktop combo the demo dayscript then drives the rebuilt copy and must leave its screenshot
-# behind. Without a combo the check stops after the lint, as it always did.
+# With a combo argument the check keeps going: `day build` builds the scaffold the way a user's
+# first build does, `day pack` packs it into a release artifact from that built tree, `day
+# rebuild --from-dir` packs the same tree again from a scratch copy that carries nothing a build
+# left behind and compares the two (§20.3; the scaffold is not in git, which is exactly what
+# --from-dir is for), and on a desktop combo the demo dayscript then drives the rebuilt copy and
+# must leave its screenshot behind. Without a combo the check stops after the lint, as it always
+# did.
 #
 # The locale list is the one daysite's CI scaffolds with (daysite/.github/workflows/ci.yml), which
 # is what the language picker there renders. `en` is the template's own default and is left out:
@@ -206,6 +208,16 @@ public func day_ci_swiftpm_probe() -> Int {
 SWIFT
         printf '\n[dependencies.ci-swiftpm]\npath = "pieces/ci-swiftpm"\n' >> Cargo.toml
     fi
+
+    # Build before packing, the order a user's tree meets: by the time anyone packs, `day build`
+    # has staged everything it stages under build/. The pack below then runs in a tree carrying
+    # all of it, while the rebuild after it packs a copy carrying none of it (`copy_project`
+    # leaves build/ behind), so anything `day pack` takes from a build's leftovers instead of
+    # staging for itself shows up as the two artifacts disagreeing. It did: the iOS DayPieces
+    # catalog was generated from a vector cache only a build wrote, so a pack after `day prepare`
+    # (whose HarmonyOS staging happened to fill the cache) carried the glyphs and the rebuild's
+    # pack carried none (2026-09). Without this step that class of bug is only caught by luck.
+    "$DAY" build -p "$COMBO"
 
     "$DAY" pack -p "$COMBO" --profile release --no-version-in-name
 

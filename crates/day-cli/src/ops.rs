@@ -523,8 +523,10 @@ pub fn build(
     // it's missing the resource blob is skipped (day loads assets from the filesystem roots
     // (DAY_IMAGE_ROOT) and the app icon rides DAY_APP_ICON), so a missing tool must not fail the
     // build.
-    // HarmonyOS stages resources after copying its native project in stage_host.
-    if target.toolkit != "arkui"
+    // HarmonyOS stages resources after copying its native project in stage_host. iOS stages
+    // them in mobile::prepare_ios, the one staging step `day pack` runs too, so a pack from a
+    // fresh clone and a build write the same DayPieces catalog.
+    if !matches!(target.toolkit, "arkui" | "uikit")
         && let Err(e) = crate::resources::stage(project, target)
     {
         status("Warning", &format!("resource staging skipped ({e})"));

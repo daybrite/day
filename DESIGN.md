@@ -4649,8 +4649,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml and an MSYS2
    qt/gtk leg; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
    host's toolkit dependencies and runs the checks that need it — above all
-   `scripts/ci/scaffold-check.sh`, which proves `day new` output still builds, lints, packs and
-   rebuilds against this commit. Three of them (`toolkit`, `harmony-arkui`, `web-dom`) also check
+   `scripts/ci/scaffold-check.sh`, which proves `day new` output still lints, builds, packs and
+   rebuilds against this commit. The build comes before the pack on purpose: the pack then runs
+   in a tree carrying everything a build stages under `build/`, and the rebuild packs a copy
+   carrying none of it, so a pack that takes anything from a build's leftovers instead of
+   staging it for itself fails the comparison (the iOS DayPieces catalog did, 2026-09, packed
+   with its glyphs after a `day prepare` and without them from a fresh copy). Three of them (`toolkit`, `harmony-arkui`, `web-dom`) also check
    out daybrite/Day-Showcase, but only to lint a backend crate as the APP's dependency graph
    resolves it — a framework check that happens to need an app on disk, not an app test.
 
@@ -4775,8 +4779,8 @@ third-party action in the workflow floats on a tag rather than a commit SHA.
 > **Status: shipped, partial by design.** The payload tier is enforced; the container tier reports
 > but does not fail. Nothing in the tree sets `SOURCE_DATE_EPOCH` yet. The six `<combo>-validate`
 > follow-up jobs this section describes were replaced (2026-08) by a scaffold rebuild check inside
-> each packing platform job: `scripts/ci/scaffold-check.sh` scaffolds a fresh 21-locale app, packs
-> it, and verifies it with `day rebuild --from-dir --strict` on the same runner — the desktop
+> each packing platform job: `scripts/ci/scaffold-check.sh` scaffolds a fresh 21-locale app, builds
+> and packs it, and verifies it with `day rebuild --from-dir --strict` on the same runner — the desktop
 > combos then launch the rebuilt copy. Stage 1's install-and-launch of the shipped showcase
 > artifact retired with those jobs — except on Linux, where the packing job still installs the
 > `.flatpak` and RUNS the `.appimage` under xvfb (2026-08). The AppImage's claim is that it works

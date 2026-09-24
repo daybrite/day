@@ -745,10 +745,10 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy, per
+      # Scaffold → lint → build → pack → `day rebuild --from-dir` → launch the rebuilt copy, per
       # combo (scripts/ci/scaffold-check.sh). The qt/gtk legs stop after the lint: `day pack`
       # supports neither combo yet.
-      - name: Scaffold check (new + lint + pack + rebuild + launch)
+      - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" ${{ matrix.combo }}
   ios-uikit:
@@ -784,9 +784,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
+      # Scaffold → lint → build → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
       # trial launch: the packed .ipa is a device build a runner cannot install.
-      - name: Scaffold check (new + lint + pack + rebuild)
+      - name: Scaffold check (new + lint + build + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" ios-uikit
   linux:
@@ -896,11 +896,11 @@ jobs:
             echo "DAY_LINUXDEPLOY_PLUGIN_${TOOLKIT^^}=$PLUGIN"
             echo "APPIMAGE_EXTRACT_AND_RUN=1"
           } >> "$GITHUB_ENV"
-      # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy
+      # Scaffold → lint → build → pack → `day rebuild --from-dir` → launch the rebuilt copy
       # (scripts/ci/scaffold-check.sh). No xvfb wrapper, same as the walkthrough below: the CLI
       # supplies the headless plumbing itself (both toolkits under xvfb, qt on the xcb platform,
       # falling back to offscreen only where xvfb-run is missing).
-      - name: Scaffold check (new + lint + pack + rebuild + launch)
+      - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" ${{ matrix.combo }}
   android-mdc:
@@ -945,9 +945,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
+      # Scaffold → lint → build → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
       # trial launch: the emulator boots later, only for the walkthrough.
-      - name: Scaffold check (new + lint + pack + rebuild)
+      - name: Scaffold check (new + lint + build + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" android-mdc
   harmony-arkui:
@@ -1069,9 +1069,9 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      # Scaffold → lint → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
+      # Scaffold → lint → build → pack → `day rebuild --from-dir` (scripts/ci/scaffold-check.sh). No
       # trial launch: the Oniro emulator boots later, only for the walkthrough.
-      - name: Scaffold check (new + lint + pack + rebuild)
+      - name: Scaffold check (new + lint + build + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" harmony-arkui
       # The backend cross-check below lints this crate as the APP's dependency graph resolves it
@@ -1137,9 +1137,9 @@ jobs:
           if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
           "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "makensis: $($exe.FullName)"
-      # Scaffold → lint → pack → `day rebuild --from-dir` → launch the rebuilt copy
+      # Scaffold → lint → build → pack → `day rebuild --from-dir` → launch the rebuilt copy
       # (scripts/ci/scaffold-check.sh).
-      - name: Scaffold check (new + lint + pack + rebuild + launch)
+      - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" windows-xaml
   windows-msys2:
@@ -1292,7 +1292,7 @@ jobs:
           echo "day CLI: $BIN"
       # Scaffold + lint (scripts/ci/scaffold-check.sh). `day pack` does not support web-dom yet,
       # so the script stops after the lint for this combo.
-      - name: Scaffold check (new + lint + pack + rebuild)
+      - name: Scaffold check (new + lint + build + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" web-dom
       # The backend cross-check below lints this crate as the APP's dependency graph resolves it
