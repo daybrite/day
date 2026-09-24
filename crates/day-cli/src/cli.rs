@@ -788,7 +788,7 @@ pub enum DevicesCmd {
     },
     /// Start a simulator or emulator
     #[command(
-        after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\nID, --device, --os, and --orientation are not supported for this target.\n\nDocs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices"
+        after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\n--device names the panel (phone 360x720, tablet 1280x800, or WxH) and --orientation turns it;\nID and --os are not supported for this target.\n\nDocs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices"
     )]
     Boot {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui
@@ -802,7 +802,8 @@ pub enum DevicesCmd {
         /// Device ID from day devices list (iOS/Android); omit when using --device
         #[arg(value_name = "ID")]
         id: Option<String>,
-        /// iOS/Android device name or pattern, such as "iPhone * Pro Max"; newest match wins
+        /// iOS/Android device name or pattern, such as "iPhone * Pro Max" (newest match wins);
+        /// OpenHarmony panel: phone, tablet, or WxH
         #[arg(long, value_name = "NAME", conflicts_with = "id")]
         device: Option<String>,
         /// OS version for --device, such as "iOS 26"; newest matching minor version wins
@@ -811,7 +812,7 @@ pub enum DevicesCmd {
         /// Wait for boot completion (always enabled on OpenHarmony)
         #[arg(long)]
         wait: bool,
-        /// iOS/Android orientation: portrait or landscape
+        /// Orientation: portrait or landscape (OpenHarmony: turns the panel)
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
         /// Start the emulator without a window

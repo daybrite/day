@@ -285,7 +285,10 @@ A scripted run captures the desktop toolkits and the web build at 2560×1600 pix
 
 For HarmonyOS, run `day devices boot -p harmony-arkui --headless` to start the configured
 Oniro image without a window. It always waits for boot readiness, so `--wait` is accepted but
-unnecessary. `ID`, `--device`, `--os`, and `--orientation` are rejected for this target.
+unnecessary. There is one image, and its screen is whatever size the emulator is given, so
+`--device` names a panel rather than a device: `phone` (360x720, the default), `tablet`
+(1280x800), or a literal `WxH`, and `--orientation` turns it. `ID` and `--os` are rejected for
+this target.
 
 
 Without a device flag, a launch goes to every runtime of that kind it can see: every booted iOS

@@ -70,7 +70,12 @@ pub(crate) fn staged_harmony_dir(project: &Project) -> PathBuf {
 /// The image directory is `DAY_OHOS_EMULATOR` (a dir holding `bzImage`, `ramdisk.img`, `system.img`,
 /// `vendor.img`, `updater.img`, `userdata.img`) or the default `~/ohos/emulator/images`. The host
 /// hdc port comes from `DAY_OHOS_TARGET` (default `127.0.0.1:55555`), forwarded to the guest's 55555.
-pub fn emulator_launch(headless: bool) -> Result<(), String> {
+///
+/// `panel` is the guest display in pixels: the image has no screen of its own, it draws at
+/// whatever the virtio-gpu is told, which is how one image serves as a phone (360×720) and as a
+/// landscape tablet (1280×800). The size is exported as `DAY_OHOS_PANEL` (through `GITHUB_ENV`
+/// on a runner) so the runs that follow know where the keyguard swipe lands.
+pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> {
     let home = std::env::var("HOME").unwrap_or_default();
     let images = std::env::var("DAY_OHOS_EMULATOR")
         .map(PathBuf::from)
@@ -153,7 +158,15 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
                   ohos.required_mount.vendor=/dev/block/vdc@/vendor@ext4@ro,barrier=1@wait,required \
                   ohos.required_mount.misc=/dev/block/vda@/misc@none@none=@wait,required";
     let hostfwd = format!("user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:55555");
-    let gpu = "virtio-gpu-pci,xres=360,yres=720,max_outputs=1,addr=08.0";
+    let (xres, yres) = panel;
+    status("Panel", &format!("{xres}×{yres} (virtio-gpu)"));
+    if let Ok(github_env) = std::env::var("GITHUB_ENV") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(github_env) {
+            let _ = writeln!(f, "DAY_OHOS_PANEL={xres}x{yres}");
+        }
+    }
+    let gpu = format!("virtio-gpu-pci,xres={xres},yres={yres},max_outputs=1,addr=08.0");
     // vCPU count (DAY_OHOS_SMP, default 6). On a busy host fewer vCPUs boot more reliably:
     // TCG vCPU threads that lose the CPU while holding a guest spinlock leave the other vCPUs
     // spinning (guest load explodes, WMS/boot services stall), classic lock-holder preemption.
@@ -179,7 +192,7 @@ pub fn emulator_launch(headless: bool) -> Result<(), String> {
         .args([
             "-machine", "q35", "-smp", &smp, "-m", "4096M", "-boot", "c", "-vga", "none",
         ])
-        .args(["-device", gpu])
+        .args(["-device", &gpu])
         .args(display)
         .args(["-rtc", "base=utc,clock=host", "-device", "es1370"])
         .args(["-initrd", "ramdisk.img", "-kernel", "bzImage"])
@@ -1325,23 +1338,33 @@ fn install_and_start(
     ))
 }
 
-/// Dismiss the slide-to-unlock keyguard with a synthetic swipe-up (best-effort). The Oniro
-/// emulator's guest display is 360×720 (the launcher's virtio-gpu xres/yres); on an unlocked
-/// screen the swipe is a harmless scroll. Verified headlessly: after `power-shell wakeup` the
-/// lock screen shows "Please slide to unlock", and this swipe lands on the home screen. Both
-/// injection drivers are tried, `uitest uiInput` (test daemon; slow to spin up on a cold TCG
-/// guest) and `uinput` (kernel-level, no daemon), because a slow first boot can leave the
-/// daemon unready while the keyguard is already up.
+/// Dismiss the slide-to-unlock keyguard with a synthetic swipe-up (best-effort): up the middle
+/// of the panel, from five sixths of its height to one seventh. On the 360×720 phone panel that
+/// is (180, 600) to (180, 102), the swipe verified headlessly: after `power-shell wakeup` the
+/// lock screen shows "Please slide to unlock", and it lands on the home screen. On an unlocked
+/// screen the swipe is a harmless scroll. The panel is whatever `emulator_launch` was given,
+/// read back from `DAY_OHOS_PANEL`; unset means the phone. Both injection drivers are tried,
+/// `uitest uiInput` (test daemon; slow to spin up on a cold TCG guest) and `uinput`
+/// (kernel-level, no daemon), because a slow first boot can leave the daemon unready while the
+/// keyguard is already up.
 fn unlock_keyguard(key: &str) {
+    let (w, h) = std::env::var("DAY_OHOS_PANEL")
+        .ok()
+        .and_then(|v| {
+            let (w, h) = v.split_once('x')?;
+            Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+        })
+        .unwrap_or(crate::devices::HARMONY_PHONE_PANEL);
+    let x = (w / 2).to_string();
+    let from = (h * 5 / 6).to_string();
+    let to = (h / 7).to_string();
     let _ = hdc_for(key)
         .args([
-            "shell", "uitest", "uiInput", "swipe", "180", "600", "180", "100", "500",
+            "shell", "uitest", "uiInput", "swipe", &x, &from, &x, &to, "500",
         ])
         .status();
     let _ = hdc_for(key)
-        .args([
-            "shell", "uinput", "-T", "-m", "180", "600", "180", "100", "300",
-        ])
+        .args(["shell", "uinput", "-T", "-m", &x, &from, &x, &to, "300"])
         .status();
 }
 

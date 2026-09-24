@@ -171,6 +171,11 @@ You don't run any of the above by hand; `day launch -p harmony-arkui` does the w
 # A native OpenHarmony emulator window (QEMU cocoa on macOS; no VNC, no password, no DevEco).
 # Point DAY_OHOS_EMULATOR at the Oniro image dir (default ~/ohos/emulator/images); --headless for CI.
 day devices boot -p harmony-arkui
+# The same image on a landscape tablet panel. Oniro has no screen of its own: it draws at whatever
+# size QEMU's virtio-gpu is told, so --device names a panel (phone 360x720, tablet 1280x800, or
+# WxH) and --orientation turns it. The guest still calls itself a phone (const.product.devicetype
+# is baked into the image), so this shows the app's wide layout, not the system's tablet behavior.
+day devices boot -p harmony-arkui --device tablet --orientation landscape
 
 # Then build + install + launch the app on every connected target (see "Multiple devices" below):
 day launch --project Day-Showcase -p harmony-arkui

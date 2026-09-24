@@ -818,9 +818,9 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
             Ok(0)
         }
         TargetKind::HarmonyOs => {
-            let headless = harmony_boot_options(spec)?;
+            let opts = harmony_boot_options(spec)?;
             // Oniro has one configured image; the launcher always waits for boot readiness.
-            crate::ohos::emulator_launch(headless)
+            crate::ohos::emulator_launch(opts.headless, opts.panel)
                 .map(|()| 0)
                 .map_err(CliError::script)
         }
@@ -831,20 +831,75 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
     }
 }
 
-fn harmony_boot_options(spec: &BootSpec<'_>) -> Result<bool, CliError> {
-    for (option, value) in [
-        ("ID", spec.id),
-        ("--device", spec.device),
-        ("--os", spec.os),
-        ("--orientation", spec.orientation),
-    ] {
+/// What a harmony-arkui boot runs: headless or windowed, on a panel of this size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HarmonyBoot {
+    pub headless: bool,
+    /// The guest display in pixels, width by height.
+    pub panel: (u32, u32),
+}
+
+/// The `phone` panel: the 360×720 every Oniro run captured on before panels were selectable.
+pub(crate) const HARMONY_PHONE_PANEL: (u32, u32) = (360, 720);
+/// The `tablet` panel: 1280×800, the size the Android tablet row captures at, so a walkthrough
+/// written against that layout sees the same points here.
+pub(crate) const HARMONY_TABLET_PANEL: (u32, u32) = (1280, 800);
+
+/// Oniro is one image, and its screen is whatever QEMU's virtio-gpu is told (docs/harmonyos.md),
+/// so a device profile on this target is a PANEL: `phone`, `tablet`, or a literal `WxH`.
+/// `--orientation` turns the named panel, which is the whole of what orientation means on a
+/// guest that has no sensor to turn it by. An ID and `--os` have nothing to select.
+fn harmony_boot_options(spec: &BootSpec<'_>) -> Result<HarmonyBoot, CliError> {
+    for (option, value) in [("ID", spec.id), ("--os", spec.os)] {
         if value.is_some() {
             return Err(CliError::usage(format!(
-                "{option} is not supported for harmony-arkui: Oniro uses one configured emulator image"
+                "{option} is not supported for harmony-arkui: Oniro uses one configured emulator \
+                 image; --device names its panel (phone, tablet, or WxH)"
             )));
         }
     }
-    Ok(spec.headless)
+    Ok(HarmonyBoot {
+        headless: spec.headless,
+        panel: harmony_panel(spec.device, spec.orientation)?,
+    })
+}
+
+/// Resolve a harmony-arkui `--device` and `--orientation` to a panel in pixels.
+fn harmony_panel(device: Option<&str>, orientation: Option<&str>) -> Result<(u32, u32), CliError> {
+    let name = device.map(str::trim).unwrap_or("phone");
+    let (mut w, mut h) = match name.to_ascii_lowercase().as_str() {
+        "" | "phone" => HARMONY_PHONE_PANEL,
+        "tablet" => HARMONY_TABLET_PANEL,
+        lower => {
+            let literal = lower
+                .split_once(['x', '×'])
+                .and_then(|(w, h)| {
+                    Some((w.trim().parse::<u32>().ok()?, h.trim().parse::<u32>().ok()?))
+                })
+                .filter(|(w, h)| *w > 0 && *h > 0);
+            literal.ok_or_else(|| {
+                CliError::usage(format!(
+                    "--device {name:?} is not a harmony-arkui panel: use phone (360x720), tablet \
+                     (1280x800), or a size such as 1200x1920"
+                ))
+            })?
+        }
+    };
+    match orientation
+        .map(|o| o.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        None => {}
+        Some("portrait") if w > h => std::mem::swap(&mut w, &mut h),
+        Some("landscape") if h > w => std::mem::swap(&mut w, &mut h),
+        Some("portrait" | "landscape") => {}
+        Some(other) => {
+            return Err(CliError::usage(format!(
+                "--orientation {other:?}: use portrait or landscape"
+            )));
+        }
+    }
+    Ok((w, h))
 }
 
 /// `day devices shutdown`: stop a running simulator or emulator, the other half of `boot`.
@@ -2387,14 +2442,17 @@ mod tests {
                     orientation: None,
                     headless,
                 };
-                assert_eq!(super::harmony_boot_options(&spec).unwrap(), headless);
+                assert_eq!(
+                    super::harmony_boot_options(&spec).unwrap().headless,
+                    headless
+                );
             }
         }
     }
 
     #[test]
-    fn harmony_boot_rejects_device_selection_before_starting_an_emulator() {
-        for option in ["ID", "--device", "--os", "--orientation"] {
+    fn harmony_boot_rejects_what_one_image_cannot_select() {
+        for option in ["ID", "--os"] {
             let mut spec = super::BootSpec {
                 id: None,
                 device: None,
@@ -2405,9 +2463,7 @@ mod tests {
             };
             match option {
                 "ID" => spec.id = Some("emulator"),
-                "--device" => spec.device = Some("emulator"),
                 "--os" => spec.os = Some("6"),
-                "--orientation" => spec.orientation = Some("landscape"),
                 _ => unreachable!(),
             }
             let error = super::boot("harmony-arkui", &spec).unwrap_err();
@@ -2419,6 +2475,29 @@ mod tests {
                     .contains("not supported for harmony-arkui")
             );
         }
+    }
+
+    /// `--device` and `--orientation` select the panel, resolved before anything boots.
+    #[test]
+    fn harmony_boot_takes_a_panel_and_turns_it() {
+        let spec = super::BootSpec {
+            id: None,
+            device: Some("tablet"),
+            os: None,
+            wait: false,
+            orientation: Some("landscape"),
+            headless: true,
+        };
+        let opts = super::harmony_boot_options(&spec).unwrap();
+        assert_eq!(opts.panel, super::HARMONY_TABLET_PANEL);
+        assert!(opts.headless);
+        let spec = super::BootSpec {
+            device: Some("pixel_9"),
+            ..spec
+        };
+        let error = super::boot("harmony-arkui", &spec).unwrap_err();
+        assert_eq!(error.exit_code(), 2);
+        assert!(error.to_string().contains("not a harmony-arkui panel"));
     }
 
     #[test]
@@ -2586,5 +2665,54 @@ mod guest_sizing_tests {
         assert_eq!(headless_panel((5120, 3200, 640)), Some((1280, 800, 160)));
         // An odd density cannot halve without moving the point size, so the panel stands.
         assert_eq!(headless_panel((2560, 1600, 213)), None);
+    }
+}
+
+#[cfg(test)]
+mod harmony_panel_tests {
+    use super::{HARMONY_PHONE_PANEL, HARMONY_TABLET_PANEL, harmony_panel};
+
+    /// One Oniro image serves every form factor by panel size: the named profiles, a literal
+    /// size, and an orientation that turns whichever was named.
+    #[test]
+    fn the_panel_is_named_sized_or_turned() {
+        assert_eq!(harmony_panel(None, None).unwrap(), HARMONY_PHONE_PANEL);
+        assert_eq!(harmony_panel(Some("phone"), None).unwrap(), (360, 720));
+        assert_eq!(
+            harmony_panel(Some("Tablet"), None).unwrap(),
+            HARMONY_TABLET_PANEL
+        );
+        assert_eq!(
+            harmony_panel(Some("1200x1920"), None).unwrap(),
+            (1200, 1920)
+        );
+        assert_eq!(
+            harmony_panel(Some("1200×1920"), Some("landscape")).unwrap(),
+            (1920, 1200)
+        );
+        assert_eq!(
+            harmony_panel(Some("tablet"), Some("portrait")).unwrap(),
+            (800, 1280)
+        );
+        assert_eq!(
+            harmony_panel(Some("tablet"), Some("landscape")).unwrap(),
+            (1280, 800)
+        );
+        assert_eq!(
+            harmony_panel(Some("phone"), Some("portrait")).unwrap(),
+            (360, 720)
+        );
+    }
+
+    #[test]
+    fn a_panel_that_is_not_one_is_refused_by_name() {
+        for bad in ["pixel_7", "0x720", "1280", "wide"] {
+            let err = harmony_panel(Some(bad), None).unwrap_err().to_string();
+            assert!(err.contains("not a harmony-arkui panel"), "{bad}: {err}");
+        }
+        let err = harmony_panel(Some("tablet"), Some("sideways"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("portrait or landscape"), "{err}");
     }
 }
