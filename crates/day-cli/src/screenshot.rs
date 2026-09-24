@@ -22,7 +22,7 @@
 //! machines but a gallery page shows the curated set when one exists. `day lint`
 //! cross-references the metadata's locale keys against the app's translation locales.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ impl Text {
 }
 
 /// The primary language subtag: `zh-CN` → `zh`.
-fn primary_language(tag: &str) -> &str {
+pub(crate) fn primary_language(tag: &str) -> &str {
     tag.split(['-', '_']).next().unwrap_or(tag)
 }
 
@@ -109,6 +109,17 @@ fn is_locale_like(s: &str) -> bool {
     };
     ((2..=3).contains(&lang.len()) && lang.chars().all(|c| c.is_ascii_lowercase()))
         && parts.all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
+/// The locale an index entry is filed under: the one recorded at capture, else the one its
+/// variant names, else the project's default when the variant names a theme (a themed capture
+/// is a real run in the default locale); a bare capture has none.
+fn entry_locale(e: &TargetEntry, fallback_locale: &str) -> Option<String> {
+    let (theme, vlocale) = parse_variant(&e.variant);
+    e.locale
+        .clone()
+        .or_else(|| vlocale.map(str::to_string))
+        .or_else(|| theme.is_some().then(|| fallback_locale.to_string()))
 }
 
 /// `light-fr` → (Some("light"), Some("fr")); `fr` → (None, Some("fr")); `default` → (None,
@@ -446,20 +457,20 @@ pub struct TargetEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
     pub shot: String,
-    /// The run's actual `--locale`, when one was passed: ground truth the variant name only
-    /// approximates.
+    /// The locale the capture was taken in: the run's `--locale`, else the app's default
+    /// locale, stamped by the runner so no reader has to decode the variant name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
+    /// The theme the capture was taken in (`light`, `dark`), when the run set one; stamped by
+    /// the runner for the same reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub theme: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<Text>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<Text>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    /// The capture's position in the store listing, when the step declared `store:` (§14.7).
-    /// Absent for the captures a walkthrough takes as evidence rather than for the listing.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub store: Option<u32>,
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub bytes: u64,
@@ -490,10 +501,10 @@ pub fn target_entry(
         device: device.map(str::to_string),
         shot: shot.to_string(),
         locale: locale.map(str::to_string),
+        theme: parse_variant(variant).0.map(str::to_string),
         title: meta.and_then(|m| m.title.clone()),
         caption: meta.and_then(|m| m.caption.clone()),
         source: meta.and_then(|m| m.source.clone()),
-        store: meta.and_then(|m| m.store),
         width: dims.map(|d| d.0),
         height: dims.map(|d| d.1),
         bytes: bytes.len() as u64,
@@ -584,9 +595,10 @@ pub struct ShotMeta {
     pub title: Option<Text>,
     pub caption: Option<Text>,
     pub source: Option<String>,
-    /// `store: N`: this capture is the Nth screenshot of the store listing, in every locale and
-    /// on every device the walkthrough runs on. `store: true` is position 1.
-    pub store: Option<u32>,
+    /// The step carried `store:`, the key that once marked a capture for the store listing. The
+    /// listing is declared in `store/storefront.toml` `[screenshots]` now (§14.7); the key is stripped
+    /// and the runner says so once.
+    pub legacy_store: bool,
 }
 
 /// Take the metadata out of a runner step object (leaving the step engine-clean).
@@ -598,11 +610,7 @@ pub fn extract_meta(step: &mut serde_json::Map<String, serde_json::Value>) -> Sh
         source: step
             .remove("source")
             .and_then(|v| v.as_str().map(str::to_string)),
-        store: step.remove("store").and_then(|v| match v {
-            serde_json::Value::Bool(true) => Some(1),
-            serde_json::Value::Number(n) => n.as_u64().filter(|n| *n > 0).map(|n| n as u32),
-            _ => None,
-        }),
+        legacy_store: step.remove("store").is_some(),
     }
 }
 
@@ -892,9 +900,6 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             if m.source.is_none() {
                 m.source = e.source.clone();
             }
-            if m.store.is_none() {
-                m.store = e.store;
-            }
         }
     }
 
@@ -917,12 +922,8 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             ra.cmp(&rb).then_with(|| a.variant.cmp(&b.variant))
         });
         for e in entries {
-            let (theme, vlocale) = parse_variant(&e.variant);
-            let locale = e
-                .locale
-                .clone()
-                .or_else(|| vlocale.map(str::to_string))
-                .or_else(|| theme.is_some().then(|| fallback_locale.clone()));
+            let theme = e.theme.as_deref().or_else(|| parse_variant(&e.variant).0);
+            let locale = entry_locale(e, &fallback_locale);
             if let Some(t) = theme
                 && !themes.iter().any(|x| x == t)
             {
@@ -970,9 +971,6 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 "height": e.height,
                 "bytes": e.bytes,
                 "sha256": e.sha256,
-                // The listing position, when the step declared one: what `day store stage
-                // --screenshots` and a catalog's review select on.
-                "store": e.store.or_else(|| meta.and_then(|m| m.store)),
             }));
         }
     }
@@ -986,10 +984,78 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
                 "title": m.title.map(|t| t.to_map(&fallback_locale)),
                 "caption": m.caption.map(|c| c.to_map(&fallback_locale)),
                 "source": m.source,
-                "store": m.store,
             })
         })
         .collect();
+
+    // The listings (§14.7): `store/storefront.toml` `[storefront.<target>…screenshots]` resolved for
+    // every captured target, so a consumer selects on the index alone. Per target: `website`,
+    // one list per device kind and locale the target captured, for its page's rows, and
+    // `stores`, the same per store it declares. Each item is a shot id and the theme to take.
+    let declared = crate::store::read(project)
+        .map(|l| l.app)
+        .unwrap_or_default();
+    let mut listings = serde_json::Map::new();
+    for platform in &platforms {
+        if !declared.declares(platform) {
+            continue;
+        }
+        let target = crate::targets::find(platform);
+        let mut kinds: BTreeSet<String> = by_target[platform]
+            .iter()
+            .map(|e| match target {
+                Some(t) => crate::store::capture_kind(t, e.device.as_deref()),
+                None => e.device.clone().unwrap_or_else(|| "default".to_string()),
+            })
+            .collect();
+        // Every list is resolved per locale the target captured, keyed as the entries above
+        // are (a capture with no locale at all files under `default`), so a consumer matching
+        // a capture's kind and locale finds its list without knowing the fallback rules.
+        let mut per_locale: BTreeSet<String> = by_target[platform]
+            .iter()
+            .map(|e| entry_locale(e, &fallback_locale).unwrap_or_else(|| "default".to_string()))
+            .collect();
+        let mut stores = serde_json::Map::new();
+        for store in declared.stores(platform) {
+            kinds.extend(declared.declared_kinds(platform, &store));
+            per_locale.extend(declared.declared_locales(platform, &store));
+            let mut per_kind = serde_json::Map::new();
+            for kind in &kinds {
+                let mut lists = serde_json::Map::new();
+                for locale in &per_locale {
+                    lists.insert(
+                        locale.clone(),
+                        serde_json::to_value(declared.store_kind(platform, &store, kind, locale))
+                            .unwrap_or_default(),
+                    );
+                }
+                per_kind.insert(kind.clone(), serde_json::Value::Object(lists));
+            }
+            stores.insert(store, serde_json::Value::Object(per_kind));
+        }
+        // The website's rows: one list per device kind the target captured, per locale.
+        kinds.extend(declared.declared_kinds(platform, ""));
+        per_locale.extend(declared.declared_locales(platform, ""));
+        let mut website = serde_json::Map::new();
+        for kind in &kinds {
+            let mut lists = serde_json::Map::new();
+            for locale in &per_locale {
+                lists.insert(
+                    locale.clone(),
+                    serde_json::to_value(declared.website(platform, kind, locale))
+                        .unwrap_or_default(),
+                );
+            }
+            website.insert(kind.clone(), serde_json::Value::Object(lists));
+        }
+        listings.insert(
+            platform.clone(),
+            serde_json::json!({
+                "website": website,
+                "stores": stores,
+            }),
+        );
+    }
 
     let doc = serde_json::json!({
         "generator": "day screenshot index",
@@ -1000,6 +1066,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
         "platforms": platforms,
         "shots": shots,
         "screenshots": screenshots,
+        "listings": listings,
     });
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -1136,15 +1203,13 @@ mod tests {
         assert_eq!(meta.title.unwrap().resolve("fr"), Some("Accueil"));
         assert_eq!(meta.caption.unwrap().resolve("en"), Some("The hub"));
         assert_eq!(meta.source.as_deref(), Some("src/lib.rs"));
-        assert_eq!(meta.store, Some(2));
-        // `store: true` is the first position; zero and a string are no position at all.
-        for (raw, want) in [("true", Some(1)), ("0", None), ("\"first\"", None)] {
-            let mut step = serde_json::from_str::<serde_json::Map<_, _>>(&format!(
-                r#"{{"op":"screenshot","name":"x","store":{raw}}}"#
-            ))
-            .unwrap();
-            assert_eq!(extract_meta(&mut step).store, want, "store: {raw}");
-        }
+        // The retired `store:` key is stripped like the others and remembered, so the runner
+        // can say once that the listing lives in store/storefront.toml now.
+        assert!(meta.legacy_store);
+        let mut step =
+            serde_json::from_str::<serde_json::Map<_, _>>(r#"{"op":"screenshot","name":"x"}"#)
+                .unwrap();
+        assert!(!extract_meta(&mut step).legacy_store);
     }
 
     #[test]
@@ -1183,13 +1248,13 @@ mod tests {
         let ghost = TargetEntry {
             file: "gone.png".into(),
             variant: "light".into(),
+            theme: Some("light".into()),
             device: None,
             shot: "gone".into(),
             locale: None,
             title: None,
             caption: None,
             source: None,
-            store: None,
             width: None,
             height: None,
             bytes: 0,
@@ -1229,10 +1294,21 @@ mod tests {
             "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();
+        // The listings: the website's list, an iPhone list of its own, and the iPad falling
+        // back to the target's default; a store the CLI does not know rides through.
+        std::fs::create_dir_all(project_dir.join("store")).unwrap();
+        std::fs::write(
+            project_dir.join("store/storefront.toml"),
+            "[storefront.ios-uikit.screenshots]\ndefault = [\"home\"]\n\
+             [storefront.ios-uikit.screenshots.fr]\ndefault = [\"home\", \"home\", \"home\"]\n\
+             [storefront.ios-uikit.apple-app-store.screenshots]\niphone = [{ name = \"home\", theme = \"dark\" }]\n\
+             [storefront.ios-uikit.altstore.screenshots]\ndefault = [\"home\", \"home\"]\n",
+        )
+        .unwrap();
         let project = crate::meta::find_project(Some(&project_dir)).unwrap();
-        let marked = |store: u32| ShotMeta {
+        let marked = |n: u32| ShotMeta {
             title: Some(Text::Plain("Home".into())),
-            store: Some(store),
+            caption: Some(Text::Plain(format!("mark {n}"))),
             ..ShotMeta::default()
         };
 
@@ -1275,13 +1351,53 @@ mod tests {
                 .as_array()
                 .unwrap()
                 .iter()
-                .filter(|e| e["store"].as_u64() == Some(1) && e["title"].is_string())
+                .filter(|e| e["caption"].as_str() == Some("mark 1") && e["title"].is_string())
                 .map(|e| e["device"].as_str().unwrap().to_string())
                 .collect();
             v.sort();
             v
         };
         assert_eq!(marked_devices(&doc), ["ipad", "iphone"]);
+        let listings = &doc["listings"]["ios-uikit"];
+        assert_eq!(
+            listings["website"]["iphone"]["en"],
+            serde_json::json!([{ "shot": "home", "theme": "light" }])
+        );
+        assert_eq!(
+            listings["website"]["ipad"]["en"],
+            serde_json::json!([{ "shot": "home", "theme": "light" }])
+        );
+        assert_eq!(
+            listings["website"]["ipad"]["fr"].as_array().map(Vec::len),
+            Some(3),
+            "a declared locale is resolved even when nothing was captured in it"
+        );
+        assert_eq!(
+            listings["stores"]["apple-app-store"]["iphone"]["en"],
+            serde_json::json!([{ "shot": "home", "theme": "dark" }])
+        );
+        assert_eq!(
+            listings["stores"]["apple-app-store"]["ipad"]["en"],
+            serde_json::json!([{ "shot": "home", "theme": "light" }]),
+            "the iPad takes the target's default"
+        );
+        assert_eq!(
+            listings["stores"]["apple-app-store"]["ipad"]["fr"]
+                .as_array()
+                .map(Vec::len),
+            Some(3),
+            "the store falls through to the target's French list"
+        );
+        assert_eq!(
+            listings["stores"]["altstore"]["ipad"]["en"]
+                .as_array()
+                .map(Vec::len),
+            Some(2)
+        );
+        assert!(
+            doc["screenshots"][0].get("store").is_none(),
+            "the per-capture mark is gone"
+        );
 
         // Two artifacts of an older runner: each root has its device in
         // `ios-uikit/gallery.json`. Handed over as two roots, both keep their metadata.
@@ -1379,7 +1495,7 @@ mod tests {
         .unwrap();
         let doc: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
-        assert_eq!(doc["screenshots"][0]["store"].as_u64(), Some(3));
+        assert_eq!(doc["screenshots"][0]["caption"].as_str(), Some("mark 3"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

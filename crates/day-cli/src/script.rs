@@ -657,6 +657,7 @@ pub fn run_scripts(
     attached: bool,
 ) -> Result<ScriptRun, ScriptError> {
     forward_engine(target.kind, port);
+    let default_locale = crate::store::default_locale(&crate::store::app_locales(project));
     let window_secs = connect_window_secs(target.kind);
     // A connect failure is an engine loss (the app died during startup, or never bound): the
     // same condition the mid-run loss reports, and the same one the CI retry used to catch.
@@ -717,6 +718,8 @@ pub fn run_scripts(
     let dir = shot_dir(project, target, locale, variant, device);
     let _ = std::fs::create_dir_all(&dir);
 
+    // Said once per run: the retired `store:` key on a screenshot step (§14.7).
+    let mut warned_store = false;
     let mut run = ScriptRun {
         steps_total: 0,
         steps_failed: 0,
@@ -878,6 +881,14 @@ pub fn run_scripts(
                 // reach the engine, because apps predate it and never need it.
                 if op == "screenshot" {
                     shot_meta = crate::screenshot::extract_meta(map);
+                    if shot_meta.legacy_store && !warned_store {
+                        warned_store = true;
+                        eprintln!(
+                            "  {WARN}▸{WARN:#} a screenshot step carries `store:`, which is ignored: \
+                             the listing is declared in store/storefront.toml [storefront…screenshots] now \
+                             (docs/store.md)"
+                        );
+                    }
                     // A device target's capture comes from `simctl`/`adb` below, so the
                     // engine's own render would be encoded and discarded. Ask it not to.
                     // The fallback path re-asks, so nothing is lost when a device refuses.
@@ -1009,12 +1020,14 @@ pub fn run_scripts(
                     // step's metadata plus the saved file's facts. The subdir name is the
                     // variant key the published index uses.
                     let vname = variant.or(locale).unwrap_or("default");
+                    // The entry carries the locale outright: the run's, else the app's
+                    // default, so the index never has to decode the variant name.
                     if let Some(entry) = crate::screenshot::target_entry(
                         &path,
                         vname,
                         device,
                         name,
-                        locale,
+                        locale.or(default_locale.as_deref()),
                         Some(&shot_meta),
                     ) {
                         index_entries.push(entry);

@@ -1,0 +1,246 @@
+# The stores' rules, as data: what each storefront is called, which targets publish to it, the
+# fastlane layout its listing takes, its fields with their names and limits, how it spells each
+# locale, and what it takes for a listing screenshot per device kind. `day store stage`, `day store
+# screenshots`, `day lint` and `day store export` read this file; `--rules FILE` or DAY_STORE_RULES
+# names another, and a project's `store/rules.toml` takes over when present, so a store changing
+# what it accepts is a data edit, not a CLI release. `day store export` carries the rules in force,
+# so a consumer of the export holds captures to the same limits without a copy of its own.
+#
+# A store with a `layout` is one the CLI stages (`deliver` writes App Store Connect's tree,
+# `supply` Google Play's); the rest are storefronts the CLI knows by name, whose declarations ride
+# through gallery.json and the export for whatever publishes there. A store key outside this file
+# is a `day lint` warning.
+
+[apple-app-store]
+label = "the App Store"
+targets = ["ios-uikit"]
+layout = "deliver"
+default-kind = "iphone"                 # a capture from a profile-less run counts as this kind
+required = ["name", "description", "privacy-url"]
+
+# The listing's fields: deliver's file name and the store's limit, in characters. Keywords are
+# counted joined by commas.
+[apple-app-store.fields]
+name = { file = "name.txt", limit = 30 }
+subtitle = { file = "subtitle.txt", limit = 30 }
+description = { file = "description.txt", limit = 4000 }
+keywords = { file = "keywords.txt", limit = 100 }
+release-notes = { file = "release_notes.txt", limit = 4000 }
+promo = { file = "promotional_text.txt", limit = 170 }
+marketing-url = { file = "marketing_url.txt", limit = 255 }
+support-url = { file = "support_url.txt", limit = 255 }
+privacy-url = { file = "privacy_url.txt", limit = 255 }
+
+# Day locale tag → the store's spelling. A tag missing here is a lint finding rather than a
+# guess: a listing uploaded under a locale the store does not know is dropped without an error.
+# The region-qualified spellings `day new app` scaffolds are listed beside the short tags, so a
+# project that spells its locales either way still stages.
+[apple-app-store.locales]
+"en" = "en-US"
+"en-GB" = "en-GB"
+"fr" = "fr-FR"
+"fr-CA" = "fr-CA"
+"de" = "de-DE"
+"es" = "es-ES"
+"es-MX" = "es-MX"
+"it" = "it"
+"nl" = "nl-NL"
+"pt-BR" = "pt-BR"
+"pt-PT" = "pt-PT"
+"ru" = "ru"
+"pl" = "pl"
+"tr" = "tr"
+"ar" = "ar-SA"
+"he" = "he"
+"ja" = "ja"
+"ko" = "ko"
+"zh-CN" = "zh-Hans"
+"zh-TW" = "zh-Hant"
+"hi" = "hi"
+"id" = "id"
+"th" = "th"
+"vi" = "vi"
+"uk" = "uk"
+"cs" = "cs"
+"sv" = "sv"
+"da" = "da"
+"fi" = "fi"
+"no" = "no"
+"el" = "el"
+"hu" = "hu"
+"ro" = "ro"
+"sk" = "sk"
+"ms" = "ms"
+"ca" = "ca"
+"hr" = "hr"
+"en-US" = "en-US"
+"es-ES" = "es-ES"
+"fr-FR" = "fr-FR"
+"de-DE" = "de-DE"
+"it-IT" = "it"
+"nl-NL" = "nl-NL"
+"pl-PL" = "pl"
+"ru-RU" = "ru"
+"tr-TR" = "tr"
+"cs-CZ" = "cs"
+"uk-UA" = "uk"
+"ar-SA" = "ar-SA"
+"ja-JP" = "ja"
+"ko-KR" = "ko"
+"id-ID" = "id"
+"ms-MY" = "ms"
+"th-TH" = "th"
+"vi-VN" = "vi"
+"zh-Hans-CN" = "zh-Hans"
+"zh-Hant-TW" = "zh-Hant"
+
+# The 6.9" iPhone and 13" iPad sizes, which the default CI profiles `iPhone * Pro Max` and
+# `iPad Pro 13-inch` produce. `required` kinds need at least one capture in every locale the
+# index carries (App Store Connect refuses a version whose localization has none); `max` is the
+# store's ceiling per locale; Apple takes exact `sizes`.
+[apple-app-store.screenshots.iphone]
+label = "iPhone"
+required = true
+max = 10
+sizes = [[1320, 2868], [2868, 1320], [1290, 2796], [2796, 1290], [1260, 2736], [2736, 1260]]
+
+[apple-app-store.screenshots.ipad]
+label = "iPad"
+required = true
+max = 10
+sizes = [[2064, 2752], [2752, 2064], [2048, 2732], [2732, 2048]]
+
+[google-play-store]
+label = "Google Play"
+targets = ["android-mdc"]
+layout = "supply"
+default-kind = "phone"
+required = ["name", "description", "short"]
+
+# supply's file names. The release notes go to `changelogs/<versionCode>.txt`, keyed by Day.toml's
+# `[app] build`; Play's 500 characters is the limit that binds for an app shipping to both
+# stores. Play takes no marketing URL through the API (its `video.txt` is a YouTube promo video;
+# the website is a Play Console setting), and no keywords, subtitle or promotional text.
+[google-play-store.fields]
+name = { file = "title.txt", limit = 30 }
+short = { file = "short_description.txt", limit = 80 }
+description = { file = "full_description.txt", limit = 4000 }
+release-notes = { file = "changelog", limit = 500 }
+
+# Google still spells Hebrew with the pre-1989 code `iw`, and takes `es-419` for Latin America.
+[google-play-store.locales]
+"en" = "en-US"
+"en-GB" = "en-GB"
+"fr" = "fr-FR"
+"fr-CA" = "fr-CA"
+"de" = "de-DE"
+"es" = "es-ES"
+"es-MX" = "es-419"
+"it" = "it-IT"
+"nl" = "nl-NL"
+"pt-BR" = "pt-BR"
+"pt-PT" = "pt-PT"
+"ru" = "ru-RU"
+"pl" = "pl-PL"
+"tr" = "tr-TR"
+"ar" = "ar"
+"he" = "iw-IL"
+"ja" = "ja-JP"
+"ko" = "ko-KR"
+"zh-CN" = "zh-CN"
+"zh-TW" = "zh-TW"
+"hi" = "hi-IN"
+"id" = "id"
+"th" = "th"
+"vi" = "vi"
+"uk" = "uk"
+"cs" = "cs-CZ"
+"sv" = "sv-SE"
+"da" = "da-DK"
+"fi" = "fi-FI"
+"no" = "no-NO"
+"el" = "el-GR"
+"hu" = "hu-HU"
+"ro" = "ro"
+"sk" = "sk"
+"ms" = "ms"
+"ca" = "ca"
+"hr" = "hr"
+"en-US" = "en-US"
+"es-ES" = "es-ES"
+"fr-FR" = "fr-FR"
+"de-DE" = "de-DE"
+"it-IT" = "it-IT"
+"nl-NL" = "nl-NL"
+"pl-PL" = "pl-PL"
+"ru-RU" = "ru-RU"
+"tr-TR" = "tr-TR"
+"cs-CZ" = "cs-CZ"
+"uk-UA" = "uk"
+"ar-SA" = "ar"
+"ja-JP" = "ja-JP"
+"ko-KR" = "ko-KR"
+"id-ID" = "id"
+"ms-MY" = "ms"
+"th-TH" = "th"
+"vi-VN" = "vi"
+"zh-Hans-CN" = "zh-CN"
+"zh-Hant-TW" = "zh-TW"
+
+# What Google Play's publishing API enforces: "min size: [1080], max size: [7680], max aspect
+# ratio: [2.3]" is the refusal it sends (2026-09-24), not the 320 px and 2:1 its help page
+# states. The floor is what catches a CI tablet: `day devices boot` halves a headless panel past
+# three million pixels, so `medium_tablet` captures 1280x800; `Nexus 7 2013` with `density=240`
+# captures 1920x1200. `folder` is where supply reads the kind's images; a capture slug that
+# starts with `tablet` and names no kind of its own (`tablet-10`) counts as `tablet`.
+[google-play-store.screenshots.phone]
+label = "Handset"
+folder = "phoneScreenshots"
+required = true
+max = 8
+min-side = 1080
+max-side = 7680
+max-ratio = 2.3
+
+[google-play-store.screenshots.tablet]
+label = "Tablet"
+folder = "tenInchScreenshots"
+required = false
+max = 8
+min-side = 1080
+max-side = 7680
+max-ratio = 2.3
+
+[google-play-store.screenshots.tablet-7]
+label = "7-inch tablet"
+folder = "sevenInchScreenshots"
+required = false
+max = 8
+min-side = 1080
+max-side = 7680
+max-ratio = 2.3
+
+# Storefronts the CLI knows by name and does not stage.
+[mac-app-store]
+label = "the Mac App Store"
+targets = ["macos-appkit"]
+
+[altstore]
+label = "AltStore"
+targets = ["ios-uikit"]
+
+[f-droid]
+label = "F-Droid"
+targets = ["android-mdc"]
+
+[flathub]
+label = "Flathub"
+targets = ["linux-gtk", "linux-qt"]
+
+[microsoft-store]
+label = "the Microsoft Store"
+targets = ["windows-xaml"]
+
+[appgallery]
+label = "AppGallery"
+targets = ["harmony-arkui"]

@@ -2787,30 +2787,83 @@ on one backend, replay on any.
 ### §14.7 Screenshot metadata and the gallery index
 
 A `screenshot:` step may carry gallery metadata beside its capture keys: `title:` and
-`caption:` (a plain string, or a locale-keyed map — `title: { en: "Home", fr: "Accueil" }`),
-`source:` (the path of the code the screen renders from, relative to the app repository), and
-`store: N` (this capture is the Nth screenshot of the app's store listing; `store: true` is the
-first). The metadata lives on the step because that is where the capture is declared; it is
-**runner-side only** — day-cli strips the keys before the step reaches the engine, so apps and
-the day-script protocol are untouched (Appendix C lists the keys).
+`caption:` (a plain string, or a locale-keyed map — `title: { en: "Home", fr: "Accueil" }`) and
+`source:` (the path of the code the screen renders from, relative to the app repository). The
+metadata lives on the step because that is where the capture is declared; it is **runner-side
+only** — day-cli strips the keys before the step reaches the engine, so apps and the day-script
+protocol are untouched (Appendix C lists the keys). A step still carrying the retired `store:`
+key (the mark that once placed a capture in the store listing, 2026-09-24 to 2026-09-25) is
+stripped the same way and the runner says once that the listing moved.
 
-`store:` is how a walkthrough that captures dozens of screens says which few the listing shows,
-and in what order. Each entry the index publishes carries the position, so a consumer selects on
-it without knowing the shot names: `day store stage --screenshots <gallery.json | URL>` reads
-the index, takes the marked captures in one theme (`store/app.toml`'s `screenshot-theme`,
-`light` by default) for every locale the store knows, and places them in the fastlane tree
+> [!NOTE]
+> Which captures a listing shows is declared apart from the walkthrough, in
+> `store/storefront.toml`'s `[storefront]` (2026-09-25; the file was `store/app.toml` for a
+> day, and that name still reads with a `store-legacy-name` finding), so one capture set serves
+> several listings. The file may as well
+> be `store/storefront.yaml`: both formats are parsed into one tree (`store::parse_document`) before
+> the declaration is read, so they resolve identically, and a directory carrying both is
+> refused. The table is
+> hierarchical: `[storefront.submission-info]` holds the non-localized submission metadata every
+> store shares, `[storefront.<target>.submission-info]` and
+> `[storefront.<target>.<store>.submission-info]` override it key by key, and screenshots sit
+> beside it as `[storefront.<target>.screenshots]` (what the app's website page for the target
+> shows, one row per device kind, and what its stores fall back to) and
+> `[storefront.<target>.<store>.screenshots]`; each lists device kinds (`iphone`, `ipad`,
+> `phone`, `tablet`) or `default`, and a locale table inside it (`…screenshots.fr`) holds the
+> same lists for captures of that locale, matched by tag then by language. A list resolves
+> locale first, nearest level first (the store's French list, the target's French list, the
+> store's general list, the target's general list; kind before `default` at each step), the
+> same order the listing text resolves in, so a locale's choices outrank a store's; an item is
+> a shot name (the light theme) or `{ name, theme }`.
+> Store keys are open (`mac-app-store`, `altstore`, `f-droid`, …): the CLI
+> stages `apple-app-store` and `google-play-store`, and the rest ride through the index for
+> whatever publishes there. A top-level key of the old flat layout is not read; `day lint` names
+> it, and holds every shot name against the dayscripts and every target against Day.toml.
+> The listing text lives in the same file (2026-09-25; before that in `store/<locale>/*.txt`,
+> which `day store migrate` folds in): `[storefront.metadata]` is the default locale's fields
+> (`name`, `subtitle`, `short`, `description`, `keywords` as a list, `release-notes`, `promo`,
+> the URLs) with a table per other locale carrying what differs, and the same `metadata` table
+> under a target and under a store specializes the wording for that storefront. A field resolves
+> locale-first, nearest level first (store, target, shared), then the default locale's the same
+> way. Any field may be `<field>-ref = "path"`, a project-relative file holding the text (both
+> forms at once, a missing file, or a path leaving the project is refused), and a locale's text
+> may sit in `store/storefront.<tag>.toml` beside the main file, the same tree with `metadata`
+> tables alone. A key the file does not take is read past and is a `store-unknown-key` error
+> (a store key the rules do not know a `store-unknown-store` warning), so a typo never stages
+> and never blocks reading. `day store export` writes the whole listing resolved per target,
+> store and locale as one JSON document (docs/store.md "Exporting"), with the stores' rules in
+> force under `rules`: the app's website is built from it alone (daysite reads no project
+> file), and a release carries it as `storefront.json`; `day metadata --json` no longer carries
+> a storefront block. `day store stage` refuses a listing with any lint error, and placeholder
+> text unless `--allow-placeholders`. Everything the CLI knows about a store (label, targets,
+> `deliver`/`supply` layout, fields and limits, locale spellings, screenshot kinds with their
+> sizes and supply folders, the storefronts known by name alone) is one embedded
+> `store-rules.toml` (`store::StoreRules`), replaceable by `--rules`, `DAY_STORE_RULES` or a
+> project's `store/rules.toml`; the workflow ships a copy. The runner stamps each capture's
+> `theme` and `locale` (the app's default when the run set none) into the target's index, so
+> neither the index nor the site decodes the variant directory name.
+
+`day screenshot index` resolves the declaration into the index's `listings`, per captured
+target: `website`, one resolved list per device kind and locale the target captured (or the
+declaration named), and `stores` with the same per store, each item `{ shot, theme }`. A consumer selects on the index alone:
+`day store stage --screenshots <gallery.json | URL>` takes each kind's list for the target's
+store, one capture per locale in the declared theme, and places them in the fastlane tree
 (`fastlane/screenshots/<locale>/` for deliver; `fastlane/metadata/android/<locale>/images/
-<phone|sevenInch|tenInch>Screenshots/` for supply, the folder from the capture's device slug),
-whereupon the generated lanes stop skipping screenshots. The stores' rules live beside the
-placement: `day store screenshots <index>` holds the marked set to Apple's exact sizes per
-device, Play's range and 2:1 ratio, each store's ceiling per locale and a capture in every locale
-on every required device, and `stage --screenshots` refuses a set the check refuses. The App
-Fair's queue is the first consumer: its review shows the marked captures alone, its checks hold
-their sizes to the same rules, and its signing stage stages them from the release's
-`gallery.json` and `screenshots.zip` (2026-09-24). The shared `dayapp.yml` workflow does the same for an app that uploads on
-its own with `store-screenshots: true`: its upload jobs index the run's own
-`screenshots-<target>` artifact, check it, and stage with it, so no site stands between the
-walkthrough and the store (2026-09-25).
+<phone|sevenInch|tenInch>Screenshots/` for supply, the folder from the kind), whereupon the
+generated lanes stop skipping screenshots. The stores' rules live beside the placement, as data
+(`store-rules.toml`, embedded and replaceable by `--rules`, `DAY_STORE_RULES`
+or the project's `store/rules.toml`): `day store screenshots <index>` holds each
+list to Apple's exact sizes per device, Play's 1080 to 7680 px range and 2.3:1 ratio as its API
+enforces them, each store's ceiling per locale and a capture in every locale on every required
+device, and `stage --screenshots` refuses a set the check refuses. The app's website reads the
+same index: a target's page shows one carousel per device kind, each its `website` list in
+order (daysite's landing rows), the gallery page every capture. The App Fair's queue is the first store consumer: its review shows
+the declared captures per store and device, its checks hold their sizes to the same rules, and
+its signing stage stages them from the release's `gallery.json` and `screenshots.zip`
+(2026-09-24). The shared `dayapp.yml` workflow does the same for an app that uploads on its own
+with `store-screenshots: true`: its upload jobs index the run's own `screenshots-<target>`
+artifact, check it, and stage with it, so no site stands between the walkthrough and the store
+(2026-09-25).
 
 The runner folds every capture it saves into `build/day/screenshots/<target>/gallery.json`,
 or `<target>/<device>/gallery.json` for a run on a device profile, so two profiles' CI legs
@@ -3447,9 +3500,9 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
-| `day store <init\|stage>` | the App Store / Google Play listing: `init` writes `store/<locale>/` skeletons for every locale the app ships, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures a walkthrough marked `store: N` (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules ([docs/store.md](docs/store.md)) |
-| `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
-| `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256. App sites serve it at `/gallery/gallery.json`; `--out` places it |
+| `day store <init\|migrate\|stage\|screenshots\|export>` | the App Store / Google Play listing, one file (`store/storefront.toml` or `storefront.yaml`; the older `app.*` names still read): `init` writes `[storefront.metadata]` tables for every locale the app ships and the listing lacks, `migrate` folds the older `store/<locale>/*.txt` layout into them, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)), refusing a listing with any lint error (`--allow-placeholders` lets TODO text through), `export` writes the listing resolved per target, store and locale as one JSON document with the stores' rules in force (`--out FILE`; what the website is built from and a release carries as `storefront.json`); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures `store/storefront.toml` `[storefront…screenshots]` declares (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules, the `store-rules.toml` the CLI embeds and `--rules` / `DAY_STORE_RULES` / `store/rules.toml` replace ([docs/store.md](docs/store.md)) |
+| `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
+| `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256, and `listings`, the store and website lists `store/storefront.toml` `[storefront]` declares, resolved per target and device kind. App sites serve it at `/gallery/gallery.json`; `--out` places it |
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time ([docs/agent.md](docs/agent.md) — the agent inner loop) |
@@ -3812,7 +3865,7 @@ missing-key class a compile error instead.
 >
 > `--fix` applies the repairs and says what it did to each file. A rule proposes one only when the
 > repair is **safe** (reversible, inventing no content) and **unambiguous** (exactly one right
-> answer) — today `store-whitespace` and `store-bad-keywords`, both whole-file rewrites. A waived
+> answer) — today `store-whitespace` on a text kept in its own file, a whole-file rewrite. A waived
 > code is never rewritten: `--allow` says the finding may stand. Because two rules can propose a
 > repair for the same file from the same original text, `--fix` applies one per file, re-checks,
 > and repeats until nothing is left.
@@ -4264,7 +4317,7 @@ removed each copy:
 | `rootProject.name` | a constant (Gradle shows it in the IDE; nothing reads it) |
 | Android `namespace`, deep-link scheme | the generated `day-app.properties` + a `${dayScheme}` manifest placeholder |
 | Apple `CFBundleURLName`/`CFBundleURLSchemes` | `$(PRODUCT_BUNDLE_IDENTIFIER)` and a generated `DAY_URL_SCHEME`, the indirection `CFBundleIdentifier` already used |
-| `store/app.toml bundle-id` | omitted — `day store` falls back to `Day.toml [app] id` |
+| `store/storefront.toml` `[storefront…submission-info] bundle-id` | omitted — `day store` falls back to `Day.toml [app] id` |
 | HarmonyOS `bundleName`, `uris` scheme | merged into the staged host under `build/day/harmony/project/`, alongside permissions and shortcuts |
 
 The CLI reads `[lib].name` by parsing Cargo.toml as TOML, not scanning its text: comments
@@ -4571,7 +4624,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    `scripts/ci/scaffold-check.sh`, the only place CI exercises `day new app` end to end: it
    scaffolds a 21-locale project and lints it with `--strict --allow store-placeholder`, so every
    rule but the listing TODOs a human still has to write holds against a fresh project. It runs on
-   all three OSes because the four locale surfaces (`resource/locales/`, `store/`, Xcode's
+   all three OSes because the four locale surfaces (`resource/locales/`, the store listing's locale tables, Xcode's
    `knownRegions`, `website/site.toml`) are written through platform path handling. The project
    sits under `Day Project Root/`, a directory whose name contains a space, so the build, pack,
    rebuild, and launch steps meet the path a user's own folder names produce (2026-09).
@@ -5923,7 +5976,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
-| `screenshot` | name, `window?`, `title?`, `caption?`, `source?`, `store?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map), `source` and `store` (the listing position) are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json |
+| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json; the retired `store` key is stripped with a warning |
 | `pause` | `secs` | demos only |
 | `size_class` | `width`, `height?` | REPORT a size class the window is not actually at, so a nav host re-presents and a piece reading `day::size_class()` rebuilds. Changes no pixels — a screenshot after it shows the new layout at the old size. `width: auto` restores what the backend reports ([docs/size-classes.md](docs/size-classes.md)) |
 | `resize` | `width`, `height`, or `auto` | `size_class`'s complement: change the window's REAL geometry. Runner-side first (a device's window belongs to the system — android-mdc drives `adb shell wm size`), then the engine half waits for the app to report the new class. A target with no host-side lever FAILS the step rather than passing one that moved nothing ([docs/size-classes.md](docs/size-classes.md)) |

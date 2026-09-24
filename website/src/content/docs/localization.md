@@ -259,7 +259,7 @@ day localize add fr ar
 day localize list
 ```
 
-`add` copies the default locale's Fluent files. It also adds store listing files, an Xcode
+`add` copies the default locale's Fluent files. It also adds a store listing table, an Xcode
 `knownRegions` entry, and a locale in `website/site.toml` when those files exist. Supported
 starter messages receive translations; other app messages keep the copied text under a
 `TODO: translate` comment. Store text is copied without that comment because it may be uploaded.
@@ -280,7 +280,8 @@ copy in each locale too. Rebuild to regenerate the accessors and embedded catalo
 Use tags such as `fr`, `pt-BR`, or `zh-CN` consistently in project directories. Day maps tags to
 store and platform spellings during generation. Keep identity text, permission reasons, and
 platform shortcut labels in the app's root catalogs because platform metadata tools read
-those catalogs. Store descriptions and release notes live separately in `store/<locale>/`.
+those catalogs. Store descriptions and release notes live separately in `store/storefront.toml`, one
+`[storefront.metadata.<tag>]` table per locale.
 See [store listings](/docs/internal/store) and [permission reasons](/docs/guide-permissions).
 
 `day localize remove fr` removes the locale from the app surfaces that `add` manages. It refuses
@@ -297,7 +298,7 @@ day localize list
 day lint --strict
 ```
 
-`localize list` reports differences between the app's locale directories, store listings,
+`localize list` reports differences between the app's locale directories, the store listing's locales,
 Xcode regions, and website configuration. It is an informational report. `lint --strict`
 fails when findings remain.
 

@@ -523,12 +523,27 @@ enum Cmd {
 /// Scaffolds default to remote (git) day dependencies so they are self-contained; the hidden
 /// `--local <path>` (or `DAY_LOCAL` env) redirects to a local day checkout for CI checks of a
 /// freshly-scaffolded project against the day tree under test.
-/// `day store …`: the canonical listing under `store/`, and the fastlane trees it generates.
+/// `day store …`: the canonical listing in `store/storefront.toml`, the fastlane trees it generates,
+/// and the JSON export of it.
 #[derive(Subcommand)]
 pub enum StoreCmd {
-    /// Create store listing files for each locale without replacing existing files
+    /// Write listing text tables for each locale into store/storefront.toml, leaving existing ones
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
     Init,
+    /// Fold a store/<locale>/*.txt layout into store/storefront.toml [storefront.metadata] tables
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    Migrate {
+        /// Keep the store/<locale>/ directories after folding them in
+        #[arg(long)]
+        keep: bool,
+    },
+    /// Write the whole listing, resolved per target, store and locale, as one JSON document
+    #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
+    Export {
+        /// Write to this file instead of standard output
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+    },
     /// Prepare store listings for upload with fastlane
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
     Stage {
@@ -536,9 +551,16 @@ pub enum StoreCmd {
         #[arg(short = 'p', long = "platform", visible_alias = "target")]
         target: Option<String>,
         /// Place the listing's screenshots from a gallery index: the site's published
-        /// gallery.json by URL, or a local one. Takes the captures marked `store: N`
+        /// gallery.json by URL, or a local one: the captures the storefront's screenshots tables name
         #[arg(long, value_name = "URL|PATH")]
         screenshots: Option<String>,
+        /// The stores' rules to hold the listing to (default: DAY_STORE_RULES, else
+        /// store/rules.toml, else the CLI's own)
+        #[arg(long, value_name = "FILE")]
+        rules: Option<PathBuf>,
+        /// Stage text that still says TODO (a scaffold's placeholders) instead of refusing
+        #[arg(long)]
+        allow_placeholders: bool,
     },
     /// Check a gallery index's listing screenshots against each store's rules
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
@@ -549,6 +571,10 @@ pub enum StoreCmd {
         /// Target to check (default: all store targets)
         #[arg(short = 'p', long = "platform", visible_alias = "target")]
         target: Option<String>,
+        /// The stores' rules to hold them to (default: DAY_STORE_RULES, else store/rules.toml,
+        /// else the CLI's own)
+        #[arg(long, value_name = "FILE")]
+        rules: Option<PathBuf>,
     },
 }
 

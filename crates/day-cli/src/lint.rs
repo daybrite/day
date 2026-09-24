@@ -137,6 +137,13 @@ pub fn severity_of(code: &str) -> Severity {
         "day::lint::vector-parse",
         "day::lint::vector-unreadable",
         "day::lint::store-unreadable",
+        "day::lint::store-unknown-key",
+        "day::lint::store-unknown-target",
+        "day::lint::store-unknown-shot",
+        "day::lint::store-missing-field",
+        "day::lint::store-default-locale",
+        "day::lint::store-too-long",
+        "day::lint::store-bad-url",
         "day::lint::shortcut-label",
         "day::lint::app-id",
     ];
@@ -1129,9 +1136,12 @@ fn collect(project: &Project) -> Vec<Finding> {
     // --- Store listings (§16.6) ---
     // Held to the stores' own rules, because the alternative is learning them from a rejection
     // days after the upload. Silent for an app that ships to neither store.
-    match crate::store::read(project) {
-        Ok(listing) => {
-            for p in crate::store::lint(project, &listing) {
+    let listing = crate::store::read(project).and_then(|listing| {
+        crate::store::StoreRules::load(project, None).map(|rules| (listing, rules))
+    });
+    match listing {
+        Ok((listing, rules)) => {
+            for p in crate::store::lint(project, &listing, &rules) {
                 // A listing field is one value in one small file, so the head of that file is the
                 // finding's place; the rules that carry a repair rewrite the file whole.
                 findings.push(Finding {
@@ -2171,10 +2181,10 @@ e = { PLATFORM() }
             Finding {
                 code: "day::lint::store-whitespace",
                 message: "trailing space".into(),
-                location: Some(Location::head("store/en/name.txt")),
+                location: Some(Location::head("store/text/description.txt")),
                 fix: Some(Fix {
                     title: "Trim the surrounding whitespace".into(),
-                    file: "store/en/name.txt".into(),
+                    file: "store/text/description.txt".into(),
                     contents: "Name\n".into(),
                 }),
             },
@@ -2219,7 +2229,7 @@ e = { PLATFORM() }
             message: "trailing space".into(),
             fix: Some(Fix {
                 title: "Trim".into(),
-                file: "store/en/name.txt".into(),
+                file: "store/text/description.txt".into(),
                 contents: "Name\n".into(),
             }),
             ..Default::default()

@@ -153,7 +153,7 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
 /// The app's declared permissions, resolved from Day.toml alone (no `cargo metadata`), so
 /// `day metadata` stays as fast as it has always been. Library contributions are therefore not
 /// included here; `day build` unions them at build time (docs/permissions.md).
-fn declared_permissions(project: &Project) -> Vec<serde_json::Value> {
+pub(crate) fn declared_permissions(project: &Project) -> Vec<serde_json::Value> {
     let catalog = crate::permissions::Catalog::load(&project.root);
     project
         .manifest
@@ -198,7 +198,7 @@ fn catalog_texts(
 
 /// `[permissions.raw]`: the Android names, the Apple keys with their reasons per locale, and
 /// the HarmonyOS entries with theirs.
-fn raw_permissions(project: &Project) -> serde_json::Value {
+pub(crate) fn raw_permissions(project: &Project) -> serde_json::Value {
     let catalog = crate::permissions::Catalog::load(&project.root);
     let raw = &project.manifest.permissions.raw;
     let with_reasons = |id: &str, inline: Option<&str>| {

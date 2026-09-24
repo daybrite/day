@@ -3,7 +3,7 @@
 
 //! `day localize`: one locale set, every surface (DESIGN.md §16.5). A conventional Day project
 //! spells its locales in four places: `resource/locales/<tag>/` (the app's Fluent
-//! translations), `store/<tag>/` (the listing text, docs/store.md), the Xcode project's
+//! translations), the listing text's locale tables in `store/storefront.toml` (docs/store.md), the Xcode project's
 //! `knownRegions` list, and `website/site.toml`'s `locales` array. Added by hand in one place,
 //! a locale silently drifts out of the other three, so [`add`]/[`remove`] edit every surface
 //! the project has at once, and [`survey`]/[`sync_findings`] give `day lint` the drift check.
@@ -121,7 +121,7 @@ pub struct LocaleSurvey {
 pub fn survey(project_root: &Path) -> LocaleSurvey {
     LocaleSurvey {
         fluent: dir_locales(&project_root.join("resource/locales")).unwrap_or_default(),
-        store: dir_locales(&project_root.join("store")),
+        store: crate::store::listing_locales(project_root),
         xcode: pbx_regions(project_root),
         website: website_locales(project_root),
     }
@@ -513,17 +513,11 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
     }
 
     // Store listing text, only when the project keeps one at all (store.rs's rule: an app
-    // that never ships to a store is not nagged about listings). Copied verbatim: a
-    // translate-me header in listing text would upload.
+    // that never ships to a store is not nagged about listings). The locale's table starts
+    // as the default locale's text, verbatim: a translate-me header in listing text would
+    // upload.
     if s.store.is_some() {
-        let store_dir = project_root.join("store");
-        let dst = store_dir.join(tag);
-        if !dst.is_dir() {
-            let n = copy_locale_files(&store_dir.join(&default), &dst, "txt", None, None)?;
-            done.push(format!(
-                "created store/{tag}/ ({n} file(s) copied from {default}/)"
-            ));
-        }
+        done.extend(crate::store::add_locale(project_root, tag)?);
     }
 
     // Xcode's knownRegions, in its own spelling, inserted before `Base`.
@@ -564,13 +558,13 @@ pub fn remove(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
         ));
     }
     let mut done = Vec::new();
-    for rel in [format!("resource/locales/{tag}"), format!("store/{tag}")] {
-        let dir = project_root.join(&rel);
-        if dir.is_dir() {
-            std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            done.push(format!("removed {rel}/"));
-        }
+    let rel = format!("resource/locales/{tag}");
+    let dir = project_root.join(&rel);
+    if dir.is_dir() {
+        std::fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        done.push(format!("removed {rel}/"));
     }
+    done.extend(crate::store::remove_locale(project_root, tag)?);
     let pbx = pbxproj_path(project_root);
     if pbx.is_file() {
         let text = std::fs::read_to_string(&pbx).map_err(|e| format!("{}: {e}", pbx.display()))?;
@@ -601,7 +595,7 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
     let default = crate::store::default_locale(&survey.fluent).unwrap_or_else(|| "en".to_string());
     let mut present: Vec<(&str, &[String])> = vec![("resource/locales/", &survey.fluent)];
     if let Some(s) = &survey.store {
-        present.push(("store/", s));
+        present.push(("store/storefront.toml", s));
     }
     if let Some(s) = &survey.xcode {
         present.push(("platform/ios (knownRegions)", s));
@@ -629,9 +623,9 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
                     "run `day localize add {tag}`, or create resource/locales/{tag}/ by \
                      copying resource/locales/{default}/"
                 ),
-                "store/" => format!(
-                    "run `day localize add {tag}`, or create store/{tag}/ by copying \
-                     store/{default}/"
+                "store/storefront.toml" => format!(
+                    "run `day localize add {tag}`, or add a [storefront.metadata.{tag}] table \
+                     to store/storefront.toml (the default locale's text is [storefront.metadata])"
                 ),
                 "platform/ios (knownRegions)" => format!(
                     "add `{tag}` to knownRegions in {PBX_REL} (Xcode spelling: {})",
@@ -651,10 +645,11 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
         // silently skips such a locale (store.rs), so say so while it is one tag old.
         if survey.store.is_some() && !crate::store::mappable(tag) {
             out.push((
-                format!("locale {tag} has no App Store / Google Play locale in store::LOCALES"),
+                format!("locale {tag} has no App Store / Google Play spelling in store-rules.toml"),
                 format!(
-                    "extend LOCALES in day-cli's store.rs with {tag}'s store spellings, or \
-                     pick a supported tag — `day store stage` skips locales it cannot spell"
+                    "add {tag}'s spelling to each store's [<store>.locales] in the rules \
+                     (store/rules.toml overrides the CLI's), or pick a supported tag — `day \
+                     store stage` skips locales it cannot spell"
                 ),
             ));
         }
@@ -685,7 +680,11 @@ fn list(project: &Project) {
         Some(v) => crate::ops::status(label, &format!("{} — {path}", show(v))),
         None => crate::ops::status(label, "(not present)"),
     };
-    opt("Store", "store/", &s.store);
+    opt(
+        "Store",
+        "store/storefront.toml [storefront.metadata]",
+        &s.store,
+    );
     opt("Xcode", "platform/ios knownRegions", &s.xcode);
     opt("Website", "website/site.toml locales", &s.website);
     let findings = sync_findings(&s);
@@ -766,8 +765,12 @@ mod tests {
         let root = scratch(name);
         std::fs::create_dir_all(root.join("resource/locales/en")).expect("locales");
         std::fs::write(root.join("resource/locales/en/app.ftl"), "hello = Hello\n").expect("ftl");
-        std::fs::create_dir_all(root.join("store/en")).expect("store");
-        std::fs::write(root.join("store/en/name.txt"), "Example\n").expect("name");
+        std::fs::create_dir_all(root.join("store")).expect("store");
+        std::fs::write(
+            root.join("store/storefront.toml"),
+            "[storefront.metadata]\nname = \"Example\"\n",
+        )
+        .expect("storefront.toml");
         std::fs::create_dir_all(root.join("platform/ios/DayApp.xcodeproj")).expect("xcodeproj");
         std::fs::write(
             pbxproj_path(&root),
@@ -845,7 +848,7 @@ mod tests {
         assert_eq!(f.len(), 1, "{f:?}");
         assert!(f[0].0.contains("missing from store/"), "{}", f[0].0);
         assert!(
-            f[0].1.contains("day localize add fr") && f[0].1.contains("store/fr/"),
+            f[0].1.contains("day localize add fr") && f[0].1.contains("[storefront.metadata.fr]"),
             "{}",
             f[0].1
         );
@@ -893,7 +896,7 @@ mod tests {
         };
         let f = sync_findings(&s);
         assert_eq!(f.len(), 1, "{f:?}");
-        assert!(f[0].0.contains("kl") && f[0].1.contains("LOCALES"), "{f:?}");
+        assert!(f[0].0.contains("kl") && f[0].1.contains("rules"), "{f:?}");
         let s = LocaleSurvey {
             fluent: v(&["en", "kl"]),
             store: None,
@@ -914,9 +917,11 @@ mod tests {
             ftl.starts_with("# TODO: translate"),
             "carries the translate-me header: {ftl}"
         );
-        assert_eq!(
-            std::fs::read_to_string(root.join("store/fr/name.txt")).expect("name"),
-            "Example\n"
+        let app =
+            std::fs::read_to_string(root.join("store/storefront.toml")).expect("storefront.toml");
+        assert!(
+            app.contains("[storefront.metadata.fr]\nname = \"Example\"\n"),
+            "the locale's table starts as the default's text: {app}"
         );
         let pbx = std::fs::read_to_string(pbxproj_path(&root)).expect("pbx");
         assert!(
@@ -950,7 +955,10 @@ mod tests {
         let lines = remove(&root, "fr").expect("remove fr");
         assert_eq!(lines.len(), 4, "{lines:?}");
         assert!(!root.join("resource/locales/fr").exists());
-        assert!(!root.join("store/fr").exists());
+        let app =
+            std::fs::read_to_string(root.join("store/storefront.toml")).expect("storefront.toml");
+        assert!(!app.contains("metadata.fr"), "{app}");
+        assert!(app.contains("[storefront.metadata.zh-CN]"), "{app}");
         let pbx = std::fs::read_to_string(pbxproj_path(&root)).expect("pbx");
         assert!(!pbx.contains("fr,"), "{pbx}");
         let site = std::fs::read_to_string(root.join("website/site.toml")).expect("site");

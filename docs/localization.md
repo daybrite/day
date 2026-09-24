@@ -282,14 +282,15 @@ Platform metadata tools read the app root's catalogs. Keep permission reasons th
 consumed during platform generation and are exempt from the app's unused-key lint.
 See [permissions](permissions.md) for the key mapping and generated platform files.
 
-Store copy lives in `store/<locale>/`, separate from UI messages. `day store stage` maps
-project locale tags to each store's spelling and generates fastlane metadata. Website locale
+Store copy lives in `store/storefront.toml`, as `[storefront.metadata]` with a table per locale, separate
+from UI messages. `day store stage` maps project locale tags to each store's spelling and
+generates fastlane metadata. Website locale
 configuration lives in `website/site.toml`; the app site uses store text and localized
 screenshot metadata. See [store listings](store.md) and [DayScript](https://daybrite.dev/docs/dayscript).
 
 ## Adding and removing locales
 
-`day localize list` surveys the app root's Fluent directories, store directories, Xcode
+`day localize list` surveys the app root's Fluent directories, the store listing's locale tables, Xcode
 `knownRegions`, and website locale list. `day localize add <tags>` copies the default Fluent
 files and updates the other surfaces when present. It translates recognized scaffold
 messages where a starter translation exists; the remaining messages need translation.

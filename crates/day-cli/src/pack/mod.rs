@@ -251,14 +251,17 @@ pub fn run(
         match crate::store::read(project) {
             Ok(listing) if !listing.is_empty() => {
                 let out = crate::store::stage_dir(project, target);
-                match crate::store::stage(project, target, &listing, &out, None) {
+                let rules = crate::store::StoreRules::load(project, None);
+                match rules.and_then(|rules| {
+                    crate::store::stage(project, target, &listing, &out, None, &rules)
+                }) {
                     Ok(files) => status(
                         "Listing",
                         &format!(
                             "{} ({} file(s), {} locale(s))",
                             out.display(),
                             files.len(),
-                            listing.locales.len()
+                            listing.locales().len()
                         ),
                     ),
                     Err(e) => status("Warning", &format!("store listing: {e}")),

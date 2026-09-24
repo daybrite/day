@@ -533,11 +533,15 @@ package name, which is the check `day new` runs on `--appid`.
 
 ## Store listings
 
-An app that ships to the App Store or Google Play keeps its listing under `store/<locale>/`, as
-plain text files named for what they are — `name.txt`, `subtitle.txt`, `short.txt`,
-`description.txt`, `keywords.txt`, `release-notes.txt` — one directory per locale, keyed the same
-way `resource/locales/` is. `day new app` scaffolds it for any app with a mobile target, and
-`day store init` adds it to an existing one.
+An app that ships to the App Store or Google Play keeps its whole listing in `store/storefront.toml`
+(or `store/storefront.yaml`, the same tree in YAML): the submission info, the text in every locale, and
+the screenshots each listing shows. The text is `[storefront.metadata]` (the default locale) with
+a table per other locale carrying what differs, `name`, `subtitle`, `short`, `description`,
+`keywords` (a list), `release-notes` and the URLs; a target's or a store's own `metadata` table
+specializes the wording for that storefront; any field may be `<field>-ref = "store/…"`, a
+project file holding the text; and a locale may live in `store/storefront.<tag>.toml` beside the main
+file. `day new app` scaffolds it for any app with a mobile target, `day store init` adds it to an
+existing one, and `day store migrate` folds the older `store/<locale>/*.txt` layout into it.
 
 The two stores differ in field names, length limits (release notes: 4000 characters on the App
 Store, 500 on Google Play), which fields exist, and how a locale is spelled (`zh-CN` here is
@@ -546,14 +550,28 @@ fastlane project per target under `build/day/store/<target>/`, with `validate` a
 `day pack` runs the same generation, so a packaged build already has its listing beside it.
 
 `day lint` checks the listing against the stores' rules before an upload can reject it: length
-limits per store, required fields, URL format, leftover `TODO` placeholders, and locale parity with
-the app's translations, so a new app locale also requires a listing in that locale.
+limits per store, the fields each store's record cannot do without, URL format, leftover `TODO`
+placeholders, and locale parity with the app's translations, so a new app locale also requires a
+listing in that locale. Each finding names its place, `store/storefront.toml [storefront.metadata.fr]
+description` or the referenced file.
 
-The listing's screenshots come from the walkthrough: a `screenshot:` step marked `store: N` is
-the Nth screenshot of both stores' listings, in every locale and on every device it runs on.
-`day store screenshots <gallery.json | URL>` checks the marked set against each store's sizes
-and coverage rules, and `day store stage --screenshots <gallery.json | URL>` places it where
-fastlane uploads it. See
+`day store export` writes the listing resolved per target, store and locale as one JSON document,
+with the stores' rules in force, which is what the app's website is built from and what a release
+carries as `storefront.json`. `day store stage` refuses a listing with any lint error, and
+placeholder text unless `--allow-placeholders`. Everything the CLI knows about a store is data
+(`store-rules.toml`: label, targets, layout, fields and limits, locale spellings, screenshot
+sizes), replaceable with `--rules FILE`, `DAY_STORE_RULES` or a project's `store/rules.toml`. See
+[Store submission](/docs/guide-store-submission) for the release walk-through.
+
+The listing's screenshots come from the walkthrough's captures, chosen in `store/storefront.toml`
+`[storefront.<target>.<store>.screenshots]`: per device kind (or `default`), the `screenshot:`
+steps to show, in order, each in the light theme or `{ name = "…", theme = "dark" }`; the
+target's own `[storefront.<target>.screenshots]` is what its website page shows, one row per
+device kind. Submission metadata sits beside it in `submission-info` tables, shared, per target
+or per store. `day screenshot index` resolves that into
+`gallery.json`, `day store screenshots <gallery.json | URL>` checks each list against the
+store's sizes and coverage rules (the rules file the CLI embeds; `--rules FILE` names another),
+and `day store stage --screenshots <gallery.json | URL>` places it where fastlane uploads it. See
 [Store listings](/docs/internal/store) for the full field table and the credential variables.
 
 In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh scaffold trips one
@@ -586,12 +604,11 @@ Some findings come with a repair. `day lint --fix` applies them and reports each
 
 ```
 $ day lint --fix
-fixed   day::lint::store-whitespace     store/en/name.txt: Trim the surrounding whitespace
-fixed   day::lint::store-bad-keywords   store/en/keywords.txt: Remove the spaces around commas
+fixed   day::lint::store-whitespace     store/metadata/en/description.txt: Trim the surrounding whitespace
 ```
 
 A rule proposes a fix only where there is one right answer and applying it cannot lose anything you
-wrote (trimming stray whitespace around a store field, dropping the spaces in a keyword list).
+wrote (trimming stray whitespace around a store text kept in its own file).
 Anything that would need a decision, or that would add text you did not write, reports and waits
 for you. A code you passed to `--allow` is never rewritten.
 
@@ -607,15 +624,15 @@ squiggles and quick fixes from it:
     {
       "code": "day::lint::store-whitespace",
       "severity": "warning",
-      "message": "store/en/name.txt: leading or trailing whitespace",
+      "message": "store/metadata/en/description.txt ([storefront.metadata] description-ref): leading or trailing whitespace",
       "waived": false,
-      "file": "store/en/name.txt",
+      "file": "store/metadata/en/description.txt",
       "line": 1,
       "column": 1,
       "fix": {
         "title": "Trim the surrounding whitespace",
-        "file": "store/en/name.txt",
-        "contents": "Day Rise\n"
+        "file": "store/metadata/en/description.txt",
+        "contents": "What Day Rise does.\n"
       }
     }
   ],

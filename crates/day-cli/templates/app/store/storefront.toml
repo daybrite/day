@@ -1,0 +1,57 @@
+# The store listing (https://daybrite.dev/docs/store): everything the App Store, Google Play
+# and the app's website show, in this one file. `day store stage` turns it into the layouts App
+# Store Connect and Google Play expect, under build/day/store/<target>/, ready for
+# `fastlane deliver` / `fastlane supply`; `day store export` writes it resolved as JSON for the
+# website and anything else that publishes the app. The same tree may be written as
+# store/storefront.yaml instead; `day store` reads either.
+#
+# [storefront.submission-info] is shared by every store; [storefront.<target>.submission-info]
+# and [storefront.<target>.<store>.submission-info] override it key by key. bundle-id is left
+# out so `day store` falls back to Day.toml [app] id, the id the app is built with; set it here
+# only to publish under an id the app does not build with.
+[storefront.submission-info]
+# copyright = "2026 {{title}}"
+# contact-email = "support@example.com" # where a store reviewer writes back
+# review-notes = "How to exercise the app, for the store reviewer."
+
+[storefront.ios-uikit.apple-app-store.submission-info]
+# apple-category = "DEVELOPER_TOOLS"    # App Store primary category
+# (Google Play's category is set in the Play Console; `supply` cannot write it.)
+
+# The listing text, in the app's default locale. A table per other locale
+# ([storefront.metadata.fr], or a store/storefront.fr.toml beside this file holding the same tables)
+# carries what differs; every field it leaves out is the default locale's. A target's
+# [storefront.<target>.metadata] and a store's [storefront.<target>.<store>.metadata]
+# specialize the wording the same way, and any field may be `<field>-ref = "store/…"`, a
+# project file holding the text. `day lint` holds every field to the stores' limits.
+[storefront.metadata]
+name = "{{title}}"                                     # ≤30, the App Store name and Play title
+subtitle = "TODO: 30 characters, App Store"            # App Store only
+short = "TODO: one sentence, up to 80 characters, shown in Google Play search results."
+description = """
+TODO: what {{title}} does, who it is for, and what it does not do.
+
+Both stores allow 4000 characters and show the first few lines before a "more" fold, so lead
+with the sentence that would make someone install it.
+"""
+keywords = ["todo", "comma", "separated"]              # App Store only; ≤100 characters joined
+release-notes = """
+TODO: what changed in this version. Google Play allows 500 characters, and that is
+the limit that binds for an app shipping to both stores.
+"""
+privacy-url = "https://example.com/privacy"            # the App Store requires one
+# marketing-url = "https://example.com"
+# support-url = "https://example.com/support"
+# promo = "…"                                          # App Store promotional text, ≤170
+
+# Which captures the store listings and the website show, by the names of `screenshot:` steps in
+# dayscript/ (https://daybrite.dev/docs/store#screenshots). Per target, `screenshots` is the
+# website's page for that target (one row per device kind, `default` for the rest) and the
+# stores' fallback; a store lists device kinds or its own `default`. A name is the light capture;
+# { name = "…", theme = "dark" } the dark one.
+# [storefront.ios-uikit.screenshots]
+# default = ["home"]
+# [storefront.ios-uikit.apple-app-store.screenshots]
+# iphone = ["home", { name = "settings", theme = "dark" }]
+# [storefront.android-mdc.google-play-store.screenshots]
+# default = ["home", "settings"]

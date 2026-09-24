@@ -323,12 +323,12 @@ pub fn home_screen(project: &Project) -> HomeScreen {
             Default::default()
         }
     };
+    // The web target's own text in the default locale, resolved the way a store's is.
+    let fields = listing.app.metadata("web-dom", "", &lang);
     let field = |f: crate::store::Field| -> Option<String> {
-        listing
-            .locales
-            .get(&lang)
-            .and_then(|m| m.get(&f))
-            .map(|t| t.trim().to_string())
+        fields
+            .get(&f)
+            .map(|t| t.value.trim().to_string())
             .filter(|t| !t.is_empty())
     };
     let name = field(crate::store::Field::Name)
