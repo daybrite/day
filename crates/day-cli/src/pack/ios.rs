@@ -1,8 +1,10 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! ios-uikit → App Store .ipa via `xcodebuild archive` + `-exportArchive` (arm64-only device
-//! build; automatic signing with an App Store Connect API key, the Tauri/Flutter CI path).
+//! ios-uikit → App Store .ipa. With an App Store profile installed for the app id: an unsigned
+//! arm64 device build, then `day sign apply` over that profile and its distribution identity,
+//! which is how a release pipeline signs after the build. Without one: `xcodebuild archive` +
+//! `-exportArchive` with automatic signing through an App Store Connect API key.
 //! Without `signing.ios` config this degrades loudly to an unsigned device .ipa
 //! (`-unsigned.ipa`): a real `-sdk iphoneos` Release build with code signing disabled,
 //! packaged as `Payload/<App>.app`. It cannot launch as-is; the developer signs it
@@ -51,6 +53,18 @@ pub fn pack(
         );
         return unsigned_ipa(project, target, opts, dist);
     };
+    // An App Store profile installed for the app id: the build is unsigned, and the .ipa is
+    // then signed with that profile and its own distribution identity, exactly as `day sign
+    // apply` does for a release pipeline that signs after the build. xcodebuild's own signing
+    // never runs, so nothing is provisioned or minted. It has to be this way round: an
+    // automatic archive on a CI runner's fresh keychain created a new development certificate
+    // every run, until the account was full ("Your account has reached the maximum number of
+    // certificates", Day-Showcase v0.4.13, 2026-09-24), and a manual archive cannot be scoped
+    // to the app target, since the profile setting reaches the Swift package targets, which
+    // refuse it ("does not support provisioning profiles").
+    if let Some(profile) = crate::mobile::installed_store_profile(&project.manifest.app.id) {
+        return signed_over_profile(project, target, opts, dist, &profile);
+    }
     let method = ios
         .export_method
         .clone()
@@ -158,27 +172,13 @@ pub fn pack(
     run_tool(&mut cmd, "xcodebuild archive").map_err(PackError::Sign)?;
 
     // --- export (.ipa) -------------------------------------------------------
-    // Manual over an installed App Store profile when there is one: an automatic export asks
-    // Xcode's cloud-managed signing for the distribution certificate, which an App Manager
-    // API key is not allowed to use ("Cloud signing permission error", then "No profiles for
-    // '<id>' were found" even with one installed). A profile the developer created and
-    // installed, with its certificate in the keychain, exports without that service.
-    let store_profile = crate::mobile::installed_store_profile(&project.manifest.app.id);
-    if let Some(p) = &store_profile {
-        status(
-            "Signing",
-            &format!("manual export with {} ({})", p.name, p.uuid),
-        );
-    }
+    // Automatic: this path runs only without an installed App Store profile (the one above
+    // signs over the profile without xcodebuild), so Xcode's cloud-managed signing supplies
+    // the distribution certificate, which needs a developer's Xcode account session.
     let export_plist = build_dir.join("ExportOptions.plist");
     std::fs::write(
         &export_plist,
-        export_options(
-            &method,
-            &team,
-            &project.manifest.app.id,
-            store_profile.as_ref(),
-        ),
+        export_options(&method, &team, &project.manifest.app.id, None),
     )
     .map_err(|e| PackError::Other(e.to_string()))?;
     let export_dir = build_dir.join("export");
@@ -220,6 +220,54 @@ pub fn pack(
         "ipa",
     ));
     std::fs::copy(&ipa, &out).map_err(|e| PackError::Other(e.to_string()))?;
+    Ok(Artifact {
+        path: out,
+        kind: "ipa",
+        sha256: String::new(),
+        tier: SignTier::Release,
+    })
+}
+
+/// The release .ipa from an unsigned build and an installed App Store profile: `unsigned_ipa`
+/// builds and packages with signing off, `sign::apply` signs the package with the profile and
+/// the SHA-1 of its certificate (which names one identity in a keychain holding several), and
+/// the unsigned intermediate is removed so the dist holds one .ipa.
+fn signed_over_profile(
+    project: &Project,
+    target: &'static Target,
+    opts: &PackOptions,
+    dist: &Path,
+    profile: &crate::mobile::InstalledStoreProfile,
+) -> Result<Artifact, PackError> {
+    status(
+        "Signing",
+        &format!(
+            "over the installed App Store profile {} ({}), after an unsigned build",
+            profile.name, profile.uuid
+        ),
+    );
+    let unsigned = unsigned_ipa(project, target, opts, dist)?;
+    let out = dist.join(super::naming::artifact_file(
+        project,
+        target,
+        opts,
+        &[],
+        "ipa",
+    ));
+    crate::sign::apply(
+        Some(project),
+        &unsigned.path,
+        Some(&out),
+        crate::sign::AppleOverrides {
+            profile: Some(&profile.path),
+            identity: Some(&profile.cert_sha1),
+            entitlements: None,
+        },
+        crate::sign::AndroidOverrides::default(),
+        false,
+    )
+    .map_err(|e| PackError::Sign(e.to_string()))?;
+    let _ = std::fs::remove_file(&unsigned.path);
     Ok(Artifact {
         path: out,
         kind: "ipa",
@@ -477,6 +525,7 @@ mod tests {
             name: "Example AppStore".into(),
             uuid: "f33f4b74-2104-48e9-808c-ed82515fa918".into(),
             cert_sha1: "0FD8A837309AC6BC2675F014736B8BE4E9AEF17C".into(),
+            path: PathBuf::from("/tmp/example.mobileprovision"),
         };
         let plist = export_options(
             "app-store-connect",

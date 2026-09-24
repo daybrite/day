@@ -3605,9 +3605,14 @@ with an outline hint). Normative: [docs/icons.md](docs/icons.md).
 #### `day sign`
 
 Per-format truth as designed: `.app`/`.dmg` = `codesign` + `notarytool` + `stapler`; `.apk` =
-`apksigner`; `.aab` = Gradle signingConfig; ios = App Store Connect API-key signing, exporting
-manually over an installed App Store profile when one covers the app id (an API key cannot use
-Xcode's cloud-managed distribution certificate); windows =
+`apksigner`; `.aab` = Gradle signingConfig; ios = an unsigned device build signed afterwards
+with `sign::apply` over an installed App Store profile when one covers the app id (xcodebuild's
+own signing never runs: an API key cannot use Xcode's cloud-managed distribution certificate,
+an automatic archive on a fresh CI keychain minted a new development certificate per run until
+the account was full, and a manual archive's profile setting reaches the Swift package targets,
+which refuse it, 2026-09-24), and App Store Connect API-key automatic signing without one; the
+shared CI workflow packs the .ipa unsigned and signs it in a `sign-ios` job that checks out no
+code, like `sign-macos`; windows =
 self-signed dev flow. Config in `Day.toml [signing]` with env-var interpolation — an unset
 variable degrades that section to the dev tier LOUDLY (ad-hoc / debug keystore / self-signed),
 it never fails the pack; `day sign check` reports readiness without printing any secret.

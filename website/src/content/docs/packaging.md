@@ -46,9 +46,15 @@ For macOS, Day assembles the `.app`, signs its nested components with `codesign`
 compressed UDZO disk image with an `/Applications` link. With release credentials configured,
 it signs the disk image, submits it through `notarytool`, and staples the notarization ticket.
 
-For iOS, Day runs `xcodebuild archive` for an arm64 device and exports the archive with a generated
-`ExportOptions.plist` using `app-store-connect`. Without signing configuration, it produces
-`<stem>-ios-uikit-unsigned.ipa` for subsequent signing or sideloading.
+For iOS, with an App Store provisioning profile for the app id installed under
+`~/Library/MobileDevice/Provisioning Profiles/` and its distribution certificate in the keychain,
+Day builds the arm64 device app unsigned and then signs the `.ipa` with that profile and identity,
+exactly what `day sign apply` does for a package built elsewhere; xcodebuild's own signing never
+runs, so nothing is provisioned or minted. Without a profile, Day runs `xcodebuild archive` with
+automatic signing through the App Store Connect key and exports the archive with a generated
+`ExportOptions.plist` using `app-store-connect`, which needs a developer's Xcode account session.
+Without signing configuration, it produces `<stem>-ios-uikit-unsigned.ipa` for subsequent signing
+or sideloading.
 
 ### Android
 

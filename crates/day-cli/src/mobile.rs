@@ -1037,6 +1037,8 @@ pub(crate) struct InstalledStoreProfile {
     /// SHA-1 fingerprint of the profile's first certificate: the `signingCertificate` an
     /// ExportOptions plist takes, which picks that one identity out of a keychain holding several.
     pub cert_sha1: String,
+    /// The installed `.mobileprovision`, for `day sign apply` to embed.
+    pub path: PathBuf,
 }
 
 /// The installed development profile whose app id matches `app_id`. Profiles are CMS signed, so
@@ -1064,6 +1066,7 @@ pub(crate) fn installed_store_profile(app_id: &str) -> Option<InstalledStoreProf
         name: profile_string(&text, "Name"),
         uuid: profile_string(&text, "UUID"),
         cert_sha1,
+        path,
     })
 }
 
