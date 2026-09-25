@@ -56,7 +56,7 @@ needed (including retained, offscreen pages). `in_scope()` cancels at scope disp
 
 | Backend | Native source |
 | --- | --- |
-| macos-appkit | View-associated `CADisplayLink` on macOS 14+; `CVDisplayLink` on supported macOS 13, marshalled to the main queue |
+| macos-appkit | View-associated `CADisplayLink` on macOS 14+; `CVDisplayLink` on supported macOS 13, marshaled to the main queue |
 | ios-uikit | Screen-associated `CADisplayLink`, in common run-loop modes |
 | android-mdc | `Choreographer.postFrameCallback` / `removeFrameCallback` |
 | windows-xaml | One-shot registration with `Windows.UI.Xaml.Media.CompositionTarget.Rendering` (the XAML Islands backend) |

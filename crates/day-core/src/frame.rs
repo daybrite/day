@@ -176,7 +176,11 @@ fn set_active(id: u64, active: bool) {
 fn remove(id: u64) {
     // User closures can own other handles. Drop them outside the driver borrow so their
     // destructors can cancel those registrations without re-entering a borrowed RefCell.
-    let removed = DRIVER.with(|d| d.borrow_mut().consumers.remove(&id));
+    // Native Quit can leave pages/callback captures alive until core TLS destruction.
+    // Their handles must not re-enter the dying root; its registries already own cleanup.
+    let Ok(removed) = DRIVER.try_with(|d| d.borrow_mut().consumers.remove(&id)) else {
+        return;
+    };
     let root = removed.as_ref().map(|c| c.root);
     drop(removed);
     if let Some(root) = root {
@@ -651,5 +655,68 @@ mod tests {
         forget_window(m.clock().root);
         assert_eq!(frame_consumer_count(), 0);
         m.fire(1.0);
+    }
+
+    #[test]
+    fn handles_drop_during_core_tls_teardown() {
+        const CHILD: &str = "DAY_CORE_FRAME_TEARDOWN_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            struct TeardownHandle {
+                handle: Option<FrameHandle>,
+                dropped: std::sync::mpsc::Sender<()>,
+            }
+            impl Drop for TeardownHandle {
+                fn drop(&mut self) {
+                    assert!(crate::try_tls_root(|_| ()).is_err());
+                    drop(self.handle.take());
+                    self.dropped.send(()).unwrap();
+                }
+            }
+            let (dropped, observed) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let m = Manual::new();
+                let paused = m.clock().subscribe(|_| ControlFlow::Continue(()));
+                paused.pause();
+                let held = TeardownHandle {
+                    handle: Some(paused),
+                    dropped: dropped.clone(),
+                };
+                let active = m.clock().subscribe(move |_| {
+                    let _ = &held;
+                    ControlFlow::Continue(())
+                });
+                let held = TeardownHandle {
+                    handle: Some(active),
+                    dropped,
+                };
+                // The driver owns the paused handle's capture; the native registry owns
+                // the active handle's capture. Both drop with core TLS unavailable, before
+                // and after the driver finishes destruction, regardless of TLS key order.
+                native::register(Box::new(move |_| drop(held)));
+            })
+            .join()
+            .unwrap();
+            for _ in 0..2 {
+                observed
+                    .recv_timeout(Duration::from_secs(5))
+                    .expect("frame handle was not dropped during thread shutdown");
+            }
+            return;
+        }
+        // A panic in a TLS destructor aborts the process, so isolate the regression.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "frame::tests::handles_drop_during_core_tls_teardown",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

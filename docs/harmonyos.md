@@ -209,7 +209,7 @@ on the Oniro emulator:
   shim-owned container sized by `set_scroll_content`; without it the Scroll measures a content
   extent of 0 (day's content nodes are layout-only) and neither touch nor `scroll_to` moves.
 - **Frame clock** (§8.4) — `OH_NativeVSync_RequestFrame` drives `day::frame`, with delivery
-  marshalled to the JS/UI loop. Integer request tickets make cancellation and late callbacks safe;
+  marshaled to the JS/UI loop. Integer request tickets make cancellation and late callbacks safe;
   the native source is released when idle. See [frames.md](frames.md) for timing and lifecycle.
 - **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).

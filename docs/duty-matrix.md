@@ -10,6 +10,7 @@ implement them, and this table proves it.
 
 | duty | req | appkit | uikit | gtk | qt | xaml | android | arkui | dom | mock |
 |---|---|---|---|---|---|---|---|---|---|---|
+| `request_frame` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `capability` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `realize` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `update` | yes | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

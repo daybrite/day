@@ -1763,10 +1763,16 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > backgrounding, resets delta on resume, and removes registrations on window close. Requests from
 > callbacks start on a later frame; cancellation during dispatch suppresses the cancelled client.
 > Native integer tickets reject late callbacks without dereferencing freed Rust closures.
+> Handle cancellation/drop uses fallible TLS access during thread shutdown: native Quit may
+> retain page or callback captures until the core root itself is being destroyed (notably GTK).
+> Once that root is unavailable, cancellation is a no-op and registry destruction releases the
+> remaining captures; ordinary runtime cancellation still removes demand and cancels the native
+> source. The subprocess regression `handles_drop_during_core_tls_teardown` exercises active
+> and paused handles owned by the dying root without depending on TLS key destruction order.
 >
 > Native sources are CADisplayLink (AppKit 14+/UIKit), Core Video (AppKit 13), Choreographer
 > (Android), CompositionTarget.Rendering (XAML Islands), requestAnimationFrame (DOM), GTK widget
-> tick callbacks, QWindow update requests (Qt), and OH_NativeVSync (ArkUI, marshalled to the UI
+> tick callbacks, QWindow update requests (Qt), and OH_NativeVSync (ArkUI, marshaled to the UI
 > loop). Day has no 16 ms frame timer fallback. Qt itself may use its internal timer where its
 > platform plugin lacks vsync; Harmony uses a system source without an OS window-ID association.
 > Hidden-window behavior follows native scheduling; retained offscreen pages must pause explicitly.
