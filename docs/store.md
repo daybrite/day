@@ -411,8 +411,14 @@ Day.toml.
 
 `day screenshot index` resolves the declaration into `gallery.json`'s `listings`, per captured
 target: `website`, one list per device kind and per locale the target captured, and `stores`,
-the same per store, each item `{ "shot", "theme" }`. That is what every consumer selects on, so
-none needs the app's `store/` or the fallback rules.
+the same per store, each item `{ "shot", "theme" }`. The stores written are every store the
+declaration names and the store [the rules](#the-stores-rules) stage for the target whether or
+not it is named, so a list declared on the target alone reaches the store's listing as well as
+the website's page. That is what every consumer selects on, so none needs the app's `store/` or
+the fallback rules. A store's block carries only the device kinds its rules list (Play's
+`phone`, `tablet` and `tablet-7`; the App Store's `iphone` and `ipad`) and any the declaration
+names for it; a capture on some other profile, such as an optional API-floor row in a CI matrix,
+appears in the website's rows and nowhere a store would refuse it.
 
 `day store stage --screenshots <gallery.json | URL>` reads an index, takes each device kind's
 list for the target's store, one capture per locale the store knows, and places them where

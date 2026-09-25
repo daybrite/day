@@ -995,6 +995,13 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
     let declared = crate::store::read(project)
         .map(|l| l.app)
         .unwrap_or_default();
+    // The stores' rules, for the store each target publishes through: its list is written
+    // whether or not the declaration names the store.
+    let loaded_rules = crate::store::StoreRules::load(project, None).ok();
+    let store_rules: &crate::store::StoreRules = match &loaded_rules {
+        Some(r) => r,
+        None => crate::store::StoreRules::builtin(),
+    };
     let mut listings = serde_json::Map::new();
     for platform in &platforms {
         // Only a target with screenshot lists gets a listing: a target table holding submission
@@ -1019,11 +1026,40 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             .map(|e| entry_locale(e, &fallback_locale).unwrap_or_else(|| "default".to_string()))
             .collect();
         let mut stores = serde_json::Map::new();
-        for store in declared.stores(platform) {
+        // Every store the declaration names, and the store the rules stage for the target
+        // whether the declaration names it or not: a target-level list serves the store's
+        // listing as well as the website's (docs/store.md), and the stager and the App Fair's
+        // queue read a store's captures from this block alone. Games-Fair declared
+        // `[storefront.android-mdc.screenshots]` and nothing per store, its release's index
+        // carried an empty `stores`, and the queue refused the submission as "declares none"
+        // (v2.1.9, 2026-09-25).
+        let mut store_names: BTreeSet<String> = declared.stores(platform).into_iter().collect();
+        if let Some((key, _)) = store_rules.store_for(platform) {
+            store_names.insert(key.to_string());
+        }
+        for store in store_names {
             kinds.extend(declared.declared_kinds(platform, &store));
             per_locale.extend(declared.declared_locales(platform, &store));
+            // A store's block carries the kinds its rules list (phone and tablet for Play,
+            // iPhone and iPad for the App Store) and any the declaration names for it; a
+            // capture on some other profile — the optional API-floor row a CI matrix adds,
+            // say — belongs to the website's rows, not to a listing the store would refuse it
+            // from. A store the rules know by name only keeps every captured kind.
+            let rule_kinds: Vec<String> = store_rules
+                .store_for(platform)
+                .filter(|(key, _)| *key == store)
+                .map(|(_, r)| r.kinds().into_iter().map(|(k, _)| k.to_string()).collect())
+                .unwrap_or_default();
+            let named: BTreeSet<String> = declared
+                .declared_kinds(platform, &store)
+                .into_iter()
+                .collect();
+            let store_kinds: Vec<&String> = kinds
+                .iter()
+                .filter(|k| rule_kinds.is_empty() || rule_kinds.contains(k) || named.contains(*k))
+                .collect();
             let mut per_kind = serde_json::Map::new();
-            for kind in &kinds {
+            for kind in store_kinds {
                 let mut lists = serde_json::Map::new();
                 for locale in &per_locale {
                     lists.insert(
@@ -1269,6 +1305,84 @@ mod tests {
         )
         .unwrap();
         assert!(idx.screenshots.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A list declared on the target alone serves the store the rules stage for it: the index's
+    /// `stores` block carries the store's resolved list, which is the only place the stager and
+    /// the App Fair's queue read a store's captures from (Games-Fair v2.1.9 shipped an index
+    /// whose `stores` was empty, and the queue refused the submission as "declares none").
+    #[test]
+    fn a_target_level_list_serves_the_store_the_rules_stage_for_it() {
+        let dir = std::env::temp_dir().join(format!("day-shots-store-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13];
+        png.extend(b"IHDR");
+        png.extend(2u32.to_be_bytes());
+        png.extend(3u32.to_be_bytes());
+        let project_dir = dir.join("project");
+        std::fs::create_dir_all(project_dir.join("store")).unwrap();
+        std::fs::write(
+            project_dir.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\ntargets = [\"android-mdc\"]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project_dir.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            project_dir.join("store/storefront.toml"),
+            "[storefront.android-mdc.screenshots]\ndefault = [\"home\"]\n",
+        )
+        .unwrap();
+        let project = crate::meta::find_project(Some(&project_dir)).unwrap();
+        // Two profiles: the phone, and the optional API-floor row a CI matrix adds under its own
+        // slug, which Google Play has no slot for.
+        let tree = dir.join("shots");
+        let mut entries = Vec::new();
+        for device in ["phone", "medium-phone-24"] {
+            let vdir = tree.join("android-mdc").join(device).join("light");
+            std::fs::create_dir_all(&vdir).unwrap();
+            std::fs::write(vdir.join("home.png"), &png).unwrap();
+            entries.push(
+                target_entry(
+                    &vdir.join("home.png"),
+                    "light",
+                    Some(device),
+                    "home",
+                    Some("en"),
+                    None,
+                )
+                .unwrap(),
+            );
+        }
+        record_target_entries(&tree, "android-mdc", entries);
+        let out = dir.join("gallery.json");
+        index(
+            &project,
+            &IndexOptions {
+                screenshot_paths: vec![tree.clone()],
+                out: Some(out.clone()),
+            },
+        )
+        .unwrap();
+        let doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+        let listings = &doc["listings"]["android-mdc"];
+        let home = serde_json::json!([{ "shot": "home", "theme": "light" }]);
+        assert_eq!(listings["website"]["phone"]["en"], home);
+        assert_eq!(listings["website"]["medium-phone-24"]["en"], home);
+        let play = &listings["stores"]["google-play-store"];
+        assert_eq!(
+            play["phone"]["en"], home,
+            "the store the rules stage for android-mdc takes the target's list"
+        );
+        assert!(
+            play.get("medium-phone-24").is_none(),
+            "a profile the store has no slot for stays out of its block: {play}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

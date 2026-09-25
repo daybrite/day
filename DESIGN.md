@@ -2868,7 +2868,7 @@ stripped the same way and the runner says once that the listing moved.
 
 `day screenshot index` resolves the declaration into the index's `listings`, per captured
 target: `website`, one resolved list per device kind and locale the target captured (or the
-declaration named), and `stores` with the same per store, each item `{ shot, theme }`. A consumer selects on the index alone:
+declaration named), and `stores` with the same per store — every store the declaration names, and the store the rules stage for the target whether or not it is named, since a target-level list serves that store's listing (an index that wrote only named stores left Games-Fair's `stores` empty and its App Fair submission refused, 2026-09-25), each store's block holding only the kinds its rules list plus any the declaration names, so a CI matrix's extra profile never reaches a listing the store would refuse it from — each item `{ shot, theme }`. A consumer selects on the index alone:
 `day store stage --screenshots <gallery.json | URL>` takes each kind's list for the target's
 store, one capture per locale in the declared theme, and places them in the fastlane tree
 (`fastlane/screenshots/<locale>/` for deliver; `fastlane/metadata/android/<locale>/images/

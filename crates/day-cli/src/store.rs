@@ -1933,7 +1933,7 @@ impl StoreRule {
         }
     }
 
-    fn kinds(&self) -> Vec<(&str, &ShotRule)> {
+    pub(crate) fn kinds(&self) -> Vec<(&str, &ShotRule)> {
         self.screenshots
             .iter()
             .map(|(k, r)| (k.as_str(), r))
