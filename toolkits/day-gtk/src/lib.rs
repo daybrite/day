@@ -5433,6 +5433,10 @@ impl Toolkit for Gtk {
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+            // A canvas has no intrinsic size: accept the offered axes, just as the other
+            // backends do. GtkDrawingArea's natural size is zero; using it here collapses
+            // `.grow_w().aspect_ratio(...)` to zero height despite the square proposal.
+            kinds::CANVAS => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             // The recycling list fills the space it is offered (its scroll owns overflow).
             kinds::LIST | kinds::TREE => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
             kinds::PROGRESS => {

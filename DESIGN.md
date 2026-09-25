@@ -2372,6 +2372,12 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
 
 - The closure is a **binding**: reads are tracked; any signal change re-records and re-replays just
   this node.
+- A canvas has no intrinsic content size. GTK accepts each proposed axis and reports zero for
+  an unproposed axis, independent of prior native allocations. In particular,
+  `.grow_w().aspect_ratio(1.0)` must keep the square's proposed height; measuring the
+  `GtkDrawingArea`'s zero natural height would collapse its drawing. The native regression
+  [canvas layout test](toolkits/day-gtk/tests/native_canvas_layout.rs) checks square proposals,
+  shrinking, and unconstrained axes (requires a display; use `xvfb-run` on headless Linux).
 - `Draw` **records** into a `Vec<DrawOp>` (fill/stroke path, rect, rounded-rect, ellipse, line,
   text run, image, clip, transform, save/restore — types from `day-geometry`); the backend
   **replays natively** (`replay()` in [§8.1](#81-the-toolkit-trait)) — CoreGraphics, android Canvas, cairo, QPainter,

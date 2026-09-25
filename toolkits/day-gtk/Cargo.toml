@@ -8,6 +8,10 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
+[[test]]
+name = "native_canvas_layout"
+harness = false # GTK on macOS requires the process's main thread.
+
 [dependencies]
 log = { workspace = true }
 day-spec = { workspace = true }

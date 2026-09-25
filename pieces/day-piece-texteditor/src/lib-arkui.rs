@@ -17,7 +17,7 @@
 use super::*;
 use day_arkui::{AHandle, ArkUi, piece};
 use day_spec::sidetable::SideTable;
-use day_spec::{ListStyle, NodeId, ParagraphAlign};
+use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size};
 
 /// Field separator inside a props or command string; runs are separated by the record separator.
 const SEP: char = '\u{1f}';
@@ -128,6 +128,9 @@ day_core::tls_group! {
     /// The text each editor holds, keyed by its ArkTS frame node: what an attribute or selection
     /// patch converts its byte ranges against, with no round trip into ArkTS.
     static TEXT: SideTable<String> = SideTable::new();
+    /// The measure band per editor: (base point size in vp, min_lines, max_lines). What
+    /// [`measure`] answers from, the way the Android arm does, without asking ArkTS.
+    static BAND: SideTable<(f64, u32, u32)> = SideTable::new();
 
 }
 
@@ -154,6 +157,16 @@ fn make(_backend: &mut ArkUi, p: &EditorProps, id: NodeId) -> AHandle {
     );
     let h = piece::make(KIND, id, &props);
     TEXT.with(|t| t.insert(key(&h), p.doc.text.clone()));
+    BAND.with(|t| {
+        t.insert(
+            key(&h),
+            (
+                day_arkui::font_vp(day_spec::FontSpec::new(p.base)),
+                p.min_lines,
+                p.max_lines,
+            ),
+        )
+    });
     if !p.doc.runs.is_empty() || !p.doc.paragraphs.is_empty() {
         push_attributes(&h, &p.doc.text, &p.doc.runs, &p.doc.paragraphs);
     }
@@ -196,12 +209,40 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
     }
 }
 
+/// A growing leaf: fill the proposed width, and take a height from the line band, as the
+/// Android arm does. The `RichEditor` is built in ArkTS and measures its own content there, but
+/// Day's layout runs first and lays the siblings out against whatever this answers, so a fill
+/// measure (which is zero in a column that proposes no height) put the inspector and the
+/// buttons over the editor's text, and left the node with no frame for a walkthrough to assert.
+/// The band is what the piece promises (`min_lines`..`max_lines`); the ArkTS side fills the
+/// frame (`Index.ets`) and scrolls inside it.
+fn measure(_backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
+    let avail_w = p.width.unwrap_or(320.0).max(120.0);
+    BAND.with(|t| {
+        t.with(key(h), |&mut (base, min_lines, max_lines)| {
+            let line_h = base * 1.4 + 4.0;
+            let lines = text_of(h).lines().count().max(1) as f64;
+            let min_h = f64::from(min_lines) * line_h;
+            let max_h = if max_lines > 0 {
+                f64::from(max_lines) * line_h
+            } else {
+                f64::MAX
+            };
+            Size::new(avail_w, (lines * line_h).clamp(min_h, max_h).ceil() + 16.0)
+        })
+    })
+    .unwrap_or_else(|| Size::new(avail_w, 88.0))
+}
+
 fn release(_backend: &mut ArkUi, h: &AHandle) {
     TEXT.with(|t| {
+        t.remove(key(h));
+    });
+    BAND.with(|t| {
         t.remove(key(h));
     });
 }
 
 day_pieces::renderer!(day_arkui::RENDERERS, ArkUi,
     kind: KIND, props: EditorProps, patch: EditorPatch,
-    make: make, update: update, measure: day_pieces::fill_measure, release: release);
+    make: make, update: update, measure: measure, release: release);

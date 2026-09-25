@@ -80,6 +80,11 @@ function dayEditorBuilder(params: DayEditorParams) {
     })
     .enabled(params.editable)
     .placeholder(params.placeholder, { font: { size: params.basePt } })
+    // Fill the frame Day's layout hands the node (the Rust arm's line band), rather than the
+    // content's own height: sized to its content, the editor drew past the frame and over the
+    // siblings laid out below it.
+    .width('100%')
+    .height('100%')
 }
 
 /// The plain text of every span, in order; RichEditor has no `getText`.
