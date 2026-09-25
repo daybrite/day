@@ -377,7 +377,7 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 
 [[package]]
 name = "day"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-appkit",
@@ -405,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "day-android"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -417,7 +417,7 @@ dependencies = [
 
 [[package]]
 name = "day-appkit"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "block2",
  "day-core",
@@ -437,7 +437,7 @@ dependencies = [
 
 [[package]]
 name = "day-arkui"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-arkui-sys",
  "day-core",
@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "day-arkui-sys"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-spec",
@@ -457,11 +457,11 @@ dependencies = [
 
 [[package]]
 name = "day-async"
-version = "0.4.8"
+version = "0.4.9"
 
 [[package]]
 name = "day-bridge"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-async",
  "day-spec",
@@ -469,7 +469,7 @@ dependencies = [
 
 [[package]]
 name = "day-build"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-fonts",
@@ -479,7 +479,7 @@ dependencies = [
 
 [[package]]
 name = "day-cli"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anstream",
  "anstyle",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "day-core"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "anstream",
  "anstyle",
@@ -521,7 +521,7 @@ dependencies = [
 
 [[package]]
 name = "day-dom"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-geometry",
@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "day-fluent"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-l10n",
@@ -541,15 +541,15 @@ dependencies = [
 
 [[package]]
 name = "day-fonts"
-version = "0.4.8"
+version = "0.4.9"
 
 [[package]]
 name = "day-geometry"
-version = "0.4.8"
+version = "0.4.9"
 
 [[package]]
 name = "day-gtk"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -566,7 +566,7 @@ dependencies = [
 
 [[package]]
 name = "day-l10n"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-reactive",
  "fluent-bundle",
@@ -585,18 +585,18 @@ dependencies = [
 
 [[package]]
 name = "day-macros"
-version = "0.4.8"
+version = "0.4.9"
 
 [[package]]
 name = "day-mock"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-spec",
 ]
 
 [[package]]
 name = "day-model"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-macros",
@@ -609,7 +609,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-battery"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "core-foundation",
  "core-foundation-sys",
@@ -622,7 +622,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-clipboard"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "base64",
  "day-android",
@@ -636,7 +636,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-deviceinfo"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-bridge",
@@ -649,7 +649,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-downloads"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "block2",
  "day-android",
@@ -667,11 +667,11 @@ dependencies = [
 
 [[package]]
 name = "day-part-fs"
-version = "0.4.8"
+version = "0.4.9"
 
 [[package]]
 name = "day-part-haptics"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-bridge",
@@ -683,7 +683,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-http"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "block2",
  "day-android",
@@ -704,7 +704,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-local-notify"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "block2",
  "day-android",
@@ -717,7 +717,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-location"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "objc2",
@@ -726,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-network"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-bridge",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-permissions"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "block2",
  "day-android",
@@ -744,7 +744,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-prefs"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-bridge",
@@ -757,7 +757,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-sensors"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "objc2",
@@ -767,7 +767,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-sound"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-bridge",
@@ -781,7 +781,7 @@ dependencies = [
 
 [[package]]
 name = "day-part-wakelock"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-bridge",
@@ -793,7 +793,7 @@ dependencies = [
 
 [[package]]
 name = "day-persistence"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-macros",
@@ -810,7 +810,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-activity"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-android",
@@ -836,7 +836,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-colorpicker"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-appkit",
@@ -864,7 +864,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-combobox"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-android",
@@ -889,7 +889,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-datetime"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-android",
@@ -921,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-map"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-appkit",
  "day-core",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-pullrefresh"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "block2",
  "cc",
@@ -966,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-rating"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -975,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-remote-image"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-android",
@@ -1003,7 +1003,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-searchfield"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-android",
@@ -1030,7 +1030,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-settings"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-fluent",
@@ -1042,7 +1042,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-stepper"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-appkit",
@@ -1062,7 +1062,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-swiftui"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-appkit",
  "day-core",
@@ -1080,7 +1080,7 @@ dependencies = [
 
 [[package]]
 name = "day-piece-texteditor"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-android",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "day-pieces"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-geometry",
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "day-qt"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -1140,14 +1140,14 @@ dependencies = [
 
 [[package]]
 name = "day-qt-sys"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "day-reactive"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "log",
  "slotmap",
@@ -1155,7 +1155,7 @@ dependencies = [
 
 [[package]]
 name = "day-script"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-fluent",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "day-spec"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-fonts",
  "day-geometry",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "day-sqlite-worker"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "log",
@@ -1187,11 +1187,11 @@ dependencies = [
 
 [[package]]
 name = "day-toolchain"
-version = "0.4.8"
+version = "0.4.9"
 
 [[package]]
 name = "day-tweak-button-bezel"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-appkit",
  "day-core",
@@ -1201,7 +1201,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-slider-tickmarks"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-android",
@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-tooltip"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-android",
  "day-appkit",
@@ -1233,7 +1233,7 @@ dependencies = [
 
 [[package]]
 name = "day-tweak-tree-style"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-appkit",
  "day-core",
@@ -1246,7 +1246,7 @@ dependencies = [
 
 [[package]]
 name = "day-uikit"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "block2",
  "day-core",
@@ -1265,7 +1265,7 @@ dependencies = [
 
 [[package]]
 name = "day-vector"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "resvg",
  "roxmltree",
@@ -1274,7 +1274,7 @@ dependencies = [
 
 [[package]]
 name = "day-xaml"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "day-core",
  "day-pieces",
@@ -1286,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "day-xaml-sys"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "cc",
  "day-toolchain",
