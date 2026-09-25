@@ -20,6 +20,9 @@ button("About").image(res::vectors::app_mark).action(about)
 button("Send").enabled(move || !busy.get()).action(send)
 ```
 
+For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
+title, availability, optional check state, icon, shortcut, and handler once.
+
 ## Icons and labels
 
 `.icon(symbol)` adds a platform symbol beside the title. It accepts a `Symbol`, signal, or

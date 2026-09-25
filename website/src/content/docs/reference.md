@@ -28,6 +28,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [navigation](/docs/internal/navigation) | nav host/stack mapping per platform, routes |
 | [deep-links](/docs/internal/deep-links) | custom URL schemes, delivery, launcher shortcuts |
 | [dialogs](/docs/internal/dialogs) | alert/confirm/prompt, native presentation, results |
+| [commands](/docs/internal/commands) | reusable application operations across buttons, menus and toolbars |
 | [menus](/docs/internal/menus) | app menu bar, context menus, roles and shortcuts |
 | [toolbars](/docs/internal/toolbars) | window toolbars: the item vocabulary, symbol icons, per-desktop realization |
 | [windows](/docs/internal/windows) | secondary windows, the Preferences window, the cover fallback |

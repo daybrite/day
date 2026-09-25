@@ -15,6 +15,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > bar — `NSToolbar`, `AdwHeaderBar`, `QToolBar`, `CommandBar`, a `UINavigationItem`, a Material
 > app bar's menu, a `Navigation`'s `.menus()`, a drawn strip on the web.
 
+For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
+title, availability, optional check state, icon, shortcut, and handler once.
+
 ## The rule
 
 **Where you declare an item is where it appears, and how long the declaring piece lives is how

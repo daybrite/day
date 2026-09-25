@@ -144,7 +144,9 @@ cd build/day/store/android-mdc && fastlane android upload
 
 `ios upload` sends the build and the listing to App Store Connect and leaves the version in
 Prepare for Submission; `ios release` also submits it for review, and `ios submit` submits a
-build that is already there. `android upload` sends the bundle to the internal track as a draft;
+build that is already there. A version those two submit is released to the store on its own
+once App Review approves it; to hold it for the Release button instead, set
+`apple-release = "manual"` under the App Store's submission info in the listing. `android upload` sends the bundle to the internal track as a draft;
 `android release` sends it to production as a completed release, which is Play's submission, and
 the rollout starts when Google's review passes. The Fastfile finds the packed artifact under
 `build/day/dist/` by glob; `DAY_IPA` and `DAY_AAB` name one outright, which is how CI hands each

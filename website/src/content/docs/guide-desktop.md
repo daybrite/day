@@ -11,7 +11,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 Menus, keyboard shortcuts, and toolbars expose an app’s commands through familiar platform
-controls. Day uses a shared Rust API to define them, along with secondary windows and a Settings
+controls. For one operation shared across these surfaces, define a [reusable command](/docs/guide-commands).
+Day uses a shared Rust API to define them, along with secondary windows and a Settings
 window. A menu item can call the same action as a button in the interface:
 
 ```rust

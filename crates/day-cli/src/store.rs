@@ -154,10 +154,17 @@ pub struct SubmissionInfo {
     pub contact_phone: Option<String>,
     /// Free-form notes for the reviewer (deliver's `review_information/notes.txt`).
     pub review_notes: Option<String>,
+    /// What happens to an App Store version once App Review approves it: `automatic` (the
+    /// default) releases it to the store on its own; `manual` leaves it in Pending Developer
+    /// Release until someone presses Release in App Store Connect. Staged as
+    /// `DAY_ASC_MANUAL_RELEASE` in the fastlane tree's `.env.default`, which the generated
+    /// `submit` and `release` lanes read for deliver's `automatic_release`. Google Play has no
+    /// such gate: a completed production release rolls out when its review passes.
+    pub apple_release: Option<String>,
 }
 
 impl SubmissionInfo {
-    const KEYS: [&'static str; 8] = [
+    const KEYS: [&'static str; 9] = [
         "bundle-id",
         "apple-category",
         "copyright",
@@ -166,6 +173,7 @@ impl SubmissionInfo {
         "contact-last-name",
         "contact-phone",
         "review-notes",
+        "apple-release",
     ];
 
     fn parse(
@@ -205,6 +213,15 @@ impl SubmissionInfo {
             contact_last_name: get("contact-last-name")?,
             contact_phone: get("contact-phone")?,
             review_notes: get("review-notes")?,
+            apple_release: match get("apple-release")? {
+                Some(v) if v == "automatic" || v == "manual" => Some(v),
+                Some(other) => {
+                    return Err(format!(
+                        "{at}.apple-release: \"automatic\" or \"manual\", not {other:?}"
+                    ));
+                }
+                None => None,
+            },
         })
     }
 
@@ -222,7 +239,14 @@ impl SubmissionInfo {
             contact_last_name: pick(&self.contact_last_name, &base.contact_last_name),
             contact_phone: pick(&self.contact_phone, &base.contact_phone),
             review_notes: pick(&self.review_notes, &base.review_notes),
+            apple_release: pick(&self.apple_release, &base.apple_release),
         }
+    }
+
+    /// Whether an approved App Store version waits for the Release button (`apple-release =
+    /// "manual"`); unset and `automatic` release on approval.
+    pub fn manual_release(&self) -> bool {
+        self.apple_release.as_deref() == Some("manual")
     }
 }
 
@@ -1646,7 +1670,17 @@ pub fn stage(
             &play_fastfile(project, with_screenshots),
         )?;
     }
-    write("fastlane/.env.default", FASTLANE_ENV)?;
+    // The lanes read their one policy switch from the env file, so the Fastfile stays the
+    // same text for every app and the listing's choice travels with the staged tree.
+    let mut env = FASTLANE_ENV.to_string();
+    if deliver && info.manual_release() {
+        env.push_str(
+            "# apple-release = \"manual\" in the listing: an approved version waits for the Release\n\
+             # button in App Store Connect instead of going live on its own.\n\
+             DAY_ASC_MANUAL_RELEASE=1\n",
+        );
+    }
+    write("fastlane/.env.default", &env)?;
     written.sort();
     Ok(written)
 }
@@ -2458,14 +2492,16 @@ platform :ios do
 
   desc "Attach the build already uploaded for this version and SUBMIT it for review."
   # For a version whose binary is in App Store Connect already: uploading the same build number
-  # twice is refused, so this submits what is there rather than sending it again.
+  # twice is refused, so this submits what is there rather than sending it again. Once approved
+  # the version goes live on its own, unless the listing said `apple-release = "manual"`, which
+  # `day store stage` writes into .env.default as DAY_ASC_MANUAL_RELEASE.
   lane :submit do
     deliver(
       api_key: day_asc_key,
       skip_binary_upload: true,
       metadata_path: File.expand_path("metadata", __dir__),
       submit_for_review: true,
-      automatic_release: false,
+      automatic_release: ENV["DAY_ASC_MANUAL_RELEASE"].to_s.empty?,
       force: true,
       skip_screenshots: true,
       submission_information: {
@@ -2477,16 +2513,17 @@ platform :ios do
   end
 
   desc "Upload the build + listing, wait for processing, and SUBMIT the version for review."
-  # Release stays manual: an approved version waits for the Release button in App Store
-  # Connect. Export compliance is answered as exempt (the app uses only the platform's
-  # HTTPS), and the build carries no advertising identifier.
+  # An approved version is released to the store on its own; `apple-release = "manual"` in the
+  # listing (DAY_ASC_MANUAL_RELEASE in .env.default) keeps it waiting for the Release button in
+  # App Store Connect instead. Export compliance is answered as exempt (the app uses only the
+  # platform's HTTPS), and the build carries no advertising identifier.
   lane :release do
     deliver(
       api_key: day_asc_key,
       ipa: day_ipa,
       metadata_path: File.expand_path("metadata", __dir__),
       submit_for_review: true,
-      automatic_release: false,
+      automatic_release: ENV["DAY_ASC_MANUAL_RELEASE"].to_s.empty?,
       submission_information: {
         export_compliance_uses_encryption: false,
         add_id_info_uses_idfa: false,
@@ -3115,6 +3152,7 @@ fn storefront_header(id: &str) -> String {
          # copyright = \"2026 Example\"\n\
          # contact-email = \"support@example.com\"\n\
          # review-notes = \"How to exercise the app, for the store reviewer.\"\n\
+         # apple-release = \"manual\"   # hold an approved App Store version for the Release button; unset releases it\n\
          \n\
          # [storefront.ios-uikit.apple-app-store.submission-info]\n\
          # apple-category = \"DEVELOPER_TOOLS\"   # App Store primary category\n"
@@ -3887,6 +3925,80 @@ mod tests {
             let err = StoreRules::parse(src).expect_err(src);
             assert!(err.contains(expected), "{src}: {err}");
         }
+    }
+
+    /// An approved App Store version goes live on its own unless the listing says
+    /// `apple-release = "manual"`, which staging hands the lanes as DAY_ASC_MANUAL_RELEASE in the
+    /// tree's env file; the Fastfile itself reads that switch and is the same text either way.
+    /// Any other value in the key is refused by name.
+    #[test]
+    fn apple_release_is_automatic_unless_the_listing_holds_it() {
+        let tmp = std::env::temp_dir().join(format!("day-store-release-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::fs::write(
+            tmp.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\nbuild = 7\ntargets = [\"ios-uikit\"]\n",
+        )
+        .expect("Day.toml");
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .expect("Cargo.toml");
+        let project = crate::meta::find_project(Some(&tmp)).expect("project");
+        let rules = StoreRules::builtin();
+        let ios = crate::targets::find("ios-uikit").expect("ios");
+        let base = listing_of(
+            "en",
+            &[(
+                "en",
+                &[
+                    (Field::Name, "Example"),
+                    (Field::Description, "What it does."),
+                    (Field::ReleaseNotes, "First release."),
+                ],
+            )],
+        );
+        for (src, held) in [
+            (
+                "[storefront.ios-uikit.apple-app-store.submission-info]\napple-release = \"manual\"\n",
+                true,
+            ),
+            (
+                "[storefront.submission-info]\napple-release = \"automatic\"\n",
+                false,
+            ),
+            (
+                "[storefront.submission-info]\ncopyright = \"2026 Example\"\n",
+                false,
+            ),
+        ] {
+            let mut listing = base.clone();
+            listing.app = parse_src(&parse_document(src, false).expect("toml")).expect("parse");
+            let out = tmp.join(if held { "held" } else { "auto" });
+            let _ = std::fs::remove_dir_all(&out);
+            stage(&project, ios, &listing, &out, None, rules).expect("stage ios");
+            let env = std::fs::read_to_string(out.join("fastlane/.env.default")).expect("env");
+            assert_eq!(env.contains("DAY_ASC_MANUAL_RELEASE=1"), held, "{src}");
+            let fastfile =
+                std::fs::read_to_string(out.join("fastlane/Fastfile")).expect("Fastfile");
+            assert!(
+                fastfile.contains("automatic_release: ENV[\"DAY_ASC_MANUAL_RELEASE\"].to_s.empty?"),
+                "the lanes read the switch"
+            );
+            assert!(!fastfile.contains("automatic_release: false,\n      submission_information"));
+        }
+        let err = parse_src(
+            &parse_document(
+                "[storefront.submission-info]\napple-release = \"later\"\n",
+                false,
+            )
+            .expect("toml"),
+        )
+        .expect_err("a value that is neither");
+        assert!(err.contains("apple-release"), "{err}");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// The generated tree has to be one fastlane accepts unchanged: the tool locates its config by

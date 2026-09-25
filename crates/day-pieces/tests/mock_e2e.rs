@@ -7794,3 +7794,216 @@ fn an_image_piece_carries_bytes_and_swaps_them_without_realizing_again() {
         probe.log()
     );
 }
+
+#[test]
+fn reusable_command_shares_state_and_guards_every_dispatch_path() {
+    let enabled = Signal::new(true);
+    let on = Signal::new(false);
+    let title = Signal::new("Enable grid".to_string());
+    let calls = Signal::new(0usize);
+    let command = Command {
+        id: "grid",
+        label: title,
+        action: move || {
+            calls.update(|n| *n += 1);
+            on.update(|v| *v = !*v);
+        },
+    }
+    .build()
+    .enabled(enabled)
+    .checked(on)
+    .icon(Symbol::Star)
+    .shortcut(Shortcut::new("g"));
+    let menu = command.clone();
+    let bar = command.clone();
+    let button = command.clone();
+    let probe = boot(move || {
+        app_menu_reactive(move || vec![sub_menu("View", vec![menu.menu_item()])]);
+        column((button.button(), button.button().id("grid-second")))
+            .toolbar(move || vec![bar.toolbar_item().id("grid-toolbar")])
+    });
+    fn menu_action() -> day_spec::MenuItem {
+        let day_spec::MenuItem::Submenu { items, .. } = day_core::menu::app_menu_model().remove(0)
+        else {
+            panic!()
+        };
+        items.into_iter().next().unwrap()
+    }
+    let day_spec::MenuItem::Action {
+        action,
+        checked,
+        shortcut,
+        ..
+    } = menu_action()
+    else {
+        panic!()
+    };
+    assert_eq!(checked, Some(false));
+    assert_eq!(shortcut, Some(Shortcut::new("g")));
+    day_core::dispatch_menu_action(action);
+    flush_sync();
+    assert!(on.get());
+    assert_eq!(calls.get(), 1);
+    let bar = day_core::toolbar::toolbar_model()
+        .into_iter()
+        .find(|i| i.id == "grid-toolbar")
+        .unwrap();
+    assert_eq!(bar.kind, day_spec::ToolbarItemKind::Toggle { on: true });
+    day_core::toolbar::dispatch_toolbar_value(bar.action, &ToolbarValue::On(false));
+    flush_sync();
+    assert!(!on.get());
+    let bar = day_core::toolbar::toolbar_model()
+        .into_iter()
+        .find(|i| i.id == "grid-toolbar")
+        .unwrap();
+    day_core::toolbar::dispatch_toolbar_value(bar.action, &ToolbarValue::On(false));
+    flush_sync();
+    assert_eq!(
+        calls.get(),
+        2,
+        "setting the existing check must not toggle it again"
+    );
+    let widget = probe.find_by_kind("day.button")[0].1.clone();
+    probe.emit(NodeId(widget.node), Event::Pressed);
+    flush_sync();
+    assert_eq!(calls.get(), 3);
+
+    title.set("Disable grid".into());
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.button")
+            .iter()
+            .all(|(_, w)| w.text == "Disable grid")
+    );
+    assert!(
+        matches!(menu_action(), day_spec::MenuItem::Action { label, checked: Some(true), .. } if label == "Disable grid")
+    );
+    assert_eq!(
+        day_core::toolbar::toolbar_model()
+            .iter()
+            .find(|i| i.id == "grid-toolbar")
+            .unwrap()
+            .label,
+        "Disable grid"
+    );
+
+    let day_spec::MenuItem::Action { action, .. } = menu_action() else {
+        panic!()
+    };
+    let bar = day_core::toolbar::toolbar_model()
+        .into_iter()
+        .find(|i| i.id == "grid-toolbar")
+        .unwrap();
+    // Defer presentation updates: every adapter must guard the still-enabled UI snapshot.
+    day_reactive::batch(|| {
+        enabled.set(false);
+        assert!(!command.invoke());
+        day_core::dispatch_menu_action(action);
+        day_core::toolbar::dispatch_toolbar_value(bar.action, &ToolbarValue::On(false));
+        probe.emit(NodeId(widget.node), Event::Pressed);
+    });
+    flush_sync();
+    assert_eq!(calls.get(), 3);
+    let bar = day_core::toolbar::toolbar_model()
+        .into_iter()
+        .find(|i| i.id == "grid-toolbar")
+        .unwrap();
+    assert!(!bar.enabled);
+    assert_eq!(bar.kind, day_spec::ToolbarItemKind::Toggle { on: true });
+}
+
+#[test]
+fn reusable_command_does_not_outlive_its_owner_or_cross_window_state() {
+    let calls = std::rc::Rc::new(std::cell::Cell::new(0));
+    let owner = Scope::child();
+    let first = owner.enter(|| {
+        let count = Signal::new(0);
+        let calls = calls.clone();
+        Command {
+            id: "increment",
+            label: "Increment",
+            action: move || {
+                count.update(|n| *n += 1);
+                calls.set(count.get());
+            },
+        }
+        .build()
+        .enabled(move || count.get() < 2)
+    });
+    let other_count = Signal::new(0);
+    let second = Command {
+        id: "increment",
+        label: "Increment",
+        action: move || other_count.update(|n| *n += 1),
+    }
+    .build();
+    let clone = first.clone();
+    assert!(first.invoke());
+    assert!(clone.invoke());
+    assert!(!first.invoke());
+    assert_eq!(other_count.get(), 0);
+    assert!(second.invoke());
+    assert_eq!(other_count.get(), 1);
+    owner.dispose();
+    assert!(!clone.invoke()); // must not read the disposed captured signal
+    assert!(!clone.is_enabled());
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
+fn reusable_command_definition_captures_owner_only_when_built() {
+    let calls = Signal::new(0);
+    let id = String::from("deferred-command");
+    let defining_scope = Scope::child();
+    // A boxed handler is deliberately not Clone. Cloning the handle must share it.
+    let action: Box<dyn Fn()> = Box::new(move || calls.update(|n| *n += 1));
+    let definition = defining_scope.enter(|| Command {
+        id: id.as_str(),
+        label: "Increment",
+        action,
+    });
+    defining_scope.dispose();
+
+    let owner = Scope::child();
+    let command: CommandHandle = owner.enter(|| definition.build().checked(true));
+    drop(id); // build owns the id, even when its input was a borrowed string
+    assert_eq!(command.id(), "deferred-command");
+    let clone = command.clone();
+    assert!(command.invoke());
+    assert!(clone.invoke());
+    assert_eq!(calls.get(), 2);
+
+    owner.dispose();
+    assert!(!clone.invoke());
+    assert!(!clone.is_enabled());
+    assert_eq!(clone.label(), "");
+    assert_eq!(clone.is_checked(), Some(false));
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
+fn reusable_command_checked_toolbar_restores_rejected_native_toggle() {
+    let command = Command {
+        id: "fixed",
+        label: "Fixed",
+        action: || {},
+    }
+    .build()
+    .checked(false);
+    let _probe = boot(move || label("main").toolbar(move || vec![command.toolbar_item()]));
+    let item = day_core::toolbar::toolbar_model()
+        .into_iter()
+        .find(|i| i.id == "fixed")
+        .unwrap();
+    day_core::toolbar::dispatch_toolbar_value(item.action, &ToolbarValue::On(true));
+    flush_sync();
+    assert_eq!(
+        day_core::toolbar::toolbar_model()
+            .iter()
+            .find(|i| i.id == "fixed")
+            .unwrap()
+            .kind,
+        day_spec::ToolbarItemKind::Toggle { on: false }
+    );
+}

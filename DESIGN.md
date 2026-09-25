@@ -109,6 +109,7 @@ the architecture-level view and the rationale.
 | bundled pieces (map, searchfield, combobox, color picker, …) and external ones (media, lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
+| reusable application commands — shared metadata, scope ownership, guarded invocation | [docs/commands.md](docs/commands.md) | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
 | built-in controls — button styles and icons, picker, text area | [docs/buttons.md](docs/buttons.md), [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | styled text editing — `StyledText`, its Markdown/HTML/RTF codecs, and the editor piece over them | [docs/texteditor.md](docs/texteditor.md) | [B.5](#b5-richtext-tier-2--deep-native-control) |
 | HarmonyOS / OpenHarmony | [docs/harmonyos.md](docs/harmonyos.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
@@ -679,6 +680,37 @@ Authoring-surface edges, specified now so they don't accrete ad hoc:
   (`let items = items.clone();` inside the closure, or capture a `Signal` — signals are `Copy`,
   which is why the idiomatic Day style keeps shared state in signals). The M2 template and
   showcase demonstrate one non-`Copy` capture deliberately.
+
+#### Reusable application commands
+
+`day::Command { id, label, action }` is a generic named-field definition in `day-pieces`.
+Its `.build()` consumes the definition, converts its inputs, and captures `Scope::current()`,
+returning a cloneable, UI-thread `CommandHandle`. Creating the definition alone captures no
+command scope; captured signals still have their own lifetimes. Factory functions return
+`CommandHandle` without exposing closure types. Both types are exported by `day` and the prelude.
+The handle owns a shared `Rc<dyn Fn()>`, reactive title/availability/optional check state,
+icon, menu shortcut, default presentation id, and the scope captured at build. `invoke()` rechecks
+availability untracked on every path and refuses invocation after scope disposal. Clones do not
+extend the reactive scope's life and builder changes do not mutate existing presentations.
+
+Adapters lower to the existing Button, MenuEntry, and ToolbarEntry APIs; there is no new
+backend protocol or global command lookup. Buttons bind titles/availability; menus are snapshots
+used in reactive/per-summon builders; toolbar titles require derived contributions, while
+availability/check state bind live. A checked toolbar command invokes the handler only when the
+native requested state differs from its current check, then restores the resulting app-owned
+check, including rejected native flips. The boolean payload is intent, not a direct assignment
+into app state. Standard edit roles retain their native responder-chain path.
+A command captures its target explicitly; it neither chooses a window nor installs a global key
+handler. The handle keeps `.enabled()`, `.checked()`, and presentation adapters; there is no
+positional command constructor. Unsupported menu/toolbar surfaces remain unsupported. See [commands](docs/commands.md)
+for examples, platform limits, the sample audit, and linked regression tests.
+
+Named definitions are additive authoring syntax where required positional arguments are
+ambiguous. Existing piece constructors and builder traits remain unchanged. The
+[component assessment](docs/commands.md#assessment-named-definitions-for-other-components)
+recommends selective definitions that delegate to those constructors, with `.into_piece()` or
+`.into_entry()` conversions and one implementation path for both forms; these wrappers are
+proposals, not part of the current API.
 
 ### §5.2 The `Piece` trait
 

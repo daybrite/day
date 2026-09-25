@@ -13,6 +13,7 @@
 # copyright = "2026 {{title}}"
 # contact-email = "support@example.com" # where a store reviewer writes back
 # review-notes = "How to exercise the app, for the store reviewer."
+# apple-release = "manual"   # hold an approved App Store version for the Release button; unset releases it
 
 [storefront.ios-uikit.apple-app-store.submission-info]
 # apple-category = "DEVELOPER_TOOLS"    # App Store primary category

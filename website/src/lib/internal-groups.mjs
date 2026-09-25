@@ -24,6 +24,7 @@ export const groups = [
       ['navigation', 'nav host/stack mapping per platform, routes'],
       ['deep-links', 'custom URL schemes, delivery, launcher shortcuts'],
       ['dialogs', 'alert/confirm/prompt, native presentation, results'],
+      ['commands', 'reusable application operations across buttons, menus and toolbars'],
       ['menus', 'app menu bar, context menus, roles and shortcuts'],
       ['toolbars', 'window toolbars: the item vocabulary, symbol icons, per-desktop realization'],
       ['windows', 'secondary windows, the Preferences window, the cover fallback'],

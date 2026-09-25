@@ -61,6 +61,9 @@ enum Kind {
     Button,
     Segmented(Vec<Segment>, Signal<usize>),
     Toggle(Signal<bool>),
+    // A command owns its checked state; native toggle intent invokes its handler, then reads
+    // the resulting value back instead of writing into a second, mirrored signal.
+    CommandToggle(Rc<dyn Fn() -> bool>),
     Menu(Vec<MenuEntry>),
     Label,
     Separator,
@@ -183,6 +186,16 @@ pub fn toolbar_separator() -> ToolbarEntry {
 }
 
 impl ToolbarEntry {
+    pub(crate) fn command_checked(mut self, checked: Rc<dyn Fn() -> bool>) -> Self {
+        self.kind = Kind::CommandToggle(checked);
+        self
+    }
+
+    /// Override a presentation id (for example, preserve an existing dayscript toolbar id).
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = id.into();
+        self
+    }
     /// Run `f` when the item is chosen. On a toggle or a search field the value binding carries
     /// the change; an action here runs in addition to it.
     pub fn action(mut self, f: impl Fn() + 'static) -> ToolbarEntry {
@@ -433,6 +446,46 @@ fn lower(
                                 ToolbarPatch::On {
                                     item: item.clone(),
                                     on: *v,
+                                },
+                            );
+                        },
+                    );
+                    (ToolbarItemKind::Toggle { on: seed }, act)
+                }
+                Kind::CommandToggle(read) => {
+                    let seed = day_reactive::untrack(|| read());
+                    let item = id.clone();
+                    let after = read.clone();
+                    let act = day_core::register_toolbar_value(Rc::new(move |v: &ToolbarValue| {
+                        if let ToolbarValue::On(wanted) = v {
+                            // Native toggles and dayscript carry desired state. Do not undo an
+                            // update another presentation already made, or an idempotent set.
+                            if *wanted != day_reactive::untrack(|| after())
+                                && let Some(f) = &extra
+                            {
+                                f();
+                            }
+                            // Restore even when the handler declines the change: native toggles
+                            // may have optimistically flipped before sending their event.
+                            day_core::patch_chrome(
+                                chrome,
+                                ToolbarPatch::On {
+                                    item: item.clone(),
+                                    on: day_reactive::untrack(|| after()),
+                                },
+                            );
+                        }
+                    }));
+                    let item = id.clone();
+                    bind_seeded(
+                        seed,
+                        move || read(),
+                        move |on: &bool| {
+                            day_core::patch_chrome(
+                                chrome,
+                                ToolbarPatch::On {
+                                    item: item.clone(),
+                                    on: *on,
                                 },
                             );
                         },

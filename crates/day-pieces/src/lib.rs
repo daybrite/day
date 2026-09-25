@@ -26,6 +26,8 @@ pub use render::fill_measure;
 
 // The piece vocabulary: one logical group per module, re-exported flat (see each module's docs).
 mod canvas;
+mod commands;
+pub use commands::{Command, CommandHandle};
 mod containers;
 mod decorators;
 mod dialogs;
@@ -73,22 +75,22 @@ pub mod prelude {
     pub use crate::routes;
     pub use crate::{
         A11yBuilder, Alert, Ambient, BackRequest, BackResponse, Binding, ButtonBuilder,
-        ColumnBuilder, Confirm, Corner, Cover, Decorate, Decorated, Drag, Draw, FileAccess,
-        FileUrl, Form, FormSection, Grid, GridRow, HAlign, Inspector, IntoFocusBinding,
-        IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot, LabelBuilder, Labeled,
-        Link, List, MenuEntry, Modifier, NativeRef, Nav, NavItem, NavStack, NavStyle, OpenFile,
-        Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route, RoutePath, RowBuilder, RowFit,
-        SaveFile, ShapeKind, ShapePiece, SwipeAction, TextBuilder, VAlign, VectorWeight, When,
-        ZStack, alert, app_environment, app_menu, app_menu_reactive, arc, button, canvas, capsule,
-        circle, column, confirm, cover, current_route, divider, each, ellipse, environment,
-        focused_environment, form, frame_clock, grid, grid_row, image, inspector, item, items,
-        label, labeled, line, link, list, menu_item, menu_role, menu_separator, nav, nav_back,
-        nav_link, nav_link_to, nav_stack, navigate, navigate_to, open_file, open_link, picker,
-        polygon, progress, prompt, rectangle, rounded_rectangle, route, route_param, route_params,
-        row, save_file, scroll, section, segment, shape, shape_group, shape_group_fn, slider,
-        spacer, spinner, sub_menu, swipe_action, text_area, text_field, toggle, toolbar_button,
-        toolbar_label, toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector,
-        when, with_environment, zstack,
+        ColumnBuilder, Command, CommandHandle, Confirm, Corner, Cover, Decorate, Decorated, Drag,
+        Draw, FileAccess, FileUrl, Form, FormSection, Grid, GridRow, HAlign, Inspector,
+        IntoFocusBinding, IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot,
+        LabelBuilder, Labeled, Link, List, MenuEntry, Modifier, NativeRef, Nav, NavItem, NavStack,
+        NavStyle, OpenFile, Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route, RoutePath,
+        RowBuilder, RowFit, SaveFile, ShapeKind, ShapePiece, SwipeAction, TextBuilder, VAlign,
+        VectorWeight, When, ZStack, alert, app_environment, app_menu, app_menu_reactive, arc,
+        button, canvas, capsule, circle, column, confirm, cover, current_route, divider, each,
+        ellipse, environment, focused_environment, form, frame_clock, grid, grid_row, image,
+        inspector, item, items, label, labeled, line, link, list, menu_item, menu_role,
+        menu_separator, nav, nav_back, nav_link, nav_link_to, nav_stack, navigate, navigate_to,
+        open_file, open_link, picker, polygon, progress, prompt, rectangle, rounded_rectangle,
+        route, route_param, route_params, row, save_file, scroll, section, segment, shape,
+        shape_group, shape_group_fn, slider, spacer, spinner, sub_menu, swipe_action, text_area,
+        text_field, toggle, toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented,
+        toolbar_separator, toolbar_toggle, vector, when, with_environment, zstack,
     };
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{

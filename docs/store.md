@@ -190,7 +190,13 @@ contact-email = "ios@example.com"
 
 [storefront.ios-uikit.apple-app-store.submission-info] # one store
 apple-category = "DEVELOPER_TOOLS"
+apple-release = "manual"                              # hold an approved version for the Release button
 ```
+
+`apple-release` says what happens once App Review approves a version: `automatic`, the default,
+releases it to the store on its own; `manual` leaves it in Pending Developer Release until
+someone presses Release in App Store Connect. Google Play has no such gate: a completed
+production release rolls out when its review passes.
 
 The file may be `storefront.toml` or `storefront.yaml` (`.yml` too), whichever you prefer to write; both carry
 the same tree, are parsed into the same value, and resolve identically, so a project can switch
@@ -223,7 +229,7 @@ other than `submission-info`, `metadata` and `screenshots` in it) is read past a
 `day lint` as `store-unknown-key`, with the keys the table takes, so a listing with one typo
 still stages once the typo is fixed and never stages while it stands.
 
-The keys are `bundle-id`, `apple-category`, `copyright`, `contact-email`, `review-notes`, and
+The keys are `bundle-id`, `apple-category`, `apple-release`, `copyright`, `contact-email`, `review-notes`, and
 the App Review contact as `contact-first-name`, `contact-last-name` and `contact-phone` (with its
 country code, `+1 555 555 5555`). `day store stage` resolves them for the store it stages, so the
 App Store record and the Play record can differ where they must and share the rest. App Store
@@ -324,8 +330,10 @@ uploads to the internal track as an unreleased draft. Each has a third lane, `re
 it uploads to the production track as a completed release, which is Play's submission, and the
 rollout starts when Google's review passes; on iOS it
 uploads, waits for App Store Connect to process the build, and submits the version for review
-with export compliance answered as exempt; the release itself still waits for the Release button
-in App Store Connect. `DAY_IPA` and `DAY_AAB` name the artifact outright, which is how the
+with export compliance answered as exempt; once approved it goes live on its own, unless the
+listing's `apple-release = "manual"` keeps it for the Release button in App Store Connect
+(`day store stage` writes that choice into the tree's `.env.default` as
+`DAY_ASC_MANUAL_RELEASE`, which the lanes read). `DAY_IPA` and `DAY_AAB` name the artifact outright, which is how the
 release workflow hands each lane the file it downloaded; without them the lanes glob
 `build/day/dist/`.
 

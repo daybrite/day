@@ -22,6 +22,9 @@ Both are described with the same small, toolkit-neutral tree of [`MenuEntry`] va
 model; the backend owns the rendering, so a menu looks and behaves like any other native menu on
 the host platform without the app making any per-platform assumptions.
 
+For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
+title, availability, optional check state, icon, shortcut, and handler once.
+
 ## Building a menu
 
 ```rust
