@@ -761,6 +761,7 @@ pub trait TreeOps {
     fn scroll_reveal(&mut self, node: RNode, animated: bool) -> bool;
     fn patch(&mut self, node: RNode, patch: Box<dyn Any>, affects_size: bool);
     fn replay(&mut self, node: RNode, ops: Vec<DrawOp>);
+    fn request_frame(&mut self, root: RNode, cb: day_spec::FrameCallback) -> day_spec::CancelFrame;
     /// Set (or clear) a node's implicit `.animation` (§8.4): subsequent property patches and frame
     /// changes on this node (or its descendants) animate with `anim` even outside a
     /// `with_animation`.
@@ -1559,6 +1560,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn note_node_tweaked(&mut self, node: RNode) {
         if let Some(n) = self.nodes.get_mut(node) {
             n.tweaked = true;
+        }
+    }
+
+    fn request_frame(&mut self, root: RNode, cb: day_spec::FrameCallback) -> day_spec::CancelFrame {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.request_frame(&h, cb)
+        } else {
+            Box::new(|| {})
         }
     }
 

@@ -529,6 +529,7 @@ dependencies = [
 name = "day-dom"
 version = "0.4.8"
 dependencies = [
+ "day-core",
  "day-geometry",
  "day-spec",
  "getrandom 0.4.3",

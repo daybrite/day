@@ -22,6 +22,8 @@
 ))]
 compile_error!("day: enable exactly one backend feature");
 
+/// Display-synchronized, cancellable frame callbacks for any UI client.
+pub use day_core::frame;
 /// Programmatic navigation on the deep-link rail (docs/deep-links.md, docs/navigation.md):
 /// route the app to `route`, buffered before the root is ready and applied after, exactly like
 /// a cold launcher shortcut. The route grammar is what `day::routes!` keys and dayscript speak.

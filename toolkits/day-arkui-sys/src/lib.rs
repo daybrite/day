@@ -211,6 +211,9 @@ unsafe extern "C" {
     pub fn day_ark_content_add(content: *mut c_void, node: *mut c_void) -> c_int;
 
     /// Post a closure to the main (JS) thread via libuv.
+    pub fn day_ark_request_frame(host: *mut c_void, token: u64, cb: extern "C" fn(u64, f64))
+    -> i32;
+    pub fn day_ark_cancel_frame(token: u64);
     pub fn day_ark_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
 
     /// Post a closure to the main (JS) thread after `ms` milliseconds (a one-shot uv_timer) —

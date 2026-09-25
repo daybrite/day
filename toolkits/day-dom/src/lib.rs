@@ -165,7 +165,8 @@ unsafe extern "C" {
     fn day_dom_options_select(el: u32, idx: u32);
     fn day_dom_schedule_post();
     fn day_dom_schedule_delayed(token: u32, ms: u32);
-    fn day_dom_request_frame();
+    fn day_dom_request_frame(token: f64) -> u32;
+    fn day_dom_cancel_frame(id: u32);
     fn day_dom_set_title(ptr: *const u8, len: usize);
     fn day_dom_open_url(ptr: *const u8, len: usize);
     /// Mirror the app route into the URL hash. `replace` = rewrite the current history entry
@@ -669,9 +670,6 @@ struct ListEntry {
     lead: Option<usize>,
 }
 
-/// A pending `request_frame` callback (the timestamp is seconds, from rAF).
-type FrameCb = Box<dyn FnOnce(f64) + 'static>;
-
 thread_local! {
     static SINK: RefCell<Option<EventSink>> = const { RefCell::new(None) };
     /// Element id → day node id, for event routing (the shim only knows element ids).
@@ -689,7 +687,7 @@ thread_local! {
     static POSTED: RefCell<Vec<Box<dyn FnOnce() + Send>>> = RefCell::new(Vec::new());
     static DELAYED: RefCell<HashMap<u32, Box<dyn FnOnce() + Send>>> = RefCell::new(HashMap::new());
     static NEXT_DELAY: Cell<u32> = const { Cell::new(1) };
-    static FRAME_CB: RefCell<Option<FrameCb>> = const { RefCell::new(None) };
+
     static SPLIT_MODE: Cell<bool> = const { Cell::new(true) };
     static DARK: Cell<bool> = const { Cell::new(false) };
     /// The latest viewport size (updated on resize, seeded at launch). A `cover` fills the
@@ -2588,6 +2586,19 @@ impl Toolkit for Dom {
         unsafe { day_dom_image_release(id.0 as f64) };
     }
 
+    fn request_frame(
+        &mut self,
+        _host: &DomHandle,
+        cb: day_spec::FrameCallback,
+    ) -> day_spec::CancelFrame {
+        let token = day_core::frame::native::register(cb);
+        let request = unsafe { day_dom_request_frame(token as f64) };
+        Box::new(move || {
+            day_core::frame::native::cancel(token);
+            unsafe { day_dom_cancel_frame(request) };
+        })
+    }
+
     fn replay(&mut self, h: &DomHandle, ops: &[DrawOp], size: Size) {
         let (buf, strs) = encode_ops(ops);
         unsafe {
@@ -2761,11 +2772,6 @@ impl Platform for Dom {
         });
         DELAYED.with(|m| m.borrow_mut().insert(token, f));
         unsafe { day_dom_schedule_delayed(token, ms) };
-    }
-
-    fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
-        FRAME_CB.with(|c| *c.borrow_mut() = Some(cb));
-        unsafe { day_dom_request_frame() };
     }
 
     fn locale_hints(&self) -> Vec<String> {
@@ -4144,10 +4150,8 @@ pub extern "C" fn day_dom_delayed(token: u32) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn day_dom_frame(ts: f64) {
-    if let Some(cb) = FRAME_CB.with(|c| c.borrow_mut().take()) {
-        day_spec::ffi_guard::contain((), move || cb(ts));
-    }
+pub extern "C" fn day_dom_frame(token: f64, ts: f64) {
+    day_core::frame::native::deliver(token as u64, day_spec::FrameStamp::new(ts));
 }
 
 #[unsafe(no_mangle)]

@@ -7,6 +7,7 @@
 
 #include <QApplication>
 #include <QWindow>
+#include <QElapsedTimer>
 #include <QStyleHints>
 #include <QBuffer>
 #include <QByteArray>
@@ -1460,10 +1461,61 @@ void day_qt_post(void (*cb)(void *), void *data) {
     QMetaObject::invokeMethod(
         qApp, [cb, data]() { cb(data); }, Qt::QueuedConnection);
 }
-// A single-shot timer on the application's thread: the frame clock's ~16 ms tick (§8.4).
+// General delayed work on the application thread (not the display-frame scheduler).
 void day_qt_post_delayed(int ms, void (*cb)(void *), void *data) {
     QTimer::singleShot(ms, qApp, [cb, data]() { cb(data); });
 }
+
+// One pump per native window. Qt uses platform vsync where available and owns any fallback;
+// Day never schedules a synthetic frame timer. Do not consume UpdateRequest: QWidgetWindow's
+// normal backing-store processing must still see it.
+class DayFramePump : public QObject {
+public:
+    QPointer<QWindow> window;
+    unsigned long long token = 0;
+    void (*callback)(unsigned long long, double) = nullptr;
+    QElapsedTimer epoch;
+    explicit DayFramePump(QWindow *w) : QObject(w), window(w) {
+        epoch.start();
+        w->installEventFilter(this);
+    }
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() == QEvent::UpdateRequest && token) {
+            auto id = token;
+            auto cb = callback;
+            token = 0;
+            QPointer<QWindow> alive = window;
+            cb(id, epoch.nsecsElapsed() / 1e9);
+            // A frame callback may close its window. Qt must not continue dispatching to it.
+            if (!alive) return true;
+        } else if (event->type() == QEvent::Expose && token && window && window->isExposed()) {
+            window->requestUpdate();
+        }
+        return false;
+    }
+};
+static std::map<QWindow*, QPointer<DayFramePump>> g_frame_pumps;
+void day_qt_request_frame(void *host, unsigned long long token, void (*cb)(unsigned long long, double)) {
+    auto *widget = static_cast<QWidget*>(host)->window();
+    widget->winId(); // ensure a native handle even while the first page is being built
+    auto *window = widget->windowHandle();
+    if (!window) return;
+    auto &pump = g_frame_pumps[window];
+    if (!pump) {
+        pump = new DayFramePump(window);
+        QObject::connect(window, &QObject::destroyed, qApp, [window]() { g_frame_pumps.erase(window); });
+    }
+    pump->token = token;
+    pump->callback = cb;
+    window->requestUpdate();
+}
+void day_qt_cancel_frame(unsigned long long token) {
+    for (auto const &entry : g_frame_pumps) {
+        auto pump = entry.second;
+        if (pump && pump->token == token) pump->token = 0;
+    }
+}
+
 // `scale` > 0 renders at that many pixels per point (a scripted run's stated capture scale,
 // Day.toml [screenshots]); 0 keeps the widget's own device pixel ratio. The scaled path is what
 // grab() does internally, with the ratio chosen rather than read off the screen, so a capture

@@ -62,6 +62,7 @@ fn main() {
         "hilog_ndk.z",
         "rawfile.z",
         "native_drawing",
+        "native_vsync",
         // The window-image capture (docs/window-image.md): `pixelmap` for the snapshot surface's
         // dimensions, `image_packer` for the synchronous PNG encode. Neither symbol lives in the
         // `_ndk.z` stubs alongside them, so these are the plain names.

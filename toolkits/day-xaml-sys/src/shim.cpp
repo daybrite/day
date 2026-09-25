@@ -1588,6 +1588,29 @@ void day_xaml_post(void (*cb)(void*), void* data) {
     }
 }
 
+// One-shot CompositionTarget callbacks on the XAML UI thread. Revoke before entering Rust,
+// so a continuing client may subscribe to the next frame, and cancellation cannot double-revoke.
+static std::map<unsigned long long, winrt::event_token> g_frame_requests;
+void day_xaml_request_frame(unsigned long long id, void (*cb)(unsigned long long, double)) {
+    auto token = WUXM::CompositionTarget::Rendering([id, cb](WF::IInspectable const&, WF::IInspectable const& args) {
+        auto it = g_frame_requests.find(id);
+        if (it == g_frame_requests.end()) return;
+        auto registration = it->second;
+        g_frame_requests.erase(it);
+        WUXM::CompositionTarget::Rendering(registration);
+        auto timing = args.as<WUXM::RenderingEventArgs>().RenderingTime();
+        cb(id, timing.count() / 10000000.0);
+    });
+    g_frame_requests.emplace(id, token);
+}
+void day_xaml_cancel_frame(unsigned long long id) {
+    auto it = g_frame_requests.find(id);
+    if (it == g_frame_requests.end()) return;
+    auto token = it->second;
+    g_frame_requests.erase(it);
+    WUXM::CompositionTarget::Rendering(token);
+}
+
 // ---- containers ----
 
 void* day_xaml_container_new() { WUXC::Canvas c; return boxh(c); }

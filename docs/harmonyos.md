@@ -208,9 +208,9 @@ on the Oniro emulator:
 - **Scrolling** (§7.6) — `scroll()` is a real `ARKUI_NODE_SCROLL` whose day children live in a
   shim-owned container sized by `set_scroll_content`; without it the Scroll measures a content
   extent of 0 (day's content nodes are layout-only) and neither touch nor `scroll_to` moves.
-- **Frame clock** (§8.4) — `Platform::request_frame` rides a ~16 ms one-shot `uv_timer` on the
-  JS loop (the NodeAPI has no re-armable vsync callback), so `frame_clock` game loops and
-  self-driven animations run; Games Fair's breakout/sirtet/2048 play on the emulator.
+- **Frame clock** (§8.4) — `OH_NativeVSync_RequestFrame` drives `day::frame`, with delivery
+  marshalled to the JS/UI loop. Integer request tickets make cancellation and late callbacks safe;
+  the native source is released when idle. See [frames.md](frames.md) for timing and lifecycle.
 - **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 

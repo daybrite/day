@@ -6116,6 +6116,31 @@ impl Toolkit for Gtk {
         }
     }
 
+    fn request_frame(
+        &mut self,
+        host: &Handle,
+        cb: day_spec::FrameCallback,
+    ) -> day_spec::CancelFrame {
+        let token = day_core::frame::native::register(cb);
+        let fired = Rc::new(std::cell::Cell::new(false));
+        let done = fired.clone();
+        // GTK attaches its frame clock when the widget maps, and stops it while unmapped.
+        let id = host.add_tick_callback(move |_, clock| {
+            done.set(true);
+            day_core::frame::native::deliver(
+                token,
+                day_spec::FrameStamp::new(clock.frame_time() as f64 / 1_000_000.0),
+            );
+            gtk4::glib::ControlFlow::Break
+        });
+        Box::new(move || {
+            day_core::frame::native::cancel(token);
+            if !fired.get() {
+                id.remove();
+            }
+        })
+    }
+
     fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
         OPS.with(|t| t.insert(h.as_ptr() as usize, day_spec::encode_ops(ops)));
         h.queue_draw();
@@ -7057,15 +7082,6 @@ impl Platform for Gtk {
                 ffi_guard::contain((), f);
             }
             gtk4::glib::ControlFlow::Break
-        });
-    }
-
-    /// The frame clock (§8.4): a ~16 ms one-shot glib timeout on the main context approximates
-    /// vsync (GdkFrameClock is per-surface, and a game's clock outlives any one widget). Main
-    /// thread only, so the callback needs no `Send`.
-    fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
-        gtk4::glib::timeout_add_local_once(std::time::Duration::from_millis(16), move || {
-            ffi_guard::contain((), || cb(day_spec::frame_timestamp()));
         });
     }
 }

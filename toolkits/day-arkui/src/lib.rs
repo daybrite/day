@@ -169,7 +169,7 @@ mod imp {
         /// children into the container so the Scroll measures the real extent.
         static SCROLL_CONTENT: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
         /// Monotonic base for frame-clock timestamps (§8.4).
-        static FRAME_EPOCH: RefCell<Option<std::time::Instant>> = const { RefCell::new(None) };
+
 
         /// Each picker wheel's live selection, so a change of options can keep it: the
         /// range attribute is set whole, and the selected index goes with it. A
@@ -2537,6 +2537,25 @@ mod imp {
             }
         }
 
+        fn request_frame(
+            &mut self,
+            host: &AHandle,
+            cb: day_spec::FrameCallback,
+        ) -> day_spec::CancelFrame {
+            extern "C" fn fire(token: u64, timestamp: f64) {
+                day_core::frame::native::deliver(token, day_spec::FrameStamp::new(timestamp));
+            }
+            let token = day_core::frame::native::register(cb);
+            if unsafe { ffi::day_ark_request_frame(host.0, token, fire) } != 0 {
+                day_core::frame::native::cancel(token);
+                log::error!("NativeVSync frame request failed");
+            }
+            Box::new(move || {
+                day_core::frame::native::cancel(token);
+                unsafe { ffi::day_ark_cancel_frame(token) };
+            })
+        }
+
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
             ensure_canvas_fonts();
             // Encode the display list the shared way (day-android uses the same encoder) and hand it
@@ -2862,33 +2881,6 @@ mod imp {
         fn post(f: Box<dyn FnOnce() + Send>) {
             let data = Box::into_raw(Box::new(f)) as *mut c_void;
             unsafe { ffi::day_ark_post(run_posted, data) };
-        }
-
-        /// Frame clock (§8.4): ArkUI's NDK has no per-vsync callback the NodeAPI can re-arm,
-        /// so a ~16 ms one-shot uv_timer on the JS loop stands in (day-core re-arms while a
-        /// frame consumer is live). Timestamps come from a monotonic epoch captured at first
-        /// use.
-        fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
-            extern "C" fn fire(data: *mut c_void) {
-                // SAFETY: `data` is the Box::into_raw pointer minted below; the shim's timer
-                // fires it exactly once.
-                let cb = unsafe { Box::from_raw(data as *mut Box<dyn FnOnce(f64)>) };
-                // FFI entry running a frame consumer: contained (day_spec::ffi_guard).
-                day_spec::ffi_guard::contain((), move || {
-                    let ts = FRAME_EPOCH.with(|e| {
-                        e.borrow_mut()
-                            .get_or_insert_with(std::time::Instant::now)
-                            .elapsed()
-                            .as_secs_f64()
-                    });
-                    cb(ts);
-                });
-            }
-            FRAME_EPOCH.with(|e| {
-                e.borrow_mut().get_or_insert_with(std::time::Instant::now);
-            });
-            let data = Box::into_raw(Box::new(cb)) as *mut c_void;
-            unsafe { ffi::day_ark_post_delayed(fire, data, 16) };
         }
     }
 

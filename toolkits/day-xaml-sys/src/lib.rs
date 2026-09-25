@@ -68,6 +68,8 @@ unsafe extern "C" {
     pub fn day_xaml_is_dark() -> c_int;
     /// The app's own override: 0 follow the system, 1 light, 2 dark. Re-themes every live window.
     pub fn day_xaml_set_appearance(mode: c_int);
+    pub fn day_xaml_request_frame(token: u64, cb: extern "C" fn(u64, f64));
+    pub fn day_xaml_cancel_frame(token: u64);
     pub fn day_xaml_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
 
     // containers

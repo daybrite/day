@@ -58,6 +58,7 @@ pub fn on_lifecycle(phase: Lifecycle, f: impl Fn() + 'static) {
 /// Run every handler registered for `phase`, in a reactive batch. Called by the event pump on
 /// `Event::Lifecycle`, and directly by `launch_with` for the launch phases.
 pub fn dispatch_lifecycle(phase: Lifecycle) {
+    crate::frame::lifecycle(phase);
     let handlers = HANDLERS.with(|h| h.borrow().get(&phase).cloned().unwrap_or_default());
     if handlers.is_empty() {
         return;

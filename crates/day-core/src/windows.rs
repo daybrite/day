@@ -169,6 +169,11 @@ impl WindowHandle {
         }
     }
 
+    /// A frame source tied to this window, usable outside a piece build.
+    pub fn frame_clock(&self) -> crate::frame::FrameClock {
+        crate::frame::FrameClock::for_root(self.root)
+    }
+
     /// Whether the window is still open (its record exists; a `Pending` open counts).
     pub fn is_open(&self) -> bool {
         let root = self.root;
@@ -521,6 +526,7 @@ fn teardown(root: RNode) {
     // The toolbar forgets the window FIRST: its contributions' cleanups run inside the
     // dispose below and would otherwise re-compose a bar through gates whose signals the same
     // dispose has already dropped (a contained panic that left the next New Window blank).
+    crate::frame::forget_window(root);
     crate::toolbar::forget_window(root);
     record.scope.dispose();
     crate::ambient::forget_window(root);

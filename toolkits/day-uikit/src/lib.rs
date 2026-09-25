@@ -139,12 +139,7 @@ mod imp {
         #[allow(clippy::type_complexity)]
         static PENDING: RefCell<Option<(Uikit, WindowOptions, Box<dyn FnOnce(Uikit, Handle, Size)>)>> =
             RefCell::new(None);
-        /// The frame clock (§8.4): a single persistent CADisplayLink, paused when idle, plus the
-        /// one pending vsync callback day-core asked for. `request_frame` stores the cb + un-pauses;
-        /// `step:` takes the cb, calls it with the frame timestamp, and re-pauses if none was queued.
-        #[allow(clippy::type_complexity)]
-        static FRAME: RefCell<(Option<Retained<CADisplayLink>>, Option<Box<dyn FnOnce(f64)>>)> =
-            RefCell::new((None, None));
+        static FRAMES: RefCell<HashMap<usize, FrameSource>> = RefCell::new(HashMap::new());
         /// Connected scenes' windowing state (docs/windows.md). The PRIMARY scene also
         /// mirrors into WINDOW/ROOT_VIEW/ROOT_BASE_FRAME above (every single-window code
         /// path keeps reading those); secondary day windows are registry-only.
@@ -1813,43 +1808,43 @@ mod imp {
         }
     }
 
+    struct FrameSource {
+        link: Retained<CADisplayLink>,
+        target: Retained<DayFrameTarget>,
+    }
+    impl Drop for FrameSource {
+        fn drop(&mut self) {
+            unsafe { self.link.invalidate() };
+        }
+    }
+    struct FrameState {
+        key: usize,
+        token: Cell<u64>,
+    }
     define_class!(
         #[unsafe(super(NSObject))]
         #[thread_kind = MainThreadOnly]
         #[name = "DayUIKitFrameTarget"]
-        #[ivars = ()]
+        #[ivars = FrameState]
         struct DayFrameTarget;
-
         unsafe impl NSObjectProtocol for DayFrameTarget {}
-
         impl DayFrameTarget {
-            /// One vsync tick. Deliver the pending callback (day-core re-arms it if it wants more),
-            /// then pause the link if nothing was re-queued so an idle app stops waking the display.
             #[unsafe(method(step:))]
             fn step(&self, link: &CADisplayLink) {
-                // The callback is day-core's frame tick — contained like every other
-                // trampoline (§8.5), so a panicking animation can't abort the app.
                 day_spec::ffi_guard::contain((), || {
-                    let ts = unsafe { link.timestamp() };
-                    let cb = FRAME.with(|f| f.borrow_mut().1.take());
-                    if let Some(cb) = cb {
-                        cb(ts);
-                    }
-                    let idle = FRAME.with(|f| f.borrow().1.is_none());
-                    if idle {
-                        unsafe { link.setPaused(true) };
+                    unsafe { link.setPaused(true) };
+                    let token = self.ivars().token.replace(0);
+                    day_core::frame::native::deliver(token, day_spec::FrameStamp {
+                        timestamp: unsafe { link.timestamp() },
+                        target_timestamp: Some(unsafe { link.targetTimestamp() }),
+                    });
+                    if self.ivars().token.get() == 0 {
+                        FRAMES.with(|s| s.borrow_mut().remove(&self.ivars().key));
                     }
                 });
             }
         }
     );
-
-    impl DayFrameTarget {
-        fn new(mtm: MainThreadMarker) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(());
-            unsafe { msg_send![super(this), init] }
-        }
-    }
 
     // -----------------------------------------------------------------------
     // DayTextLink — a text view's link delegate (docs/text-runs.md)
@@ -9753,6 +9748,55 @@ mod imp {
             }
         }
 
+        fn request_frame(
+            &mut self,
+            host: &Handle,
+            cb: day_spec::FrameCallback,
+        ) -> day_spec::CancelFrame {
+            let key = ptr_of(host);
+            let token = day_core::frame::native::register(cb);
+            FRAMES.with(|s| {
+                let mut sources = s.borrow_mut();
+                let source = sources.entry(key).or_insert_with(|| {
+                    let this = DayFrameTarget::alloc(mtm()).set_ivars(FrameState {
+                        key,
+                        token: Cell::new(0),
+                    });
+                    let target: Retained<DayFrameTarget> = unsafe { msg_send![super(this), init] };
+                    // Bind to the window's screen, including external displays on iPad.
+                    let screen = unsafe { host.window().map(|w| w.screen()) };
+                    let link = if let Some(screen) = screen {
+                        unsafe { screen.displayLinkWithTarget_selector(&target, sel!(step:)) }
+                    } else {
+                        None
+                    }
+                    .unwrap_or_else(|| unsafe {
+                        CADisplayLink::displayLinkWithTarget_selector(&target, sel!(step:))
+                    });
+                    unsafe {
+                        link.addToRunLoop_forMode(
+                            &objc2_foundation::NSRunLoop::mainRunLoop(),
+                            objc2_foundation::NSRunLoopCommonModes,
+                        );
+                    }
+                    FrameSource { link, target }
+                });
+                source.target.ivars().token.set(token);
+                unsafe { source.link.setPaused(false) };
+            });
+            Box::new(move || {
+                day_core::frame::native::cancel(token);
+                FRAMES.with(|s| {
+                    let mut s = s.borrow_mut();
+                    if s.get(&key)
+                        .is_some_and(|s| s.target.ivars().token.get() == token)
+                    {
+                        s.remove(&key);
+                    }
+                });
+            })
+        }
+
         fn replay(&mut self, h: &Handle, ops: &[DrawOp], _size: Size) {
             OPS.with(|t| t.insert(ptr_of(h), ops.to_vec()));
             unsafe { h.setNeedsDisplay() };
@@ -11489,34 +11533,6 @@ mod imp {
                 .iter()
                 .map(|s| s.to_string())
                 .collect()
-        }
-
-        /// Frame clock (§8.4): store the pending callback and un-pause the shared CADisplayLink,
-        /// creating it (paused) on first use and attaching it to the main run loop in common modes
-        /// so it keeps firing during scroll/tracking. `DayFrameTarget::step` delivers it.
-        fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
-            let mtm = mtm();
-            FRAME.with(|f| {
-                let mut f = f.borrow_mut();
-                f.1 = Some(cb);
-                if f.0.is_none() {
-                    let target = DayFrameTarget::new(mtm);
-                    let link = unsafe {
-                        CADisplayLink::displayLinkWithTarget_selector(&target, sel!(step:))
-                    };
-                    unsafe {
-                        let run_loop = objc2_foundation::NSRunLoop::mainRunLoop();
-                        link.addToRunLoop_forMode(
-                            &run_loop,
-                            objc2_foundation::NSRunLoopCommonModes,
-                        );
-                    }
-                    f.0 = Some(link);
-                }
-                if let Some(link) = f.0.as_ref() {
-                    unsafe { link.setPaused(false) };
-                }
-            });
         }
     }
 }

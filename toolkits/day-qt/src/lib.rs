@@ -3093,6 +3093,19 @@ impl Toolkit for Qt {
         }
     }
 
+    fn request_frame(
+        &mut self,
+        host: &QtHandle,
+        cb: day_spec::FrameCallback,
+    ) -> day_spec::CancelFrame {
+        let token = day_core::frame::native::register(cb);
+        unsafe { ffi::day_qt_request_frame(host.0, token, run_frame) };
+        Box::new(move || {
+            day_core::frame::native::cancel(token);
+            unsafe { ffi::day_qt_cancel_frame(token) };
+        })
+    }
+
     fn replay(&mut self, h: &QtHandle, ops: &[DrawOp], _size: Size) {
         let (nums, texts) = day_spec::encode_ops(ops);
         let joined = cstr(&texts.join("\u{1f}"));
@@ -3289,11 +3302,9 @@ extern "C" fn run_posted(data: *mut c_void) {
     ffi_guard::contain((), f);
 }
 
-/// The frame-clock trampoline: the single-shot timer fired on the application thread, so the
-/// main-thread-only callback runs where it was requested (§8.4).
-extern "C" fn run_frame(data: *mut c_void) {
-    let cb: Box<Box<dyn FnOnce(f64)>> = unsafe { Box::from_raw(data as *mut _) };
-    ffi_guard::contain((), || cb(day_spec::frame_timestamp()));
+/// A window update opportunity delivered by Qt on the application thread.
+extern "C" fn run_frame(token: u64, timestamp: f64) {
+    day_core::frame::native::deliver(token, day_spec::FrameStamp::new(timestamp));
 }
 
 impl Platform for Qt {
@@ -3356,13 +3367,6 @@ impl Platform for Qt {
     fn post(f: Box<dyn FnOnce() + Send>) {
         let data = Box::into_raw(Box::new(f)) as *mut c_void;
         unsafe { ffi::day_qt_post(run_posted, data) };
-    }
-
-    /// The frame clock (§8.4): a ~16 ms `QTimer::singleShot` on the application thread
-    /// approximates vsync (Qt Widgets has no display link).
-    fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
-        let data = Box::into_raw(Box::new(cb)) as *mut c_void;
-        unsafe { ffi::day_qt_post_delayed(16, run_frame, data) };
     }
 }
 

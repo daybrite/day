@@ -676,7 +676,7 @@ pub fn launch_with<P: Platform>(
     });
     // The frame clock (§8.4): the animation driver re-arms the platform's vsync callback while any
     // frame consumer (game loop / self-driven animation) is live.
-    frame::install_frame_requester(|cb| P::request_frame(cb));
+    frame::install_frame_requester(|root, cb| tree::with_tree(|t| t.request_frame(root, cb)));
 
     // WillLaunch: before the window/UI exists (docs/lifecycle.md). Fired uniformly by day-core so
     // it is reliable on every backend; handlers must not touch the tree (there isn't one yet).

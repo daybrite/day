@@ -119,7 +119,7 @@ scaling text but not geometry would corrupt drawings.
 The browser owns the loop; wasm has one thread, and `std::thread`, `Instant`, `SystemTime`,
 and the process environment are all absent. Three substitutions make Day code run unchanged:
 
-- `Platform::post` queues a microtask; `Platform::request_frame` is `requestAnimationFrame`
+- `Platform::post` queues a microtask; `Toolkit::request_frame` uses cancellable `requestAnimationFrame`
   (animation clocks tick per frame, and CSS transitions carry opacity/transform/color).
 - `Platform::post_delayed(ms, f)` (new with this backend, default = thread + sleep on native)
   is `setTimeout` here. It backs **`day::sleep(ms)`**, the awaitable timer for

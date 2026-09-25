@@ -5575,10 +5575,40 @@ pub mod present {
 // The Toolkit trait (§8.1)
 // ---------------------------------------------------------------------------
 
+/// Timing supplied by a native display scheduler. Seconds on a monotonic clock; its epoch
+/// is platform-specific. `target_timestamp` is absent when the platform cannot predict presentation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameStamp {
+    pub timestamp: f64,
+    pub target_timestamp: Option<f64>,
+}
+impl FrameStamp {
+    pub fn new(timestamp: f64) -> Self {
+        Self {
+            timestamp,
+            target_timestamp: None,
+        }
+    }
+}
+/// A one-shot native frame callback, always delivered asynchronously on the UI thread.
+pub type FrameCallback = Box<dyn FnOnce(FrameStamp)>;
+/// Cancels a pending callback and releases its native registration. UI-thread only, idempotent
+/// in effect, and safe during/after delivery. Dropping without calling is allowed after delivery.
+pub type CancelFrame = Box<dyn FnOnce()>;
+
 pub trait Toolkit: Sized + 'static {
     // `'static` so a handle clone can cross the object-safe TreeOps boundary boxed as `Any`
     // (`node_handle_any`, the tweaks door, docs/tweaks.md).
     type Handle: Clone + 'static;
+
+    /// Request one frame for the window containing `host`. Never call inline. Each native source
+    /// must stop after delivery unless requested again; no polling timer. Hidden/unmapped windows
+    /// may defer delivery until visible. Native callbacks must reach the UI thread before calling
+    /// Rust. The returned closure cancels safely, including when the window has closed.
+    /// The mock intentionally stays pending: tests inject a manual scheduler in day-core.
+    fn request_frame(&mut self, _host: &Self::Handle, _cb: FrameCallback) -> CancelFrame {
+        Box::new(|| {})
+    }
 
     fn capability(&self, _cap: Cap) -> Support {
         Support::Unsupported
@@ -6163,15 +6193,6 @@ pub trait Platform: Toolkit {
         });
     }
 
-    /// Request a single main-thread callback aligned to the next display refresh (vsync), carrying
-    /// the frame timestamp in seconds. The day-core animation driver re-arms it each tick while
-    /// animations / game frame-clocks are live and stops requesting when none remain (no idle
-    /// wakeups → battery). Main-thread only. A backend without a display link approximates with a
-    /// ~16 ms one-shot timer and stamps the frame with [`frame_timestamp`] (the desktop toolkits
-    /// and HarmonyOS do). Defaulted no-op only for the mock: there the canvas/self-driven animation
-    /// path is inert (native-widget animation via `AnimSpec` is unaffected). (§8.4)
-    fn request_frame(_cb: Box<dyn FnOnce(f64) + 'static>) {}
-
     /// Ordered OS locale preference list (BCP-47), for fluent-langneg (§12.2).
     fn locale_hints(&self) -> Vec<String> {
         Vec::new()
@@ -6197,11 +6218,8 @@ pub fn capture_scale() -> Option<f64> {
         .filter(|s| s.is_finite() && (0.5..=4.0).contains(s))
 }
 
-/// The user's language preference from the POSIX environment, newest-first, as BCP-47 tags.
-///
 /// Seconds on a monotonic clock since the first call: the frame timestamp for a backend that
-/// approximates [`Platform::request_frame`] with a timer rather than a display link (§8.4). The
-/// driver only ever differences consecutive stamps, so the origin is arbitrary. Not for the web
+/// does not expose a native timestamp (§8.4). The origin is arbitrary. Not for the web
 /// build, where `Instant` is unavailable and `requestAnimationFrame` stamps the frame itself.
 pub fn frame_timestamp() -> f64 {
     static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
@@ -6211,6 +6229,8 @@ pub fn frame_timestamp() -> f64 {
         .as_secs_f64()
 }
 
+/// The user's language preference from the POSIX environment, newest-first, as BCP-47 tags.
+///
 /// `LANGUAGE` is the GNU multi-language list (`fr:en`); `LC_ALL`, `LC_MESSAGES` and `LANG` each
 /// carry one locale in POSIX form (`fr_FR.UTF-8`), which becomes `fr-FR`. Shared by the backends
 /// whose platform has no richer API to ask (§12.2, docs/localization.md).

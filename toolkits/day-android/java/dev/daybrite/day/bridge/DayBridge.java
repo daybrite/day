@@ -197,10 +197,19 @@ public final class DayBridge {
      * getInstance() yields the UI thread's Choreographer). One-shot; day-core re-arms while a
      * frame consumer is live.
      */
+    private static final java.util.Map<Long, Choreographer.FrameCallback> frames = new java.util.HashMap<>();
     public static void requestFrame(final long token) {
-        Choreographer.getInstance().postFrameCallback(new Choreographer.FrameCallback() {
-            public void doFrame(long frameTimeNanos) { nativeDoFrame(token, frameTimeNanos); }
-        });
+        Choreographer.FrameCallback callback = new Choreographer.FrameCallback() {
+            public void doFrame(long frameTimeNanos) {
+                if (frames.remove(token) != null) nativeDoFrame(token, frameTimeNanos);
+            }
+        };
+        frames.put(token, callback);
+        Choreographer.getInstance().postFrameCallback(callback);
+    }
+    public static void cancelFrame(long token) {
+        Choreographer.FrameCallback callback = frames.remove(token);
+        if (callback != null) Choreographer.getInstance().removeFrameCallback(callback);
     }
 
     // --- factories + setters (called from Rust over JNI) ---

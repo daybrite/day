@@ -15,6 +15,8 @@
 #include <deque>
 #include <map>
 #include <mutex>
+#include <memory>
+#include <native_vsync/native_vsync.h>
 #include <string>
 
 #include <sys/mman.h>
@@ -804,7 +806,7 @@ void day_ark_post(void (*cb)(void*), void* data) {
     if (g_async_ready) uv_async_send(&g_async);
 }
 
-// Delayed main-thread post (the frame clock's tick source, §8.4): run `cb(data)` after `ms`
+// General delayed main-thread post (not used for display frames): run `cb(data)` after `ms`
 // on the JS loop via a one-shot uv_timer. JS thread only (uv_timer_init is not thread-safe).
 struct DayTimer {
     uv_timer_t timer; // first member: the uv_handle_t* IS the DayTimer*
@@ -831,6 +833,62 @@ void day_ark_post_delayed(void (*cb)(void*), void* data, uint32_t ms) {
     dt->data = data;
     uv_timer_init(g_loop, &dt->timer);
     uv_timer_start(&dt->timer, day_timer_fire, ms, 0);
+}
+
+// Native VSync may arrive off the JS/UI thread. Carry only an integer ticket across threads,
+// then resolve it on the UI loop; cancellation can destroy the source without leaving a dangling
+// Rust closure/context pointer in a callback already queued by the system.
+struct DayVSyncSource {
+    OH_NativeVSync* vsync;
+    uint64_t token = 0;
+    explicit DayVSyncSource(OH_NativeVSync* v) : vsync(v) {}
+    ~DayVSyncSource() { OH_NativeVSync_Destroy(vsync); }
+};
+struct DayVSyncPending { uintptr_t host; void (*cb)(uint64_t, double); };
+struct DayVSyncDelivery { uint64_t token; long long timestamp; };
+static std::map<uintptr_t, std::shared_ptr<DayVSyncSource>> g_vsync_sources;
+static std::map<uint64_t, DayVSyncPending> g_vsync_pending;
+static void deliver_vsync(void* data) {
+    std::unique_ptr<DayVSyncDelivery> delivery(static_cast<DayVSyncDelivery*>(data));
+    auto it = g_vsync_pending.find(delivery->token);
+    if (it == g_vsync_pending.end()) return;
+    auto pending = it->second;
+    g_vsync_pending.erase(it);
+    auto found = g_vsync_sources.find(pending.host);
+    if (found == g_vsync_sources.end()) return;
+    auto source = found->second;
+    source->token = 0;
+    pending.cb(delivery->token, delivery->timestamp / 1e9);
+    if (!source->token) g_vsync_sources.erase(pending.host);
+}
+static void native_vsync(long long timestamp, void* data) {
+    auto token = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(data));
+    day_ark_post(deliver_vsync, new DayVSyncDelivery{token, timestamp});
+}
+int day_ark_request_frame(void* host, uint64_t token, void (*cb)(uint64_t, double)) {
+    auto key = reinterpret_cast<uintptr_t>(host);
+    auto &source = g_vsync_sources[key];
+    if (!source) {
+        auto vsync = OH_NativeVSync_Create("Day", 3);
+        if (!vsync) { g_vsync_sources.erase(key); return -1; }
+        source = std::make_shared<DayVSyncSource>(vsync);
+    }
+    source->token = token;
+    g_vsync_pending.emplace(token, DayVSyncPending{key, cb});
+    int result = OH_NativeVSync_RequestFrame(source->vsync, native_vsync,
+        reinterpret_cast<void*>(static_cast<uintptr_t>(token)));
+    if (result != 0) {
+        g_vsync_pending.erase(token);
+        g_vsync_sources.erase(key);
+    }
+    return result;
+}
+void day_ark_cancel_frame(uint64_t token) {
+    auto it = g_vsync_pending.find(token);
+    if (it == g_vsync_pending.end()) return;
+    auto key = it->second.host;
+    g_vsync_pending.erase(it);
+    g_vsync_sources.erase(key);
 }
 
 // Pan/drag gesture (docs/shapes.md): a native pan recognizer whose events reach Rust as the

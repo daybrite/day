@@ -13,6 +13,7 @@ license.workspace = true
 # day-arkui's NodeAPI shim, with JS in place of C. The shim ships inside day-cli
 # (crates/day-cli/resources/web/), which embeds it; see this crate's lib.rs header.
 [dependencies]
+day-core.workspace = true
 day-spec = { workspace = true }
 day-geometry = { workspace = true }
 log = { workspace = true }

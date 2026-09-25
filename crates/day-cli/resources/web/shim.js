@@ -1292,7 +1292,8 @@ const env = {
 
   day_dom_schedule_post: () => queueMicrotask(() => wasm.day_dom_posted()),
   day_dom_schedule_delayed: (token, ms) => setTimeout(() => wasm.day_dom_delayed(token), ms),
-  day_dom_request_frame: () => requestAnimationFrame((t) => wasm.day_dom_frame(t / 1000)),
+  day_dom_request_frame: (token) => requestAnimationFrame((t) => wasm.day_dom_frame(token, t / 1000)),
+  day_dom_cancel_frame: (id) => cancelAnimationFrame(id),
   day_dom_set_title(ptr, len) { document.title = str(ptr, len); },
   // App badge (docs/badge.md). The Badging API is Chromium + Safari-for-installed-PWAs; Firefox
   // has none, so every call is feature-guarded. `count < 0` clears. The promises are ignored:

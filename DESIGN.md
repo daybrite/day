@@ -371,7 +371,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
-| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui` (+`day-arkui-sys`), `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec (NOT day-core) |
+| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui` (+`day-arkui-sys`), `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
 Two structural rules carried over from pane, both still enforced:
@@ -417,7 +417,7 @@ Two structural rules carried over from pane, both still enforced:
   3. Size-affecting applies only *mark* layout dirty. **Layout, paint, and the release-queue drain
      run in one coalesced posted main-loop callback** — the *turn boundary*. `Setter` deliveries
      arriving outside any batch open one and schedule the posted drain.
-  4. Turn boundaries are not frame-aligned: the frame clock ([§8.4](#84-animation-reserved-hooks--still-unimplemented)) is a
+  4. Turn boundaries are not frame-aligned: the frame clock ([§8.4](#84-animation-and-display-frames)) is a
      separate, opt-in consumer loop, and aligning the drain itself to CVDisplayLink /
      Choreographer / GdkFrameClock remains post-MVP.
 
@@ -1726,7 +1726,9 @@ The single sink keeps the backend ignorant of closures/lifetimes (day-core owns 
 handlers` table) — this is the shape that made pane's six backends small. The sink contract is
 enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registration scope ([§4.3](#43-scopes-and-disposal)).
 
-### §8.4 Animation (reserved hooks — still unimplemented)
+<a id="84-animation-reserved-hooks--still-unimplemented"></a>
+
+### §8.4 Animation and display frames
 
 > [!NOTE]
 > **Status: partly shipped (2026-07; XAML 2026-08).** `with_animation(spec, || …)` exists
@@ -1752,23 +1754,32 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > re-animating, since two live storyboards on one property fight and a stopped one snaps its
 > property back; `FillBehavior::HoldEnd` keeps the settled value.
 >
-> **Frame clock on every backend (2026-09).** `Platform::request_frame` was implemented only
-> by the mobile and web backends, so `frame_clock` game loops and self-driven canvas
-> animations were inert on macos-appkit, gtk, qt, and windows-xaml (Games Fair's clocks and
-> physics stood still on a desktop). The desktop backends now approximate vsync with a
-> ~16 ms one-shot on their main loop — a main-queue dispatch on AppKit, a glib timeout on
-> GTK, `QTimer::singleShot` on Qt, and the trait's threaded delay riding `post` on XAML —
-> stamping frames with `day_spec::frame_timestamp()`. Only the mock leaves the duty a no-op.
-> A true display link (NSView's CADisplayLink on macOS 14+, `CompositionTarget.Rendering` on
-> Windows) is the follow-up; the driver's re-arm contract is unchanged.
+> **Generic frame scheduling (2026-09).** `day::frame` is the shared, window-scoped primitive
+> for one-shot requests and continuous subscriptions, independent of canvas and piece mounting.
+> `FrameClock` captures a window; RAII `FrameHandle`s cancel, pause, resume, or bind lifetime to a
+> reactive scope. `Toolkit::request_frame(host, callback) -> CancelFrame` replaces the global
+> `Platform::request_frame` seam so schedulers can associate a native window/view with the source.
+> The driver coalesces clients per window, batches reactive writes, cancels when idle, suspends on
+> backgrounding, resets delta on resume, and removes registrations on window close. Requests from
+> callbacks start on a later frame; cancellation during dispatch suppresses the cancelled client.
+> Native integer tickets reject late callbacks without dereferencing freed Rust closures.
+>
+> Native sources are CADisplayLink (AppKit 14+/UIKit), Core Video (AppKit 13), Choreographer
+> (Android), CompositionTarget.Rendering (XAML Islands), requestAnimationFrame (DOM), GTK widget
+> tick callbacks, QWindow update requests (Qt), and OH_NativeVSync (ArkUI, marshalled to the UI
+> loop). Day has no 16 ms frame timer fallback. Qt itself may use its internal timer where its
+> platform plugin lacks vsync; Harmony uses a system source without an OS window-ID association.
+> Hidden-window behavior follows native scheduling; retained offscreen pages must pause explicitly.
+> Raw timestamps and unclamped per-client deltas are exposed, with zero delta at first/resumed
+> delivery and optional presentation targets. The existing `frame_clock` piece retains its legacy
+> first-step/100 ms clamp while sharing the driver. See [docs/frames.md](docs/frames.md), core
+> `frame.rs` regression tests, and the Showcase rainbow ball's fixed-step simulation and dayscript.
 
-Native-widget frameworks that bolt animation on later end up breaking their backend ABI — so the
-seam ships now even though MVP backends ignore it. Day commits to **backend-executed animation**:
-Day passes *intent*, the platform animates (consistent with [§0.3](#03-non-goals) — Day never ticks pixel frames
-for native widgets). `AnimSpec { duration, curve, spring }` parameters already sit on `set_frame`
-and `update` ([§8.1](#81-the-toolkit-trait)), no-op in MVP backends. The post-MVP surface (design sketch, not v1 API):
-`.transition(anim)` on `when`/`each` enter/exit, animated frame changes
-(`with_animation(anim, || …)`), and a day-driven frame-clock ticker **for canvas only**.
+Native-widget animation stays **backend-executed**: Day passes intent through `AnimSpec` on
+`set_frame` and `update` ([§8.1](#81-the-toolkit-trait)); the toolkit performs supported tweens.
+General display scheduling is independent: clients can animate canvas state today, and future
+custom tween/timeline support can share the same native frame service. `.transition(anim)` for
+`when`/`each` enter/exit remains a design sketch, not an implemented API.
 
 ### §8.5 Panics and crashes
 
@@ -5332,7 +5343,7 @@ with `ar-XB` ([§7.8](#78-rtl-and-bidi)); RowHost completion — `flush_now` on 
 move-lowering ([§10.2](#102-realization-the-rowhost-protocol)); IME-safe controlled inputs — origin-tagged writes + composition gating;
 pane never proved CJK ([§4.4](#44-events-and-controlled-inputs)); AppKit default menu bar — Cmd+C/V/Q were broken in the flagship demo
 (M2); navigation section + reserved presentation hooks ([§10.5](#105-navigation-and-presentation), DP-23); `AppCx::create_window`
-reshape before the spec freeze ([§8.1](#81-the-toolkit-trait)); animation `AnimSpec` parameter reserved ([§8.4](#84-animation-reserved-hooks--still-unimplemented));
+reshape before the spec freeze ([§8.1](#81-the-toolkit-trait)); animation `AnimSpec` parameter reserved ([§8.4](#84-animation-and-display-frames));
 panic/catch_unwind policy ([§8.5](#85-panics-and-crashes)); per-toolkit a11y-id truth table — Android `setTag` is invisible
 to automation, `uniqueId` is API 33+ ([§13](#13-accessibility)); native-tree `a11y_audit` step — nothing previously
 verified `set_a11y` landed ([§14.2](#142-the-embedded-engine)); dayscript step tiers + actionability preconditions — no more

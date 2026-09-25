@@ -415,10 +415,10 @@ pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> impl Piece {
 /// tree (e.g. behind a `canvas` in a `zstack`) to drive a game loop or self-driven animation: the
 /// tick mutates state `Signal`s, and a `canvas` reading them re-records that frame.
 ///
-/// Backend-executed vsync: Day re-arms the platform's display link (a ~16 ms timer on the desktop
-/// toolkits and HarmonyOS) only while a `frame_clock` (or other consumer) is live and stops when
-/// the last one unmounts, so there are no idle wakeups. The delta is clamped (≤100 ms) so a
-/// backgrounded window can't deliver a huge jump. Inert on the mock backend.
+/// Shares `day::frame`'s per-window native display scheduler (docs/frames.md); Day has no
+/// timer fallback. Requests stop when the last consumer unmounts. This legacy piece retains
+/// a first delta of 1/60 s and a <=100 ms clamp; the general frame API exposes raw elapsed time
+/// and pause/resume handles. Inert on the mock backend.
 ///
 /// ```ignore
 /// zstack((

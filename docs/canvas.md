@@ -21,6 +21,13 @@ canvas(|d, size| {
 })
 ```
 
+For animation, use [`day::frame`](frames.md) to advance state at native display frame
+opportunities and notify a `Trigger` tracked by the canvas. Keep the `FrameHandle` in your
+controller; return `ControlFlow::Break(())` when motion settles and resume on the next input.
+This avoids recording identical frames while idle. Frame timestamps are unclamped; simulation
+clients choose their own fixed-step and catch-up policy. Day-Showcase's Animation page contains
+a complete interactive example with trails, impact particles, pause/resume, and idle shutdown.
+
 ## The vocabulary
 
 | Op | What it does |

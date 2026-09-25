@@ -1606,11 +1606,10 @@ mod imp {
     /// `Choreographer`'s frame time in nanoseconds; day-core wants seconds. Runs on the UI
     /// thread, contained like `run_posted`.
     pub fn run_frame(token: i64, frame_nanos: i64) {
-        // SAFETY: `token` is the Box::into_raw pointer `request_frame` minted; Java hands it
-        // back exactly once.
-        let f: Box<Box<dyn FnOnce(f64)>> =
-            unsafe { Box::from_raw(token as *mut Box<dyn FnOnce(f64)>) };
-        day_spec::ffi_guard::contain((), move || f(frame_nanos as f64 / 1_000_000_000.0));
+        day_core::frame::native::deliver(
+            token as u64,
+            day_spec::FrameStamp::new(frame_nanos as f64 / 1_000_000_000.0),
+        );
     }
 
     #[distributed_slice]
@@ -3877,6 +3876,19 @@ mod imp {
             });
         }
 
+        fn request_frame(
+            &mut self,
+            _host: &AHandle,
+            cb: day_spec::FrameCallback,
+        ) -> day_spec::CancelFrame {
+            let token = day_core::frame::native::register(cb);
+            call_void("requestFrame", "(J)V", &[JValue::Long(token as i64)]);
+            Box::new(move || {
+                day_core::frame::native::cancel(token);
+                call_void("cancelFrame", "(J)V", &[JValue::Long(token as i64)]);
+            })
+        }
+
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
             let (nums, texts) = day_spec::encode_ops(ops);
             with_env(|env| {
@@ -4250,14 +4262,6 @@ mod imp {
                     env.exception_clear();
                 }
             });
-        }
-
-        /// Frame clock (§8.4): hand the pending callback to `Choreographer.postFrameCallback` (a
-        /// one-shot; day-core re-arms while a frame consumer is live). `DayBridge.nativeDoFrame`
-        /// trampolines back to `run_frame` on the UI thread with the frame time.
-        fn request_frame(cb: Box<dyn FnOnce(f64) + 'static>) {
-            let token = Box::into_raw(Box::new(cb)) as i64;
-            call_void("requestFrame", "(J)V", &[JValue::Long(token)]);
         }
     }
 }
