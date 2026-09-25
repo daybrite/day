@@ -37,7 +37,7 @@ objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSArray
 # one platform where the headless crate rides on the day runtime (like the pieces' Android backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
-base64 = "0.22"
+base64 = "0.23"
 # daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
 # dependency is Android-only too; every other target compiles exactly as it did before.
 day-bridge = { workspace = true }
