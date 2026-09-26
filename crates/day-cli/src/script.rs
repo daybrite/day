@@ -563,6 +563,10 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
                 } else {
                     3000
                 }));
+                // screenCap writes into an existing file without truncating it, so a smaller
+                // capture would keep the previous shot's tail after its IEND (every shot of a
+                // run came out the size of the first). Start each capture from no file.
+                let _ = crate::ohos::hdc().args(["shell", "rm", "-f", dev]).status();
                 let cap = crate::ohos::hdc()
                     .args(["shell", "uitest", "screenCap", "-p", dev])
                     .status()

@@ -386,7 +386,7 @@ used it, call its generated `res::locales::register()` or
 `res::board::locales::register()` during setup. Bare assertion keys keep their global meaning.
 Keep element IDs unchanged across locales so the same script can drive each language.
 
-In an existing job that calls `daybrite/actions/.github/workflows/dayapp.yml`, set both inputs:
+In a [Day app workflow](/docs/github-actions), set both inputs:
 
 ```yaml
 with:

@@ -120,7 +120,7 @@ discovers what a project can build.
 
 ## In CI
 
-The [Day app workflow](/docs/packaging) takes a `flavors:` input. Each name becomes a matrix leg
+The [Day app workflow](/docs/github-actions) takes a `flavors:` input. Each name becomes a matrix leg
 per target, alongside the base app:
 
 ```yaml

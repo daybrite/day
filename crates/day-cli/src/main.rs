@@ -53,6 +53,9 @@ mod web;
 mod xcconfig;
 
 fn main() {
-    let code = cli::run();
+    // Before anything else, and while this is the only thread: undo a snap-packaged host's
+    // library overrides so every build and launch below inherits the system's (ops.rs).
+    let scrubbed = ops::scrub_snap_env();
+    let code = cli::run(&scrubbed);
     std::process::exit(code);
 }

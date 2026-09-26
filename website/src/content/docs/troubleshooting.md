@@ -105,8 +105,10 @@ build start over and usually does not fix a missing SDK or source error.
 
 ## Rust cannot find `core` or `std`
 
-An error such as `can't find crate for core` can mean that the Rust standard library for the
-requested target is not installed. List the installed targets:
+An error such as `can't find crate for core` means the Rust standard library for the
+requested target is not installed. `day build` adds a missing target through rustup before it
+compiles, so this is reached only with a Rust that is not rustup's, or when that install
+failed (no network, say). List the installed targets:
 
 ```bash
 rustup target list --installed

@@ -259,11 +259,14 @@ notarization) is a hard failure with exit code 6.
 
 ## Continuous integration
 
-Every CI run packs the showcase on each platform job and uploads the results as `dist-<target>`
-artifacts, so the packaging path is exercised on every push, at the dev tier. Adding the `DAY_*`
-repository secrets enables release signing without any workflow change. Version tags (`v*`) run the
-`release` workflow, which packs every target and attaches the artifacts plus a `SHA256SUMS` file
-to a draft GitHub Release.
+The shared [GitHub Actions workflow](/docs/github-actions) packages an app's supported targets
+and uploads `dist-<target>` artifacts. Version tags create GitHub releases with packages,
+checksums and provenance. Branch builds use development signing; release signing requires the
+corresponding credentials and workflow configuration.
+
+See [App Store Submissions](/docs/app-store-submissions) for iOS and Android signing secrets,
+store records and upload lanes. macOS download signing and notarization use the shared
+workflow's [`signing-environment` input](https://github.com/daybrite/actions#signing).
 
 ## macOS App Sandbox
 

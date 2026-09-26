@@ -64,6 +64,29 @@ the affected script instead of keeping stale results.
 | `DAY_LINUXDEPLOY` | The `linuxdeploy` executable that builds the `.appimage`. Checked before PATH, because linuxdeploy ships as a downloaded AppImage rather than a package |
 | `DAY_LINUXDEPLOY_PLUGIN_GTK` / `DAY_LINUXDEPLOY_PLUGIN_QT` | Same, for the toolkit plugin. Absent, `day pack` still builds an AppImage and warns that it carries no GTK/Qt modules |
 
+## Variables day removes
+
+On Linux, an editor installed as a snap (VS Code from the Snap Store is the usual one) points
+the dynamic loader and GTK/Qt module paths into its own runtime under `/snap/`. Every process
+started from that editor inherits them, and an app built by `day` then loads the snap's older
+libraries instead of the system's. A Qt app fails at launch with
+`symbol lookup error: /snap/core20/.../libpthread.so.0: undefined symbol: __libc_pthread_init`.
+
+So `day` cleans its own environment before it runs anything:
+
+1. A variable saved as `<NAME>_VSCODE_SNAP_ORIG` by VS Code's snap launcher gets its saved value
+   back as `<NAME>`. An empty saved value means the variable was unset before, so `day` unsets it.
+2. Entries under `/snap/` are removed from `LD_LIBRARY_PATH`, `LD_PRELOAD`, `LOCPATH`,
+   `GTK_PATH`, `GTK_EXE_PREFIX`, `GTK_IM_MODULE_FILE`, `GIO_MODULE_DIR`,
+   `GDK_PIXBUF_MODULE_FILE`, `GDK_PIXBUF_MODULEDIR`, `GSETTINGS_SCHEMA_DIR`, `QT_PLUGIN_PATH`,
+   `QT_QPA_PLATFORM_PLUGIN_PATH`, `LIBGL_DRIVERS_PATH`, `__EGL_VENDOR_LIBRARY_DIRS`,
+   `XDG_DATA_DIRS` and `XDG_CONFIG_DIRS`. Other entries stay in order, and a variable left with
+   no entries is unset.
+
+Without snap traces the environment passes through unchanged. `--verbose` names the variables
+that changed. The VS Code extension applies the same cleanup to the debug sessions it starts,
+which run the app without `day` in between.
+
 ## Scaffolding & signing
 
 | Variable | Meaning |

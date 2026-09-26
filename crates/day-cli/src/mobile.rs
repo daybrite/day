@@ -166,6 +166,7 @@ pub(crate) fn cargo_apple_staticlibs(
     run: &dyn Fn(&mut Command, &str) -> Result<(), String>,
 ) -> Result<Vec<PathBuf>, String> {
     let (cargo, bin) = rustup_cargo()?;
+    crate::ops::ensure_rust_targets(triples)?;
     let name = project.manifest.app.name.clone();
     let target_dir = crate::ops::build_root(project)
         .join("cargo")
@@ -2289,6 +2290,18 @@ pub(crate) fn android_build_abis() -> Vec<String> {
 }
 
 /// Split a `DAY_ANDROID_ABI` value into ABIs: comma- and/or whitespace-separated, empties dropped
+/// The Rust target an Android ABI compiles for, as cargo-ndk maps it; `None` for an ABI
+/// neither knows.
+fn android_abi_triple(abi: &str) -> Option<&'static str> {
+    match abi {
+        "arm64-v8a" => Some("aarch64-linux-android"),
+        "armeabi-v7a" => Some("armv7-linux-androideabi"),
+        "x86_64" => Some("x86_64-linux-android"),
+        "x86" => Some("i686-linux-android"),
+        _ => None,
+    }
+}
+
 /// (`"arm64-v8a,x86_64"` and `"arm64-v8a x86_64"` both parse to two).
 fn parse_abi_list(v: &str) -> Vec<String> {
     v.split([',', ' ', '\t'])
@@ -2307,6 +2320,9 @@ fn build_android_so(
     abis: &[String],
 ) -> Result<(), String> {
     let (cargo, bin) = rustup_cargo()?;
+    // The std for every ABI cargo-ndk is about to build, added when missing.
+    let triples: Vec<&str> = abis.iter().filter_map(|a| android_abi_triple(a)).collect();
+    crate::ops::ensure_rust_targets(&triples)?;
     let name = project.manifest.app.name.clone();
     let ndk_home = find_ndk()?;
     let target_dir = crate::ops::build_root(project)

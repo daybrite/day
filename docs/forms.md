@@ -71,7 +71,9 @@ theming with no app code:
 
 `form` plants a shared `Rc<Cell<f64>>` column width in the environment; each `LabeledLayout`
 registers its label's unconstrained width during **measure** and reads back the running max in
-**place**. Within one layout pass the enclosing stacks measure every child before placing any,
+**place**. A row that stacks registers nothing: its label sits above its control, not in the
+column, so a long label on a narrow screen (a French settings row on a phone) leaves the other
+rows' controls where they were instead of pushing them off the row. Within one layout pass the enclosing stacks measure every child before placing any,
 so by place time the max is final; alignment is consistent with no invalidation pass needed. Rows
 report the *proposed* width as their size (labels align form-wide, controls may stretch), so a
 growing column width never changes a row's measured size and can't oscillate the pass.

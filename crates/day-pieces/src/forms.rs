@@ -223,6 +223,9 @@ struct LabeledLayout {
 
 impl LabeledLayout {
     /// The label column width in effect: register this row's label width, read back the max.
+    /// Only a row that sits beside its label calls this: a stacked row's label is above its
+    /// control, not in the column, and registering it would widen the column for every other
+    /// row (a long label on a phone would push their controls off the row).
     fn column_width(&self, label_w: f64) -> f64 {
         match &self.col {
             Some(c) => {
@@ -291,13 +294,13 @@ impl day_core::Layout for LabeledLayout {
             return Size::ZERO;
         };
         let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
-        let colw = self.column_width(ls.width);
         if let Some(w) = p.width
             && self.stacks(cx, ctl, ls.width, w)
         {
             let cs = cx.measure_child(ctl, Proposal::new(Some(w), None));
             return Size::new(w, ls.height + STACKED_GAP + cs.height);
         }
+        let colw = self.column_width(ls.width);
         let avail = p.width.map(|w| (w - colw - LABELED_GAP).max(0.0));
         let cs = cx.measure_child(ctl, Proposal::new(avail, None));
         let natural = colw + LABELED_GAP + cs.width;
@@ -324,11 +327,11 @@ impl day_core::Layout for LabeledLayout {
             return None;
         };
         let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
-        let colw = self.column_width(ls.width);
         if self.stacks(cx, ctl, ls.width, size.width) {
             // Stacked: the label's own line is the row's.
             return cx.baseline_of(lbl, ls);
         }
+        let colw = self.column_width(ls.width);
         let avail = (size.width - colw - LABELED_GAP).max(0.0);
         let cs = cx.measure_child(ctl, Proposal::new(Some(avail), None));
         let lb = cx.baseline_of(lbl, ls)?;
@@ -340,7 +343,6 @@ impl day_core::Layout for LabeledLayout {
             return;
         };
         let ls = cx.measure_child(lbl, Proposal::UNCONSTRAINED);
-        let colw = self.column_width(ls.width);
         if self.stacks(cx, ctl, ls.width, bounds.size.width) {
             // Label at the leading edge, control under it across the whole row (a hugging
             // control keeps its own width; a `.grow()` one takes the row).
@@ -355,6 +357,7 @@ impl day_core::Layout for LabeledLayout {
             cx.place_child(ctl, Rect::new(0.0, ls.height + STACKED_GAP, cw, cs.height));
             return;
         }
+        let colw = self.column_width(ls.width);
         let avail = (bounds.size.width - colw - LABELED_GAP).max(0.0);
         let cs = cx.measure_child(ctl, Proposal::new(Some(avail), None));
         let h = bounds.size.height;

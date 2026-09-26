@@ -41,7 +41,10 @@ For build errors or device connection problems, see [Troubleshooting](/docs/trou
 
 Install Rust through **rustup**, not Homebrew or a distro package. Cross-compiled targets (iOS,
 Android, HarmonyOS, and the web) need rustup's per-target standard library, which a system rustc
-does not carry. `rustup update stable` keeps you current.
+does not carry. `day build` adds the one a target needs the first time it builds for it
+(`rustup target add …`, said on the terminal as it happens), so the `rustup target add` lines
+in the sections below are for doing that ahead of time, on a machine that will be offline or in
+a CI image. `rustup update stable` keeps you current.
 
 Everything else depends on which targets you build.
 
@@ -290,7 +293,8 @@ render there. It works on a physical device.
 
 ## Web
 
-`web-dom` needs only the wasm target:
+`web-dom` needs only the wasm target, which the first `day build -p web-dom` adds; to add it
+yourself:
 
 ```bash
 rustup target add wasm32-unknown-unknown

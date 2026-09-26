@@ -564,7 +564,7 @@ carries as `storefront.json`. `day store stage` refuses a listing with any lint 
 placeholder text unless `--allow-placeholders`. Everything the CLI knows about a store is data
 (`store-rules.toml`: label, targets, layout, fields and limits, locale spellings, screenshot
 sizes), replaceable with `--rules FILE`, `DAY_STORE_RULES` or a project's `store/rules.toml`. See
-[Store submission](/docs/guide-store-submission) for the release walk-through.
+[App Store Submissions](/docs/app-store-submissions) for account setup and release uploads.
 
 The listing's screenshots come from the walkthrough's captures, chosen in `store/storefront.toml`
 `[storefront.<target>.<store>.screenshots]`: per device kind (or `default`), the `screenshot:`
@@ -663,8 +663,9 @@ dayscript](/docs/dayscript).
 
 ## Continuous integration
 
-Every push builds the showcase on every target and runs the walkthrough, uploading each target's
-screenshots (and its installable packages) as artifacts. This site's [gallery](/gallery) is
-assembled from those screenshot artifacts, so it always shows the latest captures from each
-platform that succeeded. [Packaging & distribution](/docs/packaging) covers the artifact
-pipeline, and [Platform support](/docs/platforms) reports what that CI shows, per target.
+Use the shared [GitHub Actions workflow](/docs/github-actions) to build an app, run dayscripts,
+capture screenshots and publish packages. [App Store Submissions](/docs/app-store-submissions)
+covers signing credentials and store uploads.
+
+Day's own CI tests the Showcase app across platforms. Its captures populate this site's
+[gallery](/gallery); [Platform support](/docs/platforms) describes the supported targets.

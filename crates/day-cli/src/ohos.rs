@@ -906,7 +906,10 @@ pub fn build_ohos(
         std::fs::remove_dir_all(&libs_root)
             .map_err(|e| format!("clearing {}: {e}", libs_root.display()))?;
     }
-    for (triple, abi) in ohos_build_arches() {
+    let arches = ohos_build_arches();
+    let triples: Vec<&str> = arches.iter().map(|(t, _)| *t).collect();
+    crate::ops::ensure_rust_targets(&triples)?;
+    for (triple, abi) in arches {
         let target_dir = crate::ops::build_root(project)
             .join("cargo/harmony-arkui")
             .join(abi)

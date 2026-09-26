@@ -58,6 +58,7 @@ pub fn build_web(
     let name = &project.manifest.app.name;
     let features = feature_selection(project, target.toolkit);
     let cargo_dir = crate::ops::cargo_dir(project, target, profile);
+    crate::ops::ensure_rust_targets(&["wasm32-unknown-unknown"])?;
 
     let mut cmd = Command::new("cargo");
     crate::patch::apply_day_src(&mut cmd);

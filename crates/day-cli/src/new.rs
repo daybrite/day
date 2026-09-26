@@ -1085,8 +1085,11 @@ pub fn app(
     write_app(&dir, &name, &spec, None)?;
     // The suggested target is what this machine can run, not the first one declared; see
     // `targets::suggested`. `day doctor` stays unscoped: the app declares several targets and a
-    // first run is the moment to learn which of them this machine is missing tools for.
-    eprintln!("\n  next:\n    cd {name}\n    day doctor\n    day launch -p {run_target}\n");
+    // first run is the moment to learn which of them this machine is missing tools for. The
+    // directory is `repo`, the name as typed: `day new app Some-Fair` scaffolds `Some-Fair/`
+    // holding a `some-fair` package, and a `cd some-fair` finds nothing on a case-sensitive
+    // file system.
+    eprintln!("\n  next:\n    cd {repo}\n    day doctor\n    day launch -p {run_target}\n");
     Ok(())
 }
 

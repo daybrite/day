@@ -67,6 +67,51 @@ pub(crate) fn cargo_dir(project: &Project, target: &Target, profile: Profile) ->
         .join(profile.as_str())
 }
 
+/// Install the Rust standard library for each of `triples` this toolchain lacks, through
+/// `rustup target add`, before a cross-compile that would otherwise stop at "can't find crate
+/// for `core`" (a fresh install trying `day launch -p web-dom`, 2026-09). Said as a status
+/// line, since it is a network install. A toolchain without rustup, a distribution's Rust
+/// say, installs nothing here and is left to the build's own error, which names the target
+/// and `day doctor`; a target already installed costs one `rustup target list`.
+pub(crate) fn ensure_rust_targets(triples: &[&str]) -> Result<(), String> {
+    let Ok(out) = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+    else {
+        return Ok(());
+    };
+    if !out.status.success() {
+        return Ok(());
+    }
+    let installed = String::from_utf8_lossy(&out.stdout);
+    for triple in missing_rust_targets(&installed, triples) {
+        status(
+            "Installing",
+            &format!("the {triple} Rust target (rustup target add {triple})"),
+        );
+        let st = Command::new("rustup")
+            .args(["target", "add", &triple])
+            .status()
+            .map_err(|e| format!("rustup target add {triple}: {e}"))?;
+        if !st.success() {
+            return Err(format!(
+                "rustup target add {triple} failed ({st}); install it yourself (`rustup target \
+                 add {triple}`), then build again"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The `wanted` triples absent from `rustup target list --installed`'s output.
+pub(crate) fn missing_rust_targets(installed: &str, wanted: &[&str]) -> Vec<String> {
+    wanted
+        .iter()
+        .filter(|t| !installed.lines().any(|l| l.trim() == **t))
+        .map(|t| t.to_string())
+        .collect()
+}
+
 pub fn status(prefix: &str, msg: &str) {
     anstream::eprintln!("{HEADER}{prefix:>12}{HEADER:#} {msg}");
 }
@@ -85,6 +130,113 @@ pub fn set_verbose(on: bool) {
 /// sub-commands' output.
 pub fn verbose() -> bool {
     VERBOSE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Variables that steer the dynamic loader or a toolkit's module loading. A snap-packaged host
+/// (VS Code installed as a snap on Linux is the common one) points them into its own runtime
+/// under `/snap/`, and a child that inherits them loads the snap's older libraries in place of the
+/// system's: a Qt app then dies with `symbol lookup error: /snap/core20/.../libpthread.so.0:
+/// undefined symbol: __libc_pthread_init`. Nothing `day` builds or launches wants those entries.
+/// day-vscode's `snapEnvOverrides` (src/snapEnv.ts) mirrors this list for its debug sessions.
+const SNAP_SCRUBBED_VARS: &[&str] = &[
+    "LD_LIBRARY_PATH",
+    "LD_PRELOAD",
+    "LOCPATH",
+    "GTK_PATH",
+    "GTK_EXE_PREFIX",
+    "GTK_IM_MODULE_FILE",
+    "GIO_MODULE_DIR",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GDK_PIXBUF_MODULEDIR",
+    "GSETTINGS_SCHEMA_DIR",
+    "QT_PLUGIN_PATH",
+    "QT_QPA_PLATFORM_PLUGIN_PATH",
+    "LIBGL_DRIVERS_PATH",
+    "__EGL_VENDOR_LIBRARY_DIRS",
+    "XDG_DATA_DIRS",
+    "XDG_CONFIG_DIRS",
+];
+
+/// The suffix VS Code's snap launcher gives the saved, pre-snap value of each variable it
+/// overrides (`GTK_PATH_VSCODE_SNAP_ORIG`, ...). VS Code's own terminals restore from them.
+const SNAP_ORIG_SUFFIX: &str = "_VSCODE_SNAP_ORIG";
+
+/// The edits that undo a snap host's environment: `(name, Some(value))` sets a variable,
+/// `(name, None)` removes it. First every `<NAME>_VSCODE_SNAP_ORIG` is put back as `<NAME>` (an
+/// empty saved value means the variable was unset) and the marker itself dropped; then any entry
+/// under `/snap/` left in [`SNAP_SCRUBBED_VARS`] is removed, and a variable with no entries left
+/// is removed whole. An environment without snap traces yields no edits, so this is a no-op
+/// everywhere but under a snap host.
+pub(crate) fn snap_env_edits(env: &BTreeMap<String, String>) -> Vec<(String, Option<String>)> {
+    let mut env = env.clone();
+    let mut edits = Vec::new();
+    let origs: Vec<(String, String)> = env
+        .iter()
+        .filter_map(|(k, v)| Some((k.strip_suffix(SNAP_ORIG_SUFFIX)?.to_string(), v.clone())))
+        .filter(|(name, _)| !name.is_empty())
+        .collect();
+    for (name, orig) in origs {
+        env.remove(&format!("{name}{SNAP_ORIG_SUFFIX}"));
+        edits.push((format!("{name}{SNAP_ORIG_SUFFIX}"), None));
+        if orig.is_empty() {
+            if env.remove(&name).is_some() {
+                edits.push((name, None));
+            }
+        } else if env.get(&name) != Some(&orig) {
+            env.insert(name.clone(), orig.clone());
+            edits.push((name, Some(orig)));
+        }
+    }
+    for name in SNAP_SCRUBBED_VARS {
+        let Some(value) = env.get(*name) else {
+            continue;
+        };
+        // ld.so takes LD_PRELOAD entries separated by spaces or colons; the rest are colon lists.
+        let separators: &[char] = if *name == "LD_PRELOAD" {
+            &[':', ' ']
+        } else {
+            &[':']
+        };
+        let entries: Vec<&str> = value.split(separators).filter(|e| !e.is_empty()).collect();
+        if !entries.iter().any(|e| e.starts_with("/snap/")) {
+            continue;
+        }
+        let kept: Vec<&str> = entries
+            .into_iter()
+            .filter(|e| !e.starts_with("/snap/"))
+            .collect();
+        let edit = (!kept.is_empty()).then(|| kept.join(":"));
+        // A later edit to the same name (after an ORIG restore) supersedes the earlier one.
+        edits.retain(|(n, _)| n != name);
+        edits.push((name.to_string(), edit));
+    }
+    edits
+}
+
+/// Apply [`snap_env_edits`] to this process's own environment, so every tool and app `day` runs
+/// inherits the host system's loader setup rather than a snap's. Returns the names changed.
+///
+/// Called first thing in `main`, before any thread exists.
+pub fn scrub_snap_env() -> Vec<String> {
+    let env: BTreeMap<String, String> = std::env::vars_os()
+        .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+        .collect();
+    let edits = snap_env_edits(&env);
+    for (name, value) in &edits {
+        // SAFETY: `main` calls this before spawning any thread, so nothing can read the
+        // environment concurrently with these writes.
+        unsafe {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+    }
+    edits
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| !name.ends_with(SNAP_ORIG_SUFFIX))
+        .collect()
 }
 
 /// Whether this process runs inside a GitHub Actions job. The documented signal is
@@ -1486,5 +1638,126 @@ pub fn open_native(
             "could not open {app}: it is not installed here, or not on PATH — open {} yourself",
             dir.display()
         )))
+    }
+}
+
+#[cfg(test)]
+mod rust_target_tests {
+    use super::missing_rust_targets;
+
+    /// What `rustup target add` is asked for: the wanted triples the installed list lacks,
+    /// matched whole (a `wasm32-unknown-unknown` line is not `wasm32-unknown`).
+    #[test]
+    fn only_the_absent_targets_are_installed() {
+        let installed =
+            "aarch64-apple-darwin\nwasm32-unknown-unknown (installed)\n  aarch64-apple-ios-sim\n";
+        assert_eq!(
+            missing_rust_targets(installed, &["aarch64-apple-ios-sim", "aarch64-apple-ios"]),
+            ["aarch64-apple-ios"]
+        );
+        assert_eq!(
+            missing_rust_targets(installed, &["wasm32-unknown-unknown", "wasm32-unknown"]),
+            ["wasm32-unknown-unknown", "wasm32-unknown"],
+            "a decorated line does not match, so it is re-added, which rustup treats as a no-op"
+        );
+        assert!(missing_rust_targets(installed, &["aarch64-apple-darwin"]).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod snap_env_tests {
+    use super::snap_env_edits;
+    use std::collections::BTreeMap;
+
+    fn env(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn edit(name: &str, value: Option<&str>) -> (String, Option<String>) {
+        (name.to_string(), value.map(str::to_string))
+    }
+
+    /// A plain environment, snap names included, is left alone.
+    #[test]
+    fn no_snap_traces_no_edits() {
+        let e = env(&[
+            ("LD_LIBRARY_PATH", "/opt/qt/lib:/usr/local/lib"),
+            ("XDG_DATA_DIRS", "/usr/share:/var/lib/snapd/desktop"),
+            ("PATH", "/snap/bin:/usr/bin"),
+        ]);
+        assert!(snap_env_edits(&e).is_empty());
+    }
+
+    /// Snap runtime entries go; the user's own entries stay in order; an emptied list goes whole.
+    #[test]
+    fn snap_entries_are_dropped() {
+        let e = env(&[
+            (
+                "LD_LIBRARY_PATH",
+                "/snap/core20/current/lib/x86_64-linux-gnu:/opt/qt/lib",
+            ),
+            (
+                "GIO_MODULE_DIR",
+                "/snap/code/200/usr/lib/x86_64-linux-gnu/gio/modules",
+            ),
+            ("LD_PRELOAD", "/snap/code/200/lib/a.so /usr/lib/b.so"),
+        ]);
+        assert_eq!(
+            snap_env_edits(&e),
+            [
+                edit("LD_LIBRARY_PATH", Some("/opt/qt/lib")),
+                edit("LD_PRELOAD", Some("/usr/lib/b.so")),
+                edit("GIO_MODULE_DIR", None),
+            ]
+        );
+    }
+
+    /// VS Code's saved pre-snap values come back, an empty one meaning "was unset", and the
+    /// markers themselves are cleared.
+    #[test]
+    fn vscode_saved_values_are_restored() {
+        let e = env(&[
+            (
+                "GTK_PATH",
+                "/snap/code/200/usr/lib/x86_64-linux-gnu/gtk-3.0",
+            ),
+            ("GTK_PATH_VSCODE_SNAP_ORIG", ""),
+            ("XDG_DATA_DIRS", "/snap/code/200/usr/share:/usr/share"),
+            (
+                "XDG_DATA_DIRS_VSCODE_SNAP_ORIG",
+                "/usr/local/share:/usr/share",
+            ),
+        ]);
+        assert_eq!(
+            snap_env_edits(&e),
+            [
+                edit("GTK_PATH_VSCODE_SNAP_ORIG", None),
+                edit("GTK_PATH", None),
+                edit("XDG_DATA_DIRS_VSCODE_SNAP_ORIG", None),
+                edit("XDG_DATA_DIRS", Some("/usr/local/share:/usr/share")),
+            ]
+        );
+    }
+
+    /// A restored value that itself still names the snap is scrubbed too, as one final edit.
+    #[test]
+    fn restored_value_is_scrubbed() {
+        let e = env(&[
+            ("LD_LIBRARY_PATH", "/snap/core20/current/lib"),
+            (
+                "LD_LIBRARY_PATH_VSCODE_SNAP_ORIG",
+                "/snap/other/lib:/opt/lib",
+            ),
+        ]);
+        assert_eq!(
+            snap_env_edits(&e),
+            [
+                edit("LD_LIBRARY_PATH_VSCODE_SNAP_ORIG", None),
+                edit("LD_LIBRARY_PATH", Some("/opt/lib")),
+            ]
+        );
     }
 }

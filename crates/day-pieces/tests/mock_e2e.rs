@@ -354,6 +354,33 @@ fn a_labeled_row_stacks_when_its_control_cannot_fit_beside_the_label() {
 }
 
 #[test]
+fn a_stacked_row_leaves_the_form_label_column_to_the_rows_beside_it() {
+    // A 45-char label is 360 wide at 8pt/char: in a 400 window its toggle cannot fit beside
+    // it, so that row stacks. Its label never sits in the column, so the column stays "aa"
+    // and the short row's value keeps its place after it, rather than being squeezed to
+    // nothing by a column as wide as the window.
+    let probe = boot(|| {
+        let on = Signal::new(false);
+        form((
+            labeled("aa", label("1.0.0")),
+            labeled("x".repeat(45), toggle(on)),
+        ))
+        .any()
+    });
+    let labels = probe.find_by_kind("day.label");
+    let (_, value) = labels
+        .iter()
+        .find(|(_, w)| w.text == "1.0.0")
+        .expect("value label");
+    assert!(
+        value.frame.size.width > 0.0,
+        "the short row's value keeps a visible frame: {:?}",
+        value.frame
+    );
+    assert_eq!(value.frame.origin.x, 16.0 + 12.0);
+}
+
+#[test]
 fn a_min_width_control_overflows_a_starved_row_and_stacks() {
     // "aa" beside a 320-wide minimum in a 400 window: 372 left, so it fits and stays a row.
     let probe = boot(|| {

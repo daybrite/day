@@ -18,7 +18,7 @@ plus ARIA. The backend is `toolkits/day-dom`, the target name is
 implemented, and the known gaps are listed at the end.
 
 ```bash
-rustup target add wasm32-unknown-unknown
+rustup target add wasm32-unknown-unknown   # optional: `day build` adds it when missing
 day build  -p web-dom     # wasm cdylib + host page → build/day/cargo/web-dom/<profile>/dist/
 day launch -p web-dom     # build, serve dist/ on 127.0.0.1, open the default browser
 day launch -p web-dom --locale ar    # locale rides as ?locale= on the URL

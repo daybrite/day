@@ -1031,7 +1031,9 @@ fn command() -> clap::Command {
     command.help_template(template)
 }
 
-pub fn run() -> i32 {
+/// Run the parsed command line. `snap_scrubbed` names the variables `main` cleaned of a snap
+/// host's overrides (`ops::scrub_snap_env`), reported under `--verbose`.
+pub fn run(snap_scrubbed: &[String]) -> i32 {
     let matches = command().get_matches();
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
     // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
@@ -1046,6 +1048,15 @@ pub fn run() -> i32 {
         );
     }
     crate::ops::set_verbose(cli.verbose);
+    if cli.verbose && !snap_scrubbed.is_empty() {
+        crate::ops::status(
+            "Environment",
+            &format!(
+                "removed a snap host's overrides from {}",
+                snap_scrubbed.join(", ")
+            ),
+        );
+    }
     // Before any project is loaded: `find_project` merges this flavor's manifest, and every
     // builder reads it back from `crate::flavor` (DESIGN.md §16.6).
     crate::flavor::set(cli.flavor.clone());
