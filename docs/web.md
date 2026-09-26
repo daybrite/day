@@ -317,7 +317,8 @@ jobs:
     secrets: inherit
     with:
       targets: macos-appkit, ios-uikit, android-mdc, web-dom
-      deploy-web: true    # publish the web-dom build to GitHub Pages
+      deploy-web: true           # publish the web-dom build to GitHub Pages
+      release-mode: pre-release  # or choose "latest" to perform full releases
 ```
 
 The web deploy reuses the release-profile dist the build already produced (no second build) and

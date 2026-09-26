@@ -4210,7 +4210,7 @@ release = false                     # embed dayscript engine in release builds?
 allow = ["bare-text"]               # per-rule opt-outs (discouraged)
 
 [ios]
-deployment-target = "16.0"
+deployment-target = "15.0"                # day-uikit's floor; the scaffold's xcconfig value (2026-09, was 16.0)
 capabilities = []                   # entitlements toggles understood by the generator
 
 [android]

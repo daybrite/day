@@ -179,17 +179,18 @@ prepass and `cargo rustc` link; both went with that path in 2026-08.)
 
 The macOS package defaults to macOS 13. The iOS package takes the app's own
 `IPHONEOS_DEPLOYMENT_TARGET` — the one in `platform/ios/DayApp.xcconfig`, which the scaffold
-writes as 16.0 — so lowering that line lowers the package with it, down to the 15.0 floor the
-iOS SDK still accepts. A contribution's `platform` key raises the floor from there (the max
+writes as 15.0, day-uikit's floor (lowered from 16.0 in 2026-09 once the toolkit's iOS 16 calls
+were guarded) — so that line and the package move together. A contribution's `platform` key raises the floor from there (the max
 across contributions wins), and on iOS the raise must also reach the app target: `day build`
 passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild, which covers the app and the SwiftPM
 package targets without editing the scaffold. Command-line settings do not apply to ⌘R builds
 inside Xcode, so for IDE work raise the value in `DayApp.xcconfig` itself.
 
-Lowering it is the app's call, and the app owns what follows: Day's own backends call a handful
-of UIKit APIs that arrived in iOS 16 without asking the runtime first — navigation-bar item
-groups (`docs/toolbars.md`) and a list or tree cell's default background configuration among
-them — so an app below that floor should stay off those surfaces until each call is guarded.
+Lowering it below the scaffold's 15.0 is the app's call, and the app owns what follows: 15 is
+day-uikit's own floor. The UIKit calls it makes that arrived in iOS 16 — navigation-bar item
+groups (`docs/toolbars.md`), a bar item's menu representation, a list or tree cell's default
+background configuration — are guarded on the runtime version (2026-09, verified on an iOS 15
+iPad), so an app at 15 gets the iOS 15 shape of each; nothing below 15 has been run.
 
 ## Failure behavior
 

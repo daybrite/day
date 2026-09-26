@@ -1335,7 +1335,8 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     collect_files(&sources.join("fonts"), &mut expected);
     prune_except(&sources, &expected.into_iter().collect());
 
-    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "16.0".into());
+    // A project declaring no target at all gets day-uikit's floor, the scaffold's value.
+    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "15.0".into());
     let floor = ios_package_floor(&pbx, pieces.platform.as_deref());
     write_if_changed(
         &pkg_dir.join("Package.swift"),
@@ -2432,7 +2433,7 @@ mod tests {
         assert_eq!(ios_target_from_pbxproj(&pbx), None);
         let xcc =
             std::fs::read_to_string(format!("{root}/DayApp.xcconfig")).expect("template xcconfig");
-        assert_eq!(ios_target_from_pbxproj(&xcc).as_deref(), Some("16.0"));
+        assert_eq!(ios_target_from_pbxproj(&xcc).as_deref(), Some("15.0"));
         // Tolerant of spacing, takes the max across configurations.
         let raw = "  IPHONEOS_DEPLOYMENT_TARGET = 15.0;\n\tIPHONEOS_DEPLOYMENT_TARGET=16.0 ;\n";
         assert_eq!(ios_target_from_pbxproj(raw).as_deref(), Some("16.0"));

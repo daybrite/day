@@ -307,13 +307,15 @@ and opens a browser.
 
 These are the minimums your *users* need, which the scaffold sets and you can change in your
 project's platform configuration — up to whatever your code needs, or down as far as the
-platform's own tooling still allows (iOS 15 under the current SDK, for instance). They are
-unrelated to what your development machine needs.
+platform's own tooling still allows. The iOS value is day-uikit's own floor: the toolkit guards
+the UIKit calls that arrived after iOS 15, and a piece that needs a newer OS declares that
+`platform` floor, which `day build` applies to the build. They are unrelated to what your
+development machine needs.
 
 | Target | Minimum |
 |---|---|
 | `macos-appkit` | macOS 13 |
-| `ios-uikit` | iOS 16 |
+| `ios-uikit` | iOS 15 |
 | `android-mdc` | API level 24 (Android 7.0), compiled against API 37 |
 | `harmony-arkui` | API level 18 |
 | `windows-xaml` | Windows 10 or 11 |
