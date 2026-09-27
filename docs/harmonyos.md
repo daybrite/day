@@ -111,6 +111,24 @@ with setup instructions:
 day doctor --toolkit harmonyos
 ```
 
+It checks what the build and launch actually use, on Linux, macOS, and Windows alike:
+
+| Check | Needed for | What it verifies |
+|---|---|---|
+| `ohos-ndk` | build | `OHOS_NDK_HOME` has `llvm/bin`, and its clang is a binary for this host OS |
+| `rust-ohos` | build | an OHOS Rust target is installed |
+| `ohos-sdk` | build | `OHOS_BASE_SDK_HOME` is set, in the versioned `<dir>/<api>/` layout hvigor requires, holds the API level the current project's `compileSdkVersion` names, and its `toolchains/restool` runs on this host |
+| `hvigorw`, `ohpm` | build | on PATH, including Windows' `.bat`/`.cmd` launchers |
+| `node` | build | on PATH; signing runs `sign-hap.mjs` under it |
+| `hdc` | launch | on PATH, or in the SDK's `toolchains/` |
+| `qemu` | launch | `qemu-system-x86_64` on PATH |
+| `oniro-images` | launch | every emulator image file, in `DAY_OHOS_EMULATOR` or `~/ohos/emulator/images` |
+| `kvm` | launch (Linux) | `/dev/kvm` opens read-write, so the emulator is accelerated |
+
+The host-format checks catch the common cross-OS mistake before hvigor does: a Linux SDK on a
+Mac fails deep in the build with `spawn ENOEXEC`, and a flat (unversioned) SDK root with "The SDK
+management mode has changed". Launch checks are warnings: you need them only to run the app.
+
 Bare `day doctor` (no `--toolkit`) scans every toolkit and reports a missing HarmonyOS setup as a
 warning rather than an error, since you only need it if you build for HarmonyOS.
 

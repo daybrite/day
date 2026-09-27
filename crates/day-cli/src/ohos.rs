@@ -61,6 +61,132 @@ pub(crate) fn staged_harmony_dir(project: &Project) -> PathBuf {
     crate::ops::staged_root(project).join("harmony/project")
 }
 
+/// The user's home directory: `HOME`, or `USERPROFILE` on Windows, where `HOME` is usually unset.
+pub(crate) fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .filter(|h| !h.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_default()
+}
+
+/// The file names `name` may have on PATH. Windows adds `.exe`, `.bat`, and `.cmd`: the
+/// OpenHarmony command-line tools ship `hvigorw.bat` and `ohpm.bat` there, and
+/// `Command::new("hvigorw")` only ever tries `.exe`, so a tool is run by its resolved path.
+pub(crate) fn tool_file_names(name: &str, windows: bool) -> Vec<String> {
+    let mut names = vec![name.to_string()];
+    if windows {
+        names.extend([".exe", ".bat", ".cmd"].map(|ext| format!("{name}{ext}")));
+    }
+    names
+}
+
+/// Resolve a command-line tool on PATH the way the build runs it (see [`tool_file_names`]).
+pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    let names = tool_file_names(name, cfg!(windows));
+    std::env::split_paths(&path)
+        .find_map(|dir| names.iter().map(|n| dir.join(n)).find(|p| p.is_file()))
+}
+
+/// `name` as an executable file name on this host (`hdc` → `hdc.exe` on Windows).
+pub(crate) fn exe_name(name: &str) -> String {
+    if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    }
+}
+
+/// The emulator image files `emulator_launch` boots (`DAY_OHOS_EMULATOR`).
+pub(crate) const EMULATOR_IMAGES: [&str; 6] = [
+    "bzImage",
+    "ramdisk.img",
+    "system.img",
+    "vendor.img",
+    "updater.img",
+    "userdata.img",
+];
+
+/// The Oniro image directory: `DAY_OHOS_EMULATOR`, else `~/ohos/emulator/images`.
+pub(crate) fn emulator_images_dir() -> PathBuf {
+    std::env::var_os("DAY_OHOS_EMULATOR")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home_dir().join("ohos").join("emulator").join("images"))
+}
+
+/// The API levels a versioned SDK root (`OHOS_BASE_SDK_HOME`) holds: numeric subdirectories with
+/// the SDK's `ets` or `toolchains` component, ascending. hvigor's OpenHarmony mode reads the one
+/// named by the project's `compileSdkVersion`, and refuses an unversioned root ("The SDK
+/// management mode has changed").
+pub(crate) fn sdk_api_levels(base: &Path) -> Vec<u32> {
+    let Ok(entries) = std::fs::read_dir(base) else {
+        return Vec::new();
+    };
+    let mut levels: Vec<u32> = entries
+        .flatten()
+        .filter_map(|e| {
+            let level: u32 = e.file_name().to_str()?.parse().ok()?;
+            let dir = e.path();
+            (dir.join("ets").is_dir() || dir.join("toolchains").is_dir()).then_some(level)
+        })
+        .collect();
+    levels.sort_unstable();
+    levels
+}
+
+/// The executable format a file starts with, to catch an SDK for another OS: hvigor spawns the
+/// SDK's tools directly, so a Linux SDK on macOS fails deep in the build with `spawn ENOEXEC`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BinaryFormat {
+    Elf,
+    MachO,
+    Pe,
+}
+
+impl BinaryFormat {
+    /// What `host` (`linux`/`macos`/`windows`, as `targets::host_os` answers) runs natively.
+    pub(crate) fn for_host(host: &str) -> Option<BinaryFormat> {
+        match host {
+            "linux" => Some(BinaryFormat::Elf),
+            "macos" => Some(BinaryFormat::MachO),
+            "windows" => Some(BinaryFormat::Pe),
+            _ => None,
+        }
+    }
+
+    /// The OS this format belongs to, for the error message.
+    pub(crate) fn os(self) -> &'static str {
+        match self {
+            BinaryFormat::Elf => "Linux",
+            BinaryFormat::MachO => "macOS",
+            BinaryFormat::Pe => "Windows",
+        }
+    }
+
+    /// Classify by magic number. `0xCAFEBABE` (Mach-O fat) is also Java's class magic, but no SDK
+    /// tool this is asked about is a class file.
+    pub(crate) fn detect(head: &[u8]) -> Option<BinaryFormat> {
+        match head {
+            [0x7f, b'E', b'L', b'F', ..] => Some(BinaryFormat::Elf),
+            [b'M', b'Z', ..] => Some(BinaryFormat::Pe),
+            [0xfe, 0xed, 0xfa, 0xce | 0xcf, ..]
+            | [0xce | 0xcf, 0xfa, 0xed, 0xfe, ..]
+            | [0xca, 0xfe, 0xba, 0xbe, ..] => Some(BinaryFormat::MachO),
+            _ => None,
+        }
+    }
+
+    /// The format of the file at `path` (its first four bytes), `None` if unreadable or unknown.
+    pub(crate) fn of_file(path: &Path) -> Option<BinaryFormat> {
+        use std::io::Read;
+        let mut head = [0u8; 4];
+        std::fs::File::open(path).ok()?.read_exact(&mut head).ok()?;
+        BinaryFormat::detect(&head)
+    }
+}
+
 /// The emulator's default vCPU count: 6, or the host's core count when it has fewer.
 fn default_smp() -> usize {
     std::thread::available_parallelism().map_or(6, |n| n.get().min(6))
@@ -85,17 +211,8 @@ const GTK_WINDOW_PANEL: (u32, u32) = (640, 480);
 /// landscape tablet (1280×800). The size is exported as `DAY_OHOS_PANEL` (through `GITHUB_ENV`
 /// on a runner) so the runs that follow know where the keyguard swipe lands.
 pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let images = std::env::var("DAY_OHOS_EMULATOR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(&home).join("ohos/emulator/images"));
-    for f in [
-        "bzImage",
-        "ramdisk.img",
-        "system.img",
-        "vendor.img",
-        "userdata.img",
-    ] {
+    let images = emulator_images_dir();
+    for f in EMULATOR_IMAGES {
         if !images.join(f).exists() {
             return Err(format!(
                 "OpenHarmony emulator images not found at {} (missing {f}). Download the Oniro \
@@ -107,7 +224,8 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
     let qemu = "qemu-system-x86_64";
     if Command::new(qemu).arg("--version").output().is_err() {
         return Err(format!(
-            "{qemu} not found — install QEMU (`brew install qemu`) to run the OpenHarmony emulator."
+            "{qemu} not found — install QEMU to run the OpenHarmony emulator \
+             (`day doctor --toolkit harmonyos` shows how on this host)."
         ));
     }
     // Host hdc port from the connect key (guest hdc always listens on 55555). Kill any stale hdc
@@ -335,13 +453,13 @@ pub fn ohos_target() -> String {
 fn hdc_bin() -> &'static str {
     static HDC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     HDC.get_or_init(|| {
-        let on_path = std::env::var("PATH")
-            .is_ok_and(|path| std::env::split_paths(&path).any(|d| d.join("hdc").is_file()));
-        if on_path {
+        if find_tool("hdc").is_some() {
             return "hdc".into();
         }
         if let Ok(ndk) = find_ohos_ndk() {
-            let cand = Path::new(&ndk).parent().map(|p| p.join("toolchains/hdc"));
+            let cand = Path::new(&ndk)
+                .parent()
+                .map(|p| p.join("toolchains").join(exe_name("hdc")));
             if let Some(c) = cand
                 && c.is_file()
             {
@@ -516,13 +634,13 @@ pub(crate) fn find_ohos_ndk() -> Result<String, String> {
     if let Ok(v) = std::env::var("OHOS_NDK_HOME") {
         return Ok(v);
     }
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = home_dir();
     for cand in [
-        format!("{home}/ohos/ndk-extract/native"),
-        format!("{home}/ohos-sdk/native"),
+        home.join("ohos").join("ndk-extract").join("native"),
+        home.join("ohos-sdk").join("native"),
     ] {
-        if Path::new(&cand).join("llvm/bin").is_dir() {
-            return Ok(cand);
+        if cand.join("llvm").join("bin").is_dir() {
+            return Ok(cand.to_string_lossy().into_owned());
         }
     }
     Err(
@@ -1079,7 +1197,7 @@ pub fn build_ohos(
         "Building",
         &format!("{} (hvigorw assembleHap)", target.name),
     );
-    let _ = Command::new("ohpm")
+    let _ = Command::new(find_tool("ohpm").unwrap_or_else(|| "ohpm".into()))
         .arg("install")
         .current_dir(&harmony)
         .status();
@@ -1087,17 +1205,15 @@ pub fn build_ohos(
     let mode = profile.as_str();
     // A missing hvigor otherwise surfaces as a bare spawn ENOENT, so check up front and say what to
     // install (it is not part of the public SDK; the `native` NDK alone only covers the Rust step).
-    let hvigor_on_path = std::env::var("PATH")
-        .is_ok_and(|p| std::env::split_paths(&p).any(|d| d.join("hvigorw").is_file()));
-    if !hvigor_on_path {
+    let Some(hvigorw) = find_tool("hvigorw") else {
         return Err(
             "hvigorw not found on PATH — the Rust cross-compile succeeded, but packaging the .hap \
              needs the OpenHarmony command-line-tools (hvigor + ohpm; bundled with DevEco Studio). \
              Install them and put their bin/ on PATH — see docs/harmonyos.md."
                 .into(),
         );
-    }
-    let mut hv = Command::new("hvigorw");
+    };
+    let mut hv = Command::new(hvigorw);
     hv.current_dir(&harmony).args([
         "assembleHap",
         "--mode",

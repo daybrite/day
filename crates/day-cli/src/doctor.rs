@@ -648,60 +648,299 @@ fn android_group() -> Group {
 }
 
 fn harmonyos_group() -> Group {
-    let ndk = crate::ohos::find_ohos_ndk().ok();
+    use crate::ohos::{BinaryFormat, EMULATOR_IMAGES};
+    let host = host_os();
+    let native = BinaryFormat::for_host(host);
+    let ndk = crate::ohos::find_ohos_ndk().ok().map(PathBuf::from);
     // hdc ships next to the NDK, in the SDK's sibling toolchains/ dir; also accept it on PATH.
-    let hdc = which("hdc").or_else(|| {
-        ndk.as_ref().and_then(|n| {
-            let c = Path::new(n).parent()?.join("toolchains/hdc");
-            c.is_file().then_some(c)
-        })
+    let hdc = crate::ohos::find_tool("hdc").or_else(|| {
+        let c = ndk
+            .as_ref()?
+            .parent()?
+            .join("toolchains")
+            .join(crate::ohos::exe_name("hdc"));
+        c.is_file().then_some(c)
     });
+    let tool = |name: &str| crate::ohos::find_tool(name).map(|p| p.display().to_string());
+    // Where the command-line tools' bin/ lives on each host, for the PATH hints.
+    let clt_hint = match host {
+        // The Linux bundle's tools are pure JavaScript, so macOS runs them through node wrappers
+        // (docs/harmonyos.md); its SDK binaries are Linux ones and don't run there.
+        "macos" => {
+            "the OpenHarmony command-line-tools (DevEco Studio's, or the Linux bundle run \
+                    through node wrappers, see docs/harmonyos.md); put hvigorw/ohpm on PATH"
+        }
+        _ => {
+            "the OpenHarmony command-line-tools (bundled with DevEco Studio, or the standalone \
+              download); put their bin/ on PATH"
+        }
+    };
     Group {
         id: "harmonyos",
         label: "HarmonyOS · ArkUI",
         hosts: &["any"],
         probes: vec![
-            Probe::new(
-                "ohos-ndk",
-                ndk.as_ref()
-                    .and_then(|p| existing_dir(&Path::new(p).join("llvm/bin")).map(|_| p.clone())),
-                "set OHOS_NDK_HOME to the OpenHarmony SDK's `native` dir (see docs/harmonyos.md)",
-            ),
+            ndk_probe(ndk.as_deref(), native),
             Probe::new(
                 "rust-ohos",
                 have_rust_target("aarch64-unknown-linux-ohos")
                     .or_else(|| have_rust_target("x86_64-unknown-linux-ohos")),
                 "rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos",
             ),
-            Probe::new(
-                "hvigorw",
-                which("hvigorw").map(|p| p.display().to_string()),
-                "install the OpenHarmony command-line-tools (hvigor); put its bin/ on PATH",
+            sdk_probe(
+                std::env::var_os("OHOS_BASE_SDK_HOME")
+                    .filter(|v| !v.is_empty())
+                    .map(PathBuf::from),
+                native,
+                project_compile_sdk(),
             ),
+            Probe::new("hvigorw", tool("hvigorw"), format!("install {clt_hint}")),
+            Probe::new("ohpm", tool("ohpm"), format!("install {clt_hint}")),
+            // `day build` signs the .hap with sign-hap.mjs under node.
             Probe::new(
-                "ohpm",
-                which("ohpm").map(|p| p.display().to_string()),
-                "install the OpenHarmony command-line-tools (ohpm); put its bin/ on PATH",
+                "node",
+                which("node").map(|p| p.display().to_string()),
+                match host {
+                    "linux" => {
+                        "signing runs node: put the command-line-tools' tool/node/bin on PATH, \
+                         or install Node.js"
+                    }
+                    "macos" => "signing runs node: `brew install node`",
+                    _ => "signing runs node: install Node.js (nodejs.org) and put it on PATH",
+                },
             ),
             Probe::new(
                 "hdc",
                 hdc.map(|p| p.display().to_string()),
-                "hdc ships with the SDK toolchains/ dir — put it on PATH to install/launch",
+                "hdc ships in the SDK's toolchains/ dir beside `native`; put it on PATH to \
+                 install and launch",
             )
             .need(Need::Launch),
-        ],
+            Probe::new(
+                "qemu",
+                which("qemu-system-x86_64").map(|p| p.display().to_string()),
+                match host {
+                    "linux" => {
+                        "the emulator needs qemu-system-x86_64: `sudo apt install \
+                         qemu-system-x86` (or your distro's package, or `brew install qemu`)"
+                    }
+                    "macos" => "the emulator needs qemu-system-x86_64: `brew install qemu`",
+                    _ => {
+                        "the emulator needs qemu-system-x86_64: install QEMU (qemu.org/download) \
+                         and put it on PATH"
+                    }
+                },
+            )
+            .need(Need::Launch),
+            {
+                let dir = crate::ohos::emulator_images_dir();
+                let missing: Vec<&str> = EMULATOR_IMAGES
+                    .into_iter()
+                    .filter(|f| !dir.join(f).is_file())
+                    .collect();
+                Probe::new(
+                    "oniro-images",
+                    missing.is_empty().then(|| dir.display().to_string()),
+                    if missing.len() == EMULATOR_IMAGES.len() {
+                        format!(
+                            "no emulator images at {}: unpack the Oniro release's \
+                             oniro_emulator.zip there, or set DAY_OHOS_EMULATOR to its images/ dir",
+                            dir.display()
+                        )
+                    } else {
+                        format!("{} is missing {}", dir.display(), missing.join(", "))
+                    },
+                )
+                .need(Need::Launch)
+            },
+        ]
+        .into_iter()
+        .chain(kvm_probe(host))
+        .collect(),
         setup: "HarmonyOS (ArkUI) cross-compiles a Rust cdylib (libentry.so), packages a .hap with\n\
-                hvigor, signs it, and installs over hdc. Install:\n\
-                • the OpenHarmony SDK `native` component — set OHOS_NDK_HOME to it (login-free: extract\n\
-                  the public SDK, see docs/harmonyos.md). `hdc` lives in the sibling toolchains/ dir\n\
+                hvigor, signs it with node, and installs over hdc. Install:\n\
+                • the OpenHarmony SDK for THIS host OS — its `native` component as OHOS_NDK_HOME, and\n\
+                  the SDK as OHOS_BASE_SDK_HOME in the versioned layout hvigor requires,\n\
+                  <dir>/<api>/{ets,native,toolchains,…} (a symlink `18` → the SDK works). On Linux\n\
+                  the command-line-tools bundle carries it (sdk/default/openharmony); on macOS and\n\
+                  Windows use that host's public SDK. `hdc` lives in its toolchains/ dir\n\
                 • the OpenHarmony Rust targets — `rustup target add aarch64-unknown-linux-ohos\n\
                   x86_64-unknown-linux-ohos`\n\
                 • hvigor + ohpm — from the OpenHarmony command-line-tools (bundled with DevEco Studio);\n\
                   put their bin/ on PATH. These package the .hap and are not part of the public SDK.\n\
-                An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build —\n\
-                download the Oniro images (they are not bundled; see docs/harmonyos.md), then start\n\
-                them with `day devices boot -p harmony-arkui`.",
+                • node on PATH (signing)\n\
+                An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build:\n\
+                install QEMU, unpack the Oniro images (not bundled; see docs/harmonyos.md), then\n\
+                `day devices boot -p harmony-arkui`.",
     }
+}
+
+/// The NDK (`OHOS_NDK_HOME`): present, with a clang this host can run. An SDK for another OS
+/// (the Linux command-line-tools' NDK on a Mac, say) is found but fails to link.
+fn ndk_probe(ndk: Option<&Path>, native: Option<crate::ohos::BinaryFormat>) -> Probe {
+    let fix_missing = "set OHOS_NDK_HOME to the OpenHarmony SDK's `native` dir, from the SDK for this host OS \
+         (see docs/harmonyos.md)";
+    let Some(ndk) = ndk else {
+        return Probe::new("ohos-ndk", None, fix_missing);
+    };
+    if !ndk.join("llvm").join("bin").is_dir() {
+        return Probe::new(
+            "ohos-ndk",
+            None,
+            format!("{} has no llvm/bin: {fix_missing}", ndk.display()),
+        );
+    }
+    let clang = ndk
+        .join("llvm")
+        .join("bin")
+        .join(crate::ohos::exe_name("clang"));
+    match (crate::ohos::BinaryFormat::of_file(&clang), native) {
+        (Some(found), Some(want)) if found != want => Probe::new(
+            "ohos-ndk",
+            None,
+            format!(
+                "{} is the {} NDK, which this {} host can't run: use the SDK for this host OS",
+                ndk.display(),
+                found.os(),
+                want.os()
+            ),
+        ),
+        _ => Probe::new("ohos-ndk", Some(ndk.display().to_string()), fix_missing),
+    }
+}
+
+/// `OHOS_BASE_SDK_HOME`, the SDK hvigor packages against: set, in the versioned layout
+/// (`<dir>/<api>/…`; an unversioned root fails with "The SDK management mode has changed"),
+/// holding the API level the project compiles against, with tools this host can run (hvigor
+/// spawns `restool` and friends directly, so a foreign SDK fails with `spawn ENOEXEC`).
+fn sdk_probe(
+    base: Option<PathBuf>,
+    native: Option<crate::ohos::BinaryFormat>,
+    compile_sdk: Option<u32>,
+) -> Probe {
+    let versioned = "a directory holding the SDK under its API level, e.g. <dir>/18 → the \
+                     SDK root (the one with ets/, native/, toolchains/)";
+    let Some(base) = base else {
+        return Probe::new(
+            "ohos-sdk",
+            None,
+            format!("hvigor needs OHOS_BASE_SDK_HOME: set it to {versioned}"),
+        );
+    };
+    let levels = crate::ohos::sdk_api_levels(&base);
+    let Some(&newest) = levels.last() else {
+        return Probe::new(
+            "ohos-sdk",
+            None,
+            format!(
+                "OHOS_BASE_SDK_HOME ({}) has no API-level subdirectory; hvigor wants {versioned}",
+                base.display()
+            ),
+        );
+    };
+    let level = match compile_sdk {
+        Some(want) if !levels.contains(&want) => {
+            return Probe::new(
+                "ohos-sdk",
+                None,
+                format!(
+                    "this project compiles against API {want}, but OHOS_BASE_SDK_HOME ({}) holds \
+                     {}: add {}/{want}",
+                    base.display(),
+                    join_levels(&levels),
+                    base.display()
+                ),
+            );
+        }
+        Some(want) => want,
+        None => newest,
+    };
+    let restool = base
+        .join(level.to_string())
+        .join("toolchains")
+        .join(crate::ohos::exe_name("restool"));
+    if let (Some(found), Some(want)) = (crate::ohos::BinaryFormat::of_file(&restool), native)
+        && found != want
+    {
+        return Probe::new(
+            "ohos-sdk",
+            None,
+            format!(
+                "{} is a {} SDK, which this {} host can't run (hvigor fails with spawn \
+                 ENOEXEC): point OHOS_BASE_SDK_HOME at this host's SDK",
+                base.join(level.to_string()).display(),
+                found.os(),
+                want.os()
+            ),
+        );
+    }
+    Probe::new(
+        "ohos-sdk",
+        Some(format!("{} (API {})", base.display(), join_levels(&levels))),
+        "",
+    )
+}
+
+fn join_levels(levels: &[u32]) -> String {
+    levels
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The `compileSdkVersion` of the Day project containing the working directory, from its hvigor
+/// build profile, so the SDK probe can ask for that exact API level. `None` outside a project.
+fn project_compile_sdk() -> Option<u32> {
+    let cwd = std::env::current_dir().ok()?;
+    let root = cwd.ancestors().find(|d| d.join("Day.toml").is_file())?;
+    ["harmony", "ohos"].iter().find_map(|dir| {
+        let profile = root.join("platform").join(dir).join("build-profile.json5");
+        parse_compile_sdk(&std::fs::read_to_string(profile).ok()?)
+    })
+}
+
+/// The first `compileSdkVersion` number in a build-profile.json5 (JSON5: the key may be quoted
+/// or bare, and comments may mention it, so a comment line is skipped).
+fn parse_compile_sdk(profile: &str) -> Option<u32> {
+    profile
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .find_map(|line| {
+            let rest = line.split("compileSdkVersion").nth(1)?;
+            let rest = rest.trim_start_matches(['"', '\'']).trim_start();
+            let rest = rest.strip_prefix(':')?.trim_start();
+            let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+            digits.parse().ok()
+        })
+}
+
+/// KVM for the emulator (Linux only: macOS and Windows run it under TCG). A `/dev/kvm` this user
+/// can't open makes QEMU fall back to TCG, which boots in minutes rather than seconds.
+fn kvm_probe(host: &str) -> Option<Probe> {
+    if host != "linux" {
+        return None;
+    }
+    let kvm = Path::new("/dev/kvm");
+    let usable = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(kvm)
+        .is_ok();
+    Some(
+        Probe::new(
+            "kvm",
+            usable.then(|| "/dev/kvm (the emulator runs KVM-accelerated)".to_string()),
+            if kvm.exists() {
+                "/dev/kvm isn't usable by this user, so the emulator runs slowly under TCG: \
+                 `sudo usermod -aG kvm $USER`, then log in again"
+            } else {
+                "no /dev/kvm, so the emulator runs slowly under TCG: enable virtualization \
+                 (VT-x/AMD-V) in the firmware and load kvm_intel or kvm_amd"
+            },
+        )
+        .need(Need::Launch),
+    )
 }
 
 fn dom_group() -> Group {
@@ -1037,6 +1276,162 @@ mod tests {
 
     /// An unknown id is `None`, not a panic or an empty (= "ready") report; externally declared
     /// toolkits reach `readiness` by name.
+    #[test]
+    fn binary_formats_are_recognized_by_magic() {
+        use crate::ohos::BinaryFormat as F;
+        assert_eq!(F::detect(b"\x7fELF\x02"), Some(F::Elf));
+        assert_eq!(F::detect(b"MZ\x90\x00"), Some(F::Pe));
+        // 64- and 32-bit Mach-O in both byte orders, and a universal (fat) binary.
+        for head in [
+            [0xcf, 0xfa, 0xed, 0xfe],
+            [0xce, 0xfa, 0xed, 0xfe],
+            [0xfe, 0xed, 0xfa, 0xcf],
+            [0xfe, 0xed, 0xfa, 0xce],
+            [0xca, 0xfe, 0xba, 0xbe],
+        ] {
+            assert_eq!(F::detect(&head), Some(F::MachO), "{head:x?}");
+        }
+        assert_eq!(F::detect(b"#!/b"), None);
+        assert_eq!(F::detect(b"\x7fE"), None);
+        assert_eq!(F::for_host("linux"), Some(F::Elf));
+        assert_eq!(F::for_host("macos"), Some(F::MachO));
+        assert_eq!(F::for_host("windows"), Some(F::Pe));
+        assert_eq!(F::for_host("other"), None);
+    }
+
+    #[test]
+    fn windows_tools_resolve_to_batch_files_too() {
+        assert_eq!(crate::ohos::tool_file_names("hvigorw", false), ["hvigorw"]);
+        assert_eq!(
+            crate::ohos::tool_file_names("hvigorw", true),
+            ["hvigorw", "hvigorw.exe", "hvigorw.bat", "hvigorw.cmd"]
+        );
+    }
+
+    #[test]
+    fn compile_sdk_version_is_read_from_the_build_profile() {
+        let profile = r#"{
+          "app": {
+            // compileSdkVersion is the API level hvigor builds against
+            "products": [{ "name": "default", "compileSdkVersion": 18, "compatibleSdkVersion": 12 }]
+          }
+        }"#;
+        assert_eq!(parse_compile_sdk(profile), Some(18));
+        assert_eq!(parse_compile_sdk("{ compileSdkVersion: 20 }"), Some(20));
+        assert_eq!(parse_compile_sdk("{ 'compileSdkVersion' : 12 }"), Some(12));
+        assert_eq!(parse_compile_sdk("// compileSdkVersion: 9\n{}"), None);
+        assert_eq!(parse_compile_sdk("{}"), None);
+    }
+
+    /// A scratch directory for one test, removed on drop.
+    struct Scratch(PathBuf);
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "day-doctor-{tag}-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Scratch(dir)
+        }
+        /// Create `rel` (and its parents) holding `bytes`.
+        fn file(&self, rel: &str, bytes: &[u8]) {
+            let p = self.0.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, bytes).unwrap();
+        }
+    }
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn sdk_levels_are_numeric_dirs_holding_sdk_components() {
+        let t = Scratch::new("levels");
+        t.file("18/toolchains/restool", b"x");
+        t.file("20/ets/api.d.ts", b"x");
+        t.file("12/readme.txt", b"x"); // no SDK component: not a level
+        t.file("default/toolchains/restool", b"x"); // not numeric
+        assert_eq!(crate::ohos::sdk_api_levels(&t.0), [18, 20]);
+        assert!(crate::ohos::sdk_api_levels(&t.0.join("missing")).is_empty());
+    }
+
+    #[test]
+    fn sdk_probe_checks_layout_level_and_host_format() {
+        use crate::ohos::BinaryFormat as F;
+        // Unset, and an unversioned root.
+        assert!(sdk_probe(None, Some(F::Elf), None).detail.is_none());
+        let flat = Scratch::new("flat");
+        flat.file("toolchains/restool", b"\x7fELF");
+        let p = sdk_probe(Some(flat.0.clone()), Some(F::Elf), None);
+        assert!(
+            p.detail.is_none() && p.fix.contains("no API-level"),
+            "{}",
+            p.fix
+        );
+
+        let t = Scratch::new("sdk");
+        t.file("18/toolchains/restool", b"\x7fELF\x02\x01");
+        // Linux host, Linux SDK: fine, with or without a project level.
+        assert!(
+            sdk_probe(Some(t.0.clone()), Some(F::Elf), None)
+                .detail
+                .is_some()
+        );
+        assert!(
+            sdk_probe(Some(t.0.clone()), Some(F::Elf), Some(18))
+                .detail
+                .is_some()
+        );
+        // The project wants a level the SDK lacks.
+        let p = sdk_probe(Some(t.0.clone()), Some(F::Elf), Some(20));
+        assert!(p.detail.is_none() && p.fix.contains("API 20"), "{}", p.fix);
+        // The Linux SDK on a Mac, and on Windows.
+        for host in [F::MachO, F::Pe] {
+            let p = sdk_probe(Some(t.0.clone()), Some(host), None);
+            assert!(
+                p.detail.is_none() && p.fix.contains("Linux SDK"),
+                "{}",
+                p.fix
+            );
+        }
+        // On Windows the tool is restool.exe: a PE one there is native.
+        let w = Scratch::new("sdk-win");
+        w.file(
+            &format!("18/toolchains/{}", crate::ohos::exe_name("restool")),
+            b"MZ\x90\x00",
+        );
+        let p = sdk_probe(Some(w.0.clone()), Some(F::Pe), None);
+        assert!(p.detail.is_some(), "{}", p.fix);
+    }
+
+    #[test]
+    fn ndk_probe_rejects_an_ndk_for_another_host() {
+        use crate::ohos::BinaryFormat as F;
+        assert!(ndk_probe(None, Some(F::Elf)).detail.is_none());
+        let t = Scratch::new("ndk");
+        let clang = format!("llvm/bin/{}", crate::ohos::exe_name("clang"));
+        t.file(&clang, b"\x7fELF\x02\x01");
+        assert!(ndk_probe(Some(&t.0), Some(F::Elf)).detail.is_some());
+        let p = ndk_probe(Some(&t.0), Some(F::MachO));
+        assert!(
+            p.detail.is_none() && p.fix.contains("Linux NDK"),
+            "{}",
+            p.fix
+        );
+        let empty = Scratch::new("ndk-empty");
+        let p = ndk_probe(Some(&empty.0), Some(F::Elf));
+        assert!(
+            p.detail.is_none() && p.fix.contains("no llvm/bin"),
+            "{}",
+            p.fix
+        );
+    }
+
     #[test]
     fn unknown_group_has_no_readiness() {
         assert!(readiness("not-a-toolkit").is_none());
