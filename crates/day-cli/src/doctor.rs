@@ -855,11 +855,18 @@ fn sdk_probe(
         Some(want) => want,
         None => newest,
     };
-    let restool = base
-        .join(level.to_string())
-        .join("toolchains")
-        .join(crate::ohos::exe_name("restool"));
-    if let (Some(found), Some(want)) = (crate::ohos::BinaryFormat::of_file(&restool), native)
+    // Probe this host's name first, then the other one: a Linux or Mac SDK on Windows has a bare
+    // `restool` (no `.exe`), and a Windows SDK elsewhere has only `restool.exe`. Looking for the
+    // host's name alone would find nothing in exactly the foreign SDK this check exists to catch.
+    let toolchains = base.join(level.to_string()).join("toolchains");
+    let found = [
+        crate::ohos::exe_name("restool"),
+        "restool".into(),
+        "restool.exe".into(),
+    ]
+    .iter()
+    .find_map(|name| crate::ohos::BinaryFormat::of_file(&toolchains.join(name)));
+    if let (Some(found), Some(want)) = (found, native)
         && found != want
     {
         return Probe::new(
