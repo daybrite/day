@@ -1527,6 +1527,48 @@ struct NavState {
     root_title: String,
     /// The host's node, for the same reason — a back header's button targets it.
     node: NodeId,
+    /// How far the host reaches up under the window's title bar (see `pane_under_title_bar`):
+    /// the strip each pane's wrap is kept below. Zero for a host that does not start at the top
+    /// of a pinned window.
+    title_strip: f64,
+}
+
+/// A split item's view: a transparent pane that runs the item's full height, with `wrap` (the
+/// view Day's pages and the rest of this backend frame themselves against) inside it.
+///
+/// `NSSplitViewController` expects its split view to reach the top of a full-size-content window
+/// and lays its title-bar treatment over the top of every item: a title-bar background, and on
+/// macOS 26 and later the frosted scroll pocket. Day pins its content below the title bar
+/// (`pin_below_title_bar`), so a split framed where Day lays it out put that treatment over the
+/// first strip of every page instead, blurring a detail page's heading. The host is framed up
+/// under the bar instead (`set_frame`), and each wrap is held below the strip inside its pane, so
+/// the treatment lands on the bar, the sidebar's material runs to the top of the window as
+/// `allowsFullHeightLayout` intends, and every page still starts where Day laid it out.
+fn pane_under_title_bar(mtm: MainThreadMarker, wrap: &NSView) -> Retained<NSView> {
+    let pane = view_of(DayFlipped::new(mtm));
+    unsafe {
+        wrap.setFrame(pane.bounds());
+        wrap.setAutoresizingMask(
+            objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+        );
+        pane.addSubview(wrap);
+    }
+    pane
+}
+
+/// Hold `wrap` `strip` points below the top of the pane that holds it.
+fn place_below_strip(wrap: &NSView, strip: f64) {
+    let Some(pane) = (unsafe { wrap.superview() }) else {
+        return;
+    };
+    let b = pane.bounds();
+    unsafe {
+        wrap.setFrame(NSRect::new(
+            NSPoint::new(0.0, strip),
+            NSSize::new(b.size.width, (b.size.height - strip).max(0.0)),
+        ))
+    };
 }
 
 /// The stack presentation's back header: a chevron + centered title docked above the pages,
@@ -5461,8 +5503,8 @@ impl Toolkit for AppKit {
                 let sidebar_vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
                 let detail_vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
                 unsafe {
-                    sidebar_vc.setView(&sidebar_wrap);
-                    detail_vc.setView(&detail_wrap);
+                    sidebar_vc.setView(&pane_under_title_bar(mtm, &sidebar_wrap));
+                    detail_vc.setView(&pane_under_title_bar(mtm, &detail_wrap));
                 }
                 let sidebar_item = unsafe {
                     objc2_app_kit::NSSplitViewItem::sidebarWithViewController(&sidebar_vc)
@@ -5488,7 +5530,7 @@ impl Toolkit for AppKit {
                     Some(w) => {
                         let wrap = view_of(DayFlipped::new(mtm));
                         let vc = unsafe { objc2_app_kit::NSViewController::new(mtm) };
-                        unsafe { vc.setView(&wrap) };
+                        unsafe { vc.setView(&pane_under_title_bar(mtm, &wrap)) };
                         let item = unsafe {
                             objc2_app_kit::NSSplitViewItem::contentListWithViewController(&vc)
                         };
@@ -5635,6 +5677,7 @@ impl Toolkit for AppKit {
                             header,
                             root_title,
                             node: id,
+                            title_strip: 0.0,
                         },
                     )
                 });
@@ -7122,6 +7165,32 @@ impl Toolkit for AppKit {
         // only thing left to do here is give the split its frame and place the divider once;
         // re-placing it on every resize would fight the item and undo a user's drag.
         if let Some(split) = h.downcast_ref::<objc2_app_kit::NSSplitView>() {
+            // A host at the top of a window's pinned content reaches up under the title bar,
+            // where its controller expects to be (see `pane_under_title_bar`); its panes keep
+            // their content below the strip, so nothing Day laid out moves.
+            let strip = unsafe { split.superview() }
+                .filter(|sup| {
+                    frame.origin.y <= 0.5
+                        && unsafe { sup.window() }
+                            .and_then(|w| w.contentView())
+                            .is_some_and(|c| std::ptr::eq(&*c, &**sup))
+                })
+                .map(|sup| title_bar_inset(&sup))
+                .unwrap_or(0.0);
+            let r = NSRect::new(
+                NSPoint::new(r.origin.x, r.origin.y - strip),
+                NSSize::new(r.size.width, r.size.height + strip),
+            );
+            let wraps = NAV_STATE.with(|m| {
+                m.borrow_mut().get_mut(&ptr_of(h)).and_then(|s| {
+                    (s.title_strip != strip).then(|| {
+                        s.title_strip = strip;
+                        let mut w = vec![s.sidebar_wrap.clone(), s.detail_wrap.clone()];
+                        w.extend(s.list_wrap.clone());
+                        w
+                    })
+                })
+            });
             let first = NAV_STATE.with(|m| {
                 m.borrow_mut()
                     .get_mut(&ptr_of(h))
@@ -7141,6 +7210,13 @@ impl Toolkit for AppKit {
             unsafe {
                 split.setFrame(r);
                 split.layoutSubtreeIfNeeded();
+            }
+            // After the panes have their new size, so each wrap is placed in the final pane;
+            // autoresizing keeps the strip from then on.
+            for wrap in wraps.iter().flatten() {
+                place_below_strip(wrap, strip);
+            }
+            unsafe {
                 if first.0 {
                     split.setPosition_ofDividerAtIndex(day_spec::NAV_SIDEBAR_WIDTH, 0);
                 }
