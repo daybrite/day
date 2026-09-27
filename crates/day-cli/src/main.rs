@@ -6,6 +6,7 @@
 //! Mobile pipelines (xcodebuild/gradle callbacks) land with the M5 scaffolds.
 
 mod bridge;
+mod bump;
 mod clean;
 mod cli;
 mod devices;

@@ -375,6 +375,30 @@ enum Cmd {
         /// Print the Day.toml JSON Schema and exit
         #[arg(long)]
         schema: bool,
+        /// Bump the Cargo.toml version to the next patch, minor, or major release, and the
+        /// Day.toml build number with it
+        #[arg(long, value_enum, value_name = "PART", conflicts_with_all = ["version_set", "json", "schema"])]
+        version_bump: Option<crate::bump::Part>,
+        /// Set the version (MAJOR.MINOR.PATCH); the build number is incremented unless
+        /// --build-set is also given
+        #[arg(long, value_name = "X.Y.Z", conflicts_with_all = ["json", "schema"])]
+        version_set: Option<String>,
+        /// Set the Day.toml build number
+        #[arg(long, value_name = "N", conflicts_with_all = ["json", "schema"])]
+        build_set: Option<u64>,
+        /// Commit the change (requires a clean worktree); the message is "vX.Y.Z" unless
+        /// --git-commit-comment gives one
+        #[arg(long)]
+        git_commit: bool,
+        /// The commit message; implies --git-commit
+        #[arg(long, value_name = "MESSAGE")]
+        git_commit_comment: Option<String>,
+        /// Also tag the commit "vX.Y.Z"; implies --git-commit
+        #[arg(long)]
+        git_tag: bool,
+        /// Also push the commit and the tag to the branch's remote; implies --git-tag
+        #[arg(long)]
+        git_push: bool,
     },
     /// Check project files, translations, and element IDs
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#linting")]
@@ -1266,7 +1290,34 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             }
             Ok(0)
         }),
-        Cmd::Metadata { json, schema } => {
+        Cmd::Metadata {
+            json,
+            schema,
+            version_bump,
+            version_set,
+            build_set,
+            git_commit,
+            git_commit_comment,
+            git_tag,
+            git_push,
+        } => {
+            let git = git_commit || git_commit_comment.is_some() || git_tag || git_push;
+            if version_bump.is_some() || version_set.is_some() || build_set.is_some() || git {
+                return with_project(cli.project.as_deref(), |project| {
+                    crate::bump::run(
+                        project,
+                        crate::bump::Request {
+                            bump: version_bump,
+                            set_version: version_set.clone(),
+                            set_build: build_set,
+                            commit: git_commit,
+                            message: git_commit_comment.clone(),
+                            tag: git_tag,
+                            push: git_push,
+                        },
+                    )
+                });
+            }
             if schema {
                 // Static: the schema needs no project; usable before one exists.
                 println!("{}", include_str!("../resources/day-toml.schema.json"));

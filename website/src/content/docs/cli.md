@@ -537,6 +537,31 @@ no known platform/toolkit/target are findings, and so is an `[app] id` a declare
 accept: `day::lint::app-id` resolves the id per target and holds Android and HarmonyOS to a Java
 package name, which is the check `day new` runs on `--appid`.
 
+### Releasing a new version
+
+`day metadata --version-bump patch|minor|major` moves the app to its next release: the
+version in Cargo.toml (the app's own `[package] version`, or the `[workspace.package] version` it
+inherits) and the `[app] build` number in Day.toml, which every store requires to grow with each
+upload. `--version-set X.Y.Z` and `--build-set N` set either one directly; a new version takes the
+next build number unless `--build-set` names one. The edits keep both files' comments and layout,
+and a Cargo.lock beside the workspace is brought up to date so the next build leaves it alone.
+
+The git flags turn the change into a release:
+
+```sh
+day metadata --version-bump minor --git-commit                 # commit "v2.3.0"
+day metadata --version-bump minor --git-commit-comment "Ship"  # commit with that message
+day metadata --version-bump minor --git-tag                    # commit, and tag it v2.3.0
+day metadata --version-bump minor --git-push                   # commit, tag, and push both
+```
+
+Each flag implies the ones above it. The worktree must be clean, and the tag must not exist yet;
+both are checked before any file changes. The push is atomic, so the branch and the tag reach the
+remote together or not at all, and it goes to the current branch's upstream (else `origin`). Git
+runs attached to your terminal, so a credential prompt, an SSH passphrase or a signing PIN is asked
+and answered there as it would be outside Day. When a step fails, the error says what already
+happened and the command that finishes the job.
+
 ## Store listings
 
 An app that ships to the App Store or Google Play keeps its whole listing in `store/storefront.toml`
