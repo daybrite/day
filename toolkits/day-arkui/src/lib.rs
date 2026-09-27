@@ -83,8 +83,10 @@ mod imp {
         /// via setEnv before start()). ArkUI's C-API nodes do not re-theme hardcoded colors, so
         /// every neutral day-arkui paint branches on this flag.
         static IS_DARK: Cell<bool> = const { Cell::new(false) };
-        /// Slider node ptr → (min, max), so ArkUI's 0..100 maps back to day's range.
-        static SLIDER_RANGE: RefCell<HashMap<usize, (f64, f64)>> = RefCell::new(HashMap::new());
+        /// Slider NodeId → (min, max), so ArkUI's 0..100 maps back to day's range. Keyed by the
+        /// id, not the node pointer, because the change event carries only the id: a
+        /// pointer-keyed map missed there, and every drag landed in the fallback 0..1.
+        static SLIDER_RANGE: RefCell<HashMap<u64, (f64, f64)>> = RefCell::new(HashMap::new());
         /// ArkTS-built piece nodes (docs/extending.md): FrameNode ptr → day NodeId. Release sends
         /// the ArkTS side its disposal and skips the native dispose, since ArkTS owns these nodes.
         static PIECE_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
@@ -636,6 +638,85 @@ mod imp {
         (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
     }
 
+    /// Run `apply`'s attribute changes under `anim` (§8.4): inside ArkUI's `animateTo`, which
+    /// interpolates each changed attribute from its current value on ArkUI's compositor, or
+    /// instantly when `anim` is `None` (or zero-length). The shim runs `apply` exactly once
+    /// either way, instantly too when the node has no UI context yet.
+    fn animate(node: *mut c_void, anim: Option<&AnimSpec>, apply: impl FnOnce() + 'static) {
+        let Some(a) = anim.filter(|a| a.duration_ms > 0) else {
+            apply();
+            return;
+        };
+        extern "C" fn run(data: *mut c_void) {
+            let apply = unsafe { Box::from_raw(data as *mut Box<dyn FnOnce()>) };
+            apply();
+        }
+        // A spring becomes a custom curve evaluating day's own analytic spring over the
+        // animation's duration, so its overshoot and timing match every other backend; the
+        // easing curves map to ArkUI's built-in ones.
+        let (curve, custom, custom_data, custom_free) = match a.curve {
+            day_spec::Curve::Linear => (0, None, std::ptr::null_mut(), None),
+            day_spec::Curve::EaseIn => (1, None, std::ptr::null_mut(), None),
+            day_spec::Curve::EaseOut => (2, None, std::ptr::null_mut(), None),
+            day_spec::Curve::EaseInOut => (3, None, std::ptr::null_mut(), None),
+            day_spec::Curve::Spring { .. } => {
+                let secs = a.duration_ms as f64 / 1000.0;
+                let spring = SpringCurve {
+                    curve: a.curve,
+                    secs,
+                    end: a.curve.fraction(secs, secs),
+                };
+                (
+                    4,
+                    Some(spring_curve as extern "C" fn(f32, *mut c_void) -> f32),
+                    Box::into_raw(Box::new(spring)) as *mut c_void,
+                    Some(free_spring as extern "C" fn(*mut c_void)),
+                )
+            }
+        };
+        let iterations = if a.repeat == u32::MAX {
+            -1
+        } else {
+            i32::try_from(a.repeat).map_or(i32::MAX, |r| r.saturating_add(1))
+        };
+        let data = Box::into_raw(Box::new(Box::new(apply) as Box<dyn FnOnce()>)) as *mut c_void;
+        unsafe {
+            ffi::day_ark_animate(
+                node,
+                a.duration_ms.min(i32::MAX as u32) as i32,
+                a.delay_ms.min(i32::MAX as u32) as i32,
+                curve,
+                custom,
+                custom_data,
+                custom_free,
+                iterations,
+                a.autoreverse as c_int,
+                run,
+                data,
+            )
+        };
+    }
+
+    /// A spring [`day_spec::Curve`] sampled as an ArkUI custom curve over `secs`. `end` is the
+    /// spring's value at `secs`, just short of 1 for a spring still ringing then; the curve adds
+    /// the remainder linearly so it lands exactly on 1, since ArkUI jumps to the target value
+    /// at the end of an animation whose curve stops elsewhere.
+    struct SpringCurve {
+        curve: day_spec::Curve,
+        secs: f64,
+        end: f64,
+    }
+
+    extern "C" fn spring_curve(fraction: f32, data: *mut c_void) -> f32 {
+        let s = unsafe { &*(data as *const SpringCurve) };
+        let x = (fraction as f64).clamp(0.0, 1.0);
+        (s.curve.fraction(x * s.secs, s.secs) + (1.0 - s.end) * x) as f32
+    }
+
+    extern "C" fn free_spring(data: *mut c_void) {
+        drop(unsafe { Box::from_raw(data as *mut SpringCurve) });
+    }
+
     /// Semantic [`Font`] → a vp point size (ArkUI's default length unit is vp ≈ day points).
     /// Public for standalone pieces (docs/extending.md), which resolve the same scale.
     pub fn font_vp(f: FontSpec) -> f64 {
@@ -1127,7 +1208,7 @@ mod imp {
                 // ArkUI slider reports 0..100; map back to the node's day range. Code 22 is the
                 // same value once the interaction settled (day-spec `Event::ValueCommitted`).
                 let (min, max) = SLIDER_RANGE
-                    .with(|m| m.borrow().get(&(id as usize)).copied())
+                    .with(|m| m.borrow().get(&id).copied())
                     .unwrap_or((0.0, 1.0));
                 let value = min + (num / 100.0) * (max - min);
                 // The programmatic-set echo (see SLIDER_ECHO), compared with the slack the
@@ -1511,8 +1592,13 @@ mod imp {
                                 ffi::day_ark_set_bg_color(n.0, argb(c));
                             }
                             if p.corner_radius > 0.0 {
-                                // NODE_BORDER_RADIUS in vp rounds the background (and clips content).
+                                // NODE_BORDER_RADIUS in vp rounds this node's own background.
                                 ffi::day_ark_set_corner_radius(n.0, p.corner_radius);
+                            }
+                            if p.clips {
+                                // `.corner_radius` wraps the piece, whose fill is an inner
+                                // node, so rounding shows only when this node clips it.
+                                ffi::day_ark_set_clip(n.0, 1);
                             }
                         }
                     }
@@ -1673,7 +1759,7 @@ mod imp {
                     let n = new_node(K_SLIDER);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     SLIDER_ECHO.with(|m| m.borrow_mut().insert(id.0, p.value));
-                    SLIDER_RANGE.with(|m| m.borrow_mut().insert(n.0 as usize, (p.min, p.max)));
+                    SLIDER_RANGE.with(|m| m.borrow_mut().insert(id.0, (p.min, p.max)));
                     let pct = normalize(p.value, p.min, p.max);
                     unsafe {
                         ffi::day_ark_set_slider(n.0, pct);
@@ -1847,7 +1933,7 @@ mod imp {
             h: &AHandle,
             kind: PieceKind,
             patch: &dyn Any,
-            _anim: Option<&AnimSpec>,
+            anim: Option<&AnimSpec>,
         ) {
             match kind {
                 // Navigation (docs/navigation.md): drive the ArkTS Navigation/NavPathStack.
@@ -1931,7 +2017,9 @@ mod imp {
                     if let Some(ContainerPatch::Background(Some(c))) =
                         patch.downcast_ref::<ContainerPatch>()
                     {
-                        unsafe { ffi::day_ark_set_bg_color(h.0, argb(*c)) };
+                        // Under `with_animation` the fill fades to the new color (§8.4).
+                        let (n, c) = (h.0, argb(*c));
+                        animate(n, anim, move || unsafe { ffi::day_ark_set_bg_color(n, c) });
                     }
                 }
                 // Data-driven sidebar rebuild (docs/navigation.md): swap the rows column for a
@@ -2094,14 +2182,13 @@ mod imp {
                 }
                 kinds::SLIDER => {
                     if let Some(SliderPatch::Value(v)) = patch.downcast_ref::<SliderPatch>() {
-                        let (min, max) = SLIDER_RANGE
-                            .with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                        let nid = CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied());
+                        let (min, max) = nid
+                            .and_then(|nid| SLIDER_RANGE.with(|m| m.borrow().get(&nid).copied()))
                             .unwrap_or((0.0, 1.0));
                         // The echo cell (see SLIDER_ECHO): the set below comes back as an
                         // onChange, which must not reach the app as the user's change.
-                        if let Some(nid) =
-                            CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
-                        {
+                        if let Some(nid) = nid {
                             SLIDER_ECHO.with(|m| m.borrow_mut().insert(nid, *v));
                         }
                         unsafe { ffi::day_ark_set_slider(h.0, normalize(*v, min, max)) };
@@ -2227,6 +2314,7 @@ mod imp {
             if let Some(nid) = CTRL_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 TEXT_ECHO.with(|m| m.borrow_mut().remove(&nid));
                 SLIDER_ECHO.with(|m| m.borrow_mut().remove(&nid));
+                SLIDER_RANGE.with(|m| m.borrow_mut().remove(&nid));
             }
             // A pushed page released without a Remove patch (whole-host teardown) must not
             // leave its re-home bookkeeping behind: a recycled node address would alias it.
@@ -2249,9 +2337,6 @@ mod imp {
                 m.borrow_mut().remove(&key);
             });
             COVER_PARENTS.with(|m| {
-                m.borrow_mut().remove(&key);
-            });
-            SLIDER_RANGE.with(|m| {
                 m.borrow_mut().remove(&key);
             });
             TEXTAREA_LINES.with(|m| {
@@ -2473,6 +2558,29 @@ mod imp {
                     frame.size.height,
                 )
             };
+        }
+
+        fn set_opacity(&mut self, h: &AHandle, opacity: f64, anim: Option<&AnimSpec>) {
+            let n = h.0;
+            animate(n, anim, move || unsafe {
+                ffi::day_ark_set_opacity(n, opacity)
+            });
+        }
+
+        fn set_transform(
+            &mut self,
+            h: &AHandle,
+            t: day_spec::Transform,
+            _size: Size,
+            anim: Option<&AnimSpec>,
+        ) {
+            // ArkUI takes the pivot as a fraction of the node's own size, so the laid-out size
+            // isn't needed. The pivot is not animated: only where the node moves to is.
+            let n = h.0;
+            unsafe { ffi::day_ark_set_transform_center(n, t.anchor_x, t.anchor_y) };
+            animate(n, anim, move || unsafe {
+                ffi::day_ark_set_transform(n, t.tx, t.ty, t.sx, t.sy, t.rotate_deg)
+            });
         }
 
         fn set_scroll_content(&mut self, h: &AHandle, content: Size) {
@@ -2777,6 +2885,9 @@ mod imp {
                 | Cap::DragExternalExport
                 | Cap::DragMultipleItems => Support::Native,
                 Cap::FileDialogs => Support::Native,
+                // `animateTo` interpolates opacity, transform and background color on ArkUI's
+                // compositor; frames move instantly, as on Android (§8.4).
+                Cap::Animation => Support::Native,
                 // `OH_Drawing_FontMgr` lists every family and style set (docs/fonts.md).
                 Cap::FontList => Support::Native,
                 // `OH_ImageSourceNative` decodes every container the platform reads, and the

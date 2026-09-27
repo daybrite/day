@@ -61,11 +61,15 @@ pub(crate) fn staged_harmony_dir(project: &Project) -> PathBuf {
     crate::ops::staged_root(project).join("harmony/project")
 }
 
+/// The size QEMU's GTK display opens its window at, before the guest has set a scanout; a
+/// windowed Linux guest runs at this size whatever panel was asked for (see `emulator_launch`).
+const GTK_WINDOW_PANEL: (u32, u32) = (640, 480);
+
 /// Bring up the Oniro/OpenHarmony QEMU emulator as a native window (the OHOS analogue of
 /// `skip android emulator launch`). On macOS the QEMU `cocoa` backend opens a native window
-/// directly, with no VNC or Screen Sharing in between; `--headless` uses no display (hdc-only,
-/// for CI). Self-contained: it builds the QEMU command itself, so it doesn't depend on the
-/// emulator distribution's shell launcher.
+/// directly, with no VNC or Screen Sharing in between, and on Linux the `gtk` one;
+/// `--headless` uses no display (hdc-only, for CI). Self-contained: it builds the QEMU command
+/// itself, so it doesn't depend on the emulator distribution's shell launcher.
 ///
 /// The image directory is `DAY_OHOS_EMULATOR` (a dir holding `bzImage`, `ramdisk.img`, `system.img`,
 /// `vendor.img`, `updater.img`, `userdata.img`) or the default `~/ohos/emulator/images`. The host
@@ -148,7 +152,11 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         // the window, toggle View → Zoom To Fit once booted and drag-resize.
         &["-display", "cocoa"]
     } else {
-        &["-display", "gtk"]
+        // GTK with OpenGL rendering. Plain `gtk` (cairo) painted its "Display output is not
+        // active" placeholder once and never repainted (a Homebrew QEMU 11.1 on Ubuntu 24.04,
+        // X11 and Wayland alike), even though the guest was scanning out and `screendump` saw
+        // its frames; `gl=on` shows them.
+        &["-display", "gtk,gl=on"]
     };
 
     // Kernel cmdline + block devices are fixed for the Oniro x86_general image.
@@ -158,7 +166,28 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
                   ohos.required_mount.vendor=/dev/block/vdc@/vendor@ext4@ro,barrier=1@wait,required \
                   ohos.required_mount.misc=/dev/block/vda@/misc@none@none=@wait,required";
     let hostfwd = format!("user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:55555");
-    let (xres, yres) = panel;
+    // QEMU's GTK window opens at its 640×480 placeholder size and reports that size to
+    // virtio-gpu, and the guest adopts it over the requested panel. Any other panel makes the
+    // guest switch modes while its display is coming up; on a fast (KVM) boot that switch's
+    // atomic commit fails with ENOSPC, the CRTC is never enabled, and the window shows
+    // "Display output is not active" for good (restarting render_service doesn't recover it).
+    // So a windowed Linux boot asks for 640×480 from the start. Later window resizes are safe:
+    // the guest keeps 640×480. `--headless` honors the requested panel.
+    let (xres, yres) = if !headless && !cfg!(target_os = "macos") {
+        if panel != GTK_WINDOW_PANEL {
+            status(
+                "Panel",
+                &format!(
+                    "{}×{} requested, but a QEMU GTK window runs the guest at 640×480; \
+                     boot with --headless to keep the requested panel",
+                    panel.0, panel.1
+                ),
+            );
+        }
+        GTK_WINDOW_PANEL
+    } else {
+        panel
+    };
     status("Panel", &format!("{xres}×{yres} (virtio-gpu)"));
     if let Ok(github_env) = std::env::var("GITHUB_ENV") {
         use std::io::Write;
@@ -176,15 +205,35 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
     // (an x86_64 Linux CI runner with nested virtualization) it runs KVM-accelerated at
     // near-native speed instead of TCG software emulation, cutting the boot + walkthrough from
     // ~tens of minutes to minutes. macOS/dev hosts have no `/dev/kvm`, so they stay on TCG.
+    // A Linux desktop often has `/dev/kvm` owned by the `kvm` group without the user in it;
+    // qemu then dies with "Could not access KVM kernel module: Permission denied", so KVM is
+    // chosen only when the device opens read-write, with a hint otherwise.
     // `DAY_OHOS_ACCEL` overrides (e.g. `tcg,thread=multi` to force software, or `kvm`).
     // `-cpu host` (full passthrough) pairs with KVM; TCG needs the emulated `-cpu max`.
+    let kvm = std::path::Path::new("/dev/kvm");
     let (accel, cpu) = match std::env::var("DAY_OHOS_ACCEL") {
         Ok(a) if !a.is_empty() => {
             let cpu = if a.starts_with("kvm") { "host" } else { "max" };
             (a, cpu)
         }
-        _ if std::path::Path::new("/dev/kvm").exists() => ("kvm".to_string(), "host"),
-        _ => ("tcg,thread=multi".to_string(), "max"),
+        _ if std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(kvm)
+            .is_ok() =>
+        {
+            ("kvm".to_string(), "host")
+        }
+        _ => {
+            if kvm.exists() {
+                status(
+                    "Emulator",
+                    "/dev/kvm is not accessible to this user, so falling back to slow TCG; \
+                     `sudo usermod -aG kvm $USER` and log in again to enable KVM",
+                );
+            }
+            ("tcg,thread=multi".to_string(), "max")
+        }
     };
 
     let mut cmd = Command::new(qemu);
@@ -1345,17 +1394,19 @@ fn install_and_start(
 /// of the panel, from five sixths of its height to one seventh. On the 360×720 phone panel that
 /// is (180, 600) to (180, 102), the swipe verified headlessly: after `power-shell wakeup` the
 /// lock screen shows "Please slide to unlock", and it lands on the home screen. On an unlocked
-/// screen the swipe is a harmless scroll. The panel is whatever `emulator_launch` was given,
-/// read back from `DAY_OHOS_PANEL`; unset means the phone. Both injection drivers are tried,
-/// `uitest uiInput` (test daemon; slow to spin up on a cold TCG guest) and `uinput`
-/// (kernel-level, no daemon), because a slow first boot can leave the daemon unready while the
-/// keyguard is already up.
+/// screen the swipe is a harmless scroll. The panel is the guest's own screen size, asked of its
+/// RenderService: the size `emulator_launch` requested is not always what the guest runs at,
+/// since QEMU's GTK window (a windowed boot on Linux) hands virtio-gpu its own 640×480, and a
+/// swipe aimed at the requested 360×720 then starts below the screen and never unlocks. When the
+/// query fails the requested panel is used, read back from `DAY_OHOS_PANEL`; unset means the
+/// phone. Both injection drivers are tried, `uitest uiInput` (test daemon; slow to spin up on a
+/// cold TCG guest) and `uinput` (kernel-level, no daemon), because a slow first boot can leave
+/// the daemon unready while the keyguard is already up.
 fn unlock_keyguard(key: &str) {
-    let (w, h) = std::env::var("DAY_OHOS_PANEL")
-        .ok()
-        .and_then(|v| {
-            let (w, h) = v.split_once('x')?;
-            Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+    let (w, h) = guest_screen_size(key)
+        .or_else(|| {
+            let v = std::env::var("DAY_OHOS_PANEL").ok()?;
+            parse_size(&v)
         })
         .unwrap_or(crate::devices::HARMONY_PHONE_PANEL);
     let x = (w / 2).to_string();
@@ -1369,6 +1420,29 @@ fn unlock_keyguard(key: &str) {
     let _ = hdc_for(key)
         .args(["shell", "uinput", "-T", "-m", &x, &from, &x, &to, "300"])
         .status();
+}
+
+/// The guest's current screen size, from RenderService's screen dump (best-effort).
+fn guest_screen_size(key: &str) -> Option<(u32, u32)> {
+    let out = hdc_for(key)
+        .args(["shell", "hidumper", "-s", "RenderService", "-a", "screen"])
+        .output()
+        .ok()?;
+    parse_screen_dump(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The first screen's `physical resolution=WxH` in a RenderService screen dump.
+fn parse_screen_dump(dump: &str) -> Option<(u32, u32)> {
+    let rest = dump.split("physical resolution=").nth(1)?;
+    let size = rest.split(|c: char| c == ',' || c.is_whitespace()).next()?;
+    parse_size(size)
+}
+
+/// A `WxH` size with both sides non-zero.
+fn parse_size(v: &str) -> Option<(u32, u32)> {
+    let (w, h) = v.split_once('x')?;
+    let (w, h) = (w.parse::<u32>().ok()?, h.parse::<u32>().ok()?);
+    (w > 0 && h > 0).then_some((w, h))
 }
 
 /// Stream one target's hilog into the day log with `label` (best-effort). Returns its exit code.
@@ -1493,5 +1567,33 @@ mod identity_tests {
     fn non_string_values_are_untouched() {
         let src = "{ \"scheme\": 7, \"note\": \"scheme is derived\" }";
         assert_eq!(replace_json5_string(src, "scheme", "b").unwrap(), src);
+    }
+}
+
+#[cfg(test)]
+mod screen_size_tests {
+    use super::{parse_screen_dump, parse_size};
+
+    #[test]
+    fn reads_the_physical_resolution_from_a_screen_dump() {
+        // Captured from an Oniro v6.1 guest booted in a QEMU GTK window.
+        let dump = "screen[0]: id=0, powerStatus=POWER_STATUS_ON, backlight=-1, \
+                    screenType=EXTERNAL_TYPE, render resolution=640x480, \
+                    physical resolution=640x480, isVirtual=false\nactiveMode: 640x480, refreshRate=60";
+        assert_eq!(parse_screen_dump(dump), Some((640, 480)));
+    }
+
+    #[test]
+    fn a_dump_without_a_screen_is_none() {
+        assert_eq!(parse_screen_dump(""), None);
+        assert_eq!(parse_screen_dump("error: no such ability"), None);
+    }
+
+    #[test]
+    fn sizes_must_be_two_positive_numbers() {
+        assert_eq!(parse_size("360x720"), Some((360, 720)));
+        assert_eq!(parse_size("0x720"), None);
+        assert_eq!(parse_size("360"), None);
+        assert_eq!(parse_size("wide"), None);
     }
 }

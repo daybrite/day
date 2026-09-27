@@ -76,9 +76,13 @@ will resolve from a different directory in the staged project.
 ## Local development environment
 
 1. **OpenHarmony SDK / NDK.** Easiest: install the **command-line-tools** (see Build & run), one
-   bundle carrying the NDK + hvigor + ohpm + node + signing material, and point `OHOS_NDK_HOME` at
-   its `sdk/default/openharmony/native`. For a Rust-only cross-compile you can instead grab just the
-   `native` NDK component from the public SDK (no account needed):
+   bundle carrying the NDK + hvigor + ohpm + node + `hdc` + signing material, and point
+   `OHOS_NDK_HOME` at its `sdk/default/openharmony/native`. On a Linux x86_64 host this bundle is
+   the whole toolchain: its SDK tools are native Linux binaries, so the build needs no other
+   download ([System requirements](https://daybrite.dev/docs/system-requirements#on-linux) has
+   the exact commands). On macOS those SDK tools don't run, so take the NDK from the public mac
+   SDK instead. For a Rust-only cross-compile you can also grab just the `native` NDK component
+   from the public SDK (no account needed):
 
    ```bash
    curl -LO https://repo.huaweicloud.com/openharmony/os/6.0-Release/L2-SDK-MAC-M1-PUBLIC.tar.gz
@@ -127,6 +131,18 @@ The showcase's `platform/harmony/` project targets **OpenHarmony** (`runtimeOS: 
 and avoids the HMS-only `libimage_transcoder_shared` library that only DevEco Studio ships, so the
 whole flow works login-free on macOS and Linux.
 
+**Linux note.** The bundle's `bin/hvigorw` and `bin/ohpm` run directly, using the node under
+`tool/node/bin`; put both directories on `PATH` (Day's signing step runs `node`). Point
+`OHOS_NDK_HOME` at `sdk/default/openharmony/native` and `OHOS_BASE_SDK_HOME` at a versioned view
+of the same SDK:
+
+```bash
+C=~/ohos-clt/command-line-tools
+mkdir -p ~/ohos/sdk && ln -sfn $C/sdk/default/openharmony ~/ohos/sdk/18
+export OHOS_NDK_HOME=$C/sdk/default/openharmony/native OHOS_BASE_SDK_HOME=~/ohos/sdk
+export PATH=$C/bin:$C/tool/node/bin:$C/sdk/default/openharmony/toolchains:$PATH
+```
+
 **macOS note.** The Linux command-line-tools hvigor/ohpm are pure JavaScript, so they run under
 system `node` via a two-line wrapper even though the bundle is packaged for Linux:
 
@@ -167,9 +183,15 @@ it in the source host if it must survive the next preparation.
 You don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:
 
+The Oniro images are a separate download: unpack
+[`oniro_emulator.zip`](https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases/download/v6.1/oniro_emulator.zip)
+(1.4 GB, 5.5 GB unpacked) in `~/ohos/emulator`, which yields the default `~/ohos/emulator/images`,
+and install `qemu-system-x86_64`.
+
 ```bash
-# A native OpenHarmony emulator window (QEMU cocoa on macOS; no VNC, no password, no DevEco).
-# Point DAY_OHOS_EMULATOR at the Oniro image dir (default ~/ohos/emulator/images); --headless for CI.
+# A native OpenHarmony emulator window (QEMU cocoa on macOS, GTK on Linux; no VNC, no password,
+# no DevEco). Point DAY_OHOS_EMULATOR at the Oniro image dir (default ~/ohos/emulator/images).
+# --headless runs without a window, as CI does; on Linux, prefer it (see below).
 day devices boot -p harmony-arkui
 # The same image on a landscape tablet panel. Oniro has no screen of its own: it draws at whatever
 # size QEMU's virtio-gpu is told, so --device names a panel (phone 360x720, tablet 1280x800, or
@@ -180,6 +202,33 @@ day devices boot -p harmony-arkui --device tablet --orientation landscape
 # Then build + install + launch the app on every connected target (see "Multiple devices" below):
 day launch --project Day-Showcase -p harmony-arkui
 ```
+
+**Acceleration.** On an x86_64 Linux host the guest runs under KVM when this user can open
+`/dev/kvm` read-write. That usually takes membership in the `kvm` group (`sudo usermod -aG kvm
+$USER`, then log in again). Otherwise boot falls back to TCG and says so. TCG boots in several
+minutes on a 4-core desktop; set `DAY_OHOS_SMP` to the host's core count when it has fewer than
+the default 6. `DAY_OHOS_ACCEL` forces a choice (`kvm`, or `tcg,thread=multi`).
+
+**Windowed boot on Linux.** Three things, each verified 2026-09 on Ubuntu 24.04 with Homebrew's
+QEMU 11.1, under both KVM and TCG:
+
+- QEMU's GTK display reports its window's 640×480 placeholder size to virtio-gpu, and the guest
+  adopts it. When the requested panel differs, the guest switches modes while its display is
+  coming up, that `drmModeAtomicCommit` fails with ENOSPC, and the CRTC never turns on (the
+  window reads "Display output is not active"; restarting `render_service` does not recover).
+  `day devices boot` therefore asks for 640×480 on a windowed Linux boot and says so;
+  `--headless` keeps the requested panel. Resizing the window afterwards is harmless.
+- Plain `-display gtk` (cairo) painted its placeholder once and never repainted, even while the
+  guest was scanning out (the monitor's `screendump` showed the frames). Day uses
+  `-display gtk,gl=on`, which shows them.
+- `day launch` sizes its keyguard swipe from the guest's own screen (RenderService's
+  `physical resolution`), not from the requested panel: a swipe aimed at 360×720 starts below a
+  640×480 screen, the screen-lock service stays locked, and every `aa start` is refused with
+  10106102.
+
+Don't put the guest to sleep with `power-shell suspend`: the whole guest suspends, `hdcd`
+included, so every later `hdc` call hangs and nothing over hdc can wake it. Restart the
+emulator.
 
 ## Multiple devices / architectures
 
@@ -211,6 +260,14 @@ on the Oniro emulator:
 - **Frame clock** (§8.4) — `OH_NativeVSync_RequestFrame` drives `day::frame`, with delivery
   marshaled to the JS/UI loop. Integer request tickets make cancellation and late callbacks safe;
   the native source is released when idle. See [frames.md](frames.md) for timing and lifecycle.
+- **Animation** (§8.4) — `Cap::Animation` is `Native`. `set_opacity`, `set_transform`, and an
+  animated container background run inside the NDK's `animateTo` (`day_ark_animate` in the shim),
+  so ArkUI interpolates `NODE_OPACITY`, `NODE_TRANSLATE`/`NODE_SCALE`/`NODE_ROTATE` (about
+  `NODE_TRANSFORM_CENTER`), and `NODE_BACKGROUND_COLOR` on its compositor. Easing curves map to
+  ArkUI's built-in ones; a spring becomes a custom curve that samples day's own analytic spring
+  over the duration, so it overshoots and settles like every other backend, nudged to end exactly
+  on the target (ArkUI jumps to the target when a curve ends elsewhere). `apply` runs instantly
+  when the node has no UI context yet. `set_frame` is not animated.
 - **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 

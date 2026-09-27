@@ -137,6 +137,32 @@ unsafe extern "C" {
     pub fn day_ark_set_font_family(node: *mut c_void, family: *const c_char);
     pub fn day_ark_set_font_feature(node: *mut c_void, feature: *const c_char);
     pub fn day_ark_set_corner_radius(node: *mut c_void, vp: f64);
+    /// Clip children to the node's (rounded) bounds (`NODE_CLIP`).
+    pub fn day_ark_set_clip(node: *mut c_void, on: c_int);
+    /// `NODE_OPACITY` (0..1).
+    pub fn day_ark_set_opacity(node: *mut c_void, opacity: f64);
+    /// The scale/rotate pivot as fractions of the node's size (`NODE_TRANSFORM_CENTER`).
+    pub fn day_ark_set_transform_center(node: *mut c_void, ax: f64, ay: f64);
+    /// Translate (vp) + scale + z-rotation (degrees) about the transform center.
+    pub fn day_ark_set_transform(node: *mut c_void, tx: f64, ty: f64, sx: f64, sy: f64, deg: f64);
+    /// Run `apply(apply_data)` inside ArkUI's `animateTo`, so the attribute changes it makes
+    /// animate (§8.4). `curve`: 0 linear, 1 ease-in, 2 ease-out, 3 ease-in-out, 4 `custom`
+    /// (whose `custom_data` `custom_free` releases when the animation ends). `iterations` < 0
+    /// repeats forever. `apply` runs exactly once, instantly when the node has no UI context
+    /// or ArkUI refuses the animation. Returns 0 when animated.
+    pub fn day_ark_animate(
+        node: *mut c_void,
+        duration_ms: i32,
+        delay_ms: i32,
+        curve: i32,
+        custom: Option<extern "C" fn(f32, *mut c_void) -> f32>,
+        custom_data: *mut c_void,
+        custom_free: Option<extern "C" fn(*mut c_void)>,
+        iterations: i32,
+        alternate: c_int,
+        apply: extern "C" fn(*mut c_void),
+        apply_data: *mut c_void,
+    ) -> c_int;
     /// Determinate progress fraction (0..1), mapped onto ArkUI's NODE_PROGRESS_VALUE/TOTAL.
     pub fn day_ark_set_progress(node: *mut c_void, fraction: f64);
     /// Visibility: 0 = VISIBLE, else NONE (removed from layout — one TABS page shown at a time).

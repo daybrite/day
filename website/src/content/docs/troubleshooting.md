@@ -251,6 +251,23 @@ Check `OHOS_NDK_HOME` and the command-line tools installation against the
 [HarmonyOS requirements](/docs/system-requirements#harmonyos). If doctor passes but the device list
 is empty, finish the emulator or device setup before retrying the launch.
 
+These emulator failures have specific causes:
+
+- **The boot falls back to slow TCG on Linux.** `/dev/kvm` exists but this user can't open
+  it. Add yourself to the `kvm` group (`sudo usermod -aG kvm $USER`), then log in again.
+- **`day launch` installs the app but retries `aa start` until it gives up with error 10106102**
+  ("the device screen is locked"). The lock screen was never dismissed. `day launch` swipes it
+  away with a synthetic gesture sized to the emulator's screen; if the lock screen persists,
+  swipe up in the emulator window yourself, or start the installed app from its launcher icon.
+  Earlier versions of `day` aimed that swipe at the requested panel and missed on a windowed
+  Linux emulator, whose screen follows its GTK window (640×480).
+- **The emulator window is blank or reads "Display output is not active"** while `hdc` works
+  and the app runs. Current versions of `day devices boot` avoid both causes on Linux: they open
+  the GTK window with OpenGL rendering and ask for the 640×480 panel it forces. If you start
+  QEMU yourself, pass `-display gtk,gl=on` and `xres=640,yres=480` to `virtio-gpu-pci`.
+- **Every `hdc` command hangs.** The guest is asleep, perhaps after `power-shell suspend`,
+  which suspends `hdcd` too. Restart the emulator.
+
 ## Signing or provisioning fails
 
 A simulator build can succeed while a device build or release package fails to sign. From your

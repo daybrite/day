@@ -142,6 +142,7 @@ builds on Ubuntu 24.04.
 # Debian / Ubuntu
 sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config     # linux-gtk
 sudo apt install qt6-base-dev pkg-config                      # linux-qt
+sudo apt install qemu-system-x86 unzip                        # harmony-arkui (emulator)
 ```
 
 The GTK minimums are hard requirements. Day builds stack navigation on `AdwNavigationView`, and
@@ -254,10 +255,8 @@ physical device through Xcode's normal signing setup.
 HarmonyOS has two halves with different tool needs, which is why a partial install is common. The
 [HarmonyOS platform page](/docs/platforms/harmony-arkui) has the detail.
 
-1. **The Rust cross-compile** needs the OpenHarmony SDK's `native` component, which downloads
-   without a Huawei account from
-   [repo.huaweicloud.com](https://repo.huaweicloud.com/openharmony/os/). Point `OHOS_NDK_HOME` at
-   it, and add the targets:
+1. **The Rust cross-compile** needs the OpenHarmony SDK's `native` component (the NDK). Point
+   `OHOS_NDK_HOME` at it, and add the targets:
 
    ```bash
    rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
@@ -266,27 +265,89 @@ HarmonyOS has two halves with different tool needs, which is why a partial insta
 2. **Packaging the `.hap`** needs `hvigor` and `ohpm`, which are not part of the public SDK. They
    ship with the OpenHarmony **command-line-tools**, bundled with
    [DevEco Studio](https://developer.huawei.com/consumer/en/deveco-studio/) or downloadable on
-   their own. Put their `bin/` directories on `PATH`.
+   their own without an account. Put their `bin/` directory on `PATH`. hvigor builds against the
+   SDK named by `OHOS_BASE_SDK_HOME`, which must use the versioned layout `<dir>/<api>/…`.
 
-`hdc`, which installs and launches the app, sits in the SDK's sibling `toolchains/` directory; Day
-finds it there or on `PATH`.
+3. **Signing** runs Day's `sign-hap.mjs` under `node`, so `node` must be on `PATH` too.
 
-### Setting up an emulator
+`hdc`, which installs and launches the app, sits in the SDK's `toolchains/` directory, beside
+`native/`; Day finds it there or on `PATH`.
 
-Day runs the [Oniro](https://oniroproject.org) OpenHarmony emulator directly under QEMU, from a
-public image download:
+### On Linux
+
+The Linux command-line-tools bundle carries everything above: hvigor, ohpm, a bundled node, and
+an API 18 OpenHarmony SDK (`native`, `ets`, `toolchains` with `hdc` and the signing material)
+whose tools run natively on a Linux x86_64 host. So one download covers the whole build, with no
+separate SDK. It needs about 2.1 GB to download and 6.5 GB unpacked:
 
 ```bash
-brew install qemu                        # or your distro's qemu-system-x86_64
-# download oniro_emulator.zip and unpack its images, then:
-export DAY_OHOS_EMULATOR=~/ohos/emulator/images
-day devices boot -p harmony-arkui                 # --headless for CI
+mkdir -p ~/ohos-clt && cd ~/ohos-clt
+curl -fSLO https://repo.huaweicloud.com/harmonyos/ohpm/5.1.0/commandline-tools-linux-x64-5.1.0.840.zip
+unzip -q commandline-tools-linux-x64-5.1.0.840.zip && rm commandline-tools-linux-x64-5.1.0.840.zip
+
+# hvigor wants a versioned SDK layout; link the bundled SDK in as API 18.
+mkdir -p ~/ohos/sdk
+ln -sfn ~/ohos-clt/command-line-tools/sdk/default/openharmony ~/ohos/sdk/18
+```
+
+Then add these to your shell profile:
+
+```bash
+export OHOS_CLT=$HOME/ohos-clt/command-line-tools
+export OHOS_NDK_HOME=$OHOS_CLT/sdk/default/openharmony/native
+export OHOS_BASE_SDK_HOME=$HOME/ohos/sdk
+export PATH=$OHOS_CLT/bin:$OHOS_CLT/tool/node/bin:$OHOS_CLT/sdk/default/openharmony/toolchains:$PATH
+```
+
+The bundle's `bin/hvigorw` and `bin/ohpm` run as-is on Linux, using the bundle's own node, and
+`tool/node/bin` puts that node on `PATH` for signing, so no separate node install is needed. The
+node wrapper scripts in the [HarmonyOS notes](/docs/internal/harmonyos) are only for macOS. `day
+doctor --toolkit harmonyos` should now pass every check.
+
+### On macOS
+
+Use the same Linux command-line-tools bundle for hvigor and ohpm, which are pure JavaScript,
+through the node wrappers in the [HarmonyOS notes](/docs/internal/harmonyos). The bundle's SDK
+tools are Linux binaries, though, so hvigor fails with `spawn ENOEXEC`. Take the NDK, `hdc`, and
+`OHOS_BASE_SDK_HOME` from the macOS public SDK (`L2-SDK-MAC-M1-PUBLIC.tar.gz` under
+[repo.huaweicloud.com/openharmony/os](https://repo.huaweicloud.com/openharmony/os/)) instead.
+
+### Setting up the Oniro emulator
+
+Day runs the [Oniro](https://oniroproject.org) OpenHarmony emulator directly under QEMU, from a
+public image download. You need `qemu-system-x86_64` (`sudo apt install qemu-system-x86`, or
+`brew install qemu`) and about 7 GB of disk: a 1.4 GB zip that unpacks to 5.5 GB of images. The
+zip holds an `images/` directory, so unpacking it in `~/ohos/emulator` lands the images at the
+default location:
+
+```bash
+mkdir -p ~/ohos/emulator && cd ~/ohos/emulator
+curl -fSLO https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases/download/v6.1/oniro_emulator.zip
+unzip -q oniro_emulator.zip && rm oniro_emulator.zip     # → ~/ohos/emulator/images
+day devices boot -p harmony-arkui                       # --headless for no window
 ```
 
 The image comes from the
 [device_board_oniro releases](https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases)
-(v6.1 is what Day's CI runs). `DAY_OHOS_EMULATOR` defaults to `~/ohos/emulator/images`, so you
-can skip the variable by unpacking there.
+(v6.1 is what Day's CI runs). Set `DAY_OHOS_EMULATOR` if you keep the images anywhere other
+than `~/ohos/emulator/images`. Boot returns once the guest has finished starting, and QEMU keeps
+running in the background; `day launch -p harmony-arkui` then installs and starts the app on it.
+
+On an x86_64 Linux host, the emulator runs KVM-accelerated when you can open `/dev/kvm`. That
+normally means membership in the `kvm` group:
+
+```bash
+sudo usermod -aG kvm $USER      # then log out and back in
+```
+
+Without it, Day falls back to TCG software emulation. Boot then takes several minutes, and more
+on a machine with fewer cores than the emulator's six vCPUs; set `DAY_OHOS_SMP` to your core
+count there. On macOS the emulator always runs under TCG.
+
+On Linux the emulator window is a GTK window drawn with OpenGL, and the guest runs at 640×480
+landscape whatever `--device` asks for, because that is the size the window reports to the
+guest. `--headless` keeps the requested panel. To watch a headless emulator, take screenshots with
+`hdc shell uitest screenCap -p /data/local/tmp/s.png` and `hdc file recv /data/local/tmp/s.png`.
 
 The x86_64 emulator image carries an arm64-only ArkWeb engine, so the web view piece does not
 render there. It works on a physical device.

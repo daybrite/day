@@ -137,11 +137,12 @@ carry no compensating ARIA roles. The
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation**: partial. `with_animation(spec, || …)` ships, and four of the eight backends execute
-  opacity, transform, and frame changes natively: AppKit, UIKit, Android, and web. On GTK, Qt, XAML,
-  and ArkUI the changes apply at commit with no animation (`Cap::Animation` reports unsupported),
-  because Day never ticks its own frames for native widgets. An animated background *color*
-  interpolates on UIKit only, and the enter/exit `.transition` surface is not implemented.
+- **Animation**: partial. `with_animation(spec, || …)` ships, and five of the eight backends execute
+  opacity, transform, and frame changes natively: AppKit, UIKit, Android, web, and ArkUI (where
+  frames move instantly). On GTK, Qt, and XAML the changes apply at commit with no animation
+  (`Cap::Animation` reports unsupported), because Day never ticks its own frames for native
+  widgets. An animated background *color* interpolates on UIKit and ArkUI only, and the enter/exit
+  `.transition` surface is not implemented.
 - **Multi-window:** [secondary windows](/docs/internal/windows) work on every backend — native
   windows on AppKit, GTK, Qt, XAML, and Android, UIScenes on iPad, a multiton ability on
   HarmonyOS; iPhone and web present them as a fullscreen cover in the primary window. Probe

@@ -39,9 +39,11 @@ artifact without a vendor account. `day pack -p harmony-arkui` produces the rele
 with your own material when configured.
 
 The [`day devices boot`](/docs/cli#simulators-emulators-and-devices) command starts the emulator: `day devices boot -p harmony-arkui` (add
-`--headless` for CI) boots the Oniro QEMU image and connects `hdc`. It does not download images:
-point `DAY_OHOS_EMULATOR` at a directory holding the Oniro emulator images (default
-`~/ohos/emulator/images`), or the command errors naming what is missing.
+`--headless` to run without a window) boots the Oniro QEMU image and connects `hdc`. It does not
+download images: unpack the Oniro release's `oniro_emulator.zip` into `~/ohos/emulator` (or point
+`DAY_OHOS_EMULATOR` at its `images/` directory), or the command errors naming what is missing.
+[System requirements](/docs/system-requirements#setting-up-the-oniro-emulator) has the download, the
+QEMU install, and KVM setup.
 
 ## Caveats
 
@@ -54,6 +56,10 @@ The widget vocabulary is implemented; platform integration is partial:
   pull-to-refresh have native arms, and the web view has an **ArkTS** arm: the crate ships its own
   ArkTS component, staged into the host project via `[package.metadata.day.ohos]`, with load,
   back/forward, stop, and reload working.
+- Animation (`with_animation`, `.animation`) runs on ArkUI's own animator (`animateTo`):
+  opacity, transform, and background color interpolate with the requested curve, duration,
+  delay, and repeat, and a spring follows Day's own spring curve. Frame changes (layout moves
+  and resizes) apply instantly, as on Android.
 - All three picker styles collapse to one control: menu, segmented, and inline all become
   `ARKUI_NODE_TEXT_PICKER`.
 - Layout is measured for very few kinds. Labels, buttons and the text area ask ArkUI to measure;

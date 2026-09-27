@@ -27,6 +27,7 @@
 #include <vector>
 
 #include <arkui/drag_and_drop.h>
+#include <arkui/native_animate.h>
 #include <arkui/native_gesture.h>
 #include <arkui/native_interface.h>
 #include <arkui/native_interface_focus.h>
@@ -578,7 +579,15 @@ void day_ark_set_textarea_placeholder(void* n, const char* s) {
 // selected index is a u32 attribute. HarmonyOS has no segmented control, so every day picker
 // style maps to the native TEXT_PICKER wheel.
 void day_ark_set_picker(void* n, const char* options_semi, uint32_t selected) {
-    set_str(n, NODE_TEXT_PICKER_OPTION_RANGE, options_semi);
+    // The range needs its type in .value[0] next to the ';'-joined strings; with the string
+    // alone ArkUI keeps no options and the picker draws only its divider lines.
+    ArkUI_NumberValue nv;
+    nv.i32 = ARKUI_TEXTPICKER_RANGETYPE_SINGLE;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    it.string = options_semi ? options_semi : "";
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TEXT_PICKER_OPTION_RANGE, &it);
     set_u32(n, NODE_TEXT_PICKER_OPTION_SELECTED, selected);
 }
 void day_ark_set_picker_selected(void* n, uint32_t selected) {
@@ -656,6 +665,134 @@ void day_ark_set_font_feature(void* n, const char* feature) {
     set_str(n, NODE_FONT_FEATURE, feature);
 }
 void day_ark_set_corner_radius(void* n, double vp) { set_f32(n, NODE_BORDER_RADIUS, (float)vp); }
+// Clip children to the node's (rounded) bounds. NODE_BORDER_RADIUS rounds only the node's own
+// background; `.corner_radius` puts the fill on an inner node, so the outer one must clip.
+void day_ark_set_clip(void* n, int on) {
+    ArkUI_NumberValue nv;
+    nv.i32 = on ? 1 : 0;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_CLIP, &it);
+}
+
+// The animatable visual channels (§8.4). Plain setters: animation comes from calling them
+// inside `day_ark_animate`'s apply callback, where ArkUI interpolates every attribute change.
+void day_ark_set_opacity(void* n, double opacity) { set_f32(n, NODE_OPACITY, (float)opacity); }
+// The pivot for scale + rotate, as fractions of the node's size (NODE_TRANSFORM_CENTER's
+// percentage slots [3]/[4] override the vp slots [0]/[1]).
+void day_ark_set_transform_center(void* n, double ax, double ay) {
+    ArkUI_NumberValue nv[5];
+    nv[0].f32 = 0;
+    nv[1].f32 = 0;
+    nv[2].f32 = 0;
+    nv[3].f32 = (float)ax;
+    nv[4].f32 = (float)ay;
+    ArkUI_AttributeItem it{};
+    it.value = nv;
+    it.size = 5;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TRANSFORM_CENTER, &it);
+}
+void day_ark_set_transform(void* n, double tx, double ty, double sx, double sy, double deg) {
+    ArkUI_NumberValue t[3];
+    t[0].f32 = (float)tx;
+    t[1].f32 = (float)ty;
+    t[2].f32 = 0;
+    ArkUI_AttributeItem ti{};
+    ti.value = t;
+    ti.size = 3;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_TRANSLATE, &ti);
+    ArkUI_NumberValue s[2];
+    s[0].f32 = (float)sx;
+    s[1].f32 = (float)sy;
+    ArkUI_AttributeItem si{};
+    si.value = s;
+    si.size = 2;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_SCALE, &si);
+    // Rotation about the z axis (the screen normal); [4] = perspective, 0 = none.
+    ArkUI_NumberValue r[5];
+    r[0].f32 = 0;
+    r[1].f32 = 0;
+    r[2].f32 = 1;
+    r[3].f32 = (float)deg;
+    r[4].f32 = 0;
+    ArkUI_AttributeItem ri{};
+    ri.value = r;
+    ri.size = 5;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_ROTATE, &ri);
+}
+
+// Backend-executed animation (§8.4) via ArkUI's animateTo: the attribute changes `apply` makes
+// animate from their current values on ArkUI's own compositor. `curve`: 0 linear, 1 ease-in,
+// 2 ease-out, 3 ease-in-out, 4 custom (`custom(fraction, custom_data)`, which day uses for its
+// spring so the shape and timing match every other backend; `custom_free` releases the data
+// when the animation ends). `iterations` < 0 repeats forever. `apply` runs exactly once: inside
+// animateTo, or directly when the node has no UI context yet or animateTo refuses, in which case
+// the change is simply instant. Returns 0 when animated.
+struct DayAnim {
+    void (*apply)(void*);
+    void* apply_data;
+    bool applied;
+    ArkUI_AnimateOption* option;
+    ArkUI_CurveHandle curve;
+    void (*custom_free)(void*);
+    void* custom_data;
+};
+static ArkUI_NativeAnimateAPI_1* g_anim = nullptr;
+static void day_anim_update(void* ud) {
+    auto* a = (DayAnim*)ud;
+    if (!a->applied) {
+        a->applied = true;
+        a->apply(a->apply_data);
+    }
+}
+static void day_anim_free(DayAnim* a) {
+    if (a->option) OH_ArkUI_AnimateOption_Dispose(a->option);
+    if (a->curve) OH_ArkUI_Curve_DisposeCurve(a->curve);
+    if (a->custom_free) a->custom_free(a->custom_data);
+    delete a;
+}
+static void day_anim_done(void* ud) { day_anim_free((DayAnim*)ud); }
+
+int day_ark_animate(void* n, int32_t duration_ms, int32_t delay_ms, int32_t curve,
+                    float (*custom)(float, void*), void* custom_data, void (*custom_free)(void*),
+                    int32_t iterations, int alternate, void (*apply)(void*), void* apply_data) {
+    auto* a = new DayAnim{apply, apply_data, false, nullptr, nullptr, custom_free, custom_data};
+    if (!g_anim) {
+        OH_ArkUI_GetModuleInterface(ARKUI_NATIVE_ANIMATE, ArkUI_NativeAnimateAPI_1, g_anim);
+    }
+    ArkUI_ContextHandle ctx = n ? OH_ArkUI_GetContextByNode((ArkUI_NodeHandle)n) : nullptr;
+    int rc = -1;
+    if (g_anim && ctx) {
+        a->option = OH_ArkUI_AnimateOption_Create();
+        OH_ArkUI_AnimateOption_SetDuration(a->option, duration_ms);
+        OH_ArkUI_AnimateOption_SetDelay(a->option, delay_ms);
+        OH_ArkUI_AnimateOption_SetIterations(a->option, iterations);
+        OH_ArkUI_AnimateOption_SetPlayMode(a->option, alternate ? ARKUI_ANIMATION_PLAY_MODE_ALTERNATE
+                                                                : ARKUI_ANIMATION_PLAY_MODE_NORMAL);
+        if (curve == 4 && custom) {
+            a->curve = OH_ArkUI_Curve_CreateCustomCurve(custom_data, custom);
+        }
+        if (a->curve) {
+            OH_ArkUI_AnimateOption_SetICurve(a->option, a->curve);
+        } else {
+            ArkUI_AnimationCurve c = curve == 0   ? ARKUI_CURVE_LINEAR
+                                     : curve == 1 ? ARKUI_CURVE_EASE_IN
+                                     : curve == 2 ? ARKUI_CURVE_EASE_OUT
+                                                  : ARKUI_CURVE_EASE_IN_OUT;
+            OH_ArkUI_AnimateOption_SetCurve(a->option, c);
+        }
+        ArkUI_ContextCallback update{a, day_anim_update};
+        ArkUI_AnimateCompleteCallback done{ARKUI_FINISH_CALLBACK_REMOVED, day_anim_done, a};
+        rc = g_anim->animateTo(ctx, a->option, &update, &done);
+    }
+    if (rc != 0) {
+        // Not animated: apply instantly, and nothing will call `done`, so free here.
+        day_anim_update(a);
+        day_anim_free(a);
+    }
+    return rc;
+}
 
 // Determinate progress bar: ArkUI uses a value in [0, total]; day passes the 0..1 fraction, so
 // scale onto a fixed 0..1000 range (like day-android's LinearProgressIndicator ticks).

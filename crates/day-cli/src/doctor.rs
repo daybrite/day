@@ -699,7 +699,8 @@ fn harmonyos_group() -> Group {
                 • hvigor + ohpm — from the OpenHarmony command-line-tools (bundled with DevEco Studio);\n\
                   put their bin/ on PATH. These package the .hap and are not part of the public SDK.\n\
                 An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build —\n\
-                start the bundled Oniro emulator with `day devices boot -p harmony-arkui`.",
+                download the Oniro images (they are not bundled; see docs/harmonyos.md), then start\n\
+                them with `day devices boot -p harmony-arkui`.",
     }
 }
 
