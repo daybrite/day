@@ -880,9 +880,10 @@ mod imp {
     ) {
         clear_button_content(node);
         let source = match icon {
-            Some(day_spec::Icon::Symbol(s)) => {
-                day_spec::resource::stage_symbol_svg(*s).map(|p| p.to_string_lossy().into_owned())
-            }
+            // The symbol is staged into the app's sandbox cache, and NODE_IMAGE_SRC reads a bare
+            // path as the name of a bundled asset ("GetAsset failed"), so it must be a file URI.
+            Some(day_spec::Icon::Symbol(s)) => day_spec::resource::stage_symbol_svg(*s)
+                .map(|p| format!("file://{}", p.to_string_lossy())),
             Some(day_spec::Icon::Image(name)) => {
                 let svg = format!("day/{name}.svg");
                 let vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
@@ -2472,8 +2473,15 @@ mod imp {
             match kind {
                 kinds::LABEL | kinds::BUTTON => {
                     let (mut w, mut hh) = (0.0f64, 0.0f64);
+                    // A label measures on a fresh copy: ArkUI answers a Text whose content
+                    // changed with the old content's size (see the shim).
+                    let measure = if kind == kinds::LABEL {
+                        ffi::day_ark_measure_label
+                    } else {
+                        ffi::day_ark_measure
+                    };
                     unsafe {
-                        ffi::day_ark_measure(
+                        measure(
                             h.0,
                             p.width.unwrap_or(-1.0),
                             p.height.unwrap_or(-1.0),

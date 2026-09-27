@@ -870,6 +870,45 @@ void day_ark_measure(void* n, double max_w, double max_h, double* out_w, double*
     *out_h = sz.height / g_density;
 }
 
+// Measure a label (a TEXT node) under the same proposal as `day_ark_measure`, on a fresh copy.
+// After a Text's NODE_TEXT_CONTENT changes, `measureNode` on that node keeps answering the
+// previous text's size until ArkUI's own layout pass has run (markDirty and a different
+// constraint don't clear it), so a label whose text grows is laid out at its old width and
+// wraps or clips. A throwaway TEXT node carrying the same text and font attributes has no such
+// cache. A styled label (SPAN children) can't be copied this simply, so it keeps the direct
+// measure, as does anything the copy sizes to nothing.
+static const ArkUI_NodeAttributeType k_text_measure_attrs[] = {
+    NODE_TEXT_CONTENT,     NODE_FONT_SIZE,           NODE_FONT_WEIGHT,      NODE_FONT_STYLE,
+    NODE_FONT_FAMILY,      NODE_FONT_FEATURE,        NODE_TEXT_MAX_LINES,   NODE_TEXT_LETTER_SPACING,
+    NODE_TEXT_LINE_HEIGHT, NODE_TEXT_BASELINE_OFFSET,
+};
+void day_ark_measure_label(void* n, double max_w, double max_h, double* out_w, double* out_h) {
+    *out_w = 0;
+    *out_h = 0;
+    if (!g_api || !n) return;
+    auto src = (ArkUI_NodeHandle)n;
+    if (g_api->getTotalChildCount(src) > 0) {
+        day_ark_measure(n, max_w, max_h, out_w, out_h);
+        return;
+    }
+    ArkUI_NodeHandle probe = g_api->createNode(ARKUI_NODE_TEXT);
+    if (!probe) {
+        day_ark_measure(n, max_w, max_h, out_w, out_h);
+        return;
+    }
+    for (ArkUI_NodeAttributeType a : k_text_measure_attrs) {
+        const ArkUI_AttributeItem* it = g_api->getAttribute(src, a);
+        if (it) g_api->setAttribute(probe, a, it);
+    }
+    day_ark_measure(probe, max_w, max_h, out_w, out_h);
+    g_api->disposeNode(probe);
+    // Nothing to size on the copy: a styled label keeps its text in SPAN children (which
+    // getTotalChildCount doesn't count) and an empty NODE_TEXT_CONTENT, so measure it directly.
+    if (*out_w <= 0) {
+        day_ark_measure(n, max_w, max_h, out_w, out_h);
+    }
+}
+
 // First text baseline from the node's top, in vp, for a box `box_h` tall (docs/baseline.md).
 // The ArkUI C API exposes no baseline: NODE_FONT_SIZE is the only type metric a native node will
 // answer, so this centers one line box of that font in the node's height and puts the baseline an

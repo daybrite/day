@@ -268,6 +268,12 @@ on the Oniro emulator:
   over the duration, so it overshoots and settles like every other backend, nudged to end exactly
   on the target (ArkUI jumps to the target when a curve ends elsewhere). `apply` runs instantly
   when the node has no UI context yet. `set_frame` is not animated.
+- **Label measurement** — a label measures on a fresh copy of its Text node
+  (`day_ark_measure_label`): after a Text's `NODE_TEXT_CONTENT` changes, ArkUI's `measureNode`
+  keeps returning the previous text's size until its own layout pass runs (`markDirty` and a
+  changed constraint don't clear it), so a readout that grew was laid out at its old width and
+  wrapped. The copy costs about 80 µs per measure on the emulator. Styled labels (spans) still
+  measure directly.
 - **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 

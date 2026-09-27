@@ -185,6 +185,15 @@ unsafe extern "C" {
 
     /// First text baseline from the node's top for a box `box_h` tall, in vp; `-1` ⇒ the node
     /// has no font attribute and so no baseline (docs/baseline.md).
+    /// `day_ark_measure` for a label (TEXT node), on a fresh copy so a changed text measures
+    /// at its new size rather than the one ArkUI cached for the old text.
+    pub fn day_ark_measure_label(
+        node: *mut c_void,
+        max_w: f64,
+        max_h: f64,
+        out_w: *mut f64,
+        out_h: *mut f64,
+    );
     pub fn day_ark_baseline(node: *mut c_void, box_h: f64) -> f64;
 
     /// Register a native event (0=click 1=text 2=toggle 3=slider 6=swiper); `id` returns as userData.
