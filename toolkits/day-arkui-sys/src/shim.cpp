@@ -665,6 +665,25 @@ void day_ark_set_font_feature(void* n, const char* feature) {
     set_str(n, NODE_FONT_FEATURE, feature);
 }
 void day_ark_set_corner_radius(void* n, double vp) { set_f32(n, NODE_BORDER_RADIUS, (float)vp); }
+// Weight (CSS 100..900, snapped to ArkUI's W100..W900 rungs) and italic for a text node. Set both
+// every time, so a label that stops asking for bold or italic goes back to regular upright.
+void day_ark_set_font_weight_style(void* n, int32_t css_weight, int italic) {
+    int32_t rung = (css_weight + 50) / 100;
+    if (rung < 1) rung = 1;
+    if (rung > 9) rung = 9;
+    ArkUI_NumberValue w;
+    w.i32 = ARKUI_FONT_WEIGHT_W100 + (rung - 1);
+    ArkUI_AttributeItem wi{};
+    wi.value = &w;
+    wi.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_FONT_WEIGHT, &wi);
+    ArkUI_NumberValue st;
+    st.i32 = italic ? ARKUI_FONT_STYLE_ITALIC : ARKUI_FONT_STYLE_NORMAL;
+    ArkUI_AttributeItem si{};
+    si.value = &st;
+    si.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_FONT_STYLE, &si);
+}
 // Clip children to the node's (rounded) bounds. NODE_BORDER_RADIUS rounds only the node's own
 // background; `.corner_radius` puts the fill on an inner node, so the outer one must clip.
 void day_ark_set_clip(void* n, int on) {
@@ -907,6 +926,64 @@ void day_ark_measure_label(void* n, double max_w, double max_h, double* out_w, d
     if (*out_w <= 0) {
         day_ark_measure(n, max_w, max_h, out_w, out_h);
     }
+}
+
+// Measure a button under the same proposal as `day_ark_measure`.
+//
+// A title button measures a fresh copy, for the reason a label does: after NODE_BUTTON_LABEL
+// changes, `measureNode` answers with the old title's size (a stepper's "+" came back 32 wide,
+// then 40). A button with custom `content` (the icon + title Row `apply_button_content` inserts)
+// is sized from that Row plus the button's own padding, because ArkUI measures the Button at its
+// 32 vp minimum without regard to the Row, which then spilled out of the capsule.
+void day_ark_measure_button(void* n, void* content, double max_w, double max_h, double* out_w,
+                            double* out_h) {
+    *out_w = 0;
+    *out_h = 0;
+    if (!g_api || !n) return;
+    auto src = (ArkUI_NodeHandle)n;
+    if (!content) {
+        // Only the title is copied: Day sets no font on a button (just its title and colors),
+        // and the NODE_FONT_* getters are Text-model accessors that crash on a Button node.
+        ArkUI_NodeHandle probe = g_api->createNode(ARKUI_NODE_BUTTON);
+        if (probe) {
+            const ArkUI_AttributeItem* it = g_api->getAttribute(src, NODE_BUTTON_LABEL);
+            if (it) g_api->setAttribute(probe, NODE_BUTTON_LABEL, it);
+            day_ark_measure(probe, max_w, max_h, out_w, out_h);
+            g_api->disposeNode(probe);
+        }
+        if (*out_w <= 0) day_ark_measure(n, max_w, max_h, out_w, out_h);
+        return;
+    }
+    // The capsule around one line of text: a fresh "M" button against a fresh "M" text at the
+    // button's default font size. Their difference is the button's padding; the button's height
+    // is its minimum. Measured once, since the theme doesn't change while the app runs.
+    static bool calibrated = false;
+    static double pad_w = 0, pad_h = 0, min_h = 0;
+    if (!calibrated) {
+        ArkUI_NodeHandle b = g_api->createNode(ARKUI_NODE_BUTTON);
+        ArkUI_NodeHandle t = g_api->createNode(ARKUI_NODE_TEXT);
+        if (b && t) {
+            set_str(b, NODE_BUTTON_LABEL, "M");
+            set_str(t, NODE_TEXT_CONTENT, "M");
+            // ArkUI's button title is 16 fp by default; the text gets the same explicitly.
+            set_f32(t, NODE_FONT_SIZE, 16.0f);
+            double bw, bh, tw, th;
+            day_ark_measure(b, -1, -1, &bw, &bh);
+            day_ark_measure(t, -1, -1, &tw, &th);
+            pad_w = bw > tw ? bw - tw : 0;
+            pad_h = bh > th ? bh - th : 0;
+            min_h = bh;
+            calibrated = true;
+        }
+        if (b) g_api->disposeNode(b);
+        if (t) g_api->disposeNode(t);
+    }
+    double cw, ch;
+    const double inner_w = max_w > 0 ? (max_w > pad_w ? max_w - pad_w : 1) : -1;
+    const double inner_h = max_h > 0 ? (max_h > pad_h ? max_h - pad_h : 1) : -1;
+    day_ark_measure(content, inner_w, inner_h, &cw, &ch);
+    *out_w = cw + pad_w;
+    *out_h = ch + pad_h > min_h ? ch + pad_h : min_h;
 }
 
 // First text baseline from the node's top, in vp, for a box `box_h` tall (docs/baseline.md).
@@ -2176,6 +2253,17 @@ static void canvas_draw(void* node, OH_Drawing_Canvas* cv) {
                     OH_Drawing_BrushSetAlpha(alpha, (uint8_t)(clamped * 255.0f + 0.5f));
                     OH_Drawing_CanvasSaveLayer(cv, dst, alpha);
                 }
+                // A fully transparent rect first. A recording whose only content is pixel map
+                // draws renders nothing: Canvas's "Image from bytes" stayed blank while the
+                // decode, the lookup and this draw call all succeeded, and the same image
+                // appeared as soon as anything else was drawn before it. The clear fill gives
+                // the recording that content without changing a pixel.
+                OH_Drawing_Brush* clear = OH_Drawing_BrushCreate();
+                OH_Drawing_BrushSetColor(clear, 0x00000000);
+                OH_Drawing_CanvasAttachBrush(cv, clear);
+                OH_Drawing_CanvasDrawRect(cv, dst);
+                OH_Drawing_CanvasDetachBrush(cv);
+                OH_Drawing_BrushDestroy(clear);
                 OH_Drawing_CanvasDrawPixelMapRect(cv, dpm, src, dst, so);
                 if (faded) {
                     OH_Drawing_CanvasRestore(cv);

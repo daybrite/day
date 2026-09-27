@@ -137,6 +137,8 @@ unsafe extern "C" {
     pub fn day_ark_set_font_family(node: *mut c_void, family: *const c_char);
     pub fn day_ark_set_font_feature(node: *mut c_void, feature: *const c_char);
     pub fn day_ark_set_corner_radius(node: *mut c_void, vp: f64);
+    /// Font weight (CSS 100..900) and italic on a text node (`NODE_FONT_WEIGHT`/`NODE_FONT_STYLE`).
+    pub fn day_ark_set_font_weight_style(node: *mut c_void, css_weight: i32, italic: c_int);
     /// Clip children to the node's (rounded) bounds (`NODE_CLIP`).
     pub fn day_ark_set_clip(node: *mut c_void, on: c_int);
     /// `NODE_OPACITY` (0..1).
@@ -187,6 +189,16 @@ unsafe extern "C" {
     /// has no font attribute and so no baseline (docs/baseline.md).
     /// `day_ark_measure` for a label (TEXT node), on a fresh copy so a changed text measures
     /// at its new size rather than the one ArkUI cached for the old text.
+    /// `day_ark_measure` for a button: a fresh copy for a title button, or the custom `content`
+    /// Row (icon + title) plus the button's padding when `content` is non-null.
+    pub fn day_ark_measure_button(
+        node: *mut c_void,
+        content: *mut c_void,
+        max_w: f64,
+        max_h: f64,
+        out_w: *mut f64,
+        out_h: *mut f64,
+    );
     pub fn day_ark_measure_label(
         node: *mut c_void,
         max_w: f64,

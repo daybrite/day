@@ -340,9 +340,9 @@ normally means membership in the `kvm` group:
 sudo usermod -aG kvm $USER      # then log out and back in
 ```
 
-Without it, Day falls back to TCG software emulation. Boot then takes several minutes, and more
-on a machine with fewer cores than the emulator's six vCPUs; set `DAY_OHOS_SMP` to your core
-count there. On macOS the emulator always runs under TCG.
+Without it, Day falls back to TCG software emulation, and boot takes several minutes. The
+emulator gets six vCPUs, or as many as the host has cores when that is fewer; set
+`DAY_OHOS_SMP` to override. On macOS the emulator always runs under TCG.
 
 On Linux the emulator window is a GTK window drawn with OpenGL, and the guest runs at 640×480
 landscape whatever `--device` asks for, because that is the size the window reports to the

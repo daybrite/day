@@ -206,8 +206,8 @@ day launch --project Day-Showcase -p harmony-arkui
 **Acceleration.** On an x86_64 Linux host the guest runs under KVM when this user can open
 `/dev/kvm` read-write. That usually takes membership in the `kvm` group (`sudo usermod -aG kvm
 $USER`, then log in again). Otherwise boot falls back to TCG and says so. TCG boots in several
-minutes on a 4-core desktop; set `DAY_OHOS_SMP` to the host's core count when it has fewer than
-the default 6. `DAY_OHOS_ACCEL` forces a choice (`kvm`, or `tcg,thread=multi`).
+minutes on a 4-core desktop. The guest gets 6 vCPUs, or the host's core count when it has fewer;
+`DAY_OHOS_SMP` overrides that. `DAY_OHOS_ACCEL` forces a choice (`kvm`, or `tcg,thread=multi`).
 
 **Windowed boot on Linux.** Three things, each verified 2026-09 on Ubuntu 24.04 with Homebrew's
 QEMU 11.1, under both KVM and TCG:
@@ -274,6 +274,15 @@ on the Oniro emulator:
   changed constraint don't clear it), so a readout that grew was laid out at its old width and
   wrapped. The copy costs about 80 µs per measure on the emulator. Styled labels (spans) still
   measure directly.
+- **Button measurement** — a title button measures a fresh copy (`day_ark_measure_button`), for
+  the stale-size reason labels do. An icon button (the Row `apply_button_content` inserts) is
+  sized from that Row plus the capsule's padding, calibrated once from a fresh "M" button against
+  a fresh "M" text: ArkUI measures the Button at its 32 vp minimum without regard to the Row.
+  Never read `NODE_FONT_*` from a Button node: those getters are Text-model accessors and crash
+  (`TextModelNG::GetFontFamily`).
+- **Canvas images** — `DrawOp::Image` draws the decoded pixelmap with
+  `OH_Drawing_CanvasDrawPixelMapRect`, preceded by a fully transparent rect: a custom node's
+  recording whose only content is pixel map draws renders nothing.
 - **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 

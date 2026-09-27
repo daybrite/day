@@ -61,6 +61,11 @@ pub(crate) fn staged_harmony_dir(project: &Project) -> PathBuf {
     crate::ops::staged_root(project).join("harmony/project")
 }
 
+/// The emulator's default vCPU count: 6, or the host's core count when it has fewer.
+fn default_smp() -> usize {
+    std::thread::available_parallelism().map_or(6, |n| n.get().min(6))
+}
+
 /// The size QEMU's GTK display opens its window at, before the guest has set a scanout; a
 /// windowed Linux guest runs at this size whatever panel was asked for (see `emulator_launch`).
 const GTK_WINDOW_PANEL: (u32, u32) = (640, 480);
@@ -196,10 +201,11 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         }
     }
     let gpu = format!("virtio-gpu-pci,xres={xres},yres={yres},max_outputs=1,addr=08.0");
-    // vCPU count (DAY_OHOS_SMP, default 6). On a busy host fewer vCPUs boot more reliably:
-    // TCG vCPU threads that lose the CPU while holding a guest spinlock leave the other vCPUs
-    // spinning (guest load explodes, WMS/boot services stall), classic lock-holder preemption.
-    let smp = std::env::var("DAY_OHOS_SMP").unwrap_or_else(|_| "6".into());
+    // vCPU count (DAY_OHOS_SMP, default 6, capped at the host's cores). On a busy host fewer
+    // vCPUs boot more reliably: TCG vCPU threads that lose the CPU while holding a guest
+    // spinlock leave the other vCPUs spinning (guest load explodes, WMS/boot services stall),
+    // classic lock-holder preemption, and more vCPUs than cores guarantees that contention.
+    let smp = std::env::var("DAY_OHOS_SMP").unwrap_or_else(|_| default_smp().to_string());
 
     // Accelerator: the Oniro guest is x86_64, so on a same-arch host that exposes `/dev/kvm`
     // (an x86_64 Linux CI runner with nested virtualization) it runs KVM-accelerated at

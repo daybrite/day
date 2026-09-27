@@ -762,6 +762,15 @@ mod imp {
         // asking for them goes back to proportional on the next patch.
         let feature = if spec.tabular { "tnum 1" } else { "" };
         unsafe { ffi::day_ark_set_font_feature(node, cstr(feature).as_ptr()) };
+        // Weight and italic, also unconditional. An explicit weight wins; otherwise the style's
+        // own (a headline is semibold, as on Android and Apple).
+        let weight = spec.weight.unwrap_or(match spec.style {
+            Font::Headline => day_spec::FontWeight::Semibold,
+            _ => day_spec::FontWeight::Regular,
+        });
+        unsafe {
+            ffi::day_ark_set_font_weight_style(node, i32::from(weight.css()), spec.italic as c_int)
+        };
     }
 
     // day kind → the shim's node-kind code (see kind_map in shim.cpp).
@@ -2488,18 +2497,36 @@ mod imp {
 
         fn measure(&mut self, h: &AHandle, kind: PieceKind, p: Proposal) -> Size {
             match kind {
-                kinds::LABEL | kinds::BUTTON => {
+                kinds::LABEL => {
                     let (mut w, mut hh) = (0.0f64, 0.0f64);
                     // A label measures on a fresh copy: ArkUI answers a Text whose content
                     // changed with the old content's size (see the shim).
-                    let measure = if kind == kinds::LABEL {
-                        ffi::day_ark_measure_label
-                    } else {
-                        ffi::day_ark_measure
-                    };
                     unsafe {
-                        measure(
+                        ffi::day_ark_measure_label(
                             h.0,
+                            p.width.unwrap_or(-1.0),
+                            p.height.unwrap_or(-1.0),
+                            &mut w,
+                            &mut hh,
+                        )
+                    };
+                    Size::new(w, hh)
+                }
+                kinds::BUTTON => {
+                    let (mut w, mut hh) = (0.0f64, 0.0f64);
+                    // An icon button is sized from its content Row (see `apply_button_content`),
+                    // a title button from a fresh copy (see the shim).
+                    let content = BUTTON_CHILDREN
+                        .with(|m| {
+                            m.borrow()
+                                .get(&(h.0 as usize))
+                                .and_then(|c| c.first().copied())
+                        })
+                        .map_or(std::ptr::null_mut(), |row| row.0);
+                    unsafe {
+                        ffi::day_ark_measure_button(
+                            h.0,
+                            content,
                             p.width.unwrap_or(-1.0),
                             p.height.unwrap_or(-1.0),
                             &mut w,
