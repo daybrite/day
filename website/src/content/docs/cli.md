@@ -357,7 +357,10 @@ OpenHarmony emulator has no stop yet; close its window.
 
 `--android-device` and `--ohos-device` take precedence over `ANDROID_SERIAL` and
 `DAY_OHOS_TARGET`, so an exported value keeps working as the default and the flag overrides it for
-one run. `--device` is an accepted alias for `--ios-simulator`.
+one run. `--device` names the device for every mobile platform launched: an iOS simulator
+name or UDID, an Android serial, or an OpenHarmony key, with a platform's own flag taking
+precedence. A device named any of these ways must be connected and ready, or the launch fails
+before building; it never falls back to another device.
 
 Whichever device a run names is also the one its dayscript talks to and its screenshots come
 from; the port forward and the capture follow the selection rather than whichever device

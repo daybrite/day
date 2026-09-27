@@ -1602,8 +1602,8 @@ fn select_sim(booted: &[String], want: &str) -> Result<Vec<String>, String> {
         .collect();
     if named.is_empty() {
         return Err(format!(
-            "--ios-simulator {want:?} is not a booted iOS simulator (booted: {}). Boot it first: \
-             `xcrun simctl boot {want:?}`",
+            "{want:?} is not a booted iOS simulator (booted: {}). Boot it first: \
+             `xcrun simctl boot {want:?}`; a physical iPhone or iPad takes --ios-device",
             if booted.is_empty() {
                 "none".to_string()
             } else {
@@ -2208,6 +2208,78 @@ pub(crate) fn verify_android_capture(serial: &str) -> Result<(), String> {
 /// `--android-device`, else `ANDROID_SERIAL` (adb's device-selection variable), narrows the
 /// list to that one device, so launches, installs, and dayscript sessions target it exclusively
 /// when several are attached (the default remains all connected devices).
+/// The simulator a launch names, when it names one, checked against the booted simulators.
+pub(crate) fn check_ios_simulator(spec: &LaunchSpec) -> Result<(), String> {
+    match spec.ios_simulator.as_deref() {
+        Some(want) if !spec.wants_ios_device() => select_sim(&booted_sims(), want).map(|_| ()),
+        _ => Ok(()),
+    }
+}
+
+/// Every device `adb devices` lists, with its state (`device`, `unauthorized`, `offline`, …).
+fn adb_device_states() -> Vec<(String, String)> {
+    let Ok(out) = Command::new(day_toolchain::adb_bin())
+        .arg("devices")
+        .output()
+    else {
+        return Vec::new();
+    };
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .skip(1) // "List of devices attached"
+        .filter_map(|l| {
+            let mut it = l.split_whitespace();
+            Some((it.next()?.to_string(), it.next()?.to_string()))
+        })
+        .collect()
+}
+
+/// The serial a launch asks for: `--device` / `--android-device`, else `ANDROID_SERIAL`.
+pub(crate) fn requested_android_serial(spec: &LaunchSpec) -> Option<String> {
+    spec.android_device.clone().or_else(|| {
+        std::env::var("ANDROID_SERIAL")
+            .ok()
+            .filter(|s| !s.is_empty())
+    })
+}
+
+/// Why the Android device `serial` cannot be launched on, or `None` when it is connected and
+/// ready. A device adb sees but cannot use is told apart from one it does not see at all,
+/// because the fixes differ: accept a prompt on the phone, or connect it.
+pub(crate) fn android_device_problem(serial: &str) -> Option<String> {
+    device_problem(serial, &adb_device_states())
+}
+
+/// [`android_device_problem`] against a given `adb devices` listing.
+fn device_problem(serial: &str, states: &[(String, String)]) -> Option<String> {
+    match states.iter().find(|(s, _)| s == serial) {
+        Some((_, state)) if state == "device" => None,
+        Some((_, state)) => Some(format!(
+            "Android device {serial:?} is connected but {state}: {}",
+            match state.as_str() {
+                "unauthorized" => "accept the USB debugging prompt on the device",
+                "offline" => "reconnect it, or restart adb with `adb kill-server`",
+                _ => "check `adb devices`",
+            }
+        )),
+        None => {
+            let ready: Vec<&str> = states
+                .iter()
+                .filter(|(_, state)| state == "device")
+                .map(|(s, _)| s.as_str())
+                .collect();
+            Some(format!(
+                "Android device {serial:?} is not connected (connected: {}; check `adb devices`)",
+                if ready.is_empty() {
+                    "none".to_string()
+                } else {
+                    ready.join(", ")
+                }
+            ))
+        }
+    }
+}
+
 pub(crate) fn android_devices() -> Vec<AndroidDevice> {
     // Narrowed to the device this run launched on, when it named one: the callers that take no
     // argument are the ones that run after the launch (dayscript forwarding, screenshots), and
@@ -2528,14 +2600,16 @@ pub fn launch_android(
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     // Match the identity written to Gradle, including platform/target overrides in a flavor.
     let app_id = project.manifest.resolve(outcome.target).id;
+    // Checked again here, not only before the build: a phone can be unplugged in between.
+    if let Some(problem) = requested_android_serial(spec)
+        .as_deref()
+        .and_then(android_device_problem)
+    {
+        return Err(problem);
+    }
     let devices = android_devices_for(spec.android_device.as_deref());
     if devices.is_empty() {
-        return Err(match spec.android_device.as_deref() {
-            Some(serial) => {
-                format!("--android-device {serial:?} is not connected (check `adb devices`)")
-            }
-            None => "no Android device/emulator connected (check `adb devices`)".into(),
-        });
+        return Err("no Android device/emulator connected (check `adb devices`)".into());
     }
     // Same reason as the iOS arm above: pin what the later dayscript and capture steps address.
     if let [only] = devices.as_slice() {
@@ -2754,7 +2828,7 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
 
 #[cfg(test)]
 mod abi_tests {
-    use super::{android_build_abis, devicectl_launch_args, parse_abi_list};
+    use super::{android_build_abis, device_problem, devicectl_launch_args, parse_abi_list};
     use crate::ops::LaunchSpec;
     use std::sync::Mutex;
 
@@ -2860,6 +2934,28 @@ mod abi_tests {
         );
         assert!(parse_abi_list("").is_empty());
         assert!(parse_abi_list(" , ").is_empty());
+    }
+
+    #[test]
+    fn a_named_android_device_must_be_connected_and_ready() {
+        let states = [
+            ("emulator-5556".to_string(), "device".to_string()),
+            ("R5CT".to_string(), "unauthorized".to_string()),
+            ("0A1B".to_string(), "offline".to_string()),
+        ];
+        assert_eq!(device_problem("emulator-5556", &states), None);
+        let missing = device_problem("19091FDF600BAY", &states).unwrap();
+        assert!(missing.contains("not connected"), "{missing}");
+        assert!(missing.contains("connected: emulator-5556;"), "{missing}");
+        let prompt = device_problem("R5CT", &states).unwrap();
+        assert!(
+            prompt.contains("unauthorized") && prompt.contains("USB debugging"),
+            "{prompt}"
+        );
+        let offline = device_problem("0A1B", &states).unwrap();
+        assert!(offline.contains("offline"), "{offline}");
+        let none = device_problem("x", &[]).unwrap();
+        assert!(none.contains("connected: none;"), "{none}");
     }
 
     #[test]

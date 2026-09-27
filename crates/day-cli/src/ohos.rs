@@ -1228,7 +1228,7 @@ pub fn launch_ohos(
     if devices.is_empty() {
         return Err(match spec.ohos_device.as_deref() {
             Some(key) => format!(
-                "--ohos-device {key:?} is not reachable (check `day devices list`, or \
+                "OpenHarmony device {key:?} is not reachable (check `day devices list`, or \
                  `hdc list targets`)"
             ),
             None => format!(

@@ -891,6 +891,30 @@ impl LaunchSpec {
     }
 }
 
+/// Whether `target` launches onto a device (a simulator, an emulator, a phone) rather than this
+/// machine's own desktop or browser.
+pub fn runs_on_devices(target: &Target) -> bool {
+    matches!(
+        target.kind,
+        TargetKind::IosSim | TargetKind::Android | TargetKind::HarmonyOs
+    )
+}
+
+/// The device `spec` names for `target`, checked before anything is built: `Err` when it is not
+/// there to launch on. Nothing named passes (every connected device is the default).
+///
+/// HarmonyOS is checked where it launches instead: finding its targets connects to them.
+pub fn check_requested_device(target: &Target, spec: &LaunchSpec) -> Result<(), String> {
+    match target.kind {
+        TargetKind::Android => match crate::mobile::requested_android_serial(spec) {
+            Some(serial) => crate::mobile::android_device_problem(&serial).map_or(Ok(()), Err),
+            None => Ok(()),
+        },
+        TargetKind::IosSim => crate::mobile::check_ios_simulator(spec),
+        _ => Ok(()),
+    }
+}
+
 /// What this run actually launched onto, remembered for the steps that come after the launch.
 ///
 /// A dayscript run forwards a port and takes screenshots long after `LaunchSpec` is out of scope,

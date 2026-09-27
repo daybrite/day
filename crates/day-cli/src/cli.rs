@@ -243,7 +243,7 @@ enum Cmd {
         #[arg(long = "ios-device", value_name = "NAME|UDID")]
         ios_device: Option<String>,
         /// iOS simulator name or UDID (default: all booted simulators)
-        #[arg(long = "ios-simulator", alias = "device", value_name = "NAME|UDID")]
+        #[arg(long = "ios-simulator", value_name = "NAME|UDID")]
         ios_simulator: Option<String>,
         /// Android adb serial (default: ANDROID_SERIAL, then all connected devices)
         #[arg(long = "android-device", value_name = "SERIAL")]
@@ -251,6 +251,11 @@ enum Cmd {
         /// OpenHarmony hdc key (default: DAY_OHOS_TARGET, then all reachable devices)
         #[arg(long = "ohos-device", value_name = "KEY")]
         ohos_device: Option<String>,
+        /// Device for every mobile platform launched: an iOS simulator name or UDID, an Android
+        /// serial, or an OpenHarmony key; the launch fails when it is not found. A platform's
+        /// own device flag wins over it
+        #[arg(long = "device", value_name = "NAME|SERIAL")]
+        any_device: Option<String>,
         /// Leave apps running in the background; stop them with day stop
         #[arg(long, alias = "detached")]
         detach: bool,
@@ -1798,6 +1803,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             ios_simulator,
             android_device,
             ohos_device,
+            any_device,
             detach,
             keep_alive,
             record,
@@ -1848,12 +1854,17 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     None => scripts.clone(),
                 };
                 let script_mode = !scripts.is_empty();
+                // `--device` names the device for whichever runtime each `-p` is; a runtime's own
+                // flag, when given, is the more specific answer. On iOS it means a simulator, as it
+                // always has, unless `--ios-device` already chose a physical one.
                 let mut spec = ops::LaunchSpec {
                     locale: locale.clone(),
                     ios_device: ios_device.clone(),
-                    ios_simulator: ios_simulator.clone(),
-                    android_device: android_device.clone(),
-                    ohos_device: ohos_device.clone(),
+                    ios_simulator: ios_simulator
+                        .clone()
+                        .or_else(|| any_device.clone().filter(|_| ios_device.is_none())),
+                    android_device: android_device.clone().or_else(|| any_device.clone()),
+                    ohos_device: ohos_device.clone().or_else(|| any_device.clone()),
                     envs: envs
                         .iter()
                         .filter_map(|kv| kv.split_once('=').map(|(k, v)| (k.into(), v.into())))
@@ -1864,6 +1875,25 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     // script so that output stays visible while the app lives; see below.)
                     attached: !detach,
                 };
+                // A named device that is not there fails the launch, and fails it now, before
+                // minutes of building for a run that has nowhere to go. Falling back to whatever
+                // else is connected installs the app on a device nobody asked for.
+                let mut device_platform = false;
+                for p in &platforms {
+                    let target =
+                        crate::external::find_target(project, p).map_err(CliError::usage)?;
+                    device_platform |= ops::runs_on_devices(target);
+                    ops::check_requested_device(target, &spec).map_err(CliError::failure)?;
+                }
+                if let Some(d) = any_device.as_deref()
+                    && !device_platform
+                {
+                    return Err(CliError::usage(format!(
+                        "--device {d:?} names a device, but none of the launched platforms ({}) \
+                         runs on one",
+                        platforms.join(", ")
+                    )));
+                }
                 // Ctrl-C during an attached run must take the launched apps and their log
                 // watchers (simctl / adb logcat) down too, not leave them orphaned.
                 if spec.attached {
