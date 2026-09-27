@@ -87,9 +87,10 @@ mod imp {
         /// id, not the node pointer, because the change event carries only the id: a
         /// pointer-keyed map missed there, and every drag landed in the fallback 0..1.
         static SLIDER_RANGE: RefCell<HashMap<u64, (f64, f64)>> = RefCell::new(HashMap::new());
-        /// ArkTS-built piece nodes (docs/extending.md): FrameNode ptr → day NodeId. Release sends
-        /// the ArkTS side its disposal and skips the native dispose, since ArkTS owns these nodes.
-        static PIECE_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// ArkTS-built piece nodes (docs/extending.md): wrapper Stack ptr → (day NodeId, the
+        /// ArkTS FrameNode inside it). Release detaches the FrameNode, sends the ArkTS side its
+        /// disposal (ArkTS owns that node), and disposes only the native wrapper.
+        static PIECE_NODES: RefCell<HashMap<usize, (u64, usize)>> = RefCell::new(HashMap::new());
         // Text-area (min_lines, max_lines) by handle, for the measure band (docs/textarea.md).
         static TEXTAREA_LINES: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
@@ -594,8 +595,15 @@ mod imp {
     ///
     /// The ArkUI C node API has no node kind for the declarative `Web` or `Map` components, so a
     /// piece wrapping one ships an `.ets` (staged into the hvigor project by `day build`) that
-    /// builds it in a `BuilderNode`; this module hands that FrameNode back as an [`AHandle`] Day
-    /// mounts like any other node. `props`, `cmd`, and `arg` are opaque strings the piece defines —
+    /// builds it in a `BuilderNode`; this module mounts that FrameNode in a native Stack and hands
+    /// the Stack back as an [`AHandle`] Day mounts like any other node.
+    ///
+    /// The wrapper is what makes Day's layout reach the component. The C API refuses to set
+    /// attributes on a BuilderNode-generated node (`ARKUI_ERROR_CODE_NOT_SUPPROTED_FOR_ARKTS_NODE`),
+    /// so `set_frame` on the FrameNode itself was silently dropped: the component kept ArkUI's
+    /// default layout, filling its parent from (0, 0) and covering the siblings Day had laid out
+    /// around it (the web view over its URL bar). Day positions and sizes the wrapper, which it
+    /// created, and the component fills it. `props`, `cmd`, and `arg` are opaque strings the piece defines —
     /// the bridge stays generic, so a new piece needs no shim change.
     pub mod piece {
         use super::{AHandle, PIECE_NODES, cstr, ffi};
@@ -615,17 +623,23 @@ mod imp {
                 day_spec::placeholder::report(kind, "arkui");
                 return super::new_node(super::K_STACK);
             }
+            let wrapper = super::new_node(super::K_STACK);
+            unsafe { ffi::day_ark_add_child(wrapper.0, h) };
             // Remembered so `release` can send the ArkTS side its disposal — and so it knows
-            // NOT to dispose an ArkTS-owned node itself.
-            PIECE_NODES.with(|m| m.borrow_mut().insert(h as usize, id.0));
-            AHandle(h)
+            // NOT to dispose the ArkTS-owned node itself.
+            PIECE_NODES.with(|m| {
+                m.borrow_mut()
+                    .insert(wrapper.0 as usize, (id.0, h as usize))
+            });
+            wrapper
         }
 
         /// Send a command to a piece's ArkTS component. Takes the handle rather than the node id
         /// because that is what a `Renderer`'s `update` is handed; the id it was made with is
         /// remembered here. A handle that isn't an ArkTS piece node is a no-op.
         pub fn update(h: &AHandle, cmd: &str, arg: &str) {
-            let Some(id) = PIECE_NODES.with(|m| m.borrow().get(&(h.0 as usize)).copied()) else {
+            let Some((id, _)) = PIECE_NODES.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+            else {
                 return;
             };
             unsafe { ffi::day_ark_piece_update(id, cstr(cmd).as_ptr(), cstr(arg).as_ptr()) };
@@ -2373,11 +2387,14 @@ mod imp {
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                 unsafe { ffi::day_ark_node_dispose(stack as *mut _) };
             }
-            // An ArkTS-built piece node belongs to its BuilderNode: ask ArkTS to release it and
-            // do NOT dispose it here — the native dispose would free a node ArkTS still holds.
-            if let Some(id) = PIECE_NODES.with(|m| m.borrow_mut().remove(&key)) {
-                unsafe { ffi::day_ark_piece_dispose(id) };
-                return;
+            // An ArkTS-built piece node belongs to its BuilderNode: detach it from the native
+            // wrapper, ask ArkTS to release it, and dispose only the wrapper — a native dispose
+            // of the FrameNode would free a node ArkTS still holds.
+            if let Some((id, inner)) = PIECE_NODES.with(|m| m.borrow_mut().remove(&key)) {
+                unsafe {
+                    ffi::day_ark_remove_child(h.0, inner as *mut _);
+                    ffi::day_ark_piece_dispose(id);
+                }
             }
             unsafe { ffi::day_ark_node_dispose(h.0) };
         }
