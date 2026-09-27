@@ -346,6 +346,9 @@ Generated text bindings in the app and its dependencies update together. The app
 still declares the languages available at launch through `WindowOptions::locales`.
 Day checks an explicit launch override, or the host's ordered language preferences, then
 uses the configured default. A regional preference such as `fr-CA` can use a `fr` catalog.
+When the user changes the system language (or, on Android 13 and later, the app's own
+language) while the app is running, Android rebuilds the app in the new language, just as iOS
+does by restarting it.
 
 A missing private message falls back to that catalog's default language. It does not search
 another crate or the app catalog for a matching key. The global app catalog retains the

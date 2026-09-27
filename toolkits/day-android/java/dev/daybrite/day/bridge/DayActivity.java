@@ -41,6 +41,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
         DayBridge.ctx = this;
         lastNightMode = DayBridge.isDarkMode();
+        lastLocales = getResources().getConfiguration().getLocales().toLanguageTags();
         // Navigation state saved before this process was reclaimed (DayBridge.navState). Restored
         // Before native starts, so the first build of a `.restore(key)` surface reads it. A cold
         // launch has no saved state and the map stays empty, which is how a fresh start stays
@@ -274,9 +275,18 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         super.onConfigurationChanged(newConfig);
         boolean night = (newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
-        if (night == lastNightMode) return;
+        // The language list too: `locale` is in the manifest's configChanges, so a new system
+        // language (or a per-app one, Android 13+) arrives here instead of recreating us. Left
+        // unhandled, the app kept the language it launched in until its process died, and
+        // reopening it from the launcher resumed that process: the phone said French, the app
+        // said English (docs/localization.md).
+        String locales = newConfig.getLocales().toLanguageTags();
+        boolean nightChanged = night != lastNightMode;
+        boolean localesChanged = !locales.equals(lastLocales);
+        if (!nightChanged && !localesChanged) return;
         lastNightMode = night;
-        DayBridge.appearanceChanged();
+        lastLocales = locales;
+        if (nightChanged) DayBridge.appearanceChanged();
         // Then re-resolve the window. A DayNight theme picks its variant when the activity's theme
         // is resolved, which is at creation, so a uiMode change alone leaves every native view
         // (and every view inflated after it) on the colors chosen at startup: the app bar restyles
@@ -285,12 +295,15 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // which is what makes an app-level pick (`DayBridge.setAppearance`) and the user flipping
         // the system theme land the same way. Day's tree is rebuilt from `onCreate`, the same path
         // a cold start takes, and since 2026-08 that path is a re-mount (docs/appearance.md)
-        // rather than a second launch.
+        // rather than a second launch. The same re-mount re-reads the language list and
+        // re-resolves the app's catalog.
         recreate();
     }
 
     /** The night-mode bit the window is currently themed for; seeded in onCreate. */
     private boolean lastNightMode = false;
+    /** The language list the app was built in (BCP-47, comma-joined); seeded in onCreate. */
+    private String lastLocales = "";
 
     @Override public void onTrimMemory(int level) {
         super.onTrimMemory(level);

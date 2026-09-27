@@ -30,8 +30,11 @@ An SVG master may mark **top-level** elements as semantic layers by id:
 ```
 
 The composite (background + foregrounds) feeds every full-bleed output; the split layers feed
-Android's adaptive icon (foreground tightened to its content box and centered in the 66/108 dp
-safe zone; background full-bleed). An **unlayered** SVG or a **PNG** master still produces the
+Android's adaptive icon (foreground centered on its content box and scaled so the farthest
+point it draws sits on the 66 dp safe circle; background full-bleed). The fit is to the circle,
+not the square around it, because launchers mask to shapes as small as a 72 dp circle: a motif
+that reaches into its box's corners (a heart, a square) is drawn just small enough to keep them,
+while a round one fills the circle. The monochrome layer gets the same fit. An **unlayered** SVG or a **PNG** master still produces the
 complete legacy set; the adaptive foreground is then the whole art in the safe zone over a
 derived background color (the composite's corner pixel; white when transparent).
 

@@ -1102,6 +1102,11 @@ pub mod android {
         let remount = day_core::is_mounted();
         if remount {
             day_core::prepare_remount();
+            // The language list is root-scoped, so it outlives the mount, and `crate::start`
+            // appends the backend's hints to it. A re-mount for a new system language would
+            // append ["fr-FR", "en-US"] behind the ["en-US"] of the first launch, and English
+            // would still win. Start the list over; the fresh hints are the whole answer.
+            day_fluent::set_launch_locales(&[]);
         }
         if let Some(a) = autodrive {
             unsafe { std::env::set_var("DAY_AUTODRIVE", a) };

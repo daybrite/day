@@ -15,7 +15,8 @@
 //! An SVG master may mark top-level groups as semantic layers by id:
 //! `day:background`, `day:foreground` (any number), `day:monochrome`, `day:dark`.
 //! The composite (background+foregrounds) feeds every full-bleed output; the split layers feed
-//! Android's adaptive icon. An unlayered SVG (or a PNG master) still produces the full legacy
+//! Android's adaptive icon, the motif fitted to the safe circle (not the square around it) so no
+//! launcher mask clips it. An unlayered SVG (or a PNG master) still produces the full legacy
 //! set; the adaptive foreground is then the whole art in the safe zone over a derived
 //! background color. `day:monochrome`/`day:dark` are reserved for the modern formats
 //! (Icon Composer, themed icons) and are excluded from every composite today.
@@ -51,6 +52,8 @@ const MAC_RADIUS: f32 = 184.0;
 /// Android adaptive canvas and safe zone (108 dp canvas, 66 dp safe → 432/264 px at xxxhdpi).
 const ADAPTIVE_PX: u32 = 432;
 const SAFE_PX: f32 = 264.0;
+/// The raster [`safe_fit`] measures a layer's reach on.
+const PROBE_PX: u32 = 1024;
 
 pub struct IconOptions {
     pub master: Option<PathBuf>,
@@ -1313,7 +1316,8 @@ impl Art {
         }
     }
 
-    /// The adaptive foreground: content tightened, centered in the 66/108 safe zone, transparent.
+    /// The adaptive foreground: the motif fitted to the 66/108 safe circle ([`safe_fit`]),
+    /// transparent.
     fn adaptive_foreground(&self) -> Result<Vec<u8>, String> {
         let inset = (ADAPTIVE_PX as f32 - SAFE_PX) / 2.0;
         match self {
@@ -1322,13 +1326,12 @@ impl Art {
                 ..
             } => {
                 let tree = day_vector::parse(fg.as_bytes())?;
-                let b = day_vector::content_bbox(&tree)
-                    .ok_or("the day:foreground layers render no content")?;
-                let (bx, by, bw, bh) = bbox_in_viewbox_units(fg, &tree, b)?;
+                let (tx, ty, s) =
+                    safe_fit(fg, &tree)?.ok_or("the day:foreground layers render no content")?;
                 let inner = inner_markup(fg)?;
                 let doc = format!(
                     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ADAPTIVE_PX} {ADAPTIVE_PX}\">\
-                     <svg x=\"{inset}\" y=\"{inset}\" width=\"{SAFE_PX}\" height=\"{SAFE_PX}\" viewBox=\"{bx} {by} {bw} {bh}\" preserveAspectRatio=\"xMidYMid meet\">{inner}</svg></svg>",
+                     <g transform=\"translate({tx} {ty}) scale({s})\">{inner}</g></svg>",
                 );
                 let tree = day_vector::parse(doc.as_bytes())?;
                 day_vector::render_png(&tree, ADAPTIVE_PX)
@@ -1384,18 +1387,11 @@ impl Art {
         } = self
         {
             let tree = day_vector::parse(mono.as_bytes())?;
-            if let Some(b) = day_vector::content_bbox(&tree) {
-                let (bx, by, bw, bh) = bbox_in_viewbox_units(mono, &tree, b)?;
-                let inset = (ADAPTIVE_PX as f32 - SAFE_PX) / 2.0;
+            if let Some((tx, ty, s)) = safe_fit(mono, &tree)? {
                 let inner = inner_markup(mono)?;
-                // Safe-zone fit as an explicit transform, not a nested <svg> viewport: usvg
-                // models a nested svg as a clipped group, which is outside the
-                // VectorDrawable subset, the very conversion this document exists for. The
-                // math is `xMidYMid meet` by hand: uniform scale to the safe square,
-                // centered, then offset by the zone inset.
-                let s = SAFE_PX / bw.max(bh).max(1e-3);
-                let tx = inset + (SAFE_PX - s * bw) / 2.0 - s * bx;
-                let ty = inset + (SAFE_PX - s * bh) / 2.0 - s * by;
+                // The same fit as the foreground's, so the tinted icon matches it; an explicit
+                // transform, which (unlike a nested <svg>, a clipped group to usvg) stays inside
+                // the VectorDrawable subset this document exists for.
                 let doc = format!(
                     "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 {ADAPTIVE_PX} {ADAPTIVE_PX}\">\
                      <g transform=\"translate({tx} {ty}) scale({s})\">{inner}</g></svg>"
@@ -1559,6 +1555,53 @@ fn unhide_layer(doc: String, id: &str) -> String {
         }
         None => doc,
     }
+}
+
+/// Where a layer goes on the adaptive canvas: `(tx, ty, s)` taking its viewBox units to the
+/// 432 px canvas so that the farthest pixel it draws lands on the 66 dp safe circle, with its
+/// content box centered. `None` for a layer that draws nothing.
+///
+/// The fit is to the circle, not to the square around it, because the circle is all Android
+/// promises: launchers mask to shapes as small as a 72 dp circle, which cuts through the corners
+/// of the 66 dp square. A motif fitted to that square loses whatever it draws in the corners, a
+/// heart's shoulders for one. A round motif comes out exactly as a square fit would place it;
+/// anything reaching into its box's corners is drawn just small enough to keep them.
+fn safe_fit(doc: &str, tree: &day_vector::usvg::Tree) -> Result<Option<(f32, f32, f32)>, String> {
+    let Some(b) = day_vector::content_bbox(tree) else {
+        return Ok(None);
+    };
+    let (bx, by, bw, bh) = bbox_in_viewbox_units(doc, tree, b)?;
+    // Measured in tree units (see bbox_in_viewbox_units), from the box's center.
+    let (cx, cy) = (b.x() + b.width() / 2.0, b.y() + b.height() / 2.0);
+    let size = tree.size();
+    let probe = tiny_skia::Pixmap::decode_png(&day_vector::render_png(tree, PROBE_PX)?)
+        .map_err(|e| e.to_string())?;
+    // render_png's uniform fit, inverted: a probe pixel's center back into tree units.
+    let scale = PROBE_PX as f32 / size.width().max(size.height());
+    let ox = (PROBE_PX as f32 - size.width() * scale) / 2.0;
+    let oy = (PROBE_PX as f32 - size.height() * scale) / 2.0;
+    let mut far = 0f32;
+    for (i, px) in probe.pixels().iter().enumerate() {
+        if px.alpha() <= 8 {
+            continue;
+        }
+        let x = (i as u32 % PROBE_PX) as f32 + 0.5;
+        let y = (i as u32 / PROBE_PX) as f32 + 0.5;
+        far = far.max(((x - ox) / scale - cx).hypot((y - oy) / scale - cy));
+    }
+    if far <= 0.0 {
+        return Ok(None);
+    }
+    // Out to the far corner of that pixel, not its center.
+    let far = far + std::f32::consts::FRAC_1_SQRT_2 / scale;
+    let unit = if b.width() >= b.height() {
+        bw / b.width()
+    } else {
+        bh / b.height()
+    };
+    let s = (SAFE_PX / 2.0) / (far * unit);
+    let c = ADAPTIVE_PX as f32 / 2.0;
+    Ok(Some((c - s * (bx + bw / 2.0), c - s * (by + bh / 2.0), s)))
 }
 
 /// The root `<svg>`'s viewBox, or one derived from width/height.
@@ -1795,6 +1838,51 @@ mod tests {
         assert!(
             visible > 1000,
             "adaptive foreground is (nearly) empty: {visible} visible px"
+        );
+    }
+
+    /// How far from the canvas center the adaptive foreground draws, in px.
+    fn adaptive_reach(master: &str) -> f32 {
+        let png = Art::from_svg(master)
+            .unwrap()
+            .adaptive_foreground()
+            .unwrap();
+        let pm = tiny_skia::Pixmap::decode_png(&png).unwrap();
+        let c = ADAPTIVE_PX as f32 / 2.0;
+        pm.pixels()
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.alpha() > 8)
+            .map(|(i, _)| {
+                let (x, y) = (i as u32 % ADAPTIVE_PX, i as u32 / ADAPTIVE_PX);
+                (x as f32 + 0.5 - c).hypot(y as f32 + 0.5 - c)
+            })
+            .fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn adaptive_foreground_keeps_a_cornered_motif_inside_the_safe_circle() {
+        // A square fitted to the 66 dp safe square puts its corners 46.7 dp out, past a 72 dp
+        // circle mask; fitted to the safe circle, they stay inside it.
+        let square = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">\
+             <rect id=\"day:background\" width=\"100\" height=\"100\" fill=\"#123456\"/>\
+             <g id=\"day:foreground\"><rect x=\"30\" y=\"30\" width=\"40\" height=\"40\" fill=\"#fff\"/></g>\
+             </svg>";
+        let reach = adaptive_reach(square);
+        let safe = SAFE_PX / 2.0;
+        assert!(
+            reach <= safe + 1.0 && reach >= safe - 3.0,
+            "square reaches {reach} px; the safe circle is {safe} px"
+        );
+    }
+
+    #[test]
+    fn adaptive_foreground_still_fills_the_safe_circle_with_a_round_motif() {
+        let reach = adaptive_reach(LAYERED);
+        let safe = SAFE_PX / 2.0;
+        assert!(
+            reach <= safe + 1.0 && reach >= safe - 3.0,
+            "circle reaches {reach} px; the safe circle is {safe} px"
         );
     }
 

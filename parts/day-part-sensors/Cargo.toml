@@ -50,3 +50,9 @@ day-android = { workspace = true }
 # this Java and adds it to the app's Gradle build, without touching any core day crate.
 [package.metadata.day.android]
 java = ["src/DaySensors.java"]
+
+# --- iOS framework linking (docs/extending.md) ---
+# CMMotionManager lives in CoreMotion, which the cargo staticlib's own link line never reaches the
+# Xcode link with: without this the class lookup panics the first time a reading is asked for.
+[package.metadata.day.ios]
+frameworks = ["CoreMotion"]
