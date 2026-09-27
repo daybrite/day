@@ -1356,6 +1356,7 @@ fn template_context(
     let mut ctx = std::collections::BTreeMap::new();
     ctx.insert("name", repl.crate_name.clone());
     ctx.insert("repo", repl.repo.clone());
+    ctx.insert("repo_no_hyphens", repl.repo.replace('-', ""));
     ctx.insert("ident", repl.crate_ident.clone());
     ctx.insert("snake", repl.snake.clone());
     ctx.insert("pascal", repl.pascal.clone());
@@ -3406,7 +3407,38 @@ mod tests {
         assert_eq!(with_targets["targets_list"], "macos-appkit, ios-uikit");
         assert_eq!(ctx["name"], "day-rise");
         assert_eq!(ctx["repo"], "Day-Rise");
+        assert_eq!(ctx["repo_no_hyphens"], "DayRise");
         assert_eq!(ctx["ident"], "day_rise");
+    }
+
+    #[test]
+    fn template_repo_no_hyphens_preserves_case_for_shared_store_ids() {
+        for (repo, suffix) in [
+            ("App-Name", "AppName"),
+            ("myHTTP-App", "myHTTPApp"),
+            ("A-B-C2", "ABC2"),
+            ("AlreadyMixed", "AlreadyMixed"),
+        ] {
+            let mut repl = Repl::new(&kebab_name(repo), None);
+            repl.repo = repo.into();
+            let ctx = template_context(&repl, "Unrelated title".into(), &Deps::Git(None), &[]);
+            assert_eq!(ctx["repo_no_hyphens"], suffix);
+            let files = vec![crate::template::TemplateFile {
+                path: "{{repo_no_hyphens}}/Day-appfair.toml".into(),
+                bytes: b"[app]\nid = \"org.appfair.app.{{repo_no_hyphens}}\"\n".to_vec(),
+            }];
+            let rendered = crate::template::render(&files, &ctx).unwrap();
+            assert_eq!(rendered[0].0, format!("{suffix}/Day-appfair.toml"));
+            let manifest: toml::Value =
+                toml::from_str(std::str::from_utf8(&rendered[0].1).unwrap()).unwrap();
+            let id = manifest["app"]["id"].as_str().unwrap();
+            assert_eq!(id, format!("org.appfair.app.{suffix}"));
+            for os in [
+                "macos", "ios", "android", "harmony", "windows", "linux", "web",
+            ] {
+                crate::meta::validate_app_id(id, os).unwrap();
+            }
+        }
     }
 
     #[test]

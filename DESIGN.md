@@ -3591,6 +3591,15 @@ for a composite piece) and cuts it to one page that shows the piece, with `daysc
 the piece's on-device test; `--no-demo` omits it. An app scaffold gets a unique generated icon ([docs/icons.md#generate](docs/icons.md#generate)), seeded
 by the app id so the same id always scaffolds the same icon; `--icon-seed` overrides.
 
+Template context is shared by `day new app` and `day project add-target`.
+`{{repo}}` preserves the typed repository name; `{{repo_no_hyphens}}` removes only ASCII
+hyphens without changing case (`App-Name` → `AppName`). Templates can use it in paths
+and contents, including a shared store ID such as `org.appfair.app.AppName`. This is
+not a general identifier sanitizer: other characters remain unchanged, and platform ID
+validation still applies. Existing `{{pascal}}`, `{{ident}}` and `{{id}}` semantics are unchanged.
+See the [template placeholder reference](https://daybrite.dev/docs/cli) and
+`new::tests::template_repo_no_hyphens_preserves_case_for_shared_store_ids`.
+
 The app template defines its initial version (`0.1.0`) once in `[workspace.package]` and
 inherits it with `[package] version.workspace = true`. Additional workspace members can use
 the same inheritance, so a release needs only one Cargo version edit. Piece demos use this

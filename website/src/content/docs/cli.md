@@ -98,6 +98,7 @@ directory tree whose file contents *and paths* are rendered with mustache-style 
 |---|---|
 | `{{name}}` | the cargo package name, lowercase kebab |
 | `{{repo}}` | the name as typed, case intact — the scaffold directory and the Pages path |
+| `{{repo_no_hyphens}}` | the name as typed with hyphens removed, preserving case (`App-Name` → `AppName`); no other normalization |
 | `{{ident}}` | the crate's Rust extern name (hyphens → underscores) |
 | `{{snake}}` / `{{pascal}}` | a snake_case stem and its PascalCase form |
 | `{{title}}` | the app's display name |
