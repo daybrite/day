@@ -91,6 +91,9 @@ public class DayAndroidPlugin implements Plugin<Project> {
         // The Rust .so (never src/main), resource/assets, processed images, and the launcher icons.
         main.getJniLibs().getDirectories().add(path(gradleRoot, "../../build/day/jniLibs"));
         main.getAssets().getDirectories().add(path(gradleRoot, "../../resource/assets"));
+        // The data assets the app's pieces ship, staged by `day build` under each crate's name
+        // (docs/extending.md "Data assets a piece ships"), beside the app's own.
+        main.getAssets().getDirectories().add(path(gradleRoot, "../../build/day/android/assets"));
         main.getRes().getDirectories().add(path(gradleRoot, "../../build/day/android/res"));
         main.getRes().getDirectories().add(path(gradleRoot, "../../build/day/host/android/res"));
         // Permissions and components contributed by pieces, parts and Day.toml [[shortcuts]] merge

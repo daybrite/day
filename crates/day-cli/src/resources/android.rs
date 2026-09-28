@@ -6,15 +6,27 @@
 //! Images → `build/day/android/res/drawable*/<name>.<ext>` (density bucket from any `@Nx` suffix) so
 //! aapt2 crunches them and assigns an `R.drawable` id; `DayBridge.makeImage` resolves the name via
 //! `Resources.getIdentifier(name,"drawable",pkg)`. The gradle scaffold registers this tree as a
-//! `res.srcDir`. Data (`assets/`) is already the APK `assets/` root (the scaffold's `assets.srcDir`)
-//! and is read at runtime through the NDK `AAssetManager`; the scaffold marks it `noCompress` so the
-//! bytes are stored uncompressed for a zero-copy `AAsset_getBuffer`.
+//! `res.srcDir`. Data (`assets/`) is already the APK `assets/` root (the Gradle plugin's first
+//! assets directory) and is read at runtime through the NDK `AAssetManager`. The data assets pieces
+//! ship (`[package.metadata.day.piece].assets`, docs/extending.md) are the second:
+//! [`stage_piece_assets`] copies them to `build/day/android/assets/<crate>/`, so they land in the
+//! APK beside the app's own under the same names every other target uses.
 
 use std::fs;
 
 use super::{FontFile, ResourceSet, VectorAsset, sanitize_ident};
 use crate::meta::Project;
 use crate::ops::status;
+
+/// Copy every piece-contributed asset tree into `build/day/android/assets/<crate>/`, the directory
+/// the Gradle plugin adds to the APK's assets after the app's `resource/assets/`. Regenerated from
+/// scratch each build, so a piece the app no longer depends on leaves nothing behind.
+pub fn stage_piece_assets(project: &Project) -> Result<(), String> {
+    let dir = project.root.join("build/day/android/assets");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).map_err(|e| format!("mkdir {}: {e}", dir.display()))?;
+    super::stage_piece_assets(project, "mdc", &dir)
+}
 
 pub fn stage(
     project: &Project,

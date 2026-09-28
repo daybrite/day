@@ -347,6 +347,13 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
     // for its image pipeline, and which `day launch`/`day pack` ship.
     let vectors = prepare_vectors(project)?;
     write_vector_fallbacks(project, target.toolkit, &vectors)?;
+    // Android reads `resource/assets/` in place (the Gradle plugin's first assets directory), so
+    // the assets pieces ship go to a second one of their own, regenerated every build so a piece
+    // dropped from the app takes its files with it. Before the early return below, which would
+    // otherwise leave the last build's files behind.
+    if target.toolkit == "mdc" {
+        android::stage_piece_assets(project)?;
+    }
     let set = ResourceSet::scan(project, target.toolkit);
     let fonts = scan_fonts(project)?;
     if set.is_empty() && fonts.is_empty() {
