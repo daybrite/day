@@ -47,6 +47,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [tree](/docs/internal/tree) | the hierarchical tree: nesting, expansion, drag-to-reparent (plan) |
 | [canvas](/docs/internal/canvas) | the canvas display list and gestures |
 | [frames](/docs/internal/frames) | native display-frame callbacks for animations: FrameClock, FrameHandle, per-window links |
+| [tween](/docs/internal/tween) | canvas transitions: Lerp (OKLab colors), Timing, stagger, animate, Tweened |
 | [fonts](/docs/internal/fonts) | the platform font list, canvas fonts, and text measurement |
 | [shapes](/docs/internal/shapes) | canvas drawing, shape pieces, gestures |
 | [progress](/docs/internal/progress) | determinate bars and spinners |

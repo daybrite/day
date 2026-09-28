@@ -103,7 +103,7 @@ uploaded to these stores.
 
 ## Enable store uploads
 
-Add these inputs to the `app` job in the [CI workflow](/docs/github-actions#add-the-workflow):
+Add these inputs to the `app` job in the [CI workflow](/docs/github-actions#the-workflow):
 
 ```yaml
 with:
