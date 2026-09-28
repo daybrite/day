@@ -24,12 +24,9 @@ pub fn pack(
     // Build assembles + dev-signs (build_ohos). The unsigned hap stays behind in entry/build;
     // release signing re-signs that, never the dev-signed one.
     let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
+    let extra: &[&str] = if opts.no_sign { &["unsigned"] } else { &[] };
     let out = dist.join(super::naming::artifact_file(
-        project,
-        target,
-        opts,
-        &[],
-        "hap",
+        project, target, opts, extra, "hap",
     ));
     let _ = std::fs::remove_file(&out);
 
@@ -61,6 +58,22 @@ pub fn pack(
             std::fs::copy(&signed, &out).map_err(|e| PackError::Other(e.to_string()))?;
             SignTier::Release
         }
+        None if opts.no_sign => {
+            // The unsigned hap itself, for a signer that runs after the build (`day sign apply`
+            // with the release material, which is what the shared CI workflow's `sign` job
+            // runs): the same input the release path above takes, normalized the same way, so
+            // the signature written later covers final bytes.
+            status("Signing", "skipped (--no-sign) — unsigned hap");
+            let unsigned = crate::ohos::find_unsigned_hap(project).ok_or_else(|| {
+                PackError::Other(
+                    "no unsigned .hap found under the staged harmony host project's entry/build"
+                        .into(),
+                )
+            })?;
+            super::normalize_zip_mtimes(&unsigned).map_err(PackError::Other)?;
+            std::fs::copy(&unsigned, &out).map_err(|e| PackError::Other(e.to_string()))?;
+            SignTier::Unsigned
+        }
         None => {
             if ohos.is_none() {
                 status(
@@ -84,13 +97,16 @@ pub fn pack(
     })
 }
 
-struct OhosMaterial {
-    keystore: std::path::PathBuf,
-    cert: std::path::PathBuf,
-    profile: std::path::PathBuf,
-    key_alias: String,
-    store_pass: String,
-    key_pass: String,
+/// The release material one hap signature needs, already resolved: from `[signing.ohos]` at
+/// pack time, or from the command line for `day sign apply` (sign.rs), which signs a package
+/// that has no project beside it.
+pub(crate) struct OhosMaterial {
+    pub(crate) keystore: std::path::PathBuf,
+    pub(crate) cert: std::path::PathBuf,
+    pub(crate) profile: std::path::PathBuf,
+    pub(crate) key_alias: String,
+    pub(crate) store_pass: String,
+    pub(crate) key_pass: String,
 }
 
 /// Resolve the release material; any unresolved secret degrades the whole section (None).
@@ -141,7 +157,7 @@ fn resolve_material(
     Ok(Some(m))
 }
 
-fn release_sign(m: &OhosMaterial, unsigned: &Path, signed: &Path) -> Result<(), String> {
+pub(crate) fn release_sign(m: &OhosMaterial, unsigned: &Path, signed: &Path) -> Result<(), String> {
     let jar = find_hap_sign_tool().ok_or(
         "hap-sign-tool.jar not found — set OHOS_SDK_HOME/OHOS_NDK_HOME to a full OpenHarmony SDK",
     )?;

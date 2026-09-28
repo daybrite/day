@@ -326,6 +326,19 @@ pub struct AndroidOverrides<'a> {
     pub key_alias: Option<&'a str>,
 }
 
+/// HarmonyOS signing material on the command line, for the same caller: a `.hap` is signed
+/// from the keystore, key alias and passwords the Android half takes (`--keystore`,
+/// `--key-alias`, `DAY_SIGN_STORE_PASS`, `DAY_SIGN_KEY_PASS`), plus the app certificate
+/// (`--cert`) and the `.p7b` provisioning profile (`--profile`). All on the command line: a
+/// package signed after the build has no project beside it to read `[signing.ohos]` from.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct OhosOverrides<'a> {
+    pub keystore: Option<&'a Path>,
+    pub cert: Option<&'a Path>,
+    pub profile: Option<&'a Path>,
+    pub key_alias: Option<&'a str>,
+}
+
 /// `day sign apply <artifact>`: sign an existing package in place, or into `--out`.
 ///
 /// The input is never modified until the signed copy exists and verifies, so a failure leaves the
@@ -340,6 +353,7 @@ pub fn apply(
     out: Option<&Path>,
     apple: AppleOverrides<'_>,
     android: AndroidOverrides<'_>,
+    ohos: OhosOverrides<'_>,
     json: bool,
 ) -> Result<i32, CliError> {
     if !artifact.is_file() {
@@ -362,6 +376,9 @@ pub fn apply(
         }),
         "ipa" | "app" => apple_material(project, apple)
             .and_then(|m| sign_apple(artifact, out, &m).map_err(CliError::sign)),
+        "hap" => {
+            ohos_material(ohos).and_then(|m| sign_hap(artifact, out, &m).map_err(CliError::sign))
+        }
         // Named rather than lumped into "unsupported": these are the formats the verb is expected
         // to grow, and a caller who tries one should hear that it is coming, not that it is wrong.
         "dmg" | "pkg" => Err(CliError::sign(format!(
@@ -369,7 +386,7 @@ pub fn apply(
              notarizes during the build (docs/packaging.md)"
         ))),
         _ => Err(CliError::sign(format!(
-            "unknown package format {:?} — `day sign apply` takes .aab, .apk, .ipa or .app",
+            "unknown package format {:?} — `day sign apply` takes .aab, .apk, .ipa, .app or .hap",
             artifact.display()
         ))),
     }?;
@@ -627,6 +644,87 @@ fn clean_work(work: &Path) {
     let mut sidecar = work.as_os_str().to_os_string();
     sidecar.push(".idsig");
     let _ = std::fs::remove_file(PathBuf::from(sidecar));
+}
+
+// --- HarmonyOS --------------------------------------------------------------
+//
+// The hap half of the same separation: `day pack --no-sign` leaves the unsigned hap hvigor
+// built (named `-unsigned.hap`), and this signs it with hap-sign-tool from the OpenHarmony SDK,
+// the way `day pack` does with `[signing.ohos]`, from material named on the command line.
+
+/// The HarmonyOS material, from the command line alone: every piece is required, since a hap
+/// signed without its certificate or profile installs nowhere.
+fn ohos_material(over: OhosOverrides<'_>) -> Result<crate::pack::ohos::OhosMaterial, CliError> {
+    let need = |what: &str, flag: &str| {
+        CliError::sign(format!(
+            "a .hap needs {what} ({flag}), plus the passwords in {STORE_PASS_VAR} and {KEY_PASS_VAR}"
+        ))
+    };
+    let keystore = over
+        .keystore
+        .ok_or_else(|| need("the keystore", "--keystore"))?;
+    let cert = over
+        .cert
+        .ok_or_else(|| need("the app certificate", "--cert"))?;
+    let profile = over
+        .profile
+        .ok_or_else(|| need("the provisioning profile", "--profile"))?;
+    let key_alias = over
+        .key_alias
+        .ok_or_else(|| need("the key alias", "--key-alias"))?;
+    for (label, p) in [
+        ("--keystore", keystore),
+        ("--cert", cert),
+        ("--profile", profile),
+    ] {
+        if !p.is_file() {
+            return Err(CliError::sign(format!(
+                "{label} not found: {}",
+                p.display()
+            )));
+        }
+    }
+    let pass = |var: &str| {
+        std::env::var(var)
+            .ok()
+            .filter(|v| !v.is_empty())
+            .ok_or_else(|| {
+                CliError::sign(format!("{var} is not set — the hap keystore's password"))
+            })
+    };
+    Ok(crate::pack::ohos::OhosMaterial {
+        keystore: keystore.to_path_buf(),
+        cert: cert.to_path_buf(),
+        profile: profile.to_path_buf(),
+        key_alias: key_alias.to_string(),
+        store_pass: pass(STORE_PASS_VAR)?,
+        key_pass: pass(KEY_PASS_VAR)?,
+    })
+}
+
+/// Sign a hap into `out`, or in place: the signed copy is written beside the destination and
+/// renamed over it only once the tool has finished, so a failure leaves the unsigned package as
+/// it was.
+fn sign_hap(
+    artifact: &Path,
+    out: Option<&Path>,
+    m: &crate::pack::ohos::OhosMaterial,
+) -> Result<Signed, String> {
+    let input = sha256_file(artifact)?;
+    let dest = out.unwrap_or(artifact);
+    let work = dest.with_extension("day-signing.hap");
+    let _ = std::fs::remove_file(&work);
+    if let Err(e) = crate::pack::ohos::release_sign(m, artifact, &work) {
+        let _ = std::fs::remove_file(&work);
+        return Err(e);
+    }
+    let output = sha256_file(&work)?;
+    std::fs::rename(&work, dest).map_err(|e| format!("write {}: {e}", dest.display()))?;
+    Ok(Signed {
+        input,
+        output,
+        fingerprint: None,
+    })
 }
 
 // --- Apple ------------------------------------------------------------------

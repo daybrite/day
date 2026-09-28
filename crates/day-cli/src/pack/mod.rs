@@ -20,7 +20,7 @@ mod macos;
 mod msix;
 pub mod naming;
 mod nsis;
-mod ohos;
+pub(crate) mod ohos;
 pub mod settings;
 
 use std::path::{Path, PathBuf};

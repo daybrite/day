@@ -86,11 +86,15 @@ Configure only the stores you use.
 | iOS signing | `DAY_APPLE_CERT_P12`, `DAY_APPLE_CERT_PASSWORD`, `DAY_IOS_PROFILE_B64` — base64-encoded distribution certificate, its password and base64-encoded provisioning profile |
 | Android signing | `DAY_ANDROID_KEYSTORE_B64`, `DAY_ANDROID_KEY_ALIAS`, `DAY_KS_PASS`, `DAY_KEY_PASS` — base64-encoded upload keystore, alias, keystore password and key password |
 | Google Play API | `DAY_PLAY_JSON_KEY` — service-account JSON contents |
+| HarmonyOS signing | `DAY_OHOS_KEYSTORE_B64`, `DAY_OHOS_CERT_B64`, `DAY_OHOS_PROFILE_B64`, `DAY_OHOS_KEY_ALIAS`, `DAY_OHOS_KS_PASS`, `DAY_OHOS_KEY_PASS` — base64-encoded keystore, certificate and profile, the key alias and the two passwords |
 
-Use the [Android signing configuration](/docs/packaging#signing-configuration) in `Day.toml`
-to reference the environment variables supplied by CI. An API key authorizes uploads; it does
-not replace the signing certificate or upload key. Unsigned iOS packages and Android packages
-signed with the development key cannot be uploaded to these stores.
+The workflow signs after it builds. The job that compiles the app and runs its walkthroughs
+packs every store package unsigned and never sees a key; a separate `sign` job, which checks
+out no code, signs each package with `day sign apply` and replaces the artifact. The signing
+secrets therefore need no `[signing]` table in `Day.toml`, though one still serves
+[local release packs](/docs/packaging#signing-configuration). An API key authorizes uploads; it
+does not replace the signing certificate or upload key. Unsigned iOS packages and Android
+packages signed with the development key cannot be uploaded to these stores.
 
 ## Enable store uploads
 

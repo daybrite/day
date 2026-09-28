@@ -107,7 +107,9 @@ WebAssembly module, images, and fonts.
 ## Packaging options
 
 Use `--formats` to select a subset of output formats, as in the Android example above.
-`--no-sign` skips signing, and `--no-notarize` skips macOS notarization. To submit notarization
+`--no-sign` skips signing and names the store package for a signer that runs later
+(`<stem>-<target>-unsigned.ipa`, `.aab`, `.apk` or `.hap`, which `day sign apply` takes as it
+is), and `--no-notarize` skips macOS notarization. To submit notarization
 without waiting for completion, pass `--no-wait` and check it later with
 `day sign status <id>`.
 
@@ -187,7 +189,13 @@ DAY_SIGN_STORE_PASS=… DAY_SIGN_KEY_PASS=… \
 
 With both flags given there is no need for a project at all: `day sign apply` runs in a directory
 holding the package alone, which is how a submission queue keeps the app it signs away from the
-runner that holds the key. The passwords stay in the environment, out of the argument list. `.aab` goes through `jarsigner`, `.apk` through `zipalign`
+runner that holds the key. A `.hap` takes the same shape with its three files:
+
+```sh
+DAY_SIGN_STORE_PASS=… DAY_SIGN_KEY_PASS=… \
+  day sign apply app-unsigned.hap --keystore release.p12 --cert app.cer \
+    --profile app.p7b --key-alias release
+``` The passwords stay in the environment, out of the argument list. `.aab` goes through `jarsigner`, `.apk` through `zipalign`
 then `apksigner` (v4 off, so no `.idsig` litter), and passwords reach both through the
 environment rather than the argument list, which every other process on the machine can read.
 

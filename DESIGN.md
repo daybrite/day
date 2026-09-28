@@ -3734,13 +3734,18 @@ with `sign::apply` over an installed App Store profile when one covers the app i
 own signing never runs: an API key cannot use Xcode's cloud-managed distribution certificate,
 an automatic archive on a fresh CI keychain minted a new development certificate per run until
 the account was full, and a manual archive's profile setting reaches the Swift package targets,
-which refuse it, 2026-09-24), and App Store Connect API-key automatic signing without one; the
-shared CI workflow packs the .ipa unsigned and signs it in a `sign-ios` job that checks out no
-code, like `sign-macos`, through daybrite/actions' `sign-package` composite action (ephemeral
-keychain, a stored or freshly issued profile, `day sign apply`), and uploads through its
-`store-upload` action (`day store stage`, then the lane); the App Fair's queue runs the same two
-actions, so signing and uploading are written once (2026-09-25); windows =
-self-signed dev flow. Config in `Day.toml [signing]` with env-var interpolation — an unset
+which refuse it, 2026-09-24), and App Store Connect API-key automatic signing without one;
+`.hap` = the OpenHarmony SDK's hap-sign-tool over the keystore, certificate and profile, and
+`sign::apply` re-signs a packed `.hap` the same way (`--keystore --cert --profile --key-alias`,
+2026-09-28). The shared CI workflow packs every store package unsigned (`day pack --no-sign`
+names it `<stem>-<target>-unsigned.<ext>`: the .ipa on every ref, the .aab/.apk and .hap on a
+release) and signs each in a `sign` job row that checks out no code, like `sign-macos`, through
+daybrite/actions' `sign-package` composite action (ephemeral keychain, a stored or freshly
+issued profile, the decoded keystore files, `day sign apply`), so the job that runs the app's
+own code never holds a signing key for any platform; a store upload waits for the whole build
+matrix and that platform's signer. Uploads go through its `store-upload` action (`day store
+stage`, then the lane); the App Fair's queue runs the same two actions, so signing and uploading
+are written once (2026-09-25, all platforms 2026-09-28); windows = self-signed dev flow. Config in `Day.toml [signing]` with env-var interpolation — an unset
 variable degrades that section to the dev tier LOUDLY (ad-hoc / debug keystore / self-signed),
 it never fails the pack; `day sign check` reports readiness without printing any secret.
 

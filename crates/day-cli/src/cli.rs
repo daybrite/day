@@ -960,7 +960,7 @@ pub enum SignCmd {
         /// Write the signed package here instead of replacing the input
         #[arg(long)]
         out: Option<PathBuf>,
-        /// Apple: the provisioning profile to embed (default: signing.ios.profile)
+        /// Apple: the provisioning profile to embed (default: signing.ios.profile); HarmonyOS: the .p7b profile
         #[arg(long, value_name = "FILE")]
         profile: Option<PathBuf>,
         /// Apple: the signing identity, by name or SHA-1 (default: signing.ios.identity)
@@ -969,12 +969,15 @@ pub enum SignCmd {
         /// Apple: the entitlements to sign with (default: the profile's own)
         #[arg(long, value_name = "FILE")]
         entitlements: Option<PathBuf>,
-        /// Android: the keystore to sign with (default: signing.android.keystore)
+        /// Android/HarmonyOS: the keystore to sign with (default: signing.android.keystore)
         #[arg(long, value_name = "FILE")]
         keystore: Option<PathBuf>,
-        /// Android: the key alias inside that keystore; passwords come from DAY_SIGN_STORE_PASS and DAY_SIGN_KEY_PASS
+        /// Android/HarmonyOS: the key alias inside that keystore; passwords come from DAY_SIGN_STORE_PASS and DAY_SIGN_KEY_PASS
         #[arg(long, value_name = "NAME")]
         key_alias: Option<String>,
+        /// HarmonyOS: the app certificate (.cer) a .hap is signed with, beside --keystore, --key-alias and --profile
+        #[arg(long, value_name = "FILE")]
+        cert: Option<PathBuf>,
     },
 }
 
@@ -1231,6 +1234,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     entitlements,
                     keystore,
                     key_alias,
+                    cert,
                 },
         } => {
             let project = meta::find_project(cli.project.as_deref()).ok();
@@ -1247,6 +1251,12 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     keystore: keystore.as_deref(),
                     key_alias: key_alias.as_deref(),
                 },
+                crate::sign::OhosOverrides {
+                    keystore: keystore.as_deref(),
+                    cert: cert.as_deref(),
+                    profile: profile.as_deref(),
+                    key_alias: key_alias.as_deref(),
+                },
                 cli.format == OutputFormat::Json,
             )
         }
@@ -1261,6 +1271,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 entitlements,
                 keystore,
                 key_alias,
+                cert,
             } => crate::sign::apply(
                 Some(project),
                 &artifact,
@@ -1272,6 +1283,12 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 },
                 crate::sign::AndroidOverrides {
                     keystore: keystore.as_deref(),
+                    key_alias: key_alias.as_deref(),
+                },
+                crate::sign::OhosOverrides {
+                    keystore: keystore.as_deref(),
+                    cert: cert.as_deref(),
+                    profile: profile.as_deref(),
                     key_alias: key_alias.as_deref(),
                 },
                 cli.format == OutputFormat::Json,

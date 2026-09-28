@@ -264,6 +264,7 @@ fn signed_over_profile(
             entitlements: None,
         },
         crate::sign::AndroidOverrides::default(),
+        crate::sign::OhosOverrides::default(),
         false,
     )
     .map_err(|e| PackError::Sign(e.to_string()))?;

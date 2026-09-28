@@ -106,6 +106,14 @@ pub fn pack(
     } else {
         write_signing_properties(project, &signing_props)?
     };
+    // Named `-unsigned` like the iOS .ipa, so a signer that runs after the build (the shared
+    // CI workflow's `sign` job, `day sign apply`) finds the package by name and the signed one
+    // takes the plain name the release attaches.
+    let extra: &[&str] = if tier == SignTier::Unsigned {
+        &["unsigned"]
+    } else {
+        &[]
+    };
 
     // Build: cargo-ndk .so + gradle assembleRelease (ops::build), then bundleRelease for the .aab.
     let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
@@ -116,11 +124,7 @@ pub fn pack(
         let apk = find_output(&outcome.artifact, project, opts.profile, "apk")?;
         verify_apk(project, &apk);
         let out = dist.join(super::naming::artifact_file(
-            project,
-            target,
-            opts,
-            &[],
-            "apk",
+            project, target, opts, extra, "apk",
         ));
         std::fs::copy(&apk, &out).map_err(|e| PackError::Other(e.to_string()))?;
         artifacts.push(Artifact {
@@ -162,11 +166,7 @@ pub fn pack(
             )));
         }
         let out = dist.join(super::naming::artifact_file(
-            project,
-            target,
-            opts,
-            &[],
-            "aab",
+            project, target, opts, extra, "aab",
         ));
         std::fs::copy(&aab, &out).map_err(|e| PackError::Other(e.to_string()))?;
         artifacts.push(Artifact {
