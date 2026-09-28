@@ -24,7 +24,7 @@
 //! [`Pairs`] is the step before any of them when what changed is a *collection*: it matches the
 //! items of two states by key, gives the ones only one side has somewhere to come from or go to,
 //! and interpolates the lot, so bars that trade places slide and a new one grows out of its
-//! neighbour instead of the whole picture cross-fading.
+//! neighbor instead of the whole picture cross-fading.
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
@@ -531,7 +531,7 @@ impl<T: Clone> Pairs<T> {
     /// * An item only in `to` is [`Change::Entering`]; `absent(item, Change::Entering)` says where
     ///   it starts. An item only in `from` is [`Change::Leaving`]; `absent(item, Change::Leaving)`
     ///   says where it ends. That stand-in is the whole of what entering and leaving mean: grown
-    ///   from a baseline, faded out, slid in from a neighbour. The caller decides; the match does
+    ///   from a baseline, faded out, slid in from a neighbor. The caller decides; the match does
     ///   not.
     ///
     /// The result is in `to`'s order, then the leaving items in `from`'s order, so a renderer

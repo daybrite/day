@@ -82,9 +82,76 @@ pub fn format_decimal(v: f64, fraction_digits: usize) -> String {
     format_decimal_in(&locale, v, fraction_digits)
 }
 
+/// Where a locale puts the percent sign, and what separates it from the number: CLDR's standard
+/// percent pattern for the language, as (before, after).
+///
+/// icu4x's percent formatter is still experimental (outside the stable components this crate
+/// depends on), so the placement is this table of CLDR patterns, keyed by language, for the
+/// locales whose pattern is not a bare trailing `%`. The number itself is always the stable
+/// `DecimalFormatter`'s, so grouping, the decimal mark and the digit system are exact; Arabic-
+/// Indic digits take the Arabic percent sign.
+pub(crate) fn percent_affixes(locale: &str, number: &str) -> (&'static str, &'static str) {
+    let lang = locale.split(['-', '_']).next().unwrap_or("");
+    let region = locale.split(['-', '_']).nth(1).unwrap_or("");
+    if number
+        .chars()
+        .any(|c| ('\u{0660}'..='\u{0669}').contains(&c))
+    {
+        return ("", "\u{066A}");
+    }
+    match lang {
+        // A narrow no-break space: `50 %`.
+        "fr" if region != "CH" => ("", "\u{202F}%"),
+        // A no-break space: `50 %`. Swiss and Liechtenstein German write `50%`.
+        "de" if !matches!(region, "CH" | "LI") => ("", "\u{A0}%"),
+        "es" | "ca" | "sv" | "nb" | "nn" | "no" | "da" | "fi" | "ru" | "cs" | "sk" => {
+            ("", "\u{A0}%")
+        }
+        // The sign first: `%50`, and in Basque `% 50`.
+        "tr" => ("%", ""),
+        "eu" => ("%\u{A0}", ""),
+        _ => ("", "%"),
+    }
+}
+
+/// Render the fraction `v` as a percentage in `locale` (`0.5` is `50%` in `en`, `50 %` in `fr`,
+/// `%50` in `tr`), rounded to `fraction_digits` places of the percentage and grouped by the
+/// locale's rule (untracked).
+pub fn format_percent_in(locale: &str, v: f64, fraction_digits: usize) -> String {
+    let number = format_decimal_in(locale, v * 100.0, fraction_digits);
+    if !v.is_finite() {
+        return number;
+    }
+    let (before, after) = percent_affixes(locale, &number);
+    format!("{before}{number}{after}")
+}
+
+/// [`format_percent_in`] in the current locale (tracked), so a label inside a reactive closure
+/// re-renders when the locale switches.
+pub fn format_percent(v: f64, fraction_digits: usize) -> String {
+    let locale = crate::locale().get();
+    format_percent_in(&locale, v, fraction_digits)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::format_decimal_in;
+    use super::{format_decimal_in, format_percent_in};
+
+    #[test]
+    fn a_percentage_puts_its_sign_where_the_locale_does() {
+        assert_eq!(format_percent_in("en", 0.5, 0), "50%");
+        assert_eq!(format_percent_in("en", 0.1234, 1), "12.3%");
+        assert_eq!(format_percent_in("fr", 0.5, 0), "50\u{202F}%");
+        assert_eq!(format_percent_in("fr", 0.1234, 1), "12,3\u{202F}%");
+        assert_eq!(format_percent_in("de", 0.5, 0), "50\u{A0}%");
+        assert_eq!(format_percent_in("de-CH", 0.5, 0), "50%");
+        assert_eq!(format_percent_in("tr", 0.5, 0), "%50");
+        assert_eq!(format_percent_in("ja", 0.5, 0), "50%");
+        // Grouped like any other number, and negative on the number's side of the sign.
+        assert_eq!(format_percent_in("en", 12.5, 0), "1,250%");
+        assert_eq!(format_percent_in("en", -0.25, 0), "-25%");
+        assert_eq!(format_percent_in("en", f64::NAN, 0), "NaN");
+    }
 
     #[test]
     fn grouping_and_separators_follow_the_locale() {

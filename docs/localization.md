@@ -238,6 +238,34 @@ label(move || day::format_decimal(total.get(), 2))
 Grouping, decimal separators, and digits come from locale data. Non-finite values or missing
 data fall back to Rust formatting.
 
+`day::format_percent(fraction, fraction_digits)` renders a fraction as a percentage: `0.5` is
+`50%` in English, `50 %` in French (a narrow no-break space) and `%50` in Turkish. The number
+comes from the same formatter; where the sign goes and what separates it follows the locale's CLDR
+percent pattern. `NUMBER($n, style: "percent")` in a message places it the same way.
+`format_percent_in` takes an explicit locale.
+
+## Dates outside a message
+
+`day::format_date(epoch_seconds, fields)` writes an instant (seconds since the Unix epoch, read
+as UTC civil time like `DATETIME()`'s numeric input) in the selected locale. `fields` is a
+`day::DateFields` naming which parts to show; the locale decides their words, order and hour
+cycle:
+
+| `DateFields`       | en            | fr            | de           |
+|--------------------|---------------|---------------|--------------|
+| `Year`             | `2026`        | `2026`        | `2026`       |
+| `YearMonth`        | `Mar 2026`    | `mars 2026`   | `03/2026`    |
+| `Month`            | `Mar`         | `mars`        | `Mär`        |
+| `MonthDay`         | `Mar 5`       | `5 mars`      | `05.03.`     |
+| `YearMonthDay`     | `Mar 5, 2026` | `5 mars 2026` | `05.03.2026` |
+| `HourMinute`       | `3:30 PM`     | `15:30`       | `15:30`      |
+| `HourMinuteSecond` | `3:30:15 PM`  | `15:30:15`    | `15:30:15`   |
+
+Dates use the locale's medium form: an abbreviated month name where the locale writes one, and
+its own numeric form where it does not. Like `format_decimal`, `format_date` tracks the locale
+signal and `format_date_in(locale, ..)` takes an explicit one. A chart's time axis is the typical
+caller: day-piece-charts labels its ticks this way at the precision the axis spans.
+
 ## Sorting: locale-aware collation
 
 `day::compare`, `day::compare_in`, and `day::sort_localized` use ICU4X collation. The first and

@@ -32,11 +32,11 @@ when_time = { DATETIME($d, timeStyle: "short") }
             ),
             (
                 "de",
-                "plain = { $n }\nnum = { NUMBER($n) }\nwhen_long = { DATETIME($d, dateStyle: \"long\") }\n",
+                "plain = { $n }\nnum = { NUMBER($n) }\npct = { NUMBER($n, style: \"percent\") }\nwhen_long = { DATETIME($d, dateStyle: \"long\") }\n",
             ),
             (
                 "fr",
-                "plain = { $n }\nwhen_long = { DATETIME($d, dateStyle: \"long\") }\n",
+                "plain = { $n }\npct = { NUMBER($n, style: \"percent\") }\nwhen_long = { DATETIME($d, dateStyle: \"long\") }\n",
             ),
             ("ar-EG", "plain = { $n }\n"),
             ("zh-CN", "plain = { $n }\n"),
@@ -104,6 +104,9 @@ fn grouping_can_be_disabled() {
 fn percent_style() {
     install_fixture();
     assert_eq!(num("en", "pct", 0.72), "72%");
+    // The sign where the locale's CLDR pattern puts it, as `format_percent` does.
+    assert_eq!(num("fr", "pct", 0.72), "72\u{202F}%");
+    assert_eq!(num("de", "pct", 0.72), "72\u{A0}%");
 }
 
 #[test]

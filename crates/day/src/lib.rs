@@ -396,6 +396,10 @@ pub use day_fluent::{compare, compare_in, sort_localized};
 // icu4x formatter `NUMBER()` uses, for the values that have no message to hang on: an axis label,
 // a table column, a readout. `format_decimal` tracks the locale signal.
 pub use day_fluent::{format_decimal, format_decimal_in};
+// Percentages and dates the same way (docs/localization.md "Numbers outside a message", "Dates
+// outside a message"): `format_percent` puts the sign where the locale does (`50 %` in French),
+// `format_date` writes an instant's chosen fields in the locale's own form and hour cycle.
+pub use day_fluent::{DateFields, format_date, format_date_in, format_percent, format_percent_in};
 // Search matching (docs/localization.md "Searching"): case-insensitive, at the start of any
 // word, with words found by the locale's own segmentation. `matches_search` tracks the locale.
 pub use day_fluent::{matches_search, matches_search_in};

@@ -134,14 +134,27 @@ fn format_number(n: &FluentNumber, intls: &IntlLangMemoizer) -> String {
         .unwrap_or_else(|_| n.as_string().into_owned());
 
     if o.style == FluentNumberStyle::Percent {
-        // v1 approximation (icu4x percent formatting is still experimental): append the percent
-        // sign, using the Arabic form when the digits themselves are Arabic-Indic.
-        let arabic = formatted
-            .chars()
-            .any(|c| ('\u{0660}'..='\u{0669}').contains(&c));
-        format!("{formatted}{}", if arabic { '\u{066A}' } else { '%' })
+        // icu4x percent formatting is still experimental; the sign goes where the locale's CLDR
+        // pattern puts it (`crate::decimal::percent_affixes`, shared with `format_percent`).
+        let locale = intls
+            .with_try_get::<MemoLocaleName, _, _>((), |l| l.0.clone())
+            .unwrap_or_default();
+        let (before, after) = crate::decimal::percent_affixes(&locale, &formatted);
+        format!("{before}{formatted}{after}")
     } else {
         formatted
+    }
+}
+
+/// The bundle's language as a locale string, memoized like the formatters: the memoizer hands
+/// its language to `construct` and keeps no accessor for it otherwise.
+struct MemoLocaleName(String);
+
+impl Memoizable for MemoLocaleName {
+    type Args = ();
+    type Error = ();
+    fn construct(lang: LanguageIdentifier, _: ()) -> Result<Self, ()> {
+        Ok(Self(lang.to_string()))
     }
 }
 
@@ -269,7 +282,7 @@ fn parse_time(s: &str) -> Option<(u8, u8, u8)> {
 }
 
 /// Epoch seconds → UTC civil date+time (Howard Hinnant's civil_from_days).
-fn from_epoch_seconds(secs: i64) -> DateParts {
+pub(crate) fn from_epoch_seconds(secs: i64) -> DateParts {
     let days = secs.div_euclid(86_400);
     let sod = secs.rem_euclid(86_400);
     let z = days + 719_468;

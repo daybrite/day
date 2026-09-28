@@ -85,7 +85,7 @@ let bars = pairs.at(progress);
 - An item only in `to` is `Entering`, and `absent(item, Change::Entering)` says where it starts. One
   only in `from` is `Leaving`, and `absent(item, Change::Leaving)` says where it goes. That stand-in
   is the whole meaning of arriving and departing (grown from a baseline, slid in beside a
-  neighbour, faded) and it is the caller's to choose.
+  neighbor, faded) and it is the caller's to choose.
 - The result is in `to`'s order, then the leaving items in `from`'s order.
 
 `at(t)` interpolates every item with its `Lerp`. `at_with(t, f)` hands each `Pair` and `t` to a
