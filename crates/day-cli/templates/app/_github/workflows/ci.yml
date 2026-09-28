@@ -34,9 +34,12 @@ jobs:
       # targets here instead:
       #   targets: macos-appkit, windows-xaml, linux-gtk, ios-uikit, android-mdc, web-dom
       targets: all
+{{#if day_ci_pinned}}
       # The day CLI the runner installs: the same source Cargo.toml depends on, so the CLI and
-      # the framework crates never disagree.
+      # the framework crates never disagree. (An app on day's main branch leaves this out: the
+      # workflow installs main by default.)
       day-version: "{{day_ci_version}}"
+{{/if}}
       # Every dayscript under dayscript/ (`scripts: auto`), on every target, in every locale the
       # app ships (resource/locales/) and both appearances: a string that breaks only in one
       # language, or a layout that breaks only in dark mode, breaks the build.

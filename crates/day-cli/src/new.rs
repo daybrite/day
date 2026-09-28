@@ -1558,6 +1558,14 @@ fn template_context(
     // pin's branch or commit, and `main` for an unpinned git dep or a local checkout, which CI
     // cannot reach.
     ctx.insert("day_ci_version", deps.ci_version());
+    // Whether the scaffolded workflow names that version at all: the shared workflow installs
+    // day's main branch by default, so an app that tracks main carries no `day-version` line.
+    // Empty is Handlebars' false.
+    let pinned = deps.ci_version() != "main";
+    ctx.insert(
+        "day_ci_pinned",
+        if pinned { "true" } else { "" }.to_string(),
+    );
     // `deploy-web:` for the same workflow, which refuses the flag when web-dom is not a target.
     ctx.insert(
         "deploy_web",
@@ -3772,7 +3780,8 @@ mod scaffold_tests {
         assert!(!text("src/lib.rs").is_empty());
         assert!(!text("src/main.rs").is_empty());
         // The scaffold ships its CI: the shared workflow, on the targets it was scaffolded with,
-        // the CLI from the same source as the dep, the write grants on the calling job alone.
+        // the CLI from the same source as the dep (left to the default on main), the write grants on the
+        // calling job alone.
         let ci = text(".github/workflows/ci.yml");
         // Named after the project, so the Actions tab reads as the app rather than as "ci".
         assert!(ci.starts_with("# Demo App's CI"), "{ci}");
@@ -3783,7 +3792,8 @@ mod scaffold_tests {
         );
         // Every target Day.toml declares, so adding one there reaches CI without a second edit.
         assert!(ci.contains("\n      targets: all\n"), "{ci}");
-        assert!(ci.contains("day-version: \"main\""), "{ci}");
+        // An app on day's main branch leaves the CLI to the workflow's default, which is main.
+        assert!(!ci.contains("day-version"), "{ci}");
         assert!(ci.contains("deploy-web: false"), "{ci}");
         assert!(ci.contains("\npermissions:\n  contents: read\n"), "{ci}");
         assert!(
@@ -3875,6 +3885,23 @@ mod scaffold_tests {
         let ci = String::from_utf8_lossy(ci);
         assert!(ci.contains("\n      targets: all\n"), "{ci}");
         assert!(ci.contains("deploy-web: true"), "{ci}");
+        // An app on day's main branch relies on the workflow's own default, main: no line at
+        // all, and none of the blank space a skipped block could leave behind.
+        assert!(!ci.contains("day-version"), "{ci}");
+        assert!(
+            ci.contains("\n      targets: all\n      # Every dayscript"),
+            "{ci}"
+        );
+        // A pinned app names its version.
+        let pinned = Deps::Git(Some(DaySource::Release("0.3.1".into())));
+        let ctx = template_context(&repl, "Demo App".to_string(), &pinned, &targets);
+        let rendered = crate::template::render(&files, &ctx).expect("builtin template renders");
+        let (_, ci) = rendered
+            .iter()
+            .find(|(p, _)| p == ".github/workflows/ci.yml")
+            .expect("the workflow is scaffolded");
+        let ci = String::from_utf8_lossy(ci);
+        assert!(ci.contains("\n      day-version: \"0.3.1\"\n"), "{ci}");
     }
 
     /// A piece's demo is the app template rendered through `render_app`, the path `day new app`

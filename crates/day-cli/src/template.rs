@@ -265,6 +265,7 @@ mod tests {
         // that workflow installs and whether it deploys the web build (new.rs `template_context`).
         m.insert("targets_list", "macos-appkit".to_string());
         m.insert("day_ci_version", "main".to_string());
+        m.insert("day_ci_pinned", String::new());
         m.insert("deploy_web", "false".to_string());
         m.insert("first_target", "macos-appkit".to_string());
         m.insert(

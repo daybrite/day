@@ -44,7 +44,6 @@ jobs:
     secrets: inherit
     with:
       targets: all
-      day-version: main
       scripts: auto
       locales: all
       themes: light dark
@@ -69,8 +68,8 @@ therefore runs read-only. Fork pull requests receive a read-only token and no re
 secrets.
 
 Dependencies must resolve on the runner. Commit `Cargo.lock` and use registry or Git dependencies
-instead of paths to another local checkout. `day-version` defaults to the latest published CLI;
-set a version or commit when the app needs a particular Day revision. Leave `update-day-deps`
+instead of paths to another local checkout. `day-version` defaults to Day's `main` branch, built from
+source; set a release, branch or commit when the app needs a particular Day revision. Leave `update-day-deps`
 off to keep the versions in the lockfile.
 
 > [!NOTE] Runner requirements

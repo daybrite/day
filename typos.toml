@@ -31,6 +31,7 @@ UDID = "UDID"                  # Apple's Unique Device Identifier, not a UUID
 SEH = "SEH"                    # Windows Structured Exception Handling (day-piece-break)
 seeked = "seeked"              # the HTML media event name
 criticals = "criticals"        # GTK's own term for g_log CRITICAL records
+ZINK = "ZINK"                  # Mesa's Zink driver (OpenGL on Vulkan), as its log line spells it
 unparented = "unparented"      # GTK widget state: detached from its parent
 unparseable = "unparseable"
 invokable = "invokable"
