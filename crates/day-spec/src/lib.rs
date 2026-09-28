@@ -3060,6 +3060,32 @@ pub enum Shape {
 }
 
 impl Shape {
+    /// A rectangle rounded corner by corner (docs/canvas.md "Rounded corners"), as the simplest
+    /// shape that draws it: a plain [`Shape::Rect`] when every corner is square, a
+    /// [`Shape::RoundedRect`] (each toolkit's own rounded rectangle) when the corners agree, and a
+    /// path ([`rounded_rect_segs`]) otherwise. The radii are [fitted](CornerRadii::fitted) first.
+    ///
+    /// ```
+    /// use day_spec::{CornerRadii, Rect, Shape};
+    ///
+    /// // A bar standing on its axis: rounded on top, square where it meets the baseline.
+    /// let bar = Shape::rounded_rect(Rect::new(0.0, 0.0, 20.0, 80.0), CornerRadii::top(6.0));
+    /// assert!(matches!(bar, Shape::Path(_)));
+    /// ```
+    pub fn rounded_rect(rect: Rect, radii: CornerRadii) -> Shape {
+        let r = radii.fitted(rect.size);
+        if r.is_zero() || rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+            Shape::Rect(rect)
+        } else if r.is_uniform() {
+            Shape::RoundedRect(rect, r.top_left)
+        } else {
+            Shape::Path(Path {
+                segs: rounded_rect_segs(rect, r),
+                rule: FillRule::NonZero,
+            })
+        }
+    }
+
     /// The same shape moved by `(dx, dy)`.
     ///
     /// What a [`Stamp`] means by "the template translated by one point", and the one definition of
@@ -3172,6 +3198,192 @@ impl Path {
         }
         points_bounds(&pts)
     }
+}
+
+/// A radius for each corner of a rectangle, clockwise from the top left (docs/canvas.md "Rounded
+/// corners"). The shape a bar in a chart wants (rounded at its value end, square against its
+/// axis), a tab (rounded on top), or a card joined to its neighbor.
+///
+/// Radii are in points and never negative. [`CornerRadii::fitted`] shrinks them the way CSS
+/// does when two radii on one side would overlap, which is what a caller animating a radius or
+/// drawing a short bar needs to not think about.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct CornerRadii {
+    pub top_left: f64,
+    pub top_right: f64,
+    pub bottom_right: f64,
+    pub bottom_left: f64,
+}
+
+impl CornerRadii {
+    /// The same radius on every corner: what [`Shape::RoundedRect`] draws.
+    pub fn uniform(r: f64) -> Self {
+        CornerRadii {
+            top_left: r,
+            top_right: r,
+            bottom_right: r,
+            bottom_left: r,
+        }
+    }
+    /// Rounded along the top edge, square along the bottom: a bar standing on its axis.
+    pub fn top(r: f64) -> Self {
+        CornerRadii {
+            top_left: r,
+            top_right: r,
+            ..Default::default()
+        }
+    }
+    /// Rounded along the bottom edge: a bar hanging below its axis.
+    pub fn bottom(r: f64) -> Self {
+        CornerRadii {
+            bottom_right: r,
+            bottom_left: r,
+            ..Default::default()
+        }
+    }
+    /// Rounded along the left edge: a bar growing leftward from its axis.
+    pub fn left(r: f64) -> Self {
+        CornerRadii {
+            top_left: r,
+            bottom_left: r,
+            ..Default::default()
+        }
+    }
+    /// Rounded along the right edge: a bar growing rightward from its axis.
+    pub fn right(r: f64) -> Self {
+        CornerRadii {
+            top_right: r,
+            bottom_right: r,
+            ..Default::default()
+        }
+    }
+
+    /// The four radii, clockwise from the top left.
+    pub fn to_array(self) -> [f64; 4] {
+        [
+            self.top_left,
+            self.top_right,
+            self.bottom_right,
+            self.bottom_left,
+        ]
+    }
+
+    /// Whether every corner is square.
+    pub fn is_zero(self) -> bool {
+        self.to_array().iter().all(|r| *r <= 0.0)
+    }
+
+    /// Whether every corner has the same radius, so the rectangle is a [`Shape::RoundedRect`].
+    pub fn is_uniform(self) -> bool {
+        let [a, b, c, d] = self.to_array();
+        a == b && b == c && c == d
+    }
+
+    /// These radii made to fit a `size` rectangle, the rule CSS uses for `border-radius`: a
+    /// negative or non-finite radius is square, and when the two radii along any side add up to
+    /// more than that side, every radius is scaled down by the same factor until none overlap.
+    /// Scaling all four together keeps the corners in proportion, where clamping each one alone
+    /// would turn a pill into a lopsided shape.
+    pub fn fitted(self, size: Size) -> Self {
+        let clean = |r: f64| if r.is_finite() && r > 0.0 { r } else { 0.0 };
+        let [tl, tr, br, bl] = self.to_array().map(clean);
+        let (w, h) = (size.width.max(0.0), size.height.max(0.0));
+        let factor = [(w, tl + tr), (w, bl + br), (h, tl + bl), (h, tr + br)]
+            .into_iter()
+            .filter(|(_, sum)| *sum > 0.0)
+            .map(|(side, sum)| side / sum)
+            .fold(1.0f64, f64::min);
+        CornerRadii {
+            top_left: tl * factor,
+            top_right: tr * factor,
+            bottom_right: br * factor,
+            bottom_left: bl * factor,
+        }
+    }
+}
+
+/// The point `angle_deg` round a circle: degrees, `0` = the +x axis, positive clockwise in device
+/// space (y down), the convention [`Shape::Arc`] and every arc helper here use.
+pub fn arc_point(center: Point, radius: f64, angle_deg: f64) -> Point {
+    let a = angle_deg.to_radians();
+    Point::new(center.x + radius * a.cos(), center.y + radius * a.sin())
+}
+
+/// A circular arc as cubic beziers: `sweep_deg` of a circle of `radius` about `center`, from
+/// `start_deg` ([`arc_point`]'s convention). The segments start *from* the arc's first point, which
+/// the caller reaches itself (a move or a line); nothing for a zero or non-finite radius or sweep.
+///
+/// The arc is split into quarter turns at most, where a cubic tracks a circle best: the radial
+/// error peaks at 2.7 × 10⁻⁴ of the radius, a quarter of a pixel on a circle a thousand points
+/// across (docs/canvas.md "Paths"). The same beziers on every backend mean the same pixels on
+/// every backend, which an arc op interpreted by nine rasterizers would not.
+pub fn arc_cubics(center: Point, radius: f64, start_deg: f64, sweep_deg: f64) -> Vec<PathSeg> {
+    let (start, sweep) = (start_deg.to_radians(), sweep_deg.to_radians());
+    if !radius.is_finite() || radius <= 0.0 || !sweep.is_finite() || sweep == 0.0 {
+        return Vec::new();
+    }
+    let at = |a: f64| Point::new(center.x + radius * a.cos(), center.y + radius * a.sin());
+    let steps = (sweep.abs() / std::f64::consts::FRAC_PI_2).ceil() as usize;
+    let delta = sweep / steps as f64;
+    // The exact control-handle length for a circular arc of this sweep. Negative for a negative
+    // sweep, which is what turns the handles around for a counter-clockwise arc.
+    let k = 4.0 / 3.0 * (delta / 4.0).tan() * radius;
+    (0..steps)
+        .map(|i| {
+            let a = start + delta * i as f64;
+            let b = a + delta;
+            let (p0, p1) = (at(a), at(b));
+            PathSeg::Cubic(
+                Point::new(p0.x - k * a.sin(), p0.y + k * a.cos()),
+                Point::new(p1.x + k * b.sin(), p1.y - k * b.cos()),
+                p1,
+            )
+        })
+        .collect()
+}
+
+/// The closed contour of a rectangle rounded corner by corner, clockwise from the top left, with
+/// the radii [fitted](CornerRadii::fitted) first. A square corner is a sharp point, not a
+/// zero-length curve.
+pub fn rounded_rect_segs(rect: Rect, radii: CornerRadii) -> Vec<PathSeg> {
+    let r = radii.fitted(rect.size);
+    let (x0, y0) = (rect.origin.x, rect.origin.y);
+    let (x1, y1) = (x0 + rect.size.width, y0 + rect.size.height);
+    // Each corner: the point where its curve starts, then the quarter turn round its center.
+    let corners = [
+        (
+            Point::new(x0 + r.top_left, y0 + r.top_left),
+            r.top_left,
+            180.0,
+        ),
+        (
+            Point::new(x1 - r.top_right, y0 + r.top_right),
+            r.top_right,
+            270.0,
+        ),
+        (
+            Point::new(x1 - r.bottom_right, y1 - r.bottom_right),
+            r.bottom_right,
+            0.0,
+        ),
+        (
+            Point::new(x0 + r.bottom_left, y1 - r.bottom_left),
+            r.bottom_left,
+            90.0,
+        ),
+    ];
+    let mut segs = Vec::with_capacity(14);
+    for (i, (center, radius, start)) in corners.into_iter().enumerate() {
+        let first = arc_point(center, radius, start);
+        segs.push(if i == 0 {
+            PathSeg::Move(first)
+        } else {
+            PathSeg::Line(first)
+        });
+        segs.extend(arc_cubics(center, radius, start, 90.0));
+    }
+    segs.push(PathSeg::Close);
+    segs
 }
 
 /// How a stroked line ends (docs/canvas.md). Names match PDF's `J`, SVG's `stroke-linecap`, and

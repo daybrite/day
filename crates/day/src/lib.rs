@@ -491,9 +491,10 @@ pub mod prelude {
     };
     pub use day_pieces::prelude::*;
     pub use day_spec::{Lifecycle, Size, WindowOptions};
-    // Canvas drawing vocabulary (docs/canvas.md): arbitrary paths and their fill rule, plus the
-    // stroke style a dashed or round-capped line needs.
-    pub use day_spec::{FillRule, LineCap, LineJoin, Path, PathSeg, StrokeStyle};
+    // Canvas drawing vocabulary (docs/canvas.md): arbitrary paths and their fill rule, the
+    // stroke style a dashed or round-capped line needs, and per-corner radii for
+    // `Shape::rounded_rect`.
+    pub use day_spec::{CornerRadii, FillRule, LineCap, LineJoin, Path, PathSeg, StrokeStyle};
     // SVG path data to a `PathBuilder` chain, at compile time (docs/canvas.md).
     pub use day_macros::build_path;
     // The observable store (docs/model.md). The crate itself is re-exported by name because the

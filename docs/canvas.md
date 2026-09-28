@@ -110,6 +110,27 @@ Malformed data is a compile error naming the offending character. Arcs are conve
 the macro, because an arc is the one SVG command with no counterpart in the 2-D APIs Day draws
 through; converting once at build time is cheaper than converting in nine backends at draw time.
 
+## Rounded corners
+
+`Shape::RoundedRect(rect, r)` rounds every corner alike. `Shape::rounded_rect(rect, radii)` takes
+a `CornerRadii`, one radius per corner, for the shapes that round only some of them: a bar
+standing on its axis (`CornerRadii::top(r)`), one growing rightward from it
+(`CornerRadii::right(r)`), a tab, a card joined to its neighbor.
+
+```rust
+// Rounded where the bar ends, square where it meets the baseline.
+d.fill(Shape::rounded_rect(bar, CornerRadii::top(6.0)), TEAL);
+```
+
+Radii are fitted to the rectangle the way CSS fits `border-radius`: negative and non-finite radii
+are square, and when the two radii along a side add up to more than the side, all four shrink by
+the same factor. A generous radius on a short bar degrades to a pill instead of a bow tie, with no
+clamping at the call site. The result is the simplest shape that draws it: `Shape::Rect` when every
+corner is square, `Shape::RoundedRect` (each toolkit's own) when they agree, and a path of
+`arc_to` quarter turns otherwise, so nothing new crosses the wire and every backend draws the same
+curves. `PathBuilder::rounded_rect(rect, radii)` appends the same contour to a path, for a figure
+made of several (a rounded frame with a hole cut out of it).
+
 ## Strokes
 
 `StrokeStyle` carries width, cap, join, miter limit, and a dash pattern. `StrokeStyle::width(w)`,

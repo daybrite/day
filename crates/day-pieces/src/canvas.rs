@@ -12,7 +12,8 @@ use day_core::*;
 use day_reactive::{Scope, Signal};
 use day_spec::props::*;
 use day_spec::{
-    Color, DrawOp, Event, FillRule, Paint, PathSeg, Point, Shape, Size, StrokeStyle, kinds,
+    Color, CornerRadii, DrawOp, Event, FillRule, Paint, PathSeg, Point, Rect, Shape, Size,
+    StrokeStyle, kinds,
 };
 
 use crate::*;
@@ -114,38 +115,17 @@ impl PathBuilder {
     ///
     /// Continues the current subpath when there is one, and starts a new one otherwise.
     pub fn arc_to(mut self, center: Point, radius: f64, start_deg: f64, sweep_deg: f64) -> Self {
-        let (start, sweep) = (start_deg.to_radians(), sweep_deg.to_radians());
-        let at = |a: f64| Point::new(center.x + radius * a.cos(), center.y + radius * a.sin());
         // Reach the arc's start: a line from wherever the path is, or a move if it is nowhere.
         // `Close` ends a subpath, so a path that just closed is "nowhere" too.
         let fresh = self.segs.last().is_none_or(|s| matches!(s, PathSeg::Close));
-        let first = at(start);
+        let first = day_spec::arc_point(center, radius, start_deg);
         self.segs.push(if fresh {
             PathSeg::Move(first)
         } else {
             PathSeg::Line(first)
         });
-        if !radius.is_finite() || radius <= 0.0 || !sweep.is_finite() || sweep == 0.0 {
-            return self;
-        }
-        // A cubic tracks a circle well up to a quarter turn and visibly wanders past it, so a
-        // long sweep is split rather than approximated in one piece.
-        let steps = (sweep.abs() / std::f64::consts::FRAC_PI_2).ceil() as usize;
-        let delta = sweep / steps as f64;
-        // The exact control-handle length for a circular arc of this sweep. Negative for a
-        // negative sweep, which is what turns the handles around for a counter-clockwise arc.
-        let k = 4.0 / 3.0 * (delta / 4.0).tan() * radius;
-        let mut a = start;
-        for _ in 0..steps {
-            let b = a + delta;
-            let (p0, p1) = (at(a), at(b));
-            self.segs.push(PathSeg::Cubic(
-                Point::new(p0.x - k * a.sin(), p0.y + k * a.cos()),
-                Point::new(p1.x + k * b.sin(), p1.y - k * b.cos()),
-                p1,
-            ));
-            a = b;
-        }
+        self.segs
+            .extend(day_spec::arc_cubics(center, radius, start_deg, sweep_deg));
         self
     }
 
@@ -204,6 +184,14 @@ impl PathBuilder {
         }
         self
     }
+    /// Append a rectangle with its own radius on each corner, as one closed contour: the path
+    /// [`Shape::rounded_rect`] draws when its corners differ, for a figure that needs it as one
+    /// contour among several (a rounded frame with a hole cut out of it).
+    pub fn rounded_rect(mut self, rect: Rect, radii: CornerRadii) -> Self {
+        self.segs.extend(day_spec::rounded_rect_segs(rect, radii));
+        self
+    }
+
     /// Finish, as a [`Shape`] ready for `fill`, `stroke` or `clip`.
     pub fn build(self) -> Shape {
         Shape::Path(day_spec::Path {
@@ -582,6 +570,33 @@ mod arc_tests {
         // …and the same quarter counter-clockwise lands on -y.
         let (_, b) = ends(0.0, -90.0);
         assert!(near(b, Point::new(0.0, -10.0)), "{b:?}");
+    }
+
+    /// A rounded rectangle is a contour of its own: a frame with a rounded hole is two of them,
+    /// the inner one cut out by the even-odd rule.
+    #[test]
+    fn a_rounded_rect_contour_opens_and_closes_its_own_subpath() {
+        use day_spec::{CornerRadii, FillRule, Rect};
+        let day_spec::Shape::Path(p) = PathBuilder::new()
+            .rule(FillRule::EvenOdd)
+            .rounded_rect(Rect::new(0.0, 0.0, 40.0, 40.0), CornerRadii::uniform(8.0))
+            .rounded_rect(Rect::new(10.0, 10.0, 20.0, 20.0), CornerRadii::top(4.0))
+            .build()
+        else {
+            panic!("a path")
+        };
+        let moves = p
+            .segs
+            .iter()
+            .filter(|s| matches!(s, PathSeg::Move(_)))
+            .count();
+        let closes = p
+            .segs
+            .iter()
+            .filter(|s| matches!(s, PathSeg::Close))
+            .count();
+        assert_eq!((moves, closes), (2, 2));
+        assert_eq!(p.rule, FillRule::EvenOdd);
     }
 
     /// An arc joins what came before, which is why it is a segment and not a shape.
