@@ -3548,7 +3548,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | command | what it does |
 |---|---|
 | `day version` | version, build profile, git ref — the tag or branch when there is one, and **always the commit** (`0.3.0 (release, branch main, bd026ff7)`), so a build can be told from another build of the same branch. Omitted entirely off a git checkout, which is what a crates.io build looks like |
-| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; a piece scaffold includes `demo/`, the app template rendered by the same code as `day new app` and cut to one page that shows the piece, on the targets its toolkits draw on (every target for a composite piece); `--no-demo` omits it; a piece's or part's Android Java goes to `src/Day<Name>.java`, declared as a single-file `java` entry (`--java-in-src=false` keeps a `platform/android/java/` tree); `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
+| `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; it also initializes a git repository and ships `.gitignore` and `.github/workflows/ci.yml` (the shared dayapp.yml workflow on `targets: all`, §20); the interactive run asks, and `--github`/`--no-github` answer for it (`--no-github` leaves out all three); a piece scaffold includes `demo/`, the app template rendered by the same code as `day new app` and cut to one page that shows the piece, on the targets its toolkits draw on (every target for a composite piece); `--no-demo` omits it; a piece's or part's Android Java goes to `src/Day<Name>.java`, declared as a single-file `java` entry (`--java-in-src=false` keeps a `platform/android/java/` tree); `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -p <target>… [--day-src <path\|url[@ref]>] [--flavor <name>]` | build for one or more targets, in parallel; a cross-compiled target's Rust std is added through `rustup target add` when the toolchain lacks it (2026-09; a rustup-less toolchain is left to its own error); `--day-src` builds against a different `day` — a checkout, or a branch of the framework — for that build only ([`day launch`](#day-launch)); `--flavor` builds the app described by `Day-<name>.toml` ([§16.6](#166-build-flavors)) |
 | `day launch -p <target>… [--git <url>[@<ref>]] [--dir <d>] [--day-src <path\|url[@ref]>] [--locale …] [--env K=V]… [--script <file>]… [--variant name] [--themes t,…] [--locales l,…] [--capture-size WxH[@S]\|window] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own; `--day-src` swaps the FRAMEWORK for that one run — a checkout or a branch of `day`, patched in without writing anything to the project ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-p`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-p` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry; `--capture-size` states the pixel size of a scripted run's desktop-class captures for that run, over the `DAY_CAPTURE_SIZE` variable and Day.toml `[screenshots]` (default 2560×1600 at 2×; `window` = the app's own `[window]` size at the display's scale) |
 | `day pack -p <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
@@ -3737,13 +3737,16 @@ the account was full, and a manual archive's profile setting reaches the Swift p
 which refuse it, 2026-09-24), and App Store Connect API-key automatic signing without one;
 `.hap` = the OpenHarmony SDK's hap-sign-tool over the keystore, certificate and profile, and
 `sign::apply` re-signs a packed `.hap` the same way (`--keystore --cert --profile --key-alias`,
-2026-09-28). The shared CI workflow packs every store package unsigned (`day pack --no-sign`
-names it `<stem>-<target>-unsigned.<ext>`: the .ipa on every ref, the .aab/.apk and .hap on a
-release) and signs each in a `sign` job row that checks out no code, like `sign-macos`, through
+2026-09-28). The shared CI workflow runs every signer on one rule — a release, the whole
+build matrix green, the platform's material there — and packs unsigned (`day pack --no-sign`
+names it `<stem>-<target>-unsigned.<ext>`) exactly the store packages a planned `sign` row will
+sign, one row per platform whose keystore or certificate is a repository secret, each checking
+out no code like `sign-macos` (whose material is the named environment's) and signing through
 daybrite/actions' `sign-package` composite action (ephemeral keychain, a stored or freshly
-issued profile, the decoded keystore files, `day sign apply`), so the job that runs the app's
-own code never holds a signing key for any platform; a store upload waits for the whole build
-matrix and that platform's signer. Uploads go through its `store-upload` action (`day store
+issued profile, the decoded keystore files, `day sign apply`); a platform without material
+packs at the dev tier as on any ref, so the job that runs the app's own code never holds a
+signing key, and a store upload waits for the whole build matrix and that platform's signer.
+Uploads go through its `store-upload` action (`day store
 stage`, then the lane); the App Fair's queue runs the same two actions, so signing and uploading
 are written once (2026-09-25, all platforms 2026-09-28); windows = self-signed dev flow. Config in `Day.toml [signing]` with env-var interpolation — an unset
 variable degrades that section to the dev tier LOUDLY (ad-hoc / debug keystore / self-signed),
@@ -4107,8 +4110,9 @@ fieldnotes/
   build.rs                   # day_build::prebuild_project() → typed res:: constants (§18.5)
   README.md
   AGENTS.md                  # instructions for coding agents (day drive, day mcp-server, conventions)
-  .gitignore
+  .gitignore                 # build output, machine-local state, signing material
   .vscode/extensions.json    # recommends the Day VS Code extension (docs/vscode.md)
+  .github/workflows/ci.yml   # the shared dayapp.yml workflow on the scaffolded targets (§20)
   src/
     lib.rs                   # routes! + root() (the app)
     main.rs                  # desktop entry: day::launch
@@ -4847,6 +4851,18 @@ absent from the artifact glob.
 Residual exposure, recorded rather than fixed here: `ios-uikit`, `android-mdc`, and
 `harmony-arkui` still import their signing material into jobs that run repo code, and every
 third-party action in the workflow floats on a tag rather than a commit SHA.
+
+> [!NOTE]
+> **Outcome 2026-09-28.** The first residual is closed: `dayapp.yml` signs the `.ipa`, the
+> `.aab`/`.apk` and the `.hap` after the build too, in `sign` rows that check out no code and
+> hold one platform's material each (§16.5 `day sign`), and every signer — those rows and
+> `sign-macos` — runs on one gate: a release, the whole build matrix green, the material there.
+> The token follows the keys: every job that runs repository code (preflight, the build legs,
+> validate, the store jobs) declares `permissions: contents: read`, so a build script can neither
+> push, edit a release nor mint an OIDC credential; the write grants a caller makes for release
+> assets and Pages sit on the calling job and reach only `release`, `pages` and `website`, which
+> declare nothing because a called job may narrow a caller's grant but never widen it. The
+> floating action tags remain.
 
 ### §20.3 Reproducible-build verification
 

@@ -23,7 +23,7 @@ for example `day help icon new`. A target flag accepts `-p`, `--platform`, or `-
 
 ```bash
 day new                      # interactive: scaffold an app, a piece, or a part
-day new app my-app           # scaffold a new app non-interactively (--no-website to skip the site config)
+day new app my-app           # scaffold a new app non-interactively (--no-website: no site config; --no-github: no git repository, .gitignore or workflow)
 day project add-target android-mdc   # add a target to an existing app
 day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
 day prepare                  # render the derived host files (icon catalogs, mipmaps) under build/day/host (--check: CI gate)
@@ -90,8 +90,13 @@ left out.
 
 `day new app` scaffolds a working starter: a typed-route [sidebar](/docs/glossary#sidebar) over four sample panels (a
 [reactive](/docs/glossary#reactive) counter, a controls tour, a canvas dial, and a drill-down stack), with [locales](/docs/glossary#locale), a
-[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), and the native
-host projects the mobile targets build through. The scaffold comes from a **template**: a plain
+[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), the native
+host projects the mobile targets build through, and a GitHub Actions workflow that builds and
+tests every scaffolded target through the shared [`dayapp.yml`](/docs/github-actions) workflow
+as soon as the repository is pushed. The interactive run asks whether to set that repository up:
+yes initializes git in the new directory and ships `.gitignore` with the workflow, no leaves all
+three out. `--github` and `--no-github` answer for it; `--no-input` takes yes. The scaffold
+comes from a **template**: a plain
 directory tree whose file contents *and paths* are rendered with mustache-style placeholders:
 
 | placeholder | what it renders to |
@@ -108,6 +113,8 @@ directory tree whose file contents *and paths* are rendered with mustache-style 
 | `{{day_dep}}` / `{{day_build_dep}}` / `{{day_piece_deps}}` | dependency lines for the source the app was scaffolded against (git, crates.io, or a local checkout) |
 | `{{targets_toml}}` | the chosen targets, quoted, for `Day.toml` |
 | `{{targets_list}}` | the same targets bare, for a CI workflow's `targets:` input |
+| `{{day_ci_version}}` | the `day-version` a CI workflow installs: the release or git pin the dep names, else `main` |
+| `{{deploy_web}}` | `true` when `web-dom` is among the targets, for a CI workflow's `deploy-web:` input |
 | `{{first_target}}` | the first chosen target, for the commands a README prints |
 
 The built-in template is embedded in the

@@ -37,5 +37,8 @@ cargo build --no-default-features --features appkit    # or gtk / qt / uikit / m
 - `platform/` — the thin native host projects (Xcode / Gradle / hvigor) the mobile targets
   build through; `day build` keeps their identity in sync with `Day.toml`.
 - `Day.toml` — app metadata + the target list.
+- `.github/workflows/ci.yml` — builds and tests every target above on each push through the
+  shared [Day workflow](https://daybrite.dev/docs/github-actions), and attaches packages to a
+  GitHub release on a `v1.2.3` tag.
 
 `day lint` checks routes, element ids, and locale coverage.

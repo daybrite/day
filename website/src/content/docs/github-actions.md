@@ -15,47 +15,58 @@ workflow installs Day and the platform toolchains, builds your app, runs dayscri
 screenshots and packages supported targets. Version tags also produce GitHub releases. Store
 uploads and website deployment use the same build outputs.
 
-## Add the workflow
+## The workflow
 
-Create `.github/workflows/ci.yml` in your app repository, or adapt the file supplied by your
-template:
+`day new app` writes `.github/workflows/ci.yml`, so a fresh app builds and tests on its first
+push. The file, named after the project, calls the shared workflow on the targets the app
+was scaffolded with:
 
 ```yaml
-name: App CI
+name: "Field-Notes"
 
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   app:
     uses: daybrite/actions/.github/workflows/dayapp.yml@main
+    permissions:
+      contents: write # release assets on a tag build
+      pages: write    # web-dom → GitHub Pages (deploy-web)
+      id-token: write # deploy-pages OIDC token (deploy-web)
     secrets: inherit
     with:
-      targets: macos-appkit, windows-xaml, linux-gtk, ios-uikit, android-mdc, web-dom
+      targets: all
+      day-version: main
       scripts: auto
       locales: all
       themes: light dark
-      deploy-website: "false"
-      upload-ios: "false"
-      upload-macos: "false"
-      upload-play: "false"
+      deploy-web: true
 ```
 
-Change `main` if your default branch has another name. Keep only the targets your app supports.
-`targets` is required; `scripts: auto` runs the project's `dayscript/*.yaml` files, or
-`scripts/*.yaml` when that is the script directory. Use a space-separated list of paths to run
-selected tests, or `none` to build without running tests.
+An app that predates the scaffolded file, or one from another template, adds the same file by
+hand. `targets: all` builds every target `Day.toml` declares, so `day project add-target`
+reaches CI on its own. To refine what CI builds, add or remove targets in `Day.toml`, or name
+them in the workflow instead, such as
+`targets: macos-appkit, windows-xaml, linux-gtk, ios-uikit, android-mdc, web-dom`.
+`scripts: auto` runs the project's
+`dayscript/*.yaml` files, or `scripts/*.yaml` when that is the script directory. Use a
+space-separated list of paths to run selected tests, or `none` to build without running tests.
+`deploy-web` is scaffolded as `true` when `web-dom` is a target; it needs the one-time Pages
+setting below, and until then the deploy job fails while the builds pass.
 
-This example publishes GitHub release assets but disables store uploads and Pages. Enable those
-after completing their setup below. `contents: write` permits release creation and asset uploads;
-fork pull requests normally receive a read-only token and no repository secrets.
+The write grants sit on the job that calls the shared workflow, not at the top of the file. The
+shared workflow's build legs, which run your code, narrow their token to `contents: read`
+themselves, and only its release and Pages jobs use the grants. Any job you add beside `app`
+therefore runs read-only. Fork pull requests receive a read-only token and no repository
+secrets.
 
 Dependencies must resolve on the runner. Commit `Cargo.lock` and use registry or Git dependencies
 instead of paths to another local checkout. `day-version` defaults to the latest published CLI;
@@ -116,13 +127,13 @@ Do not add this event for the default `publish` mode; it would trigger a redunda
 
 ## Deploy to GitHub Pages
 
-Add the deployment permissions to the caller:
+The scaffolded workflow grants the `app` job what a deploy needs:
 
 ```yaml
-permissions:
-  contents: write
-  pages: write
-  id-token: write
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
 ```
 
 In the repository settings, select **Pages → Source → GitHub Actions**. Under
@@ -135,7 +146,7 @@ Choose what to deploy in the job's `with` block:
 | --- | --- |
 | App website with listings, downloads and screenshots | Add `website/site.toml` and remove `deploy-website: "false"`; the workflow detects it automatically. |
 | An existing Astro website | Set `deploy-website: "true"` with a `website/` directory. |
-| Web app only | Keep `deploy-website: "false"`, include `web-dom` in `targets`, and set `deploy-web: true`. |
+| Web app only | Delete `website/site.toml`, keep `web-dom` in `targets`, and keep `deploy-web: true`. |
 
 The generated site uses the [daysite template](https://github.com/daybrite/daysite).
 Deployment normally follows a successful default-branch push; the app website also deploys for

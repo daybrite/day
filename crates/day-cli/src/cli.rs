@@ -756,6 +756,12 @@ enum NewKind {
         /// Skip website configuration files
         #[arg(long = "no-website")]
         no_website: bool,
+        /// Set up a git repository with a GitHub workflow that builds and tests the app (default; prompted when interactive)
+        #[arg(long, overrides_with = "no_github")]
+        github: bool,
+        /// No git repository: leave out .git, .gitignore and the .github workflow
+        #[arg(long = "no-github", overrides_with = "github")]
+        no_github: bool,
         /// Initial locales (comma- or space-separated; repeatable; always includes en)
         #[arg(long = "locales")]
         locales: Vec<String>,
@@ -1649,6 +1655,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 local,
                 no_input,
                 no_website,
+                github,
+                no_github,
                 locales,
                 icon_seed,
             }) => crate::new::app(
@@ -1666,6 +1674,12 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 day_version.as_deref(),
                 no_input,
                 no_website,
+                // Neither flag: the interactive run asks, `--no-input` takes the default (yes).
+                match (github, no_github) {
+                    (true, _) => Some(true),
+                    (_, true) => Some(false),
+                    _ => None,
+                },
                 &locales,
                 icon_seed.as_deref(),
             )

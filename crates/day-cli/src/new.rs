@@ -142,6 +142,18 @@ enum Deps {
 }
 
 impl Deps {
+    /// The `day-version` the shared CI workflow takes for this source: the release, the branch
+    /// or commit a git dep pins, else the day repository's `main`.
+    fn ci_version(&self) -> String {
+        match self {
+            Deps::Version(v) => v.clone(),
+            Deps::Git(Some(DaySource::Release(v))) => v.clone(),
+            Deps::Git(Some(DaySource::Branch(b))) => b.clone(),
+            Deps::Git(Some(DaySource::Rev(r))) => r.clone(),
+            Deps::Git(None) | Deps::Local(_) => "main".to_string(),
+        }
+    }
+
     /// Resolve the dependency source: a local checkout (`--local` or `DAY_LOCAL`) wins, then
     /// `--registry` (versioned crates.io deps: `--day-version x.y.z` if given, else this CLI's
     /// own version, so a `day-cli x.y.z` binary scaffolds an app depending on `day x.y.z`),
@@ -418,6 +430,20 @@ pub fn describe() -> serde_json::Value {
                         "required": false,
                         "placeholder": "the name, title-cased",
                     },
+                    {
+                        "id": "github",
+                        "label": "Git repository and GitHub workflow",
+                        "help": "Initialize git in the new directory, with a .gitignore and a GitHub Actions workflow that builds and tests every target on a push. No leaves all three out.",
+                        "type": "boolean",
+                        "flag": "--github",
+                        "negated_flag": "--no-github",
+                        "required": false,
+                        "default": "true",
+                        "options": [
+                            { "value": "true", "label": "Yes" },
+                            { "value": "false", "label": "No" },
+                        ],
+                    },
                 ],
             },
             {
@@ -528,6 +554,7 @@ pub fn interactive() -> Result<(), CliError> {
             None, // the dialog scaffolds against the day this CLI ships with (--day-version's job)
             false,
             false, // interactive scaffolds keep the website; opting out is the flag's job
+            None,  // the repository question is asked, as it is for `day new app`
             &[],   // extra locales are the flag's job too; the scaffold's default is en
             None,  // icon seed defaults to the app id (docs/icons.md#generate)
         ),
@@ -939,6 +966,7 @@ pub fn app(
     day_version: Option<&str>,
     no_input: bool,
     no_website: bool,
+    github: Option<bool>,
     locales: &[String],
     icon_seed: Option<&str>,
 ) -> Result<(), CliError> {
@@ -1067,6 +1095,21 @@ pub fn app(
         }
     };
 
+    // A repository from the first commit: git initialized in the new directory, .gitignore, and
+    // the GitHub workflow that builds and tests every target on a push. Declined, all three stay
+    // out; `--github` / `--no-github` answer for the prompt, and `--no-input` says yes.
+    let github = match github {
+        Some(answer) => answer,
+        None => {
+            let options = ["Yes".to_string(), "No".to_string()];
+            p.choose(
+                "Set up a git repository with a GitHub workflow that builds and tests the app?",
+                &options,
+                0,
+            ) == 0
+        }
+    };
+
     let mut repl = Repl::new(&name, Some(rid.as_str()));
     repl.repo = repo.clone();
     // Computed here rather than taken from the template context: this is advice for the person
@@ -1079,10 +1122,14 @@ pub fn app(
         targets,
         template,
         no_website,
+        github,
         locales: wanted_locales,
         icon_seed,
     };
     write_app(&dir, &name, &spec, None)?;
+    if github {
+        init_repository(&dir);
+    }
     // The suggested target is what this machine can run, not the first one declared; see
     // `targets::suggested`. `day doctor` stays unscoped: the app declares several targets and a
     // first run is the moment to learn which of them this machine is missing tools for. The
@@ -1102,9 +1149,53 @@ struct AppSpec<'a> {
     /// The `--template` source; `None` is the embedded app template.
     template: Option<&'a str>,
     no_website: bool,
+    /// Whether the scaffold is a repository: `.gitignore` and `.github/` ship, and `day new app`
+    /// runs `git init`. Declined, every git-facing file stays out of the tree.
+    github: bool,
     /// Locales beyond the template's own `en`.
     locales: Vec<String>,
     icon_seed: Option<&'a str>,
+}
+
+/// `git init` in the scaffolded directory, unless it already sits inside a repository (a demo
+/// or a sub-project of one), in which case that repository is the one. Best-effort: without git
+/// on PATH the scaffold is still complete, and the note says what was skipped.
+fn init_repository(dir: &Path) {
+    use std::process::{Command, Stdio};
+    // Asked from the new directory itself, which is not a repository yet: a `true` answer
+    // comes from a repository above it. (`dir.parent()` is "" for `day new app Name` run in
+    // place, which no process can start in.)
+    let inside = Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success());
+    if inside {
+        ops::status(
+            "Git",
+            "inside an existing repository, so none was initialized",
+        );
+        return;
+    }
+    match Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+    {
+        Ok(s) if s.success() => ops::status("Git", "initialized an empty repository"),
+        Ok(_) => ops::status(
+            "Git",
+            "`git init` failed; initialize the repository by hand",
+        ),
+        Err(_) => ops::status(
+            "Git",
+            "git is not on PATH; initialize the repository by hand",
+        ),
+    }
 }
 
 /// Everything `day new app` does once its questions are answered: render the template, write it
@@ -1194,11 +1285,48 @@ fn render_app(
     if app.no_website {
         files.retain(|f| !f.path.starts_with("website/"));
     }
-    let rendered = crate::template::render(&files, &ctx)?;
+    let mut rendered = crate::template::render(&files, &ctx)?;
+    // No repository: nothing git reads — `.gitignore` at any depth, `.github/`, and a `.git/`
+    // a template might carry — and the README stops describing the workflow it does not have.
+    if !app.github {
+        rendered.retain(|(path, _)| !is_git_facing(path));
+        for (path, bytes) in &mut rendered {
+            if path == "README.md" {
+                *bytes = without_workflow_bullet(bytes);
+            }
+        }
+    }
     Ok(match demo {
         Some(demo) => demo.cut(rendered, app),
         None => rendered,
     })
+}
+
+/// A rendered path that exists for git or GitHub: `.gitignore` anywhere, and anything under
+/// `.github/` or `.git/`.
+fn is_git_facing(path: &str) -> bool {
+    path.split('/')
+        .any(|segment| segment == ".gitignore" || segment == ".github" || segment == ".git")
+}
+
+/// The README without its `.github/workflows/ci.yml` bullet (the bullet and its indented
+/// continuation lines).
+fn without_workflow_bullet(bytes: &[u8]) -> Vec<u8> {
+    let text = String::from_utf8_lossy(bytes);
+    let mut out = String::with_capacity(text.len());
+    let mut skipping = false;
+    for line in text.split_inclusive('\n') {
+        if line.starts_with("- `.github/workflows/ci.yml`") {
+            skipping = true;
+            continue;
+        }
+        if skipping && line.starts_with("  ") {
+            continue;
+        }
+        skipping = false;
+        out.push_str(line);
+    }
+    out.into_bytes()
 }
 
 /// A piece's `demo/`: the app template, rendered by [`render_app`] like any app and then cut to
@@ -1222,6 +1350,9 @@ impl PieceDemo<'_> {
             targets: demo_targets(self.toolkits),
             template: None,
             no_website: true,
+            // The demo keeps its .gitignore (the piece's repository holds it); `cut` drops
+            // `.github/`, and no `git init` runs for a demo.
+            github: true,
             locales: Vec::new(),
             icon_seed: None,
         }
@@ -1422,6 +1553,20 @@ fn template_context(
     // The same list unquoted, which is the form a CI workflow's `targets:` input takes. A
     // template that ships CI can then build exactly what the app was scaffolded with.
     ctx.insert("targets_list", targets.join(", "));
+    // The day CLI the shared CI workflow installs (`day-version:`), from the same source as the
+    // `day` dep so the CLI and the framework crates never disagree: a release's version, a git
+    // pin's branch or commit, and `main` for an unpinned git dep or a local checkout, which CI
+    // cannot reach.
+    ctx.insert("day_ci_version", deps.ci_version());
+    // `deploy-web:` for the same workflow, which refuses the flag when web-dom is not a target.
+    ctx.insert(
+        "deploy_web",
+        if targets.iter().any(|t| t == "web-dom") {
+            "true".to_string()
+        } else {
+            "false".to_string()
+        },
+    );
     // Not the host's target (`targets::suggested`): a template renders into
     // files that get committed and read on other machines, and the scaffold is diffed against a
     // fresh `day new` on a Linux runner. A placeholder whose value depended on the desktop that
@@ -3333,6 +3478,13 @@ mod tests {
         }
         assert_eq!(values(&field("piece", "toolkits")), TOOLKITS);
         assert_eq!(values(&field("part", "platforms")), PLATFORMS);
+        // The repository question is a boolean with one bare flag per answer, defaulting to yes.
+        let github = field("app", "github");
+        assert_eq!(github["type"], "boolean");
+        assert_eq!(github["flag"], "--github");
+        assert_eq!(github["negated_flag"], "--no-github");
+        assert_eq!(github["default"], "true");
+        assert_eq!(values(&github), ["true", "false"]);
 
         // The default target is the host's own, so a caller never re-derives it; that detection
         // is `targets::host_default()`'s, including which toolkit a Linux desktop prefers.
@@ -3619,6 +3771,110 @@ mod scaffold_tests {
         // The app's lib crate is what `day build` compiles for every toolkit feature.
         assert!(!text("src/lib.rs").is_empty());
         assert!(!text("src/main.rs").is_empty());
+        // The scaffold ships its CI: the shared workflow, on the targets it was scaffolded with,
+        // the CLI from the same source as the dep, the write grants on the calling job alone.
+        let ci = text(".github/workflows/ci.yml");
+        // Named after the project, so the Actions tab reads as the app rather than as "ci".
+        assert!(ci.starts_with("# Demo App's CI"), "{ci}");
+        assert!(ci.contains("\nname: \"demo-app\"\n"), "{ci}");
+        assert!(
+            ci.contains("uses: daybrite/actions/.github/workflows/dayapp.yml@main"),
+            "{ci}"
+        );
+        // Every target Day.toml declares, so adding one there reaches CI without a second edit.
+        assert!(ci.contains("\n      targets: all\n"), "{ci}");
+        assert!(ci.contains("day-version: \"main\""), "{ci}");
+        assert!(ci.contains("deploy-web: false"), "{ci}");
+        assert!(ci.contains("\npermissions:\n  contents: read\n"), "{ci}");
+        assert!(
+            ci.contains("    permissions:\n      contents: write"),
+            "{ci}"
+        );
+        assert!(!ci.contains("{{"), "an unrendered placeholder in {ci}");
+    }
+
+    /// Declining the repository leaves out everything git reads — `.gitignore` at every depth
+    /// and `.github/` — and the README no longer lists the workflow; accepting keeps them all.
+    #[test]
+    fn declining_github_leaves_out_every_git_facing_file() {
+        let deps = Deps::Git(None);
+        let spec = |github: bool| AppSpec {
+            repl: Repl::new("demo-app", Some("dev.example.demoapp")),
+            title: "Demo App".to_string(),
+            deps: &deps,
+            targets: vec!["macos-appkit".to_string(), "harmony-arkui".to_string()],
+            template: None,
+            no_website: false,
+            github,
+            locales: Vec::new(),
+            icon_seed: None,
+        };
+        let paths = |rendered: &[(String, Vec<u8>)]| -> Vec<String> {
+            rendered.iter().map(|(p, _)| p.clone()).collect()
+        };
+        let with = render_app(&spec(true), None).expect("renders");
+        let with_paths = paths(&with);
+        for expected in [
+            ".gitignore",
+            ".github/workflows/ci.yml",
+            "platform/harmony/.gitignore",
+        ] {
+            assert!(
+                with_paths.iter().any(|p| p == expected),
+                "{expected} missing"
+            );
+        }
+        let without = render_app(&spec(false), None).expect("renders");
+        for (path, _) in &without {
+            assert!(
+                !is_git_facing(path),
+                "{path} in a scaffold without a repository"
+            );
+        }
+        assert_eq!(without.len() + 3, with.len(), "{:?}", paths(&without));
+        let readme = |rendered: &[(String, Vec<u8>)]| -> String {
+            let (_, bytes) = rendered
+                .iter()
+                .find(|(p, _)| p == "README.md")
+                .expect("README");
+            String::from_utf8_lossy(bytes).into_owned()
+        };
+        assert!(readme(&with).contains("- `.github/workflows/ci.yml`"));
+        let trimmed = readme(&without);
+        assert!(!trimmed.contains(".github/workflows/ci.yml"), "{trimmed}");
+        assert!(trimmed.contains("- `Day.toml`"), "{trimmed}");
+        assert!(is_git_facing(".git/config") && is_git_facing("a/.gitignore"));
+        assert!(!is_git_facing("src/github.rs") && !is_git_facing("gitignore.txt"));
+    }
+
+    /// The scaffolded workflow follows the app's dependency source and target list: a release
+    /// pin installs that CLI, web-dom among the targets turns the Pages deploy on.
+    #[test]
+    fn scaffolded_ci_follows_the_dep_source_and_the_targets() {
+        let repl = Repl::new("demo-app", Some("dev.example.demoapp"));
+        let targets = vec!["ios-uikit".to_string(), "web-dom".to_string()];
+        let cases: [(Deps, &str); 4] = [
+            (Deps::Version("0.4.0".into()), "0.4.0"),
+            (Deps::Git(Some(DaySource::Branch("next".into()))), "next"),
+            (Deps::Git(Some(DaySource::Release("0.3.1".into()))), "0.3.1"),
+            (Deps::Local("/tmp/day".into()), "main"),
+        ];
+        for (deps, version) in cases {
+            let ctx = template_context(&repl, "Demo App".to_string(), &deps, &targets);
+            assert_eq!(ctx["day_ci_version"], version, "{deps:?}");
+            assert_eq!(ctx["deploy_web"], "true");
+            assert_eq!(ctx["targets_list"], "ios-uikit, web-dom");
+        }
+        let files = crate::template::filter_for_targets(crate::template::builtin_app(), &targets);
+        let ctx = template_context(&repl, "Demo App".to_string(), &Deps::Git(None), &targets);
+        let rendered = crate::template::render(&files, &ctx).expect("builtin template renders");
+        let (_, ci) = rendered
+            .iter()
+            .find(|(p, _)| p == ".github/workflows/ci.yml")
+            .expect("the workflow is scaffolded");
+        let ci = String::from_utf8_lossy(ci);
+        assert!(ci.contains("\n      targets: all\n"), "{ci}");
+        assert!(ci.contains("deploy-web: true"), "{ci}");
     }
 
     /// A piece's demo is the app template rendered through `render_app`, the path `day new app`
@@ -3648,6 +3904,7 @@ mod scaffold_tests {
                     || path == "src/model.rs"
                     || path == "AGENTS.md"
                     || path.starts_with(".vscode/")
+                    || path.starts_with(".github/")
                     || path.starts_with("store/")
                     || path.starts_with("website/")
                     || path.starts_with("resource/images/")

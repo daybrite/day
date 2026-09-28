@@ -36,6 +36,7 @@ my-app/
 ├── dayscript/                # dayscript flows: walkthroughs, screenshots, assertions
 ├── store/                    # the canonical store listing `day store` consumes
 ├── website/                  # optional app-site scaffold (skip with --no-website)
+├── .github/workflows/ci.yml  # the shared Day workflow on every target above (skip with --no-github, with .gitignore and the git repository)
 ├── platform/
 │   ├── ios/                  # Xcode scaffold: DayApp.xcodeproj + a thin Swift Runner
 │   └── android/              # Gradle scaffold: settings/app modules, AndroidManifest, theme

@@ -88,13 +88,18 @@ Configure only the stores you use.
 | Google Play API | `DAY_PLAY_JSON_KEY` — service-account JSON contents |
 | HarmonyOS signing | `DAY_OHOS_KEYSTORE_B64`, `DAY_OHOS_CERT_B64`, `DAY_OHOS_PROFILE_B64`, `DAY_OHOS_KEY_ALIAS`, `DAY_OHOS_KS_PASS`, `DAY_OHOS_KEY_PASS` — base64-encoded keystore, certificate and profile, the key alias and the two passwords |
 
-The workflow signs after it builds. The job that compiles the app and runs its walkthroughs
-packs every store package unsigned and never sees a key; a separate `sign` job, which checks
-out no code, signs each package with `day sign apply` and replaces the artifact. The signing
-secrets therefore need no `[signing]` table in `Day.toml`, though one still serves
-[local release packs](/docs/packaging#signing-configuration). An API key authorizes uploads; it
-does not replace the signing certificate or upload key. Unsigned iOS packages and Android
-packages signed with the development key cannot be uploaded to these stores.
+The workflow signs after it builds, and only where it can. The job that compiles the app and
+runs its walkthroughs never sees a key. On a tag, it packs unsigned each store package whose
+platform has its signing secrets set, and a separate `sign` job, which checks out no code, signs
+that package with `day sign apply` and replaces the artifact; the macOS app is signed and
+notarized the same way from the environment the `signing-environment` input names. A platform
+without secrets packs as on any branch: an unsigned iOS package, a development-signed Android
+one. The signing secrets therefore need no `[signing]` table in `Day.toml`, though one still
+serves [local release packs](/docs/packaging#signing-configuration). An API key authorizes
+uploads; it does not replace the signing certificate or upload key. An upload switched on
+without its signing secrets is refused when the workflow decides the uploads, naming the secrets
+to set. Unsigned iOS packages and Android packages signed with the development key cannot be
+uploaded to these stores.
 
 ## Enable store uploads
 

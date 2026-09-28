@@ -249,8 +249,11 @@ mod tests {
             "day-build = { version = \"0.0.0\" }".to_string(),
         );
         m.insert("targets_toml", "\"macos-appkit\"".to_string());
-        // The same targets unquoted, for a workflow input (new.rs `targets_list`).
+        // The same targets unquoted, for a workflow input (new.rs `targets_list`), with the CLI
+        // that workflow installs and whether it deploys the web build (new.rs `template_context`).
         m.insert("targets_list", "macos-appkit".to_string());
+        m.insert("day_ci_version", "main".to_string());
+        m.insert("deploy_web", "false".to_string());
         m.insert("first_target", "macos-appkit".to_string());
         m.insert(
             "day_piece_deps",
@@ -267,9 +270,10 @@ mod tests {
         let paths: Vec<&str> = rendered.iter().map(|(p, _)| p.as_str()).collect();
         for expected in [
             "Day.toml",
-            "Cargo.toml",        // .hbs stripped
-            ".gitignore",        // _gitignore mapped
-            "website/site.toml", // the daysite config `day new app` ships by default
+            "Cargo.toml",               // .hbs stripped
+            ".gitignore",               // _gitignore mapped
+            ".github/workflows/ci.yml", // _github/ mapped
+            "website/site.toml",        // the daysite config `day new app` ships by default
             "website/theme.css",
             "src/main.rs",
             "src/lib.rs",

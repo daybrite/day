@@ -1,0 +1,51 @@
+# {{title}}'s CI: every target the app declares, its walkthrough in every language it ships, and
+# on a version tag the packages for a GitHub release, through the workflow every Day app uses
+# (https://daybrite.dev/docs/github-actions). Nothing here builds the app itself; the shared
+# workflow installs the toolchains, builds, runs the dayscripts and packages each target.
+name: "{{repo}}"
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+  pull_request:
+  workflow_dispatch:
+
+# The repository's own jobs, should any be added here, run this checkout's code with a read-only
+# token. The write grants sit on the job that calls the shared workflow, whose release and Pages
+# jobs alone use them; its build legs, which run this code too, narrow their token to read-only
+# themselves.
+permissions:
+  contents: read
+
+jobs:
+  app:
+    uses: daybrite/actions/.github/workflows/dayapp.yml@main
+    permissions:
+      contents: write # release assets on a tag build
+      pages: write    # web-dom → GitHub Pages (deploy-web)
+      id-token: write # deploy-pages OIDC token (deploy-web)
+    # Repository secrets reach the workflow's signing and store-upload jobs, and only those, once
+    # they exist (https://daybrite.dev/docs/app-store-submissions). None are needed to build.
+    secrets: inherit
+    with:
+      # Every target Day.toml declares (`[app] targets`), so `day project add-target` reaches CI
+      # on its own. To refine what CI builds, add or remove targets in Day.toml, or name the CI
+      # targets here instead:
+      #   targets: macos-appkit, windows-xaml, linux-gtk, ios-uikit, android-mdc, web-dom
+      targets: all
+      # The day CLI the runner installs: the same source Cargo.toml depends on, so the CLI and
+      # the framework crates never disagree.
+      day-version: "{{day_ci_version}}"
+      # Every dayscript under dayscript/ (`scripts: auto`), on every target, in every locale the
+      # app ships (resource/locales/) and both appearances: a string that breaks only in one
+      # language, or a layout that breaks only in dark mode, breaks the build.
+      scripts: auto
+      locales: all
+      themes: light dark
+      # The web build, served from this repository's GitHub Pages on a push to the default branch
+      # and on a version tag, with the project site website/site.toml describes around it. Set
+      # Settings → Pages → Source to "GitHub Actions" once, and allow `v*` tags under
+      # Environments → github-pages → Deployment branches and tags. Scaffolded as `false` when
+      # web-dom is not a target.
+      deploy-web: {{deploy_web}}
