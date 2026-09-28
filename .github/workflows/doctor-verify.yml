@@ -116,7 +116,7 @@ jobs:
       # runner image already has. `extras: false` for the same reason: doctor-verify builds and packs
       # a scaffolded app, it runs no walkthrough, so it needs no display or screenshot tools.
       - name: Set up ${{ matrix.combo }} dependencies
-        uses: daybrite/actions/.github/actions/setup-day-deps@main
+        uses: daybrite/actions/.github/actions/setup-day-deps@v1
         with:
           target: ${{ matrix.combo }}
           pack: true

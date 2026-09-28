@@ -313,7 +313,7 @@ permissions:            # reusable workflows run with the CALLER's permissions
   id-token: write       # actions/deploy-pages authenticates the upload with an OIDC token
 jobs:
   app:
-    uses: daybrite/actions/.github/workflows/dayapp.yml@main   # pin @<tag> to match your day dep
+    uses: daybrite/actions/.github/workflows/dayapp.yml@v1   # pin @<tag> to match your day dep
     secrets: inherit
     with:
       targets: macos-appkit, ios-uikit, android-mdc, web-dom

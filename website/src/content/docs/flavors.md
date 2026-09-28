@@ -126,7 +126,7 @@ per target, alongside the base app:
 ```yaml
 jobs:
   app:
-    uses: daybrite/actions/.github/workflows/dayapp.yml@main
+    uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     with:
       targets: macos-appkit,ios-uikit,android-mdc,web-dom
       flavors: custom

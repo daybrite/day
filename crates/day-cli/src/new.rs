@@ -3778,7 +3778,7 @@ mod scaffold_tests {
         assert!(ci.starts_with("# Demo App's CI"), "{ci}");
         assert!(ci.contains("\nname: \"demo-app\"\n"), "{ci}");
         assert!(
-            ci.contains("uses: daybrite/actions/.github/workflows/dayapp.yml@main"),
+            ci.contains("uses: daybrite/actions/.github/workflows/dayapp.yml@v1"),
             "{ci}"
         );
         // Every target Day.toml declares, so adding one there reaches CI without a second edit.

@@ -431,7 +431,7 @@ jobs:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
-    uses: daybrite/actions/.github/workflows/dayapp.yml@main
+    uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     with:
       targets: linux-gtk
       # Under a directory whose name holds a space, so the shared workflow's build, pack, and
@@ -483,7 +483,7 @@ jobs:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
-    uses: daybrite/actions/.github/workflows/dayapp.yml@main
+    uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     secrets: inherit
     with:
       targets: macos-appkit, ios-uikit, android-mdc, linux-gtk, linux-qt, windows-xaml, harmony-arkui, web-dom

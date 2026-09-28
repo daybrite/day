@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   app:
-    uses: daybrite/actions/.github/workflows/dayapp.yml@main
+    uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     permissions:
       contents: write # release assets on a tag build
       pages: write    # web-dom → GitHub Pages (deploy-web)

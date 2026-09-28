@@ -47,11 +47,23 @@ fn collect_embedded(dir: &Dir, out: &mut Vec<TemplateFile>) {
     for f in dir.files() {
         out.push(TemplateFile {
             path: f.path().to_string_lossy().replace('\\', "/"),
-            bytes: f.contents().to_vec(),
+            bytes: unix_newlines(f.contents()),
         });
     }
     for d in dir.dirs() {
         collect_embedded(d, out);
+    }
+}
+
+/// Text with `\r\n` folded to `\n`; anything that is not UTF-8 (an icon) passes through untouched.
+/// The template is embedded from the checkout that built the CLI, and a Windows checkout carries
+/// CRLF endings (git's autocrlf), so without this a CLI built there would scaffold CRLF files
+/// where one built anywhere else scaffolds LF — and a fresh scaffold is diffed against a
+/// reference copy on a Linux runner, where that difference would read as drift in every file.
+fn unix_newlines(bytes: &[u8]) -> Vec<u8> {
+    match std::str::from_utf8(bytes) {
+        Ok(text) if text.contains("\r\n") => text.replace("\r\n", "\n").into_bytes(),
+        _ => bytes.to_vec(),
     }
 }
 
@@ -260,6 +272,25 @@ mod tests {
             "day-piece-datetime = { version = \"0.0.0\" }".to_string(),
         );
         m
+    }
+
+    /// A CLI built from a CRLF checkout (Windows, git autocrlf) scaffolds the same bytes as one
+    /// built from an LF checkout; a binary file is never rewritten, and a lone `\r` is kept.
+    #[test]
+    fn embedded_text_is_normalized_to_unix_newlines() {
+        assert_eq!(
+            unix_newlines(b"name: ci\r\non:\r\n  push:\r\n"),
+            b"name: ci\non:\n  push:\n"
+        );
+        assert_eq!(unix_newlines(b"already\nunix\n"), b"already\nunix\n");
+        assert_eq!(unix_newlines(b"a\rb\n"), b"a\rb\n");
+        let png = [0x89u8, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0xff];
+        assert_eq!(unix_newlines(&png), png.to_vec());
+        for (path, bytes) in builtin_app().iter().map(|f| (&f.path, &f.bytes)) {
+            if let Ok(text) = std::str::from_utf8(bytes) {
+                assert!(!text.contains("\r\n"), "{path} carries CRLF");
+            }
+        }
     }
 
     #[test]
