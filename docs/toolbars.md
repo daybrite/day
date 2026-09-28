@@ -343,11 +343,10 @@ Notes that are not obvious from the table:
   `PrimaryCommands` and `Secondary` in the overflow. A crowded bar folds its right-hand commands
   by role: every `Automatic` one (right to left) before any `Primary` one, through a
   `DynamicOverflowOrder` per command, since the bar's own right-to-left fold ignored placement.
-  A search field and a label always render in `Content` (on the leading side) whatever placement
-  they asked for, so a trailing search field sits left on Windows and right on the other three.
-  That is this backend's choice rather than a toolkit limit: `AppBarElementContainer` (which the
-  segmented control already rides) could carry either into `PrimaryCommands`, at the price of the
-  field folding into the overflow on a narrow window.
+  The search field sits at the right end of the bar, just before the overflow button, where
+  Windows apps keep it: an `AppBarElementContainer` carries it into `PrimaryCommands`, commands
+  added later land to its left, and it is the last thing a narrowing bar folds. A label still
+  renders in `Content` (on the leading side) whatever placement it asked for.
   A segmented item draws as compact `AppBarToggleButton`s, flat like the bar's other toggles;
   placed `Secondary`, it becomes one overflow command titled by the choice in force, whose flyout
   lists the choices as checkable rows. `.label_style(…)` is honored (`IconOnly` collapses the

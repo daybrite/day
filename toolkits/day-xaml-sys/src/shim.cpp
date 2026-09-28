@@ -1174,6 +1174,8 @@ struct ToolbarState {
     // A segmented item placed in the overflow is a menu instead (see insert_toolbar_item), kept
     // here for the same reason.
     std::map<std::string, std::shared_ptr<struct SegmentMenu>> segment_menus;
+    // The search field's container, held at the right end of PrimaryCommands (see the `F` case).
+    FrameworkElement search_end{ nullptr };
 };
 // A segmented item folded into the overflow: one command titled by the choice in force, whose
 // flyout lists every choice as a checkable row. That is a pick-one in a Windows menu; a row of
@@ -5126,6 +5128,13 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
                 break;
             }
         }
+        // The search field keeps the right end: it goes there itself, and a command inserted
+        // after it in Day's order still lands to its left.
+        if (region == 1 && st.search_end) {
+            uint32_t end = 0;
+            if (e == st.search_end) pos = st.bar.PrimaryCommands().Size();
+            else if (region_index(st, st.search_end, 1, end)) pos = (std::min)(pos, end);
+        }
         if (e) region_insert(st, e, region, pos);
         st.order.insert(st.order.begin() + at, ToolbarEntry{ id, e, e ? region : -1, rank });
         if (e && !id.empty()) elems.insert_or_assign(id, e);
@@ -5210,6 +5219,7 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
                             .c_str()));
             box.Width(240); // a bar search field is sized, not stretched
             box.Margin(WUX::Thickness{ 4, 0, 4, 0 });
+            box.VerticalAlignment(WUX::VerticalAlignment::Center);
             if (action) {
                 box.TextChanged([action](WUXC::AutoSuggestBox const& s,
                                          WUXC::AutoSuggestBoxTextChangedEventArgs const& a) {
@@ -5220,7 +5230,23 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
                     if (g_toolbar_cb) g_toolbar_cb(action, 1, 0, str.c_str());
                 });
             }
-            put(box, 0, id);
+            if (!trailing) {
+                put(box, 0, id); // asked for the leading side (Navigation / Principal)
+                continue;
+            }
+            // Trailing, which is where Day places search: the right end of the bar, just before
+            // the overflow button, where Windows apps keep their search box. An
+            // AppBarElementContainer carries it into PrimaryCommands. It is the LAST thing the bar
+            // folds (rank 3, after every command), and never goes to SecondaryCommands whatever
+            // its placement says: a search field is not a menu row.
+            WUXC::AppBarElementContainer host;
+            host.Content(box);
+            host.IsTabStop(false); // the field is the stop
+            host.VerticalContentAlignment(WUX::VerticalAlignment::Center);
+            st.search_end = host;
+            put(host, 1, id, 3);
+            // Patches address the field itself (text, suggestions, enablement), not its host.
+            elems.insert_or_assign(id, box);
         } else if (id == "day.sidebar-toggle") {
             // The sidebar toggle is REALIZED BY THE NAVIGATIONVIEW, not by a bar command: its
             // built-in PaneToggleButton is the hamburger Windows puts at the head of the pane,
@@ -5427,7 +5453,8 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
 // to its left. DynamicOverflowOrder fixes the order, lowest first, but moves every command that
 // shares a value TOGETHER, so a value per placement folded a whole role at once and emptied a
 // wide bar. Each command gets its own: the `Automatic` ones first, right to left, then the
-// `Primary` ones, right to left. A separator takes its left neighbor's value, so it leaves with
+// `Primary` ones, right to left, and the search field after all of them. A separator takes its
+// left neighbor's value, so it leaves with
 // the command it follows instead of stranding a divider at the end of the bar. Recomputed after
 // every edit, because an insertion shifts the positions that the order is made from.
 static void fold_by_role(ToolbarState& st) {
@@ -5435,7 +5462,7 @@ static void fold_by_role(ToolbarState& st) {
     for (auto& e : st.order)
         if (e.elem && e.region == 1) cmds.push_back(&e);
     int next = 1;
-    for (int rank : { 1, 2 }) {
+    for (int rank : { 1, 2, 3 }) { // Automatic, Primary, then the search field
         for (size_t k = cmds.size(); k-- > 0;) {
             if (cmds[k]->rank != rank) continue;
             if (auto el = cmds[k]->elem.try_as<WUXC::ICommandBarElement2>())
@@ -5502,6 +5529,7 @@ extern "C" void day_xaml_toolbar_remove(void* win, const char* id) try {
     const std::string key(id);
     for (size_t k = 0; k < st.order.size(); ++k) {
         if (st.order[k].id != key) continue;
+        if (st.order[k].elem && st.order[k].elem == st.search_end) st.search_end = nullptr;
         if (st.order[k].elem) region_remove(st, st.order[k].elem, st.order[k].region);
         st.order.erase(st.order.begin() + k);
         break;
