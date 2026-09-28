@@ -153,9 +153,10 @@ toolbar_segmented("theme", vec![
 
 Each backend draws the control its platform already has: `NSSegmentedControl` in `selectOne`
 tracking on AppKit, a `.linked` box of grouped toggle buttons on GTK, an exclusive `QButtonGroup`
-on Qt, a tight `ToggleButton` row inside one `AppBarElementContainer` on XAML, and the same
-`.day-segmented` element the picker piece uses on the web. The control enforces exclusivity; the
-signal only ever holds the chosen index.
+on Qt, a tight row of compact `AppBarToggleButton`s inside one `AppBarElementContainer` on XAML
+(a checkable menu when it folds into the overflow), and the same `.day-segmented` element the
+picker piece uses on the web. The control enforces exclusivity; the signal only ever holds the
+chosen index.
 
 Every item takes an `id`. It is the item's identity everywhere: the native item identifier, the
 dayscript target, and the key a targeted update addresses. Ids are unique within a bar.
@@ -339,15 +340,22 @@ Notes that are not obvious from the table:
 - **XAML**: `CommandBar` right-aligns `PrimaryCommands`, left-aligns `Content` and folds
   `SecondaryCommands` into its overflow — which is exactly the three groups Day's placements
   reduce to, so `Navigation`/`Principal` land in `Content`, `Automatic`/`Primary` in
-  `PrimaryCommands` and `Secondary` in the overflow. One divergence: system XAML's
-  `PrimaryCommands` accepts
-  only `ICommandBarElement`, so a search field, a label or a fixed space cannot go there. Those
-  three always render in `Content` (on the leading side) whatever placement they asked for. A
-  trailing search field therefore sits left on Windows and right on the other three. That limit is
-  the toolkit's; the alternative would be drawing a search box by hand,
-  which this design does not do. XAML is Windows-only, so it is built and exercised in CI rather
-  than on a developer's Mac or Linux box. Secondary windows get no toolbar there, the
-  same as the menu bar: this shim's chrome lives on the primary window only.
+  `PrimaryCommands` and `Secondary` in the overflow. A crowded bar folds its right-hand commands
+  by role: every `Automatic` one (right to left) before any `Primary` one, through a
+  `DynamicOverflowOrder` per command, since the bar's own right-to-left fold ignored placement.
+  A search field and a label always render in `Content` (on the leading side) whatever placement
+  they asked for, so a trailing search field sits left on Windows and right on the other three.
+  That is this backend's choice rather than a toolkit limit: `AppBarElementContainer` (which the
+  segmented control already rides) could carry either into `PrimaryCommands`, at the price of the
+  field folding into the overflow on a narrow window.
+  A segmented item draws as compact `AppBarToggleButton`s, flat like the bar's other toggles;
+  placed `Secondary`, it becomes one overflow command titled by the choice in force, whose flyout
+  lists the choices as checkable rows. `.label_style(…)` is honored (`IconOnly` collapses the
+  label, `TitleOnly` drops the icon); `.prominent()` is not drawn yet. The bar is docked only
+  while it draws something: the sidebar toggle alone (which `NavigationView` draws itself) leaves
+  no empty strip under the title bar. It comes first in tab order, before the content it acts
+  on, and Tab wraps around the window rather than stopping at its last control. Secondary
+  windows carry their own bar, like the primary.
 
 ## How a backend applies an edit
 

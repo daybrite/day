@@ -848,6 +848,32 @@ extern "C" {
 static void ground_root(WUXC::Canvas const& root, bool dark);
 static WUX::ElementTheme element_theme_now();
 
+// Tab past the last control (or Shift+Tab past the first) asks the host to TAKE focus, since an
+// island assumes it sits among other Win32 controls. A Day window is the island and nothing else,
+// so an unanswered request left focus parked on the last control: Tab stuck on the toolbar's
+// overflow button, Shift+Tab stuck at the nav pane's button. Answer it by wrapping around inside
+// the island, which is what Tab does in any window. Arrow-key edges (Left/Right/Up/Down) are left
+// alone: those stop at the edge rather than wrap.
+static void wrap_tab_focus(WUXH::DesktopWindowXamlSource const& source) {
+    source.TakeFocusRequested([](WUXH::DesktopWindowXamlSource const& s,
+                                 WUXH::DesktopWindowXamlSourceTakeFocusRequestedEventArgs const& a) {
+        static bool wrapping = false; // an island with no tab stop at all would ask again
+        auto request = a.Request();
+        auto why = request.Reason();
+        if (wrapping || (why != WUXH::XamlSourceFocusNavigationReason::First &&
+                         why != WUXH::XamlSourceFocusNavigationReason::Last))
+            return;
+        wrapping = true;
+        try {
+            // The request already names the far end: First after a forward Tab, Last after a
+            // backward one, which is where focus re-enters.
+            s.NavigateFocus(request);
+        } catch (...) {
+        }
+        wrapping = false;
+    });
+}
+
 void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h) try {
     g_min_w = min_w;
     g_min_h = min_h;
@@ -935,6 +961,7 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     WUXH::DesktopWindowXamlSource source;
     auto interop = source.as<::IDesktopWindowXamlSourceNative>();
     interop->AttachToWindow(host);
+    wrap_tab_focus(source);
     HWND island = nullptr;
     interop->get_WindowHandle(&island);
     RECT rc; GetClientRect(host, &rc);
@@ -1135,6 +1162,7 @@ struct ToolbarEntry {
     std::string id;
     FrameworkElement elem{ nullptr }; // null for an item this bar does not draw
     int region = -1;                  // 0 content, 1 primary, 2 secondary, -1 not drawn
+    int rank = 0; // folding rank on the right: 1 Automatic, 2 Primary, 0 neither (see fold_by_role)
 };
 struct ToolbarState {
     WUXC::CommandBar bar{ nullptr };
@@ -1143,6 +1171,20 @@ struct ToolbarState {
     // Each segmented item's toggle buttons, by id, so a patch can move the selection without
     // the echo. Per window, like everything here: two windows show the same ids.
     std::map<std::string, std::shared_ptr<std::vector<WUXCP::ToggleButton>>> segments;
+    // A segmented item placed in the overflow is a menu instead (see insert_toolbar_item), kept
+    // here for the same reason.
+    std::map<std::string, std::shared_ptr<struct SegmentMenu>> segment_menus;
+};
+// A segmented item folded into the overflow: one command titled by the choice in force, whose
+// flyout lists every choice as a checkable row. That is a pick-one in a Windows menu; a row of
+// bare toggle buttons inside the overflow list is not.
+struct SegmentMenu {
+    WUXC::AppBarButton button{ nullptr };
+    std::vector<WUXC::ToggleMenuFlyoutItem> rows;
+    std::vector<std::string> titles;
+    std::vector<std::pair<std::string, std::string>> icons; // glyph, image per choice
+    // Show choice `n`: its row checked and the rest not, and its title and icon on the command.
+    void show(size_t n);
 };
 static std::map<void*, ToolbarState> g_toolbar_state;
 
@@ -1474,6 +1516,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     WUXH::DesktopWindowXamlSource source;
     auto interop = source.as<::IDesktopWindowXamlSourceNative>();
     interop->AttachToWindow(host);
+    wrap_tab_focus(source);
     HWND island = nullptr;
     interop->get_WindowHandle(&island);
     RECT rc; GetClientRect(host, &rc);
@@ -4854,21 +4897,23 @@ extern "C" void day_xaml_window_set_menu2(void* win, const char* spec) try {
 // A Fluent CommandBar docked under the menu bar. `PrimaryCommands` — which the CommandBar
 // template right-aligns — carries the AppBarButton / AppBarToggleButton / AppBarSeparator
 // commands, and `Content` — which it left-aligns — carries the leading items in a horizontal
-// StackPanel. That split is what the model's flexible space MEANS on Windows: items before it
-// are leading Content, items after it are primary commands. A search field, a label or a fixed
-// gap lands in Content whichever side it was written on, because system XAML's PrimaryCommands
-// takes only ICommandBarElement — AppBarElementContainer, which would wrap an arbitrary control,
-// is WinUI's and not in Windows.UI.Xaml.
+// StackPanel. Each item's placement picks its region (see insert_toolbar_item). A search field or
+// a label lands in Content whichever side it asked for: that is this backend's choice, not a
+// toolkit limit, since an AppBarElementContainer (Windows.UI.Xaml, 1903+; the segmented control
+// rides one) can carry any control into PrimaryCommands, where it would also fold.
 //
 // Each item arrives as its own spec (`day_xaml_toolbar_insert`), in the format of the menu spec
 // above, one line per item:
-//   kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder
-// kinds: B button, T toggle, G segmented, M menu, F search field, L label, `-` separator. `on` seeds a toggle and `text` a search
-// field; `glyph` is a Segoe Fluent Icons code point in hex, `image` a bundled image FILE NAME.
+//   kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text
+//        \t placeholder \t suggestions \t geom \t place \t style
+// kinds: B button, T toggle, G segmented, M menu, F search field, L label, `-` separator. `on`
+// seeds a toggle (or a segmented item's index) and `text` a search field; `glyph` is a Segoe
+// Fluent Icons code point in hex, `image` a bundled image FILE NAME. `place` is the region and
+// folding rank, `style` the label style (docs/toolbars.md).
 // An `M` line is followed by that item's MENU spec — the same lines build_menu_items already
 // parses — closed by an `X` line, so the sub-spec is sliced out here and handed straight to it.
 // Buttons ride the same g_menu_cb rail as menu items; a toggle's state and a search field's text
-// go through g_toolbar_cb. CI-built (no live Windows verification).
+// go through g_toolbar_cb.
 
 // kind 0 = toggle (`on`), kind 1 = search text (`text`), kind 2 = segment index (`on`).
 static void (*g_toolbar_cb)(unsigned long long, int, int, const char*) = nullptr;
@@ -5020,6 +5065,14 @@ static void region_remove(ToolbarState& st, FrameworkElement const& e, int regio
     else st.bar.SecondaryCommands().RemoveAt(at);
 }
 
+// Put the bar on the window. Appended, so it paints over nothing it could hide, but FIRST in tab
+// order: a Windows command bar comes before the content it acts on (File Explorer, Mail), and
+// appended last it was the end of the Tab cycle, after every control in the page.
+static void dock_toolbar(WUXC::Canvas const& root, WUXC::CommandBar const& bar) {
+    bar.TabIndex(0);
+    root.Children().Append(bar);
+}
+
 // The window's bar, docked into `root` on first use.
 static ToolbarState& toolbar_state(void* win, WUXC::Canvas const& root) {
     ToolbarState& st = g_toolbar_state[win];
@@ -5038,11 +5091,21 @@ static ToolbarState& toolbar_state(void* win, WUXC::Canvas const& root) {
         WUXC::Canvas::SetLeft(bar, 0);
         // The top offset (below the menu bar, if there is one) and the width are relayout's
         // job — the two bars are installed in either order.
-        root.Children().Append(bar);
+        dock_toolbar(root, bar);
         st.bar = bar;
         st.lead = lead;
     }
     return st;
+}
+
+void SegmentMenu::show(size_t n) {
+    if (n >= rows.size()) return;
+    for (size_t k = 0; k < rows.size(); ++k) rows[k].IsChecked(k == n);
+    // A segmented control has no label of its own, so the command is titled by the choice in
+    // force, the way the phones title the same fold (docs/toolbars.md).
+    button.Label(hs(titles[n].c_str()));
+    button.Icon(toolbar_icon(icons[n].first, icons[n].second));
+    WUX::Automation::AutomationProperties::SetName(button, hs(titles[n].c_str()));
 }
 
 // Build the item `spec` describes (one record, and its menu or segment lines) and put it at
@@ -5052,8 +5115,8 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
     bool trailing = false;  // this item's placement says the right-hand group
     bool secondary = false; // …and the overflow within it
     // Into `region`, right after the nearest earlier item drawn in the same region.
-    auto put = [&](FrameworkElement const& e, int region, const std::string& id) {
-        const size_t at = std::min(index, st.order.size());
+    auto put = [&](FrameworkElement const& e, int region, const std::string& id, int rank = 0) {
+        const size_t at = (std::min)(index, st.order.size());
         uint32_t pos = 0;
         for (size_t k = at; k-- > 0;) {
             auto& o = st.order[k];
@@ -5064,19 +5127,29 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
             }
         }
         if (e) region_insert(st, e, region, pos);
-        st.order.insert(st.order.begin() + at, ToolbarEntry{ id, e, e ? region : -1 });
+        st.order.insert(st.order.begin() + at, ToolbarEntry{ id, e, e ? region : -1, rank });
         if (e && !id.empty()) elems.insert_or_assign(id, e);
     };
+    // The overflow order of the item being built (see put_command).
+    int fold_order = 0;
     // A command: `SecondaryCommands` for one the app marked foldable, `PrimaryCommands` for the
     // right-hand group, the leading panel otherwise.
+    //
+    // Each right-hand command records its placement's folding rank; `fold_by_role` turns the
+    // ranks into DynamicOverflowOrder once the edit settles.
     auto put_command = [&](FrameworkElement const& e, const std::string& id) {
-        put(e, secondary ? 2 : (trailing ? 1 : 0), id);
+        put(e, secondary ? 2 : (trailing ? 1 : 0), id, fold_order);
     };
+    // Whether the item asked to show its icon alone (LabelStyle::IconOnly, docs/toolbars.md).
+    bool icon_only = false;
     // A leading AppBarButton is outside the bar's own collections, so DefaultLabelPosition does
     // not reach it and it would draw its label under the icon — two rows tall. Collapse the label
-    // where there is an icon to show instead; without one the label is the only click target.
+    // where there is an icon to show instead; without one the label is the only click target. A
+    // trailing one collapses it only when the app asked for the icon alone: the label stays the
+    // accessible name and the tooltip, and the overflow still shows it.
     auto compact = [&](WUXC::AppBarButton const& b, bool has_icon) {
-        if (!trailing && has_icon) b.LabelPosition(WUXC::CommandBarLabelPosition::Collapsed);
+        if (has_icon && (!trailing || icon_only))
+            b.LabelPosition(WUXC::CommandBarLabelPosition::Collapsed);
     };
 
     auto lines = split_lines(spec);
@@ -5092,7 +5165,11 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
         bool on = value == 1;
         std::string glyph = fld(5), image = fld(6), label = fld(7), tip = fld(8), text = fld(9),
                     placeholder = fld(10), suggestions = fld(11), geom = fld(12),
-                    place = fld(13);
+                    place = fld(13), style = fld(14);
+        // LabelStyle (docs/toolbars.md): "title" draws the words alone, so the icon is dropped
+        // here; "icon" collapses the label where the item is drawn (see `compact`).
+        if (style == "title") glyph.clear(), image.clear(), geom.clear();
+        icon_only = style == "icon";
         bool has_icon = !glyph.empty() || !image.empty() || !geom.empty();
         // WHERE this item sits (docs/toolbars.md). A CommandBar's three slots are exactly the
         // three roles Day's placements reduce to: `Content` on the left, `PrimaryCommands` on the
@@ -5100,10 +5177,12 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
         // flag, which is what the model's flexible space used to mean before placement existed.
         trailing = place != "content";
         secondary = place == "secondary";
+        // Folding order among the right-hand commands: an `Automatic` one before a `Primary` one.
+        fold_order = place == "automatic" ? 1 : place == "primary" ? 2 : 0;
 
         if (kind == "-") {
             if (trailing) {
-                put(WUXC::AppBarSeparator{}, 1, id);
+                put_command(WUXC::AppBarSeparator{}, id);
             } else {
                 // AppBarSeparator sizes itself against the bar's own row, not against a
                 // StackPanel, so a leading divider is a hairline of our own — the same
@@ -5123,6 +5202,12 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
             box.PlaceholderText(hs(placeholder.c_str()));
             box.QueryIcon(toolbar_icon("E721", "")); // the search glyph
             box.IsEnabled(enabled);
+            // Its accessible name: the item's label, else its prompt. Without one a screen reader
+            // announced a bare "edit" in the middle of the bar.
+            WUX::Automation::AutomationProperties::SetName(
+                box, hs((!label.empty() ? label : !placeholder.empty() ? placeholder
+                                                                         : std::string("Search"))
+                            .c_str()));
             box.Width(240); // a bar search field is sized, not stretched
             box.Margin(WUX::Thickness{ 4, 0, 4, 0 });
             if (action) {
@@ -5170,7 +5255,7 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
             toggle.Icon(toolbar_icon(glyph, image, geom));
             toggle.IsEnabled(enabled);
             toggle.IsChecked(on);
-            if (!trailing && has_icon)
+            if (has_icon && (!trailing || icon_only))
                 toggle.LabelPosition(WUXC::CommandBarLabelPosition::Collapsed);
             WUXC::ToolTipService::SetToolTip(toggle, winrt::box_value(hs(tip.c_str())));
             if (action) {
@@ -5194,18 +5279,63 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
                 if (ff.size() >= 4 && ff[0] == "g") segs.emplace_back(ff[1], ff[2], ff[3]);
             }
             i = j;
+            if (secondary) {
+                // In the overflow: a command that opens the choices as checkable rows (see
+                // SegmentMenu). The overflow is a menu, and a row of bare glyph buttons at the
+                // bottom of one had neither the words nor the check a menu shows.
+                auto menu = std::make_shared<SegmentMenu>();
+                menu->button = WUXC::AppBarButton{};
+                menu->button.IsEnabled(enabled);
+                WUXC::MenuFlyout fly;
+                std::weak_ptr<SegmentMenu> weak = menu;
+                for (size_t n = 0; n < segs.size(); ++n) {
+                    const auto& [g, img, title] = segs[n];
+                    WUXC::ToggleMenuFlyoutItem row;
+                    row.Text(hs(title.c_str()));
+                    if (auto ic = toolbar_icon(g, img, "")) row.Icon(ic);
+                    row.Click([weak, action, n](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                        auto m = weak.lock();
+                        if (!m) return;
+                        // The row toggled itself; a pick-one keeps exactly the clicked row on.
+                        m->show(n);
+                        if (g_toolbar_cb) g_toolbar_cb(action, 2, static_cast<int>(n), "");
+                    });
+                    fly.Items().Append(row);
+                    menu->rows.push_back(row);
+                    menu->titles.push_back(title);
+                    menu->icons.emplace_back(g, img);
+                }
+                menu->button.Flyout(fly);
+                menu->show(value >= 0 ? static_cast<size_t>(value) : 0);
+                st.segment_menus[id] = menu;
+                put_command(menu->button, id);
+                continue;
+            }
             WUXC::StackPanel row;
             row.Orientation(WUXC::Orientation::Horizontal);
             auto buttons = std::make_shared<std::vector<WUXCP::ToggleButton>>();
             for (size_t n = 0; n < segs.size(); ++n) {
-                WUXCP::ToggleButton b;
                 const auto& [g, img, title] = segs[n];
                 auto ic = toolbar_icon(g, img, "");
+                WUXCP::ToggleButton b{ nullptr };
                 if (ic) {
-                    b.Content(ic);
+                    // A glyph segment is a compact AppBarToggleButton: flat at rest and accent
+                    // when on, exactly like the bar's other toggles, where a plain ToggleButton
+                    // painted each segment as a gray filled block among flat commands.
+                    WUXC::AppBarToggleButton ab;
+                    ab.Icon(ic);
+                    ab.Label(hs(title.c_str()));
+                    ab.LabelPosition(WUXC::CommandBarLabelPosition::Collapsed);
+                    b = ab;
                 } else {
+                    // Words only: the AppBar button draws its label under an icon slot, so a
+                    // text segment stays a plain toggle button, which draws its content.
+                    b = WUXCP::ToggleButton{};
                     b.Content(winrt::box_value(hs(title.c_str())));
                 }
+                // The segment's name, for a screen reader: an icon segment has no text of its own,
+                // and announced as a bare "button".
+                WUX::Automation::AutomationProperties::SetName(b, hs(title.c_str()));
                 WUXC::ToolTipService::SetToolTip(b, winrt::box_value(hs(title.c_str())));
                 b.IsEnabled(enabled);
                 b.IsChecked(static_cast<int>(n) == value);
@@ -5214,11 +5344,15 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
             }
             // Exclusivity, and the report: a click checks one and unchecks the rest, and only the
             // one coming ON is the choice. `g_toolbar_setting_checked` covers the programmatic
-            // path, exactly as the plain toggle above does.
+            // path, exactly as the plain toggle above does. The handlers hold the list weakly:
+            // the list holds the buttons, and a strong reference back kept every removed control
+            // alive.
+            std::weak_ptr<std::vector<WUXCP::ToggleButton>> weak = buttons;
             for (size_t n = 0; n < buttons->size(); ++n) {
                 auto b = (*buttons)[n];
-                b.Checked([action, buttons, n](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
-                    if (g_toolbar_setting_checked) return;
+                b.Checked([action, weak, n](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    auto buttons = weak.lock();
+                    if (!buttons || g_toolbar_setting_checked) return;
                     g_toolbar_setting_checked = true;
                     for (size_t k = 0; k < buttons->size(); ++k)
                         if (k != n) (*buttons)[k].IsChecked(false);
@@ -5226,8 +5360,9 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
                     if (g_toolbar_cb) g_toolbar_cb(action, 2, static_cast<int>(n), "");
                 });
                 // Un-checking the chosen segment is not a state a radio row has: put it back.
-                b.Unchecked([buttons, n](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
-                    if (g_toolbar_setting_checked) return;
+                b.Unchecked([weak, n](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                    auto buttons = weak.lock();
+                    if (!buttons || g_toolbar_setting_checked) return;
                     bool any = false;
                     for (auto const& x : *buttons) if (x.IsChecked().GetBoolean()) any = true;
                     if (!any) {
@@ -5239,6 +5374,9 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
             }
             WUXC::AppBarElementContainer host;
             host.Content(row);
+            // The segments are the tab stops; the container around them is not one, or Tab
+            // paused on an invisible, nameless stop before reaching them.
+            host.IsTabStop(false);
             st.segments[id] = buttons;
             put_command(host, id);
         } else if (kind == "M") {
@@ -5282,15 +5420,61 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
 
 }
 
-// Dock or undock the bar to match what it holds, and hand the window's chrome layout the bar.
+// Say in which order a crowded bar folds its right-hand commands into the overflow.
+//
+// Left to itself the CommandBar folds right to left, which sent a `Primary` command (the last
+// thing a crowded chrome gives up, docs/toolbars.md) into the overflow before the `Automatic` ones
+// to its left. DynamicOverflowOrder fixes the order, lowest first, but moves every command that
+// shares a value TOGETHER, so a value per placement folded a whole role at once and emptied a
+// wide bar. Each command gets its own: the `Automatic` ones first, right to left, then the
+// `Primary` ones, right to left. A separator takes its left neighbor's value, so it leaves with
+// the command it follows instead of stranding a divider at the end of the bar. Recomputed after
+// every edit, because an insertion shifts the positions that the order is made from.
+static void fold_by_role(ToolbarState& st) {
+    std::vector<ToolbarEntry*> cmds;
+    for (auto& e : st.order)
+        if (e.elem && e.region == 1) cmds.push_back(&e);
+    int next = 1;
+    for (int rank : { 1, 2 }) {
+        for (size_t k = cmds.size(); k-- > 0;) {
+            if (cmds[k]->rank != rank) continue;
+            if (auto el = cmds[k]->elem.try_as<WUXC::ICommandBarElement2>())
+                el.DynamicOverflowOrder(next++);
+        }
+    }
+    for (size_t k = 1; k < cmds.size(); ++k) {
+        if (!cmds[k]->elem.try_as<WUXC::AppBarSeparator>()) continue;
+        auto left = cmds[k - 1]->elem.try_as<WUXC::ICommandBarElement2>();
+        auto sep = cmds[k]->elem.try_as<WUXC::ICommandBarElement2>();
+        if (left && sep) sep.DynamicOverflowOrder(left.DynamicOverflowOrder());
+    }
+}
+
+// Dock or undock the bar to match what it DRAWS, and hand the window's chrome layout the bar.
+//
+// What it draws, not what it holds: an item this backend realizes elsewhere (the sidebar toggle,
+// which the NavigationView draws) keeps its place in `order` with no element. A window whose only
+// item is that one, which is every sidebar app that declares no commands, would otherwise dock
+// an empty CommandBar: a blank strip under the title bar, taking a row from the content. The
+// state stays while it has any items, so the order still lines up when a drawn one arrives.
 static WUXC::CommandBar settle_toolbar(void* win, WUXC::Canvas const& root) {
     auto it = g_toolbar_state.find(win);
     if (it == g_toolbar_state.end()) return nullptr;
-    if (!it->second.order.empty()) return it->second.bar;
+    ToolbarState& st = it->second;
+    const bool draws = std::any_of(st.order.begin(), st.order.end(),
+                                   [](ToolbarEntry const& e) { return static_cast<bool>(e.elem); });
     uint32_t at = 0;
-    if (it->second.bar && root.Children().IndexOf(it->second.bar, at)) root.Children().RemoveAt(at);
-    g_toolbar_state.erase(it);
-    g_toolbar_elems.erase(win);
+    const bool docked = st.bar && root.Children().IndexOf(st.bar, at);
+    if (draws) {
+        if (!docked) dock_toolbar(root, st.bar);
+        fold_by_role(st);
+        return st.bar;
+    }
+    if (docked) root.Children().RemoveAt(at);
+    if (st.order.empty()) {
+        g_toolbar_state.erase(it);
+        g_toolbar_elems.erase(win);
+    }
     return nullptr;
 }
 
@@ -5306,7 +5490,7 @@ extern "C" void day_xaml_toolbar_insert(void* win, int secondary, int index, con
     }
     if (!root || !spec) return;
     ToolbarState& st = toolbar_state(win, root);
-    insert_toolbar_item(win, st, static_cast<size_t>(std::max(index, 0)), spec);
+    insert_toolbar_item(win, st, static_cast<size_t>((std::max)(index, 0)), spec);
 } catch (...) {
 }
 
@@ -5324,6 +5508,7 @@ extern "C" void day_xaml_toolbar_remove(void* win, const char* id) try {
     }
     g_toolbar_elems[win].erase(key);
     st.segments.erase(key);
+    st.segment_menus.erase(key);
 } catch (...) {
 }
 
@@ -5367,6 +5552,12 @@ extern "C" void day_xaml_toolbar_set_text(void* win, const char* id, const char*
 extern "C" void day_xaml_toolbar_set_selected(void* win, const char* id, int index) try {
     auto state = g_toolbar_state.find(win);
     if (state == g_toolbar_state.end()) return;
+    auto menu = state->second.segment_menus.find(std::string(id));
+    if (menu != state->second.segment_menus.end()) {
+        // Programmatic IsChecked on a menu row raises no Click, so there is no echo to guard.
+        if (menu->second && index >= 0) menu->second->show(static_cast<size_t>(index));
+        return;
+    }
     auto it = state->second.segments.find(std::string(id));
     if (it == state->second.segments.end() || !it->second) return;
     auto& buttons = *it->second;

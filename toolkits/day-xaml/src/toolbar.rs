@@ -130,12 +130,14 @@ fn clean(s: &str) -> String {
 
 /// Serialize the toolbar model to the shim's line format — one item per line:
 ///
-/// `kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder \t suggestions \t geom`
+/// `kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder \t suggestions \t geom \t place \t style`
 ///
-/// with kinds `B` button, `T` toggle, `M` menu, `F` search field, `L` label, `-` separator,
-/// `_` fixed space and `>` flexible space (the Content/PrimaryCommands split). `on` seeds a
-/// toggle and `text` a search field; `glyph` is a Segoe Fluent Icons code point in hex and
-/// `image` a bundled image FILE NAME (the shim loads it as `ms-appx:///images/<file>`).
+/// with kinds `B` button, `T` toggle, `G` segmented, `M` menu, `F` search field, `L` label and
+/// `-` separator. `on` seeds a toggle (or a segmented item's index) and `text` a search field;
+/// `glyph` is a Segoe Fluent Icons code point in hex and `image` a bundled image FILE NAME (the
+/// shim loads it as `ms-appx:///images/<file>`). `place` is the item's region and folding rank
+/// (`content`, `automatic`, `primary`, `secondary`), `style` its label style (`icon`, `title`, or
+/// empty for the default).
 ///
 /// An `M` line is followed by that item's MENU spec — the very lines [`serialize_menu_xaml`]
 /// already writes for the menu bar — closed by an `X` line, so the shim can slice the sub-spec
@@ -200,12 +202,20 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             day_spec::ToolbarPlacement::Secondary | day_spec::ToolbarPlacement::Bottom => {
                 "secondary"
             }
-            day_spec::ToolbarPlacement::Automatic | day_spec::ToolbarPlacement::Primary => {
-                "primary"
-            }
+            // Both land in `PrimaryCommands`, but the shim folds `Automatic` into the overflow
+            // before `Primary` when the bar is crowded, so the two cross apart.
+            day_spec::ToolbarPlacement::Automatic => "automatic",
+            day_spec::ToolbarPlacement::Primary => "primary",
+        };
+        // A 15th: `.label_style(…)`. "icon" collapses the label where the item is drawn, "title"
+        // drops the icon; the overflow shows the label either way.
+        let style = match item.label_style {
+            day_spec::LabelStyle::IconOnly => "icon",
+            day_spec::LabelStyle::TitleOnly => "title",
+            _ => "",
         };
         out.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
             kind,
             clean(&item.id),
             item.action,
@@ -220,6 +230,7 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
             clean(&sug),
             geom, // already escaped above; `clean` would eat the spec's own tabs
             place,
+            style,
         ));
         if let ToolbarItemKind::Menu { items } = &item.kind {
             serialize_menu_xaml(items, &mut out);
