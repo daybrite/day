@@ -133,11 +133,21 @@ impl<R: Route> Route for Option<R> {
 /// nav(section).item(Section::Controls, tr("controls"), controls_page)
 /// ```
 ///
+/// A variant may add its display title after the key, anything a label takes (a string, or a
+/// localized `tr(…)` resolved when the page is pushed). It is what a [`nav_stack`] shows in the
+/// navigation bar for that route; a variant without one shows its key:
+///
+/// ```ignore
+/// day::routes! {
+///     enum Demo { Basics => "basics" (tr("demo-basics")), Stress => "stress" }
+/// }
+/// ```
+///
 /// Variants that carry data (`Item { id: u32 }` ↔ `"item-42"`) implement [`Route`] by hand.
 #[macro_export]
 macro_rules! routes {
     ($(#[$meta:meta])* $vis:vis enum $name:ident {
-        $($(#[$vmeta:meta])* $variant:ident => $key:literal),+ $(,)?
+        $($(#[$vmeta:meta])* $variant:ident => $key:literal $(($title:expr))?),+ $(,)?
     }) => {
         $(#[$meta])*
         #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -149,8 +159,29 @@ macro_rules! routes {
             fn from_key(key: &str) -> Option<Self> {
                 match key { $($key => Some(Self::$variant),)+ _ => None }
             }
+            fn title(&self) -> String {
+                match self { $(Self::$variant => $crate::__route_title!($key $(, $title)?)),+ }
+            }
         }
     };
+}
+
+/// A [`routes!`] variant's title: its display title when it has one, else its key.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __route_title {
+    ($key:literal) => {
+        ($key).to_string()
+    };
+    ($key:literal, $title:expr) => {
+        $crate::route_title_text($title)
+    };
+}
+
+/// Resolve a [`routes!`] display title to the string the navigation bar shows.
+#[doc(hidden)]
+pub fn route_title_text<M>(title: impl crate::IntoText<M>) -> String {
+    title.into_text().initial()
 }
 
 /// A typed absolute route: segments built from [`Route`] values plus query params.

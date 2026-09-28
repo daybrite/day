@@ -310,6 +310,9 @@ struct Index {
       }
       .width('100%')
       .height('100%')
+      // The page's own bounds: Day lays content out inside them, and anything taller (a page
+      // that does not scroll) must not draw over the system navigation bar below.
+      .clip(true)
       .onAreaChange((_oldArea: Area, newArea: Area) => {
         nativeEntry.navPageArea(Number(param), newArea.width as number, newArea.height as number);
       })
@@ -362,6 +365,7 @@ struct Index {
         }
         .width('100%')
         .layoutWeight(1)
+        .clip(true)
         // First area = start; later areas (keyboard RESIZE avoidance, rotation, window
         // resize, the search field coming or going) flow to Day as window resizes. Area
         // dimensions are in vp.
@@ -380,6 +384,11 @@ struct Index {
     // all. A toolbar action has nowhere else to go, though, so having one brings the bar out.
     .title(this.navRootMenus.length === 0 ? '' : this.navRootTitle)
     .hideTitleBar(this.navRootMenus.length === 0)
+    // The compact bar, the one every pushed page wears: the default `Free` mode reserves a
+    // large-title area, which on the root is an empty band above the navigation list.
+    .titleMode(NavigationTitleMode.Mini)
+    // The root has nothing to go back to; Mini mode would otherwise draw a back arrow on it.
+    .hideBackButton(true)
     .menus(this.navRootMenus)
     .mode(NavigationMode.Stack)
     .navDestination(this.dayPage)

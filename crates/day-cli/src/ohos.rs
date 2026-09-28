@@ -949,7 +949,19 @@ fn sync_ohos_permissions(project: &Project) -> Result<(), String> {
     let contributed = crate::pieces::contributed_permissions(project, &["arkui"]);
     let plan = crate::permissions::resolve_project(project, "ohos", &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
-    let entries = crate::permissions::ohos_entries(&plan);
+    let mut entries = crate::permissions::ohos_entries(&plan);
+    // A crate's raw platform permissions join the app's (a `system_grant` one has no prompt and
+    // needs no reason); an app's own declaration of the same name wins.
+    for name in crate::pieces::contributed_ohos_permissions(project) {
+        if !entries.iter().any(|e| e.name == name) {
+            entries.push(crate::permissions::OhosEntry {
+                name,
+                reason_key: None,
+                when: "inuse",
+            });
+        }
+    }
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
     for e in &entries {
         if e.name.ends_with("READ_IMAGEVIDEO") {
             status("Packing", day_build::permissions::OHOS_PHOTOS_APL_NOTE);

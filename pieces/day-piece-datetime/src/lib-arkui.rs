@@ -7,7 +7,8 @@
 // ARKUI_NODE_CALENDAR_PICKER (entry → calendar popup); Inline date = ARKUI_NODE_DATE_PICKER
 // wheels (native START/END bounds); time = ARKUI_NODE_TIME_PICKER wheels for both styles (the
 // wheels are HarmonyOS's embedded time UI). A null node (SDK without picker nodes) falls back
-// per docs. Measure rides day-arkui-sys's generic day_ark_measure, like the built-in leaves.
+// per docs. Measure rides day-arkui-sys's generic day_ark_measure, like the built-in leaves,
+// with room for the wheels where the node is wheels.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -38,6 +39,32 @@ unsafe extern "C" {
     fn day_dtp_time_set(node: *mut c_void, hour: c_int, minute: c_int);
     // From day-arkui-sys (already linked into the binary): native measure for a leaf node.
     fn day_ark_measure(n: *mut c_void, max_w: f64, max_h: f64, out_w: *mut f64, out_h: *mut f64);
+}
+
+/// The height a wheels picker needs to show its wheels: the one day-arkui gives its built-in
+/// picker wheel. The native measure of a picker node reports about one row, which is all a
+/// wheel shows at that height: the selected value and nothing to scroll to.
+const WHEELS_H: f64 = 200.0;
+
+std::thread_local! {
+    /// The date nodes built as wheels (the inline style); the rest are the compact field.
+    static DATE_WHEELS: std::cell::RefCell<std::collections::HashSet<usize>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// A wheels picker: its native width, and room for its wheels.
+fn measure_wheels(backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
+    let natural = measure(backend, h, p);
+    Size::new(natural.width, natural.height.max(WHEELS_H))
+}
+
+/// A date picker: the wheels when inline, the compact field's own size otherwise.
+fn measure_date(backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
+    if DATE_WHEELS.with(|w| w.borrow().contains(&(h.0 as usize))) {
+        measure_wheels(backend, h, p)
+    } else {
+        measure(backend, h, p)
+    }
 }
 
 fn measure(_backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
@@ -78,7 +105,7 @@ mod date_renderer {
     fn make(_backend: &mut ArkUi, p: &DateProps, id: NodeId) -> AHandle {
         let min = bound_cstring(p.min);
         let max = bound_cstring(p.max);
-        AHandle(unsafe {
+        let h = AHandle(unsafe {
             day_dtp_date_new(
                 id.0 as c_longlong,
                 (p.style == Style::Inline) as c_int,
@@ -89,7 +116,11 @@ mod date_renderer {
                 max.as_ptr(),
                 on_date,
             )
-        })
+        });
+        if p.style == Style::Inline && !h.0.is_null() {
+            DATE_WHEELS.with(|w| w.borrow_mut().insert(h.0 as usize));
+        }
+        h
     }
 
     fn update(_backend: &mut ArkUi, h: &AHandle, patch: &DatePatch) {
@@ -103,11 +134,12 @@ mod date_renderer {
         // SAFETY: h.0 is the node this shim created (or null on the documented fallback path,
         // which the shim guards); called once, just before day-arkui disposes the node.
         unsafe { day_dtp_date_release(h.0) };
+        DATE_WHEELS.with(|w| w.borrow_mut().remove(&(h.0 as usize)));
     }
 
     day_pieces::renderer!(day_arkui::RENDERERS, ArkUi,
         kind: DATE_KIND, props: DateProps, patch: DatePatch,
-        make: make, update: update, measure: measure, release: release);
+        make: make, update: update, measure: measure_date, release: release);
 }
 
 mod time_renderer {
@@ -141,5 +173,5 @@ mod time_renderer {
 
     day_pieces::renderer!(day_arkui::RENDERERS, ArkUi,
         kind: TIME_KIND, props: TimeProps, patch: TimePatch,
-        make: make, update: update, measure: measure);
+        make: make, update: update, measure: measure_wheels);
 }

@@ -8347,3 +8347,17 @@ fn reusable_command_checked_toolbar_restores_rejected_native_toggle() {
         day_spec::ToolbarItemKind::Toggle { on: false }
     );
 }
+
+/// `routes!` takes a display title per variant (what a `nav_stack` shows in the bar), and a
+/// variant without one shows its key.
+#[test]
+fn routes_macro_titles_default_to_the_key() {
+    day_pieces::routes! {
+        enum Demo { Basics => "basics" ("Basic grids"), Stress => "stress" }
+    }
+    use day_pieces::Route;
+    assert_eq!(Demo::Basics.key(), "basics");
+    assert_eq!(Demo::Basics.title(), "Basic grids");
+    assert_eq!(Demo::Stress.title(), "stress");
+    assert_eq!(Demo::from_key("basics"), Some(Demo::Basics));
+}

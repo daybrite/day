@@ -41,6 +41,11 @@ block2 = "0.6"
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 
+# HarmonyOS finds day-arkui's permission export in the app's own native library, which the ArkTS
+# loader opens with local symbol visibility; day-bridge's lookup knows to ask that library.
+[target.'cfg(target_env = "ohos")'.dependencies]
+day-bridge = { workspace = true }
+
 # --- Android backend contribution (docs/extending.md) ---
 # `day build` stages this Java into the app's Gradle build without touching any core day crate.
 [package.metadata.day.android]

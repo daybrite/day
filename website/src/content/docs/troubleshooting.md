@@ -285,6 +285,17 @@ These emulator failures have specific causes:
   hdc's), although `hdc list targets` shows the emulator as `Connected`. The emulator has booted;
   the `hdc` server on your machine is holding a session from an earlier emulator. Restart the
   server and reconnect with `hdc kill -r` and then `hdc tconn 127.0.0.1:55555`.
+- **The network status reading is unavailable on the emulator.** `day_part_network::status()`
+  returns `None`, and Day-Showcase reads "Connectivity unavailable". The device log (`hdc shell
+  hilog -x`) shows `IPCObjectStub: OnRemoteRequest: unknown code:12 desc:*.INetConnService`
+  at the same moment. The emulator image's network-management service does not answer the
+  NetConn C API, so every call fails with 201 even though the app holds
+  `ohos.permission.GET_NETWORK_INFO`. Test connectivity on a real device.
+
+If every feature that calls into ArkTS (HTTP, resources, permission prompts) fails with
+`platform runtime unavailable` on HarmonyOS, update `day` and the app's Day dependency. Older
+releases looked their ArkTS bridge up in the global symbol table, which cannot see `libentry.so`:
+HarmonyOS loads it with local symbol visibility.
 
 ## Signing or provisioning fails
 
