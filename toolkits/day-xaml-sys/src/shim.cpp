@@ -1181,10 +1181,59 @@ static void relayout_sec_chrome(SecWindow* sw) {
     if (g_win_resized) g_win_resized(sw->node, w, h);
 }
 
-/// Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into a XAML PathGeometry.
-static WUXM::PathGeometry parse_path_geometry(const std::string &spec, int rule) {
+/// A decoded path: plain numbers, built into a fresh XAML PathGeometry on every use. The geometry
+/// itself cannot be what is reused. A XAML Geometry is owned by the element it is set on, and
+/// setting it on a second Path throws E_INVALIDARG, even once the first Path has been cleared off
+/// the canvas. A replay that re-records an unchanged chart (a pointer move drawing only its
+/// guides) would hit that on every cached path and abort the rest of the canvas.
+struct GeoSeg {
+    char op; // 'L' (x y), 'Q' (cx cy x y) or 'C' (ax ay bx by x y)
+    float v[6];
+};
+struct GeoFigure {
+    float x = 0.0f, y = 0.0f;
+    bool closed = false;
+    std::vector<GeoSeg> segs;
+};
+struct GeoData {
+    int rule = -1; // 1 even-odd, 0 nonzero, -1 left at XAML's default (a polygon names none)
+    std::vector<GeoFigure> figs;
+};
+
+static WUXM::PathGeometry build_geometry(GeoData const &g) {
     WUXM::PathGeometry pg;
-    pg.FillRule(rule == 1 ? WUXM::FillRule::EvenOdd : WUXM::FillRule::Nonzero);
+    if (g.rule >= 0) pg.FillRule(g.rule == 1 ? WUXM::FillRule::EvenOdd : WUXM::FillRule::Nonzero);
+    for (auto const &f : g.figs) {
+        WUXM::PathFigure fig;
+        fig.IsClosed(f.closed);
+        fig.StartPoint(WF::Point{ f.x, f.y });
+        for (auto const &s : f.segs) {
+            if (s.op == 'L') {
+                WUXM::LineSegment seg;
+                seg.Point(WF::Point{ s.v[0], s.v[1] });
+                fig.Segments().Append(seg);
+            } else if (s.op == 'Q') {
+                WUXM::QuadraticBezierSegment seg;
+                seg.Point1(WF::Point{ s.v[0], s.v[1] });
+                seg.Point2(WF::Point{ s.v[2], s.v[3] });
+                fig.Segments().Append(seg);
+            } else {
+                WUXM::BezierSegment seg;
+                seg.Point1(WF::Point{ s.v[0], s.v[1] });
+                seg.Point2(WF::Point{ s.v[2], s.v[3] });
+                seg.Point3(WF::Point{ s.v[4], s.v[5] });
+                fig.Segments().Append(seg);
+            }
+        }
+        pg.Figures().Append(fig);
+    }
+    return pg;
+}
+
+/// Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path).
+static GeoData parse_path_data(const std::string &spec, int rule) {
+    GeoData out;
+    out.rule = rule == 1 ? 1 : 0;
     std::vector<std::string> tok;
     size_t pos = 0;
     while (pos < spec.size()) {
@@ -1202,64 +1251,51 @@ static WUXM::PathGeometry parse_path_geometry(const std::string &spec, int rule)
         ++i;
         return v;
     };
-    WUXM::PathFigure fig{ nullptr };
-    auto flush = [&]() {
-        if (fig) pg.Figures().Append(fig);
-        fig = nullptr;
+    GeoFigure *fig = nullptr;
+    auto seg = [&](char op, int count) {
+        GeoSeg s{ op, {} };
+        for (int q = 0; q < count; ++q) s.v[q] = num();
+        fig->segs.push_back(s);
     };
     while (i < tok.size()) {
         std::string op = tok[i++];
         if (op == "M") {
-            flush();
-            fig = WUXM::PathFigure();
-            fig.IsClosed(false);
-            float x = num(), y = num();
-            fig.StartPoint(WF::Point{ x, y });
+            out.figs.emplace_back();
+            fig = &out.figs.back();
+            fig->x = num();
+            fig->y = num();
         } else if (op == "L" && fig) {
-            WUXM::LineSegment seg;
-            float x = num(), y = num();
-            seg.Point(WF::Point{ x, y });
-            fig.Segments().Append(seg);
+            seg('L', 2);
         } else if (op == "Q" && fig) {
-            WUXM::QuadraticBezierSegment seg;
-            float cx = num(), cy = num(), x = num(), y = num();
-            seg.Point1(WF::Point{ cx, cy });
-            seg.Point2(WF::Point{ x, y });
-            fig.Segments().Append(seg);
+            seg('Q', 4);
         } else if (op == "C" && fig) {
-            WUXM::BezierSegment seg;
-            float ax = num(), ay = num(), bx = num(), by = num(), x = num(), y = num();
-            seg.Point1(WF::Point{ ax, ay });
-            seg.Point2(WF::Point{ bx, by });
-            seg.Point3(WF::Point{ x, y });
-            fig.Segments().Append(seg);
+            seg('C', 6);
         } else if (op == "Z" && fig) {
-            fig.IsClosed(true);
+            fig->closed = true;
         }
     }
-    flush();
-    return pg;
+    return out;
 }
 
 /// Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key). Parsing a spec
-/// and building its figures is what this removes; the ELEMENTS are rebuilt regardless, since
-/// `set_ops` clears the canvas every replay. The key IS the content, so an entry can never go
-/// stale, and a projected `PathGeometry` is refcounted — the map holds one reference and each
-/// caller takes another. Capped so a long-lived process cannot grow without bound.
-static std::map<long long, WUXM::PathGeometry> g_geo_cache;
+/// is what this removes; the geometry and its ELEMENT are built fresh every replay (see GeoData
+/// for why the XAML objects cannot be shared), since `set_ops` clears the canvas each time. The
+/// key IS the content, so an entry can never go stale. Capped so a long-lived process cannot
+/// grow without bound.
+static std::map<long long, GeoData> g_geo_cache;
 /// Clip payload BOUNDS under the same key. This backend clips to rectangles (see the kind-17
 /// case), so the box is all it needs — four doubles rather than a geometry.
 static std::map<long long, std::array<double, 4>> g_clip_bounds_cache;
 
 static WUXM::PathGeometry cached_path_geometry(const std::string &spec, int rule, double key) {
     const long long k = static_cast<long long>(key);
-    if (k == 0) return parse_path_geometry(spec, rule);
+    if (k == 0) return build_geometry(parse_path_data(spec, rule));
     auto it = g_geo_cache.find(k);
-    if (it != g_geo_cache.end()) return it->second;
-    WUXM::PathGeometry pg = parse_path_geometry(spec, rule);
-    if (g_geo_cache.size() > 512) g_geo_cache.clear();
-    g_geo_cache[k] = pg;
-    return pg;
+    if (it == g_geo_cache.end()) {
+        if (g_geo_cache.size() > 512) g_geo_cache.clear();
+        it = g_geo_cache.emplace(k, parse_path_data(spec, rule)).first;
+    }
+    return build_geometry(it->second);
 }
 
 /// "x,y x,y …" as one closed figure, cached like a path. A null geometry means the payload held
@@ -1268,10 +1304,11 @@ static WUXM::PathGeometry cached_polygon_geometry(const std::string &t, double k
     const long long k = static_cast<long long>(key);
     if (k != 0) {
         auto it = g_geo_cache.find(k);
-        if (it != g_geo_cache.end()) return it->second;
+        if (it != g_geo_cache.end()) return build_geometry(it->second);
     }
-    WUXM::PathFigure fig;
-    fig.IsClosed(true);
+    GeoData data;
+    GeoFigure fig;
+    fig.closed = true;
     bool first = true;
     size_t pos = 0;
     while (pos < t.size()) {
@@ -1285,20 +1322,19 @@ static WUXM::PathGeometry cached_polygon_geometry(const std::string &t, double k
         std::from_chars(pair.data(), pair.data() + comma, x);
         std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), y);
         if (first) {
-            fig.StartPoint(WF::Point{ x, y });
+            fig.x = x;
+            fig.y = y;
             first = false;
         } else {
-            WUXM::LineSegment seg;
-            seg.Point(WF::Point{ x, y });
-            fig.Segments().Append(seg);
+            fig.segs.push_back(GeoSeg{ 'L', { x, y } });
         }
     }
     if (first) return WUXM::PathGeometry{ nullptr };
-    WUXM::PathGeometry pg;
-    pg.Figures().Append(fig);
+    data.figs.push_back(std::move(fig));
+    WUXM::PathGeometry pg = build_geometry(data);
     if (k != 0) {
         if (g_geo_cache.size() > 512) g_geo_cache.clear();
-        g_geo_cache[k] = pg;
+        g_geo_cache.emplace(k, std::move(data));
     }
     return pg;
 }
@@ -2215,7 +2251,14 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
         if (k != 18) stylePending = false;
         if (k != 19) fontPending = false;
     }
-} catch (...) {}
+} catch (winrt::hresult_error const& e) {
+    // Still degrade to a partly-drawn canvas, but say so: the ops after the failing one are
+    // simply missing, which on screen looks like content vanishing for no reason.
+    std::fprintf(stderr, "day-xaml: canvas replay stopped early: hr=0x%08X %ls\n",
+                 static_cast<unsigned>(e.code()), e.message().c_str());
+} catch (...) {
+    std::fprintf(stderr, "day-xaml: canvas replay stopped early (unknown C++ exception)\n");
+}
 
 // Recycling-list host: a real ScrollViewer whose Content is a Canvas that holds the row cells
 // (day positions each cell by absolute frame). `out_content` receives a handle to that Canvas so
