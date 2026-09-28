@@ -27,6 +27,7 @@ have an error, jump to the matching symptom. Error wording varies between SDK ve
 | Signing or provisioning fails | [Signing](#signing-or-provisioning-fails) |
 | The web build does not open correctly | [Web launches](#the-web-build-does-not-open-correctly) |
 | The app exits or a feature is missing | [Runtime problems](#the-app-starts-but-does-not-work-as-expected) |
+| A video is black on Linux | [Media playback](#a-video-plays-as-a-black-rectangle-on-linux) |
 
 ## Check the toolchain
 
@@ -306,6 +307,31 @@ If only one feature fails, check its platform support and permissions. For examp
 placeholder on a desktop target may mean its optional engine was not included; see
 [web view requirements](/docs/system-requirements#optional-web-views). Camera and other protected
 features may also need [permission configuration](/docs/guide-permissions).
+
+## A video plays as a black rectangle on Linux
+
+On `linux-gtk`, the media piece draws with `GtkVideo`, which hands the file to GStreamer. When
+GStreamer has no decoder for the video's codec, nothing reaches the widget and it stays black,
+with no error on screen. Ask GStreamer what the file needs:
+
+```bash
+gst-discoverer-1.0 https://example.com/video.mp4
+```
+
+A "Missing plugins" line names the gap. For the usual MP4 (H.264 video, AAC audio) on
+Debian or Ubuntu, install the decoders, then restart the app:
+
+```bash
+sudo apt install gstreamer1.0-libav
+```
+
+[Optional: media playback](/docs/system-requirements#optional-media-playback) lists the full
+set. `libEGL warning: failed to get driver name for fd -1` and `MESA: error: ZINK: failed to
+choose pdev` in the same console are a separate, harmless matter: the app can't open the GPU
+(`/dev/dri/renderD128`), so GTK renders in software; everything else still draws. It happens
+when the device grants access only to the `render` group and the desktop's own seat user, as in a
+remote session. Adding yourself to the group (`sudo usermod -aG render $USER`, then log in
+again) gives the app the GPU.
 
 ## Still stuck?
 

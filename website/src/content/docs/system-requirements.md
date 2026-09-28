@@ -173,6 +173,23 @@ Two toolkit combinations have no web view package. Homebrew's `webkitgtk` vends 
 API and has no bottle, so `macos-gtk` builds without a web view. MSYS2 ships no Qt 6 WebEngine, so
 `windows-qt` does too.
 
+## Optional: media playback
+
+The [media piece](https://github.com/daybrite/day-piece-media) plays through GStreamer on the
+Linux GTK target (`GtkVideo`). The build needs nothing extra, but *playback* needs GTK's
+GStreamer module and a decoder for each format. Without a decoder the player stays a blank black
+rectangle rather than showing an error.
+
+```bash
+# Debian / Ubuntu
+sudo apt install libgtk-4-media-gstreamer gstreamer1.0-plugins-good gstreamer1.0-libav
+```
+
+`gstreamer1.0-plugins-good` reads MP4 and streams over HTTPS (`qtdemux`, `souphttpsrc`), and
+`gstreamer1.0-libav` decodes H.264 video and AAC audio, which is what most MP4 files carry;
+Ubuntu's desktop install does not include it. To check a particular file or URL, run
+`gst-discoverer-1.0 <url>`: any "Missing plugins" it lists is what the player lacks.
+
 ## Optional: packaging tools
 
 These are needed only to produce an installable artifact with `day pack`. [Packaging &
