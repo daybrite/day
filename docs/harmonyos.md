@@ -122,7 +122,7 @@ It checks what the build and launch actually use, on Linux, macOS, and Windows a
 | `node` | build | on PATH; signing runs `sign-hap.mjs` under it |
 | `hdc` | launch | on PATH, or in the SDK's `toolchains/` |
 | `qemu` | launch | `qemu-system-x86_64` on PATH |
-| `oniro-images` | launch | every emulator image file, in `DAY_OHOS_EMULATOR` or `~/ohos/emulator/images` |
+| `emu-images` | launch | every file of the emulator image in `DAY_OHOS_EMULATOR` or `~/ohos/emulator/images`, Oniro (6.x) or ohos-qemu (7.0) layout |
 | `kvm` | launch (Linux) | `/dev/kvm` opens read-write, so the emulator is accelerated |
 
 The host-format checks catch the common cross-OS mistake before hvigor does: a Linux SDK on a
@@ -201,10 +201,23 @@ it in the source host if it must survive the next preparation.
 You don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:
 
-The Oniro images are a separate download: unpack
+The emulator images are a separate download: unpack
 [`oniro_emulator.zip`](https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases/download/v6.1/oniro_emulator.zip)
-(1.4 GB, 5.5 GB unpacked) in `~/ohos/emulator`, which yields the default `~/ohos/emulator/images`,
-and install `qemu-system-x86_64`.
+(OpenHarmony 6.1; 1.4 GB, 5.5 GB unpacked) in `~/ohos/emulator`, which yields the default
+`~/ohos/emulator/images`, and install `qemu-system-x86_64`.
+
+**OpenHarmony 7.0.** `DAY_OHOS_EMULATOR` may instead name the images of a
+[harmony-contrib/ohos-qemu](https://github.com/harmony-contrib/ohos-qemu) `x86_64_virt` package
+(verified: v20260919, OpenHarmony 7.0.0.39, API 26). `EmulatorImage` in `ohos.rs` tells the two
+layouts apart by the 7.0 image's extra `sys_prod.img`/`chip_prod.img` and supplies what differs:
+six disks rather than four (in the vda–vdf order the kernel command line's mounts name), an
+eng/developer-mode command line, hdc on guest port 5555 rather than 55555, and the virtio tablet
+and keyboard. The host port stays `DAY_OHOS_TARGET`'s for both, so `day launch`, `day drive`, and
+scripts need no change. The Showcase walkthrough passes 861/861 on both images (API-18 build).
+The windowed 7.0 boot uses `-display gtk,gl=off`: the 7.0 guest aborts QEMU's GL display
+(`surface_gl_create_texture: Assertion 'map_format(...)'`) during boot. On a host whose plain GTK
+display doesn't repaint (see below), boot it `--headless`. ohos-qemu's arm64 packages (an `Image`
+kernel) are refused by name: they need `qemu-system-aarch64`.
 
 ```bash
 # A native OpenHarmony emulator window (QEMU cocoa on macOS, GTK on Linux; no VNC, no password,

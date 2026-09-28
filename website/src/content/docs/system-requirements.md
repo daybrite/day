@@ -329,8 +329,23 @@ day devices boot -p harmony-arkui                       # --headless for no wind
 
 The image comes from the
 [device_board_oniro releases](https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases)
-(v6.1 is what Day's CI runs). Set `DAY_OHOS_EMULATOR` if you keep the images anywhere other
-than `~/ohos/emulator/images`. Boot returns once the guest has finished starting, and QEMU keeps
+(v6.1, OpenHarmony 6.1, is what Day's CI runs). Set `DAY_OHOS_EMULATOR` if you keep the images
+anywhere other than `~/ohos/emulator/images`.
+
+To test on **OpenHarmony 7.0**, use the `x86_64_virt` phone package from
+[harmony-contrib/ohos-qemu](https://github.com/harmony-contrib/ohos-qemu/releases) instead
+(0.7 GB download, 4.7 GB unpacked). `day devices boot` recognizes its layout by its extra
+`sys_prod.img` and `chip_prod.img`, so every `day` command works against either image:
+
+```bash
+mkdir -p ~/ohos/ohos-qemu && cd ~/ohos/ohos-qemu
+curl -fSLO https://github.com/harmony-contrib/ohos-qemu/releases/download/v20260919/openharmony-qemu-x86_64-x86_64_virt-phone.tar.gz
+tar xzf openharmony-qemu-x86_64-x86_64_virt-phone.tar.gz
+export DAY_OHOS_EMULATOR=~/ohos/ohos-qemu/openharmony-qemu-x86_64-x86_64_virt-phone/images
+day devices boot -p harmony-arkui --headless
+```
+
+Apps built for API 18 install and run on 7.0 unchanged. Boot prints which OpenHarmony came up. Boot returns once the guest has finished starting, and QEMU keeps
 running in the background; `day launch -p harmony-arkui` then installs and starts the app on it.
 
 On an x86_64 Linux host, the emulator runs KVM-accelerated when you can open `/dev/kvm`. That

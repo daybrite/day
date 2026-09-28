@@ -6,7 +6,8 @@
 //! signs a `.hap` via the staged host under `<project>/build/day/harmony/project/`; `launch_ohos`
 //! installs + starts it on a connected emulator/device over `hdc`.
 //!
-//! The reference emulator is the openharmony-rs `emulator-action` Oniro QEMU image: an x86_64,
+//! The emulator is an x86_64 OpenHarmony QEMU image: Oniro's (OpenHarmony 6.x), or
+//! harmony-contrib/ohos-qemu's `x86_64_virt` (7.0), told apart by [`EmulatorImage`]. Either is a
 //! networked hdc target (KVM-accelerated where `/dev/kvm` exists, i.e. x86_64 Linux CI, else
 //! TCG), so every hdc call carries `-t <connect-key>` (default `127.0.0.1:55555`; override with
 //! `DAY_OHOS_TARGET`). Building a `.hap` needs `hvigor` + `ohpm` on PATH (from the OpenHarmony
@@ -98,17 +99,165 @@ pub(crate) fn exe_name(name: &str) -> String {
     }
 }
 
-/// The emulator image files `emulator_launch` boots (`DAY_OHOS_EMULATOR`).
-pub(crate) const EMULATOR_IMAGES: [&str; 6] = [
-    "bzImage",
-    "ramdisk.img",
-    "system.img",
-    "vendor.img",
-    "updater.img",
-    "userdata.img",
-];
+/// The x86_64 OpenHarmony emulator images `emulator_launch` boots, by the layout of their
+/// directory (`DAY_OHOS_EMULATOR`). Both run under the same QEMU recipe; they differ in their
+/// disks, kernel command line, and the port the guest's hdc listens on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EmulatorImage {
+    /// Eclipse Oniro's `oniro_emulator.zip` (device_board_oniro; OpenHarmony 5.x and 6.x):
+    /// four disks, hdc on guest port 55555.
+    Oniro,
+    /// harmony-contrib/ohos-qemu's `x86_64_virt` images (OpenHarmony 7.0): six disks (adding
+    /// `sys_prod` and `chip_prod`), an eng/developer-mode boot, hdc on guest port 5555.
+    OhosQemu,
+}
 
-/// The Oniro image directory: `DAY_OHOS_EMULATOR`, else `~/ohos/emulator/images`.
+impl EmulatorImage {
+    /// The layout `dir` holds: ohos-qemu's when either of its extra partitions is present,
+    /// else Oniro's. `Err` for ohos-qemu's arm64 package, which has an `Image` kernel rather
+    /// than `bzImage` and needs `qemu-system-aarch64`.
+    pub(crate) fn detect(dir: &Path) -> Result<EmulatorImage, String> {
+        if dir.join("Image").is_file() && !dir.join("bzImage").is_file() {
+            return Err(format!(
+                "{} holds an arm64 image (an `Image` kernel); day boots the x86_64 emulator \
+                 images only — use the x86_64_virt package",
+                dir.display()
+            ));
+        }
+        let ohos_qemu = ["sys_prod.img", "chip_prod.img"]
+            .iter()
+            .any(|f| dir.join(f).is_file());
+        Ok(if ohos_qemu {
+            EmulatorImage::OhosQemu
+        } else {
+            EmulatorImage::Oniro
+        })
+    }
+
+    /// The files this layout boots from.
+    pub(crate) fn files(self) -> &'static [&'static str] {
+        match self {
+            EmulatorImage::Oniro => &[
+                "bzImage",
+                "ramdisk.img",
+                "updater.img",
+                "system.img",
+                "vendor.img",
+                "userdata.img",
+            ],
+            EmulatorImage::OhosQemu => &[
+                "bzImage",
+                "ramdisk.img",
+                "updater.img",
+                "system.img",
+                "vendor.img",
+                "sys_prod.img",
+                "chip_prod.img",
+                "userdata.img",
+            ],
+        }
+    }
+
+    /// Which files of this layout `dir` lacks.
+    pub(crate) fn missing(self, dir: &Path) -> Vec<&'static str> {
+        self.files()
+            .iter()
+            .copied()
+            .filter(|f| !dir.join(f).is_file())
+            .collect()
+    }
+
+    /// A short name for status lines and doctor.
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            EmulatorImage::Oniro => "Oniro layout",
+            EmulatorImage::OhosQemu => "ohos-qemu layout, OpenHarmony 7.0",
+        }
+    }
+
+    /// The port the guest's hdc daemon listens on; the host side stays `DAY_OHOS_TARGET`'s.
+    fn guest_hdc_port(self) -> u16 {
+        match self {
+            EmulatorImage::Oniro => 55555,
+            EmulatorImage::OhosQemu => 5555,
+        }
+    }
+
+    /// The block devices, in the order the kernel names them (vda, vdb, …): the command line's
+    /// `ohos.required_mount.*` entries refer to them by that name, so the order is load-bearing.
+    fn disks(self) -> &'static [&'static str] {
+        match self {
+            EmulatorImage::Oniro => &["updater", "system", "vendor", "userdata"],
+            EmulatorImage::OhosQemu => &[
+                "updater",
+                "system",
+                "vendor",
+                "sys_prod",
+                "chip_prod",
+                "userdata",
+            ],
+        }
+    }
+
+    /// The kernel command line, fixed per image build.
+    fn append(self) -> &'static str {
+        match self {
+            EmulatorImage::Oniro => {
+                "ip=dhcp loglevel=4 console=ttyS0,115200 init=init root=/dev/ram0 rw \
+                 ohos.boot.hardware=x86_general \
+                 ohos.required_mount.system=/dev/block/vdb@/usr@ext4@ro,barrier=1@wait,required \
+                 ohos.required_mount.vendor=/dev/block/vdc@/vendor@ext4@ro,barrier=1@wait,required \
+                 ohos.required_mount.misc=/dev/block/vda@/misc@none@none=@wait,required"
+            }
+            // From the release's launch/qemu_run.sh. `oemmode=rd buildvariant=eng
+            // developer_mode=1` boots the developer device mode app installs rely on.
+            EmulatorImage::OhosQemu => {
+                "oemmode=rd buildvariant=eng developer_mode=1 console=ttyS0,115200 \
+                 sn=0023456789 init=/bin/init hardware=virt root=/dev/ram0 rw ip=dhcp \
+                 ohos.boot.hardware=virt \
+                 ohos.required_mount.system=/dev/block/vdb@/usr@ext4@ro,barrier=1@wait,required \
+                 ohos.required_mount.vendor=/dev/block/vdc@/vendor@ext4@ro,barrier=1@wait,required \
+                 ohos.required_mount.sys_prod=/dev/block/vdd@/sys_prod@ext4@rw,barrier=1@wait,required \
+                 ohos.required_mount.chip_prod=/dev/block/vde@/chip_prod@ext4@rw,barrier=1@wait,required \
+                 ohos.required_mount.data=/dev/block/vdf@/data@f2fs@nosuid,nodev,noatime@wait,required,reservedsize=104857600"
+            }
+        }
+    }
+
+    /// The QEMU arguments this layout adds: its disks, and (ohos-qemu) the virtio tablet and
+    /// keyboard its image is built to take input from. Oniro keeps its sound card.
+    fn qemu_args(self) -> Vec<String> {
+        let mut args = Vec::new();
+        for (index, disk) in self.disks().iter().enumerate() {
+            let drive = match self {
+                EmulatorImage::Oniro => {
+                    format!("if=none,file={disk}.img,format=raw,id={disk},index={index}")
+                }
+                EmulatorImage::OhosQemu => format!("if=none,file={disk}.img,format=raw,id={disk}"),
+            };
+            let device = match self {
+                EmulatorImage::Oniro => format!("virtio-blk-pci,drive={disk}"),
+                EmulatorImage::OhosQemu => format!("virtio-blk-pci,drive={disk},serial={disk}"),
+            };
+            args.extend(["-drive".into(), drive, "-device".into(), device]);
+        }
+        match self {
+            EmulatorImage::Oniro => args.extend(["-device".into(), "es1370".into()]),
+            EmulatorImage::OhosQemu => args.extend(
+                [
+                    "-device",
+                    "virtio-tablet-pci",
+                    "-device",
+                    "virtio-keyboard-pci",
+                ]
+                .map(String::from),
+            ),
+        }
+        args
+    }
+}
+
+/// The emulator image directory: `DAY_OHOS_EMULATOR`, else `~/ohos/emulator/images`.
 pub(crate) fn emulator_images_dir() -> PathBuf {
     std::env::var_os("DAY_OHOS_EMULATOR")
         .filter(|v| !v.is_empty())
@@ -196,15 +345,17 @@ fn default_smp() -> usize {
 /// windowed Linux guest runs at this size whatever panel was asked for (see `emulator_launch`).
 const GTK_WINDOW_PANEL: (u32, u32) = (640, 480);
 
-/// Bring up the Oniro/OpenHarmony QEMU emulator as a native window (the OHOS analogue of
+/// Bring up the OpenHarmony QEMU emulator as a native window (the OHOS analogue of
 /// `skip android emulator launch`). On macOS the QEMU `cocoa` backend opens a native window
 /// directly, with no VNC or Screen Sharing in between, and on Linux the `gtk` one;
 /// `--headless` uses no display (hdc-only, for CI). Self-contained: it builds the QEMU command
 /// itself, so it doesn't depend on the emulator distribution's shell launcher.
 ///
-/// The image directory is `DAY_OHOS_EMULATOR` (a dir holding `bzImage`, `ramdisk.img`, `system.img`,
-/// `vendor.img`, `updater.img`, `userdata.img`) or the default `~/ohos/emulator/images`. The host
-/// hdc port comes from `DAY_OHOS_TARGET` (default `127.0.0.1:55555`), forwarded to the guest's 55555.
+/// The image directory is `DAY_OHOS_EMULATOR` or the default `~/ohos/emulator/images`, holding
+/// either an Oniro image (OpenHarmony 6.x) or an ohos-qemu `x86_64_virt` one (7.0); its files
+/// decide which ([`EmulatorImage`]), and with it the disks, kernel command line, and guest hdc
+/// port. The host hdc port comes from `DAY_OHOS_TARGET` (default `127.0.0.1:55555`) for both, so
+/// every later `hdc` call, `day launch` included, addresses either image the same way.
 ///
 /// `panel` is the guest display in pixels: the image has no screen of its own, it draws at
 /// whatever the virtio-gpu is told, which is how one image serves as a phone (360×720) and as a
@@ -212,14 +363,16 @@ const GTK_WINDOW_PANEL: (u32, u32) = (640, 480);
 /// on a runner) so the runs that follow know where the keyguard swipe lands.
 pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> {
     let images = emulator_images_dir();
-    for f in EMULATOR_IMAGES {
-        if !images.join(f).exists() {
-            return Err(format!(
-                "OpenHarmony emulator images not found at {} (missing {f}). Download the Oniro \
-                 emulator and set DAY_OHOS_EMULATOR to its image dir (see docs/harmonyos.md).",
-                images.display()
-            ));
-        }
+    let image = EmulatorImage::detect(&images)?;
+    let missing = image.missing(&images);
+    if !missing.is_empty() {
+        return Err(format!(
+            "OpenHarmony emulator images not found at {} (missing {}). Download the Oniro \
+             emulator (OpenHarmony 6.x) or an ohos-qemu x86_64_virt package (7.0) and set \
+             DAY_OHOS_EMULATOR to its image dir (see docs/harmonyos.md).",
+            images.display(),
+            missing.join(", ")
+        ));
     }
     let qemu = "qemu-system-x86_64";
     if Command::new(qemu).arg("--version").output().is_err() {
@@ -228,7 +381,7 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
              (`day doctor --toolkit harmonyos` shows how on this host)."
         ));
     }
-    // Host hdc port from the connect key (guest hdc always listens on 55555). Kill any stale hdc
+    // Host hdc port from the connect key (the guest's own port is the image's). Kill any stale hdc
     // server first so it can't hold the host port before QEMU binds the forward.
     let _ = Command::new(hdc_bin()).arg("kill").output();
     // The requested port is often already occupied (GitHub's macOS runners hold 55555, and so
@@ -274,6 +427,13 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         // (bootevent.wms.fullscreen.ready never fires; three consecutive boots). To enlarge
         // the window, toggle View → Zoom To Fit once booted and drag-resize.
         &["-display", "cocoa"]
+    } else if image == EmulatorImage::OhosQemu {
+        // The ohos-qemu (7.0) guest aborts QEMU's GL display during boot
+        // (`surface_gl_create_texture: Assertion 'map_format(...)' failed`, Homebrew QEMU 11.1,
+        // Ubuntu 24.04), though its settled scanout is the same XRGB8888 as Oniro's. `gl=off` is
+        // what the image's own launcher uses; where plain GTK doesn't repaint (below), boot
+        // with --headless instead.
+        &["-display", "gtk,gl=off"]
     } else {
         // GTK with OpenGL rendering. Plain `gtk` (cairo) painted its "Display output is not
         // active" placeholder once and never repainted (a Homebrew QEMU 11.1 on Ubuntu 24.04,
@@ -282,13 +442,11 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         &["-display", "gtk,gl=on"]
     };
 
-    // Kernel cmdline + block devices are fixed for the Oniro x86_general image.
-    let append = "ip=dhcp loglevel=4 console=ttyS0,115200 init=init root=/dev/ram0 rw \
-                  ohos.boot.hardware=x86_general \
-                  ohos.required_mount.system=/dev/block/vdb@/usr@ext4@ro,barrier=1@wait,required \
-                  ohos.required_mount.vendor=/dev/block/vdc@/vendor@ext4@ro,barrier=1@wait,required \
-                  ohos.required_mount.misc=/dev/block/vda@/misc@none@none=@wait,required";
-    let hostfwd = format!("user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:55555");
+    // Kernel command line, disks, and the guest's hdc port come from the image's layout.
+    let hostfwd = format!(
+        "user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:{}",
+        image.guest_hdc_port()
+    );
     // QEMU's GTK window opens at its 640×480 placeholder size and reports that size to
     // virtio-gpu, and the guest adopts it over the requested panel. Any other panel makes the
     // guest switch modes while its display is coming up; on a fast (KVM) boot that switch's
@@ -367,36 +525,18 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         ])
         .args(["-device", &gpu])
         .args(display)
-        .args(["-rtc", "base=utc,clock=host", "-device", "es1370"])
+        .args(["-rtc", "base=utc,clock=host"])
         .args(["-initrd", "ramdisk.img", "-kernel", "bzImage"])
-        .args([
-            "-drive",
-            "if=none,file=updater.img,format=raw,id=updater,index=0",
-        ])
-        .args(["-device", "virtio-blk-pci,drive=updater"])
-        .args([
-            "-drive",
-            "if=none,file=system.img,format=raw,id=system,index=1",
-        ])
-        .args(["-device", "virtio-blk-pci,drive=system"])
-        .args([
-            "-drive",
-            "if=none,file=vendor.img,format=raw,id=vendor,index=2",
-        ])
-        .args(["-device", "virtio-blk-pci,drive=vendor"])
-        .args([
-            "-drive",
-            "if=none,file=userdata.img,format=raw,id=userdata,index=3",
-        ])
-        .args(["-device", "virtio-blk-pci,drive=userdata"])
-        .args(["-serial", "none", "-append", append])
+        .args(image.qemu_args())
+        .args(["-serial", "none", "-append", image.append()])
         .args(["-accel", &accel, "-cpu", cpu])
         .args(["-netdev", &hostfwd, "-device", "virtio-net-pci,netdev=net0"]);
     status(
         "Emulator",
         &format!(
-            "OpenHarmony ({}) — {}",
+            "OpenHarmony ({}, {}) — {}",
             images.display(),
+            image.label(),
             if headless { "headless" } else { "windowed" }
         ),
     );
@@ -432,6 +572,21 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
             .unwrap_or(false);
         if booted {
             status("Emulator", &format!("booted — hdc target {target}"));
+            // Which OpenHarmony came up, so a log says whether a run was 6.x or 7.0.
+            let param = |name: &str| {
+                Command::new(hdc_bin())
+                    .args(["-t", &target, "shell", "param", "get", name])
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    .filter(|v| !v.is_empty() && !v.contains("fail"))
+            };
+            if let Some(name) = param("const.ohos.fullname") {
+                let api = param("const.ohos.apiversion")
+                    .map(|a| format!(" (API {a})"))
+                    .unwrap_or_default();
+                status("Emulator", &format!("{name}{api}"));
+            }
             return Ok(());
         }
         std::thread::sleep(Duration::from_secs(5));
@@ -1717,5 +1872,110 @@ mod screen_size_tests {
         assert_eq!(parse_size("0x720"), None);
         assert_eq!(parse_size("360"), None);
         assert_eq!(parse_size("wide"), None);
+    }
+}
+
+#[cfg(test)]
+mod emulator_image_tests {
+    use super::EmulatorImage;
+    use std::path::PathBuf;
+
+    fn scratch(tag: &str, files: &[&str]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "day-emu-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in files {
+            std::fs::write(dir.join(f), b"x").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn layouts_are_told_apart_by_their_files() {
+        let oniro = scratch("oniro", EmulatorImage::Oniro.files());
+        assert_eq!(EmulatorImage::detect(&oniro), Ok(EmulatorImage::Oniro));
+        assert!(EmulatorImage::Oniro.missing(&oniro).is_empty());
+
+        let seven = scratch("ohos-qemu", EmulatorImage::OhosQemu.files());
+        assert_eq!(EmulatorImage::detect(&seven), Ok(EmulatorImage::OhosQemu));
+        assert!(EmulatorImage::OhosQemu.missing(&seven).is_empty());
+
+        // One extra partition is enough to call it ohos-qemu, and then the rest are reported.
+        let partial = scratch("partial", &["bzImage", "sys_prod.img"]);
+        assert_eq!(EmulatorImage::detect(&partial), Ok(EmulatorImage::OhosQemu));
+        assert!(
+            EmulatorImage::OhosQemu
+                .missing(&partial)
+                .contains(&"chip_prod.img")
+        );
+
+        // ohos-qemu's arm64 package is refused by name rather than half-booted.
+        let arm = scratch("arm64", &["Image", "ramdisk.img", "system.img"]);
+        assert!(EmulatorImage::detect(&arm).unwrap_err().contains("arm64"));
+
+        // An empty directory reads as Oniro with everything missing.
+        let empty = scratch("empty", &[]);
+        assert_eq!(EmulatorImage::detect(&empty), Ok(EmulatorImage::Oniro));
+        assert_eq!(
+            EmulatorImage::Oniro.missing(&empty).len(),
+            EmulatorImage::Oniro.files().len()
+        );
+        for d in [oniro, seven, partial, arm, empty] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    /// Each `ohos.required_mount.<mount>=/dev/block/vdX` in the command line must name the disk
+    /// at position X of the QEMU command, and every disk file must be one the layout ships.
+    /// A mismatch doesn't fail loudly: the guest mounts the wrong partition and never boots.
+    #[test]
+    fn kernel_mounts_match_the_disk_order() {
+        for image in [EmulatorImage::Oniro, EmulatorImage::OhosQemu] {
+            let disks = image.disks();
+            for disk in disks {
+                assert!(
+                    image.files().contains(&format!("{disk}.img").as_str()),
+                    "{image:?}: {disk}.img is not in files()"
+                );
+            }
+            let mounts: Vec<(&str, usize)> = image
+                .append()
+                .split_whitespace()
+                .filter_map(|arg| {
+                    let rest = arg.strip_prefix("ohos.required_mount.")?;
+                    let (mount, spec) = rest.split_once('=')?;
+                    let dev = spec.strip_prefix("/dev/block/vd")?.chars().next()?;
+                    Some((mount, (dev as u8 - b'a') as usize))
+                })
+                .collect();
+            assert!(!mounts.is_empty(), "{image:?}: no mounts parsed");
+            for (mount, index) in mounts {
+                let disk = disks[index];
+                let expected = match mount {
+                    "misc" => "updater",
+                    "data" => "userdata",
+                    other => other,
+                };
+                assert_eq!(disk, expected, "{image:?}: {mount} is vd{index}");
+            }
+            // The drives in the QEMU arguments come in the same order.
+            let args = image.qemu_args();
+            let drives: Vec<&str> = args
+                .iter()
+                .filter_map(|a| a.strip_prefix("if=none,file="))
+                .filter_map(|a| a.split_once(".img").map(|(f, _)| f))
+                .collect();
+            assert_eq!(drives, disks, "{image:?}");
+        }
+    }
+
+    #[test]
+    fn guest_hdc_ports_differ_by_layout() {
+        assert_eq!(EmulatorImage::Oniro.guest_hdc_port(), 55555);
+        assert_eq!(EmulatorImage::OhosQemu.guest_hdc_port(), 5555);
     }
 }

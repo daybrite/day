@@ -817,7 +817,7 @@ pub enum DevicesCmd {
     },
     /// Start a simulator or emulator
     #[command(
-        after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\n--device names the panel (phone 360x720, tablet 1280x800, or WxH) and --orientation turns it;\nID and --os are not supported for this target.\n\nDocs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices"
+        after_help = "OpenHarmony: --headless starts Oniro without a window; boot always waits for readiness.\n--device names the panel (phone 360x720, tablet 1280x800, or WxH) and --orientation turns it;\nID and --os are not supported for this target. The image is DAY_OHOS_EMULATOR (default\n~/ohos/emulator/images): an Oniro image (OpenHarmony 6.x) or an ohos-qemu x86_64_virt one (7.0).\n\nDocs: https://daybrite.dev/docs/cli/#simulators-emulators-and-devices"
     )]
     Boot {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui

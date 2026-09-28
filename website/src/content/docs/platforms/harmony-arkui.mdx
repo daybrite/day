@@ -39,9 +39,11 @@ artifact without a vendor account. `day pack -p harmony-arkui` produces the rele
 with your own material when configured.
 
 The [`day devices boot`](/docs/cli#simulators-emulators-and-devices) command starts the emulator: `day devices boot -p harmony-arkui` (add
-`--headless` to run without a window) boots the Oniro QEMU image and connects `hdc`. It does not
-download images: unpack the Oniro release's `oniro_emulator.zip` into `~/ohos/emulator` (or point
-`DAY_OHOS_EMULATOR` at its `images/` directory), or the command errors naming what is missing.
+`--headless` to run without a window) boots the emulator image under QEMU and connects `hdc`:
+Oniro's for OpenHarmony 6.x, or harmony-contrib/ohos-qemu's `x86_64_virt` for 7.0, recognized by
+its files. It does not download images: unpack the Oniro release's `oniro_emulator.zip` into
+`~/ohos/emulator`, or point `DAY_OHOS_EMULATOR` at either image's `images/` directory; otherwise
+the command errors naming what is missing.
 [System requirements](/docs/system-requirements#setting-up-the-oniro-emulator) has the download, the
 QEMU install, and KVM setup.
 

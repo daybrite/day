@@ -648,7 +648,7 @@ fn android_group() -> Group {
 }
 
 fn harmonyos_group() -> Group {
-    use crate::ohos::{BinaryFormat, EMULATOR_IMAGES};
+    use crate::ohos::BinaryFormat;
     let host = host_os();
     let native = BinaryFormat::for_host(host);
     let ndk = crate::ohos::find_ohos_ndk().ok().map(PathBuf::from);
@@ -732,27 +732,7 @@ fn harmonyos_group() -> Group {
                 },
             )
             .need(Need::Launch),
-            {
-                let dir = crate::ohos::emulator_images_dir();
-                let missing: Vec<&str> = EMULATOR_IMAGES
-                    .into_iter()
-                    .filter(|f| !dir.join(f).is_file())
-                    .collect();
-                Probe::new(
-                    "oniro-images",
-                    missing.is_empty().then(|| dir.display().to_string()),
-                    if missing.len() == EMULATOR_IMAGES.len() {
-                        format!(
-                            "no emulator images at {}: unpack the Oniro release's \
-                             oniro_emulator.zip there, or set DAY_OHOS_EMULATOR to its images/ dir",
-                            dir.display()
-                        )
-                    } else {
-                        format!("{} is missing {}", dir.display(), missing.join(", "))
-                    },
-                )
-                .need(Need::Launch)
-            },
+            emulator_images_probe(&crate::ohos::emulator_images_dir()),
         ]
         .into_iter()
         .chain(kvm_probe(host))
@@ -770,8 +750,46 @@ fn harmonyos_group() -> Group {
                   put their bin/ on PATH. These package the .hap and are not part of the public SDK.\n\
                 • node on PATH (signing)\n\
                 An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build:\n\
-                install QEMU, unpack the Oniro images (not bundled; see docs/harmonyos.md), then\n\
+                install QEMU, unpack an emulator image (Oniro for OpenHarmony 6.x, or ohos-qemu's\n\
+                x86_64_virt for 7.0; neither is bundled, see docs/harmonyos.md), then\n\
                 `day devices boot -p harmony-arkui`.",
+    }
+}
+
+/// The emulator images `day devices boot` would start: an Oniro directory (OpenHarmony 6.x) or an
+/// ohos-qemu `x86_64_virt` one (7.0), whichever layout the directory holds, complete.
+fn emulator_images_probe(dir: &Path) -> Probe {
+    use crate::ohos::EmulatorImage;
+    let get = "unpack Oniro's oniro_emulator.zip (OpenHarmony 6.x) or an ohos-qemu \
+               x86_64_virt package (7.0) there, or set DAY_OHOS_EMULATOR to its images/ dir";
+    let probe = |detail: Option<String>, fix: String| {
+        Probe::new("emu-images", detail, fix).need(Need::Launch)
+    };
+    let image = match EmulatorImage::detect(dir) {
+        Ok(image) => image,
+        Err(e) => return probe(None, e),
+    };
+    let missing = image.missing(dir);
+    if missing.is_empty() {
+        probe(
+            Some(format!("{} ({})", dir.display(), image.label())),
+            String::new(),
+        )
+    } else if missing.len() == image.files().len() {
+        probe(
+            None,
+            format!("no emulator images at {}: {get}", dir.display()),
+        )
+    } else {
+        probe(
+            None,
+            format!(
+                "{} ({}) is missing {}",
+                dir.display(),
+                image.label(),
+                missing.join(", ")
+            ),
+        )
     }
 }
 
