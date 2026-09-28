@@ -229,10 +229,15 @@ struct PieceMeta {
 /// per match (deduped, sorted). This lets the app depend on a piece with a plain `{ workspace = true }`
 /// and no per-backend feature fan-out; the CLI derives them here.
 ///
-/// Only pieces that declare `backend` contribute (so `cargo`'s "feature does not exist" / "not a
-/// direct dependency" errors can't fire), and a metadata failure degrades to an empty list (warn,
-/// don't fail) so the app still builds with whatever features it lists itself. Because the union
-/// is additive, an app that still lists the per-piece features stays correct (dupes are fine).
+/// Only pieces that declare `backend` contribute (so `cargo`'s "feature does not exist" error
+/// can't fire), and only the app's *direct* dependencies, because `<pkg>/<feature>` names a
+/// feature of a direct dependency and cargo refuses any other ("not a direct dependency"). A piece
+/// the app reaches through another crate (a gallery of example pages that plays a piece, a piece
+/// composing another) gets its backend from that crate, which declares the same `backends` and
+/// forwards each one: `appkit = ["day-piece-lottie/appkit"]`. A metadata failure degrades to an
+/// empty list (warn, don't fail) so the app still builds with whatever features it lists itself.
+/// Because the union is additive, an app that still lists the per-piece features stays correct
+/// (dupes are fine).
 pub fn feature_union(project: &Project, backend: &str) -> Vec<String> {
     let meta = match cargo_metadata(project, &[backend]) {
         Ok(m) => m,
@@ -244,10 +249,16 @@ pub fn feature_union(project: &Project, backend: &str) -> Vec<String> {
             return Vec::new();
         }
     };
-    let in_closure = closure(&meta);
+    backend_features(&meta, backend)
+}
+
+/// The `<pkg>/<backend>` features [`feature_union`] adds, from resolved metadata: one per piece
+/// among the app's direct dependencies that declares `backend`.
+fn backend_features(meta: &Metadata, backend: &str) -> Vec<String> {
+    let direct = direct_dependencies(meta);
     let mut feats = Vec::new();
     for pkg in &meta.packages {
-        if !in_closure.contains(&pkg.id) {
+        if !direct.contains(&pkg.id) {
             continue;
         }
         let Some(piece) = piece_meta::<PieceMeta>(pkg, "piece") else {
@@ -260,6 +271,24 @@ pub fn feature_union(project: &Project, backend: &str) -> Vec<String> {
     feats.sort();
     feats.dedup();
     feats
+}
+
+/// The package ids the app depends on directly: the resolve root's own edges. Without a resolve
+/// graph (an old cargo, a metadata shape this does not know), every package counts, which is
+/// the behavior before this distinction existed.
+fn direct_dependencies(meta: &Metadata) -> HashSet<String> {
+    let Some(resolve) = &meta.resolve else {
+        return meta.packages.iter().map(|p| p.id.clone()).collect();
+    };
+    let Some(root) = &resolve.root else {
+        return meta.packages.iter().map(|p| p.id.clone()).collect();
+    };
+    resolve
+        .nodes
+        .iter()
+        .find(|n| n.id == *root)
+        .map(|n| n.deps.iter().map(|d| d.pkg.clone()).collect())
+        .unwrap_or_default()
 }
 
 /// Run `cargo metadata` for the app with a specific feature selection (no default features), so only
@@ -2124,6 +2153,52 @@ mod tests {
         assert_eq!(
             super::bridge_roots_from_metadata(&meta),
             vec![("yes".into(), std::path::PathBuf::from("yes"))]
+        );
+    }
+
+    /// A piece the app reaches only through another crate gets no `<pkg>/<backend>` feature (cargo
+    /// would refuse it: not a direct dependency); the crate in between forwards it instead, and
+    /// it is that crate's own feature the union names.
+    #[test]
+    fn backend_features_name_only_direct_dependencies() {
+        let piece = |id: &str, backends: &[&str]| {
+            serde_json::json!({"id": id, "name": id, "manifest_path": format!("{id}/Cargo.toml"),
+                "metadata": {"day": {"piece": {"backends": backends}}}})
+        };
+        let meta: super::Metadata = serde_json::from_value(serde_json::json!({
+            "packages": [
+                {"id":"app", "name":"app", "manifest_path":"app/Cargo.toml"},
+                piece("day-piece-lottie-gallery", &["appkit", "uikit"]),
+                piece("day-piece-lottie", &["appkit", "uikit"]),
+                piece("day-piece-charts-gallery", &[]),
+                piece("direct-piece", &["gtk"]),
+            ],
+            "resolve": {"root": "app", "nodes": [
+                {"id":"app", "deps":[{"pkg":"day-piece-lottie-gallery"},
+                    {"pkg":"day-piece-charts-gallery"}, {"pkg":"direct-piece"}]},
+                {"id":"day-piece-lottie-gallery", "deps":[{"pkg":"day-piece-lottie"}]},
+                {"id":"day-piece-lottie", "deps":[]},
+                {"id":"day-piece-charts-gallery", "deps":[]},
+                {"id":"direct-piece", "deps":[]},
+            ]}
+        }))
+        .unwrap();
+        assert_eq!(
+            super::backend_features(&meta, "appkit"),
+            vec!["day-piece-lottie-gallery/appkit".to_string()]
+        );
+        assert_eq!(
+            super::backend_features(&meta, "gtk"),
+            vec!["direct-piece/gtk".to_string()]
+        );
+        // With no resolve graph to read, every package counts, as it did before.
+        let flat: super::Metadata = serde_json::from_value(serde_json::json!({
+            "packages": [piece("day-piece-lottie", &["appkit"])]
+        }))
+        .unwrap();
+        assert_eq!(
+            super::backend_features(&flat, "appkit"),
+            vec!["day-piece-lottie/appkit".to_string()]
         );
     }
 

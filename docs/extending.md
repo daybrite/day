@@ -157,6 +157,33 @@ assets are read where they lie and nothing may be written into the app's source 
 backends with no native Lottie player it ships lottie-web and a host page this way, and composes
 [day-piece-webview](https://github.com/daybrite/day-piece-webview) to show them.
 
+### Crates that wrap a piece: galleries of pages, pieces composing pieces
+
+`day build` switches on a piece's backend by adding `<crate>/<backend>` to the app's features, and
+cargo accepts that only for the app's **direct** dependencies. So it is added for those alone. A
+crate that sits between the app and a piece (a piece built on another, or a library of ready-made
+pages that plays a piece) declares the same `backends` and forwards each one, and the app reaches
+the piece through it:
+
+```toml
+[package.metadata.day.piece]
+backends = ["uikit", "mdc", "appkit", "gtk", "qt", "xaml", "arkui", "dom"]
+assets = ["animations"]   # optional: files the wrapper itself ships
+
+[features]
+appkit = ["day-piece-lottie/appkit"]
+uikit = ["day-piece-lottie/uikit"]
+# … one line per backend
+```
+
+day-piece-lottie forwards to day-piece-webview this way. The example galleries are the other case:
+`day-piece-charts-gallery` and `day-piece-lottie-gallery` hold their demos' pages as libraries, so
+the demo app is a thin shell around them and Day-Showcase mounts the same pages. A gallery like
+that brings everything its pages need. Its strings are a private catalog
+([localization.md](localization.md) "Private catalogs") that resolves in any host. Its files
+are data assets, staged under its crate name. Its backends are forwarded as above. The host adds
+one dependency and copies nothing.
+
 ### C++ shims: Qt & XAML (`build.rs`)
 
 The piece carries its own `src/lib-qt-shim.cpp` / `src/lib-xaml-shim.cpp` and compiles them in `build.rs`
