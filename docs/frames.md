@@ -84,7 +84,8 @@ its pending window update, if any, still belongs to Qt's backing-store machinery
 The existing `frame_clock` piece uses this same service. Its compatibility contract still gives
 an initial 1/60 s step and clamps subsequent deltas to 100 ms. New clients should use the explicit
 handle API so they can stop while idle. Native-widget `with_animation` continues to use backend
-animators; this primitive does not replace them or introduce a general tween engine.
+animators; this primitive does not replace them. Interpolation, timing and a frame-driven
+transition driver built on it are in [tween.md](tween.md).
 
 Regression coverage lives in `day-core/src/frame.rs`: coalescing, callback reentrancy, cancellation,
 late native delivery, independent windows, lifecycle suspension, malformed timestamps, and

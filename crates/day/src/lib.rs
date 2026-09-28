@@ -28,6 +28,8 @@ pub use day_core::frame;
 /// route the app to `route`, buffered before the root is ready and applied after, exactly like
 /// a cold launcher shortcut. The route grammar is what `day::routes!` keys and dayscript speak.
 pub use day_core::request_route;
+/// Tweening for canvas animations (docs/tween.md): `Lerp`, `Timing`, `animate`, `Tweened`.
+pub use day_core::tween;
 pub use day_core::{
     AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_app_badge,
     set_appearance, size_class, sleep, task,

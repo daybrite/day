@@ -43,6 +43,7 @@ export const groups = [
       ['tree', 'the hierarchical tree: nesting, expansion, drag-to-reparent (plan)'],
       ['canvas', 'the canvas display list and gestures'],
       ['frames', 'native display-frame callbacks for animations: FrameClock, FrameHandle, per-window links'],
+      ['tween', 'canvas transitions: Lerp (OKLab colors), Timing, stagger, animate, Tweened'],
       ['fonts', 'the platform font list, canvas fonts, and text measurement'],
       ['shapes', 'canvas drawing, shape pieces, gestures'],
       ['progress', 'determinate bars and spinners'],

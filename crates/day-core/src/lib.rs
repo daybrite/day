@@ -44,6 +44,7 @@ pub mod shield;
 pub mod toolbar;
 mod tree;
 pub mod tree_driver;
+pub mod tween;
 pub mod windows;
 
 pub use ambient::{

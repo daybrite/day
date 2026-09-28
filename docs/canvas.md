@@ -27,6 +27,8 @@ controller; return `ControlFlow::Break(())` when motion settles and resume on th
 This avoids recording identical frames while idle. Frame timestamps are unclamped; simulation
 clients choose their own fixed-step and catch-up policy. Day-Showcase's Animation page contains
 a complete interactive example with trails, impact particles, pause/resume, and idle shutdown.
+For transitions between two states (a value, a rect, a color, a whole chart), `day::tween`
+supplies the interpolation, the timing and the frame-driven driver ([tween.md](tween.md)).
 
 ## The vocabulary
 
