@@ -2527,6 +2527,25 @@ async function boot(wasmUrl) {
   const sqlBoot = startSqlWorker(module);
   wasm = (await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports;
 
+  // Installed PWA file handling (Chromium). Other browsers retain the ordinary picker.
+  if ('launchQueue' in window) window.launchQueue.setConsumer(async launch => {
+    for (const handle of launch.files || []) {
+      try {
+        const file = await handle.getFile();
+        if (file.size > 512 * 1024 * 1024) throw new Error('Document exceeds staging limit');
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const [np, nl] = intoWasm(file.name);
+        const bp = wasm.day_dom_alloc(bytes.length);
+        new Uint8Array(wasm.memory.buffer, bp, bytes.length).set(bytes);
+        wasm.day_dom_present_files(0, np, nl, bp, bytes.length);
+      } catch (error) {
+        console.error('Day document activation failed', error);
+        const [np, nl] = intoWasm('document-unavailable');
+        wasm.day_dom_present_files(0, np, nl, 0, 0);
+      }
+    }
+  });
+
   new ResizeObserver(() => wasm.day_dom_resized(r.clientWidth, r.clientHeight)).observe(r);
   document.addEventListener('visibilitychange', () =>
     wasm.day_dom_lifecycle(document.visibilityState === 'visible' ? 0 : 1));

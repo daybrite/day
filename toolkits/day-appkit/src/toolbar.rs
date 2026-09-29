@@ -21,7 +21,7 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSBezelStyle, NSButton, NSControlStateValueOff, NSControlStateValueOn,
+    NSBezelStyle, NSButton, NSControl, NSControlStateValueOff, NSControlStateValueOn,
     NSControlTextEditingDelegate, NSImage, NSMenuToolbarItem, NSSearchToolbarItem, NSTextField,
     NSTextFieldDelegate, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
     NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
@@ -30,6 +30,31 @@ use objc2_app_kit::{
 use objc2_foundation::{NSArray, NSCopying, NSNotification, NSObject, NSString};
 
 use crate::{AppKit, Handle, emit};
+
+fn refresh_cover_bar(key: usize) {
+    if let Some(bar) = BARS.with(|b| b.with(key, |w| w.toolbar.clone())) {
+        reconcile(&bar, key);
+    }
+}
+
+pub(crate) fn cover_presented(cover: usize, window: &NSWindow) {
+    if COVER_WINDOWS.with(|c| c.contains(cover)) {
+        return;
+    }
+    let key = window as *const NSWindow as usize;
+    COVER_COUNTS.with(|c| {
+        let count = c.with(key, |n| *n).unwrap_or(0);
+        c.insert(key, count + 1);
+    });
+    COVER_WINDOWS.with(|c| c.insert(cover, key));
+    refresh_cover_bar(key);
+}
+
+pub(crate) fn cover_dismissed(cover: usize) {
+    COVER_WINDOWS.with(|c| {
+        c.remove(cover);
+    });
+}
 
 /// The SF Symbol each standard symbol draws as: the shared Apple table (day-spec), so the
 /// menu items in day-uikit and the toolbar items here never drift apart.
@@ -251,6 +276,13 @@ day_core::tls_group! {
         // NSToolbar holds its delegate weakly; detach before the owned delegate drops.
         w.toolbar.setDelegate(None);
     });
+    // Covers occlude the navigation surfaces whose commands this toolbar carries. Keep
+    // the model alive, but remove its affordances until the last cover is dismissed.
+    static COVER_COUNTS: SideTable<usize> = SideTable::new();
+    static COVER_WINDOWS: SideTable<usize> = SideTable::with_teardown(|key| {
+        COVER_COUNTS.with(|c| { c.with(key, |n| *n = n.saturating_sub(1)); });
+        refresh_cover_bar(key);
+    });
     /// Monotonic, so a replaced toolbar never reuses an autosave slot from the old one.
     static NEXT_BAR: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
 
@@ -269,6 +301,9 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
     use day_spec::ToolbarColumn as C;
     let names: Vec<Retained<NSString>> = BARS.with(|b| {
         b.with(key, |w| {
+            if COVER_COUNTS.with(|c| c.with(key, |n| *n > 0).unwrap_or(false)) {
+                return Vec::new();
+            }
             let mut out: Vec<Retained<NSString>> = Vec::new();
             let items = w.mirror.items();
             let has = |c: C| items.iter().any(|i| i.column == c);
@@ -513,6 +548,19 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
             {
                 bar_item.setImage(Some(&img));
             }
+            if bar_item.image().is_none() {
+                let button = unsafe {
+                    NSButton::buttonWithTitle_target_action(
+                        &label,
+                        target.as_deref().map(|t| t as &AnyObject),
+                        Some(sel!(fire:)),
+                        mtm,
+                    )
+                };
+                button.setBezelStyle(NSBezelStyle::Automatic);
+                unsafe { button.setEnabled(item.enabled) };
+                bar_item.setView(Some(button.as_ref() as &NSView));
+            }
             // macOS 11's bordered items are the modern toolbar button look.
             bar_item.setBordered(true);
             if let Some(t) = &target {
@@ -698,7 +746,16 @@ impl AppKit {
                         unsafe { seg.setSelectedSegment(*index as isize) };
                     }
                 }
-                ToolbarPatch::Enabled { on, .. } => bar_item.setEnabled(*on),
+                ToolbarPatch::Enabled { on, .. } => {
+                    bar_item.setEnabled(*on);
+                    if let Some(view) = bar_item.view()
+                        && let Some(control) = view.downcast_ref::<NSControl>()
+                    {
+                        unsafe {
+                            control.setEnabled(*on);
+                        }
+                    }
+                }
                 // No completion affordance on NSSearchField (see the realize above).
                 ToolbarPatch::Suggestions { .. } => {}
             }

@@ -1244,7 +1244,11 @@ pub fn stage_host(project: &Project) -> Result<(), String> {
     crate::resources::stage(project, target)?;
     sync_ohos_identity(project)?;
     sync_ohos_permissions(project)?;
-    sync_ohos_shortcuts(project)
+    sync_ohos_shortcuts(project)?;
+    let module = harmony.join("entry/src/main/module.json5");
+    let text = std::fs::read_to_string(&module).map_err(|e| e.to_string())?;
+    let text = crate::documents::harmony_module(&text, &project.manifest.file_types)?;
+    std::fs::write(module, text).map_err(|e| e.to_string())
 }
 
 pub fn build_ohos(

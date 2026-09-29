@@ -4039,13 +4039,19 @@ pub extern "C" fn day_dom_present_files(
             .next()
             .unwrap_or("file")
             .to_string();
-        let path = format!("/day-web/{leaf}");
+        static NEXT_FILE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+        let id = NEXT_FILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = format!("/day-web/{id}/{leaf}");
         #[cfg(all(target_family = "wasm", target_os = "unknown"))]
         if let Some(b) = bytes {
             day_spec::present::web_files::write(&path, b);
         }
         #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
         drop(bytes);
+        if req == 0 {
+            day_core::request_open_files(vec![path]);
+            return;
+        }
         emit(
             day_spec::WINDOW_NODE,
             Event::PresentResult {

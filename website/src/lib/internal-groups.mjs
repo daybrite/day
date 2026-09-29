@@ -65,6 +65,7 @@ export const groups = [
       ['drag-and-drop', 'native data transfer within and between applications'],
       ['drag-and-drop-plan', 'transfer architecture, platform constraints, and implementation plan'],
       ['files', 'file I/O and platform paths'],
+      ['documents', 'Document types and file activation'],
     ],
   },
   {

@@ -655,6 +655,13 @@ pub fn build(
     target: &'static Target,
     profile: Profile,
 ) -> Result<BuildOutcome, String> {
+    if target.os == "macos" {
+        crate::documents::sync_apple(
+            project,
+            &project.root.join("platform/macos/Runner/Info.plist"),
+            false,
+        )?;
+    }
     let host = crate::targets::host_os();
     if target.host != "any" && target.host != host {
         return Err(format!(
@@ -819,6 +826,7 @@ fn build_native(
                     project.manifest.app.name,
                     std::env::consts::EXE_SUFFIX
                 ));
+            let artifact = crate::documents::desktop_artifact(project, target, profile, artifact)?;
             Ok(BuildOutcome {
                 target: target.name,
                 artifact,
@@ -1112,7 +1120,7 @@ pub fn desktop_launch_plan(
         outcome.artifact.clone()
     };
 
-    if !bundled {
+    if !bundled || target.toolkit != "appkit" {
         env.insert(
             "DAY_ASSET_ROOT".to_string(),
             project.resource_root().join("assets").into_os_string(),

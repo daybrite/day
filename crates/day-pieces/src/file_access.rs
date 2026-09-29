@@ -157,3 +157,25 @@ mod tests {
         assert!(FileUrl::resolve_bookmark(b"not a bookmark").is_err());
     }
 }
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) struct ScopedRead {
+    url: objc2::rc::Retained<objc2_foundation::NSURL>,
+    active: bool,
+}
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+impl Drop for ScopedRead {
+    fn drop(&mut self) {
+        if self.active {
+            unsafe { self.url.stopAccessingSecurityScopedResource() };
+        }
+    }
+}
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub(crate) fn scoped_read(path: &std::path::Path) -> io::Result<ScopedRead> {
+    let path = path.to_str().ok_or(io::ErrorKind::InvalidInput)?;
+    let url = objc2_foundation::NSURL::fileURLWithPath(&objc2_foundation::NSString::from_str(path));
+    // False is normal for app-private files and unsandboxed desktop apps.
+    let active = unsafe { url.startAccessingSecurityScopedResource() };
+    Ok(ScopedRead { url, active })
+}

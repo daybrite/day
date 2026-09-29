@@ -53,13 +53,18 @@ pub fn pack(
     let nsi = work.join("installer.nsi");
     std::fs::write(
         &nsi,
-        render_nsi(
-            &title,
-            name,
-            version,
+        crate::documents::nsis(
+            render_nsi(
+                &title,
+                name,
+                version,
+                &project.manifest.app.id,
+                payload,
+                &setup,
+            ),
+            &project.manifest.file_types,
             &project.manifest.app.id,
-            payload,
-            &setup,
+            name,
         ),
     )
     .map_err(|e| PackError::Other(e.to_string()))?;

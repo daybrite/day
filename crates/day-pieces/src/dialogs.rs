@@ -334,6 +334,69 @@ impl FileUrl {
             )),
         }
     }
+    /// Read at most `limit` bytes without blocking the UI. Native reads run on a worker;
+    /// browser-picked bytes are already in memory. Oversized input returns `InvalidData`.
+    /// Apple security-scoped access is held for the read and released on every exit path.
+    pub async fn read_limited(&self, limit: usize) -> std::io::Result<Vec<u8>> {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let bytes = self.read()?;
+            if bytes.len() > limit {
+                return Err(std::io::ErrorKind::InvalidData.into());
+            }
+            Ok(bytes)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use std::sync::{Arc, Mutex};
+            use std::task::{Poll, Waker};
+            type Reply = (Option<std::io::Result<Vec<u8>>>, Option<Waker>);
+            let state: Arc<Mutex<Reply>> = Arc::new(Mutex::new((None, None)));
+            let worker = state.clone();
+            let file = self.clone();
+            std::thread::Builder::new()
+                .name("day-file-read".into())
+                .spawn(move || {
+                    let result = file.read_bounded(limit);
+                    let waker = {
+                        let mut state = worker.lock().unwrap();
+                        state.0 = Some(result);
+                        state.1.take()
+                    };
+                    if let Some(waker) = waker {
+                        waker.wake();
+                    }
+                })?;
+            std::future::poll_fn(move |cx| {
+                let mut state = state.lock().unwrap();
+                if let Some(result) = state.0.take() {
+                    Poll::Ready(result)
+                } else {
+                    state.1 = Some(cx.waker().clone());
+                    Poll::Pending
+                }
+            })
+            .await
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn read_bounded(&self, limit: usize) -> std::io::Result<Vec<u8>> {
+        use std::io::Read;
+        let path = self.local_path().ok_or(std::io::ErrorKind::Unsupported)?;
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let _access = crate::file_access::scoped_read(&path)?;
+        let file = std::fs::File::open(path)?;
+        if file.metadata()?.len() > limit as u64 {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+        let mut bytes = Vec::new();
+        file.take((limit as u64).saturating_add(1))
+            .read_to_end(&mut bytes)?;
+        if bytes.len() > limit {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+        Ok(bytes)
+    }
     /// Read the file as UTF-8 text.
     pub fn read_to_string(&self) -> std::io::Result<String> {
         match self.local_path() {
@@ -567,5 +630,29 @@ fn sanitize_name(name: &str) -> String {
         "untitled".to_string()
     } else {
         s
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod document_read_tests {
+    use super::*;
+    #[test]
+    fn bounded_read_accepts_exact_limit_rejects_oversize_and_opaque_uris() {
+        let path = std::env::temp_dir().join(format!("day-document-test-{}", std::process::id()));
+        std::fs::write(&path, b"12345").unwrap();
+        let file = FileUrl::new(path.to_str().unwrap());
+        assert_eq!(file.read_bounded(5).unwrap(), b"12345");
+        assert_eq!(
+            file.read_bounded(4).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidData
+        );
+        assert_eq!(
+            FileUrl::new("content://fixture/test")
+                .read_bounded(5)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::Unsupported
+        );
+        std::fs::remove_file(path).unwrap();
     }
 }

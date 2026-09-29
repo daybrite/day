@@ -34,6 +34,10 @@ button(tr("save")).action(|| day::task(async move {
 }));
 ```
 
+For OS file associations, Finder/Dock drops, and cold/warm document delivery, see
+[Document types and file activation](./documents.md). Use `FileUrl::read_limited(limit).await`
+for bounded reads that do not block the native UI thread.
+
 ## The path type: `FileUrl`
 
 A file location crosses back as a **`FileUrl`**, a newtype wrapping a single *locator string*.

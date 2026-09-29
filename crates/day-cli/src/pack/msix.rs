@@ -184,7 +184,10 @@ pub fn pack(
     }
     std::fs::write(
         stage.join("AppxManifest.xml"),
-        appx_manifest(&project.manifest.app.id, &title, version, name, &publisher),
+        crate::documents::windows_manifest(
+            appx_manifest(&project.manifest.app.id, &title, version, name, &publisher),
+            &project.manifest.file_types,
+        ),
     )
     .map_err(|e| PackError::Other(e.to_string()))?;
 

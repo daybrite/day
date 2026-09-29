@@ -72,6 +72,7 @@ use day_spec::{
 pub type Handle = Retained<NSView>;
 
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
+mod documents;
 mod frame;
 mod picker;
 mod textarea;
@@ -6516,6 +6517,9 @@ impl Toolkit for AppKit {
                             // The primary window's content, specifically: firstObject()
                             // is arbitrary once secondary windows exist (docs/windows.md).
                             if let Some(content) = primary_content() {
+                                if let Some(window) = unsafe { content.window() } {
+                                    toolbar::cover_presented(ptr_of(h), &window);
+                                }
                                 // Edge to edge like the root's own background, laid out below
                                 // the title bar like the root's content: the page starts at the
                                 // top of the window (above the pinned content origin) and
@@ -6548,6 +6552,7 @@ impl Toolkit for AppKit {
                         }
                         CoverPatch::DismissDisabled(_) => {}
                         CoverPatch::Dismiss => {
+                            toolbar::cover_dismissed(ptr_of(h));
                             unsafe {
                                 page.setHidden(true);
                                 page.removeFromSuperview();
@@ -7254,13 +7259,29 @@ impl Toolkit for AppKit {
             // where its controller expects to be (see `pane_under_title_bar`); its panes keep
             // their content below the strip, so nothing Day laid out moves.
             let strip = unsafe { split.superview() }
-                .filter(|sup| {
-                    frame.origin.y <= 0.5
-                        && unsafe { sup.window() }
-                            .and_then(|w| w.contentView())
-                            .is_some_and(|c| std::ptr::eq(&*c, &**sup))
+                .and_then(|sup| {
+                    let content = unsafe { sup.window() }?.contentView()?;
+                    // Layout wrappers (for example zstack with a reader cover) may sit
+                    // between the window root and its navigation host. A direct-parent
+                    // check misses them and puts AppKit's frosted pocket over page text.
+                    let mut ancestor = Some(sup.clone());
+                    while let Some(view) = ancestor {
+                        if std::ptr::eq(&*view, &*content) {
+                            break;
+                        }
+                        if view.downcast_ref::<objc2_app_kit::NSSplitView>().is_some() {
+                            return None; // nested navigation belongs to the outer pane
+                        }
+                        ancestor = unsafe { view.superview() };
+                    }
+                    let point = unsafe {
+                        sup.convertPoint_toView(
+                            NSPoint::new(frame.origin.x, frame.origin.y),
+                            Some(&content),
+                        )
+                    };
+                    (point.y.abs() <= 0.5).then(|| title_bar_inset(&content))
                 })
-                .map(|sup| title_bar_inset(&sup))
                 .unwrap_or(0.0);
             let r = NSRect::new(
                 NSPoint::new(r.origin.x, r.origin.y - strip),
@@ -8345,6 +8366,8 @@ impl Platform for AppKit {
         }
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+        let document_delegate = documents::delegate(mtm);
+        app.setDelegate(Some(ProtocolObject::from_ref(&*document_delegate)));
         // DAY_THEME=light|dark forces the appearance app-wide (themed CI screenshot runs and
         // local theme checks); unset ⇒ follow the system.
         if let Ok(theme) = std::env::var("DAY_THEME") {

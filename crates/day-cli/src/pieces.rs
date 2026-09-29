@@ -868,6 +868,9 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     if let Some(frag) = crate::shortcuts::android_manifest_fragment(project) {
         components.push(frag);
     }
+    if let Some(frag) = crate::documents::android(project) {
+        components.push(frag);
+    }
     if entries.is_empty() && components.is_empty() {
         let _ = std::fs::remove_file(&overlay);
     } else {

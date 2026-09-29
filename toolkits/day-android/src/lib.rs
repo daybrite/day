@@ -52,6 +52,7 @@ mod bridge_kinds_parity {
             ("K_NAV_BACK", BridgeKind::NavBack),
             ("K_FRAME_CHANGED", BridgeKind::FrameChanged),
             ("K_DEEPLINK", BridgeKind::Deeplink),
+            ("K_DOCUMENT_OPENED", BridgeKind::DocumentOpened),
             ("K_PRESENT_BUTTON", BridgeKind::PresentButton),
             ("K_PRESENT_TEXT", BridgeKind::PresentText),
             ("K_PRESENT_DISMISSED", BridgeKind::PresentDismissed),
@@ -1412,6 +1413,12 @@ mod imp {
                 Event::FrameChanged(Size::new(w / d, h / d))
             }
             // Warm deep link: the nav piece handles RouteRequested.
+            k if k == bridge::BridgeKind::DocumentOpened as i32 => {
+                if let Ok(path) = env.dstr(jstr) {
+                    day_core::request_open_files(vec![path]);
+                }
+                return;
+            }
             K_DEEPLINK => {
                 let route: String = env.dstr(jstr).ok().unwrap_or_default();
                 Event::RouteRequested(route)

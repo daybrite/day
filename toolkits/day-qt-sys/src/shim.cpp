@@ -6,6 +6,7 @@
 // posting. Only connects to existing Qt signals via lambdas — no moc required.
 
 #include <QApplication>
+#include <QFileOpenEvent>
 #include <QWindow>
 #include <QElapsedTimer>
 #include <QStyleHints>
@@ -93,6 +94,20 @@
 
 #include <cstdint>
 
+extern "C" void day_qt_open_file(const char *url);
+class DayApplication : public QApplication {
+public:
+    DayApplication(int &argc, char **argv) : QApplication(argc, argv) {}
+    bool event(QEvent *event) override {
+        if (event->type() == QEvent::FileOpen) {
+            const auto url = static_cast<QFileOpenEvent *>(event)->url();
+            if (url.isLocalFile()) day_qt_open_file(url.toLocalFile().toUtf8().constData());
+            return true;
+        }
+        return QApplication::event(event);
+    }
+};
+
 extern "C" {
 
 static int s_argc = 1;
@@ -119,7 +134,7 @@ void *day_qt_app_new(const char *app_name) {
         strncpy(s_arg0, app_name, sizeof(s_arg0) - 1);
         s_arg0[sizeof(s_arg0) - 1] = '\0';
     }
-    auto *app = new QApplication(s_argc, s_argv);
+    auto *app = new DayApplication(s_argc, s_argv);
     // Quit is DELIBERATE (the primary window's closeEvent / role Quit / ⌘Q): the default
     // quit-on-last-window-closed would misfire once secondary windows exist
     // (docs/windows.md — closing the last secondary must not exit, closing the primary

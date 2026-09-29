@@ -35,7 +35,7 @@ model = ["dep:day-model"]
 day-mock = { workspace = true }
 day-macros = { workspace = true }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSURL", "NSData", "NSError", "NSString", "NSArray"] }
 

@@ -119,7 +119,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         blob.append("DAY_DATA_DIR=").append(getFilesDir().getAbsolutePath()).append('\n');
         // Cold-start deep link (docs/navigation.md): the launch URI's host+path is the route.
         android.net.Uri data = getIntent().getData();
-        if (data != null) {
+        if (data != null && !isDocumentIntent(getIntent())) {
             blob.append("DAY_DEEPLINK=").append(uriRoute(data)).append('\n');
         }
         final String envBlobBase = blob.toString();
@@ -195,6 +195,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 // Native is ready now (docs/lifecycle.md). onStart/onResume already ran before this
                 // post, so their events were dropped; synthesize the current active state.
                 DayBridge.started = true;
+                self.openDocumentIntent(self.getIntent());
                 reportTopInset(); // deliver the initial safe area now that native listens
                 if (self.resumed) DayBridge.lifecycle(2); // DidBecomeActive
             }
@@ -349,9 +350,48 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         DayBridge.onFileResult(requestCode, resultCode, data);
     }
 
+    private static boolean isDocumentIntent(android.content.Intent intent) {
+        android.net.Uri uri = intent.getData();
+        return android.content.Intent.ACTION_VIEW.equals(intent.getAction()) && uri != null
+            && ("content".equals(uri.getScheme()) || "file".equals(uri.getScheme()));
+    }
+
+    /** Keep provider I/O off the main thread and consume its temporary read grant now. */
+    private boolean openDocumentIntent(android.content.Intent intent) {
+        if (!isDocumentIntent(intent)) return false;
+        final android.net.Uri uri = intent.getData();
+        new Thread(() -> {
+            java.io.File copy = null;
+            String locator = uri.toString(); // Failed copies reach the app as unreadable locators.
+            try {
+                copy = java.io.File.createTempFile("day-document-", ".data", getCacheDir());
+                try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+                     java.io.OutputStream out = new java.io.FileOutputStream(copy)) {
+                    if (in == null) throw new java.io.IOException("Provider returned no stream");
+                    byte[] buffer = new byte[65536];
+                    long total = 0;
+                    for (int n; (n = in.read(buffer)) != -1;) {
+                        total += n;
+                        if (total > 512L * 1024 * 1024) throw new java.io.IOException("Document exceeds staging limit");
+                        out.write(buffer, 0, n);
+                    }
+                }
+                locator = copy.getAbsolutePath();
+            } catch (java.io.IOException | SecurityException error) {
+                if (copy != null) copy.delete();
+                android.util.Log.w("Day", "Document import failed", error);
+            }
+            final String result = locator;
+            runOnUiThread(() -> DayBridge.nativeOnEvent(0, DayBridge.K_DOCUMENT_OPENED, 0.0, result));
+        }, "day-document-import").start();
+        return true;
+    }
+
     /** Warm deep link (launchMode=singleTask): route to the running nav host. */
     @Override protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent);
+        setIntent(intent);
+        if (openDocumentIntent(intent)) return;
         android.net.Uri data = intent.getData();
         DayNavHost nav = DayNavHost.active;
         if (data != null && nav != null) {

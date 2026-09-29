@@ -6969,8 +6969,24 @@ impl Platform for Gtk {
         // AdwApplication initializes libadwaita and loads the Adwaita stylesheet, so
         // AdwNavigationSplitView / AdwNavigationView render with the GNOME treatment.
         let app = adw::Application::builder()
-            .application_id("dev.daybrite.day.app")
+            .application_id(
+                std::env::var("DAY_APP_ID").unwrap_or_else(|_| "dev.daybrite.day.app".into()),
+            )
+            .flags(gtk4::gio::ApplicationFlags::HANDLES_OPEN)
             .build();
+
+        app.connect_open(|app, files, _| {
+            ffi_guard::contain((), || {
+                day_core::request_open_files(
+                    files
+                        .iter()
+                        .filter_map(|f| f.path())
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .collect(),
+                );
+                app.activate();
+            });
+        });
 
         // DAY_THEME=light|dark forces the Adwaita color scheme (themed CI screenshot runs and
         // local theme checks); unset ⇒ follow the system. Applied in `startup`, once libadwaita
@@ -7117,7 +7133,15 @@ impl Platform for Gtk {
                 window.present();
             });
         });
-        app.run_with_args::<&str>(&[]);
+        // Let GApplication forward document arguments to an already-running instance on
+        // desktops with a session bus. Core must not deliver the same arguments again.
+        let mut args = vec!["day".to_owned()];
+        let files = day_core::take_launch_files();
+        if !files.is_empty() {
+            args.push("--".into());
+            args.extend(files);
+        }
+        app.run_with_args(&args);
     }
 
     fn locale_hints(&self) -> Vec<String> {

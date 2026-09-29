@@ -13,6 +13,7 @@ mod devices;
 mod diagnose;
 mod doctor;
 mod doctor_verify;
+mod documents;
 mod drive;
 mod external;
 mod flavor;

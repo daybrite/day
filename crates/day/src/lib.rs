@@ -1300,10 +1300,17 @@ pub mod arkui {
         // SAFETY: the shim passes a NUL-terminated copy of the ArkTS string, valid for the call.
         let uri = unsafe { core::ffi::CStr::from_ptr(uri) };
         if let Ok(uri) = uri.to_str() {
-            day_core::request_route(&day_spec::route_of_url(uri));
+            if uri.starts_with("file://") {
+                day_core::request_open_files(vec![uri.into()]);
+            } else {
+                day_core::request_route(&day_spec::route_of_url(uri));
+            }
         }
     }
 }
 
 /// Native drag-and-drop data and acceptance policy.
 pub use day_spec::transfer;
+
+/// Receive local document activations from the operating system. See docs/documents.md.
+pub use day_core::on_open_files;

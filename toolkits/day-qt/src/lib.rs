@@ -3447,3 +3447,16 @@ mod bitmap_teardown_tests {
         );
     }
 }
+
+/// Qt's macOS QFileOpenEvent; command-line activations on other OSes use day-core.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn day_qt_open_file(url: *const std::ffi::c_char) {
+    day_spec::ffi_guard::contain((), || {
+        if !url.is_null() {
+            let file = unsafe { std::ffi::CStr::from_ptr(url) }
+                .to_string_lossy()
+                .into_owned();
+            day_core::request_open_files(vec![file]);
+        }
+    });
+}

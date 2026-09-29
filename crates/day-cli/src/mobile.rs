@@ -1237,6 +1237,7 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     // script phase, which older scaffolds get injected here.
     if let Some(plist) = ios_info_plist(project) {
         crate::shortcuts::sync_ios(project, &plist)?;
+        crate::documents::sync_apple(project, &plist, true)?;
     }
     crate::shortcuts::ensure_ios_strings_phase(project)?;
     if let Some(f) = &floor {

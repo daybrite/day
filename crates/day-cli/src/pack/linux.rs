@@ -77,14 +77,27 @@ pub(crate) fn stage_tree(
         }
     }
 
-    // Compiled resource blobs, when the toolkit's resource compiler produced them (§18.3).
+    // Compiled resource blobs, when the toolkit's resource compiler produced them (§18.3). The
+    // SOURCE path comes from the same helper the compiler and `day launch` use, because the two
+    // must never disagree about the filename: this used to look for `<app>.gresource` while the
+    // compiler writes `app.gresource`, so every packaged GTK app shipped without its blob and
+    // `/day/assets` did not exist inside the AppImage — invisible until something read an asset
+    // there (day-piece-lottie's bundled site, 2026-09-29). Staged under the app's name, which is
+    // what the launcher exports and what keeps two apps' blobs apart in a shared prefix.
     let resource_blob = match target.toolkit {
-        "gtk" => Some(("DAY_GRESOURCE", "gtk", format!("{name}.gresource"))),
-        "qt" => Some(("DAY_QRESOURCE", "qt", format!("{name}.rcc"))),
+        "gtk" => Some((
+            "DAY_GRESOURCE",
+            crate::resources::gtk::gresource_path(project),
+            format!("{name}.gresource"),
+        )),
+        "qt" => Some((
+            "DAY_QRESOURCE",
+            crate::resources::qt::qresource_path(project),
+            format!("{name}.rcc"),
+        )),
         _ => None,
     }
-    .and_then(|(var, dir, file)| {
-        let from = project.root.join("build/day").join(dir).join(&file);
+    .and_then(|(var, from, file)| {
         if !from.exists() {
             return None;
         }
@@ -150,7 +163,7 @@ pub(crate) fn stage_exports(
     std::fs::create_dir_all(&desktop_dir).map_err(|e| e.to_string())?;
     std::fs::write(
         desktop_dir.join(format!("{id}.desktop")),
-        desktop_entry(title, exec, id),
+        crate::documents::linux_entry(desktop_entry(title, exec, id), &project.manifest.file_types),
     )
     .map_err(|e| e.to_string())?;
 
@@ -400,7 +413,11 @@ mod tests {
         std::fs::create_dir_all(root.join("build/day/vectors/svg")).expect("svg dir");
         std::fs::write(root.join("resource/assets/data.txt"), "x").expect("asset");
         std::fs::write(root.join("resource/images/logo.png"), "x").expect("image");
-        std::fs::write(root.join("build/day/gtk/demo.gresource"), "x").expect("blob");
+        // The name the GTK resource compiler writes (`resources::gtk::gresource_path`), not the
+        // app's: staging looked for the app's name here for months and found nothing in a real
+        // build, because this fixture wrote the file the packer expected rather than the one the
+        // compiler produces.
+        std::fs::write(root.join("build/day/gtk/app.gresource"), "x").expect("blob");
         std::fs::write(root.join("build/day/vectors/fallback/gtk/home.png"), "x").expect("raster");
         std::fs::write(root.join("build/day/vectors/svg/home.svg"), "x").expect("svg");
         let binary = tmp.join("demo");

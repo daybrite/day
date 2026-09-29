@@ -69,6 +69,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [drag-and-drop](/docs/internal/drag-and-drop) | native data transfer within and between applications |
 | [drag-and-drop-plan](/docs/internal/drag-and-drop-plan) | transfer architecture, platform constraints, and implementation plan |
 | [files](/docs/internal/files) | file I/O and platform paths |
+| [documents](/docs/internal/documents) | Document types and file activation |
 
 ## Pieces
 

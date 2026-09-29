@@ -570,6 +570,8 @@ pub mod bridge {
         ToolbarChanged = 30,
         /// An activated list row; `num` is its current index.
         ListActivated = 31,
+        /// External document copied into app storage; `text` = its local locator.
+        DocumentOpened = 32,
         /// A non-text key reached the focused node (docs/menus.md); `text` = the day key name
         /// (`"ArrowLeft"`, `"5"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
         /// [`crate::Event::Key`].
@@ -578,7 +580,7 @@ pub mod bridge {
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 32] = [
+        pub const ALL: [BridgeKind; 33] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -611,6 +613,7 @@ pub mod bridge {
             BridgeKind::Key,
             BridgeKind::ToolbarChanged,
             BridgeKind::ListActivated,
+            BridgeKind::DocumentOpened,
         ];
     }
 

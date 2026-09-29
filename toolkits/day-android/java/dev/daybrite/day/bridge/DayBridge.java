@@ -135,6 +135,7 @@ public final class DayBridge {
     public static final int K_NAV_BACK = 5;
     public static final int K_FRAME_CHANGED = 6;
     public static final int K_DEEPLINK = 7;
+    public static final int K_DOCUMENT_OPENED = 32;
     public static final int K_PRESENT_BUTTON = 8;
     public static final int K_PRESENT_TEXT = 9;
     public static final int K_PRESENT_DISMISSED = 10;
@@ -2203,24 +2204,27 @@ public final class DayBridge {
             nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null); // dismissed
             return;
         }
-        try {
-            if (src != null) {
-                // Save: stream the Day-staged temp file into the chosen document; return its URI.
-                copyStream(new java.io.FileInputStream(src),
-                        ctx.getContentResolver().openOutputStream(uri));
-                nativeOnEvent(req, K_PRESENT_FILE, 0.0, uri.toString()); // 15 = files
-            } else {
-                // Open: copy the picked document into an app cache file, return that readable path.
-                String name = displayName(uri);
-                java.io.File out = new java.io.File(ctx.getCacheDir(), "day-open-" + req + "-" + name);
-                copyStream(ctx.getContentResolver().openInputStream(uri),
-                        new java.io.FileOutputStream(out));
-                nativeOnEvent(req, K_PRESENT_FILE, 0.0, out.getAbsolutePath());
+        final android.content.Context context = ctx;
+        new Thread(() -> {
+            java.io.File staged = null;
+            String result;
+            try {
+                if (src != null) {
+                    copyStream(new java.io.FileInputStream(src), context.getContentResolver().openOutputStream(uri));
+                    result = uri.toString();
+                } else {
+                    staged = java.io.File.createTempFile("day-open-", ".data", context.getCacheDir());
+                    copyStream(context.getContentResolver().openInputStream(uri), new java.io.FileOutputStream(staged));
+                    result = staged.getAbsolutePath();
+                }
+                final String locator = result;
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> nativeOnEvent(req, K_PRESENT_FILE, 0.0, locator));
+            } catch (Exception e) {
+                if (staged != null) staged.delete();
+                android.util.Log.w("Day", "file open/save transfer failed", e);
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> nativeOnEvent(req, K_PRESENT_FILE, 0.0, uri.toString()));
             }
-        } catch (Exception e) {
-            android.util.Log.w("Day", "file open/save transfer failed", e);
-            nativeOnEvent(req, K_PRESENT_DISMISSED, 0.0, null);
-        }
+        }, "day-file-picker").start();
     }
 
     private static void copyStream(java.io.InputStream in, java.io.OutputStream out)

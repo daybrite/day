@@ -11199,16 +11199,8 @@ mod imp {
                 // the query (route params ride it) and the original percent-encoding — the
                 // route parser decodes, not this layer.
                 day_spec::ffi_guard::contain(false, || {
-                    let route = unsafe { url.absoluteString() }
-                        .map(|s| day_spec::route_of_url(&s.to_string()))
-                        .unwrap_or_default();
-                    let node = NAV_STATE.with(|m| m.borrow().values().next().map(|s| s.host_node));
-                    if let (Some(node), false) = (node, route.is_empty()) {
-                        emit(node, Event::RouteRequested(route));
-                        true
-                    } else {
-                        false
-                    }
+                    deliver_open_url(url);
+                    true
                 })
             }
 
@@ -11453,9 +11445,7 @@ mod imp {
             ) {
                 day_spec::ffi_guard::contain((), || {
                     for ctx in contexts {
-                        if let Some(s) = unsafe { ctx.URL().absoluteString() } {
-                            day_core::request_route(&day_spec::route_of_url(&s.to_string()));
-                        }
+                        deliver_open_url(&ctx.URL());
                     }
                 });
             }
@@ -11485,6 +11475,16 @@ mod imp {
     /// Deep links riding a scene's connection options — the URL that launched the app, or a
     /// quick action's type string. One rail either way: `day_core::request_route`, buffered
     /// until the first mount (docs/deep-links.md).
+    fn deliver_open_url(url: &objc2_foundation::NSURL) {
+        if let Some(s) = unsafe { url.absoluteString() } {
+            if url.isFileURL() {
+                day_core::request_open_files(vec![s.to_string()]);
+            } else {
+                day_core::request_route(&day_spec::route_of_url(&s.to_string()));
+            }
+        }
+    }
+
     fn scene_connection_routes(options: &objc2_ui_kit::UISceneConnectionOptions) {
         // Raw message send: the generated `URLContexts()` binding declares the return
         // non-null, but a plain launch (no URL) hands back nil and the binding panics —
@@ -11492,9 +11492,7 @@ mod imp {
         let contexts: Option<Retained<objc2_foundation::NSSet<objc2_ui_kit::UIOpenURLContext>>> =
             unsafe { objc2::msg_send![options, URLContexts] };
         for ctx in contexts.into_iter().flatten() {
-            if let Some(s) = unsafe { ctx.URL().absoluteString() } {
-                day_core::request_route(&day_spec::route_of_url(&s.to_string()));
-            }
+            deliver_open_url(&ctx.URL());
         }
         if let Some(item) = options.shortcutItem() {
             day_core::request_route(&day_spec::route_of_url(&item.r#type().to_string()));

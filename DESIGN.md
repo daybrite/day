@@ -6378,3 +6378,37 @@ The mock stores the wrap flag and bounds the measured width. The regression
 `single_line_labels_stay_one_line_when_text_changes` covers constrained widths and recycled
 text updates. See `docs/text.md` for rich-text limitations. Mobile Stanza dayscripts and
 native captures validate real list layouts; other toolkit runtimes were not exercised here.
+
+
+### Document activation and file associations
+
+`[[file_types]]` in Day.toml declares extension/MIME groups and an optional existing Apple
+UTI. The CLI owns generated document entries (preserving unrelated Apple plist entries),
+Android VIEW filters, Harmony file-opening skills, desktop package associations and PWA
+`file_handlers`. It never selects itself as the user's default handler. The complete contract
+and platform limitations live in [docs/documents.md](docs/documents.md).
+
+`day-core::documents` queues cold-start file batches independently of route navigation.
+`day::on_open_files` installs one scope-owned receiver; UI-thread draining invokes it outside
+locks, supporting reentrant requests. Native delegates, Activity Intents, scene URL contexts,
+GTK open events, Qt file events, explicit desktop arguments, and web launchQueue feed this
+queue. Android/Harmony providers are copied asynchronously before delivery. Failed staging
+reaches the app as an unreadable locator. GTK claims command-line files before core startup
+and passes them through GApplication, allowing session-bus forwarding without double delivery.
+Scope cleanup tolerates core thread-local teardown. Apple reads balance scoped access through RAII;
+`FileUrl::read_limited` performs bounded native I/O on a worker. File import, deduplication,
+persistence, error presentation and window choice remain app policy. Temporary cache entries
+are not persistent grants; staging retention and multi-process desktop activation are explicit
+limitations. Windows GTK/Qt get development registry files; macOS GTK/Qt get development
+bundles, without extending Day's redistribution packer to bundle those toolkits.
+
+Regression coverage: `day-core` documents queue/lifetime tests, `day-pieces` bounded reads,
+and `day-cli` document manifest/escaping/preservation tests. Platform-native activation is
+also exercised through Stanza-Redux's EPUB import and reader windows.
+
+AppKit navigation now detects top-level split hosts through transparent container ancestors
+before reserving the titlebar inset, preventing a cover's z-stack from defeating that inset.
+Fullscreen covers track per-window presentation counts: underlying toolbar controls (including
+the split sidebar toggle) are removed until the last cover dismisses, with teardown handled
+by the native handle side table. Text-only toolbar buttons render a labeled native button
+instead of an empty slot in icon-only toolbar mode.

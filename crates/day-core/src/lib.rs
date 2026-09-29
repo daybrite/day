@@ -21,6 +21,7 @@ day_reactive::tls_root! {
     root: crate::TlsGroupSlots,
     shield: crate::shield::TlsGroupSlots,
     toolbar: crate::toolbar::TlsGroupSlots,
+    documents: crate::documents::TlsGroupSlots,
     tree: crate::tree::TlsGroupSlots,
     windows: crate::windows::TlsGroupSlots,
 }
@@ -75,6 +76,10 @@ pub use menu::{
     set_app_menu,
 };
 pub use nav::*;
+pub mod documents;
+#[doc(hidden)]
+pub use documents::take_launch_files;
+pub use documents::{on_open_files, request_open_files};
 pub use present::*;
 pub use toolbar::{
     Chrome, chrome_changed, current_chrome, current_page_column, current_page_gate,
@@ -759,6 +764,15 @@ pub fn launch_with<P: Platform>(
                 t.layout_if_needed();
             });
             day_reactive::on_turn_end(|| with_tree(|t| t.layout_if_needed()));
+
+            #[cfg(not(any(
+                target_arch = "wasm32",
+                target_os = "ios",
+                target_os = "android",
+                target_env = "ohos"
+            )))]
+            documents::request_open_files(documents::take_launch_files());
+            day_reactive::on_main(documents::drain_open_files);
 
             // DidLaunch: the UI is mounted and laid out, the app is about to run (docs/lifecycle.md).
             lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidLaunch);

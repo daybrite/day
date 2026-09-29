@@ -25,6 +25,8 @@ pub struct Manifest {
     pub schema: u32,
     pub app: App,
     #[serde(default)]
+    pub file_types: Vec<crate::documents::FileType>,
+    #[serde(default)]
     pub window: Window,
     /// `[screenshots]`: the size scripted runs capture desktop-class targets at
     /// (website docs "dayscript", "Capture size"). Every key has a default, so the table is
@@ -1046,6 +1048,7 @@ pub fn parse_manifest(
     // into an unactionable "data did not match any variant".
     validate_permissions(day_toml)?;
     let mut manifest: Manifest = toml::from_str(day_toml).map_err(|e| format!("Day.toml: {e}"))?;
+    crate::documents::validate(&manifest.file_types)?;
     if manifest.schema != 1 {
         return Err(format!(
             "Day.toml: unsupported schema version {}",

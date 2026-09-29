@@ -1,6 +1,7 @@
 import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
+import { fileIo as fs } from '@kit.CoreFileKit';
 import nativeEntry from 'libentry.so';
 import { registerDayBridges } from '../daybridge/DayBridges';
 
@@ -53,7 +54,7 @@ export default class EntryAbility extends UIAbility {
     // it until the first mount, and it wins over `.restore`.
     const uri = want.uri || (want.parameters?.['day.uri'] as string | undefined);
     if (uri) {
-      nativeEntry.deepLink(uri);
+      this.deliverUri(uri);
     }
   }
 
@@ -62,7 +63,47 @@ export default class EntryAbility extends UIAbility {
   onNewWant(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     const uri = want.uri || (want.parameters?.['day.uri'] as string | undefined);
     if (uri) {
-      nativeEntry.deepLink(uri);
+      this.deliverUri(uri);
+    }
+  }
+
+  private documentSerial: number = 0;
+  private deliverUri(uri: string): void {
+    if (!uri.startsWith('file://')) { nativeEntry.deepLink(uri); return; }
+    this.importDocument(uri);
+  }
+  private async importDocument(uri: string): Promise<void> {
+    const path = `${this.context.cacheDir}/day-document-${Date.now()}-${++this.documentSerial}`;
+    let input: fs.File | undefined = undefined;
+    let output: fs.File | undefined = undefined;
+    try {
+      input = await fs.open(uri, fs.OpenMode.READ_ONLY);
+      const stat = await fs.stat(input.fd);
+      if (stat.size > 512 * 1024 * 1024) throw new Error('Document exceeds staging limit');
+      output = await fs.open(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      const buffer = new ArrayBuffer(65536);
+      let total: number = 0;
+      for (;;) {
+        const count = await fs.read(input.fd, buffer);
+        if (count === 0) break;
+        total += count;
+        if (total > 512 * 1024 * 1024) throw new Error('Document exceeds staging limit');
+        let offset: number = 0;
+        while (offset < count) {
+          const written = await fs.write(output.fd, buffer.slice(offset, count));
+          if (written <= 0) throw new Error('Document write failed');
+          offset += written;
+        }
+      }
+      // The native intake recognizes file URLs as documents, not navigation routes.
+      nativeEntry.deepLink(`file://${path}`);
+    } catch (error) {
+      console.warn('Day document import failed', error);
+      nativeEntry.deepLink('file:///day-document-unavailable');
+      try { await fs.unlink(path); } catch (_) {}
+    } finally {
+      if (input) await fs.close(input);
+      if (output) await fs.close(output);
     }
   }
 
