@@ -57,6 +57,9 @@ mod imp {
         static BUTTON_INK: day_spec::sidetable::SideTable<u32> = day_spec::sidetable::SideTable::new();
         static BUTTON_CHILDREN: RefCell<HashMap<usize, Vec<AHandle>>> = RefCell::new(HashMap::new());
         static NAV_HOST: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
+        /// The primary window's toolbar (docs/toolbars.md) as Day's edits and patches left it:
+        /// what the Navigation's title-bar actions are painted from.
+        static WINDOW_BAR: RefCell<day_spec::ToolbarMirror> = RefCell::new(day_spec::ToolbarMirror::default());
         static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// Keys whose NavDestination already disappeared (`day_arkui_nav_popped`) while the
@@ -895,19 +898,14 @@ mod imp {
         }
     }
 
-    fn apply_button_content(
-        node: AHandle,
-        title: &str,
-        icon: Option<&day_spec::Icon>,
-        icon_only: bool,
-    ) {
-        clear_button_content(node);
-        let source = match icon {
-            // The symbol is staged into the app's sandbox cache, and NODE_IMAGE_SRC reads a bare
-            // path as the name of a bundled asset ("GetAsset failed"), so it must be a file URI.
-            Some(day_spec::Icon::Symbol(s)) => day_spec::resource::stage_symbol_svg(*s)
+    /// An icon as an image URI ArkUI loads: a standard symbol staged into the app's sandbox
+    /// cache (a file URI, since NODE_IMAGE_SRC reads a bare path as the name of a bundled asset:
+    /// "GetAsset failed"), or a bundled image from the app's rawfiles.
+    fn icon_source(icon: &day_spec::Icon) -> Option<String> {
+        match icon {
+            day_spec::Icon::Symbol(s) => day_spec::resource::stage_symbol_svg(*s)
                 .map(|p| format!("file://{}", p.to_string_lossy())),
-            Some(day_spec::Icon::Image(name)) => {
+            day_spec::Icon::Image(name) => {
                 let svg = format!("day/{name}.svg");
                 let vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
                 let png = format!("day/{name}.png");
@@ -919,8 +917,17 @@ mod imp {
                     )
                 })
             }
-            None => None,
-        };
+        }
+    }
+
+    fn apply_button_content(
+        node: AHandle,
+        title: &str,
+        icon: Option<&day_spec::Icon>,
+        icon_only: bool,
+    ) {
+        clear_button_content(node);
+        let source = icon.and_then(icon_source);
         unsafe {
             ffi::day_ark_set_a11y(node.0, cstr(title).as_ptr(), 0);
             ffi::day_ark_set_button_label(
@@ -1480,16 +1487,134 @@ mod imp {
         });
     }
 
-    /// The trailing title-bar action was tapped (NavProps::bar_action, docs/navigation.md): run
-    /// its registered closure. Emitted on the nav host so it pumps like any event; `MenuAction`
-    /// is dispatched globally by id, so the host node is just a valid enqueue target.
+    /// A title-bar action was tapped (docs/toolbars.md). The bar's menu items carry only an
+    /// action id, so the item it names says what the tap means: a toggle flips, a segmented
+    /// control steps to its next choice, and anything else (a button, a pull-down's entry) runs
+    /// its command.
     #[unsafe(no_mangle)]
     pub extern "C" fn day_arkui_nav_menu_action(action: u64) {
         day_spec::ffi_guard::contain((), || {
+            use day_spec::{ToolbarItemKind as K, ToolbarValue as V};
+            let item = WINDOW_BAR.with(|b| b.borrow().by_action(action).cloned());
+            let ev = match item.map(|i| i.kind) {
+                Some(K::Toggle { on }) => Event::ToolbarChanged {
+                    action,
+                    value: V::On(!on),
+                },
+                Some(K::Segmented { segments, selected }) if !segments.is_empty() => {
+                    Event::ToolbarChanged {
+                        action,
+                        value: V::Selected((selected + 1) % segments.len()),
+                    }
+                }
+                _ => Event::MenuAction(action),
+            };
+            emit(day_spec::WINDOW_NODE, ev);
+        });
+    }
+
+    /// The user edited the navigation surface's search field (docs/search.md): reported against
+    /// the nav host, where the `.searchable()` surface listens, whatever its placement asked for.
+    #[unsafe(no_mangle)]
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `text` is a valid C string from the ArkTS host
+    pub extern "C" fn day_arkui_nav_search_changed(text: *const c_char) {
+        day_spec::ffi_guard::contain((), || {
+            if text.is_null() {
+                return;
+            }
+            let text = unsafe { CStr::from_ptr(text) }
+                .to_string_lossy()
+                .into_owned();
             if let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
-                emit(NodeId(host_id), Event::MenuAction(action));
+                emit(NodeId(host_id), Event::SearchChanged(text));
             }
         });
+    }
+
+    /// Paint the window toolbar onto the Navigation's title bars (docs/toolbars.md): one
+    /// `.menus()` item per action, shown on the root page and every pushed page alike. The bar
+    /// is a list of actions HarmonyOS lays out and folds into its "more" menu itself, and none of
+    /// them holds state (search rides the navigation surface), so it is painted whole from the
+    /// model. A pull-down's entries become actions of their own; spacers, separators, labels and
+    /// the search item draw nothing here.
+    fn paint_window_bar() {
+        use day_spec::ToolbarItemKind as K;
+        let (mut icons, mut labels, mut actions, mut enabled) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        WINDOW_BAR.with(|b| {
+            // No sidebar here to show or hide: a phone's navigation is a stack.
+            let bar = b.borrow();
+            for item in bar
+                .items()
+                .iter()
+                .filter(|i| i.id != day_spec::SIDEBAR_TOGGLE_ID)
+            {
+                let mut add =
+                    |icon: Option<&day_spec::Icon>, label: &str, action: u64, on: bool| {
+                        if action == 0 {
+                            return;
+                        }
+                        icons.push(icon.and_then(icon_source).unwrap_or_default());
+                        labels.push(label.replace('\n', " "));
+                        actions.push(action.to_string());
+                        enabled.push(if on { "1" } else { "0" }.to_string());
+                    };
+                match &item.kind {
+                    K::Button | K::Toggle { .. } => {
+                        add(item.icon.as_ref(), &item.label, item.action, item.enabled)
+                    }
+                    // The choice in force names the control and lends it its glyph, the way a
+                    // Material bar folds one (day-android).
+                    K::Segmented { segments, selected } => {
+                        let seg = segments.get(*selected);
+                        add(
+                            seg.and_then(|s| s.icon.as_ref()).or(item.icon.as_ref()),
+                            seg.map(|s| s.title.as_str()).unwrap_or(&item.label),
+                            item.action,
+                            item.enabled,
+                        )
+                    }
+                    K::Menu { items } => {
+                        for entry in items {
+                            if let day_spec::MenuItem::Action {
+                                label,
+                                action,
+                                enabled: on,
+                                ..
+                            } = entry
+                            {
+                                add(None, label, *action, *on && item.enabled);
+                            }
+                        }
+                    }
+                    K::Search { .. } | K::Label | K::Separator => {}
+                }
+            }
+        });
+        let scopes = vec!["2"; actions.len()].join("\n");
+        unsafe {
+            ffi::day_ark_nav_set_menu(
+                cstr(&icons.join("\n")).as_ptr(),
+                cstr(&labels.join("\n")).as_ptr(),
+                cstr(&actions.join("\n")).as_ptr(),
+                cstr(&scopes).as_ptr(),
+                cstr(&enabled.join("\n")).as_ptr(),
+            )
+        };
+    }
+
+    /// Whether `h` is a secondary window's root (a DayWindowAbility page). The title-bar actions
+    /// belong to the primary window's `Navigation`; a secondary page has no such bar, so its
+    /// toolbar is not drawn, and its edits must not land in the primary's model (docs/toolbars.md).
+    fn is_secondary_root(h: &AHandle) -> bool {
+        let ptr = h.0 as usize;
+        SECONDARY.with(|s| s.borrow().iter().any(|(_, stack)| *stack == ptr))
+    }
+
+    /// Show or fill the navigation surface's search field (docs/search.md); see
+    /// `day_ark_nav_set_search` for `shown`.
+    fn set_nav_search(shown: i32, prompt: &str, text: &str) {
+        unsafe { ffi::day_ark_nav_set_search(shown, cstr(prompt).as_ptr(), cstr(text).as_ptr()) };
     }
 
     /// The ArkTS host reports a ROOT area change after start (keyboard RESIZE avoidance,
@@ -1854,6 +1979,17 @@ mod imp {
                     }
                     let n = new_node(K_STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
+                    // Inline search (docs/search.md) goes above the navigation root. The title bar
+                    // holds actions, never a field (`Cap::ToolbarSearch` is unsupported), so every
+                    // placement resolves here.
+                    match p
+                        .search
+                        .as_ref()
+                        .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
+                    {
+                        Some(sp) => set_nav_search(1, &sp.prompt, &sp.text),
+                        None => set_nav_search(0, "", ""),
+                    }
                     // A REBUILT host invalidates every pointer the old one tracked — a Pushed
                     // patch that then consumed a stale NAV_ATTACHED entry would re-home a
                     // DISPOSED node (SIGSEGV inside ArkUI RemoveChild).
@@ -1962,6 +2098,12 @@ mod imp {
             match kind {
                 // Navigation (docs/navigation.md): drive the ArkTS Navigation/NavPathStack.
                 kinds::NAV => {
+                    // Inline search (docs/search.md): the app writing its query fills the field.
+                    if let Some(day_spec::props::SearchPatch::Text(t)) =
+                        patch.downcast_ref::<day_spec::props::SearchPatch>()
+                    {
+                        set_nav_search(-1, "", t);
+                    }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {
                             NavPatch::Pushed { title, .. } => {
@@ -2930,6 +3072,36 @@ mod imp {
         fn set_drop_target(&mut self, h: &AHandle, target: day_spec::transfer::Target) {
             crate::transfer::target(h, target);
         }
+        fn edit_toolbar(&mut self, h: &AHandle, ops: &[day_spec::ToolbarOp]) -> bool {
+            if is_secondary_root(h) {
+                return true;
+            }
+            WINDOW_BAR.with(|b| {
+                let mut b = b.borrow_mut();
+                for op in ops {
+                    b.apply(op);
+                }
+            });
+            paint_window_bar();
+            true
+        }
+
+        fn update_toolbar(&mut self, h: &AHandle, patch: &day_spec::ToolbarPatch) {
+            use day_spec::ToolbarPatch as P;
+            if is_secondary_root(h) {
+                return;
+            }
+            match patch {
+                // Search is never on this bar (`Cap::ToolbarSearch`, docs/search.md).
+                P::Text { .. } | P::Suggestions { .. } => {}
+                _ => {
+                    if WINDOW_BAR.with(|b| b.borrow_mut().patch(patch)) {
+                        paint_window_bar();
+                    }
+                }
+            }
+        }
+
         fn capability(&self, cap: Cap) -> Support {
             match cap {
                 Cap::DragDrop

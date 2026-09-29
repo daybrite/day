@@ -46,6 +46,33 @@ day build -p web-dom --profile release
 Serve it over HTTPS (or localhost). Browsers won't instantiate WebAssembly from `file:`, and
 sensors require a secure context.
 
+## Running dayscripts
+
+A [dayscript](/docs/dayscript) runs against the web build the way it does on every other target,
+with one addition: a page cannot screenshot itself, so the runner captures through a headless
+browser that `day` drives. Day bundles the driver (`day web driver` prints its path); it needs
+[Playwright](https://playwright.dev) and a browser for it, installed once into any directory:
+
+```sh
+mkdir -p ~/.cache/day-webdriver && cd ~/.cache/day-webdriver
+npm init -y && npm install playwright
+npx playwright install chromium
+```
+
+Then point `day` at it and run the script:
+
+```sh
+export DAY_WEB_DRIVER="node $(day web driver)"
+export DAY_WEB_DRIVER_PLAYWRIGHT=~/.cache/day-webdriver
+export DAY_WEB_DRIVER_BROWSER=chromium   # webkit (the default) or firefox also work
+day launch -p web-dom --script dayscript/walkthrough.yaml
+```
+
+On Linux use Chromium: Playwright's Linux WebKit has no Origin Private File System, which
+`day-part-fs` needs. Several `--script` flags run in one launch, against one app instance, which is
+how state from a seed script reaches the scripts after it; the browser profile, and the origin's
+storage with it, lasts exactly as long as the launch.
+
 ## Caveats
 
 This backend covers a subset of what the native backends do. The following are missing or

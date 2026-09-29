@@ -126,7 +126,7 @@ Suppress it with `.sidebar_toggle(false)`.
 | `toolbar_segmented(id, segments, signal)` | one native segmented control over a `Signal<usize>` |
 | `toolbar_menu(id, label, entries)` | a pull-down, from the same `MenuEntry`s the menu bar takes |
 | `toolbar_label(id, text)` | static text — a status or a caption |
-| `toolbar_separator()` | a divider between neighbors in the same placement bucket |
+| `toolbar_separator(id)` | a divider between neighbors in the same placement bucket |
 
 There are no spacers. Alignment is [placement](#placement), which is a fact about what the command
 IS rather than about where it happens to sit in a list, and it survives a bar that has to fold.
@@ -160,18 +160,47 @@ signal only ever holds the chosen index.
 Every item takes an `id`. It is the item's identity everywhere: the native item identifier, the
 dayscript target, and the key a targeted update addresses. Ids are unique within a bar.
 
-### What rebuilds and what patches
+### What changes the bar, and how
 
-A full install replaces the bar. That is the wrong path for a value that changes as the user
-types: rebuilding would drop the search field's focus mid-word. So the values that change often
-ride their own bindings and patch a single item instead:
+The bar is never rebuilt. Day hands a backend its bar as **edits**, the way the view tree
+arrives as `insert`/`remove` rather than as a new tree: each `ToolbarOp` adds or removes one
+item, and an item no op names keeps its native widget. That is what keeps a search field focused
+while the page around it changes.
 
-- a `toolbar_toggle`'s signal
-- a `.searchable()` surface's query signal ([docs/search.md](search.md))
-- `.enabled_when(…)`
+- **Structure** (which items exist, in what order, and how each is drawn: its kind, label,
+  icon, placement) changes by edits. Day compares the bar the window should now carry with the one
+  it carries, item by item by id, and sends only the difference: removals, then insertions. An
+  item drawn differently (a new label, say) is removed and inserted alone, and so is one that
+  moved; a reshuffle moves the fewest items it can.
+- **Values** (a toggle's state, a segment's selection, enablement, a search field's text and
+  completions) change by `ToolbarPatch` on the live item, never by an edit. These ride their own
+  bindings, so keep them out of a derived builder's reactive reads and put structure there:
+  - a `toolbar_toggle`'s signal
+  - a `.searchable()` surface's query signal ([docs/search.md](search.md))
+  - `.enabled_when(…)`
 
-Keep those out of a derived builder's reactive reads. Put structure there: which
-items exist, and their labels.
+  A value the user changes (typing, a click) is recorded in Day's model as it is reported, so the
+  model never differs from what the widget shows.
+
+Day keeps two copies of each window's bar: the one it should carry (what dayscript reads) and the
+one its toolkit has. An edit is computed against the second, and recorded there only once the
+toolkit took it. So an edit that could not be delivered (the window's root had no native handle
+yet) is not lost: the next recompose sends what the toolkit is missing, the way a whole-bar install
+used to heal on the next change.
+
+Two things keep ordinary activity from producing edits at all:
+
+- **One edit per turn.** Contributions change in bursts: swapping the page withdraws the old
+  page's commands and adds the new page's. Day composes the bar once, when the turn settles
+  (`day_reactive::at_turn_end`), so the in-between bar is never sent.
+- **Stable dispatch ids.** Each item reaches the toolkit under a slot id kept for that item id in
+  that window, never under its closure's id. A page rebuilt with the same commands and fresh
+  closures composes the same bar, so nothing is sent; the slot is pointed at the new closure, and
+  the native item keeps dispatching the id it already has.
+
+Every item needs an id, unique within the window's bar (a separator too: `toolbar_separator(id)`).
+The id is the item's identity across edits; if two showing pages declare the same one, the first
+is kept and Day logs a warning.
 
 ### Icons
 
@@ -278,28 +307,29 @@ that narrow.
 
 Notes that are not obvious from the table:
 
-- **AppKit**: macOS toolbars have no separator item, so `toolbar_separator()` renders as the
+- **AppKit**: macOS toolbars have no separator item, so `toolbar_separator(id)` renders as the
   system's own fixed space, which is what macOS uses between groups. The toolbar is created once
-  per window and reused across installs (a replaced `NSToolbar` flashes the title bar and drops
+  per window and edited in place (a replaced `NSToolbar` flashes the title bar and drops
   focus). User customization is off: the item list is app-declared and reactive, so an autosaved
-  arrangement would be in permanent conflict with the next install. Installing or removing a
-  toolbar resizes the content view without a window resize, so the backend reports the new
-  content size itself.
+  arrangement would be in permanent conflict with the next edit. Adding or removing the toolbar
+  resizes the content view without a window resize, so the backend reports the new content size
+  itself.
 - **GTK**: could express COLUMNS — a per-pane `AdwHeaderBar` over each pane of the navigation
   split is the GNOME idiom, and Nautilus and Text Editor both do it. Day does not yet; the
   column is dropped and one header bar carries everything. That is a gap, not a toolkit limit.
 - **GTK**: GNOME has no separate toolbar. The header bar is the toolbar, and GTK4 removed
-  `GtkToolbar` outright, so items pack into the `AdwHeaderBar` the window already has, around the
-  title. Buttons get the `flat` class, per the GNOME HIG. `pack_end` grows right-to-left, so the
-  trailing group is packed in reverse to reach the screen in the order the app wrote it.
+  `GtkToolbar` outright, so items go into the `AdwHeaderBar` the window already has, around the
+  title: into two boxes Day packs at its start and end, so items go in and out one at a time
+  without Adwaita's own children in the way. Buttons get the `flat` class, per the GNOME HIG.
 - **Qt**: the bar is a `QToolBar` parented to the window and laid out with the menu bar, not a
   `QMainWindow` dock; the geometry there is already hand-managed. It is a real `QToolBar` either
   way: it takes its icon size and its icon/text style from the user's Qt settings, which is the
   KDE convention and why the backend sets neither. It does not get dragging between dock
   areas, which needs `QMainWindow`. Columns are three plain widgets on that bar, each with a
-  row layout; an action inside one is the same `QAction` shown through an auto-raise
-  `QToolButton` of the bar's own style, so patches by action are unchanged. A re-lower releases
-  the previous actions and their widgets (`QToolBar::clear` only removes them). Icons: Qt has no
+  row layout of three groups (leading, principal, trailing) that items go in and out of; a bar
+  without columns is one such track across the whole bar. A button is a `QAction` shown through
+  an auto-raise `QToolButton` of the bar's own style, so patches by action reach it directly.
+  Items are kept per window, since two windows show the same ids. Icons: Qt has no
   glyph set of its own beyond QStyle's few dialog bitmaps, so a symbol is the desktop theme's
   icon where one exists (a freedesktop theme on Linux; on macOS Qt 6.7+ maps the freedesktop
   names it knows to SF Symbols), then Day's outline, then QStyle's. Those drawings never
@@ -319,24 +349,29 @@ Notes that are not obvious from the table:
   than on a developer's Mac or Linux box. Secondary windows get no toolbar there, the
   same as the menu bar: this shim's chrome lives on the primary window only.
 
-## Re-installing the same bar
+## How a backend applies an edit
 
-A derived contribution re-runs whenever anything it reads changes, with freshly registered closures
-every time, since the ids come from `register_toolbar_value` / `register_menu_action`. Handing that
-to a backend rebuilds the native bar, which is invisible for a button and destructive for the
-search field: recreating the widget takes the keyboard focus and the caret with it. Typing a letter
-that moved the nav selection re-ran the page build and threw away the field being typed into, on
-every backend that rebuilds what it is handed, which is all of them.
+`Toolkit::edit_toolbar(h, ops)` gets the removals first, then the insertions in ascending
+position, so applying them in order to the bar's current items yields the new bar. Every backend
+keeps a `day_spec::ToolbarMirror` of its bar and applies each op to it, and then does one of two
+things with its native bar:
 
-`set_toolbar` therefore compares the incoming model with the installed one, ignoring what
-cannot matter to the widgets: the action ids, and the search field's live text and completions
-(kept current through `ToolbarPatch::Text`/`Suggestions`, never through a rebuild). Same items in
-the same order, with the same kinds, labels, icons and enablement, means the native bar is already
-correct, so the new closures are moved onto the ids it already carries and no toolkit call is made
-at all. Anything else is a real change and installs as before.
+- **A bar of live widgets** (GTK, Qt, AppKit, XAML, web-dom) removes the one native item a
+  `Remove` names and builds one for an `Insert`, placing it right after
+  `ToolbarMirror::prev_where` its own group (an end of the header bar, a column's leading,
+  principal or trailing group, a region of the CommandBar). Nothing already on the bar moves.
+  Where the groups depend on the window (Qt's and web-dom's column tracks follow the navigation
+  split's panes), the backend keeps each item's column and order, and when the split arrives,
+  leaves, or a pane collapses, moves just the affected widgets into their new groups, keeping
+  the keyboard focus where it was.
+  AppKit's native bar is NSToolbar's identifier list, with system spacers between the groups, so
+  it removes the named items and then brings the identifier list to the one the model lays out,
+  inserting new items and moving only spacers, which hold no state.
+- **A bar of stateless actions** (Android's app-bar menu, UIKit's bar button items, ArkUI's
+  title-bar `.menus()`) repaints its action list from the mirror. Nothing on it holds state a
+  repaint could lose: on those platforms search lives on the navigation surface, never the bar.
 
-This is why a backend never has to preserve focus across an install: an install that would have
-disturbed the focus does not happen.
+A value patch goes to the live item, and into the mirror, so a later repaint shows it too.
 
 ## One model per window
 

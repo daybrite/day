@@ -122,6 +122,18 @@ pub struct MockState {
     pub tree_sources: HashMap<u64, day_spec::TreeSource>,
     /// The app menu as last applied (docs/menus.md): item titles, probe-visible.
     pub app_menu: Vec<String>,
+    /// Every window-toolbar edit, in order (docs/toolbars.md). A test reads these to hold
+    /// day-core to touching only the items that changed.
+    pub toolbar_edits: Vec<Vec<day_spec::ToolbarOp>>,
+    /// The bar those edits and the patches produced, the way a backend keeps it.
+    pub toolbar: day_spec::ToolbarMirror,
+    /// `Cap::ToolbarSearch` answers `Unsupported`: a phone's bar, a row of actions with no room
+    /// for a field (docs/search.md).
+    pub no_toolbar_search: bool,
+    /// `edit_toolbar` declines every edit, as a window with no bar to edit yet does.
+    pub decline_toolbar_edits: bool,
+    /// Every targeted toolbar patch, in order.
+    pub toolbar_patches: Vec<day_spec::ToolbarPatch>,
     /// Context menus by widget handle (docs/menus.md): item titles per handle.
     pub context_menus: HashMap<u64, Vec<String>>,
     /// Secondary windows (docs/windows.md), in open order, probe-visible.
@@ -534,6 +546,31 @@ impl MockProbe {
 
     // --- secondary windows (docs/windows.md) -------------------------------------------
 
+    /// Make `Cap::ToolbarSearch` answer `Unsupported`, as a phone's action bar does.
+    pub fn set_no_toolbar_search(&self, v: bool) {
+        self.state.borrow_mut().no_toolbar_search = v;
+    }
+
+    /// Make the toolkit decline (or accept again) toolbar edits.
+    pub fn set_decline_toolbar_edits(&self, v: bool) {
+        self.state.borrow_mut().decline_toolbar_edits = v;
+    }
+
+    /// Every window-toolbar edit applied so far, oldest first.
+    pub fn toolbar_edits(&self) -> Vec<Vec<day_spec::ToolbarOp>> {
+        self.state.borrow().toolbar_edits.clone()
+    }
+
+    /// The window toolbar as the backend holds it now: every edit and patch applied.
+    pub fn toolbar_items(&self) -> Vec<day_spec::ToolbarItem> {
+        self.state.borrow().toolbar.items().to_vec()
+    }
+
+    /// Every targeted toolbar patch applied so far, oldest first.
+    pub fn toolbar_patches(&self) -> Vec<day_spec::ToolbarPatch> {
+        self.state.borrow().toolbar_patches.clone()
+    }
+
     /// The secondary windows opened so far (closed ones stay listed with `open: false`).
     pub fn windows(&self) -> Vec<MockWindow> {
         self.state.borrow().windows.clone()
@@ -717,6 +754,15 @@ impl Toolkit for MockToolkit {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // Records every toolbar edit and patch, search item included (probe-visible). The
+            // mock still has no `Cap::Toolbar`, so an `Automatic` search stays inline.
+            Cap::ToolbarSearch => {
+                if self.state.borrow().no_toolbar_search {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            }
             // The mock decodes by reading magic numbers and encodes a matching signature
             // (docs/images.md): no pixels, but the whole request → completion → release path a
             // test needs. `Cap::ImageProperties` stays Unsupported in the default arm: the
@@ -1654,6 +1700,25 @@ impl Toolkit for MockToolkit {
 
     // The remaining duties, implemented observably so mock stays a complete conformance probe
     // (a duty a piece exercises must never vanish into a trait default here).
+
+    fn edit_toolbar(&mut self, _h: &MockHandle, ops: &[day_spec::ToolbarOp]) -> bool {
+        let mut s = self.state.borrow_mut();
+        if s.decline_toolbar_edits {
+            return false;
+        }
+        for op in ops {
+            s.toolbar.apply(op);
+        }
+        s.toolbar_edits.push(ops.to_vec());
+        s.log(format!("edit_toolbar [{} ops]", ops.len()));
+        true
+    }
+
+    fn update_toolbar(&mut self, _h: &MockHandle, patch: &day_spec::ToolbarPatch) {
+        let mut s = self.state.borrow_mut();
+        s.toolbar.patch(patch);
+        s.toolbar_patches.push(patch.clone());
+    }
 
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
         let mut s = self.state.borrow_mut();

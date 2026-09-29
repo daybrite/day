@@ -296,7 +296,12 @@ void day_qt_window_raise(void *win) {
 void day_qt_window_set_title(void *win, const char *title) {
     static_cast<QWidget *>(win)->setWindowTitle(QString::fromUtf8(title));
 }
-void day_qt_window_destroy(void *win) { static_cast<QWidget *>(win)->deleteLater(); }
+static void day_qt_toolbar_forget(QWidget *win);
+void day_qt_window_destroy(void *win) {
+    // The window's toolbar items go with it; a later window at the same address starts clean.
+    day_qt_toolbar_forget(static_cast<QWidget *>(win));
+    static_cast<QWidget *>(win)->deleteLater();
+}
 int day_qt_window_is_active(void *win) {
     return static_cast<QWidget *>(win)->isActiveWindow() ? 1 : 0;
 }
@@ -2836,33 +2841,71 @@ void *day_qt_menubar_add_menu(void *bar, const char *label) {
 // Buttons ride the same g_menu_cb rail as menu items; values (toggle, search) go through
 // g_toolbar_cb.
 
-// kind 0 = toggle (`on`), kind 1 = search text (`text`).
+// kind 0 = toggle (`on`), kind 1 = search text (`text`), kind 2 = segment index (`on`).
 static void (*g_toolbar_cb)(uint64_t, int, int, const char *) = nullptr;
 void day_qt_set_toolbar_cb(void (*cb)(uint64_t, int, int, const char *)) { g_toolbar_cb = cb; }
 
-// Item widgets by id, for the targeted patches (search text, toggle state, enabled).
-// QPointer, not a raw pointer: a toolbar REBUILD destroys these widgets, and any patch that
-// arrives between the destroy and the rebuild's re-add would otherwise `qobject_cast` a freed
-// QObject — undefined behavior that showed up as a crash inside `deleteLater` when a search
-// clear raced a re-install. A QPointer reads null once its object dies, so a stale patch is a
-// no-op instead.
-static std::map<std::string, QPointer<QWidget>> g_toolbar_widgets;
-// A segmented item's exclusive button group, so a patch can move the selection without the
-// echo — the group emits for the button going off as well as the one coming on.
-static std::map<std::string, QPointer<QButtonGroup>> g_toolbar_groups;
-static std::map<std::string, QAction *> g_toolbar_actions;
+// One window's toolbar items (docs/toolbars.md), by id: the widget that goes in and out of its
+// group, and the handles the targeted patches reach through. Per window, because two windows
+// show the same ids.
+//
+// QPointer, not a raw pointer: a patch that arrives after the item was removed (its widget is
+// `deleteLater`d) must read null rather than a freed QObject.
+struct DayToolbarItems {
+    std::map<std::string, QPointer<QWidget>> widgets;
+    // A segmented item's exclusive button group, so a patch can move the selection without the
+    // echo — the group emits for the button going off as well as the one coming on.
+    std::map<std::string, QPointer<QButtonGroup>> groups;
+    std::map<std::string, QPointer<QAction>> actions;
+    // Every item in Day's order, with the column (0 sidebar, 1 list, 2 detail) and group
+    // (0 leading, 1 principal, 2 trailing) it asked for: what a change of layout re-places the
+    // widgets by.
+    struct Slot {
+        std::string id;
+        int col;
+        int group;
+    };
+    std::vector<Slot> order;
+};
+static std::map<QWidget *, DayToolbarItems> g_toolbars;
 static void day_qt_toolbar_sync_columns_for(DayWindow *win);
-// The column track items are being added into, when the bar is laid out in columns
-// (docs/toolbars.md): a plain widget with a row layout, sized to the navigation pane it sits
-// over. Null = items go straight onto the bar.
-static QWidget *g_toolbar_track = nullptr;
+static void day_qt_toolbar_ensure_layout(DayWindow *window);
 
-// Put an item widget where the bar is currently packing: the open column track, or the bar.
+// The edit in progress (Qt main thread only): the window's items, and where the next item goes —
+// a group's row layout, at this index.
+static DayToolbarItems *g_tb_items = nullptr;
+static QHBoxLayout *g_tb_row = nullptr;
+static int g_tb_at = 0;
+// The item being inserted: its id and slot, recorded in the window's order once it is placed.
+static DayToolbarItems::Slot g_tb_slot;
+static size_t g_tb_index = 0;
+
+static void day_qt_toolbar_forget(QWidget *win) { g_toolbars.erase(win); }
+
+static DayToolbarItems *day_qt_toolbar_items_of(void *win) {
+    auto it = g_toolbars.find(static_cast<QWidget *>(win));
+    return it == g_toolbars.end() ? nullptr : &it->second;
+}
+
+// Put a new item widget where the edit in progress says: into its group, after its predecessor.
 static void day_qt_toolbar_place(QToolBar *tb, QWidget *w) {
-    if (g_toolbar_track && g_toolbar_track->layout())
-        g_toolbar_track->layout()->addWidget(w);
-    else if (QAction *a = tb->addWidget(w))
+    if (g_tb_row) {
+        g_tb_row->insertWidget(g_tb_at++, w);
+        // Now, not on Qt's next layout pass: `done` sizes the column tracks from what their
+        // groups hold, and a group's cached size would still be the one it had before this item.
+        if (QWidget *group = g_tb_row->parentWidget()) group->updateGeometry();
+    } else if (QAction *a = tb->addWidget(w)) {
         a->setProperty("dayItem", true);
+    }
+}
+
+// Remember a new item's widget under its id, for removal and for the patches.
+static void day_qt_toolbar_keep(const char *id, QWidget *w) {
+    if (!g_tb_items) return;
+    g_tb_items->widgets[std::string(id)] = w;
+    auto &order = g_tb_items->order;
+    const size_t at = std::min(g_tb_index, order.size());
+    order.insert(order.begin() + at, DayToolbarItems::Slot{std::string(id), g_tb_slot.col, g_tb_slot.group});
 }
 
 // The icon for a standard symbol: the freedesktop theme first (Linux, where KDE and GNOME
@@ -2925,6 +2968,122 @@ static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap, int px)
     return QIcon();
 }
 
+// The bar's fixed layout (docs/toolbars.md), built once per bar: a TRACK per column, each a row
+// of three GROUP boxes — leading, principal, trailing — that items go in and out of. A window
+// with a navigation splitter gets three tracks whose widths follow its panes (the sidebar's, the
+// list's, and the detail's, which also carries the window's own items), so a column's commands sit
+// over the pane they act on. A window without one gets a single track across the whole bar.
+//
+// Stretches between the groups do the packing the model asks for: leading items at the left,
+// trailing ones at the right edge, a principal item between them. The sidebar track instead packs
+// everything against its divider, where Notes and Xcode put their sidebar commands.
+static QWidget *day_qt_toolbar_track(QToolBar *tb, int col);
+static QSplitter *day_qt_nav_split_of(QWidget *win);
+
+static void day_qt_toolbar_add_track(QToolBar *tb, int col, bool columns) {
+    auto *track = new QWidget(tb);
+    track->setProperty("dayToolbarCol", col);
+    auto *row = new QHBoxLayout(track);
+    row->setContentsMargins(0, 0, 0, 0);
+    const int spacing = tb->layout() ? tb->layout()->spacing() : 4;
+    row->setSpacing(spacing);
+    if (col == 2) {
+        // The detail column (or the whole bar) takes what the panes leave.
+        track->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    } else {
+        // Sized by `sync_columns` once the splitter has laid its panes out; until then the
+        // model's own default keeps the first paint close.
+        track->setFixedWidth(col == 0 ? 240 : 300);
+    }
+    (void)columns;
+    const bool against_divider = col == 0;
+    if (against_divider) row->addStretch(1);
+    for (int g = 0; g < 3; ++g) {
+        auto *group = new QWidget(track);
+        group->setProperty("dayToolbarGroup", g);
+        auto *items = new QHBoxLayout(group);
+        items->setContentsMargins(0, 0, 0, 0);
+        items->setSpacing(spacing);
+        row->addWidget(group);
+        // A box layout centers a fixed-size widget in leftover space, which is why the stretch
+        // after the leading group is unconditional.
+        if (!against_divider && g < 2) row->addStretch(1);
+    }
+    if (QAction *a = tb->addWidget(track)) a->setProperty("dayItem", true);
+}
+
+// The group box items of column `col`, group `group` go into on this bar (column 2 on a bar
+// without columns).
+static QHBoxLayout *day_qt_toolbar_group(QToolBar *tb, int col, int group) {
+    QWidget *track = day_qt_toolbar_track(tb, col);
+    if (!track) track = day_qt_toolbar_track(tb, 2);
+    if (!track) return nullptr;
+    for (QWidget *w : track->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
+        const QVariant g = w->property("dayToolbarGroup");
+        if (g.isValid() && g.toInt() == group) return qobject_cast<QHBoxLayout *>(w->layout());
+    }
+    return nullptr;
+}
+
+// Lay the bar out for the window as it is now: columns while it has a navigation splitter, one
+// track across the bar otherwise. A change of layout moves every item widget into its group in
+// the new one, in Day's order; the widgets themselves (a search field's text and caret) are kept,
+// and the keyboard focus goes back to the one that had it. Called at every edit and whenever the
+// splitter lays its panes out, so a split that arrives or leaves after the bar has items is
+// followed rather than missed.
+static void day_qt_toolbar_ensure_layout(DayWindow *window) {
+    QToolBar *bar = window ? window->toolbar : nullptr;
+    if (!bar) return;
+    const int columns = day_qt_nav_split_of(window) ? 1 : 0;
+    const QVariant laid = bar->property("dayColumns");
+    if (laid.isValid() && laid.toInt() == columns) return;
+    DayToolbarItems &items = g_toolbars[window];
+    QPointer<QWidget> focused = QApplication::focusWidget();
+    // The item widgets leave their old groups first: the tracks holding them are deleted below.
+    for (auto &kv : items.widgets) {
+        if (QWidget *w = kv.second.data()) {
+            if (QWidget *parent = w->parentWidget())
+                if (parent->layout()) parent->layout()->removeWidget(w);
+            w->setParent(bar);
+        }
+    }
+    // `clear()` only REMOVES the actions; they and the widgets they carry stay the bar's
+    // children. Release the ones DAY added (marked `dayItem` — the bar owns a QAction of its
+    // own, its toggle-view action, and deleting that one crashed the next Show event), deferred,
+    // since this can run from one of their own triggered slots, and take the old tracks out of
+    // the lookup at once.
+    bar->clear();
+    for (QObject *child : bar->children()) {
+        auto *action = qobject_cast<QAction *>(child);
+        if (!action || !action->property("dayItem").toBool()) continue;
+        if (auto *wa = qobject_cast<QWidgetAction *>(action)) {
+            if (QWidget *w = wa->defaultWidget()) {
+                w->setProperty("dayToolbarCol", QVariant());
+                w->hide();
+            }
+        }
+        action->deleteLater();
+    }
+    if (columns) {
+        for (int col = 0; col < 3; ++col) day_qt_toolbar_add_track(bar, col, true);
+    } else {
+        day_qt_toolbar_add_track(bar, 2, false);
+    }
+    bar->setProperty("dayColumns", columns);
+    for (const auto &slot : items.order) {
+        QWidget *w = items.widgets.count(slot.id) ? items.widgets[slot.id].data() : nullptr;
+        QHBoxLayout *row = day_qt_toolbar_group(bar, columns ? slot.col : 2, slot.group);
+        if (!w || !row) continue;
+        row->addWidget(w);
+        if (QWidget *group = row->parentWidget()) group->updateGeometry();
+        w->show();
+    }
+    if (focused) focused->setFocus(Qt::OtherFocusReason);
+}
+
+// The window's bar, created on first use, with its layout for the window as it is now. An
+// empty bar re-reads the window (a navigation splitter can arrive after the first bar), so the
+// columns always match the panes by the time items are on it.
 void *day_qt_window_toolbar(void *win) {
     auto *window = static_cast<DayWindow *>(win);
     QToolBar *bar = window->toolbar;
@@ -2939,38 +3098,74 @@ void *day_qt_window_toolbar(void *win) {
 #endif
         bar->setMovable(false);
         bar->setFloatable(false);
-        bar->show();
+        bar->setVisible(false);
         window->toolbar = bar;
     }
-    bar->clear();
-    // `clear()` only REMOVES the actions; they and the widgets they carry stay the bar's
-    // children. Release the ones DAY added (marked `dayItem` — the bar owns a QAction of its
-    // own, its toggle-view action, and deleting that one crashed the next Show event) —
-    // deferred, since a re-lower can run from one of their own triggered slots — and take a
-    // stale column track out of the lookup at once, or the next `sync_columns` sizes the old,
-    // hidden track instead of the new one.
-    for (QObject *child : bar->children()) {
-        auto *action = qobject_cast<QAction *>(child);
-        if (!action || !action->property("dayItem").toBool())
-            continue;
-        if (auto *wa = qobject_cast<QWidgetAction *>(action)) {
-            if (QWidget *w = wa->defaultWidget()) {
-                w->setProperty("dayToolbarCol", QVariant());
-                w->hide();
-            }
-        }
-        action->deleteLater();
-    }
-    g_toolbar_widgets.clear();
-    g_toolbar_groups.clear();
-    g_toolbar_actions.clear();
+    DayToolbarItems &items = g_toolbars[window];
+    day_qt_toolbar_ensure_layout(window);
+    g_tb_items = &items;
     return bar;
 }
 
+int day_qt_toolbar_has_columns(void *bar) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    return tb->property("dayColumns").toInt();
+}
+
+// Aim the next `add_*` at group `group` (0 leading, 1 principal, 2 trailing) of column `col`
+// (0 sidebar, 1 list, 2 detail), right after the item `after` (first in the group when it is
+// empty or not there). `index` is the item's place in Day's order.
+void day_qt_toolbar_begin_insert(void *bar, int index, int col, int group, const char *after) {
+    auto *tb = static_cast<QToolBar *>(bar);
+    g_tb_slot = DayToolbarItems::Slot{std::string(), col, group};
+    g_tb_index = static_cast<size_t>(std::max(index, 0));
+    g_tb_at = 0;
+    g_tb_row = day_qt_toolbar_group(tb, tb->property("dayColumns").toInt() ? col : 2, group);
+    if (!g_tb_row || !after || !*after || !g_tb_items) return;
+    auto prev = g_tb_items->widgets.find(std::string(after));
+    if (prev == g_tb_items->widgets.end() || !prev->second) return;
+    const int at = g_tb_row->indexOf(prev->second.data());
+    if (at >= 0) g_tb_at = at + 1;
+}
+
+// Take item `id` off window `win`'s bar. Nothing else on the bar moves.
+void day_qt_toolbar_remove(void *win, const char *id) {
+    DayToolbarItems *items = day_qt_toolbar_items_of(win);
+    if (!items) return;
+    const std::string key(id);
+    auto w = items->widgets.find(key);
+    if (w != items->widgets.end()) {
+        if (QWidget *widget = w->second.data()) {
+            if (QWidget *parent = widget->parentWidget()) {
+                if (parent->layout()) parent->layout()->removeWidget(widget);
+                parent->updateGeometry(); // as in `place`: the track is sized from it at `done`
+            }
+            widget->hide();
+            // Deferred: a removal can run from the widget's own signal (a toolbar button whose
+            // command changes the page, and with it the bar).
+            widget->deleteLater();
+        }
+        items->widgets.erase(w);
+    }
+    auto a = items->actions.find(key);
+    if (a != items->actions.end()) {
+        if (a->second) a->second->deleteLater();
+        items->actions.erase(a);
+    }
+    items->groups.erase(key);
+    auto &order = items->order;
+    order.erase(std::remove_if(order.begin(), order.end(),
+                               [&](const DayToolbarItems::Slot &o) { return o.id == key; }),
+                order.end());
+}
+
+// The edit is complete: show the bar only while it carries something, and lay the window out.
 void day_qt_window_toolbar_done(void *win) {
     auto *window = static_cast<DayWindow *>(win);
-    g_toolbar_track = nullptr;
-    if (window->toolbar) window->toolbar->setVisible(!window->toolbar->actions().isEmpty());
+    g_tb_items = nullptr;
+    g_tb_row = nullptr;
+    DayToolbarItems *items = day_qt_toolbar_items_of(win);
+    if (window->toolbar) window->toolbar->setVisible(items && !items->widgets.empty());
     window->relayoutChrome();
     day_qt_toolbar_sync_columns_for(window);
 }
@@ -2979,22 +3174,15 @@ void day_qt_toolbar_add_action(void *bar, const char *id, const char *label, con
                                int standard_pixmap, const char *tooltip, uint64_t action,
                                int enabled, int checkable, int checked) {
     auto *tb = static_cast<QToolBar *>(bar);
-    QAction *a;
-    if (g_toolbar_track) {
-        // Inside a column: the same QAction, shown through a tool button of the bar's own
-        // style, so patches by action (checked, enabled) keep working unchanged.
-        a = new QAction(QString::fromUtf8(label), tb);
-        a->setProperty("dayItem", true);
-        auto *button = new QToolButton(g_toolbar_track);
-        button->setDefaultAction(a);
-        button->setAutoRaise(true);
-        button->setToolButtonStyle(tb->toolButtonStyle());
-        button->setIconSize(tb->iconSize());
-        day_qt_toolbar_place(tb, button);
-    } else {
-        a = tb->addAction(QString::fromUtf8(label));
-        a->setProperty("dayItem", true);
-    }
+    // A QAction shown through a tool button of the bar's own style, so the style still decides
+    // icon size and whether the label shows, and the patches by action (checked, enabled) reach
+    // it directly.
+    auto *a = new QAction(QString::fromUtf8(label), tb);
+    auto *button = new QToolButton(tb);
+    button->setDefaultAction(a);
+    button->setAutoRaise(true);
+    button->setToolButtonStyle(tb->toolButtonStyle());
+    button->setIconSize(tb->iconSize());
     QIcon icon = day_qt_toolbar_icon(theme, standard_pixmap, tb->iconSize().width());
     if (!icon.isNull()) a->setIcon(icon);
     a->setToolTip(QString::fromUtf8(tooltip));
@@ -3011,7 +3199,9 @@ void day_qt_toolbar_add_action(void *bar, const char *id, const char *label, con
             if (g_menu_cb) g_menu_cb(aid);
         });
     }
-    g_toolbar_actions[std::string(id)] = a;
+    day_qt_toolbar_place(tb, button);
+    day_qt_toolbar_keep(id, button);
+    if (g_tb_items) g_tb_items->actions[std::string(id)] = a;
 }
 
 // A segmented control: Qt has no such widget, so it is what Qt apps build — a row of checkable
@@ -3048,19 +3238,9 @@ void day_qt_toolbar_add_segmented(void *bar, const char *id, const char *titles,
         // Only the segment coming ON is the choice; the one going off is its other half.
         if (on && g_toolbar_cb) g_toolbar_cb(aid, 2, which, "");
     });
-    g_toolbar_widgets[std::string(id)] = host;
-    g_toolbar_groups[std::string(id)] = group;
     day_qt_toolbar_place(tb, host);
-}
-
-void day_qt_toolbar_set_selected(const char *id, int index) {
-    auto it = g_toolbar_groups.find(std::string(id));
-    if (it == g_toolbar_groups.end() || !it->second) return;
-    QAbstractButton *b = it->second->button(index);
-    if (!b || b->isChecked()) return;
-    const bool blocked = it->second->blockSignals(true);
-    b->setChecked(true);
-    it->second->blockSignals(blocked);
+    day_qt_toolbar_keep(id, host);
+    if (g_tb_items) g_tb_items->groups[std::string(id)] = group;
 }
 
 // A pull-down: a QToolButton in InstantPopup mode, which is how Qt draws a menu button on a
@@ -3078,12 +3258,10 @@ void *day_qt_toolbar_add_menu(void *bar, const char *id, const char *label, cons
     button->setMenu(menu);
     button->setPopupMode(QToolButton::InstantPopup);
     button->setToolButtonStyle(tb->toolButtonStyle());
-    if (g_toolbar_track) {
-        button->setAutoRaise(true);
-        button->setIconSize(tb->iconSize());
-    }
+    button->setAutoRaise(true);
+    button->setIconSize(tb->iconSize());
     day_qt_toolbar_place(tb, button);
-    g_toolbar_widgets[std::string(id)] = button;
+    day_qt_toolbar_keep(id, button);
     return menu;
 }
 
@@ -3107,81 +3285,23 @@ void day_qt_toolbar_add_search(void *bar, const char *id, const char *text,
         });
     }
     day_qt_toolbar_place(tb, edit);
-    g_toolbar_widgets[std::string(id)] = edit;
-}
-
-// Completions for a toolbar search field (docs/search.md): Qt's own QCompleter, so the popup, the
-// keyboard handling and the inline completion are the ones every Qt app has. An empty list drops
-// the completer rather than leaving an empty popup armed.
-void day_qt_toolbar_set_suggestions(const char *id, const char *joined) {
-    auto it = g_toolbar_widgets.find(std::string(id));
-    if (it == g_toolbar_widgets.end() || !it->second) return;
-    auto *edit = qobject_cast<QLineEdit *>(it->second.data());
-    if (!edit) return;
-    QString all = QString::fromUtf8(joined);
-    QStringList items = all.isEmpty() ? QStringList{} : all.split(QLatin1Char('\n'));
-
-    // One completer and one model per field, for the life of the field: only the string list is
-    // replaced. The previous version built a new QCompleter on every keystroke and `deleteLater`d
-    // the one the QLineEdit was still wired to — and clearing the query took that branch while the
-    // very same edit was being torn down, because emptying the search also un-filters the sidebar,
-    // which re-lowers the toolbar and `bar->clear()`s the widget out from under the pending
-    // deletion. The process died with no Qt diagnostic at all.
-    //
-    // Reusing the model removes the whole class of problem: nothing is destroyed on a patch, so
-    // there is no lifetime to get wrong, and it stops allocating two objects per keystroke.
-    auto *c = edit->completer();
-    if (!c) {
-        auto *model = new QStringListModel(edit);
-        c = new QCompleter(model, edit);
-        c->setCaseSensitivity(Qt::CaseInsensitive);
-        c->setCompletionMode(QCompleter::PopupCompletion);
-        edit->setCompleter(c);
-    }
-    if (auto *model = qobject_cast<QStringListModel *>(c->model())) {
-        model->setStringList(items);
-    }
+    day_qt_toolbar_keep(id, edit);
 }
 
 void day_qt_toolbar_add_label(void *bar, const char *id, const char *text) {
     auto *tb = static_cast<QToolBar *>(bar);
     auto *label = new QLabel(QString::fromUtf8(text), tb);
     day_qt_toolbar_place(tb, label);
-    g_toolbar_widgets[std::string(id)] = label;
+    day_qt_toolbar_keep(id, label);
 }
 
-void day_qt_toolbar_add_separator(void *bar) {
+void day_qt_toolbar_add_separator(void *bar, const char *id) {
     auto *tb = static_cast<QToolBar *>(bar);
-    if (g_toolbar_track) {
-        auto *line = new QFrame(g_toolbar_track);
-        line->setFrameShape(QFrame::VLine);
-        line->setFrameShadow(QFrame::Sunken);
-        day_qt_toolbar_place(tb, line);
-        return;
-    }
-    if (QAction *a = tb->addSeparator())
-        a->setProperty("dayItem", true);
-}
-
-// `expand` != 0 makes the spacer absorb the leftover width, which is how the model's flexible
-// space pushes everything after it to the trailing edge — of the bar, or of the open column.
-void day_qt_toolbar_add_space(void *bar, int expand) {
-    auto *tb = static_cast<QToolBar *>(bar);
-    if (g_toolbar_track && g_toolbar_track->layout()) {
-        auto *lay = static_cast<QHBoxLayout *>(g_toolbar_track->layout());
-        if (expand)
-            lay->addStretch(1);
-        else
-            lay->addSpacing(12);
-        return;
-    }
-    auto *spacer = new QWidget(tb);
-    if (expand)
-        spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    else
-        spacer->setFixedWidth(12);
-    if (QAction *a = tb->addWidget(spacer))
-        a->setProperty("dayItem", true);
+    auto *line = new QFrame(tb);
+    line->setFrameShape(QFrame::VLine);
+    line->setFrameShadow(QFrame::Sunken);
+    day_qt_toolbar_place(tb, line);
+    day_qt_toolbar_keep(id, line);
 }
 
 // --- toolbar columns (docs/toolbars.md): the bar laid out as three tracks whose widths follow
@@ -3198,7 +3318,7 @@ static QSplitter *day_qt_nav_split_of(QWidget *win) {
     return nullptr;
 }
 
-// The column track for `col` on this bar, if the bar is laid out in columns.
+// The column track for `col` on this bar.
 static QWidget *day_qt_toolbar_track(QToolBar *tb, int col) {
     for (QWidget *w : tb->findChildren<QWidget *>()) {
         const QVariant c = w->property("dayToolbarCol");
@@ -3208,43 +3328,13 @@ static QWidget *day_qt_toolbar_track(QToolBar *tb, int col) {
     return nullptr;
 }
 
-int day_qt_toolbar_has_columns(void *bar) {
-    auto *tb = static_cast<QToolBar *>(bar);
-    return day_qt_nav_split_of(tb->window()) ? 1 : 0;
-}
-
-// Open column `col` (0 sidebar, 1 list, 2 detail): items added until `end_column` land in it.
-void day_qt_toolbar_begin_column(void *bar, int col) {
-    auto *tb = static_cast<QToolBar *>(bar);
-    auto *track = new QWidget(tb);
-    track->setProperty("dayToolbarCol", col);
-    auto *lay = new QHBoxLayout(track);
-    lay->setContentsMargins(0, 0, 0, 0);
-    lay->setSpacing(tb->layout() ? tb->layout()->spacing() : 4);
-    if (col == 2) {
-        // The detail column takes what the panes leave.
-        track->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    } else {
-        // Sized by `sync_columns` once the splitter has laid its panes out; until then the
-        // model's own default keeps the first paint close.
-        track->setFixedWidth(col == 0 ? 240 : 300);
-    }
-    if (QAction *a = tb->addWidget(track))
-        a->setProperty("dayItem", true);
-    g_toolbar_track = track;
-}
-
-void day_qt_toolbar_end_column(void *bar) {
-    (void)bar;
-    g_toolbar_track = nullptr;
-}
-
 // Size the sidebar and list tracks to their panes: each track ends where its pane's divider
 // does, in the bar's own coordinates. The bar's item spacing sits between tracks, so it comes
 // off each width to keep the edges lined up.
 static void day_qt_toolbar_sync_columns_for(DayWindow *win) {
     if (!win || !win->toolbar)
         return;
+    day_qt_toolbar_ensure_layout(win);
     QSplitter *s = day_qt_nav_split_of(win);
     if (!s)
         return;
@@ -3285,10 +3375,24 @@ void day_qt_toolbar_sync_columns(void *splitter) {
     day_qt_toolbar_sync_columns_for(dynamic_cast<DayWindow *>(s->window()));
 }
 
-void day_qt_toolbar_set_text(const char *id, const char *text) {
-    auto it = g_toolbar_widgets.find(std::string(id));
-    if (it == g_toolbar_widgets.end() || !it->second) return;
-    if (auto *edit = qobject_cast<QLineEdit *>(it->second.data())) {
+// --- targeted patches (docs/toolbars.md): one live item's value, found by id on its window ---
+
+static QWidget *day_qt_toolbar_widget(void *win, const char *id) {
+    DayToolbarItems *items = day_qt_toolbar_items_of(win);
+    if (!items) return nullptr;
+    auto it = items->widgets.find(std::string(id));
+    return it == items->widgets.end() ? nullptr : it->second.data();
+}
+
+static QAction *day_qt_toolbar_action(void *win, const char *id) {
+    DayToolbarItems *items = day_qt_toolbar_items_of(win);
+    if (!items) return nullptr;
+    auto it = items->actions.find(std::string(id));
+    return it == items->actions.end() ? nullptr : it->second.data();
+}
+
+void day_qt_toolbar_set_text(void *win, const char *id, const char *text) {
+    if (auto *edit = qobject_cast<QLineEdit *>(day_qt_toolbar_widget(win, id))) {
         QString next = QString::fromUtf8(text);
         if (edit->text() == next) return;
         // textChanged fires on a programmatic set too, which would echo into the signal.
@@ -3298,20 +3402,60 @@ void day_qt_toolbar_set_text(const char *id, const char *text) {
     }
 }
 
-void day_qt_toolbar_set_checked(const char *id, int on) {
-    auto it = g_toolbar_actions.find(std::string(id));
-    if (it == g_toolbar_actions.end() || !it->second->isCheckable()) return;
-    if (it->second->isChecked() == (on != 0)) return;
+// Completions for a toolbar search field (docs/search.md): Qt's own QCompleter, so the popup, the
+// keyboard handling and the inline completion are the ones every Qt app has. An empty list drops
+// the completer rather than leaving an empty popup armed.
+void day_qt_toolbar_set_suggestions(void *win, const char *id, const char *joined) {
+    auto *edit = qobject_cast<QLineEdit *>(day_qt_toolbar_widget(win, id));
+    if (!edit) return;
+    QString all = QString::fromUtf8(joined);
+    QStringList items = all.isEmpty() ? QStringList{} : all.split(QLatin1Char('\n'));
+
+    // One completer and one model per field, for the life of the field: only the string list is
+    // replaced. The previous version built a new QCompleter on every keystroke and `deleteLater`d
+    // the one the QLineEdit was still wired to — and clearing the query took that branch while the
+    // very same edit was being torn down, because emptying the search also un-filters the sidebar,
+    // which re-lowers the toolbar and `bar->clear()`s the widget out from under the pending
+    // deletion. The process died with no Qt diagnostic at all.
+    //
+    // Reusing the model removes the whole class of problem: nothing is destroyed on a patch, so
+    // there is no lifetime to get wrong, and it stops allocating two objects per keystroke.
+    auto *c = edit->completer();
+    if (!c) {
+        auto *model = new QStringListModel(edit);
+        c = new QCompleter(model, edit);
+        c->setCaseSensitivity(Qt::CaseInsensitive);
+        c->setCompletionMode(QCompleter::PopupCompletion);
+        edit->setCompleter(c);
+    }
+    if (auto *model = qobject_cast<QStringListModel *>(c->model())) {
+        model->setStringList(items);
+    }
+}
+
+void day_qt_toolbar_set_checked(void *win, const char *id, int on) {
+    QAction *a = day_qt_toolbar_action(win, id);
+    if (!a || !a->isCheckable() || a->isChecked() == (on != 0)) return;
+    const bool blocked = a->blockSignals(true);
+    a->setChecked(on != 0);
+    a->blockSignals(blocked);
+}
+
+void day_qt_toolbar_set_selected(void *win, const char *id, int index) {
+    DayToolbarItems *items = day_qt_toolbar_items_of(win);
+    if (!items) return;
+    auto it = items->groups.find(std::string(id));
+    if (it == items->groups.end() || !it->second) return;
+    QAbstractButton *b = it->second->button(index);
+    if (!b || b->isChecked()) return;
     const bool blocked = it->second->blockSignals(true);
-    it->second->setChecked(on != 0);
+    b->setChecked(true);
     it->second->blockSignals(blocked);
 }
 
-void day_qt_toolbar_set_enabled(const char *id, int on) {
-    auto a = g_toolbar_actions.find(std::string(id));
-    if (a != g_toolbar_actions.end()) a->second->setEnabled(on != 0);
-    auto w = g_toolbar_widgets.find(std::string(id));
-    if (w != g_toolbar_widgets.end() && w->second) w->second->setEnabled(on != 0);
+void day_qt_toolbar_set_enabled(void *win, const char *id, int on) {
+    if (QAction *a = day_qt_toolbar_action(win, id)) a->setEnabled(on != 0);
+    if (QWidget *w = day_qt_toolbar_widget(win, id)) w->setEnabled(on != 0);
 }
 
 void *day_qt_menu_new() { return new QMenu(); }

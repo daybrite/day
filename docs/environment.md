@@ -37,9 +37,10 @@ the affected script instead of keeping stale results.
 
 | Variable | Meaning | Fallback when unset |
 |---|---|---|
-| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK root (standard) | `~/Library/Android/sdk` (macOS), `%LOCALAPPDATA%\Android\Sdk` (Windows), `~/Android/Sdk` (Linux) |
+| `ANDROID_HOME` / `ANDROID_SDK_ROOT` | Android SDK root (standard) | `~/Library/Android/sdk` (macOS), `%LOCALAPPDATA%\Android\Sdk` (Windows), `~/Android/Sdk` (Linux); if absent, the SDK path Android Studio's settings record (`options/android.sdk.path.xml`) |
 | `ANDROID_NDK_HOME` | NDK root | newest NDK under `<sdk>/ndk` |
-| `JAVA_HOME` | JDK for Gradle (AGP 9 needs 17+; Gradle 9.7 runs on 17…26) | macOS: `/usr/libexec/java_home -v 17+`, then a Homebrew `openjdk` keg (either prefix) |
+| `ANDROID_STUDIO_HOME` | An Android Studio install outside the standard locations (for its bundled JDK) | the macOS app bundle, the Windows installer dir, or on Linux the Snap, `/opt/android-studio`, `/usr/local/android-studio`, `~/android-studio`, JetBrains Toolbox, Flathub |
+| `JAVA_HOME` | JDK for Gradle (AGP 9 needs 17+; Gradle 9.7 runs on 17…26) | Android Studio's bundled JDK (`jbr/`, any host); then macOS: `/usr/libexec/java_home -v 17+`, then a Homebrew `openjdk` keg (either prefix) |
 | `DAY_ANDROID_ABI` | Force the cargo-ndk ABI list for the build (comma/space-separated); **takes precedence over any connected device** (CI walkthrough: `x86_64`; dual-ABI pack: `arm64-v8a,x86_64`; each ABI needs its rustup target) | connected devices' ABIs, else `arm64-v8a` |
 
 ## OpenHarmony

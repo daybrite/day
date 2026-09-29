@@ -5503,6 +5503,312 @@ fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
     assert_eq!(probe.windows().len(), 1);
 }
 
+/// A page change that leaves the bar looking the same installs nothing (docs/toolbars.md).
+///
+/// Swapping the page withdraws the old page's commands and contributes the new page's, each with
+/// fresh closures. Handing each step to the toolkit rebuilt the bar twice, through a bar without
+/// the page's commands, and a rebuild takes the search field's focus with it. The recompose now
+/// waits for the turn to settle, and items dispatch through stable slot ids, so the settled bar
+/// equals the installed one and the new page's closures are reached through the ids the toolkit
+/// already holds.
+#[test]
+fn toolbar_page_change_with_same_commands_installs_nothing() {
+    let section = Signal::new(Some("alpha".to_string()));
+    let pressed = Rc::new(RefCell::new(Vec::<String>::new()));
+    let log = pressed.clone();
+    let probe = boot(move || {
+        nav(section)
+            .style(NavStyle::Sidebar)
+            .items(
+                move || vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
+                |r: &String| item(r.clone(), r.clone()),
+            )
+            .destination(move |s: &Option<String>| {
+                let page = s.clone().unwrap_or_default();
+                let log = log.clone();
+                // gamma has one more command: a real change of shape.
+                let extra = page == "gamma";
+                label(page.clone()).toolbar(move || {
+                    let (log, page) = (log.clone(), page.clone());
+                    let mut items = vec![
+                        toolbar_button("share", "Share")
+                            .action(move || log.borrow_mut().push(page.clone())),
+                    ];
+                    if extra {
+                        items.push(toolbar_button("more", "More"));
+                    }
+                    items
+                })
+            })
+            .any()
+    });
+    let edits = || probe.toolbar_edits().len();
+    let share = || {
+        day_core::toolbar::toolbar_model()
+            .into_iter()
+            .find(|i| i.id == "share")
+            .expect("the page's share command")
+            .action
+    };
+    let before = edits();
+    let id = share();
+
+    batch(|| section.set(Some("beta".into())));
+    flush_sync();
+    assert_eq!(edits(), before, "same commands on the next page: no edit");
+    assert_eq!(share(), id, "the toolkit's id for the item is stable");
+    day_core::dispatch_menu_action(id);
+    flush_sync();
+    assert_eq!(
+        *pressed.borrow(),
+        vec!["beta".to_string()],
+        "the id the toolkit holds reaches the new page's closure"
+    );
+
+    batch(|| section.set(Some("gamma".into())));
+    flush_sync();
+    assert_eq!(
+        edits(),
+        before + 1,
+        "a real change is one edit, not one per step"
+    );
+    let last = probe.toolbar_edits().last().cloned().unwrap();
+    assert!(
+        matches!(last.as_slice(), [day_spec::ToolbarOp::Insert { item, .. }] if item.id == "more"),
+        "the edit inserts the new item and touches nothing else: {last:?}"
+    );
+    assert_eq!(share(), id, "the surviving item keeps its id");
+    assert_eq!(
+        probe.toolbar_items(),
+        day_core::toolbar::toolbar_model(),
+        "the backend's bar is Day's model"
+    );
+}
+
+/// An edit the toolkit did not apply is not taken as delivered (docs/toolbars.md): the next
+/// change brings the toolkit's bar all the way to Day's model, not just the latest step.
+#[test]
+fn toolbar_edit_the_toolkit_declined_is_sent_again() {
+    let extra = Signal::new(false);
+    let title = Signal::new("Share".to_string());
+    let probe = boot(move || {
+        label("main").toolbar(move || {
+            let mut items = vec![toolbar_button("share", title.get())];
+            if extra.get() {
+                items.push(toolbar_button("more", "More"));
+            }
+            items
+        })
+    });
+    probe.set_decline_toolbar_edits(true);
+    batch(|| extra.set(true));
+    flush_sync();
+    assert!(
+        probe.toolbar_items().iter().all(|i| i.id != "more"),
+        "the declined edit did not land"
+    );
+    assert!(
+        day_core::toolbar::toolbar_model()
+            .iter()
+            .any(|i| i.id == "more"),
+        "Day's model still carries it, for dayscript to reach"
+    );
+    probe.set_decline_toolbar_edits(false);
+    batch(|| title.set("Send".into()));
+    flush_sync();
+    assert_eq!(
+        probe.toolbar_items(),
+        day_core::toolbar::toolbar_model(),
+        "the next edit carries what the toolkit was missing"
+    );
+}
+
+/// An item whose presentation changes is replaced alone, and one whose value changes is
+/// patched, never replaced (docs/toolbars.md).
+#[test]
+fn toolbar_edit_replaces_only_what_changed() {
+    let title = Signal::new("Share".to_string());
+    let on = Signal::new(false);
+    let probe = boot(move || {
+        label("main").toolbar(move || {
+            vec![
+                toolbar_button("share", title.get()),
+                toolbar_toggle("grid", "Grid", on),
+                toolbar_separator("sep"),
+                toolbar_button("print", "Print"),
+            ]
+        })
+    });
+    let edits = probe.toolbar_edits().len();
+
+    batch(|| on.set(true));
+    flush_sync();
+    assert_eq!(
+        probe.toolbar_edits().len(),
+        edits,
+        "a value is a patch, not an edit"
+    );
+    assert!(
+        probe
+            .toolbar_patches()
+            .contains(&day_spec::ToolbarPatch::On {
+                item: "grid".into(),
+                on: true
+            })
+    );
+
+    batch(|| title.set("Send".into()));
+    flush_sync();
+    let last = probe.toolbar_edits().last().cloned().unwrap();
+    assert_eq!(
+        last.len(),
+        2,
+        "a relabel removes and inserts that one item: {last:?}"
+    );
+    assert!(matches!(&last[0], day_spec::ToolbarOp::Remove { id } if id == "share"));
+    assert!(
+        matches!(&last[1], day_spec::ToolbarOp::Insert { index: 0, item } if item.label == "Send")
+    );
+    assert_eq!(probe.toolbar_items(), day_core::toolbar::toolbar_model());
+}
+
+/// A search asked for in the toolbar goes on the navigation surface where the bar cannot hold a
+/// field (`Cap::ToolbarSearch`, docs/search.md): a phone's bar is a row of actions, and a field it
+/// cannot draw would not be drawn at all.
+#[test]
+fn toolbar_search_falls_back_inline_where_the_bar_holds_no_field() {
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_no_toolbar_search(true);
+    let query = Signal::new(String::new());
+    let q = query;
+    day_core::launch_with(mock, WindowOptions::default(), move || {
+        nav(Signal::new(Option::<String>::None))
+            .style(NavStyle::Sidebar)
+            .searchable(q)
+            .search_placement(day_spec::props::SearchPlacement::Toolbar)
+            .items(
+                || vec!["alpha".to_string()],
+                |r: &String| item(r.clone(), r.clone()),
+            )
+            .destination(|_: &Option<String>| label("detail"))
+            .any()
+    });
+    assert!(
+        day_core::toolbar::toolbar_model()
+            .iter()
+            .all(|i| i.id != "day.search"),
+        "no search item rides a bar that cannot draw it"
+    );
+    // The field is inline: its edits arrive against the host.
+    let host = node_id(&probe, "day.nav", 0);
+    probe.emit(host, Event::SearchChanged("al".into()));
+    flush_sync();
+    assert_eq!(query.get_untracked(), "al");
+}
+
+/// A toolbar search field typed into keeps what it shows in Day's model, so a re-install
+/// cannot seed it with stale text.
+///
+/// Typing a letter that moves the nav selection swaps the page's commands, which re-installs the
+/// window bar. The model used to hold only what Day last pushed, so the rebuilt field came back
+/// empty while the list stayed filtered, and clearing it afterwards reported nothing new: the
+/// field already held the stale seed. The model now mirrors every value the field reports.
+#[test]
+fn toolbar_search_text_survives_a_page_change() {
+    use day_spec::ToolbarValue;
+    let section = Signal::new(Some("alpha".to_string()));
+    let query = Signal::new(String::new());
+    let rows = ["alpha".to_string(), "beta".to_string()];
+    let q_r = query;
+    let probe = boot(move || {
+        nav(section)
+            .style(NavStyle::Sidebar)
+            .searchable(q_r)
+            .search_placement(day_spec::props::SearchPlacement::Toolbar)
+            .items(
+                move || {
+                    let q = q_r.get().to_lowercase();
+                    rows.iter()
+                        .filter(|r| q.is_empty() || r.contains(&q))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                },
+                |r: &String| item(r.clone(), r.clone()),
+            )
+            // Pages with different commands: moving between them changes the bar's shape.
+            .destination(|s: &Option<String>| match s.as_deref() {
+                Some("beta") => label("beta")
+                    .toolbar(|| vec![toolbar_button("one", "One"), toolbar_button("two", "Two")]),
+                _ => label("alpha").toolbar(|| vec![toolbar_button("one", "One")]),
+            })
+            .any()
+    });
+    let search = || {
+        day_core::toolbar::toolbar_model()
+            .into_iter()
+            .find(|i| matches!(i.kind, day_spec::ToolbarItemKind::Search { .. }))
+            .expect("a toolbar search item")
+    };
+    let text = || match search().kind {
+        day_spec::ToolbarItemKind::Search { text, .. } => text,
+        _ => unreachable!(),
+    };
+
+    day_core::toolbar::dispatch_toolbar_value(search().action, &ToolbarValue::Text("b".into()));
+    flush_sync();
+    assert_eq!(query.get_untracked(), "b");
+    assert_eq!(text(), "b", "the model mirrors what the field reported");
+
+    // The selection follows the filter onto a page with other commands: the bar re-installs.
+    let edits = probe.toolbar_edits().len();
+    batch(|| section.set(Some("beta".into())));
+    flush_sync();
+    assert_eq!(
+        probe.toolbar_edits().len(),
+        edits + 1,
+        "the swap is one edit, not one per withdrawn and added contribution"
+    );
+    let last = probe.toolbar_edits().last().cloned().unwrap();
+    assert!(
+        last.iter().all(|op| match op {
+            day_spec::ToolbarOp::Remove { id } => id != "day.search",
+            day_spec::ToolbarOp::Insert { item, .. } => item.id != "day.search",
+        }),
+        "the search field being typed into is never removed or re-inserted: {last:?}"
+    );
+    assert!(
+        day_core::toolbar::toolbar_model()
+            .iter()
+            .any(|i| i.id == "two"),
+        "the page's commands changed"
+    );
+    assert_eq!(
+        text(),
+        "b",
+        "a re-install seeds the field with the text it shows"
+    );
+
+    day_core::toolbar::dispatch_toolbar_value(search().action, &ToolbarValue::Text("be".into()));
+    flush_sync();
+    assert_eq!(
+        query.get_untracked(),
+        "be",
+        "the re-installed field still dispatches"
+    );
+
+    // Clearing reaches the app however the field was last seeded.
+    day_core::toolbar::dispatch_toolbar_value(search().action, &ToolbarValue::Text(String::new()));
+    flush_sync();
+    assert_eq!(
+        query.get_untracked(),
+        "",
+        "clearing the field clears the query"
+    );
+    assert_eq!(text(), "");
+}
+
 /// `.searchable()` is declared on the surface, and the query stays an app-owned signal
 /// (docs/search.md). That is what will let the field move between the toolbar and the navigation
 /// list without the state moving with it, so the binding has to run in both directions against

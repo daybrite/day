@@ -37,17 +37,20 @@ unsafe extern "C" {
     pub fn day_ark_nav_pop();
     pub fn day_ark_nav_set_title(title: *const c_char);
     pub fn day_ark_nav_set_guard(on: i32);
-    /// Set the trailing title-bar actions (NavProps::bar_actions, docs/navigation.md): bundled
-    /// image names, accessible labels, dispatch ids, and per-action "1"/"0" root-only flags, each
-    /// field `\n`-joined across the actions. One action joins to exactly the plain strings the
-    /// single-action seam used to send, so an ArkTS host that predates multi-action still renders
-    /// it. No-op if the ArkTS host predates the seam entirely.
+    /// Set the window toolbar's title-bar actions (docs/toolbars.md): icon URIs, labels, dispatch
+    /// ids, per-action scopes ("1" root page, "0" pushed pages, "2" both) and "1"/"0" enabled
+    /// flags, each field `\n`-joined across the actions. No-op if the ArkTS host predates the
+    /// seam.
     pub fn day_ark_nav_set_menu(
         icons: *const c_char,
         labels: *const c_char,
         actions: *const c_char,
-        root_only: *const c_char,
+        scopes: *const c_char,
+        enabled: *const c_char,
     );
+    /// Show (1), hide (0) or only re-text (-1) the navigation surface's search field
+    /// (docs/search.md). No-op if the ArkTS host predates the seam.
+    pub fn day_ark_nav_set_search(shown: c_int, prompt: *const c_char, text: *const c_char);
     /// Open a URL via the ArkTS opener (the `link` piece's seam). No-op if unregistered.
     pub fn day_ark_open_url(url: *const c_char);
     pub fn day_ark_nav_remove(key: u64, page: *mut c_void);

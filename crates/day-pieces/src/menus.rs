@@ -190,7 +190,7 @@ fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
 /// backends receive a ready, locale-correct label instead of each hardcoding English (day-l10n).
 ///
 /// This variant registers process-lived closures, correct for the app menu and toolbars, whose
-/// ids day-core manages by shape-rebinding and explicit sweeps. Menus owned by a piece build
+/// ids day-core manages by shape-rebinding, toolbar slots and explicit sweeps. Menus owned by a piece build
 /// (a `.context_menu`, a nav row's menu) go through [`lower_menu_scoped`] instead, so their
 /// closures are reclaimed when the registering scope is disposed rather than leaking per remount.
 pub(crate) fn lower_menu(entries: Vec<MenuEntry>) -> Vec<day_spec::MenuItem> {

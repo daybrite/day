@@ -189,24 +189,177 @@ pub fn makensis() -> Option<PathBuf> {
 
 /// The Android SDK root.
 ///
-/// Overrides: `ANDROID_HOME`, then `ANDROID_SDK_ROOT` (both standard). Falls back to each
-/// platform's default install location: `~/Library/Android/sdk` (macOS),
-/// `%LOCALAPPDATA%\Android\Sdk` (Windows), `~/Android/Sdk` (Linux, Android Studio's default).
+/// Overrides: `ANDROID_HOME`, then `ANDROID_SDK_ROOT` (both standard). Then each platform's
+/// default install location: `~/Library/Android/sdk` (macOS), `%LOCALAPPDATA%\Android\Sdk`
+/// (Windows), `~/Android/Sdk` (Linux), which is where Android Studio puts it. When nothing is
+/// there, the location Android Studio records for its SDK (see [`android_studio_sdk_setting`]),
+/// so an SDK moved elsewhere from Studio's settings is still found. The default is returned when
+/// neither exists, for the diagnostics to name.
 pub fn android_sdk_dir() -> PathBuf {
     if let Ok(v) = std::env::var("ANDROID_HOME").or_else(|_| std::env::var("ANDROID_SDK_ROOT")) {
         return PathBuf::from(v);
     }
+    let default = default_android_sdk_dir();
+    if default.is_dir() {
+        return default;
+    }
+    android_studio_sdk_setting()
+        .filter(|p| p.is_dir())
+        .unwrap_or(default)
+}
+
+fn default_android_sdk_dir() -> PathBuf {
     if cfg!(target_os = "windows")
         && let Ok(v) = std::env::var("LOCALAPPDATA")
     {
         return PathBuf::from(v).join("Android").join("Sdk");
     }
-    let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    let home = home_dir();
     if cfg!(target_os = "macos") {
         home.join("Library/Android/sdk")
     } else {
         home.join("Android/Sdk")
     }
+}
+
+fn home_dir() -> PathBuf {
+    PathBuf::from(
+        std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_default(),
+    )
+}
+
+/// Every Android Studio installation this machine has, most likely first.
+///
+/// Where each platform's installers put it: the macOS app bundle (system or per-user
+/// Applications), the Windows installer's directory, and on Linux the Snap, a tarball unpacked
+/// into `/opt`, `/usr/local` or the home directory, JetBrains Toolbox, and the Flathub build.
+/// `ANDROID_STUDIO_HOME` names one explicitly and comes first. A result is a directory holding
+/// Studio's own layout (`bin/` and the bundled `jbr/`), or a macOS bundle's `Contents/`.
+pub fn android_studio_homes() -> Vec<PathBuf> {
+    let home = home_dir();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(v) = std::env::var("ANDROID_STUDIO_HOME") {
+        candidates.push(PathBuf::from(v));
+    }
+    if cfg!(target_os = "macos") {
+        for apps in [PathBuf::from("/Applications"), home.join("Applications")] {
+            for name in ["Android Studio.app", "Android Studio Preview.app"] {
+                candidates.push(apps.join(name).join("Contents"));
+            }
+        }
+    } else if cfg!(target_os = "windows") {
+        for var in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Ok(v) = std::env::var(var) {
+                candidates.push(PathBuf::from(v).join("Android").join("Android Studio"));
+            }
+        }
+        if let Ok(v) = std::env::var("LOCALAPPDATA") {
+            candidates.push(PathBuf::from(&v).join("Programs").join("Android Studio"));
+            candidates.push(PathBuf::from(v).join("JetBrains/Toolbox/apps/android-studio"));
+        }
+    } else {
+        candidates.extend([
+            PathBuf::from("/snap/android-studio/current"),
+            PathBuf::from("/opt/android-studio"),
+            PathBuf::from("/usr/local/android-studio"),
+            home.join("android-studio"),
+            home.join(".local/share/JetBrains/Toolbox/apps/android-studio"),
+            PathBuf::from(
+                "/var/lib/flatpak/app/com.google.AndroidStudio/current/active/files/extra/android-studio",
+            ),
+            home.join(
+                ".local/share/flatpak/app/com.google.AndroidStudio/current/active/files/extra/android-studio",
+            ),
+        ]);
+    }
+    candidates.dedup();
+    candidates.retain(|p| p.join("bin").is_dir() || p.join("MacOS").is_dir());
+    candidates
+}
+
+/// The JDK Android Studio bundles (its JetBrains Runtime), from the first installation that has
+/// one. It is the JDK Studio itself runs Gradle with, so the Android build is known to work on it,
+/// whatever other Java the machine has.
+pub fn android_studio_jbr() -> Option<PathBuf> {
+    let java = if cfg!(windows) { "java.exe" } else { "java" };
+    android_studio_homes().into_iter().find_map(|studio| {
+        // macOS nests a whole JDK bundle under jbr/.
+        [studio.join("jbr/Contents/Home"), studio.join("jbr")]
+            .into_iter()
+            .find(|jdk| jdk.join("bin").join(java).is_file())
+    })
+}
+
+/// The SDK location Android Studio's own settings record (Settings ▸ Languages & Frameworks ▸
+/// Android SDK), from the newest Studio configuration directory that has one: its
+/// `options/android.sdk.path.xml`, whose path may start with Studio's `$USER_HOME$` macro.
+pub fn android_studio_sdk_setting() -> Option<PathBuf> {
+    let home = home_dir();
+    let config = if cfg!(target_os = "macos") {
+        home.join("Library/Application Support/Google")
+    } else if cfg!(target_os = "windows") {
+        PathBuf::from(std::env::var("APPDATA").ok()?).join("Google")
+    } else {
+        std::env::var("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| home.join(".config"))
+            .join("Google")
+    };
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&config)
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("AndroidStudio"))
+        })
+        .collect();
+    // The newest release sorts last; its settings are the ones in use.
+    dirs.sort();
+    dirs.iter().rev().find_map(|dir| {
+        let xml = std::fs::read_to_string(dir.join("options/android.sdk.path.xml")).ok()?;
+        parse_studio_sdk_path(&xml, &home)
+    })
+}
+
+/// The `androidSdkAbsolutePath` value in Studio's `android.sdk.path.xml`, with `$USER_HOME$`
+/// expanded.
+fn parse_studio_sdk_path(xml: &str, home: &Path) -> Option<PathBuf> {
+    let at = xml.find("androidSdkAbsolutePath")?;
+    let rest = &xml[at..];
+    let start = rest.find("value=\"")? + "value=\"".len();
+    let end = rest[start..].find('"')?;
+    let raw = &rest[start..start + end];
+    let expanded = match raw.strip_prefix("$USER_HOME$") {
+        Some(tail) => format!("{}{tail}", home.display()),
+        None => raw.to_string(),
+    };
+    (!expanded.is_empty()).then(|| PathBuf::from(expanded))
+}
+
+/// The `sdkmanager` of the SDK's command-line tools, if they are installed. Android Studio
+/// installs them into the SDK (SDK Tools ▸ Android SDK Command-line Tools), not onto PATH.
+pub fn android_sdkmanager() -> Option<PathBuf> {
+    let name = if cfg!(windows) {
+        "sdkmanager.bat"
+    } else {
+        "sdkmanager"
+    };
+    let tools = android_sdk_dir().join("cmdline-tools");
+    let latest = tools.join("latest/bin").join(name);
+    if latest.is_file() {
+        return Some(latest);
+    }
+    // A versioned install (`cmdline-tools/19.0/`), newest last.
+    let mut versions: Vec<PathBuf> = std::fs::read_dir(&tools)
+        .ok()?
+        .filter_map(|e| e.ok().map(|e| e.path().join("bin").join(name)))
+        .filter(|p| p.is_file())
+        .collect();
+    versions.sort();
+    versions.pop()
 }
 
 /// The `adb` this machine should use: the SDK's own copy first, then whatever is on PATH.
@@ -230,13 +383,20 @@ pub fn adb_bin() -> String {
 /// alike, so the old "21 exactly / 22+ breaks the jdk-image transform" restriction was an AGP-8-era
 /// carryover and no longer holds).
 ///
-/// Overrides: `JAVA_HOME` (trusted as-is, which is Gradle's contract). Fallbacks: macOS's
+/// Overrides: `JAVA_HOME` (trusted as-is, which is Gradle's contract). Fallbacks: Android
+/// Studio's bundled JDK ([`android_studio_jbr`]), then macOS's
 /// `/usr/libexec/java_home -v 17+` registry (the newest install ≥ 17), then a Homebrew `openjdk`
 /// keg, the unversioned latest first, then pinned 17+ kegs (both Apple-Silicon and Intel
 /// prefixes). Callers export the result as `JAVA_HOME` for the Gradle child process.
 pub fn jdk_home() -> Option<PathBuf> {
     if let Ok(v) = std::env::var("JAVA_HOME") {
         return Some(PathBuf::from(v));
+    }
+    // Android Studio's bundled runtime, on every host: the JDK Studio runs this same Gradle
+    // build with. It comes before whatever else is installed because it is the one known to be
+    // in Gradle's supported range; a system JDK newer than Gradle supports fails the build.
+    if let Some(jbr) = android_studio_jbr() {
+        return Some(jbr);
     }
     if cfg!(target_os = "macos") {
         // The canonical macOS JDK registry (also finds Temurin/Zulu installs, beyond brew's).
@@ -409,6 +569,29 @@ pub fn is_dir(dir: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn studio_sdk_path_expands_user_home() {
+        use std::path::{Path, PathBuf};
+        let xml = r#"<application>
+  <component name="AndroidSdkPathStore">
+    <option name="androidSdkAbsolutePath" value="$USER_HOME$/Android/Sdk" />
+  </component>
+</application>"#;
+        assert_eq!(
+            super::parse_studio_sdk_path(xml, Path::new("/home/ada")),
+            Some(PathBuf::from("/home/ada/Android/Sdk"))
+        );
+        let abs = r#"<option name="androidSdkAbsolutePath" value="/data/sdk" />"#;
+        assert_eq!(
+            super::parse_studio_sdk_path(abs, Path::new("/home/ada")),
+            Some(PathBuf::from("/data/sdk"))
+        );
+        assert_eq!(
+            super::parse_studio_sdk_path("<application/>", Path::new("/")),
+            None
+        );
+    }
+
     use super::*;
 
     #[test]

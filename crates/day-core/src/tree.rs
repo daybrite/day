@@ -747,11 +747,13 @@ pub trait TreeOps {
     fn set_probe_value(&mut self, node: RNode, value: f64, text: String);
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>);
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>);
-    /// Install `root`'s window toolbar (docs/toolbars.md). `root` is a window root: the primary
+    /// Edit `root`'s window toolbar (docs/toolbars.md). `root` is a window root: the primary
     /// root or one returned by `open_window_root`.
-    fn set_window_toolbar(&mut self, root: RNode, items: Vec<day_spec::ToolbarItem>);
-    /// Apply a targeted change to one item of `root`'s toolbar.
-    fn patch_window_toolbar(&mut self, root: RNode, patch: day_spec::ToolbarPatch);
+    /// `false` when the toolkit did not apply it (the root has no native handle yet, or the
+    /// toolkit has no bar for it).
+    fn edit_window_toolbar(&mut self, root: RNode, ops: Vec<day_spec::ToolbarOp>) -> bool;
+    /// Apply a targeted change to one item of `root`'s toolbar; `false` as above.
+    fn patch_window_toolbar(&mut self, root: RNode, patch: day_spec::ToolbarPatch) -> bool;
     /// Programmatic scroll (§7.6, docs/scroll.md): resolve `target` against a scroll node's
     /// content/viewport and drive `Toolkit::scroll_to`. Returns false when `node` isn't a
     /// realized scroll (the caller reports the miss; dayscript retries).
@@ -1315,16 +1317,19 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.toolkit.set_app_menu(&items);
     }
 
-    fn set_window_toolbar(&mut self, root: RNode, items: Vec<day_spec::ToolbarItem>) {
-        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
-            self.toolkit.set_toolbar(&h, &items);
-        }
+    fn edit_window_toolbar(&mut self, root: RNode, ops: Vec<day_spec::ToolbarOp>) -> bool {
+        let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) else {
+            return false;
+        };
+        self.toolkit.edit_toolbar(&h, &ops)
     }
 
-    fn patch_window_toolbar(&mut self, root: RNode, patch: day_spec::ToolbarPatch) {
-        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
-            self.toolkit.update_toolbar(&h, &patch);
-        }
+    fn patch_window_toolbar(&mut self, root: RNode, patch: day_spec::ToolbarPatch) -> bool {
+        let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) else {
+            return false;
+        };
+        self.toolkit.update_toolbar(&h, &patch);
+        true
     }
 
     fn set_context_menu(&mut self, node: RNode, items: Vec<day_spec::MenuItem>) {

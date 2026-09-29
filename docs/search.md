@@ -57,16 +57,19 @@ honor the request falls back to its platform's convention, as SwiftUI documents
 to be fulfilled"). `Automatic` is almost always the right answer: it lets the field live in
 the toolbar on a desktop window and move into the navigation list on a phone.
 
-`Automatic` resolves to the window toolbar wherever the toolkit has one, and to **`Inline`** where
-it does not. That second case needs no size class, because "this toolkit has no toolbar at all" is
-a static fact about the backend rather than a question about the window's width.
+`Automatic` resolves to the window toolbar wherever that toolbar can hold a search field
+(`Cap::Toolbar` and `Cap::ToolbarSearch`), and to **`Inline`** where it cannot. The phones answer
+`Cap::ToolbarSearch` unsupported: an Android app-bar menu, iOS bar buttons and ArkUI's title-bar
+menus are rows of actions, so their field goes on the navigation surface. That needs no size class,
+because "this toolkit's bar holds no field" is a static fact about the backend rather than a
+question about the window's width. An explicit `Toolbar` falls back to `Inline` on the same
+backends: a field the bar cannot draw would otherwise not be drawn at all, which is what happened
+on iOS, Android and ArkUI before the capability existed.
 
-On **iOS the two placements name one surface**, so the resolution does not matter there:
-`UINavigationItem` owns the navigation bar's buttons AND its search controller, and the window
-toolbar rides that same item ([docs/toolbars.md](toolbars.md)) — so day-uikit installs the field
-whichever way it was asked for. It has to: the day iOS gained `Cap::Toolbar` (2026-09), every
-`.searchable()` surface there resolved to `Toolbar` and the field silently vanished, because a
-`UIBarButtonItem` cannot be a search field and the toolbar builder skipped it.
+On **iOS the two placements name one surface** anyway: `UINavigationItem` owns the navigation bar's
+buttons AND its search controller, and the window toolbar rides that same item
+([docs/toolbars.md](toolbars.md)), so day-uikit installs the field whichever way it was asked
+for.
 
 > [!NOTE]
 > **The case in between still waits on size classes**: a narrow window on a toolkit that
@@ -123,7 +126,7 @@ merged into the window's bar under the reserved id **`day.search`**, trailing. T
 consequences:
 
 - every backend that already drew a toolbar search field draws this one, with no per-backend code;
-- the merge happens inside `set_window_toolbar`, not at the app's call site, because the app
+- the merge happens inside day-core's window-bar composition, not at the app's call site, because the app
   installs its bar *before* the tree builds and a derived contribution re-lowers on
   any reactive change. An item injected once would be dropped by the next rebuild.
 

@@ -214,13 +214,24 @@ the Android SDK, an NDK, and a JDK regardless of which host you are on.
    [Android Studio](https://developer.android.com/studio), or the standalone
    [command-line tools](https://developer.android.com/tools). Day finds it at the platform default
    (`~/Library/Android/sdk` on macOS, `%LOCALAPPDATA%\Android\Sdk` on Windows, `~/Android/Sdk` on
-   Linux); set `ANDROID_HOME` if yours is elsewhere.
-2. Install an **NDK** with `sdkmanager --install "ndk;<version>"`, or from Android Studio's SDK
-   Manager under *SDK Tools*. Day uses the newest one under `<sdk>/ndk` unless
-   `ANDROID_NDK_HOME` says otherwise.
-3. Install a **JDK, version 17 or newer** (`brew install openjdk@21`, or
-   [Adoptium](https://adoptium.net)). The Gradle build uses `$JAVA_HOME`, so set it if the `java`
-   on your `PATH` is older.
+   Linux). If you moved it in Android Studio's settings, Day reads the new location from there.
+   Set `ANDROID_HOME` to override either.
+2. Install an **NDK**. Android Studio's SDK Manager does not install one by default: open
+   *Settings ▸ Languages & Frameworks ▸ Android SDK ▸ SDK Tools* and check *NDK (Side by side)*.
+   Without Studio, run `sdkmanager --install "ndk;<version>"`. Studio does not put `sdkmanager`
+   on `PATH`: it lives at `<sdk>/cmdline-tools/latest/bin/sdkmanager` once the *Android SDK
+   Command-line Tools* package (also under *SDK Tools*) is installed. Day uses the newest NDK under
+   `<sdk>/ndk` unless `ANDROID_NDK_HOME` says otherwise.
+3. You need a **JDK, version 17 or newer**. If Android Studio is installed, you already have one:
+   when `JAVA_HOME` is unset, Day builds with Studio's bundled JDK, the one Studio runs Gradle
+   with. That also sidesteps a system `java` newer than Gradle supports. Day finds Studio in its
+   standard install locations (the macOS app bundle, the Windows installer's directory, and on
+   Linux the Snap, `/opt/android-studio`, `~/android-studio`, JetBrains Toolbox or Flathub). Set
+   `ANDROID_STUDIO_HOME` for anywhere else. Without Studio, install a JDK
+   (`brew install openjdk@21`, or [Adoptium](https://adoptium.net)) and set `JAVA_HOME` if the
+   `java` on your `PATH` is older than 17.
+
+`day doctor` shows what it found for each of these, including which Android Studio it is using.
 4. Add the Rust target and `cargo-ndk`:
 
 ```bash
@@ -245,7 +256,8 @@ adb devices                 # confirm it is listed as `device`
 ```
 
 Day can list existing AVDs with `day devices list -p android-mdc` and start one with
-`day devices boot -p android-mdc AVD_NAME --wait`. See
+`day devices boot -p android-mdc AVD_NAME --wait`. An AVD stays listed after its system image is
+removed, so `day devices boot` checks the image first and names the package to reinstall. See
 [Android troubleshooting](/docs/troubleshooting#android-will-not-build-or-find-a-device) if it is not detected. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
 `x86_64-linux-android`. Set `ANDROID_SERIAL` when more than one device or emulator is attached, so
 `day launch` and `day drive` act on the one you mean.

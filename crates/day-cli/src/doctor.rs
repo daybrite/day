@@ -153,7 +153,45 @@ fn have_jdk() -> Option<String> {
         .split(|c: char| c.is_whitespace() || c == '"')
         .filter(|t| !t.is_empty())
         .find_map(|t| t.split(['.', '-', '_']).next()?.parse::<u32>().ok())?;
-    (major >= 17).then(|| text.lines().next().unwrap_or("").trim().to_string())
+    let version = text.lines().next().unwrap_or("").trim().to_string();
+    // Say where it came from when Day found it rather than being told: Android Studio's bundled
+    // runtime is picked over whatever `java` is on PATH, which is worth knowing.
+    let bundled = std::env::var_os("JAVA_HOME").is_none()
+        && day_toolchain::android_studio_jbr().is_some_and(|jbr| java.starts_with(jbr));
+    (major >= 17).then(|| {
+        if bundled {
+            format!("{version} (Android Studio's bundled JDK)")
+        } else {
+            version
+        }
+    })
+}
+
+/// The SDK directory, if it exists, noting the Android Studio installation that manages it.
+fn android_sdk_probe(sdk: &Path) -> Option<String> {
+    let dir = existing_dir(sdk)?;
+    Some(match day_toolchain::android_studio_homes().first() {
+        Some(studio) => format!("{dir} (Android Studio: {})", studio.display()),
+        None => dir,
+    })
+}
+
+/// How to install an SDK package on this machine: through Android Studio when it is here, and
+/// through the SDK's own `sdkmanager` (by full path, since Studio does not put it on PATH).
+fn android_sdk_install_hint(what: &str, pkg: &str) -> String {
+    let studio = if day_toolchain::android_studio_homes().is_empty() {
+        String::new()
+    } else {
+        format!("in Android Studio, Settings ▸ Languages & Frameworks ▸ Android SDK ▸ {what}; or ")
+    };
+    let sdkmanager = match day_toolchain::android_sdkmanager() {
+        Some(sm) => format!("`{} --install '{pkg}'`", sm.display()),
+        None => format!(
+            "`sdkmanager --install '{pkg}'` (from the SDK's Command-line Tools, which Android \
+             Studio's SDK Tools tab installs)"
+        ),
+    };
+    format!("{studio}{sdkmanager}")
 }
 
 /// The C compiler the web build's SQLite compile will use: [`day_toolchain::wasm_cc`], the
@@ -590,13 +628,18 @@ fn android_group() -> Group {
         probes: vec![
             Probe::new(
                 "android-sdk",
-                existing_dir(&sdk),
-                "install the Android SDK and set ANDROID_HOME (Android Studio, or cmdline-tools)",
+                android_sdk_probe(&sdk),
+                "install Android Studio, which installs the SDK (or the standalone command-line \
+                 tools); set ANDROID_HOME if it is not at the platform default or where Studio's \
+                 settings say",
             ),
             Probe::new(
                 "android-ndk",
                 ndk.as_ref().and_then(|p| existing_dir(p)),
-                "install an NDK via sdkmanager and/or set ANDROID_NDK_HOME",
+                format!(
+                    "install an NDK: {} (ANDROID_NDK_HOME overrides)",
+                    android_sdk_install_hint("SDK Tools ▸ NDK (Side by side)", "ndk;<version>")
+                ),
             ),
             Probe::new(
                 "rust-android",
@@ -611,7 +654,9 @@ fn android_group() -> Group {
             Probe::new(
                 "jdk",
                 have_jdk(),
-                "install JDK 17 or newer and point JAVA_HOME at it (`brew install openjdk@21`); the Gradle build uses $JAVA_HOME",
+                "install Android Studio (its bundled JDK is used automatically), or a JDK 17 or \
+                 newer and point JAVA_HOME at it (`brew install openjdk@21`); the Gradle build \
+                 uses $JAVA_HOME",
             ),
             Probe::new(
                 "device",
@@ -634,13 +679,15 @@ fn android_group() -> Group {
         ],
         setup: "Android (Material Components) cross-compiles the app to a JNI .so and runs it in a\n\
                 Gradle app. Install:\n\
-                • the Android SDK — set ANDROID_HOME (or ANDROID_SDK_ROOT); Android Studio installs it\n\
-                  at the platform default (~/Library/Android/sdk on macOS; docs/environment.md) otherwise\n\
-                • an NDK — via `sdkmanager --install 'ndk;<ver>'`; set ANDROID_NDK_HOME to override\n\
+                • Android Studio, which installs the SDK at the platform default and bundles a JDK;\n\
+                  Day finds both, and the SDK location Studio's settings record (docs/environment.md).\n\
+                  Set ANDROID_HOME (or ANDROID_SDK_ROOT) for an SDK elsewhere\n\
+                • an NDK — Studio's SDK Manager (SDK Tools ▸ NDK), or the SDK's\n\
+                  `cmdline-tools/latest/bin/sdkmanager --install 'ndk;<ver>'`; ANDROID_NDK_HOME overrides\n\
                 • the Android Rust target — `rustup target add aarch64-linux-android`\n\
                 • `cargo install cargo-ndk`\n\
-                • JDK 17 or newer — `brew install openjdk@21` (AGP 9's minimum is 17; the Gradle\n\
-                  build uses $JAVA_HOME, so set it if `java` on PATH is older)\n\
+                • JDK 17 or newer — Android Studio's bundled one is used when JAVA_HOME is unset;\n\
+                  otherwise `brew install openjdk@21` and set JAVA_HOME (AGP 9's minimum is 17)\n\
                 A booted emulator or attached device is needed only to launch, not to build. Create\n\
                 an AVD in Android Studio's Device Manager (or `avdmanager create avd`) and start it\n\
                 with `emulator -avd <name>` — `day` has no Android-emulator command of its own.",

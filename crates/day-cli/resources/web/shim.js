@@ -15,6 +15,193 @@ let appStarted = false;     // day_dom_main has run; script lines before that qu
 const scriptInbox = [];
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
 let toolbarItems = {};      // toolbar item id → its element, for targeted patches
+// The docked toolbar strip (docs/toolbars.md): the bar element, its tracks by column, and every
+// item in Day's order with its element, the column it asked for, and the track it sits in.
+let toolbarBar = null;
+let toolbarTracks = {};
+let toolbarOrder = [];
+const TOOLBAR_COLUMNS = ['sidebar', 'list', 'detail'];
+// Follows the split's panes, so the tracks keep their widths as a pane is dragged, collapsed or
+// the window resized.
+const toolbarPanes = new ResizeObserver(() => layoutToolbar());
+
+// Dock a new strip. Three tracks, one per column of a split window (docs/toolbars.md). Day draws
+// this strip itself, so it can do what a desktop toolbar does: the sidebar's commands over the
+// sidebar, the content list's over the list, the rest over the detail.
+function openToolbar() {
+  toolbarBar = div('day-toolbar'); toolbarBar.id = 'day-toolbar';
+  toolbarTracks = {};
+  document.body.prepend(toolbarBar);
+  document.body.classList.add('day-has-toolbar');
+  layoutToolbar();
+}
+
+// The track column `col`'s items go in right now. A column with no pane of its own (no split, a
+// composed content list, a collapsed sidebar) has no width to align to, so its commands join the
+// detail's track rather than claiming a strip of their own.
+function toolbarColumn(col) {
+  const widths = toolbarBar.__widths || {};
+  return (col === 'sidebar' || col === 'list') && widths[col] ? col : 'detail';
+}
+
+function toolbarTrack(col) {
+  col = toolbarColumn(col);
+  if (!toolbarTracks[col]) {
+    const t = div('day-toolbar-track day-toolbar-' + col);
+    // In column order, whatever order the tracks are first needed in.
+    const next = TOOLBAR_COLUMNS.slice(TOOLBAR_COLUMNS.indexOf(col) + 1)
+      .map((c) => toolbarTracks[c]).find(Boolean);
+    if (next) next.before(t); else toolbarBar.append(t);
+    toolbarTracks[col] = t;
+  }
+  return toolbarTracks[col];
+}
+
+// Fit the strip to the window as it is now: measure the split's panes, size the tracks to them,
+// and put each item in the track its column now maps to. Only an item whose track changed moves
+// (a pane appearing or collapsing), in Day's order, and the keyboard focus goes back to the
+// element that had it; everything else stays exactly where it is.
+function layoutToolbar() {
+  if (!toolbarBar) return;
+  const nav = document.querySelector('.day-nav.split');
+  const pane = (sel) => nav && nav.querySelector(sel);
+  const widthOf = (el) => (el && el.offsetParent !== null ? Math.round(el.getBoundingClientRect().width) : 0);
+  const side = pane('.day-nav-sidebar'), list = pane('.day-nav-list');
+  toolbarBar.__widths = { sidebar: widthOf(side), list: widthOf(list) };
+  if (toolbarBar.__nav !== nav) {
+    toolbarPanes.disconnect();
+    for (const el of [side, list]) if (el) toolbarPanes.observe(el);
+    toolbarBar.__nav = nav;
+  }
+  const focused = document.activeElement;
+  for (const e of toolbarOrder) {
+    const track = toolbarTrack(e.col);
+    if (e.track !== track) { e.track = track; e.moved = true; }
+  }
+  for (const col of TOOLBAR_COLUMNS) {
+    const t = toolbarTracks[col];
+    if (!t) continue;
+    let prev = null;
+    for (const e of toolbarOrder) {
+      if (e.track !== t) continue;
+      if (e.moved || (prev ? prev.nextSibling !== e.el : t.firstChild !== e.el)) {
+        if (prev) prev.after(e.el); else t.prepend(e.el);
+        e.moved = false;
+      }
+      prev = e.el;
+    }
+    const w = toolbarBar.__widths[col];
+    t.style.flex = col !== 'detail' && w ? `0 0 ${w}px` : '';
+    // A column that has lost its pane has nothing left in it.
+    if (col !== 'detail' && !w && !t.firstChild) { t.remove(); delete toolbarTracks[col]; }
+  }
+  if (focused && focused !== document.activeElement && focused.isConnected) focused.focus();
+}
+
+// The element for one toolbar item.
+function buildToolbarItem(it) {
+  let el = null;
+  if (it.kind === '-') el = div('day-toolbar-sep');
+  else if (it.kind === 'L') { el = div('day-toolbar-label'); el.textContent = it.label; }
+  else if (it.kind === 'G') {
+    // A segmented control, reusing the picker piece's own `.day-segmented` styling so the
+    // one in the bar and the one on a page are the same control.
+    el = div('day-segmented day-toolbar-segmented');
+    el.setAttribute('role', 'radiogroup');
+    (it.segments || []).forEach((seg, n) => {
+      const b = document.createElement('button');
+      b.className = 'day-seg' + (n === it.selected ? ' selected' : '');
+      b.type = 'button';
+      b.disabled = !it.enabled;
+      b.title = seg.title;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', n === it.selected ? 'true' : 'false');
+      b.setAttribute('aria-label', seg.title);
+      if (seg.icon) {
+        const ic = div('day-toolbar-icon');
+        ic.style.maskImage = `url("${seg.icon}")`;
+        ic.style.webkitMaskImage = `url("${seg.icon}")`;
+        b.append(ic);
+      } else {
+        b.textContent = seg.title;
+      }
+      b.addEventListener('click', () => {
+        if (b.classList.contains('selected')) return; // already the choice
+        selectAmong(el, n);
+        if (it.action) wasm.day_dom_toolbar_value(it.action, n);
+      });
+      el.append(b);
+    });
+  }
+  else if (it.kind === 'F') {
+    el = document.createElement('input');
+    el.type = 'search'; el.className = 'day-toolbar-search';
+    el.value = it.text || ''; el.placeholder = it.placeholder || '';
+    el.disabled = !it.enabled;
+    // A native <datalist>: the browser draws the completion popup, so the keyboard handling
+    // and the styling are the platform's (docs/search.md).
+    const dl = document.createElement('datalist');
+    dl.id = 'day-search-suggestions';
+    el.setAttribute('list', dl.id);
+    el.__datalist = dl;
+    setSuggestions(dl, it.suggestions || []);
+    toolbarBar.append(dl);
+    if (it.action) el.addEventListener('input', () => {
+      const [ptr, len] = intoWasm(el.value);
+      wasm.day_dom_toolbar_text(it.action, ptr, len);
+    });
+  } else {
+    // B, T, S and M are all buttons; only their click behavior differs.
+    el = document.createElement('button');
+    el.className = 'day-toolbar-btn';
+    el.disabled = !it.enabled;
+    el.title = it.tip || it.label;
+    if (it.icon) {
+      const ic = div('day-toolbar-icon');
+      ic.style.maskImage = `url("${it.icon}")`;
+      ic.style.webkitMaskImage = `url("${it.icon}")`;
+      el.append(ic);
+    }
+    // Icon alone where there is one, as every desktop toolbar does; the label stays as the
+    // tooltip and the accessible name, so nothing is lost to a screen reader or a hover. An
+    // item with no icon keeps its text, which is also what a desktop bar does with one.
+    if (it.icon) {
+      el.setAttribute('aria-label', it.label);
+    } else {
+      const t = document.createElement('span'); t.textContent = it.label; el.append(t);
+    }
+    if (it.kind === 'T') {
+      el.classList.add('day-toolbar-toggle');
+      el.setAttribute('aria-pressed', it.on ? 'true' : 'false');
+      el.addEventListener('click', () => {
+        const on = el.getAttribute('aria-pressed') !== 'true';
+        el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        if (it.action) wasm.day_dom_toolbar_on(it.action, on ? 1 : 0);
+      });
+    } else if (it.kind === 'M') {
+      // A pull-down: the popup below, fed by the encoded item list. Toggling twice on
+      // the same button closes it, like every native menu button.
+      el.addEventListener('click', (e) => { e.stopPropagation(); toggleToolbarMenu(el, it.menu || []); });
+    } else if (it.kind === 'S') {
+      // The sidebar toggle owns its behavior: no app action to dispatch.
+      el.classList.add('day-toolbar-sidebar');
+      el.setAttribute('aria-expanded', 'true');
+      el.addEventListener('click', () => {
+        // `env`, not `wasm`: the sidebar toggle is a shim verb Rust imports, not a wasm
+        // export. Called through `wasm` it is undefined, and the handler threw before
+        // toggling anything, which is why the button did nothing at all.
+        const shown = env.day_dom_toolbar_sidebar();
+        if (!shown) el.disabled = true;
+        else el.setAttribute('aria-expanded',
+          document.querySelector('.day-nav.split.day-sidebar-hidden') ? 'false' : 'true');
+      });
+    } else if (it.action) {
+      el.addEventListener('click', () => wasm.day_dom_toolbar_action(it.action));
+    }
+  }
+  return el;
+}
+
 // The one open toolbar pull-down (docs/toolbars.md). Item activation rides
 // day_dom_toolbar_action; the encoded ids are registered menu-action ids.
 let toolbarMenu = null;
@@ -210,6 +397,9 @@ const NAV_MODES = ['split', 'stack', 'tabs', 'rail'];
 
 function navChrome(nav, id, mode) {
   const name = NAV_MODES[mode] || 'stack';
+  // A split arriving or leaving after the toolbar (docs/toolbars.md) changes the columns it
+  // follows; measured once the panes have their width.
+  requestAnimationFrame(layoutToolbar);
   nav.classList.add(name);
   if (name === 'stack') {
     const bar = div('day-nav-backbar');
@@ -929,156 +1119,54 @@ const env = {
     });
   },
   // --- window toolbar (docs/toolbars.md) -----------------------------------
-  // The web has no window chrome, so the bar is a strip docked above the app root. One spec
-  // rebuilds the whole strip; day_dom_toolbar_patch carries targeted changes so a search field
-  // the user is typing in is never rebuilt out from under them.
-  day_dom_toolbar(json, len) {
+  // The web has no window chrome, so the bar is a strip docked above the app root. It is edited
+  // one item at a time, the way every native backend edits its bar: an op adds or removes one
+  // element, and nothing else in the strip is touched, so a search field being typed into keeps
+  // its focus while the page commands around it change. day_dom_toolbar_patch carries the
+  // targeted value changes.
+  day_dom_toolbar_edit(json, len) {
     const spec = JSON.parse(str(json, len));
-    let bar = document.getElementById('day-toolbar');
-    if (bar) bar.remove();
-    if (!spec.items.length) { document.body.classList.remove('day-has-toolbar'); return; }
-    bar = div('day-toolbar'); bar.id = 'day-toolbar';
-    toolbarItems = {};
-    // Three tracks, one per column of a split window (docs/toolbars.md). Day draws this strip
-    // itself, so it can do what a desktop toolbar does: the sidebar's commands over the sidebar,
-    // the content list's over the list, the rest over the detail. The track widths follow the
-    // panes' own, measured from the split; a window with no split gets one track and the columns
-    // collapse into it.
-    const nav = document.querySelector('.day-nav.split');
-    const paneWidth = (sel) => {
-      const el = nav && nav.querySelector(sel);
-      return el ? Math.round(el.getBoundingClientRect().width) : 0;
-    };
-    const widths = { sidebar: paneWidth('.day-nav-sidebar'), list: paneWidth('.day-nav-list') };
-    const tracks = {};
-    const trackFor = (col) => {
-      // A column with no pane of its own (a composed content list, a collapsed sidebar) has no
-      // width to align to, so its commands join the detail's track rather than claiming a strip
-      // of their own.
-      if (!nav || ((col === 'sidebar' || col === 'list') && !widths[col])) col = 'detail';
-      if (!tracks[col]) {
-        const t = div('day-toolbar-track day-toolbar-' + col);
-        if (col !== 'detail' && widths[col]) t.style.flex = `0 0 ${widths[col]}px`;
-        tracks[col] = t;
-        bar.append(t);
-      }
-      return tracks[col];
-    };
-    // Built in column order so the tracks lay out left to right whatever order the items came in.
-    if (widths.sidebar) trackFor('sidebar');
-    if (widths.list) trackFor('list');
-    trackFor('detail');
-    for (const it of spec.items) {
-      let el = null;
-      if (it.kind === '-') el = div('day-toolbar-sep');
-      else if (it.kind === 'L') { el = div('day-toolbar-label'); el.textContent = it.label; }
-      else if (it.kind === 'G') {
-        // A segmented control, reusing the picker piece's own `.day-segmented` styling so the
-        // one in the bar and the one on a page are the same control.
-        el = div('day-segmented day-toolbar-segmented');
-        el.setAttribute('role', 'radiogroup');
-        (it.segments || []).forEach((seg, n) => {
-          const b = document.createElement('button');
-          b.className = 'day-seg' + (n === it.selected ? ' selected' : '');
-          b.type = 'button';
-          b.disabled = !it.enabled;
-          b.title = seg.title;
-          b.setAttribute('role', 'radio');
-          b.setAttribute('aria-checked', n === it.selected ? 'true' : 'false');
-          b.setAttribute('aria-label', seg.title);
-          if (seg.icon) {
-            const ic = div('day-toolbar-icon');
-            ic.style.maskImage = `url("${seg.icon}")`;
-            ic.style.webkitMaskImage = `url("${seg.icon}")`;
-            b.append(ic);
-          } else {
-            b.textContent = seg.title;
-          }
-          b.addEventListener('click', () => {
-            if (b.classList.contains('selected')) return; // already the choice
-            selectAmong(el, n);
-            if (it.action) wasm.day_dom_toolbar_value(it.action, n);
-          });
-          el.append(b);
-        });
-      }
-      else if (it.kind === 'F') {
-        el = document.createElement('input');
-        el.type = 'search'; el.className = 'day-toolbar-search';
-        el.value = it.text || ''; el.placeholder = it.placeholder || '';
-        el.disabled = !it.enabled;
-        // A native <datalist>: the browser draws the completion popup, so the keyboard handling
-        // and the styling are the platform's (docs/search.md).
-        const dl = document.createElement('datalist');
-        dl.id = 'day-search-suggestions';
-        el.setAttribute('list', dl.id);
-        el.__datalist = dl;
-        setSuggestions(dl, it.suggestions || []);
-        bar.append(dl);
-        if (it.action) el.addEventListener('input', () => {
-          const [ptr, len] = intoWasm(el.value);
-          wasm.day_dom_toolbar_text(it.action, ptr, len);
-        });
-      } else {
-        // B, T, S and M are all buttons; only their click behavior differs.
-        el = document.createElement('button');
-        el.className = 'day-toolbar-btn';
-        el.disabled = !it.enabled;
-        el.title = it.tip || it.label;
-        if (it.icon) {
-          const ic = div('day-toolbar-icon');
-          ic.style.maskImage = `url("${it.icon}")`;
-          ic.style.webkitMaskImage = `url("${it.icon}")`;
-          el.append(ic);
+    for (const op of spec.ops) {
+      if (op.op === 'remove') {
+        const at = toolbarOrder.findIndex((e) => e.id === op.id);
+        if (at < 0) continue;
+        const e = toolbarOrder[at];
+        if (e.el.__datalist) e.el.__datalist.remove();
+        e.el.remove();
+        toolbarOrder.splice(at, 1);
+        delete toolbarItems[op.id];
+      } else if (op.op === 'insert') {
+        if (!toolbarBar) openToolbar();
+        const it = op.item;
+        const el = buildToolbarItem(it);
+        // Within a track: leading roles first, then the trailing ones pushed to that column's own
+        // right edge. `Principal` centers, the way it does on every other backend.
+        if (it.place === 'primary' || it.place === 'secondary' || it.place === 'auto') {
+          el.classList.add('trailing');
         }
-        // Icon alone where there is one, as every desktop toolbar does; the label stays as the
-        // tooltip and the accessible name, so nothing is lost to a screen reader or a hover. An
-        // item with no icon keeps its text, which is also what a desktop bar does with one.
-        if (it.icon) {
-          el.setAttribute('aria-label', it.label);
-        } else {
-          const t = document.createElement('span'); t.textContent = it.label; el.append(t);
+        if (it.place === 'mid') el.classList.add('principal');
+        const col = it.col || 'detail';
+        const track = toolbarTrack(col);
+        // Right after the nearest earlier item in the same track, or first in it.
+        const at = Math.min(op.index, toolbarOrder.length);
+        let prev = null;
+        for (let k = at - 1; k >= 0; k--) {
+          if (toolbarOrder[k].track === track) { prev = toolbarOrder[k]; break; }
         }
-        if (it.kind === 'T') {
-          el.classList.add('day-toolbar-toggle');
-          el.setAttribute('aria-pressed', it.on ? 'true' : 'false');
-          el.addEventListener('click', () => {
-            const on = el.getAttribute('aria-pressed') !== 'true';
-            el.setAttribute('aria-pressed', on ? 'true' : 'false');
-            if (it.action) wasm.day_dom_toolbar_on(it.action, on ? 1 : 0);
-          });
-        } else if (it.kind === 'M') {
-          // A pull-down: the popup below, fed by the encoded item list. Toggling twice on
-          // the same button closes it, like every native menu button.
-          el.addEventListener('click', (e) => { e.stopPropagation(); toggleToolbarMenu(el, it.menu || []); });
-        } else if (it.kind === 'S') {
-          // The sidebar toggle owns its behavior: no app action to dispatch.
-          el.classList.add('day-toolbar-sidebar');
-          el.setAttribute('aria-expanded', 'true');
-          el.addEventListener('click', () => {
-            // `env`, not `wasm`: the sidebar toggle is a shim verb Rust imports, not a wasm
-            // export. Called through `wasm` it is undefined, and the handler threw before
-            // toggling anything, which is why the button did nothing at all.
-            const shown = env.day_dom_toolbar_sidebar();
-            if (!shown) el.disabled = true;
-            else el.setAttribute('aria-expanded',
-              document.querySelector('.day-nav.split.day-sidebar-hidden') ? 'false' : 'true');
-          });
-        } else if (it.action) {
-          el.addEventListener('click', () => wasm.day_dom_toolbar_action(it.action));
-        }
+        if (prev) prev.el.after(el); else track.prepend(el);
+        toolbarOrder.splice(at, 0, { id: it.id, el, col, track });
+        if (it.id) toolbarItems[it.id] = el;
       }
-      if (it.id) toolbarItems[it.id] = el;
-      // Within a track: leading roles first, then the trailing ones pushed to that column's own
-      // right edge. `Principal` centers, the way it does on every other backend.
-      if (it.place === 'primary' || it.place === 'secondary' || it.place === 'auto') {
-        el.classList.add('trailing');
-      }
-      if (it.place === 'mid') el.classList.add('principal');
-      trackFor(it.col || 'detail').append(el);
     }
-    document.body.prepend(bar);
-    document.body.classList.add('day-has-toolbar');
+    if (toolbarBar && !toolbarOrder.length) {
+      toolbarPanes.disconnect();
+      toolbarBar.remove();
+      toolbarBar = null;
+      toolbarTracks = {};
+      document.body.classList.remove('day-has-toolbar');
+    } else {
+      layoutToolbar();
+    }
   },
   day_dom_toolbar_patch(json, len) {
     closeToolbarMenu();

@@ -400,13 +400,24 @@ unsafe extern "C" {
     pub fn day_xaml_set_context_menu(elem: *mut c_void, spec: *const c_char);
     pub fn day_xaml_set_app_menu(win: *mut c_void, spec: *const c_char);
 
-    // Window toolbar (docs/toolbars.md): a CommandBar under the menu bar, built from one
-    // tab/newline spec the same way the menus are (the format is documented on both sides —
-    // `serialize_toolbar` in day-xaml, the parser in shim.cpp). Buttons ride
-    // `day_xaml_set_menu_cb`; values arrive on the toolbar callback as (action, kind, on, text)
-    // with kind 0 = toggle, 1 = search text. An empty spec removes the bar.
+    // Window toolbar (docs/toolbars.md): a CommandBar under the menu bar, edited one item at a
+    // time. Each item crosses as its own tab/newline spec, the same format the menus use (the
+    // format is documented on both sides — `serialize_toolbar` in day-xaml, the parser in
+    // shim.cpp). Buttons ride `day_xaml_set_menu_cb`; values arrive on the toolbar callback as
+    // (action, kind, on, text) with kind 0 = toggle, 1 = search text, 2 = segment index.
     pub fn day_xaml_set_toolbar_cb(cb: extern "C" fn(u64, c_int, c_int, *const c_char));
-    pub fn day_xaml_set_toolbar(win: *mut c_void, spec: *const c_char);
+    /// Put the item `spec` describes at position `index` of window `win`'s bar (`secondary` != 0:
+    /// `win` is a secondary window).
+    pub fn day_xaml_toolbar_insert(
+        win: *mut c_void,
+        secondary: c_int,
+        index: c_int,
+        spec: *const c_char,
+    );
+    /// Take item `id` off window `win`'s bar.
+    pub fn day_xaml_toolbar_remove(win: *mut c_void, id: *const c_char);
+    /// End an edit: undock an empty bar and lay the window's chrome out.
+    pub fn day_xaml_toolbar_done(win: *mut c_void, secondary: c_int);
     // Targeted patches, addressed by the item's id (no-op if the bar has no such item).
     // Targeted item patches. `win` is the window whose toolbar owns the item: every window
     // installs the same item ids, so a patch has to name the window as well as the id.
@@ -414,10 +425,9 @@ unsafe extern "C" {
     pub fn day_xaml_toolbar_set_checked(win: *mut c_void, id: *const c_char, on: c_int);
     pub fn day_xaml_toolbar_set_selected(win: *mut c_void, id: *const c_char, index: c_int);
     pub fn day_xaml_toolbar_set_enabled(win: *mut c_void, id: *const c_char, on: c_int);
-    /// The app menu and a toolbar docked in a SECONDARY window (docs/windows.md): day's app menu
-    /// has no window parameter, so the same spec is installed into each window that opens.
+    /// The app menu docked in a SECONDARY window (docs/windows.md): day's app menu has no
+    /// window parameter, so the same spec is installed into each window that opens.
     pub fn day_xaml_window_set_menu2(win: *mut c_void, spec: *const c_char);
-    pub fn day_xaml_window_set_toolbar2(win: *mut c_void, spec: *const c_char);
     // Show/hide the split NavigationView's pane — the `SidebarToggle` item's behavior, also
     // reachable from dayscript through the toolkit duty. 0 = no split nav in this window.
     pub fn day_xaml_toggle_sidebar() -> c_int;

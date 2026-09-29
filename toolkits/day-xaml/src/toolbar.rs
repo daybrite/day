@@ -9,9 +9,10 @@
 // model's flexible space IS that split: items before it become leading `Content`, items after it
 // become primary commands — the same rule the GTK backend applies with pack_start/pack_end.
 //
-// The whole model crosses the FFI as one tab-separated blob, exactly like the menu spec next
-// door: `serialize_toolbar` writes it, the shim's `day_xaml_set_toolbar` parses it, and a menu
-// item's own spec nests inside it (see the format comment on `serialize_toolbar`).
+// The bar is edited one item at a time (docs/toolbars.md): each inserted item crosses the FFI
+// as its own tab-separated spec, exactly like the menu spec next door. `serialize_toolbar`
+// writes it, the shim's `day_xaml_toolbar_insert` parses it, and a menu item's own spec nests
+// inside it (see the format comment on `serialize_toolbar`).
 // ---------------------------------------------------------------------------
 
 use std::ffi::CStr;
@@ -105,7 +106,9 @@ pub(crate) extern "C" fn on_toolbar_value(
 ) {
     // Contained: a panic unwinding into the C++/WinRT shim frame is UB (day-spec's ffi_guard).
     day_spec::ffi_guard::contain((), || {
-        let value = if kind == 0 {
+        let value = if kind == 2 {
+            ToolbarValue::Selected(on.max(0) as usize)
+        } else if kind == 0 {
             ToolbarValue::On(on != 0)
         } else {
             let text = unsafe { CStr::from_ptr(text) }
@@ -238,22 +241,36 @@ fn serialize_toolbar(items: &[ToolbarItem]) -> String {
 }
 
 impl Xaml {
-    /// Install `items` as the window's toolbar (docs/toolbars.md). An empty slice removes it.
-    pub(crate) fn install_toolbar(&mut self, h: &WinHandle, items: &[ToolbarItem]) {
+    /// Edit the window's toolbar (docs/toolbars.md): each op adds or takes away one command, and
+    /// the shim puts a new one right after its predecessor in its region of the CommandBar.
+    pub(crate) fn edit_toolbar(&mut self, h: &WinHandle, ops: &[day_spec::ToolbarOp]) -> bool {
         // Into the window that asked for it. Secondary windows carry the same docked chrome as
-        // the primary (docs/windows.md), so an app that installs a toolbar per window — which is
+        // the primary (docs/windows.md), so an app that declares a toolbar per window — which is
         // what `register_new_window` builders do — gets one in each.
         let Some(win) = self.window_token(h) else {
-            return;
+            return false;
         };
-        let spec = serialize_toolbar(items);
-        unsafe {
-            if win == self.window {
-                ffi::day_xaml_set_toolbar(win, cstr(&spec).as_ptr());
-            } else {
-                ffi::day_xaml_window_set_toolbar2(win, cstr(&spec).as_ptr());
+        let secondary = c_int::from(win != self.window);
+        for op in ops {
+            match op {
+                day_spec::ToolbarOp::Remove { id } => unsafe {
+                    ffi::day_xaml_toolbar_remove(win, cstr(id).as_ptr())
+                },
+                day_spec::ToolbarOp::Insert { index, item } => {
+                    let spec = serialize_toolbar(std::slice::from_ref(item));
+                    unsafe {
+                        ffi::day_xaml_toolbar_insert(
+                            win,
+                            secondary,
+                            *index as c_int,
+                            cstr(&spec).as_ptr(),
+                        )
+                    };
+                }
             }
         }
+        unsafe { ffi::day_xaml_toolbar_done(win, secondary) };
+        true
     }
 
     /// Apply a targeted change to one live item, in the window that owns it — item ids repeat

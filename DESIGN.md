@@ -1494,14 +1494,17 @@ pub trait Toolkit: Sized + 'static {
     fn set_context_menu_fn(&mut self, h, node: NodeId, f: ContextMenuFn) {}
 
     // toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend walks from
-    // it to the window. ONE model per window, already composed from the window's own items and
+    // it to the window. ONE bar per window, already composed from the window's own items and
     // whichever page chromes are showing — a backend draws what it has always drawn and never
-    // has to know that a page contributed any of it. Each item carries a `ToolbarPlacement`
-    // (its role on the bar) and a `ToolbarColumn` (which pane of a split it came from); a
-    // backend honors what it can express and DROPS the rest, never the item. `update_toolbar`
-    // is the targeted path a bound signal writes through, so syncing a search field does not
-    // rebuild (and refocus) the bar. Defaulted no-ops.
-    fn set_toolbar(&mut self, h, items: &[ToolbarItem]) {}
+    // has to know that a page contributed any of it. The bar arrives as EDITS, the way the view
+    // tree arrives as insert/remove: `ToolbarOp::Remove`s, then `ToolbarOp::Insert`s in
+    // ascending position, and an item no op names keeps its native widget (and a search field
+    // its focus). A backend keeps a `ToolbarMirror` and puts each new item right after its
+    // predecessor in the same group. Each item carries a `ToolbarPlacement` (its role on the
+    // bar) and a `ToolbarColumn` (which pane of a split it came from); a backend honors what it
+    // can express and DROPS the rest, never the item. `update_toolbar` is the targeted path a
+    // value takes. Defaulted no-ops.
+    fn edit_toolbar(&mut self, h, ops: &[ToolbarOp]) {}
     fn update_toolbar(&mut self, h, patch: &ToolbarPatch) {}
     // Show/hide the window's `nav(Sidebar)` pane — what the reserved
     // `day_spec::SIDEBAR_TOGGLE_ID` item drives. A DUTY rather than a dispatch id, because that

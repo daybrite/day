@@ -3407,6 +3407,8 @@ impl Toolkit for Gtk {
             | Cap::MultiWindow
             // The window's AdwHeaderBar — GNOME's toolbar (docs/toolbars.md).
             | Cap::Toolbar
+            // The bar holds a native search field (docs/search.md).
+            | Cap::ToolbarSearch
             | Cap::AppMenu
             | Cap::Appearance
             // gtk_widget_measure reports baselines itself (docs/baseline.md).
@@ -5997,8 +5999,8 @@ impl Toolkit for Gtk {
         MENU_POPOVERS.with(|m| m.borrow_mut().insert(widget_key(h), popover));
     }
 
-    fn set_toolbar(&mut self, h: &Handle, items: &[day_spec::ToolbarItem]) {
-        self.install_toolbar(h, items);
+    fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
+        self.edit_toolbar(h, ops)
     }
 
     fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {

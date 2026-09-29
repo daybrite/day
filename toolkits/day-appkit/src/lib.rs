@@ -5170,6 +5170,8 @@ impl Toolkit for AppKit {
             | Cap::MultiWindow
             // A real NSToolbar in the title bar (docs/toolbars.md).
             | Cap::Toolbar
+            // The bar holds a native search field (docs/search.md).
+            | Cap::ToolbarSearch
             | Cap::AppMenu
             // NSDockTile.badgeLabel is an arbitrary String, so all three payloads render — the
             // only backend where Text is real (docs/badge.md).
@@ -7352,8 +7354,8 @@ impl Toolkit for AppKit {
         unsafe { Retained::retain(ptr) }.expect("adopt: null list cell handle")
     }
 
-    fn set_toolbar(&mut self, h: &Handle, items: &[day_spec::ToolbarItem]) {
-        self.install_toolbar(h, items);
+    fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
+        self.edit_toolbar(h, ops)
     }
 
     fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {

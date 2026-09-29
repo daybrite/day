@@ -887,27 +887,27 @@ struct SearchSpec {
 impl SearchSpec {
     /// Turn a requested placement into the one this toolkit will actually use (docs/search.md).
     ///
-    /// `Automatic` asks the platform. Today the answer is the window toolbar wherever the toolkit
-    /// has one, and inline (attached to the navigation surface) where it does not, which is the
-    /// phones. That second case needs no size class: "this toolkit has no toolbar at all" is a
-    /// static fact about the backend, not a question about the window's width. Resolving a narrow
-    /// window on a toolkit that does have a toolbar is what waits on the size-class work.
+    /// `Automatic` asks the platform. Today the answer is the window toolbar wherever that
+    /// toolbar can hold a search field, and inline (attached to the navigation surface) where it
+    /// cannot, which is the phones: their bar is a row of actions. That needs no size class:
+    /// "this toolkit's bar holds no field" is a static fact about the backend, not a question
+    /// about the window's width. Resolving a narrow window on a toolkit whose bar does hold one
+    /// is what waits on the size-class work.
+    ///
+    /// An explicit `Toolbar` falls back to `Inline` on those same backends, since a field the
+    /// bar cannot draw would otherwise not be drawn at all.
     ///
     /// Never returns `Automatic`: the props carry the decision, so a backend reads a placement it
     /// can act on rather than re-deriving the policy itself.
     fn resolve(requested: day_spec::props::SearchPlacement) -> day_spec::props::SearchPlacement {
         use day_spec::props::SearchPlacement as P;
+        use day_spec::{Cap, Support};
+        let can = |cap| with_tree(|t| t.capability(cap)) != Support::Unsupported;
         match requested {
-            P::Toolbar | P::Inline => requested,
-            P::Automatic => {
-                if with_tree(|t| t.capability(day_spec::Cap::Toolbar))
-                    == day_spec::Support::Unsupported
-                {
-                    P::Inline
-                } else {
-                    P::Toolbar
-                }
-            }
+            P::Inline => P::Inline,
+            P::Toolbar if can(Cap::ToolbarSearch) => P::Toolbar,
+            P::Automatic if can(Cap::Toolbar) && can(Cap::ToolbarSearch) => P::Toolbar,
+            P::Toolbar | P::Automatic => P::Inline,
         }
     }
 

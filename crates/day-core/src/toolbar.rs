@@ -75,8 +75,21 @@ day_reactive::tls_slots! {
     /// Live contributions by token.
     static CONTRIBUTIONS: RefCell<HashMap<u64, Contribution>> = RefCell::new(HashMap::new());
     /// Each chrome's merged model as last lowered; dayscript resolves an item's action here,
-    /// and a re-lower diffs against it to drop the closures the old model owned.
+    /// and a recompose compares against it to skip an install that would change nothing. Items
+    /// carry slot ids here, never closure ids (see [`slot_model`]).
     static MODELS: RefCell<Vec<(Chrome, Vec<ToolbarItem>)>> = const { RefCell::new(Vec::new()) };
+    /// Each window's dispatch slots: (window, item key) → the id the toolkit holds for that item
+    /// (see [`slot_model`]).
+    static SLOT_IDS: RefCell<HashMap<(RNode, String), u64>> = RefCell::new(HashMap::new());
+    /// Slot id → the closure id it dispatches to right now.
+    static SLOT_TARGETS: RefCell<HashMap<u64, u64>> = RefCell::new(HashMap::new());
+    /// Each window's bar as its toolkit holds it: what an edit is computed against. Separate
+    /// from [`MODELS`], which is the bar the window should carry (and what dayscript reads), so
+    /// an edit the toolkit never received is not mistaken for one it did: the next recompose
+    /// sends it again, the way a whole-bar install used to heal on the next change.
+    static DELIVERED: RefCell<HashMap<RNode, Vec<ToolbarItem>>> = RefCell::new(HashMap::new());
+    /// A recompose is owed at the end of this turn ([`schedule_recompose`]).
+    static RECOMPOSE_PENDING: Cell<bool> = const { Cell::new(false) };
     /// Next contribution token, and the registration counter behind `Contribution::seq`.
     static NEXT_TOKEN: Cell<u64> = const { Cell::new(1) };
     /// The window whose content is being built right now (see [`with_window`]).
@@ -209,12 +222,21 @@ pub fn register_toolbar_value(f: Rc<dyn Fn(&ToolbarValue)>) -> u64 {
 }
 
 /// Run the value callback registered for `action` (no-op if none). Called by the event pump on
-/// `Event::ToolbarChanged`, inside a reactive batch so multiple signal writes coalesce.
+/// `Event::ToolbarChanged`, inside a reactive batch so multiple signal writes coalesce. `action`
+/// is the slot id the toolkit holds (see [`slot_model`]); a raw closure id works too.
 pub fn dispatch_toolbar_value(action: u64, value: &ToolbarValue) {
-    let f = VALUE_ACTIONS.with(|m| m.borrow().get(&action).cloned());
+    mirror_value(action, value);
+    let target = resolve_slot(action);
+    let f = VALUE_ACTIONS.with(|m| m.borrow().get(&target).cloned());
     if let Some(f) = f {
         day_reactive::batch(|| f(value));
     }
+}
+
+/// The closure id a toolkit-held slot id dispatches to now; any other id is returned as is.
+/// The menu rail resolves through here too, since toolbar buttons ride it.
+pub(crate) fn resolve_slot(id: u64) -> u64 {
+    SLOT_TARGETS.with(|m| m.borrow().get(&id).copied().unwrap_or(id))
 }
 
 /// Add one piece's items to `chrome` and return the token that owns them. The caller withdraws
@@ -249,7 +271,8 @@ pub fn register_contribution_gated(
             },
         )
     });
-    lower(chrome);
+    let _ = chrome;
+    schedule_recompose();
     token
 }
 
@@ -276,41 +299,52 @@ fn merged_window(root: RNode) -> Vec<ToolbarItem> {
 
 /// Replace one contribution's items in place, keeping its position among its neighbors.
 pub fn update_contribution(token: u64, items: Vec<ToolbarItem>) {
-    let chrome = CONTRIBUTIONS.with(|m| {
+    let old = CONTRIBUTIONS.with(|m| {
         let mut m = m.borrow_mut();
         let c = m.get_mut(&token)?;
-        c.items = items;
-        Some(c.chrome)
+        Some(std::mem::replace(&mut c.items, items))
     });
-    if let Some(chrome) = chrome {
-        lower(chrome);
+    if let Some(old) = old {
+        forget_closures(&old);
+        schedule_recompose();
     }
 }
 
-/// Withdraw a contribution. Its items leave the chrome, and the closures only it owned are
-/// dropped by the re-lower that follows.
+/// Withdraw a contribution. Its items leave the chrome, and the closures only it owned go with
+/// them.
 pub fn unregister_contribution(token: u64) {
-    let chrome = CONTRIBUTIONS.with(|m| m.borrow_mut().remove(&token).map(|c| c.chrome));
-    if let Some(chrome) = chrome {
-        lower(chrome);
+    let old = CONTRIBUTIONS.with(|m| m.borrow_mut().remove(&token).map(|c| c.items));
+    if let Some(old) = old {
+        forget_closures(&old);
+        schedule_recompose();
     }
 }
 
-/// The merged items for one chrome, in registration order.
-fn merged(chrome: Chrome) -> Vec<ToolbarItem> {
-    let mut live: Vec<(u64, Vec<ToolbarItem>)> = CONTRIBUTIONS.with(|m| {
+/// Drop the closures `items` registered that no live contribution still carries, so a page
+/// visited a hundred times does not hold a hundred generations of its commands.
+///
+/// Only the item-level ids: a button's or a toggle's own closure, registered fresh by each
+/// lowering. A pull-down's entries can name Day's standing dispatchers (a new-window item), so
+/// they stay registered, as they did before.
+fn forget_closures(items: &[ToolbarItem]) {
+    let live: std::collections::HashSet<u64> = CONTRIBUTIONS.with(|m| {
         m.borrow()
             .values()
-            .filter(|c| c.chrome == chrome)
-            .map(|c| (c.seq, c.items.clone()))
+            .flat_map(|c| c.items.iter().map(|i| i.action))
             .collect()
     });
-    live.sort_by_key(|(seq, _)| *seq);
-    let mut out: Vec<ToolbarItem> = live.into_iter().flat_map(|(_, items)| items).collect();
-    // Placement is the visual order; registration order breaks ties within a bucket. A stable
-    // sort is what keeps two items of the same placement in the order they were declared.
-    out.sort_by_key(|i| placement_rank(i.placement));
-    out
+    for item in items
+        .iter()
+        .filter(|i| i.action != 0 && !live.contains(&i.action))
+    {
+        VALUE_ACTIONS.with(|m| m.borrow_mut().remove(&item.action));
+        if matches!(
+            item.kind,
+            day_spec::ToolbarItemKind::Button | day_spec::ToolbarItemKind::Menu { .. }
+        ) {
+            crate::menu::forget_action(item.action);
+        }
+    }
 }
 
 /// The order the buckets draw in, leading to trailing. `Bottom` sorts with `Secondary`: a chrome
@@ -327,68 +361,99 @@ fn placement_rank(p: day_spec::ToolbarPlacement) -> u8 {
     }
 }
 
-/// Push one chrome's merged model to the toolkit.
+/// Record a value the user put into a live item, without touching the widget that reported it.
 ///
-/// An install that changes nothing the user can see REBINDS rather than rebuilds.
-///
-/// A derived contribution re-runs whenever anything it reads changes, and a rebuild destroys and
-/// recreates the native widgets. That is invisible for a button, and destructive for the search
-/// field: it takes the keyboard focus and the caret with it. Typing a letter that moves the nav
-/// selection re-ran the page build, which re-lowered the bar, which threw away the field being
-/// typed into, on every backend, because they all rebuild what they are handed.
-///
-/// The remedy is to notice that only the closures are new. Same items, same order, same labels,
-/// icons, kinds and enablement means the native bar is already correct; moving the new closures
-/// onto the action ids it already carries makes it current without touching a widget.
-fn lower(chrome: Chrome) {
-    let items = merged(chrome);
-    let prev = MODELS.with(|m| {
-        m.borrow()
-            .iter()
-            .find(|(c, _)| *c == chrome)
-            .map(|(_, items)| items.clone())
-    });
-    if let Some(prev) = prev
-        && same_shape(&prev, &items)
-    {
-        let rebound = rebind(&prev, items);
-        MODELS.with(|m| {
-            if let Some(entry) = m.borrow_mut().iter_mut().find(|(c, _)| *c == chrome) {
-                entry.1 = rebound;
-            }
-        });
+/// The widget already shows it; what is stale is Day's copy. Both copies (the owning
+/// contribution's, which a re-compose merges from, and the window's model, which the toolkit
+/// drew and dayscript reads) must learn it, or the next rebuild seeds the item with whatever Day
+/// last pushed. That is how a search field typed into came back empty after a page change, with
+/// the list still filtered by the text it had lost, and how clearing it afterwards reported
+/// nothing new (the field held the stale seed already).
+fn mirror_value(action: u64, value: &ToolbarValue) {
+    let Some((root, id)) = MODELS.with(|m| {
+        m.borrow().iter().find_map(|(c, items)| match c {
+            Chrome::Window(root) => items
+                .iter()
+                .find(|i| i.action == action)
+                .map(|i| (*root, i.id.clone())),
+            Chrome::Page(_) => None,
+        })
+    }) else {
         return;
-    }
-
-    sweep_values(chrome, &items);
-    // One bar per window, whichever chrome changed: the toolkit is handed the window's items
-    // plus the pages showing, already merged, so it draws what it has always drawn and never has
-    // to know that a page contributed any of it (docs/toolbars.md). There is no per-chrome
-    // model: one authority, so a live patch and a re-compose cannot disagree.
-    let _ = items;
-    recompose_windows();
+    };
+    let patch = match value {
+        ToolbarValue::Text(text) => ToolbarPatch::Text {
+            item: id,
+            text: text.clone(),
+        },
+        ToolbarValue::On(on) => ToolbarPatch::On { item: id, on: *on },
+        ToolbarValue::Selected(index) => ToolbarPatch::Selected {
+            item: id,
+            index: *index,
+        },
+    };
+    CONTRIBUTIONS.with(|m| {
+        for c in m.borrow_mut().values_mut().filter(|c| c.window == root) {
+            apply_to_model(&mut c.items, &patch);
+        }
+    });
+    MODELS.with(|m| {
+        if let Some((_, items)) = m
+            .borrow_mut()
+            .iter_mut()
+            .find(|(c, _)| *c == Chrome::Window(root))
+        {
+            apply_to_model(items, &patch);
+        }
+    });
+    deliver_value(root, &patch);
 }
 
-/// Re-lower every window whose composed bar could have changed. Called after any page chrome
-/// moves on a toolkit that draws one bar per window; a no-op on the rest.
+/// Owe the windows a recompose, paid once when the current turn settles.
+///
+/// Every change to what a bar carries lands here: a contribution registered, re-derived or
+/// withdrawn, a page gate flipping. A single user action makes several of them. Swapping the
+/// page withdraws the old page's items and contributes the new page's, and handing each step to
+/// the toolkit rebuilt the bar twice, through an intermediate bar nobody should see, when the
+/// bar before and after was the same. Deferring to the end of the turn composes only the settled
+/// result, and [`recompose_windows`] then finds nothing to install. Outside a turn (a window's
+/// first build) it runs right away.
+fn schedule_recompose() {
+    if RECOMPOSE_PENDING.with(|p| p.replace(true)) {
+        return;
+    }
+    day_reactive::at_turn_end(recompose_windows);
+}
+
+/// Hand every window whose composed bar changed its new model, and nothing to the rest.
+///
+/// A bar is re-installed only when something the toolkit draws changed: an item added,
+/// removed or reordered, a label, an icon, a kind. What changes on every derivation, the
+/// closures, never reaches the model: each item is handed to the toolkit under a stable slot
+/// id (see [`slot_model`]), so a page re-built with the same commands composes a model equal to
+/// the installed one. Values the user or the app change (search text, a toggle) reach the model
+/// through the same patches that update the widget, so they never differ either.
 fn recompose_windows() {
-    let roots: Vec<RNode> = CONTRIBUTIONS.with(|m| {
-        let mut v: Vec<RNode> = m.borrow().values().map(|c| c.window).collect();
+    RECOMPOSE_PENDING.with(|p| p.set(false));
+    let roots: Vec<RNode> = {
+        let mut v: Vec<RNode> =
+            CONTRIBUTIONS.with(|m| m.borrow().values().map(|c| c.window).collect());
+        // A window whose last contribution left still has a bar to take down.
+        v.extend(MODELS.with(|m| {
+            m.borrow()
+                .iter()
+                .filter_map(|(c, _)| match c {
+                    Chrome::Window(r) => Some(*r),
+                    Chrome::Page(_) => None,
+                })
+                .collect::<Vec<_>>()
+        }));
         v.sort();
         v.dedup();
         v
-    });
+    };
     for root in roots {
-        let items = merged_window(root);
-        let prev = MODELS.with(|m| {
-            m.borrow()
-                .iter()
-                .find(|(c, _)| *c == Chrome::Window(root))
-                .map(|(_, i)| i.clone())
-        });
-        if prev.as_deref() == Some(items.as_slice()) {
-            continue;
-        }
+        let items = slot_model(root, unique_ids(merged_window(root)));
         MODELS.with(|m| {
             let mut m = m.borrow_mut();
             match m.iter_mut().find(|(c, _)| *c == Chrome::Window(root)) {
@@ -396,15 +461,267 @@ fn recompose_windows() {
                 None => m.push((Chrome::Window(root), items.clone())),
             }
         });
-        with_tree(|t| t.set_window_toolbar(root, items));
+        let prev = DELIVERED.with(|d| d.borrow().get(&root).cloned().unwrap_or_default());
+        let (ops, patches) = diff_bar(&prev, &items);
+        if ops.is_empty() && patches.is_empty() {
+            continue;
+        }
+        debug_assert!(edit_is_ordered(&ops), "toolbar edit out of order: {ops:?}");
+        // Recorded as the toolkit's only once it has the edit. A window whose root has no native
+        // handle yet takes none; its bar goes out whole on the next recompose instead.
+        let delivered = ops.is_empty() || with_tree(|t| t.edit_window_toolbar(root, ops));
+        if !delivered {
+            continue;
+        }
+        for patch in patches {
+            with_tree(|t| t.patch_window_toolbar(root, patch));
+        }
+        DELIVERED.with(|d| d.borrow_mut().insert(root, items));
     }
+}
+
+/// The order backends rely on (`Toolkit::edit_toolbar`): every removal, then the insertions in
+/// ascending position.
+fn edit_is_ordered(ops: &[day_spec::ToolbarOp]) -> bool {
+    use day_spec::ToolbarOp as O;
+    let first_insert = ops
+        .iter()
+        .position(|o| matches!(o, O::Insert { .. }))
+        .unwrap_or(ops.len());
+    let inserts: Vec<usize> = ops[first_insert..]
+        .iter()
+        .filter_map(|o| match o {
+            O::Insert { index, .. } => Some(*index),
+            O::Remove { .. } => None,
+        })
+        .collect();
+    inserts.len() == ops.len() - first_insert && inserts.windows(2).all(|w| w[0] < w[1])
+}
+
+/// Record a value the toolkit already shows (a patch it took, or input it reported) in its copy
+/// of the bar, so the next edit is computed against what is on screen.
+fn deliver_value(root: RNode, patch: &ToolbarPatch) {
+    DELIVERED.with(|d| {
+        if let Some(items) = d.borrow_mut().get_mut(&root) {
+            patch.apply_to(items);
+        }
+    });
+}
+
+/// The bar without the items whose id an earlier one already has.
+///
+/// An id is an item's identity on the bar (the native identifier, the key an edit and a patch
+/// address), so it must be unique, and two showing pages declaring the same one is an app bug.
+/// Keeping the first, and saying so once, leaves the bar coherent rather than editing two
+/// natives under one name.
+fn unique_ids(items: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
+    let mut seen = std::collections::HashSet::new();
+    items
+        .into_iter()
+        .filter(|i| {
+            let fresh = seen.insert(i.id.clone());
+            if !fresh {
+                log::warn!(
+                    "toolbar item id {:?} appears twice in one window's bar; only the first is \
+                     shown (docs/toolbars.md: ids are unique within a bar)",
+                    i.id
+                );
+            }
+            fresh
+        })
+        .collect()
+}
+
+/// The edit that turns bar `prev` into bar `next`, and the value patches for the items it keeps
+/// (docs/toolbars.md).
+///
+/// Items are matched by id. One the toolkit already draws is kept when it is drawn the same way
+/// (everything but its values: search text and completions, toggle state, selection,
+/// enablement) and when keeping it does not reorder it past another kept item; the kept set is
+/// the longest run of matched items already in order, so a reshuffle costs the fewest items.
+/// Everything else is removed and inserted. A kept item whose values moved gets the patches that
+/// bring it current, the same patches a bound signal would have sent.
+fn diff_bar(
+    prev: &[ToolbarItem],
+    next: &[ToolbarItem],
+) -> (Vec<day_spec::ToolbarOp>, Vec<ToolbarPatch>) {
+    use day_spec::ToolbarOp;
+    // For each item of `next`, the position of its unchanged counterpart in `prev`.
+    let matched: Vec<Option<usize>> = next
+        .iter()
+        .map(|n| {
+            prev.iter()
+                .position(|p| p.id == n.id)
+                .filter(|&at| shape_of(&prev[at]) == shape_of(n))
+        })
+        .collect();
+    let kept = longest_increasing(&matched);
+
+    let mut ops: Vec<ToolbarOp> = prev
+        .iter()
+        .enumerate()
+        .filter(|(at, _)| !kept.iter().any(|&k| matched[k] == Some(*at)))
+        .map(|(_, p)| ToolbarOp::Remove { id: p.id.clone() })
+        .collect();
+    let mut patches = Vec::new();
+    for (index, item) in next.iter().enumerate() {
+        if kept.contains(&index) {
+            let before = &prev[matched[index].unwrap_or_default()];
+            patches.extend(value_patches(before, item));
+        } else {
+            ops.push(ToolbarOp::Insert {
+                index,
+                item: item.clone(),
+            });
+        }
+    }
+    (ops, patches)
+}
+
+/// The indices into `seq` of a longest strictly increasing subsequence of its `Some` values.
+fn longest_increasing(seq: &[Option<usize>]) -> Vec<usize> {
+    // Patience sorting: `tails[k]` is the index of the smallest tail of an increasing run of
+    // length k + 1, and `back` links each element to its predecessor in the run.
+    let mut tails: Vec<usize> = Vec::new();
+    let mut back: Vec<Option<usize>> = vec![None; seq.len()];
+    for (i, v) in seq.iter().enumerate() {
+        let Some(v) = *v else { continue };
+        let k = tails.partition_point(|&t| seq[t].unwrap_or_default() < v);
+        back[i] = k.checked_sub(1).map(|p| tails[p]);
+        if k == tails.len() {
+            tails.push(i);
+        } else {
+            tails[k] = i;
+        }
+    }
+    let mut out = Vec::new();
+    let mut at = tails.last().copied();
+    while let Some(i) = at {
+        out.push(i);
+        at = back[i];
+    }
+    out.reverse();
+    out
+}
+
+/// The patches that bring a kept item's values from `was` to `now`.
+fn value_patches(was: &ToolbarItem, now: &ToolbarItem) -> Vec<ToolbarPatch> {
+    use day_spec::ToolbarItemKind as K;
+    let item = now.id.clone();
+    let mut out = Vec::new();
+    match (&was.kind, &now.kind) {
+        (
+            K::Search {
+                text: t0,
+                suggestions: s0,
+                ..
+            },
+            K::Search {
+                text: t1,
+                suggestions: s1,
+                ..
+            },
+        ) => {
+            if t0 != t1 {
+                out.push(ToolbarPatch::Text {
+                    item: item.clone(),
+                    text: t1.clone(),
+                });
+            }
+            if s0 != s1 {
+                out.push(ToolbarPatch::Suggestions {
+                    item: item.clone(),
+                    list: s1.clone(),
+                });
+            }
+        }
+        (K::Toggle { on: a }, K::Toggle { on: b }) if a != b => out.push(ToolbarPatch::On {
+            item: item.clone(),
+            on: *b,
+        }),
+        (K::Segmented { selected: a, .. }, K::Segmented { selected: b, .. }) if a != b => {
+            out.push(ToolbarPatch::Selected {
+                item: item.clone(),
+                index: *b,
+            })
+        }
+        _ => {}
+    }
+    if was.enabled != now.enabled {
+        out.push(ToolbarPatch::Enabled {
+            item,
+            on: now.enabled,
+        });
+    }
+    out
+}
+
+/// Swap each item's closure id for the window's stable slot id for that item, and point the
+/// slot at the closure.
+///
+/// An item's identity is its id, so the same command on the next page, or the same page built
+/// again, gets the slot it had. The toolkit keeps dispatching the id it was given, and the id keeps reaching the
+/// current closure: no install to repoint it, and nothing for a toolkit to diff. A pull-down's
+/// entries get slots the same way, by their path under the item.
+fn slot_model(root: RNode, mut items: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
+    let mut live: Vec<u64> = Vec::new();
+    for item in &mut items {
+        let key = item.id.clone();
+        item.action = slot_for(root, &key, item.action, &mut live);
+        if let day_spec::ToolbarItemKind::Menu { items: entries } = &mut item.kind {
+            slot_menu(root, &key, entries, &mut live);
+        }
+    }
+    // Slots this window no longer shows dispatch nothing; the ids stay reserved for the item's
+    // return.
+    let keep: std::collections::HashSet<u64> = live.into_iter().collect();
+    SLOT_IDS.with(|ids| {
+        SLOT_TARGETS.with(|t| {
+            let mut t = t.borrow_mut();
+            for ((r, _), slot) in ids.borrow().iter() {
+                if *r == root && !keep.contains(slot) {
+                    t.remove(slot);
+                }
+            }
+        })
+    });
+    items
+}
+
+fn slot_menu(root: RNode, parent: &str, entries: &mut [day_spec::MenuItem], live: &mut Vec<u64>) {
+    for (i, entry) in entries.iter_mut().enumerate() {
+        let key = format!("{parent}/{i}");
+        match entry {
+            day_spec::MenuItem::Action { action, .. } => {
+                *action = slot_for(root, &key, *action, live);
+            }
+            day_spec::MenuItem::Submenu { items, .. } => slot_menu(root, &key, items, live),
+            day_spec::MenuItem::Separator => {}
+        }
+    }
+}
+
+/// The slot for `key` in `root`'s bar, now dispatching to `target`. `0` stays `0`: an item with
+/// nothing to run has nothing to address.
+fn slot_for(root: RNode, key: &str, target: u64, live: &mut Vec<u64>) -> u64 {
+    if target == 0 {
+        return 0;
+    }
+    let slot = SLOT_IDS.with(|ids| {
+        *ids.borrow_mut()
+            .entry((root, key.to_string()))
+            .or_insert_with(crate::menu::next_action_id)
+    });
+    SLOT_TARGETS.with(|t| t.borrow_mut().insert(slot, target));
+    live.push(slot);
+    slot
 }
 
 /// The pieces layer, after a change to what is on screen (a push, a pop, a tab switch), so a
 /// one-bar-per-window toolkit is handed the showing pages' items. No-op where every page has a
 /// bar of its own.
 pub fn chrome_changed() {
-    recompose_windows();
+    schedule_recompose();
 }
 
 /// Apply a targeted item update wherever the item lives: the path a bound signal writes through,
@@ -413,7 +730,7 @@ pub fn patch_toolbar(patch: ToolbarPatch) {
     let owner = MODELS.with(|m| {
         m.borrow()
             .iter()
-            .find(|(_, items)| items.iter().any(|i| i.id == *patch_item(&patch)))
+            .find(|(_, items)| items.iter().any(|i| i.id == patch.item()))
             .map(|(c, _)| *c)
     });
     if let Some(chrome) = owner {
@@ -450,58 +767,34 @@ pub fn patch_chrome(chrome: Chrome, patch: ToolbarPatch) {
             apply_to_model(items, &patch);
         }
     });
-    with_tree(|t| t.patch_window_toolbar(root, patch));
-}
-
-fn patch_item(patch: &ToolbarPatch) -> &String {
-    match patch {
-        ToolbarPatch::Text { item, .. }
-        | ToolbarPatch::On { item, .. }
-        | ToolbarPatch::Selected { item, .. }
-        | ToolbarPatch::Enabled { item, .. }
-        | ToolbarPatch::Suggestions { item, .. } => item,
+    if with_tree(|t| t.patch_window_toolbar(root, patch.clone())) {
+        deliver_value(root, &patch);
     }
 }
 
 /// Mirror a patch into the retained model.
 fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
+    patch.apply_to(items);
+}
+
+/// An item as the toolkit draws it: everything but its values, which travel as patches, and its
+/// action, whose slot id never changes while the item is on the bar.
+fn shape_of(item: &ToolbarItem) -> ToolbarItem {
     use day_spec::ToolbarItemKind as K;
-    match patch {
-        ToolbarPatch::Text { item, text } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
-                && let K::Search { text: t, .. } = &mut it.kind
-            {
-                *t = text.clone();
-            }
+    let mut i = item.clone();
+    i.enabled = true;
+    match &mut i.kind {
+        K::Search {
+            text, suggestions, ..
+        } => {
+            text.clear();
+            suggestions.clear();
         }
-        ToolbarPatch::On { item, on } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
-                && let K::Toggle { on: o } = &mut it.kind
-            {
-                *o = *on;
-            }
-        }
-        ToolbarPatch::Selected { item, index } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
-                && let K::Segmented { segments, selected } = &mut it.kind
-                && *index < segments.len()
-            {
-                *selected = *index;
-            }
-        }
-        ToolbarPatch::Enabled { item, on } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item) {
-                it.enabled = *on;
-            }
-        }
-        ToolbarPatch::Suggestions { item, list } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
-                && let K::Search { suggestions, .. } = &mut it.kind
-            {
-                *suggestions = list.clone();
-            }
-        }
+        K::Toggle { on } => *on = false,
+        K::Segmented { selected, .. } => *selected = 0,
+        _ => {}
     }
+    i
 }
 
 /// Every live item, across every chrome. dayscript's `toolbar:` step walks it to resolve an
@@ -529,146 +822,36 @@ pub fn toggle_sidebar(host: RNode) -> bool {
 /// re-compose (a token that is already gone is a no-op), so a closed window never merges its
 /// own dying bar.
 pub(crate) fn forget_window(root: RNode) {
-    CONTRIBUTIONS.with(|m| m.borrow_mut().retain(|_, c| c.window != root));
-    let gone: Vec<ToolbarItem> = MODELS.with(|m| {
+    let gone: Vec<ToolbarItem> = CONTRIBUTIONS.with(|m| {
         let mut m = m.borrow_mut();
         let mut gone = Vec::new();
-        m.retain(|(c, items)| {
-            let mine = matches!(c, Chrome::Window(r) if *r == root);
+        m.retain(|_, c| {
+            let mine = c.window == root;
             if mine {
-                gone.extend(items.clone());
+                gone.extend(c.items.clone());
             }
             !mine
         });
         gone
     });
-    drop_values(&gone, &[]);
-}
-
-/// Forget the value closures the previous model owned and the new one does not, the same
-/// discipline `set_app_menu` applies to menu actions, so a toolbar rebuilt on every locale change
-/// does not leak a closure per install.
-fn sweep_values(chrome: Chrome, next: &[ToolbarItem]) {
-    // Against the window's model, the only one there is. `next` is this chrome's share of it,
-    // so the comparison keeps every id the window still carries and drops only the ones this
-    // chrome stopped declaring.
-    let root = CONTRIBUTIONS.with(|m| {
-        m.borrow()
-            .values()
-            .find(|c| c.chrome == chrome)
-            .map(|c| c.window)
+    forget_closures(&gone);
+    MODELS.with(|m| {
+        m.borrow_mut()
+            .retain(|(c, _)| !matches!(c, Chrome::Window(r) if *r == root))
     });
-    let Some(root) = root else { return };
-    let prev = MODELS.with(|m| {
-        m.borrow()
-            .iter()
-            .find(|(c, _)| *c == Chrome::Window(root))
-            .map(|(_, items)| items.clone())
-            .unwrap_or_default()
+    DELIVERED.with(|d| {
+        d.borrow_mut().remove(&root);
     });
-    let keep = merged_window(root);
-    let mut live = next.to_vec();
-    live.extend(keep);
-    drop_values(&prev, &live);
-}
-
-/// Whether two models describe the same bar: everything the toolkit renders or dispatches by
-/// position, ignoring the action ids (new closures every build) and the search field's live text
-/// and completions (kept current through [`ToolbarPatch`], never through a rebuild).
-fn same_shape(a: &[ToolbarItem], b: &[ToolbarItem]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| shape_of(x) == shape_of(y))
-}
-
-fn shape_of(item: &ToolbarItem) -> ToolbarItem {
-    let mut i = item.clone();
-    i.action = 0;
-    match &mut i.kind {
-        day_spec::ToolbarItemKind::Search {
-            text, suggestions, ..
-        } => {
-            text.clear();
-            suggestions.clear();
-        }
-        day_spec::ToolbarItemKind::Menu { items } => blank_menu_ids(items),
-        _ => {}
-    }
-    i
-}
-
-fn blank_menu_ids(items: &mut [day_spec::MenuItem]) {
-    for item in items {
-        match item {
-            day_spec::MenuItem::Action { action, .. } => *action = 0,
-            day_spec::MenuItem::Submenu { items, .. } => blank_menu_ids(items),
-            day_spec::MenuItem::Separator => {}
-        }
-    }
-}
-
-/// Move `next`'s closures onto `prev`'s action ids, so the ids the native bar already holds keep
-/// dispatching. Returns the model to store: `next`'s content under `prev`'s ids.
-fn rebind(prev: &[ToolbarItem], next: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
-    next.into_iter()
-        .zip(prev)
-        .map(|(mut new, old)| {
-            if new.action != old.action {
-                VALUE_ACTIONS.with(|m| {
-                    let mut m = m.borrow_mut();
-                    if let Some(f) = m.remove(&new.action) {
-                        m.insert(old.action, f);
-                    }
-                });
-                crate::menu::rebind_action(new.action, old.action);
-                new.action = old.action;
-            }
-            if let (
-                day_spec::ToolbarItemKind::Menu { items: new_items },
-                day_spec::ToolbarItemKind::Menu { items: old_items },
-            ) = (&mut new.kind, &old.kind)
-            {
-                rebind_menu(new_items, old_items);
-            }
-            new
-        })
-        .collect()
-}
-
-fn rebind_menu(next: &mut [day_spec::MenuItem], prev: &[day_spec::MenuItem]) {
-    for (new, old) in next.iter_mut().zip(prev) {
-        match (new, old) {
-            (
-                day_spec::MenuItem::Action { action: new_id, .. },
-                day_spec::MenuItem::Action { action: old_id, .. },
-            ) => {
-                if new_id != old_id {
-                    crate::menu::rebind_action(*new_id, *old_id);
-                    *new_id = *old_id;
+    SLOT_IDS.with(|ids| {
+        SLOT_TARGETS.with(|t| {
+            let mut t = t.borrow_mut();
+            ids.borrow_mut().retain(|(r, _), slot| {
+                if *r == root {
+                    t.remove(slot);
                 }
-            }
-            (
-                day_spec::MenuItem::Submenu { items: n, .. },
-                day_spec::MenuItem::Submenu { items: o, .. },
-            ) => rebind_menu(n, o),
-            _ => {}
-        }
-    }
-}
-
-fn drop_values(prev: &[ToolbarItem], next: &[ToolbarItem]) {
-    let keep: Vec<u64> = next.iter().map(|i| i.action).collect();
-    let stale: Vec<u64> = prev
-        .iter()
-        .map(|i| i.action)
-        .filter(|a| *a != 0 && !keep.contains(a))
-        .collect();
-    if stale.is_empty() {
-        return;
-    }
-    VALUE_ACTIONS.with(|m| {
-        let mut m = m.borrow_mut();
-        for a in stale {
-            m.remove(&a);
-        }
+                *r != root
+            });
+        })
     });
 }
 
@@ -677,6 +860,118 @@ pub fn reset_toolbars() {
     MODELS.with(|m| m.borrow_mut().clear());
     CONTRIBUTIONS.with(|m| m.borrow_mut().clear());
     VALUE_ACTIONS.with(|m| m.borrow_mut().clear());
+    SLOT_IDS.with(|m| m.borrow_mut().clear());
+    SLOT_TARGETS.with(|m| m.borrow_mut().clear());
+    DELIVERED.with(|m| m.borrow_mut().clear());
+    RECOMPOSE_PENDING.with(|p| p.set(false));
     PAGE_STACK.with(|s| s.borrow_mut().clear());
     BUILDING.with(|b| b.set(None));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use day_spec::{ToolbarItemKind as K, ToolbarMirror, ToolbarOp};
+
+    fn item(id: &str, label: &str) -> ToolbarItem {
+        ToolbarItem {
+            id: id.into(),
+            kind: K::Button,
+            label: label.into(),
+            tooltip: None,
+            icon: None,
+            enabled: true,
+            action: 0,
+            placement: day_spec::ToolbarPlacement::Automatic,
+            label_style: day_spec::LabelStyle::Automatic,
+            prominent: false,
+            column: day_spec::ToolbarColumn::Window,
+        }
+    }
+
+    /// Apply the diff the way a backend does and compare with the target.
+    fn check(prev: &[ToolbarItem], next: &[ToolbarItem]) -> Vec<ToolbarOp> {
+        let (ops, patches) = diff_bar(prev, next);
+        let mut mirror = ToolbarMirror::default();
+        for (i, p) in prev.iter().enumerate() {
+            mirror.insert(i, p.clone());
+        }
+        // Removals first, then insertions in ascending position: the contract backends rely on.
+        let first_insert = ops
+            .iter()
+            .position(|o| matches!(o, ToolbarOp::Insert { .. }))
+            .unwrap_or(ops.len());
+        assert!(
+            ops[first_insert..]
+                .iter()
+                .all(|o| matches!(o, ToolbarOp::Insert { .. }))
+        );
+        for op in &ops {
+            mirror.apply(op);
+        }
+        for p in &patches {
+            mirror.patch(p);
+        }
+        assert_eq!(mirror.items(), next);
+        ops
+    }
+
+    #[test]
+    fn identical_bars_need_no_edit() {
+        let bar = vec![item("a", "A"), item("b", "B")];
+        assert!(check(&bar, &bar).is_empty());
+    }
+
+    #[test]
+    fn inserts_and_removes_touch_only_their_items() {
+        let prev = vec![item("a", "A"), item("b", "B"), item("search", "S")];
+        let next = vec![item("a", "A"), item("c", "C"), item("search", "S")];
+        let ops = check(&prev, &next);
+        assert_eq!(ops.len(), 2);
+        assert!(ops.iter().all(|o| match o {
+            ToolbarOp::Remove { id } => id == "b",
+            ToolbarOp::Insert { item, index } => item.id == "c" && *index == 1,
+        }));
+    }
+
+    #[test]
+    fn a_reorder_moves_the_fewest_items() {
+        let prev = vec![
+            item("a", "A"),
+            item("b", "B"),
+            item("c", "C"),
+            item("d", "D"),
+        ];
+        let next = vec![
+            item("d", "D"),
+            item("a", "A"),
+            item("b", "B"),
+            item("c", "C"),
+        ];
+        let ops = check(&prev, &next);
+        // `d` moves; `a`, `b` and `c` stay put.
+        assert_eq!(ops.len(), 2, "{ops:?}");
+    }
+
+    #[test]
+    fn a_value_change_is_a_patch_and_a_label_change_an_edit() {
+        let mut toggled = item("t", "T");
+        toggled.kind = K::Toggle { on: false };
+        let mut on = toggled.clone();
+        on.kind = K::Toggle { on: true };
+        on.enabled = false;
+        let (ops, patches) = diff_bar(std::slice::from_ref(&toggled), std::slice::from_ref(&on));
+        assert!(ops.is_empty());
+        assert_eq!(patches.len(), 2);
+        check(&[item("x", "Old")], &[item("x", "New")]);
+    }
+
+    #[test]
+    fn longest_increasing_skips_unmatched() {
+        assert_eq!(
+            longest_increasing(&[Some(2), None, Some(0), Some(1), Some(3)]),
+            vec![2, 3, 4]
+        );
+        assert!(longest_increasing(&[None, None]).is_empty());
+    }
 }

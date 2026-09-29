@@ -2467,7 +2467,8 @@ fn build_android_so(
     Ok(())
 }
 
-/// The Android SDK root: `ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else the macOS default location.
+/// The Android SDK root: `ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else the platform default,
+/// else the location Android Studio's settings record ([`day_toolchain::android_sdk_dir`]).
 /// Shared with `day doctor` so its diagnosis matches what the build actually probes.
 pub(crate) fn android_sdk_dir() -> PathBuf {
     // Shared lookup: ANDROID_HOME / ANDROID_SDK_ROOT, then the per-OS default install location
@@ -2546,6 +2547,14 @@ pub fn build_android(
         && let Some(jdk) = day_toolchain::jdk_home()
     {
         cmd.env("JAVA_HOME", jdk);
+    }
+    // AGP finds the SDK through ANDROID_HOME or a `local.properties` only; it has no default. So
+    // an SDK Day found by itself (the platform default, or where Android Studio's settings put
+    // it) is invisible to Gradle unless it is passed on: the build stops with "SDK location not
+    // found" after every native step already succeeded against that same SDK.
+    if std::env::var_os("ANDROID_HOME").is_none() && std::env::var_os("ANDROID_SDK_ROOT").is_none()
+    {
+        cmd.env("ANDROID_HOME", android_sdk_dir());
     }
     // Bounded: a wedged gradle daemon (or a device query inside the build) must not hold the
     // job past the build ceiling.

@@ -115,7 +115,7 @@ The items are `toolbar_button(id, label)` for a command, `toolbar_toggle(id, lab
 for a two-state button bound two-way, `toolbar_segmented(id, segments, signal)` for one native
 segmented control, `toolbar_menu(id, label, entries)` for a pull-down built from the same
 `MenuEntry`s the menu bar takes, `toolbar_label(id, text)` for static text, and
-`toolbar_separator()` for a divider. The modifiers are `.icon(Symbol)`, `.image(name)`,
+`toolbar_separator(id)` for a divider. The modifiers are `.icon(Symbol)`, `.image(name)`,
 `.action(f)`, `.tooltip(t)`, `.enabled(bool)`, `.enabled_when(f)`, `.placement(…)`,
 `.label_style(…)`, and `.prominent()`.
 

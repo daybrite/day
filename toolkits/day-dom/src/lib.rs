@@ -154,10 +154,10 @@ unsafe extern "C" {
     fn day_dom_nav_add_page(nav: u32, page: u32, chrome: u32);
     fn day_dom_nav_back_bar(nav: u32, visible: u32, t: *const u8, tl: usize);
     fn day_dom_navmenu(el: u32, json: *const u8, len: usize);
-    // Window toolbar (docs/toolbars.md): the whole bar crosses as one JSON spec, the way the
-    // nav menu does; targeted patches address an item by id. `day_dom_toolbar_sidebar` returns
-    // 0 when the page has no split nav to toggle.
-    fn day_dom_toolbar(json: *const u8, len: usize);
+    // Window toolbar (docs/toolbars.md): each edit crosses as one JSON list of ops, and targeted
+    // patches address an item by id. `day_dom_toolbar_sidebar` returns 0 when the page has no
+    // split nav to toggle.
+    fn day_dom_toolbar_edit(json: *const u8, len: usize);
     fn day_dom_toolbar_patch(json: *const u8, len: usize);
     fn day_dom_toolbar_sidebar() -> u32;
     fn day_dom_navmenu_select(el: u32, idx: i32);
@@ -1047,13 +1047,36 @@ fn menu_items_json(json: &mut String, items: &[day_spec::MenuItem]) {
     json.push(']');
 }
 
-fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
-    use day_spec::ToolbarItemKind as K;
-    let mut json = String::from("{\"items\":[");
-    for (i, it) in items.iter().enumerate() {
+/// A toolbar edit (docs/toolbars.md) as the shim's `day_dom_toolbar_edit` reads it: the ops in
+/// order, each insert carrying its item.
+fn toolbar_edit_json(ops: &[day_spec::ToolbarOp]) -> String {
+    let mut json = String::from("{\"ops\":[");
+    for (i, op) in ops.iter().enumerate() {
         if i > 0 {
             json.push(',');
         }
+        match op {
+            day_spec::ToolbarOp::Remove { id } => {
+                json.push_str("{\"op\":\"remove\",\"id\":");
+                json_str(&mut json, id);
+                json.push('}');
+            }
+            day_spec::ToolbarOp::Insert { index, item } => {
+                json.push_str("{\"op\":\"insert\",\"index\":");
+                json.push_str(&index.to_string());
+                json.push_str(",\"item\":");
+                toolbar_item_json(&mut json, item);
+                json.push('}');
+            }
+        }
+    }
+    json.push_str("]}");
+    json
+}
+
+fn toolbar_item_json(json: &mut String, it: &day_spec::ToolbarItem) {
+    use day_spec::ToolbarItemKind as K;
+    {
         let kind = match &it.kind {
             K::Button => "B",
             K::Toggle { .. } => "T",
@@ -1064,13 +1087,13 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
             K::Separator => "-",
         };
         json.push_str("{\"kind\":");
-        json_str(&mut json, kind);
+        json_str(json, kind);
         json.push_str(",\"id\":");
-        json_str(&mut json, &it.id);
+        json_str(json, &it.id);
         json.push_str(",\"label\":");
-        json_str(&mut json, &it.label);
+        json_str(json, &it.label);
         json.push_str(",\"tip\":");
-        json_str(&mut json, it.tooltip.as_deref().unwrap_or(&it.label));
+        json_str(json, it.tooltip.as_deref().unwrap_or(&it.label));
         json.push_str(",\"action\":");
         json.push_str(&it.action.to_string());
         json.push_str(",\"enabled\":");
@@ -1080,7 +1103,7 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         // within each the roles pack leading, center and trailing.
         json.push_str(",\"place\":");
         json_str(
-            &mut json,
+            json,
             match it.placement {
                 day_spec::ToolbarPlacement::Navigation => "nav",
                 day_spec::ToolbarPlacement::Principal => "mid",
@@ -1093,7 +1116,7 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         );
         json.push_str(",\"col\":");
         json_str(
-            &mut json,
+            json,
             match it.column {
                 day_spec::ToolbarColumn::Sidebar => "sidebar",
                 day_spec::ToolbarColumn::List => "list",
@@ -1113,7 +1136,7 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
                     json.push(',');
                 }
                 json.push_str("{\"title\":");
-                json_str(&mut json, &seg.title);
+                json_str(json, &seg.title);
                 let ic = match &seg.icon {
                     Some(day_spec::Icon::Image(name)) => Some(image_url(name)),
                     Some(day_spec::Icon::Symbol(sym)) => symbol_svg(*sym),
@@ -1121,7 +1144,7 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
                 };
                 if let Some(url) = ic {
                     json.push_str(",\"icon\":");
-                    json_str(&mut json, &url);
+                    json_str(json, &url);
                 }
                 json.push('}');
             }
@@ -1129,7 +1152,7 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         }
         if let K::Menu { items } = &it.kind {
             json.push_str(",\"menu\":");
-            menu_items_json(&mut json, items);
+            menu_items_json(json, items);
         }
         if let K::Search {
             text,
@@ -1138,16 +1161,16 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         } = &it.kind
         {
             json.push_str(",\"text\":");
-            json_str(&mut json, text.as_str());
+            json_str(json, text.as_str());
             json.push_str(",\"placeholder\":");
-            json_str(&mut json, placeholder.as_str());
+            json_str(json, placeholder.as_str());
             // A native <datalist>, so the browser draws the completion popup.
             json.push_str(",\"suggestions\":[");
             for (n, sug) in suggestions.iter().enumerate() {
                 if n > 0 {
                     json.push(',');
                 }
-                json_str(&mut json, sug);
+                json_str(json, sug);
             }
             json.push(']');
         }
@@ -1164,12 +1187,10 @@ fn toolbar_json(items: &[day_spec::ToolbarItem]) -> String {
         };
         if let Some(url) = icon {
             json.push_str(",\"icon\":");
-            json_str(&mut json, &url);
+            json_str(json, &url);
         }
         json.push('}');
     }
-    json.push_str("]}");
-    json
 }
 
 fn json_str(out: &mut String, v: &str) {
@@ -1397,7 +1418,7 @@ impl Toolkit for Dom {
             // has no title bar to hang one on. Emulated is the honest answer, and it is enough
             // for an app to decide the commands belong in the bar rather than in the content
             // (docs/toolbars.md).
-            Cap::Toolbar => Support::Emulated,
+            Cap::Toolbar | Cap::ToolbarSearch => Support::Emulated,
             // The Badging API takes a number or, with no argument, a dot. Emulated rather than
             // Native because whether anything is DRAWN depends on the browser and on the page
             // being an installed app — the call itself always succeeds (docs/badge.md).
@@ -2382,13 +2403,12 @@ impl Toolkit for Dom {
         unsafe { day_dom_set_hash(route.as_ptr(), route.len(), replace as u32) };
     }
 
-    fn set_toolbar(&mut self, _h: &DomHandle, items: &[day_spec::ToolbarItem]) {
+    fn edit_toolbar(&mut self, _h: &DomHandle, ops: &[day_spec::ToolbarOp]) -> bool {
         // The web has no window chrome, so the bar is a strip the shim docks at the top of the
-        // document (docs/toolbars.md). One spec rebuilds the whole strip; `update_toolbar`
-        // carries the targeted changes so a search in progress is not rebuilt out from under
-        // the user.
-        let json = toolbar_json(items);
-        unsafe { day_dom_toolbar(json.as_ptr(), json.len()) };
+        // document (docs/toolbars.md), edited one item at a time like every native bar.
+        let json = toolbar_edit_json(ops);
+        unsafe { day_dom_toolbar_edit(json.as_ptr(), json.len()) };
+        true
     }
 
     fn update_toolbar(&mut self, _h: &DomHandle, patch: &day_spec::ToolbarPatch) {

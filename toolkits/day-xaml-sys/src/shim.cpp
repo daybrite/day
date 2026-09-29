@@ -1130,6 +1130,21 @@ void day_xaml_window_show(void* win) {
 // entry, and that runs further up this file.
 using ToolbarElems = std::map<std::string, FrameworkElement>;
 static std::map<void*, ToolbarElems> g_toolbar_elems;
+// Each window's toolbar (see `insert_toolbar_item`).
+struct ToolbarEntry {
+    std::string id;
+    FrameworkElement elem{ nullptr }; // null for an item this bar does not draw
+    int region = -1;                  // 0 content, 1 primary, 2 secondary, -1 not drawn
+};
+struct ToolbarState {
+    WUXC::CommandBar bar{ nullptr };
+    WUXC::StackPanel lead{ nullptr };
+    std::vector<ToolbarEntry> order; // every item, in Day's order
+    // Each segmented item's toggle buttons, by id, so a patch can move the selection without
+    // the echo. Per window, like everything here: two windows show the same ids.
+    std::map<std::string, std::shared_ptr<std::vector<WUXCP::ToggleButton>>> segments;
+};
+static std::map<void*, ToolbarState> g_toolbar_state;
 
 struct SecWindow {
     HWND host{};
@@ -1546,6 +1561,7 @@ void day_xaml_window_destroy2(void* win) {
     // This window's toolbar items go with it, or the map grows by a full item set on every
     // open/close cycle and holds those elements alive for the process's life.
     g_toolbar_elems.erase(win);
+    g_toolbar_state.erase(win);
     // Close the island before the host window goes. The DesktopWindowXamlSource owns a child
     // HWND of `host`, so DestroyWindow takes that window out from under XAML and leaves the
     // source to tear down an island whose HWND no longer exists — Close() first is the order
@@ -4844,23 +4860,18 @@ extern "C" void day_xaml_window_set_menu2(void* win, const char* spec) try {
 // takes only ICommandBarElement — AppBarElementContainer, which would wrap an arbitrary control,
 // is WinUI's and not in Windows.UI.Xaml.
 //
-// The spec is one flat blob, like the menu spec above. One line per item:
+// Each item arrives as its own spec (`day_xaml_toolbar_insert`), in the format of the menu spec
+// above, one line per item:
 //   kind \t id \t action \t enabled \t on \t glyph \t image \t label \t tooltip \t text \t placeholder
-// kinds: B button, T toggle, M menu, F search field, L label, `-` separator, `_` fixed space,
-// `>` flexible space (the Content/PrimaryCommands split). `on` seeds a toggle and `text` a search
+// kinds: B button, T toggle, G segmented, M menu, F search field, L label, `-` separator. `on` seeds a toggle and `text` a search
 // field; `glyph` is a Segoe Fluent Icons code point in hex, `image` a bundled image FILE NAME.
 // An `M` line is followed by that item's MENU spec — the same lines build_menu_items already
 // parses — closed by an `X` line, so the sub-spec is sliced out here and handed straight to it.
 // Buttons ride the same g_menu_cb rail as menu items; a toggle's state and a search field's text
 // go through g_toolbar_cb. CI-built (no live Windows verification).
 
-// kind 0 = toggle (`on`), kind 1 = search text (`text`).
+// kind 0 = toggle (`on`), kind 1 = search text (`text`), kind 2 = segment index (`on`).
 static void (*g_toolbar_cb)(unsigned long long, int, int, const char*) = nullptr;
-
-// Where the install in progress records its items. Set around a build, since the item
-// construction below is many frames deep and threading a parameter through it all buys nothing
-// on a single UI thread.
-static ToolbarElems* g_toolbar_target = nullptr;
 
 /// One window's live toolbar item, or null. `win` is the window token the install used — the
 /// primary AppWindow* or a SecWindow* — so a patch reaches the item in the window that owns it.
@@ -4895,8 +4906,6 @@ static void day_xaml_fill_suggestions(WUXC::AutoSuggestBox const& box, std::stri
 // back through g_toolbar_cb. (The search field can't use one: AutoSuggestBox raises TextChanged
 // asynchronously, which is why that handler filters on the change REASON instead.)
 static bool g_toolbar_setting_checked = false;
-// Each segmented item's buttons, so a patch can move the selection.
-static std::map<std::string, std::shared_ptr<std::vector<WUXCP::ToggleButton>>> g_toolbar_segments;
 
 extern "C" void day_xaml_set_toolbar_cb(void (*cb)(unsigned long long, int, int, const char*)) {
     g_toolbar_cb = cb;
@@ -4982,44 +4991,86 @@ extern "C" void day_xaml_button_set_content(void* h, const char* title, const ch
 }
 
 
-/// Build the docked CommandBar for `root`, replacing any previous one; null for an empty spec.
-/// `elems` receives this window's id→element map for the targeted patches. Shared by the primary
-/// window and every secondary one, exactly like `install_menu_bar`.
-static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char* spec,
-                                            ToolbarElems* elems) {
-    // Take out the bar a previous install docked (named "day_toolbar"), the same way the MenuBar
-    // above is replaced; `Children()` is a projection returned by value, so bind it by value.
-    auto kids = root.Children();
-    for (uint32_t i = 0; i < kids.Size(); ++i) {
-        if (auto fe = kids.GetAt(i).try_as<FrameworkElement>()) {
-            if (fe.Name() == L"day_toolbar") { kids.RemoveAt(i); break; }
-        }
+// --- the window toolbar (docs/toolbars.md), edited one item at a time ---------------------
+// A docked CommandBar with three regions: a leading StackPanel as its `Content`, the
+// `PrimaryCommands` on the right, and the `SecondaryCommands` in the overflow. Each item goes
+// into its region right after the item before it there, so an edit never touches an element it
+// does not name: an AutoSuggestBox being typed into keeps its focus while the page commands
+// around it change.
+
+
+static bool region_index(ToolbarState& st, FrameworkElement const& e, int region, uint32_t& at) {
+    if (region == 0) return st.lead.Children().IndexOf(e.as<WUX::UIElement>(), at);
+    auto cmd = e.as<WUXC::ICommandBarElement>();
+    if (region == 1) return st.bar.PrimaryCommands().IndexOf(cmd, at);
+    return st.bar.SecondaryCommands().IndexOf(cmd, at);
+}
+
+static void region_insert(ToolbarState& st, FrameworkElement const& e, int region, uint32_t at) {
+    if (region == 0) st.lead.Children().InsertAt(at, e);
+    else if (region == 1) st.bar.PrimaryCommands().InsertAt(at, e.as<WUXC::ICommandBarElement>());
+    else st.bar.SecondaryCommands().InsertAt(at, e.as<WUXC::ICommandBarElement>());
+}
+
+static void region_remove(ToolbarState& st, FrameworkElement const& e, int region) {
+    uint32_t at = 0;
+    if (!region_index(st, e, region, at)) return;
+    if (region == 0) st.lead.Children().RemoveAt(at);
+    else if (region == 1) st.bar.PrimaryCommands().RemoveAt(at);
+    else st.bar.SecondaryCommands().RemoveAt(at);
+}
+
+// The window's bar, docked into `root` on first use.
+static ToolbarState& toolbar_state(void* win, WUXC::Canvas const& root) {
+    ToolbarState& st = g_toolbar_state[win];
+    if (!st.bar) {
+        WUXC::CommandBar bar;
+        bar.Name(L"day_toolbar");
+        // Labels beside the icons: the desktop CommandBar look, and it keeps the strip one row
+        // tall.
+        bar.DefaultLabelPosition(WUXC::CommandBarDefaultLabelPosition::Right);
+        bar.HorizontalContentAlignment(WUX::HorizontalAlignment::Left);
+        bar.VerticalContentAlignment(WUX::VerticalAlignment::Center);
+        WUXC::StackPanel lead;
+        lead.Orientation(WUXC::Orientation::Horizontal);
+        lead.VerticalAlignment(WUX::VerticalAlignment::Center);
+        bar.Content(lead);
+        WUXC::Canvas::SetLeft(bar, 0);
+        // The top offset (below the menu bar, if there is one) and the width are relayout's
+        // job — the two bars are installed in either order.
+        root.Children().Append(bar);
+        st.bar = bar;
+        st.lead = lead;
     }
-    if (elems) elems->clear();
-    if (!spec || !*spec) return nullptr;
-    g_toolbar_target = elems;
+    return st;
+}
 
-    WUXC::CommandBar bar;
-    bar.Name(L"day_toolbar");
-    // Labels beside the icons: the desktop CommandBar look, and it keeps the strip one row tall.
-    bar.DefaultLabelPosition(WUXC::CommandBarDefaultLabelPosition::Right);
-    bar.HorizontalContentAlignment(WUX::HorizontalAlignment::Left);
-    bar.VerticalContentAlignment(WUX::VerticalAlignment::Center);
-
-    WUXC::StackPanel lead;
-    lead.Orientation(WUXC::Orientation::Horizontal);
-    lead.VerticalAlignment(WUX::VerticalAlignment::Center);
-
+// Build the item `spec` describes (one record, and its menu or segment lines) and put it at
+// position `index` of Day's order.
+static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const char* spec) {
+    ToolbarElems& elems = g_toolbar_elems[win];
     bool trailing = false;  // this item's placement says the right-hand group
     bool secondary = false; // …and the overflow within it
+    // Into `region`, right after the nearest earlier item drawn in the same region.
+    auto put = [&](FrameworkElement const& e, int region, const std::string& id) {
+        const size_t at = std::min(index, st.order.size());
+        uint32_t pos = 0;
+        for (size_t k = at; k-- > 0;) {
+            auto& o = st.order[k];
+            uint32_t found = 0;
+            if (o.elem && o.region == region && region_index(st, o.elem, region, found)) {
+                pos = found + 1;
+                break;
+            }
+        }
+        if (e) region_insert(st, e, region, pos);
+        st.order.insert(st.order.begin() + at, ToolbarEntry{ id, e, e ? region : -1 });
+        if (e && !id.empty()) elems.insert_or_assign(id, e);
+    };
     // A command: `SecondaryCommands` for one the app marked foldable, `PrimaryCommands` for the
-    // right-hand group, the leading panel otherwise. Either way it is remembered by id, which is
-    // what the targeted patches address.
-    auto place_command = [&](FrameworkElement const& e, const std::string& id) {
-        if (secondary) bar.SecondaryCommands().Append(e.as<WUXC::ICommandBarElement>());
-        else if (trailing) bar.PrimaryCommands().Append(e.as<WUXC::ICommandBarElement>());
-        else lead.Children().Append(e);
-        if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, e);
+    // right-hand group, the leading panel otherwise.
+    auto put_command = [&](FrameworkElement const& e, const std::string& id) {
+        put(e, secondary ? 2 : (trailing ? 1 : 0), id);
     };
     // A leading AppBarButton is outside the bar's own collections, so DefaultLabelPosition does
     // not reach it and it would draw its label under the icon — two rows tall. Collapse the label
@@ -5036,7 +5087,9 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
         std::string kind = fld(0), id = fld(1);
         unsigned long long action = std::strtoull(fld(2).c_str(), nullptr, 10);
         bool enabled = fld(3) != "0";
-        bool on = fld(4) == "1";
+        // A toggle's state, or a segmented item's selected index.
+        const int value = std::atoi(fld(4).c_str());
+        bool on = value == 1;
         std::string glyph = fld(5), image = fld(6), label = fld(7), tip = fld(8), text = fld(9),
                     placeholder = fld(10), suggestions = fld(11), geom = fld(12),
                     place = fld(13);
@@ -5050,8 +5103,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
 
         if (kind == "-") {
             if (trailing) {
-                bar.PrimaryCommands().Append(
-                    WUXC::AppBarSeparator{}.as<WUXC::ICommandBarElement>());
+                put(WUXC::AppBarSeparator{}, 1, id);
             } else {
                 // AppBarSeparator sizes itself against the bar's own row, not against a
                 // StackPanel, so a leading divider is a hairline of our own — the same
@@ -5062,7 +5114,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
                 rule.Height(20);
                 rule.Margin(WUX::Thickness{ 6, 0, 6, 0 });
                 rule.Background(WUXM::SolidColorBrush(color_argb(0x33'808080u)));
-                lead.Children().Append(rule);
+                put(rule, 0, id);
             }
         } else if (kind == "F") {
             WUXC::AutoSuggestBox box;
@@ -5083,8 +5135,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
                     if (g_toolbar_cb) g_toolbar_cb(action, 1, 0, str.c_str());
                 });
             }
-            lead.Children().Append(box);
-            if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, box);
+            put(box, 0, id);
         } else if (id == "day.sidebar-toggle") {
             // The sidebar toggle is REALIZED BY THE NAVIGATIONVIEW, not by a bar command: its
             // built-in PaneToggleButton is the hamburger Windows puts at the head of the pane,
@@ -5102,15 +5153,17 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             // (`day_xaml_toggle_sidebar` no-ops on an empty `g_navviews`).
             //
             // Recognized by its RESERVED ID now that a sidebar host contributes an ordinary
-            // button for it rather than a kind of its own (docs/toolbars.md).
+            // button for it rather than a kind of its own (docs/toolbars.md). It still takes its
+            // place in the bar's order, with no element, so the positions of the items after it
+            // line up with Day's.
+            put(nullptr, -1, id);
             continue;
         } else if (kind == "L") {
             WUXC::TextBlock caption;
             caption.Text(hs(label.c_str()));
             caption.VerticalAlignment(WUX::VerticalAlignment::Center);
             caption.Margin(WUX::Thickness{ 8, 0, 8, 0 });
-            lead.Children().Append(caption);
-            if (!id.empty() && g_toolbar_target) g_toolbar_target->insert_or_assign(id, caption);
+            put(caption, 0, id);
         } else if (kind == "T") {
             WUXC::AppBarToggleButton toggle;
             toggle.Label(hs(label.c_str()));
@@ -5128,7 +5181,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
                     if (g_toolbar_cb && !g_toolbar_setting_checked) g_toolbar_cb(action, 0, 0, "");
                 });
             }
-            place_command(toggle, id);
+            put_command(toggle, id);
         } else if (kind == "G") {
             // WinUI has no segmented control in the SDK day targets, so this is what a Fluent app
             // builds: a tight row of toggle buttons kept exclusive here. One AppBarElementContainer
@@ -5155,7 +5208,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
                 }
                 WUXC::ToolTipService::SetToolTip(b, winrt::box_value(hs(title.c_str())));
                 b.IsEnabled(enabled);
-                b.IsChecked(static_cast<int>(n) == on);
+                b.IsChecked(static_cast<int>(n) == value);
                 buttons->push_back(b);
                 row.Children().Append(b);
             }
@@ -5186,8 +5239,8 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             }
             WUXC::AppBarElementContainer host;
             host.Content(row);
-            g_toolbar_segments[id] = buttons;
-            place_command(host, id);
+            st.segments[id] = buttons;
+            put_command(host, id);
         } else if (kind == "M") {
             // The item's own menu spec follows, closed by an `X` line: slice it out and let the
             // menu builder fill a MenuFlyout with it, so a toolbar menu and its menu-bar twin are
@@ -5210,7 +5263,7 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
             WUXC::MenuFlyout fly;
             build_menu_items(fly.Items(), inner);
             button.Flyout(fly);
-            place_command(button, id);
+            put_command(button, id);
         } else { // "B", and anything a later model adds: a plain command
             WUXC::AppBarButton button;
             button.Label(hs(label.c_str()));
@@ -5223,17 +5276,71 @@ static WUXC::CommandBar install_toolbar_bar(WUXC::Canvas const& root, const char
                     if (g_menu_cb) g_menu_cb(action);
                 });
             }
-            place_command(button, id);
+            put_command(button, id);
         }
     }
 
-    if (lead.Children().Size() > 0) bar.Content(lead);
-    WUXC::Canvas::SetLeft(bar, 0);
-    // The top offset (below the menu bar, if there is one) and the width are relayout's job —
-    // the two bars are installed in either order.
-    root.Children().Append(bar);
-    g_toolbar_target = nullptr;
-    return bar;
+}
+
+// Dock or undock the bar to match what it holds, and hand the window's chrome layout the bar.
+static WUXC::CommandBar settle_toolbar(void* win, WUXC::Canvas const& root) {
+    auto it = g_toolbar_state.find(win);
+    if (it == g_toolbar_state.end()) return nullptr;
+    if (!it->second.order.empty()) return it->second.bar;
+    uint32_t at = 0;
+    if (it->second.bar && root.Children().IndexOf(it->second.bar, at)) root.Children().RemoveAt(at);
+    g_toolbar_state.erase(it);
+    g_toolbar_elems.erase(win);
+    return nullptr;
+}
+
+// Put item `spec` at position `index` of window `win`'s bar (`secondary` != 0: a SecWindow).
+extern "C" void day_xaml_toolbar_insert(void* win, int secondary, int index, const char* spec) try {
+    WUXC::Canvas root{ nullptr };
+    if (secondary) {
+        auto sw = static_cast<SecWindow*>(win);
+        if (sw) root = sw->root;
+    } else {
+        auto app = reinterpret_cast<AppWindow*>(win);
+        if (app) root = app->root;
+    }
+    if (!root || !spec) return;
+    ToolbarState& st = toolbar_state(win, root);
+    insert_toolbar_item(win, st, static_cast<size_t>(std::max(index, 0)), spec);
+} catch (...) {
+}
+
+// Take item `id` off window `win`'s bar. Nothing else on it moves.
+extern "C" void day_xaml_toolbar_remove(void* win, const char* id) try {
+    auto it = g_toolbar_state.find(win);
+    if (it == g_toolbar_state.end() || !id) return;
+    ToolbarState& st = it->second;
+    const std::string key(id);
+    for (size_t k = 0; k < st.order.size(); ++k) {
+        if (st.order[k].id != key) continue;
+        if (st.order[k].elem) region_remove(st, st.order[k].elem, st.order[k].region);
+        st.order.erase(st.order.begin() + k);
+        break;
+    }
+    g_toolbar_elems[win].erase(key);
+    st.segments.erase(key);
+} catch (...) {
+}
+
+// The edit is complete: undock an empty bar and lay the window's chrome out.
+extern "C" void day_xaml_toolbar_done(void* win, int secondary) try {
+    if (secondary) {
+        auto sw = static_cast<SecWindow*>(win);
+        if (!sw || !sw->root) return;
+        sw->toolbar = settle_toolbar(win, sw->root);
+        relayout_sec_chrome(sw);
+    } else {
+        auto app = reinterpret_cast<AppWindow*>(win);
+        if (!app || !app->root) return;
+        app->toolbar = settle_toolbar(win, app->root);
+        day_xaml_relayout_chrome(app);
+    }
+} catch (...) {
 }
 
 extern "C" void day_xaml_toolbar_set_suggestions(void* win, const char* id, const char* joined) try {
@@ -5243,25 +5350,7 @@ extern "C" void day_xaml_toolbar_set_suggestions(void* win, const char* id, cons
 } catch (...) {
 }
 
-extern "C" void day_xaml_set_toolbar(void* win, const char* spec) try {
-    auto app = reinterpret_cast<AppWindow*>(win);
-    if (!app || !app->root) return;
-    app->toolbar = install_toolbar_bar(app->root, spec, &g_toolbar_elems[win]);
-    day_xaml_relayout_chrome(app);
-} catch (...) {
-    g_toolbar_target = nullptr;
-}
 
-// A secondary window's own toolbar (docs/toolbars.md): every window an app opens installs its
-// own item list, and each one drives the window it is in.
-extern "C" void day_xaml_window_set_toolbar2(void* win, const char* spec) try {
-    auto sw = static_cast<SecWindow*>(win);
-    if (!sw || !sw->root) return;
-    sw->toolbar = install_toolbar_bar(sw->root, spec, &g_toolbar_elems[win]);
-    relayout_sec_chrome(sw);
-} catch (...) {
-    g_toolbar_target = nullptr;
-}
 
 extern "C" void day_xaml_toolbar_set_text(void* win, const char* id, const char* text) try {
     auto e = find_toolbar_elem(win, id);
@@ -5276,9 +5365,10 @@ extern "C" void day_xaml_toolbar_set_text(void* win, const char* id, const char*
 }
 
 extern "C" void day_xaml_toolbar_set_selected(void* win, const char* id, int index) try {
-    (void)win;
-    auto it = g_toolbar_segments.find(std::string(id));
-    if (it == g_toolbar_segments.end() || !it->second) return;
+    auto state = g_toolbar_state.find(win);
+    if (state == g_toolbar_state.end()) return;
+    auto it = state->second.segments.find(std::string(id));
+    if (it == state->second.segments.end() || !it->second) return;
     auto& buttons = *it->second;
     if (index < 0 || static_cast<size_t>(index) >= buttons.size()) return;
     g_toolbar_setting_checked = true;

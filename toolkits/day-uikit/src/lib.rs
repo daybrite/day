@@ -7426,9 +7426,26 @@ mod imp {
             }
         }
 
-        fn set_toolbar(&mut self, h: &Handle, items: &[day_spec::ToolbarItem]) {
+        fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
+            // The bar is bar-button items rebuilt from the model on every page (a bar button
+            // item belongs to one bar at a time), and none of them holds state of its own:
+            // search rides the navigation item, never the bar. So an edit is applied to the
+            // model and the bar re-filled from it, which is what UIKit does with an items array.
             let root = ptr_of(h);
-            if items.is_empty() {
+            let empty = WINDOW_TOOLBARS.with(|t| {
+                let mut t = t.borrow_mut();
+                let w = t.entry(root).or_insert_with(|| WindowToolbar {
+                    root: h.clone(),
+                    items: Vec::new(),
+                    targets: Vec::new(),
+                    docked: None,
+                });
+                for op in ops {
+                    op.apply_to(&mut w.items);
+                }
+                w.items.is_empty()
+            });
+            if empty {
                 // Before the entry goes: the window's own bar lives in it, and a dropped
                 // `Retained` would leave the strip on screen with nothing driving it.
                 undock_window_toolbar(root, h);
@@ -7436,24 +7453,10 @@ mod imp {
                     t.borrow_mut().remove(&root);
                 });
                 clear_window_toolbar(h);
-                return;
+                return true;
             }
-            WINDOW_TOOLBARS.with(|t| {
-                let mut t = t.borrow_mut();
-                // A model change re-fills the same bar (`dock_window_toolbar` sets its items
-                // afresh); rebuilding the view would flash the strip on every enable change.
-                let docked = t.get_mut(&root).and_then(|w| w.docked.take());
-                t.insert(
-                    root,
-                    WindowToolbar {
-                        root: h.clone(),
-                        items: items.to_vec(),
-                        targets: Vec::new(),
-                        docked,
-                    },
-                );
-            });
             reapply_window_toolbar(root);
+            true
         }
 
         fn update_toolbar(&mut self, h: &Handle, patch: &day_spec::ToolbarPatch) {

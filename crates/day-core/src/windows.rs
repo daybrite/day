@@ -394,6 +394,9 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
         t.mark_layout_dirty();
         t.layout_if_needed();
     });
+    // The window has a native root only now, so a toolbar edit composed before this could not
+    // reach it (docs/toolbars.md). Owe the windows a recompose: the bar goes out whole.
+    crate::toolbar::chrome_changed();
     true
 }
 

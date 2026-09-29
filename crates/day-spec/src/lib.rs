@@ -1554,6 +1554,151 @@ pub enum ToolbarPatch {
     Suggestions { item: String, list: Vec<String> },
 }
 
+impl ToolbarPatch {
+    /// The id of the item this patch addresses.
+    pub fn item(&self) -> &str {
+        match self {
+            ToolbarPatch::Text { item, .. }
+            | ToolbarPatch::On { item, .. }
+            | ToolbarPatch::Selected { item, .. }
+            | ToolbarPatch::Enabled { item, .. }
+            | ToolbarPatch::Suggestions { item, .. } => item,
+        }
+    }
+
+    /// Write this patch's value into `items`, the model of a bar. `false` when no item there
+    /// takes it (an unknown id, or a kind the value does not apply to).
+    pub fn apply_to(&self, items: &mut [ToolbarItem]) -> bool {
+        let Some(it) = items.iter_mut().find(|i| i.id == self.item()) else {
+            return false;
+        };
+        match (self, &mut it.kind) {
+            (ToolbarPatch::Text { text, .. }, ToolbarItemKind::Search { text: t, .. }) => {
+                *t = text.clone()
+            }
+            (
+                ToolbarPatch::Suggestions { list, .. },
+                ToolbarItemKind::Search { suggestions, .. },
+            ) => *suggestions = list.clone(),
+            (ToolbarPatch::On { on, .. }, ToolbarItemKind::Toggle { on: o }) => *o = *on,
+            (
+                ToolbarPatch::Selected { index, .. },
+                ToolbarItemKind::Segmented { segments, selected },
+            ) if *index < segments.len() => *selected = *index,
+            (ToolbarPatch::Enabled { on, .. }, _) => it.enabled = *on,
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// One step of an edit to a window's toolbar (docs/toolbars.md).
+///
+/// Day hands a backend its bar as edits, never as a whole new model to rebuild, for the same
+/// reason the view tree arrives as `insert`/`remove` rather than as a fresh tree: an item the
+/// edit does not name keeps its native widget, and with it the keyboard focus, the caret, a
+/// menu that is open. A value (search text, a toggle) never travels as an edit; it is a
+/// [`ToolbarPatch`] on the live item.
+///
+/// An edit lists every [`ToolbarOp::Remove`] first, then every [`ToolbarOp::Insert`] in
+/// ascending `index`, so applying them in order to the bar's current items (a
+/// [`ToolbarMirror`] does exactly that) produces the new bar. Items keep their relative order
+/// across an edit: an item that moves arrives as a remove and an insert, like one whose
+/// presentation changed.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ToolbarOp {
+    /// The item with this id leaves the bar.
+    Remove { id: String },
+    /// `item` joins the bar at `index`, its position once this edit is complete.
+    Insert { index: usize, item: ToolbarItem },
+}
+
+impl ToolbarOp {
+    /// Apply this op to `items`, a bar's model in order.
+    pub fn apply_to(&self, items: &mut Vec<ToolbarItem>) {
+        match self {
+            ToolbarOp::Remove { id } => items.retain(|i| i.id != *id),
+            ToolbarOp::Insert { index, item } => {
+                items.insert((*index).min(items.len()), item.clone())
+            }
+        }
+    }
+}
+
+/// A backend's copy of one window's toolbar, kept in step with the [`ToolbarOp`]s and
+/// [`ToolbarPatch`]es that reach it, and the one place a backend works out where a new item
+/// goes (docs/toolbars.md).
+///
+/// Every backend lays its bar out as a few groups (the leading and trailing ends of a header
+/// bar, the columns of a split window, the primary and overflow commands of a command bar) and
+/// keeps model order within each. So an inserted item always goes right after
+/// [`ToolbarMirror::prev_where`] its own group, or first in the group when that is `None`, and
+/// nothing already on the bar moves.
+#[derive(Clone, Debug, Default)]
+pub struct ToolbarMirror {
+    items: Vec<ToolbarItem>,
+}
+
+impl ToolbarMirror {
+    /// The bar's items, in model order.
+    pub fn items(&self) -> &[ToolbarItem] {
+        &self.items
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    /// The item with this id.
+    pub fn get(&self, id: &str) -> Option<&ToolbarItem> {
+        self.items.iter().find(|i| i.id == id)
+    }
+
+    /// The item dispatching `action`: how a backend whose native bar reports only an action
+    /// id (a menu tap) finds what was tapped.
+    pub fn by_action(&self, action: u64) -> Option<&ToolbarItem> {
+        self.items
+            .iter()
+            .find(|i| i.action == action && action != 0)
+    }
+
+    /// Take the item with `id` out, returning it.
+    pub fn remove(&mut self, id: &str) -> Option<ToolbarItem> {
+        let at = self.items.iter().position(|i| i.id == id)?;
+        Some(self.items.remove(at))
+    }
+
+    /// Put `item` at `index` (clamped to the end).
+    pub fn insert(&mut self, index: usize, item: ToolbarItem) {
+        let at = index.min(self.items.len());
+        self.items.insert(at, item);
+    }
+
+    /// Apply one op to the model: what a backend that repaints its whole native bar from the
+    /// model (a menu of actions) does with each.
+    pub fn apply(&mut self, op: &ToolbarOp) {
+        op.apply_to(&mut self.items);
+    }
+
+    /// Write a value patch into the model. `false` when no item takes it.
+    pub fn patch(&mut self, patch: &ToolbarPatch) -> bool {
+        patch.apply_to(&mut self.items)
+    }
+
+    /// The nearest item before `index` that `same_group` accepts: the native item a new one at
+    /// `index` goes right after, in that group. `None` = it goes first in the group.
+    pub fn prev_where(
+        &self,
+        index: usize,
+        same_group: impl Fn(&ToolbarItem) -> bool,
+    ) -> Option<&ToolbarItem> {
+        self.items[..index.min(self.items.len())]
+            .iter()
+            .rev()
+            .find(|i| same_group(i))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct KeyEvent {
     /// The key's name, in the web `KeyboardEvent.key` vocabulary every platform can map onto:
@@ -2158,13 +2303,18 @@ pub enum Cap {
     /// The toolkit can show a valueless indicator (`AppBadge::Dot`).
     AppBadgeDot,
     /// The toolkit gives a window chrome that persists across pages
-    /// (`Toolkit::set_toolbar`, docs/toolbars.md): `Native` on the desktop backends and the
+    /// (`Toolkit::edit_toolbar`, docs/toolbars.md): `Native` on the desktop backends and the
     /// phones, `Emulated` on web-dom, `Unsupported` where the only chrome belongs to a page.
     ///
     /// It no longer decides whether a command can be shown at all: a toolbar item declared on a
     /// piece rides that piece's own chrome everywhere. Probe it only for a layout decision that
     /// turns on a persistent bar existing.
     Toolbar,
+    /// The window toolbar can hold a search field (docs/search.md): `Native` on the desktop
+    /// backends, `Emulated` on web-dom. `Unsupported` on the phones, whose bar is a row of actions
+    /// (an Android app-bar menu, iOS bar buttons, ArkUI title-bar menus): their field goes on the
+    /// navigation surface instead, so `SearchPlacement::Toolbar` resolves to `Inline` there.
+    ToolbarSearch,
     /// The toolkit realizes `kinds::INSPECTOR` as its own trailing-pane container
     /// (docs/inspector.md): an `NSSplitView` inspector pane, a `GtkPaned` with the panel as
     /// its end child, a `QDockWidget`, a XAML `SplitView` right pane. `Unsupported` ⇒ the
@@ -5154,7 +5304,8 @@ pub mod props {
         #[default]
         Automatic,
         /// In the window's toolbar (`NSSearchToolbarItem`, an `AdwHeaderBar` entry, a
-        /// `CommandBar` `AutoSuggestBox`). Ignored where there is no toolbar.
+        /// `CommandBar` `AutoSuggestBox`). `Inline` where the toolbar cannot hold a search field
+        /// (`Cap::ToolbarSearch`).
         Toolbar,
         /// Attached to the navigation surface itself: above the sidebar list, or in the
         /// navigation bar's search drawer on the phones.
@@ -6008,10 +6159,22 @@ pub trait Toolkit: Sized + 'static {
     // primary root's); the backend walks from it to the window it belongs to. Default no-op: a
     // toolkit with no toolbar shows nothing rather than a drawn imitation, and reports
     // `Cap::Toolbar` as `Unsupported` so an app can put the command somewhere else.
-    /// Install `items` as the window's toolbar, replacing any previous one. An empty slice removes
-    /// it. Items are identified by [`ToolbarItem::id`]; a backend that can reuse the native item
-    /// already carrying an id should, so a replace does not drop the search field's focus.
-    fn set_toolbar(&mut self, _h: &Self::Handle, _items: &[ToolbarItem]) {}
+    /// Edit the window's toolbar (docs/toolbars.md): the [`ToolbarOp`]s, removals first, then
+    /// insertions in ascending position. The bar starts empty, and becomes empty again when every
+    /// item has been removed, at which point the backend takes it off the window.
+    ///
+    /// An item no op names must keep its native widget untouched, which is what keeps a search
+    /// field focused while the page around it changes. Day sends an edit only when the bar
+    /// changed, at most once per turn, and an item keeps its [`ToolbarItem::action`] for as long
+    /// as its window shows an item with that id, so a native item's handler never needs
+    /// repointing. Keep a [`ToolbarMirror`] and place each new item after
+    /// [`ToolbarMirror::prev_where`] its group.
+    ///
+    /// Returns whether the edit was applied. `false` (the window has no bar to edit yet) makes
+    /// Day send the whole bar again at the next change rather than assume this one landed.
+    fn edit_toolbar(&mut self, _h: &Self::Handle, _ops: &[ToolbarOp]) -> bool {
+        true
+    }
     /// Apply a targeted change to one live toolbar item, the path a bound signal writes through,
     /// so syncing a search field does not rebuild the bar. No-op if the item is not present.
     fn update_toolbar(&mut self, _h: &Self::Handle, _patch: &ToolbarPatch) {}

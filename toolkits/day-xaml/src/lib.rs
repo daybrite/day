@@ -1527,7 +1527,8 @@ impl Toolkit for Xaml {
             // A second Win32 host + its own XAML island per window (docs/windows.md).
             Cap::MultiWindow => Support::Native,
             // A Fluent CommandBar under the menu bar (docs/toolbars.md).
-            Cap::AppMenu | Cap::Toolbar => Support::Native,
+            // The CommandBar holds an AutoSuggestBox (docs/search.md).
+            Cap::AppMenu | Cap::Toolbar | Cap::ToolbarSearch => Support::Native,
             // Present `nav()` as split panes: NAV/NAV_PAGE are plain Canvases and day-core's
             // NavLayout positions the sidebar + detail (no native split control needed).
             Cap::NavSplit => Support::Native,
@@ -2845,8 +2846,8 @@ impl Toolkit for Xaml {
         unsafe { ffi::day_xaml_set_context_menu(h.0, cstr(&spec).as_ptr()) };
     }
 
-    fn set_toolbar(&mut self, h: &WinHandle, items: &[day_spec::ToolbarItem]) {
-        self.install_toolbar(h, items);
+    fn edit_toolbar(&mut self, h: &WinHandle, ops: &[day_spec::ToolbarOp]) -> bool {
+        self.edit_toolbar(h, ops)
     }
 
     fn update_toolbar(&mut self, h: &WinHandle, patch: &day_spec::ToolbarPatch) {

@@ -472,6 +472,11 @@ mod imp {
         static NAV_MENU_ROWS: std::cell::RefCell<
             std::collections::HashMap<usize, (i64, String, String)>,
         > = std::cell::RefCell::new(std::collections::HashMap::new());
+        /// Each window's toolbar model (docs/toolbars.md), by its root view ptr: what the app-bar
+        /// menu is repainted from.
+        static WINDOW_BARS: std::cell::RefCell<
+            std::collections::HashMap<usize, day_spec::ToolbarMirror>,
+        > = std::cell::RefCell::new(std::collections::HashMap::new());
         /// Navigation-suite hosts by view ptr, so `NavPatch::Select` knows to drive the suite
         /// rather than a DayNavHost.
         static NAV_SUITES: std::cell::RefCell<std::collections::HashSet<usize>> =
@@ -1226,6 +1231,7 @@ mod imp {
             LIST_SELECTED.with(|m| m.borrow_mut().clear());
             NAV_MENU_ROWS.with(|m| m.borrow_mut().clear());
             NAV_SUITES.with(|m| m.borrow_mut().clear());
+            WINDOW_BARS.with(|m| m.borrow_mut().clear());
             LABEL_NODE.with(|m| m.borrow_mut().clear());
             // Secondary windows do not survive the primary's recreation: their activities were
             // torn down with it, so the day-side records are stale global refs.
@@ -2386,7 +2392,7 @@ mod imp {
                     // plain single-pane host. Only an adaptive host builds a SlidingPaneLayout;
                     // nesting one inside a pane re-runs the whole tiling decision at pane width.
                     let adaptive = p.presentation != day_spec::props::NavPresentation::Stack;
-                    with_env(|env| {
+                    let host = with_env(|env| {
                         let s = jstr(env, &p.title);
                         AHandle(make_view(
                             env,
@@ -2401,7 +2407,37 @@ mod imp {
                                 JValue::Float(day_spec::SizeClass::SPLIT_MIN_WIDTH as f32),
                             ],
                         ))
-                    })
+                    });
+                    // Inline search (docs/search.md): the field above the navigation list. The app
+                    // bar holds actions, never a field (`Cap::ToolbarSearch` is unsupported), so
+                    // every placement resolves here. Applied after the host is built, and
+                    // best-effort, since a throw on the host's own build path blanks the app.
+                    if let Some(sp) = p
+                        .search
+                        .as_ref()
+                        .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
+                    {
+                        let (prompt, text) = (sp.prompt.clone(), sp.text.clone());
+                        with_env(|env| {
+                            let pr = jstr(env, &prompt);
+                            let tx = jstr(env, &text);
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setNavSearch",
+                                "(Landroid/view/View;JLjava/lang/String;Ljava/lang/String;)V",
+                                &[
+                                    JValue::Object(host.0.as_obj()),
+                                    JValue::Long(idj),
+                                    JValue::Object(&pr),
+                                    JValue::Object(&tx),
+                                ],
+                            );
+                            if env.exception_check() {
+                                env.exception_clear();
+                            }
+                        });
+                    }
+                    host
                 }
                 Some(Builtin::NavPage) => with_env(|env| {
                     let h = AHandle(make_view(
@@ -3676,11 +3712,22 @@ mod imp {
             });
         }
 
-        fn set_toolbar(&mut self, h: &AHandle, items: &[day_spec::ToolbarItem]) {
-            // The window toolbar (docs/toolbars.md): one MaterialToolbar docked under the nav
-            // host's pages, built on the Java side from this record-per-item spec. Best-effort
-            // like every other nav decoration: a throw must never reach the tree build.
-            let spec = serialize_toolbar(items);
+        fn edit_toolbar(&mut self, h: &AHandle, ops: &[day_spec::ToolbarOp]) -> bool {
+            // The window toolbar (docs/toolbars.md) is the nav host's app-bar menu: actions the
+            // platform lays out and folds into its overflow itself, built on the Java side from
+            // a record-per-item spec. A menu item holds no state of its own (search rides the
+            // navigation list, never the bar), so an edit is applied to the model and the menu
+            // repainted from it. Best-effort like every other nav decoration: a throw must never
+            // reach the tree build.
+            let key = h.0.as_obj().as_raw() as usize;
+            let spec = WINDOW_BARS.with(|m| {
+                let mut m = m.borrow_mut();
+                let bar = m.entry(key).or_default();
+                for op in ops {
+                    bar.apply(op);
+                }
+                serialize_toolbar(bar.items())
+            });
             with_env(|env| {
                 let jspec = jstr(env, &spec);
                 let _ = env.dcall_static(
@@ -3693,16 +3740,25 @@ mod imp {
                     env.exception_clear();
                 }
             });
+            true
         }
 
         fn update_toolbar(&mut self, h: &AHandle, patch: &day_spec::ToolbarPatch) {
             use day_spec::ToolbarPatch as P;
+            // The model first, so the next repaint shows the value too.
+            let key = h.0.as_obj().as_raw() as usize;
+            WINDOW_BARS.with(|m| {
+                if let Some(bar) = m.borrow_mut().get_mut(&key) {
+                    bar.patch(patch);
+                }
+            });
             let (item, op, num) = match patch {
                 P::Enabled { item, on } => (item, 0, f64::from(u8::from(*on))),
                 P::On { item, on } => (item, 1, f64::from(u8::from(*on))),
                 P::Selected { item, index } => (item, 2, *index as f64),
-                // Search rides the navigation list on a phone (docs/search.md).
-                P::Text { .. } | P::Suggestions { .. } => return,
+                // Search is never on this bar (`Cap::ToolbarSearch`, docs/search.md).
+                P::Text { .. } => return,
+                P::Suggestions { .. } => return,
             };
             with_env(|env| {
                 let jid = jstr(env, item);

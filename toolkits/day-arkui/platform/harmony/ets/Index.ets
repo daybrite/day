@@ -43,6 +43,12 @@ struct Index {
   // The ROOT page's title. Only shown when a list-scoped action brings the root title bar out;
   // until this existed a Title patch at depth 0 had nowhere to land and was dropped.
   @State navRootTitle: string = '';
+  // A `.searchable()` navigation surface's field (docs/search.md): HarmonyOS's own `Search`,
+  // above the root page, the way Android puts its field above the navigation list. Set by
+  // registerNav's 6th callback; the text is also what an echo of Day's own write is compared to.
+  @State navSearchShown: boolean = false;
+  @State navSearchPrompt: string = '';
+  @State navSearchText: string = '';
   private navKeys: number[] = [];
 
   // Scripted sessions (dayscript, docs/agent.md) push/pop without transition animation: a
@@ -89,14 +95,17 @@ struct Index {
       (on: boolean): void => {
         this.navGuardedTop = on;
       },
-      // Trailing title-bar actions (NavProps::bar_actions): four `\n`-joined parallel fields, one
+      // The window toolbar's actions (docs/toolbars.md), five `\n`-joined parallel fields, one
       // entry per action. Built into ArkUI menu items once, here, rather than in the builder —
       // a @Builder re-runs on every state change and would rebuild the closures with it.
-      (icons: string, labels: string, actions: string, rootOnly: string): void => {
+      // `scopes` is "1" for the root page alone, "0" for pushed pages alone, "2" for both;
+      // `icons` are image URIs (a staged symbol's file://, a bundled image's resource://).
+      (icons: string, labels: string, actions: string, scopes: string, enabled: string): void => {
         const ic: string[] = icons.length === 0 ? [] : icons.split('\n');
         const lb: string[] = labels.length === 0 ? [] : labels.split('\n');
         const ac: string[] = actions.length === 0 ? [] : actions.split('\n');
-        const ro: string[] = rootOnly.length === 0 ? [] : rootOnly.split('\n');
+        const sc: string[] = scopes.length === 0 ? [] : scopes.split('\n');
+        const en: string[] = enabled.length === 0 ? [] : enabled.split('\n');
         const page: NavigationMenuItem[] = [];
         const root: NavigationMenuItem[] = [];
         for (let i = 0; i < ac.length; i++) {
@@ -104,19 +113,33 @@ struct Index {
           if (id === 0) {
             continue;
           }
+          const icon: string = i < ic.length ? ic[i] : '';
           const item: NavigationMenuItem = {
             value: i < lb.length ? lb[i] : '',
-            icon: $rawfile('day/' + (i < ic.length ? ic[i] : '') + '.png'),
+            icon: icon.length === 0 ? undefined : icon,
+            isEnabled: !(i < en.length && en[i] === '0'),
             action: () => { nativeEntry.navMenuAction(id); }
           };
-          if (i < ro.length && ro[i] === '1') {
+          const scope: string = i < sc.length ? sc[i] : '0';
+          if (scope !== '0') {
             root.push(item);
-          } else {
+          }
+          if (scope !== '1') {
             page.push(item);
           }
         }
         this.navPageMenus = page;
         this.navRootMenus = root;
+      },
+      // The navigation surface's search field: `shown` 1 shows it, 0 hides it, -1 leaves it as
+      // it is; an empty `prompt` with -1 keeps the prompt too, so the app writing its query is
+      // one call carrying just the text.
+      (shown: number, prompt: string, text: string): void => {
+        if (shown >= 0) {
+          this.navSearchShown = shown === 1;
+          this.navSearchPrompt = prompt;
+        }
+        this.navSearchText = text;
       }
     );
     // Standalone pieces whose component exists only in ArkTS (docs/extending.md) — the native
@@ -292,10 +315,9 @@ struct Index {
       })
     }
     .title(this.navTitles.get(Number(param)) ?? '')
-    // Trailing title-bar actions (docs/navigation.md, NavProps::bar_actions): `.menus()` items
-    // drawn upper-right, the mobile counterpart to desktop toolbar buttons. Their bundled icons
-    // are staged rawfiles (§18.3, `resources/rawfile/day/<name>.png`); a tap re-enters native.
-    // Only the every-page ones: a list-scoped action acts on the list this page covers.
+    // The window toolbar's actions (docs/toolbars.md): `.menus()` items drawn upper-right, the
+    // mobile counterpart to desktop toolbar buttons; a tap re-enters native. Only the ones for
+    // pushed pages: a root-only action acts on the list this page covers.
     .menus(this.navPageMenus)
     .onBackPressed(() => {
       // A guarded top page consumes the native back and routes it to Rust's guard, which
@@ -321,25 +343,41 @@ struct Index {
 
   build() {
     Navigation(this.pathStack) {
-      Stack() {
-        // Native ArkUI nodes added via OH_ArkUI_NodeContent_AddNode render here (the root page).
-        ContentSlot(this.content)
+      Column() {
+        if (this.navSearchShown) {
+          Search({ value: this.navSearchText, placeholder: this.navSearchPrompt })
+            .margin({ left: 16, right: 16, top: 8, bottom: 8 })
+            .onChange((value: string) => {
+              // Only the user's edits report: Day writing the query lands here too, and it is
+              // already the text Day has.
+              if (value !== this.navSearchText) {
+                this.navSearchText = value;
+                nativeEntry.navSearchChanged(value);
+              }
+            })
+        }
+        Stack() {
+          // Native ArkUI nodes added via OH_ArkUI_NodeContent_AddNode render here (the root page).
+          ContentSlot(this.content)
+        }
+        .width('100%')
+        .layoutWeight(1)
+        // First area = start; later areas (keyboard RESIZE avoidance, rotation, window
+        // resize, the search field coming or going) flow to Day as window resizes. Area
+        // dimensions are in vp.
+        .onAreaChange((_oldArea: Area, newArea: Area) => {
+          if (this.started) {
+            nativeEntry.resized(newArea.width as number, newArea.height as number);
+          } else {
+            this.startDay(newArea.width as number, newArea.height as number);
+          }
+        })
       }
       .width('100%')
       .height('100%')
-      // First area = start; later areas (keyboard RESIZE avoidance, rotation, window
-      // resize) flow to Day as window resizes. Area dimensions are in vp.
-      .onAreaChange((_oldArea: Area, newArea: Area) => {
-        if (this.started) {
-          nativeEntry.resized(newArea.width as number, newArea.height as number);
-        } else {
-          this.startDay(newArea.width as number, newArea.height as number);
-        }
-      })
     }
     // The root normally draws NO native title bar — Day paints the root page itself, chrome and
-    // all. A LIST-scoped action has nowhere else to go, though, so declaring one (and only that)
-    // brings the bar out for it.
+    // all. A toolbar action has nowhere else to go, though, so having one brings the bar out.
     .title(this.navRootMenus.length === 0 ? '' : this.navRootTitle)
     .hideTitleBar(this.navRootMenus.length === 0)
     .menus(this.navRootMenus)

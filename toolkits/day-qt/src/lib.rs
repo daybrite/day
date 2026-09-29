@@ -744,6 +744,8 @@ pub struct Qt {
     registry: Registry<Qt>,
     window: *mut c_void,
     secondary: Vec<QtWin>,
+    /// Each window's toolbar as the shim holds it (docs/toolbars.md), by window pointer.
+    toolbars: std::collections::HashMap<usize, day_spec::ToolbarMirror>,
 }
 
 impl Qt {
@@ -757,6 +759,7 @@ impl Qt {
             registry,
             window: std::ptr::null_mut(),
             secondary: Vec::new(),
+            toolbars: std::collections::HashMap::new(),
         }
     }
 
@@ -1657,6 +1660,8 @@ impl Toolkit for Qt {
             // A real QToolBar under the menu bar (docs/toolbars.md).
             | Cap::AppMenu
             | Cap::Toolbar
+            // The bar holds a native search field (docs/search.md).
+            | Cap::ToolbarSearch
             // The nav QSplitter mirrored: panel pane trailing, divider draggable
             // (docs/inspector.md — not a QDockWidget; DayWindow is no QMainWindow).
             | Cap::Inspector => Support::Native,
@@ -2530,8 +2535,10 @@ impl Toolkit for Qt {
         // A released window content = that window is gone (docs/windows.md teardown):
         // Now destroy the whole DayWindow (deleteLater — after this event dispatch), never
         // before, so day's child-widget releases can't touch freed memory.
+        let toolbars = &mut self.toolbars;
         self.secondary.retain(|w| {
             if w.content == h.0 {
+                toolbars.remove(&(w.win as usize));
                 unsafe { ffi::day_qt_window_destroy(w.win) };
                 false
             } else {
@@ -2993,8 +3000,8 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_enable_gesture(h.0, node.0, code, on_gesture) };
     }
 
-    fn set_toolbar(&mut self, h: &QtHandle, items: &[day_spec::ToolbarItem]) {
-        self.install_toolbar(h, items);
+    fn edit_toolbar(&mut self, h: &QtHandle, ops: &[day_spec::ToolbarOp]) -> bool {
+        self.edit_toolbar(h, ops)
     }
 
     fn update_toolbar(&mut self, h: &QtHandle, patch: &day_spec::ToolbarPatch) {

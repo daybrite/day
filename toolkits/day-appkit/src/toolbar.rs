@@ -238,8 +238,8 @@ struct WinToolbar {
     /// The toolbar holds its delegate weakly, and each item holds its target weakly, so both
     /// must be owned here for the window's lifetime.
     _delegate: Retained<BarDelegate>,
-    /// The window's whole bar, as Day composed it (docs/toolbars.md).
-    items: Vec<ToolbarItem>,
+    /// The window's whole bar, as Day's edits and patches left it (docs/toolbars.md).
+    mirror: day_spec::ToolbarMirror,
     targets: HashMap<String, Retained<ItemTarget>>,
 }
 
@@ -270,13 +270,14 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
     let names: Vec<Retained<NSString>> = BARS.with(|b| {
         b.with(key, |w| {
             let mut out: Vec<Retained<NSString>> = Vec::new();
-            let has = |c: C| w.items.iter().any(|i| i.column == c);
+            let items = w.mirror.items();
+            let has = |c: C| items.iter().any(|i| i.column == c);
             // The SIDEBAR column, packed against the divider it acts on: a leading flexible
             // space pushes the show/hide button to the sidebar's trailing edge, which is where
             // Notes and Xcode put theirs.
             if has(C::Sidebar) {
                 out.push(unsafe { NSToolbarFlexibleSpaceItemIdentifier.copy() });
-                column_items(&mut out, &w.items, C::Sidebar, false);
+                column_items(&mut out, items, C::Sidebar, false);
             }
             // AppKit tracks the sidebar's divider itself, so everything after this sits over
             // what is to the right of the sidebar (docs/toolbars.md).
@@ -286,13 +287,13 @@ fn identifiers(key: usize) -> Retained<NSArray<NSToolbarItemIdentifier>> {
             // The content-list column, and a second separator pinned to its divider: the one
             // Day builds itself, because AppKit only vends the sidebar's.
             if has(C::List) {
-                column_items(&mut out, &w.items, C::List, true);
+                column_items(&mut out, items, C::List, true);
                 out.push(NSString::from_str(LIST_SEPARATOR_ID));
             }
             // The detail column, and the window's items with it: side by side, a command
             // that acts on the whole window belongs over the content it is looking at.
-            column_items(&mut out, &w.items, C::Detail, true);
-            column_items(&mut out, &w.items, C::Window, true);
+            column_items(&mut out, items, C::Detail, true);
+            column_items(&mut out, items, C::Window, true);
             out
         })
         .unwrap_or_default()
@@ -377,7 +378,7 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
     }
     let (item, target) = BARS.with(|b| {
         b.with(key, |w| {
-            let item = w.items.iter().find(|i| i.id == ident)?.clone();
+            let item = w.mirror.get(ident)?.clone();
             let target = w.targets.get(ident).cloned();
             Some((item, target))
         })
@@ -540,102 +541,117 @@ pub(crate) fn window_of(h: &Handle) -> Option<Retained<NSWindow>> {
 }
 
 impl AppKit {
-    /// Install `items` as this window's toolbar (docs/toolbars.md). An empty slice removes it.
-    pub(crate) fn install_toolbar(&mut self, h: &Handle, items: &[ToolbarItem]) {
-        let Some(window) = window_of(h) else { return };
+    /// Edit this window's toolbar (docs/toolbars.md). Each op adds or takes away one item;
+    /// every NSToolbarItem no op names stays exactly as it is, so a search field being typed
+    /// into keeps its field editor while the page commands around it change.
+    pub(crate) fn edit_toolbar(&mut self, h: &Handle, ops: &[day_spec::ToolbarOp]) -> bool {
+        let Some(window) = window_of(h) else {
+            return false;
+        };
         let key = Retained::as_ptr(&window) as usize;
-        // An empty model takes the bar away. Day composes what the app declared with whichever
-        // page chromes are showing before it gets here (docs/toolbars.md), so empty really does
-        // mean this window has no commands at all right now.
-        if items.is_empty() {
+        let mtm = self.mtm();
+        let fresh = !BARS.with(|b| b.contains(key));
+        if fresh {
+            let ident = NEXT_BAR.with(|c| {
+                let n = c.get();
+                c.set(n + 1);
+                n
+            });
+            let toolbar = NSToolbar::initWithIdentifier(
+                NSToolbar::alloc(mtm),
+                &NSString::from_str(&format!("day.toolbar.{ident}")),
+            );
+            let delegate = BarDelegate::new(mtm, key);
+            // The model is the app's, and it is reactive: letting the user reorder items would
+            // put an autosaved arrangement in permanent conflict with the next edit.
+            toolbar.setAllowsUserCustomization(false);
+            toolbar.setAutosavesConfiguration(false);
+            // Icon-only in the unified style is the modern macOS toolbar; every item still
+            // carries a label for the overflow menu and for VoiceOver.
+            toolbar.setDisplayMode(NSToolbarDisplayMode::IconOnly);
+            BARS.with(|b| {
+                b.insert(
+                    key,
+                    WinToolbar {
+                        toolbar,
+                        _delegate: delegate,
+                        mirror: day_spec::ToolbarMirror::default(),
+                        targets: HashMap::new(),
+                    },
+                )
+            });
+        }
+
+        // The model first, and a target for each new item that reports anything, so the
+        // delegate's factory only ever reads. Removed items' targets outlive their NSToolbarItems
+        // (which hold them weakly) until the native bar has let go of them below.
+        let mut retired: Vec<Retained<ItemTarget>> = Vec::new();
+        let mut gone: Vec<String> = Vec::new();
+        let (toolbar, empty) = BARS
+            .with(|b| {
+                b.with(key, |w| {
+                    for op in ops {
+                        match op {
+                            day_spec::ToolbarOp::Remove { id } => {
+                                w.mirror.remove(id);
+                                retired.extend(w.targets.remove(id));
+                                gone.push(id.clone());
+                            }
+                            day_spec::ToolbarOp::Insert { index, item } => {
+                                if item.action != 0 {
+                                    let kind = match item.kind {
+                                        ToolbarItemKind::Toggle { .. } => KIND_TOGGLE,
+                                        ToolbarItemKind::Segmented { .. } => KIND_SEGMENTED,
+                                        ToolbarItemKind::Search { .. } => KIND_SEARCH,
+                                        _ => KIND_BUTTON,
+                                    };
+                                    let target = ItemTarget::new(mtm, item.action, kind);
+                                    retired.extend(w.targets.insert(item.id.clone(), target));
+                                }
+                                w.mirror.insert(*index, item.clone());
+                            }
+                        }
+                    }
+                    (w.toolbar.clone(), w.mirror.is_empty())
+                })
+            })
+            .expect("the bar was created above");
+
+        if empty {
+            // No commands at all now: the bar comes off the window.
             window.setToolbar(None);
             BARS.with(|b| {
                 b.remove(key);
             });
-            report_content_size(&window);
-            return;
-        }
-        let mtm = self.mtm();
-        let key = Retained::as_ptr(&window) as usize;
-
-        // One target per item that has something to report, created up front so the delegate's
-        // item factory only ever reads.
-        let mut targets = HashMap::new();
-        for item in items {
-            let kind = match item.kind {
-                ToolbarItemKind::Toggle { .. } => KIND_TOGGLE,
-                ToolbarItemKind::Segmented { .. } => KIND_SEGMENTED,
-                ToolbarItemKind::Search { .. } => KIND_SEARCH,
-                _ => KIND_BUTTON,
+        } else if fresh {
+            // A new bar asks its delegate for its items as it is attached.
+            let delegate = BARS.with(|b| b.with(key, |w| w._delegate.clone()));
+            if let Some(delegate) = delegate {
+                toolbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+            }
+            window.setToolbarStyle(NSWindowToolbarStyle::Unified);
+            window.setToolbar(Some(&toolbar));
+        } else {
+            // The removed items go by identifier. Then the bar is brought to the identifiers the
+            // model now lays out (items, the spacers between groups, the column separators),
+            // inserting new ones and dropping stale spacers. An item the edit replaced goes in
+            // the first step, so the second builds it afresh against the new model.
+            let at_of = |id: &str| {
+                toolbar
+                    .items()
+                    .iter()
+                    .position(|i| i.itemIdentifier().to_string() == id)
             };
-            if item.action != 0 {
-                targets.insert(item.id.clone(), ItemTarget::new(mtm, item.action, kind));
+            for id in &gone {
+                if let Some(at) = at_of(id) {
+                    toolbar.removeItemAtIndex(at as isize);
+                }
             }
+            reconcile(&toolbar, key);
         }
-
-        let existing = BARS.with(|b| b.contains(key));
-        if existing {
-            // Reuse the live NSToolbar (replacing it flashes the title bar) but rebuild its
-            // items (see below). A full replace is rare: the builder re-runs on a locale change or
-            // a change in the bar's shape, never on a keystroke (typing patches the item in place
-            // through `day_core::patch_toolbar`), so the focus this costs is not focus in use.
-            BARS.with(|b| {
-                b.with(key, |w| {
-                    w.items = items.to_vec();
-                    w.targets = targets;
-                });
-            });
-            let toolbar = BARS.with(|b| b.with(key, |w| w.toolbar.clone()));
-            if let Some(toolbar) = toolbar {
-                let ids = identifiers(key);
-                // Clear first, then set. `setItemIdentifiers` diffs by identifier: it inserts the
-                // new ones, removes the departed, and leaves every other item exactly as it was,
-                // still carrying the previous model's label and, worse, the previous `ItemTarget`,
-                // whose action id day-core had already swept. That is why a locale switch left the
-                // search field dead (its input dispatched into nothing) and the labels in the old
-                // language: same ids, new model, untouched items. Clearing drops them all so each
-                // is rebuilt through the delegate against the model swapped in above.
-                toolbar.setItemIdentifiers(&NSArray::new());
-                toolbar.setItemIdentifiers(&ids);
-            }
-            report_content_size(&window);
-            return;
-        }
-
-        let ident = NEXT_BAR.with(|c| {
-            let n = c.get();
-            c.set(n + 1);
-            n
-        });
-        let toolbar = NSToolbar::initWithIdentifier(
-            NSToolbar::alloc(mtm),
-            &NSString::from_str(&format!("day.toolbar.{ident}")),
-        );
-        let delegate = BarDelegate::new(mtm, key);
-        // The model is the app's, and it is reactive: letting the user reorder items would put
-        // an autosaved arrangement in permanent conflict with the next install.
-        toolbar.setAllowsUserCustomization(false);
-        toolbar.setAutosavesConfiguration(false);
-        // Icon-only in the unified style is the modern macOS toolbar; every item still carries
-        // a label for the overflow menu and for VoiceOver.
-        toolbar.setDisplayMode(NSToolbarDisplayMode::IconOnly);
-
-        BARS.with(|b| {
-            b.insert(
-                key,
-                WinToolbar {
-                    toolbar: toolbar.clone(),
-                    _delegate: delegate.clone(),
-                    items: items.to_vec(),
-                    targets,
-                },
-            )
-        });
-
-        toolbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-        window.setToolbarStyle(NSWindowToolbarStyle::Unified);
-        window.setToolbar(Some(&toolbar));
+        drop(retired);
         report_content_size(&window);
+        true
     }
 
     /// Apply a targeted change to one live item.
@@ -645,18 +661,12 @@ impl AppKit {
         // Keep the model in step, so an item rebuilt later (the overflow menu asks for fresh
         // items) carries the current value rather than the one it was installed with.
         BARS.with(|b| {
-            b.with(key, |w| apply_to_model(&mut w.items, patch));
+            b.with(key, |w| w.mirror.patch(patch));
         });
         let Some(toolbar) = BARS.with(|b| b.with(key, |w| w.toolbar.clone())) else {
             return;
         };
-        let target_id = match patch {
-            ToolbarPatch::Text { item, .. }
-            | ToolbarPatch::On { item, .. }
-            | ToolbarPatch::Selected { item, .. }
-            | ToolbarPatch::Enabled { item, .. }
-            | ToolbarPatch::Suggestions { item, .. } => item.clone(),
-        };
+        let target_id = patch.item().to_string();
         for bar_item in toolbar.items().iter() {
             if bar_item.itemIdentifier().to_string() != target_id {
                 continue;
@@ -696,37 +706,53 @@ impl AppKit {
     }
 }
 
-fn apply_to_model(items: &mut [ToolbarItem], patch: &ToolbarPatch) {
-    match patch {
-        ToolbarPatch::Text { item, text } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
-                && let ToolbarItemKind::Search { text: t, .. } = &mut it.kind
-            {
-                *t = text.clone();
+/// Bring `toolbar`'s items to the identifiers its model lays out now, keeping every item that
+/// is already where it belongs.
+///
+/// The kept items are in the right relative order (an edit never reorders them; a move arrives
+/// as a remove and an insert), so one pass settles the bar: an identifier in place is kept; one
+/// that is not wanted here is a stale spacer, or a model item still wanted further along, which
+/// stays while the wanted one is inserted before it. System spacers are the only thing ever
+/// removed here, and they hold no state.
+fn reconcile(toolbar: &NSToolbar, key: usize) {
+    let want: Vec<String> = identifiers(key).iter().map(|i| i.to_string()).collect();
+    let system = |id: &str| id.starts_with("NSToolbar") || id == LIST_SEPARATOR_ID;
+    let have_at = |at: usize| {
+        let items = toolbar.items();
+        (at < items.count()).then(|| items.objectAtIndex(at).itemIdentifier().to_string())
+    };
+    let mut at = 0usize;
+    for (n, id) in want.iter().enumerate() {
+        loop {
+            match have_at(at) {
+                Some(have) if have == *id => {
+                    at += 1;
+                    break;
+                }
+                Some(have) if !system(&have) && want[n + 1..].contains(&have) => {
+                    insert_at(toolbar, id, &mut at);
+                    break;
+                }
+                Some(_) => toolbar.removeItemAtIndex(at as isize),
+                None => {
+                    insert_at(toolbar, id, &mut at);
+                    break;
+                }
             }
         }
-        ToolbarPatch::On { item, on } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
-                && let ToolbarItemKind::Toggle { on: o } = &mut it.kind
-            {
-                *o = *on;
-            }
-        }
-        ToolbarPatch::Selected { item, index } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item)
-                && let ToolbarItemKind::Segmented { segments, selected } = &mut it.kind
-                && *index < segments.len()
-            {
-                *selected = *index;
-            }
-        }
-        // No native completion list on this toolkit's search widget (docs/search.md).
-        ToolbarPatch::Suggestions { .. } => {}
-        ToolbarPatch::Enabled { item, on } => {
-            if let Some(it) = items.iter_mut().find(|i| i.id == *item) {
-                it.enabled = *on;
-            }
-        }
+    }
+    while toolbar.items().count() > at {
+        toolbar.removeItemAtIndex(at as isize);
+    }
+}
+
+/// Insert identifier `id` at `*at`, stepping past it when the delegate made one. It can decline
+/// (the list separator on a window with no content list), and then there is nothing to step over.
+fn insert_at(toolbar: &NSToolbar, id: &str, at: &mut usize) {
+    let before = toolbar.items().count();
+    toolbar.insertItemWithItemIdentifier_atIndex(&NSString::from_str(id), *at as isize);
+    if toolbar.items().count() > before {
+        *at += 1;
     }
 }
 

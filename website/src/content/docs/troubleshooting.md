@@ -175,6 +175,19 @@ For Java or Gradle compatibility errors, check the JDK selected by `JAVA_HOME`. 
 builds use that setting, so a newer `java` on `PATH` does not fix a `JAVA_HOME` pointing at an older
 JDK. Follow the [Android setup instructions](/docs/system-requirements#android), then repeat doctor.
 
+Installing Android Studio gives you the SDK and a JDK, but not everything the build needs. These are
+the errors a fresh Studio install typically produces, in the order a first build meets them:
+
+| Error | Cause and fix |
+|---|---|
+| `no Android NDK found (set ANDROID_NDK_HOME)` | Studio's SDK Manager does not install an NDK by default. Check *NDK (Side by side)* under *Settings ▸ Languages & Frameworks ▸ Android SDK ▸ SDK Tools*, or run `<sdk>/cmdline-tools/latest/bin/sdkmanager --install "ndk;<version>"`. |
+| `sdkmanager: command not found` | Studio keeps the command-line tools inside the SDK and off `PATH`, and installs them only when *Android SDK Command-line Tools* is checked under *SDK Tools*. Run them by full path, `<sdk>/cmdline-tools/latest/bin/sdkmanager`. `day doctor` prints the exact path when it finds one. |
+| `error: no such command: ndk` | `cargo-ndk` is a separate Cargo tool, not part of Studio or the NDK: run `cargo install cargo-ndk`. |
+| `SDK location not found. Define a valid SDK location with an ANDROID_HOME environment variable…` | Older `day` releases did not pass the SDK they found on to Gradle. Update `day`, or set `ANDROID_HOME` to your SDK. |
+| Gradle fails with an unsupported Java or class file version | The system `java` is newer (or older) than the Gradle build supports (17 through 26). With `JAVA_HOME` unset, Day uses Android Studio's bundled JDK when it can find Studio, and `day doctor` reports "(Android Studio's bundled JDK)" when it does. For a Studio install outside the usual locations, set `ANDROID_STUDIO_HOME` to it, or point `JAVA_HOME` at a JDK 17 through 26. |
+| The emulator exits with `Cannot find AVD system path. Please define ANDROID_SDK_ROOT` | The AVD's system image is not installed. The SDK location is fine; an AVD stays listed after its image is removed or the SDK is replaced. `day devices boot` now names the missing package. Install it from Studio's SDK Manager (*SDK Platforms*, with *Show Package Details*), or with `sdkmanager --install "system-images;android-34;google_apis;x86_64"` using the name it reports. |
+| `ANDROID_HOME` unset but the SDK is not in the default location | Day reads the SDK location that Android Studio's own settings record (*Settings ▸ Languages & Frameworks ▸ Android SDK*), so an SDK moved there is found. Set `ANDROID_HOME` to override. |
+
 If Android Studio's Gradle sync reports "The project is using an incompatible version (AGP 9.4.0)
 of the Android Gradle plugin", update Android Studio to 2026.1.4 or newer. Day's Gradle plugin
 builds with that AGP release, which older Android Studio versions cannot sync. `day build` works
@@ -268,6 +281,10 @@ These emulator failures have specific causes:
   QEMU yourself, pass `-display gtk,gl=on` and `xres=640,yres=480` to `virtio-gpu-pci`.
 - **Every `hdc` command hangs.** The guest is asleep, perhaps after `power-shell suspend`,
   which suspends `hdcd` too. Restart the emulator.
+- **`day devices boot` times out, and `hdc` answers `Bind tartget session is dead`** (the typo is
+  hdc's), although `hdc list targets` shows the emulator as `Connected`. The emulator has booted;
+  the `hdc` server on your machine is holding a session from an earlier emulator. Restart the
+  server and reconnect with `hdc kill -r` and then `hdc tconn 127.0.0.1:55555`.
 
 ## Signing or provisioning fails
 
@@ -297,6 +314,16 @@ installed. If the page loads but the app does not start, inspect the browser’s
 panel for failed JavaScript or WebAssembly requests. See the
 [web platform guide](/docs/platforms/web-dom) for build and hosting details.
 
+These are the errors you may meet running the web build's tests and checks:
+
+| Error | Cause and fix |
+|---|---|
+| A scripted run (`day launch -p web-dom --script …`) fails at its first `screenshot` step | A page cannot screenshot itself; the runner needs the headless browser driver. Install Playwright and set `DAY_WEB_DRIVER`, `DAY_WEB_DRIVER_PLAYWRIGHT` and `DAY_WEB_DRIVER_BROWSER` as the [web platform guide](/docs/platforms/web-dom#running-dayscripts) shows. Interactive `day launch` never needs it. |
+| A scripted web run stops with `engine connection lost` after the driver prints `Playwright requires Node.js 20 or higher` | An older `node` is first on `PATH`. The OpenHarmony command-line tools bundle Node 18, so sourcing their environment (for `harmony-arkui`) shadows a newer system Node. Run the web script from a shell without it, or name the Node to use in the driver command: `DAY_WEB_DRIVER="/path/to/node $(day web driver)"`. |
+| File-storage steps fail under WebKit on Linux | Playwright's Linux WebKit has no Origin Private File System, which `day-part-fs` needs. Set `DAY_WEB_DRIVER_BROWSER=chromium`. |
+| `cargo check --target wasm32-unknown-unknown` on a Day crate fails in `getrandom` with "The wasm32/64-unknown-unknown are not supported by default" | `day build` routes getrandom to day-dom's entropy bridge with a cfg flag that plain `cargo` does not pass. Pass it yourself: `RUSTFLAGS='--cfg getrandom_backend="custom"' cargo check --target wasm32-unknown-unknown -p <crate>`. The `wasm_js` backend that getrandom's error message suggests needs the wasm-bindgen runtime, which Day's web build does not use. |
+| A plain `cargo check` of `day-dom` passes but the web build fails | `day-dom` compiles only for `wasm32` (the whole crate is `#![cfg(target_arch = "wasm32")]`), so a host check compiles nothing. Check it for the web target as above. |
+
 ## The app starts but does not work as expected
 
 Keep the launch terminal open and look for a panic or platform error when the problem happens.
@@ -308,11 +335,23 @@ placeholder on a desktop target may mean its optional engine was not included; s
 [web view requirements](/docs/system-requirements#optional-web-views). Camera and other protected
 features may also need [permission configuration](/docs/guide-permissions).
 
+Two `.searchable()` symptoms come from older Day releases and are fixed by updating `day` and the
+app's Day dependency:
+
+- **The toolbar search field loses focus after one letter, or clearing it leaves the list
+  filtered** (GTK, AppKit, Qt). A letter that changed the selected page used to rebuild the whole
+  toolbar, and the search field with it. The toolbar is now updated in place, and the field keeps
+  its focus and text ([commands and toolbars](/docs/guide-commands)).
+- **An Android app shows no search field.** The field goes above the navigation list on Android.
+  An intermediate release stopped installing it there.
+
 ## A video plays as a black rectangle on Linux
 
 On `linux-gtk`, the media piece draws with `GtkVideo`, which hands the file to GStreamer. When
-GStreamer has no decoder for the video's codec, nothing reaches the widget and it stays black,
-with no error on screen. Ask GStreamer what the file needs:
+GStreamer has no decoder for the video's codec, nothing reaches the widget. Current versions of
+the media piece then show GTK's error icon over the video, and hovering it names the missing
+decoder; older ones leave the video plain black. Either way, GStreamer can say what the file
+needs:
 
 ```bash
 gst-discoverer-1.0 https://example.com/video.mp4
@@ -332,6 +371,18 @@ choose pdev` in the same console are a separate, harmless matter: the app can't 
 when the device grants access only to the `render` group and the desktop's own seat user, as in a
 remote session. Adding yourself to the group (`sudo usermod -aG render $USER`, then log in
 again) gives the app the GPU.
+
+## A dayscript run fails on Linux
+
+These come from the desktop a scripted run (`day launch -p linux-gtk --script …`) runs on, not from
+the script:
+
+| Symptom | Cause and fix |
+|---|---|
+| `engine connection lost (could not connect to the dayscript engine …)` right after `lifecycle: WillLaunch` (linux-gtk) | Another copy of the app is already running. A GTK app is single-instance, so the new launch hands itself to the running copy and exits. Quit the other copy first. |
+| Every `screenshot` step fails with `ui transitions still settling` (linux-gtk) | The app's window never draws a new frame, which GNOME does for a window that is covered or offscreen on Wayland. Keep the window visible, or run it as an X11 window with `GDK_BACKEND=x11` in the environment of `day launch`. |
+| The app crashes on a web view page; its output shows `bwrap: setting up uid map: Permission denied` and `Failed to fully launch dbus-proxy` (linux-gtk) | WebKitGTK runs web content in a bubblewrap sandbox, which needs unprivileged user namespaces, and Ubuntu 24.04's AppArmor restricts them (`sysctl kernel.apparmor_restrict_unprivileged_userns` reads `1`). For a local test run only, pass `--env WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` to `day launch`. |
+| Web view steps fail with `QtWebEngine: no Qt6 WebEngine in this build` (linux-qt) | Qt WebEngine is optional and not installed. Install `qt6-webengine-dev` ([optional web views](/docs/system-requirements#optional-web-views)) and rebuild. |
 
 ## Still stuck?
 

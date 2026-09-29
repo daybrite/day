@@ -353,7 +353,6 @@ unsafe extern "C" {
     pub fn day_qt_splitter_on_resized(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     pub fn day_qt_widget_size(w: *mut c_void, out_w: *mut c_double, out_h: *mut c_double);
     pub fn day_qt_set_visible(w: *mut c_void, visible: c_int);
-    pub fn day_qt_toolbar_set_suggestions(id: *const c_char, joined: *const c_char);
     pub fn day_qt_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
     pub fn day_qt_request_frame(host: *mut c_void, token: u64, cb: extern "C" fn(u64, f64));
     pub fn day_qt_cancel_frame(token: u64);
@@ -386,10 +385,25 @@ unsafe extern "C" {
     pub fn day_qt_window_menubar_done(win: *mut c_void);
     pub fn day_qt_menubar_add_menu(bar: *mut c_void, label: *const c_char) -> *mut c_void;
 
-    // Window toolbar (docs/toolbars.md). Buttons ride `day_qt_set_menu_cb`; values arrive on
-    // the toolbar callback as (action, kind, on, text) with kind 0 = toggle, 1 = search text.
+    // Window toolbar (docs/toolbars.md), edited one item at a time. Buttons ride
+    // `day_qt_set_menu_cb`; values arrive on the toolbar callback as (action, kind, on, text)
+    // with kind 0 = toggle, 1 = search text, 2 = segment index.
     pub fn day_qt_set_toolbar_cb(cb: extern "C" fn(u64, c_int, c_int, *const c_char));
+    /// The window's bar, created and laid out for the window on first use; begins an edit.
     pub fn day_qt_window_toolbar(win: *mut c_void) -> *mut c_void;
+    /// Aim the next `add_*` at `group` (0 leading, 1 principal, 2 trailing) of column `col`
+    /// (0 sidebar, 1 list, 2 detail), right after item `after` ("" = first in the group).
+    /// `index` is the item's place in Day's order, which a change of layout re-places by.
+    pub fn day_qt_toolbar_begin_insert(
+        bar: *mut c_void,
+        index: c_int,
+        col: c_int,
+        group: c_int,
+        after: *const c_char,
+    );
+    /// Take one item off the window's bar.
+    pub fn day_qt_toolbar_remove(win: *mut c_void, id: *const c_char);
+    /// End the edit: show the bar while it has items, and lay the window out.
     pub fn day_qt_window_toolbar_done(win: *mut c_void);
     #[allow(clippy::too_many_arguments)]
     pub fn day_qt_toolbar_add_action(
@@ -422,17 +436,18 @@ unsafe extern "C" {
         enabled: c_int,
     );
     pub fn day_qt_toolbar_add_label(bar: *mut c_void, id: *const c_char, text: *const c_char);
-    pub fn day_qt_toolbar_add_separator(bar: *mut c_void);
-    pub fn day_qt_toolbar_add_space(bar: *mut c_void, expand: c_int);
-    /// Whether this bar's window has a navigation splitter for columns to follow.
+    pub fn day_qt_toolbar_add_separator(bar: *mut c_void, id: *const c_char);
+    /// Whether this bar is laid out in columns (its window has a navigation splitter).
     pub fn day_qt_toolbar_has_columns(bar: *mut c_void) -> c_int;
-    /// Open a column track (0 sidebar, 1 list, 2 detail); items land in it until `end_column`.
-    pub fn day_qt_toolbar_begin_column(bar: *mut c_void, col: c_int);
-    pub fn day_qt_toolbar_end_column(bar: *mut c_void);
     /// Re-size the column tracks to the splitter's panes.
     pub fn day_qt_toolbar_sync_columns(splitter: *mut c_void);
-    pub fn day_qt_toolbar_set_text(id: *const c_char, text: *const c_char);
-    pub fn day_qt_toolbar_set_checked(id: *const c_char, on: c_int);
+    pub fn day_qt_toolbar_set_text(win: *mut c_void, id: *const c_char, text: *const c_char);
+    pub fn day_qt_toolbar_set_suggestions(
+        win: *mut c_void,
+        id: *const c_char,
+        joined: *const c_char,
+    );
+    pub fn day_qt_toolbar_set_checked(win: *mut c_void, id: *const c_char, on: c_int);
     pub fn day_qt_toolbar_add_segmented(
         bar: *mut c_void,
         id: *const c_char,
@@ -442,8 +457,8 @@ unsafe extern "C" {
         action: u64,
         enabled: c_int,
     );
-    pub fn day_qt_toolbar_set_selected(id: *const c_char, index: c_int);
-    pub fn day_qt_toolbar_set_enabled(id: *const c_char, on: c_int);
+    pub fn day_qt_toolbar_set_selected(win: *mut c_void, id: *const c_char, index: c_int);
+    pub fn day_qt_toolbar_set_enabled(win: *mut c_void, id: *const c_char, on: c_int);
     pub fn day_qt_menu_new() -> *mut c_void;
     pub fn day_qt_menu_add_submenu(menu: *mut c_void, label: *const c_char) -> *mut c_void;
     pub fn day_qt_menu_add_separator(menu: *mut c_void);

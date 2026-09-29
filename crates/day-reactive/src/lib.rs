@@ -240,6 +240,8 @@ struct Runtime {
     /// executor, returning an abort closure.
     spawner: Option<Spawner>,
     turn_end: Vec<Rc<dyn Fn()>>,
+    /// One-shot callbacks for the end of the current turn ([`at_turn_end`]).
+    turn_end_once: Vec<Box<dyn FnOnce()>>,
     warned_writes: HashSet<*const Location<'static>>,
 }
 
@@ -267,6 +269,7 @@ impl Runtime {
             next_seq: 0,
             scheduler: None,
             schedule_posted: false,
+            turn_end_once: Vec::new(),
             spawner: None,
             turn_end: Vec::new(),
             warned_writes: HashSet::new(),
@@ -605,11 +608,16 @@ pub fn flush_sync() {
                 run_reaction(key);
             }
         }
-        let turn_end = with_rt(|rt| {
+        let (once, turn_end) = with_rt(|rt| {
             rt.draining = false;
             rt.schedule_posted = false;
-            rt.turn_end.clone()
+            (std::mem::take(&mut rt.turn_end_once), rt.turn_end.clone())
         });
+        // One-shot work first: it settles what this turn changed (a toolbar composed once from
+        // everything the turn contributed), which the standing hooks (layout) then see.
+        for cb in once {
+            cb();
+        }
         for cb in turn_end {
             cb();
         }
@@ -655,6 +663,7 @@ pub fn recover_from_panic() {
         rt.draining = false;
         rt.schedule_posted = false;
         rt.batch_depth = 0;
+        rt.turn_end_once.clear();
         rt.pending.clear();
         rt.observers.clear();
         // The scope stack is unwound by `Scope::enter`'s guard, but a panic raised between
@@ -736,7 +745,11 @@ pub fn batch<R>(f: impl FnOnce() -> R) -> R {
         let _g = RtGuard(|rt: &mut Runtime| rt.batch_depth = rt.batch_depth.saturating_sub(1));
         f()
     };
-    let should_drain = with_rt(|rt| rt.batch_depth == 0 && !rt.draining && !rt.pending.is_empty());
+    let should_drain = with_rt(|rt| {
+        rt.batch_depth == 0
+            && !rt.draining
+            && (!rt.pending.is_empty() || !rt.turn_end_once.is_empty())
+    });
     if should_drain {
         flush_sync();
     }
@@ -830,6 +843,26 @@ fn spawn_local(fut: LocalBoxFuture) -> Box<dyn FnOnce()> {
 /// Register a callback run once after every fixpoint drain (day-core's layout turn).
 pub fn on_turn_end(cb: impl Fn() + 'static) {
     with_rt(|rt| rt.turn_end.push(Rc::new(cb)));
+}
+
+/// Run `cb` once, when the current turn settles: after the drain inside a drain or a batch
+/// (even a batch that leaves no reactive work behind), or right away when no turn is open.
+///
+/// This is how a consumer coalesces a burst of changes into one pass. Swapping a page
+/// withdraws the old page's toolbar items and contributes the new page's within one turn, and
+/// only the settled result is worth handing to the toolkit.
+pub fn at_turn_end(cb: impl FnOnce() + 'static) {
+    let now = with_rt(|rt| {
+        if rt.draining || rt.batch_depth > 0 {
+            rt.turn_end_once.push(Box::new(cb));
+            None
+        } else {
+            Some(cb)
+        }
+    });
+    if let Some(cb) = now {
+        cb();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2014,6 +2047,37 @@ mod tests {
         order.borrow_mut().clear();
         batch(|| s.set(1));
         assert_eq!(*order.borrow(), vec!["effect", "turn-end"]);
+    }
+
+    #[test]
+    fn at_turn_end_waits_for_the_turn_and_runs_once() {
+        let s = Signal::new(0);
+        let order: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+        // Outside a turn: now.
+        let o = order.clone();
+        at_turn_end(move || o.borrow_mut().push("now".into()));
+        assert_eq!(*order.borrow(), vec!["now".to_string()]);
+        order.borrow_mut().clear();
+        // Inside a batch: after the drain, and before the standing hooks.
+        let o1 = order.clone();
+        Effect::new(move || {
+            let v = s.get();
+            o1.borrow_mut().push(format!("effect {v}"));
+        });
+        let o2 = order.clone();
+        on_turn_end(move || o2.borrow_mut().push("standing".into()));
+        order.borrow_mut().clear();
+        let o3 = order.clone();
+        batch(|| {
+            at_turn_end(move || o3.borrow_mut().push("once".into()));
+            s.set(1);
+        });
+        assert_eq!(*order.borrow(), vec!["effect 1", "once", "standing"]);
+        // A batch with no reactive work still ends its turn for a deferred callback.
+        order.borrow_mut().clear();
+        let o4 = order.clone();
+        batch(|| at_turn_end(move || o4.borrow_mut().push("quiet".into())));
+        assert_eq!(*order.borrow(), vec!["quiet", "standing"]);
     }
 
     #[test]

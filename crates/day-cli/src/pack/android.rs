@@ -155,6 +155,12 @@ pub fn pack(
         {
             cmd.env("JAVA_HOME", jdk);
         }
+        // AGP has no default SDK location; pass on the one Day resolved, as the build does.
+        if std::env::var_os("ANDROID_HOME").is_none()
+            && std::env::var_os("ANDROID_SDK_ROOT").is_none()
+        {
+            cmd.env("ANDROID_HOME", day_toolchain::android_sdk_dir());
+        }
         run_tool(&mut cmd, "gradle bundleRelease").map_err(PackError::Other)?;
         let aab = project
             .root

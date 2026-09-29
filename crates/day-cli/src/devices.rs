@@ -1639,7 +1639,47 @@ fn emulator_log_path(avd: &str) -> std::path::PathBuf {
 /// instead, whose path is printed, and the child handle comes back so the wait can notice the
 /// emulator exiting rather than sitting out its whole timeout waiting for a device that will
 /// never appear.
+/// The system image `avd` boots from, when its configuration names one that is not installed.
+///
+/// An AVD outlives its image: removing the image from Android Studio's SDK Manager, or moving
+/// to a fresh SDK, leaves the AVD listed and bootable-looking. The emulator then exits at once
+/// with `Cannot find AVD system path. Please define ANDROID_SDK_ROOT`, which blames the SDK
+/// location for what is a missing package. Returns the `sdkmanager` package id to install.
+fn missing_avd_image(avd: &str) -> Option<String> {
+    let config = std::fs::read_to_string(avd_config_path(avd)?).ok()?;
+    let sysdir = config.lines().find_map(|l| {
+        let (k, v) = l.split_once('=')?;
+        (k.trim() == "image.sysdir.1").then(|| v.trim().trim_end_matches(['/', '\\']).to_string())
+    })?;
+    if day_toolchain::android_sdk_dir().join(&sysdir).is_dir() {
+        return None;
+    }
+    // `system-images/android-34/google_apis/x86_64` → `system-images;android-34;google_apis;x86_64`.
+    Some(sysdir.replace(['/', '\\'], ";"))
+}
+
 fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::Child, CliError> {
+    if let Some(pkg) = missing_avd_image(avd) {
+        let sdk = day_toolchain::android_sdk_dir();
+        let install = match day_toolchain::android_sdkmanager() {
+            Some(sm) => format!(
+                "`{} --sdk_root={} --install \"{pkg}\"`",
+                sm.display(),
+                sdk.display()
+            ),
+            None => format!(
+                "`sdkmanager --sdk_root={} --install \"{pkg}\"` (install the SDK's \
+                 Command-line Tools first, from Android Studio's SDK Manager)",
+                sdk.display()
+            ),
+        };
+        return Err(CliError::failure(format!(
+            "AVD {avd} boots from {pkg}, which is not installed in {}. Install it from Android \
+             Studio (Settings ▸ Languages & Frameworks ▸ Android SDK ▸ SDK Platforms, with \
+             \"Show Package Details\"), or run {install}",
+            sdk.display()
+        )));
+    }
     let log = emulator_log_path(avd);
     let sink = std::fs::File::create(&log)
         .map_err(|e| CliError::failure(format!("{}: {e}", log.display())))?;

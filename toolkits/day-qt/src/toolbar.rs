@@ -159,43 +159,28 @@ pub(crate) extern "C" fn on_toolbar_value(
     });
 }
 
-/// The items of `cols`, in bar order, with stretches where the packing turns around
-/// (docs/toolbars.md): leading roles first, a stretch, the principal item between two of them,
-/// then the trailing ones — so the prominent action sits at the column's right edge, a lone
-/// leading group stays at its left, and a principal item centers. A box layout centers a
-/// single fixed-size widget in leftover space, which is why the stretch after the leading
-/// group is unconditional. `spread` = false packs everything after the caller's own leading
-/// stretch (the sidebar column, against its divider).
-fn column_items(
-    bar: *mut c_void,
-    items: &[ToolbarItem],
-    cols: &[day_spec::ToolbarColumn],
-    spread: bool,
-) {
-    use day_spec::ToolbarPlacement as P;
-    let mine: Vec<&ToolbarItem> = items.iter().filter(|i| cols.contains(&i.column)).collect();
-    let lead = [P::Navigation, P::Automatic];
-    let trail = [P::Primary, P::Secondary, P::Bottom];
-    let has_principal = mine.iter().any(|i| i.placement == P::Principal);
-    for i in mine.iter().filter(|i| lead.contains(&i.placement)) {
-        add_item(bar, i);
-    }
-    if spread {
-        unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
-    }
-    for i in mine.iter().filter(|i| i.placement == P::Principal) {
-        add_item(bar, i);
-    }
-    if spread && has_principal {
-        unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
-    }
-    for i in mine.iter().filter(|i| trail.contains(&i.placement)) {
-        add_item(bar, i);
-    }
+/// Where an item goes on this bar (docs/toolbars.md): its column's track (0 sidebar, 1 list,
+/// 2 detail; everything shares the detail track on a bar without columns) and its group there
+/// (0 leading, 1 principal, 2 trailing). The shim's stretches between the groups do the packing:
+/// leading roles at the left, the principal item between, the trailing ones at the right edge.
+fn slot_of(item: &ToolbarItem, columns: bool) -> (c_int, c_int) {
+    use day_spec::{ToolbarColumn as C, ToolbarPlacement as P};
+    let col = match item.column {
+        _ if !columns => 2,
+        C::Sidebar => 0,
+        C::List => 1,
+        C::Detail | C::Window => 2,
+    };
+    let group = match item.placement {
+        P::Navigation | P::Automatic => 0,
+        P::Principal => 1,
+        P::Primary | P::Secondary | P::Bottom => 2,
+    };
+    (col, group)
 }
 
 /// One model item onto the bar, or into the column it is packing.
-fn add_item(bar: *mut c_void, item: &ToolbarItem) {
+fn add_item(win: *mut c_void, bar: *mut c_void, item: &ToolbarItem) {
     let id = cstr(&item.id);
     let label = cstr(&item.label);
     let tip = cstr(item.tooltip.as_deref().unwrap_or(&item.label));
@@ -288,80 +273,91 @@ fn add_item(bar: *mut c_void, item: &ToolbarItem) {
                 );
                 // Qt's own QCompleter drives the popup (docs/search.md).
                 let joined = cstr(&suggestions.join("\n"));
-                ffi::day_qt_toolbar_set_suggestions(id.as_ptr(), joined.as_ptr());
+                ffi::day_qt_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr());
             };
         }
         ToolbarItemKind::Label => unsafe {
             ffi::day_qt_toolbar_add_label(bar, id.as_ptr(), label.as_ptr())
         },
-        ToolbarItemKind::Separator => unsafe { ffi::day_qt_toolbar_add_separator(bar) },
+        ToolbarItemKind::Separator => unsafe {
+            ffi::day_qt_toolbar_add_separator(bar, id.as_ptr())
+        },
     }
 }
 
 impl Qt {
-    /// Install `items` as this window's toolbar (docs/toolbars.md).
-    pub(crate) fn install_toolbar(&mut self, h: &QtHandle, items: &[ToolbarItem]) {
-        let Some(win) = self.window_of(h) else { return };
+    /// Edit this window's toolbar (docs/toolbars.md): each op adds or takes away one item, and
+    /// nothing else on the bar moves.
+    pub(crate) fn edit_toolbar(&mut self, h: &QtHandle, ops: &[day_spec::ToolbarOp]) -> bool {
+        let Some(win) = self.window_of(h) else {
+            return false;
+        };
         let bar = unsafe { ffi::day_qt_window_toolbar(win) };
         if bar.is_null() {
-            return;
+            return false;
         }
-        use day_spec::ToolbarColumn as C;
-        // A window with a navigation splitter lays the bar out in COLUMNS (docs/toolbars.md):
-        // three tracks whose widths follow the panes, so a column's items sit over the pane
-        // they act on — the sidebar's against its divider, the list's over the list, the
-        // detail's and the window's own over the content. Everything else (a settings window,
-        // a stack-only app) packs one flat bar by placement.
-        if unsafe { ffi::day_qt_toolbar_has_columns(bar) } != 0 {
-            unsafe { ffi::day_qt_toolbar_begin_column(bar, 0) };
-            // Packed against the divider it acts on: a leading stretch pushes the show/hide
-            // button to the sidebar's trailing edge, where Notes and Xcode put theirs.
-            unsafe { ffi::day_qt_toolbar_add_space(bar, 1) };
-            column_items(bar, items, &[C::Sidebar], false);
-            unsafe { ffi::day_qt_toolbar_end_column(bar) };
-            // Always opened, even empty: its width is what puts the detail column over the
-            // detail. It collapses to nothing with the pane.
-            unsafe { ffi::day_qt_toolbar_begin_column(bar, 1) };
-            column_items(bar, items, &[C::List], true);
-            unsafe { ffi::day_qt_toolbar_end_column(bar) };
-            unsafe { ffi::day_qt_toolbar_begin_column(bar, 2) };
-            column_items(bar, items, &[C::Detail, C::Window], true);
-            unsafe { ffi::day_qt_toolbar_end_column(bar) };
-        } else {
-            column_items(
-                bar,
-                items,
-                &[C::Sidebar, C::List, C::Detail, C::Window],
-                true,
-            );
+        let columns = unsafe { ffi::day_qt_toolbar_has_columns(bar) } != 0;
+        let mirror = self.toolbars.entry(win as usize).or_default();
+        for op in ops {
+            match op {
+                day_spec::ToolbarOp::Remove { id } => {
+                    mirror.remove(id);
+                    let id = cstr(id);
+                    unsafe { ffi::day_qt_toolbar_remove(win, id.as_ptr()) };
+                }
+                day_spec::ToolbarOp::Insert { index, item } => {
+                    let slot = slot_of(item, columns);
+                    let after = mirror
+                        .prev_where(*index, |i| slot_of(i, columns) == slot)
+                        .map(|i| i.id.clone())
+                        .unwrap_or_default();
+                    let after = cstr(&after);
+                    // The column as asked, not as this layout folds it: the shim re-places by it
+                    // when a split arrives or leaves.
+                    let (col, _) = slot_of(item, true);
+                    unsafe {
+                        ffi::day_qt_toolbar_begin_insert(
+                            bar,
+                            *index as c_int,
+                            col,
+                            slot.1,
+                            after.as_ptr(),
+                        )
+                    };
+                    add_item(win, bar, item);
+                    mirror.insert(*index, item.clone());
+                }
+            }
         }
         unsafe { ffi::day_qt_window_toolbar_done(win) };
+        true
     }
 
     /// Apply a targeted change to one live item.
-    pub(crate) fn patch_toolbar(&mut self, _h: &QtHandle, patch: &ToolbarPatch) {
+    pub(crate) fn patch_toolbar(&mut self, h: &QtHandle, patch: &ToolbarPatch) {
+        let Some(win) = self.window_of(h) else { return };
+        if let Some(mirror) = self.toolbars.get_mut(&(win as usize)) {
+            mirror.patch(patch);
+        }
+        let id = cstr(patch.item());
         match patch {
-            ToolbarPatch::Text { item, text } => {
-                let (id, text) = (cstr(item), cstr(text));
-                unsafe { ffi::day_qt_toolbar_set_text(id.as_ptr(), text.as_ptr()) };
+            ToolbarPatch::Text { text, .. } => {
+                let text = cstr(text);
+                unsafe { ffi::day_qt_toolbar_set_text(win, id.as_ptr(), text.as_ptr()) };
             }
-            ToolbarPatch::On { item, on } => {
-                let id = cstr(item);
-                unsafe { ffi::day_qt_toolbar_set_checked(id.as_ptr(), *on as c_int) };
-            }
-            ToolbarPatch::Selected { item, index } => {
-                let id = cstr(item);
-                unsafe { ffi::day_qt_toolbar_set_selected(id.as_ptr(), *index as c_int) };
-            }
-            ToolbarPatch::Suggestions { item, list } => unsafe {
-                let id = cstr(item);
-                let joined = cstr(&list.join("\n"));
-                ffi::day_qt_toolbar_set_suggestions(id.as_ptr(), joined.as_ptr());
+            ToolbarPatch::On { on, .. } => unsafe {
+                ffi::day_qt_toolbar_set_checked(win, id.as_ptr(), *on as c_int)
             },
-            ToolbarPatch::Enabled { item, on } => {
-                let id = cstr(item);
-                unsafe { ffi::day_qt_toolbar_set_enabled(id.as_ptr(), *on as c_int) };
-            }
+            ToolbarPatch::Selected { index, .. } => unsafe {
+                ffi::day_qt_toolbar_set_selected(win, id.as_ptr(), *index as c_int)
+            },
+            ToolbarPatch::Suggestions { list, .. } => unsafe {
+                let joined = cstr(&list.join("\n"));
+                ffi::day_qt_toolbar_set_suggestions(win, id.as_ptr(), joined.as_ptr());
+            },
+            ToolbarPatch::Enabled { on, .. } => unsafe {
+                ffi::day_qt_toolbar_set_enabled(win, id.as_ptr(), *on as c_int)
+            },
         }
     }
 

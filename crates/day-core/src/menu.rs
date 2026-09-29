@@ -36,9 +36,10 @@ pub fn reset_menus() {
 /// menu builder calls this while lowering a menu tree to the [`day_spec::MenuItem`] model.
 /// Move the closure registered under `from` onto `to`, dropping `from`.
 ///
-/// Used when a toolbar install turns out to be the same bar with new closures: the native side
-/// keeps dispatching the ids it already has, and this points them at the current handlers
-/// (`day_core::toolbar::set_window_toolbar`).
+/// Used when an app-menu install turns out to be the same menu with new closures: the native
+/// side keeps dispatching the ids it already has, and this points them at the current handlers.
+/// (Toolbars never need it: their items dispatch through stable slot ids, see
+/// `day_core::toolbar`.)
 pub fn rebind_action(from: u64, to: u64) {
     if from == 0 || to == 0 || from == to {
         return;
@@ -48,6 +49,13 @@ pub fn rebind_action(from: u64, to: u64) {
         if let Some(f) = m.remove(&from) {
             m.insert(to, f);
         }
+    });
+}
+
+/// Drop the closure registered under `id`: a toolbar item's, once no contribution carries it.
+pub(crate) fn forget_action(id: u64) {
+    ACTIONS.with(|m| {
+        m.borrow_mut().remove(&id);
     });
 }
 
@@ -64,7 +72,7 @@ pub fn register_menu_action(f: Rc<dyn Fn()>) -> u64 {
 /// build's closure (and whatever app state it captured) for the process lifetime.
 ///
 /// The app menu and toolbars stay on plain [`register_menu_action`]: their ids are managed
-/// by shape-rebinding ([`rebind_action`]) plus explicit sweeps, and a scope cleanup firing
+/// by shape-rebinding ([`rebind_action`]) and toolbar slots plus explicit sweeps, and a scope cleanup firing
 /// after a rebind would remove an id the platform still dispatches.
 pub fn register_scoped_menu_action(f: Rc<dyn Fn()>) -> u64 {
     let id = register_menu_action(f);
@@ -89,6 +97,8 @@ pub(crate) fn next_action_id() -> u64 {
 /// Run the closure registered for `id` (no-op if none). Called by the event pump on
 /// `Event::MenuAction`. Runs inside a reactive batch so multiple signal writes coalesce.
 pub fn dispatch_menu_action(id: u64) {
+    // A toolbar button or pull-down entry carries its bar's stable slot id (docs/toolbars.md).
+    let id = crate::toolbar::resolve_slot(id);
     let f = ACTIONS.with(|m| m.borrow().get(&id).cloned());
     if let Some(f) = f {
         day_reactive::batch(|| f());
@@ -156,8 +166,8 @@ fn rebind_menu(next: &mut [day_spec::MenuItem], prev: &[day_spec::MenuItem]) {
 pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
     let mut items = inject_preferences(items);
 
-    // The same rule the toolbar follows (`day_core::toolbar::set_window_toolbar`,
-    // docs/toolbars.md): an app declares its menu inside the page build, so every route change
+    // The same concern the toolbar has (docs/toolbars.md): an app declares its menu inside the
+    // page build, so every route change
     // re-installs the same menu with freshly registered closures. Rebuilding the native menu bar
     // for that is churn at best, and on macOS it closes a menu the user has open, so a menu
     // that differs only in its action ids rebinds onto the ids the platform already holds.

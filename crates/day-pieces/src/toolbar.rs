@@ -180,9 +180,10 @@ pub fn toolbar_label<M>(id: impl Into<String>, text: impl IntoText<M>) -> Toolba
 }
 
 /// A divider, where the platform draws one (macOS toolbars have none, so AppKit renders it as a
-/// fixed gap; docs/toolbars.md).
-pub fn toolbar_separator() -> ToolbarEntry {
-    entry("", Kind::Separator)
+/// fixed gap; docs/toolbars.md). It takes an id like every other item: an id is an item's
+/// identity on the bar, which is what lets Day add and remove one item at a time.
+pub fn toolbar_separator(id: impl Into<String>) -> ToolbarEntry {
+    entry(id, Kind::Separator)
 }
 
 impl ToolbarEntry {
@@ -538,8 +539,8 @@ fn lower(
 
             // Seed the item from the predicate, rather than leaving the declared default and
             // letting the binding correct it: the binding's first run happens here, inside
-            // `lower`, and the model it patches is only stored by the `set_window_toolbar` this
-            // list is on its way to, so the correction landed on the previous bar (or nothing)
+            // `lower`, and the model it patches is only stored by the window-bar edit this list
+            // is on its way to, so the correction landed on the previous bar (or nothing)
             // and the new one installed enabled. A command that starts out unavailable then
             // lowered live and answered dayscript's `toolbar:` step.
             let enabled = match &enabled_when {
