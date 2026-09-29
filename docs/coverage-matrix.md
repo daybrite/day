@@ -47,14 +47,14 @@ nothing derived from `realize` can.
 
 | piece | kind(s) | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|---|
-| `day-piece-activity` | `day.piece.activity` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
+| `day-piece-activity` | `day.piece.activity` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `day-piece-colorpicker` | `day.piece.colorpicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
-| `day-piece-combobox` | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | · | · |
+| `day-piece-combobox` | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `day-piece-datetime` | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day-piece-map` | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
 | `day-piece-pullrefresh` | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
 | `day-piece-remote-image` | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
-| `day-piece-searchfield` | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
+| `day-piece-searchfield` | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `day-piece-stepper` | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
 | `day-piece-swiftui` | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
 | `day-piece-texteditor` | `day.piece.texteditor` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -109,6 +109,7 @@ An app branches on this rather than on the target name.
 | `AppBadgeText` | N | – | – | – | – | – | – | – |
 | `AppBadgeDot` | N | – | – | – | – | – | – | E |
 | `Toolbar` | N | N | N | N | N | N | E | E |
+| `ToolbarSearch` | N | – | N | N | N | – | – | E |
 | `Inspector` | N | – | N | N | N | – | – | – |
 | `Cursor` | N | E | N | E | E | N | – | N |
 | `FontList` | N | N | N | N | N | N | N | E |
