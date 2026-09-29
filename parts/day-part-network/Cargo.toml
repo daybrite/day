@@ -42,6 +42,12 @@ day-bridge = { workspace = true }
 # install-time permission with no runtime prompt).
 permissions = ["android.permission.ACCESS_NETWORK_STATE"]
 
+# --- HarmonyOS backend contribution (docs/extending.md) ---
+[package.metadata.day.ohos]
+# OH_NetConn_* answers 201 (permission denied) without GET_NETWORK_INFO, a system_grant permission
+# granted at install with no prompt, so the app's module.json5 must declare it.
+permissions = ["ohos.permission.GET_NETWORK_INFO"]
+
 # --- iOS backend contribution (docs/extending.md) ---
 # SCNetworkReachability lives in SystemConfiguration.framework. src/apple.rs has a Rust
 # `#[link(name = "SystemConfiguration", kind = "framework")]`, but that is honored only when cargo

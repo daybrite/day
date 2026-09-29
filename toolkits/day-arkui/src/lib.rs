@@ -183,9 +183,14 @@ mod imp {
         static PICKER_SELECTED: day_spec::sidetable::SideTable<usize> =
             day_spec::sidetable::SideTable::new();
 
-        /// The one live suite. This backend already assumes a single nav host (`NAV_HOST`), and
-        /// a suite is a nav host wearing different chrome.
-        static NAV_SUITE: RefCell<Option<NavSuite>> = const { RefCell::new(None) };
+        /// Every live suite, by host node pointer. Suites nest (a tab whose page holds tabs of
+        /// its own), so each host keeps its own pages, bar and layout.
+        static NAV_SUITES: RefCell<HashMap<usize, NavSuite>> = RefCell::new(HashMap::new());
+        /// The suite whose rows have not arrived yet: its host is realized before its sidebar
+        /// page, so the next navigation menu realized is that suite's, and no later one is.
+        static SUITE_AWAITING_MENU: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+        /// Each suite's navigation menu (menu node → suite host), for a data-driven rows patch.
+        static MENU_SUITE: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
 
         /// Secondary window roots (docs/windows.md): (day node, the window's Stack node
         /// pointer): the multiton DayWindowAbility instances' content.
@@ -213,7 +218,6 @@ mod imp {
     /// the platform's own metrics, and the rows keep their meaning: a bar item reports through
     /// the same synthetic-click table a sidebar row uses, so a tap is one event either way.
     struct NavSuite {
-        host: usize,
         pages: AHandle,
         bar: AHandle,
         /// Destination pages in bar order; index i is the `Select(i)` index.
@@ -227,10 +231,16 @@ mod imp {
 
     /// Build the bar's items from the host's rows: an icon over a label per destination, each
     /// registering a synthetic click that reports `SelectionChanged(i)` against the menu node.
-    fn suite_fill_bar(menu: NodeId, items: &[String], icons: &[Option<String>], selected: usize) {
-        NAV_SUITE.with(|c| {
+    fn suite_fill_bar(
+        host: usize,
+        menu: NodeId,
+        items: &[String],
+        icons: &[Option<String>],
+        selected: usize,
+    ) {
+        NAV_SUITES.with(|c| {
             let mut c = c.borrow_mut();
-            let Some(suite) = c.as_mut() else {
+            let Some(suite) = c.get_mut(&host) else {
                 return;
             };
             for old in std::mem::take(&mut suite.bar_items) {
@@ -293,10 +303,10 @@ mod imp {
     /// The pages area and the bar are sized here rather than by day-core, which sees one host
     /// node and gives it one frame: the same division of labor every other backend's native
     /// nav container performs for itself.
-    fn suite_layout(size: Size) {
-        let reports: Vec<(NodeId, Size)> = NAV_SUITE.with(|c| {
+    fn suite_layout(host: usize, size: Size) {
+        let reports: Vec<(NodeId, Size)> = NAV_SUITES.with(|c| {
             let mut c = c.borrow_mut();
-            let Some(suite) = c.as_mut() else {
+            let Some(suite) = c.get_mut(&host) else {
                 return Vec::new();
             };
             let page = Size::new(size.width, (size.height - NAV_BAR_H).max(0.0));
@@ -320,10 +330,10 @@ mod imp {
     }
 
     /// Show destination `i` and hide the rest (the resident-page switch, docs/navigation.md).
-    fn suite_select(i: usize) {
-        NAV_SUITE.with(|c| {
+    fn suite_select(host: usize, i: usize) {
+        NAV_SUITES.with(|c| {
             let mut c = c.borrow_mut();
-            let Some(suite) = c.as_mut() else {
+            let Some(suite) = c.get_mut(&host) else {
                 return;
             };
             suite.selected = i;
@@ -1959,16 +1969,19 @@ mod imp {
                             ffi::day_ark_insert_child(host.0, bar.0, 1);
                             ffi::day_ark_set_bg_color(bar.0, theme_color(0xFFF1_F3F5, 0xFF1C_1C1E));
                         }
-                        NAV_SUITE.with(|c| {
-                            *c.borrow_mut() = Some(NavSuite {
-                                host: host.0 as usize,
-                                pages,
-                                bar,
-                                items: Vec::new(),
-                                bar_items: Vec::new(),
-                                selected: 0,
-                                page_size: Size::ZERO,
-                            })
+                        SUITE_AWAITING_MENU.with(|c| c.set(Some(host.0 as usize)));
+                        NAV_SUITES.with(|c| {
+                            c.borrow_mut().insert(
+                                host.0 as usize,
+                                NavSuite {
+                                    pages,
+                                    bar,
+                                    items: Vec::new(),
+                                    bar_items: Vec::new(),
+                                    selected: 0,
+                                    page_size: Size::ZERO,
+                                },
+                            )
                         });
                         // Told once and never revised: the chrome is the same at every width.
                         emit(
@@ -1979,6 +1992,9 @@ mod imp {
                     }
                     let n = new_node(K_STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
+                    // The root's title, which the title bar shows once toolbar actions bring it
+                    // out (no page is pushed yet, so this names the root).
+                    unsafe { ffi::day_ark_nav_set_title(cstr(&p.title).as_ptr()) };
                     // Inline search (docs/search.md) goes above the navigation root. The title bar
                     // holds actions, never a field (`Cap::ToolbarSearch` is unsupported), so every
                     // placement resolves here.
@@ -2027,7 +2043,10 @@ mod imp {
                     // Inside a suite the rows are the bar. The list is still built — it lives in
                     // the sidebar page, which the suite keeps but never shows — so nothing else
                     // has to know which presentation it is in.
-                    suite_fill_bar(id, &p.items, &p.icons, 0);
+                    if let Some(host) = SUITE_AWAITING_MENU.with(|c| c.take()) {
+                        MENU_SUITE.with(|m| m.borrow_mut().insert(id.0, host));
+                        suite_fill_bar(host, id, &p.items, &p.icons, 0);
+                    }
                     build_nav_menu(
                         id,
                         &p.items,
@@ -2171,7 +2190,7 @@ mod imp {
                             NavPatch::Presentation(_) => {}
                             // The resident-page switch (docs/navigation.md): show that
                             // destination and move the bar's accent to it.
-                            NavPatch::Select(i) => suite_select(*i),
+                            NavPatch::Select(i) => suite_select(h.0 as usize, *i),
                             // Never arrives: this backend answers `Cap::NavContentList`
                             // Unsupported, so the pieces layer composes the pane itself
                             // (docs/navigation.md).
@@ -2212,7 +2231,9 @@ mod imp {
                         MENU_ROWS.with(|m| m.borrow_mut().retain(|_, v| v.0 != menu));
                         // Data-driven rows: a suite's bar is those rows, so it is rebuilt from
                         // the same set rather than left showing the old destinations.
-                        suite_fill_bar(menu, items, icons, 0);
+                        if let Some(host) = MENU_SUITE.with(|m| m.borrow().get(&menu.0).copied()) {
+                            suite_fill_bar(host, menu, items, icons, 0);
+                        }
                         if let Some(old) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                             unsafe {
                                 ffi::day_ark_remove_child(h.0, old as *mut _);
@@ -2508,14 +2529,16 @@ mod imp {
             TEXTAREA_LINES.with(|m| {
                 m.borrow_mut().remove(&key);
             });
-            NAV_SUITE.with(|c| {
-                let mut c = c.borrow_mut();
-                if c.as_ref().is_some_and(|s| s.host == key) {
-                    // The host is gone; its pages and bar go with it. A stale suite would route
-                    // the next host's children into freed nodes.
-                    *c = None;
-                }
-            });
+            // A host that is gone takes its suite with it: a stale suite would route the next
+            // host at that address's children into freed nodes.
+            if NAV_SUITES.with(|c| c.borrow_mut().remove(&key)).is_some() {
+                MENU_SUITE.with(|m| m.borrow_mut().retain(|_, host| *host != key));
+                SUITE_AWAITING_MENU.with(|c| {
+                    if c.get() == Some(key) {
+                        c.set(None);
+                    }
+                });
+            }
             if let Some(nid) = TAP_HANDLES.with(|m| m.borrow_mut().remove(&key)) {
                 TAP_NODES.with(|s| {
                     s.borrow_mut().remove(&nid);
@@ -2554,9 +2577,9 @@ mod imp {
             // A suite's own pages. The one at index 0 is the SIDEBAR page, whose rows became the
             // bar: it is kept so nothing downstream has to special-case a missing page, but never
             // shown — drawing the rows again as a list would be the same navigation twice.
-            let into_suite = NAV_SUITE.with(|c| {
+            let into_suite = NAV_SUITES.with(|c| {
                 let mut c = c.borrow_mut();
-                let Some(suite) = c.as_mut().filter(|s| s.host == parent.0 as usize) else {
+                let Some(suite) = c.get_mut(&(parent.0 as usize)) else {
                     return false;
                 };
                 let page = suite.page_size;
@@ -2734,9 +2757,9 @@ mod imp {
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
             // The suite divides its own frame between the pages area and the bar, then tells each
             // page how much room it has — day-core sees one host node and gives it one frame.
-            if NAV_SUITE.with(|c| c.borrow().as_ref().is_some_and(|s| s.host == h.0 as usize)) {
+            if NAV_SUITES.with(|c| c.borrow().contains_key(&(h.0 as usize))) {
                 unsafe { ffi::day_ark_set_size(h.0, frame.size.width, frame.size.height) };
-                suite_layout(frame.size);
+                suite_layout(h.0 as usize, frame.size);
                 return;
             }
             // A cover's frame is native-owned: full window while presented, parked otherwise.

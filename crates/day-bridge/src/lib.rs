@@ -528,8 +528,8 @@ pub unsafe fn __take_wasm(ptr: *mut u8, len: usize) -> Vec<u8> {
 /// The HarmonyOS side of the callback tier: how generated Rust reaches an ArkTS arm, and how a
 /// completion comes back (docs/bridge.md "Callbacks"). Every ArkTS arm runs on the JS thread; the
 /// ArkUI shim owns that dispatch, and this module finds the shim's entry at run time so a bridged
-/// crate keeps no link-time dependency on the toolkit, the same `dlsym` idiom
-/// day-part-permissions uses.
+/// crate keeps no link-time dependency on the toolkit ([`arkts::lookup`], which
+/// day-part-permissions shares).
 #[cfg(all(target_os = "linux", target_env = "ohos"))]
 pub mod arkts {
     use std::ffi::{c_char, c_int, c_void};
@@ -592,12 +592,63 @@ pub mod arkts {
 
     unsafe extern "C" {
         fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
+        fn dladdr(addr: *const c_void, info: *mut DlInfo) -> c_int;
+        fn dlopen(filename: *const c_char, flags: c_int) -> *mut c_void;
     }
 
-    fn lookup(name: &std::ffi::CStr) -> *mut c_void {
-        // SAFETY: a plain symbol lookup in the running process, exactly as
-        // day-part-permissions resolves the shim's prompter.
-        unsafe { dlsym(std::ptr::null_mut(), name.as_ptr()) }
+    /// `Dl_info` (dlfcn.h).
+    #[repr(C)]
+    struct DlInfo {
+        dli_fname: *const c_char,
+        dli_fbase: *mut c_void,
+        dli_sname: *const c_char,
+        dli_saddr: *mut c_void,
+    }
+
+    const RTLD_NOW: c_int = 2;
+    /// Only a library already loaded; never load a second copy.
+    const RTLD_NOLOAD: c_int = 4;
+
+    /// A symbol of the app's own native library, where day-arkui's exports live (this crate is
+    /// linked into the same `libentry.so`).
+    ///
+    /// The process-wide lookup comes first, but it cannot be the only one: HarmonyOS's ArkTS
+    /// module loader opens `libentry.so` with LOCAL symbol visibility, so `dlsym(NULL, …)` does
+    /// not see its symbols, and every bridged call failed as "platform runtime unavailable"
+    /// without ever reaching ArkTS. The library holding this very function is the one to ask.
+    pub fn lookup(name: &std::ffi::CStr) -> *mut c_void {
+        // SAFETY: a plain symbol lookup in the running process.
+        let global = unsafe { dlsym(std::ptr::null_mut(), name.as_ptr()) };
+        if !global.is_null() {
+            return global;
+        }
+        let own = own_library();
+        if own.is_null() {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: `own` is a live handle to a loaded library.
+        unsafe { dlsym(own, name.as_ptr()) }
+    }
+
+    /// A handle to the library this code is linked into, or null.
+    fn own_library() -> *mut c_void {
+        static HANDLE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+        *HANDLE.get_or_init(|| {
+            let mut info = DlInfo {
+                dli_fname: std::ptr::null(),
+                dli_fbase: std::ptr::null_mut(),
+                dli_sname: std::ptr::null(),
+                dli_saddr: std::ptr::null_mut(),
+            };
+            // SAFETY: `lookup` is a function in this library; dladdr only reads its address and
+            // fills `info`, whose `dli_fname` then names this library's file.
+            let found = unsafe { dladdr(lookup as *const c_void, &mut info) } != 0;
+            if !found || info.dli_fname.is_null() {
+                return 0;
+            }
+            // SAFETY: a valid C string from dladdr; NOLOAD only returns an already-loaded library.
+            unsafe { dlopen(info.dli_fname, RTLD_NOW | RTLD_NOLOAD) as usize }
+        }) as *mut c_void
     }
 
     /// Call the ArkTS function registered under `symbol` with `args`, on the JS thread. `done`

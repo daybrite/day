@@ -402,6 +402,15 @@ export const dayPiece: DayPieceModule = {
 };
 ```
 
+The same table carries the raw HarmonyOS permissions a crate needs, the counterpart of Android's
+`[package.metadata.day.android] permissions`. It is for the `system_grant` ones, which no prompt
+covers and no platform-neutral `[package.metadata.day.permissions]` name maps to:
+
+```toml
+[package.metadata.day.ohos]
+permissions = ["ohos.permission.GET_NETWORK_INFO"]   # joined into module.json5 at build
+```
+
 `day build -p harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
 (gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
 `DayPieces.ets`, whose `registerDayPieces(uiContext)` hands the native shim one factory, command sink,

@@ -1466,6 +1466,31 @@ struct OhosMeta {
     /// dir must carry an `Index.ets` exporting `dayPiece: DayPieceModule` (docs/extending.md).
     #[serde(default)]
     ets: StringOrVec,
+    /// HarmonyOS permissions the crate needs in `module.json5` (`ohos.permission.*`), for the
+    /// `system_grant` ones no prompt covers and the platform-neutral `[package.metadata.day.
+    /// permissions]` names therefore do not: Android's `[package.metadata.day.android]
+    /// permissions`, for HarmonyOS.
+    #[serde(default)]
+    permissions: Vec<String>,
+}
+
+/// The raw HarmonyOS permissions every crate in the app's closure declares
+/// (`[package.metadata.day.ohos] permissions`), sorted and deduplicated.
+pub fn contributed_ohos_permissions(project: &Project) -> Vec<String> {
+    let Ok(meta) = cargo_metadata_for_contributions(project, &["arkui"]) else {
+        return Vec::new();
+    };
+    let reachable = closure(&meta);
+    let mut out: Vec<String> = meta
+        .packages
+        .iter()
+        .filter(|p| reachable.contains(&p.id))
+        .filter_map(|p| piece_meta::<OhosMeta>(p, "ohos"))
+        .flat_map(|m| m.permissions)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 /// The resolved HarmonyOS contributions across all pieces in the app's dependency closure.

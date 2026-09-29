@@ -7,7 +7,7 @@
 //! The check is a direct FFI call into `libability_access_control.so`. The request has no native
 //! C API (`requestPermissionsFromUser` needs a `UIAbilityContext`, reachable only from ArkTS), so
 //! it goes through `day_arkui_request_permissions`, a function day-arkui exports that forwards to
-//! the shim's ArkTS-registered prompter (docs/permissions.md). It is found by `dlsym` at call
+//! the shim's ArkTS-registered prompter (docs/permissions.md). It is found by symbol lookup at call
 //! time, so this crate keeps no link-time dependency on that toolkit: a HarmonyOS app always
 //! carries it, and a build that somehow does not answers the request with the current status
 //! instead of failing to link.
@@ -27,10 +27,6 @@ use crate::{Gate, Permission, Status, merge};
 #[link(name = "ability_access_control")]
 unsafe extern "C" {
     fn OH_AT_CheckSelfPermission(permission: *const c_char) -> bool;
-}
-
-unsafe extern "C" {
-    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
 }
 
 /// The exported function's C signature (see `day_arkui::day_arkui_request_permissions`).
@@ -113,8 +109,9 @@ fn pending_lock() -> std::sync::MutexGuard<'static, Option<Pending>> {
 
 /// The exported function, looked up once. `None` when this process carries no day-arkui.
 fn request_fn() -> Option<RequestFn> {
-    let name = c"day_arkui_request_permissions";
-    let sym = unsafe { dlsym(std::ptr::null_mut(), name.as_ptr()) };
+    // Not a process-wide `dlsym(NULL, …)`: the ArkTS loader opens the app's native library with
+    // local symbol visibility, so the export is found only by asking that library.
+    let sym = day_bridge::arkts::lookup(c"day_arkui_request_permissions");
     if sym.is_null() {
         return None;
     }
