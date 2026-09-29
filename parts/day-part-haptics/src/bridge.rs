@@ -1,17 +1,19 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// Android, whole: the Java that drives Vibrator/VibrationEffect, the declaration that binds it, and
-// the mapping from `Haptic` onto the wire code. Nothing about this platform appears anywhere else in
-// the crate.
+// Android and HarmonyOS, whole: the Java that drives Vibrator/VibrationEffect, the ArkTS that drives
+// the Sensor Service Kit's vibrator, the declaration that binds them, and the mapping from `Haptic`
+// onto the wire code. Nothing about these platforms appears anywhere else in the crate.
 //
-// Android is one of the targets whose haptics API cannot be reached from Rust (it needs a `Context`
-// and a service lookup, with no C entry point), so it is this crate's only foreign arm
-// (docs/bridge.md). Written in Java rather than Kotlin so it compiles in any Android project.
+// Both are targets whose haptics API cannot be reached from Rust in a useful form (Android needs a
+// `Context` and a service lookup with no C entry point; HarmonyOS's C vibrator takes only raw
+// durations, while its ArkTS one plays the system's own haptic presets), so they are this crate's
+// foreign arms (docs/bridge.md). The Android arm is Java rather than Kotlin so it compiles in any
+// Android project.
 //
-// Before daybridge this was a checked-in `DayHaptics.java`, a `[package.metadata.day.android]
-// java = [...]` table, a class-name constant, and a hand-written JNI descriptor in Rust. The arm
-// below is all four.
+// Before daybridge the Android half was a checked-in `DayHaptics.java`, a
+// `[package.metadata.day.android] java = [...]` table, a class-name constant, and a hand-written
+// JNI descriptor in Rust. The arm below is all four.
 
 use super::Haptic;
 
@@ -36,7 +38,8 @@ pub fn play(h: Haptic) {
 }
 
 pub fn is_supported() -> bool {
-    true
+    // Android always reaches its arm; HarmonyOS does where `day build` staged the ArkTS.
+    cfg!(target_os = "android") || play_native_support() != day_bridge::Support::Unsupported
 }
 
 day_bridge::bridge! {
@@ -131,8 +134,46 @@ day_bridge::bridge! {
         "#,
     );
 
-    // The fallback every bridge declares. This file is `#[cfg(target_os = "android")]`, so it is
-    // never compiled; it satisfies the rule that a bridge always has an answer for an unclaimed
+    // HarmonyOS: the system's haptic presets where the device has them (what its own controls
+    // play), else a short timed buzz whose length stands in for strength, like Android's
+    // pre-API-29 fallback. `VIBRATE` is declared through the crate's ohos metadata.
+    #[day_bridge::impl(arkts, platforms = [ohos])]
+    arkts!(
+        prelude = r#"
+            import { vibrator } from '@kit.SensorServiceKit';
+            import { BusinessError } from '@kit.BasicServicesKit';
+        "#,
+        body = r#"
+            // Light, Medium, Heavy, Success, Warning, Error, Selection (the wire codes).
+            const DAY_PRESETS: string[] = [
+              'haptic.effect.soft', 'haptic.clock.timer', 'haptic.effect.hard',
+              'haptic.effect.sharp', 'haptic.effect.hard', 'haptic.effect.hard', 'haptic.clock.timer'
+            ];
+            const DAY_MS: number[] = [10, 20, 40, 20, 40, 40, 10];
+
+            function daySupports(preset: string): boolean {
+              try {
+                return vibrator.isSupportEffectSync(preset);
+              } catch (e) {
+                return false;
+              }
+            }
+
+            export function play_native(style: number): void {
+              const i: number = style >= 0 && style < DAY_MS.length ? style : 1;
+              const effect: vibrator.VibrateEffect = daySupports(DAY_PRESETS[i])
+                ? { type: 'preset', effectId: DAY_PRESETS[i], count: 1 } as vibrator.VibratePreset
+                : { type: 'time', duration: DAY_MS[i] } as vibrator.VibrateTime;
+              vibrator.startVibration(effect, { id: 0, usage: 'touch' })
+                .catch((e: BusinessError) => {
+                  console.info(`day-part-haptics: ${e.code} ${e.message}`);
+                });
+            }
+        "#,
+    );
+
+    // The fallback every bridge declares. This file is compiled only on the two targets above, so
+    // it never runs; it satisfies the rule that a bridge always has an answer for an unclaimed
     // target.
     #[day_bridge::impl(rust, platforms = [other])]
     fn play_native(_style: i32) {}

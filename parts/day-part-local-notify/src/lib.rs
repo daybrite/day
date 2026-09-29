@@ -93,7 +93,7 @@ pub struct NotifId(pub u32);
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Capabilities {
     /// Notifications can be posted at all. False on the targets with no implementation wired yet
-    /// (Windows, HarmonyOS), where every call is a no-op returning [`NotifyError::Unsupported`].
+    /// (Windows), where every call is a no-op returning [`NotifyError::Unsupported`].
     pub post: bool,
     /// A scheduled notification is held by the OS and fires even if the app is not running. False
     /// on Linux and the web, where scheduling is an in-process timer.
@@ -463,10 +463,20 @@ mod imp;
 #[path = "android.rs"]
 mod imp;
 
+// HarmonyOS: Notification Kit through the crate's ArkTS arm.
+#[cfg(all(target_os = "linux", target_env = "ohos"))]
+#[path = "ohos.rs"]
+mod imp;
+
 // Linux and web-dom fall through to the stub for now; both are designed in docs/notify.md.
 // Their modules are added with their implementations rather than ahead of them, because declaring
 // a `mod` whose file does not exist breaks `cargo fmt --all` for the whole workspace.
-#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "android")))]
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "android",
+    all(target_os = "linux", target_env = "ohos")
+)))]
 #[path = "unsupported.rs"]
 mod imp;
 

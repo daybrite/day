@@ -15,9 +15,9 @@
 //!
 //! Platform selection is purely `#[cfg(target_os)]` (location is an OS concern, not a
 //! widget-toolkit one): Apple platforms use CoreLocation, Android `LocationManager` through a Java
-//! shim staged by `day build`, and the web `navigator.geolocation`. HarmonyOS, desktop Linux and
-//! Windows report [`LocationError::Unavailable`]; see the table in docs/location.md, which says
-//! why rather than pretending.
+//! shim staged by `day build`, HarmonyOS the Location Kit through an ArkTS daybridge arm, and the
+//! web `navigator.geolocation`. Desktop Linux and Windows report [`LocationError::Unavailable`];
+//! see the table in docs/location.md, which says why rather than pretending.
 //!
 //! # Permissions are a separate concern
 //!
@@ -301,13 +301,18 @@ mod imp;
 #[path = "web.rs"]
 mod imp;
 
-// Everything else, including HarmonyOS, desktop Linux and Windows, has no reachable location API
-// yet. Reporting that beats a stub that looks like an oversight (docs/location.md).
+#[cfg(target_env = "ohos")]
+#[path = "ohos.rs"]
+mod imp;
+
+// Everything else, desktop Linux and Windows, has no reachable location API yet. Reporting that
+// beats a stub that looks like an oversight (docs/location.md).
 #[cfg(not(any(
     target_os = "macos",
     target_os = "ios",
     target_os = "android",
-    target_arch = "wasm32"
+    target_arch = "wasm32",
+    target_env = "ohos"
 )))]
 mod imp {
     pub fn is_available() -> bool {

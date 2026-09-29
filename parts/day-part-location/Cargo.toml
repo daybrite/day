@@ -17,7 +17,7 @@ license.workspace = true
 #              [package.metadata.day.android] (not FusedLocationProvider: that needs Play
 #              Services, which AOSP images and many emulators lack, and a Gradle dependency)
 #   Web:       navigator.geolocation.watchPosition through the day-dom shim
-#   HarmonyOS: unsupported: location is an ArkTS-only API with no NDK surface (docs/location.md)
+#   HarmonyOS: the Location Kit's geoLocationManager, an ArkTS arm in src/ohos.rs (docs/bridge.md)
 #   Linux:     unsupported (GeoClue2 would need a D-Bus dependency this tree does not have)
 #   Windows:   unsupported for now (Windows.Devices.Geolocation is the future impl)
 # See docs/location.md + docs/extending.md.
@@ -38,6 +38,10 @@ objc2-foundation = { version = "0.3", features = ["NSObject"] }
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 
+# HarmonyOS location is ArkTS-only (no NDK surface), so its arm is a daybridge one.
+[target.'cfg(target_env = "ohos")'.dependencies]
+day-bridge = { workspace = true }
+
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
 java = ["src/DayLocation.java"]
@@ -48,3 +52,6 @@ permissions = []
 # --- iOS framework linking (docs/extending.md) ---
 [package.metadata.day.ios]
 frameworks = ["CoreLocation"]
+
+[build-dependencies]
+day-build = { workspace = true }

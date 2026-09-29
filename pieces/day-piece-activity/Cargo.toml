@@ -28,13 +28,15 @@ mdc = ["dep:day-android"] # + [package.metadata.day.android] stages src/DayActiv
 # feature exists so apps can enable `day-piece-activity/mock` uniformly; the activity kind then
 # falls back to day's placeholder leaf.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# HarmonyOS: the C node API's LOADING_PROGRESS spinner (src/lib-arkui.rs), no ArkTS.
+arkui = ["dep:day-arkui", "dep:day-arkui-sys"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
 # and no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "mock"]
 
 [dependencies]
 log = { workspace = true }
@@ -50,6 +52,8 @@ day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
+day-arkui = { workspace = true, optional = true }
+day-arkui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = [

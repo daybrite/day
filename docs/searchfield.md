@@ -38,9 +38,9 @@ guarded per backend (see the table).
 
 ## Per-backend native realization
 
-| AppKit | UIKit | GTK | Qt | Android | XAML |
-|---|---|---|---|---|---|
-| `NSSearchField` | `UISearchTextField` (iOS 13+) | `GtkSearchEntry` | `QLineEdit` search shim (clear button + leading magnifier) | `EditText` (single-line, `IME_ACTION_SEARCH`) | `AutoSuggestBox` (query magnifier) |
+| AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
+|---|---|---|---|---|---|---|
+| `NSSearchField` | `UISearchTextField` (iOS 13+) | `GtkSearchEntry` | `QLineEdit` search shim (clear button + leading magnifier) | `EditText` (single-line, `IME_ACTION_SEARCH`) | `AutoSuggestBox` (query magnifier) | ArkTS `Search` (the piece's `platform/harmony/ets`; the C node API has no search kind) |
 
 Each control reports edits through `Event::TextChanged(String)`, the same event a built-in text
 field emits, so `dayscript`'s `input:` step drives the piece on every backend without touching native

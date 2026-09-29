@@ -118,5 +118,7 @@ export const registerPiece: (
 ) => void;
 
 // An ArkTS-built component reporting back to its piece's Rust front-end, as an `Event::Custom`
-// whose payload is the whole message (the cross-boundary Custom carries no tag).
-export const pieceEvent: (id: number, text: string, num?: number) => void;
+// whose payload is the whole message (the cross-boundary Custom carries no tag), or, with `kind`,
+// as one of Day's own events: 1 text changed (`text`), 4 selection changed (`num`), 17 submitted,
+// 2 toggle changed (`num` 0/1).
+export const pieceEvent: (id: number, text: string, num?: number, kind?: number) => void;

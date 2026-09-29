@@ -834,6 +834,19 @@ void day_ark_set_visibility(void* n, int32_t visible) {
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_VISIBILITY, &it);
 }
 
+// An indeterminate spinner (LOADING_PROGRESS) starts or stops. A stopped one is HIDDEN, which keeps
+// its layout box (so the row around it does not jump), as a stopped spinner is on Android and iOS.
+void day_ark_set_loading(void* n, int32_t on) {
+    ArkUI_NumberValue nv;
+    nv.i32 = on ? 1 : 0;
+    ArkUI_AttributeItem it{};
+    it.value = &nv;
+    it.size = 1;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_LOADING_PROGRESS_ENABLE_LOADING, &it);
+    nv.i32 = on ? ARKUI_VISIBILITY_VISIBLE : ARKUI_VISIBILITY_HIDDEN;
+    g_api->setAttribute((ArkUI_NodeHandle)n, NODE_VISIBILITY, &it);
+}
+
 // The active tab/page index for a Swiper (NODE_SWIPER_INDEX).
 void day_ark_set_swiper_index(void* n, int32_t i) {
     ArkUI_NumberValue nv;
@@ -3675,13 +3688,16 @@ static napi_value RegisterPiece(napi_env env, napi_callback_info info) {
     return undef;
 }
 
-// An ArkTS-built component reports back to its piece: `pieceEvent(id, text, num?)`. Rides the
-// Same Custom channel the Android bridge uses (BridgeKind::Custom) — the payload is the whole
-// event, and the optional `num` is the piece's own discriminator (the web view's link reports
-// use -1, its URL reports omit it — day-piece-webview's docs/webview.md). JS thread only.
+// An ArkTS-built component reports back to its piece: `pieceEvent(id, text, num?, kind?)`. By
+// default it rides the Custom channel the Android bridge uses (BridgeKind::Custom): the payload is
+// the whole event, and the optional `num` is the piece's own discriminator (the web view's link
+// reports use -1, its URL reports omit it — day-piece-webview's docs/webview.md). `kind` delivers
+// one of Day's own events instead, so a component standing in for a control reports what the
+// control would: a text edit (1, with `text`), a selection (4, the index in `num`), a submit (17).
+// JS thread only.
 static napi_value PieceEvent(napi_env env, napi_callback_info info) {
-    size_t argc = 3;
-    napi_value argv[3] = {nullptr, nullptr, nullptr};
+    size_t argc = 4;
+    napi_value argv[4] = {nullptr, nullptr, nullptr, nullptr};
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     double id = 0;
     napi_get_value_double(env, argv[0], &id);
@@ -3690,7 +3706,17 @@ static napi_value PieceEvent(napi_env env, napi_callback_info info) {
     if (argc > 2 && argv[2] != nullptr) {
         napi_get_value_double(env, argv[2], &num);
     }
-    day_arkui_on_event((uint64_t)id, DAY_K_CUSTOM, num, text.c_str());
+    int32_t kind = DAY_K_CUSTOM;
+    if (argc > 3 && argv[3] != nullptr) {
+        int32_t asked = DAY_K_CUSTOM;
+        napi_get_value_int32(env, argv[3], &asked);
+        // Only the events a stand-in control has any business sending.
+        if (asked == DAY_K_TEXT_CHANGED || asked == DAY_K_SELECTION_CHANGED ||
+            asked == DAY_K_SUBMITTED || asked == DAY_K_TOGGLE_CHANGED) {
+            kind = asked;
+        }
+    }
+    day_arkui_on_event((uint64_t)id, kind, num, text.c_str());
     napi_value undef;
     napi_get_undefined(env, &undef);
     return undef;

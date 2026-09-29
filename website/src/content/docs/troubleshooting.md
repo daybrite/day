@@ -285,6 +285,15 @@ These emulator failures have specific causes:
   hdc's), although `hdc list targets` shows the emulator as `Connected`. The emulator has booted;
   the `hdc` server on your machine is holding a session from an earlier emulator. Restart the
   server and reconnect with `hdc kill -r` and then `hdc tconn 127.0.0.1:55555`.
+- **The emulator window shows a 640×480 landscape screen although you asked for a phone.** On
+  Linux, QEMU's GTK window hands the guest its own 640×480 size, and the guest adopts it over the
+  requested panel. `day devices boot -p harmony-arkui --device phone --headless` keeps the 360×720
+  panel, at the cost of having no window; `hdc shell snapshot_display` and `uinput` then reach
+  the screen.
+- **`day launch` ends by itself, or `day drive` reports no live session, after a first drive.**
+  Older versions of `day` re-added the dayscript forward on every drive; hdc refuses a duplicate
+  with `[Fail]TCP Port listen failed`, and `day` recycled the hdc server in response, which
+  dropped every forward and ended the launch's log stream. Update `day`, then relaunch.
 - **The network status reading is unavailable on the emulator.** `day_part_network::status()`
   returns `None`, and Day-Showcase reads "Connectivity unavailable". The device log (`hdc shell
   hilog -x`) shows `IPCObjectStub: OnRemoteRequest: unknown code:12 desc:*.INetConnService`

@@ -162,7 +162,7 @@ Capabilities are a struct an app queries rather than branching on target name:
 
 ```rust
 let c = capabilities();
-c.schedule_while_dead   // OS holds a scheduled notification (Apple, Android, Windows, Harmony)
+c.schedule_while_dead   // OS holds a scheduled notification (Apple, Android, Windows)
 c.channels              // native channel model (Android)
 c.actions               // action buttons
 c.inline_reply          // typed reply from the notification
@@ -229,10 +229,14 @@ activator to receive taps and actions, which the shim does at first run.
 
 ### HarmonyOS (ArkUI) — Notification Kit
 
-`OH_NotificationManager` through the C node API for immediate notifications; notification slots
-map to channels. Scheduled notifications use the reminder agent, which the C API exposes partially,
-so scheduling may ship as an ArkTS half (`[package.metadata.day.ohos]`) like the webview piece.
-Local first; anything the C API cannot reach is deferred and reported as `Unsupported`.
+`notificationManager.publish` through the crate's ArkTS daybridge arm (`src/ohos.rs`): the NDK has
+no notification surface an app can use, so the arm is ArkTS. An importance picks the notification's
+slot (HarmonyOS's fixed channels); a tap starts the entry ability with the route as its `day.uri`
+want parameter, the deep-link intake. Posting needs the per-app notification switch, which
+day-part-permissions' `Permission::Notifications` asks for with `requestEnableNotification`; until
+it is on, a post answers `PermissionDenied`. A scheduled notification is an in-process timer, as on
+Linux; the reminder agent could hold one across an exit, at the cost of the
+`PUBLISH_AGENT_REMINDER` permission and its per-app quota.
 
 ### Web (web-dom) — the Notification API, foreground only
 
@@ -255,11 +259,11 @@ whole flow is unit-testable on `day-mock` without a display, matching every othe
 | capability | macos | ios | android | linux | windows | harmony | web |
 |---|---|---|---|---|---|---|---|
 | post now | N | N | N | N | N | N | N |
-| schedule while app is dead | N | N | N¹ | –² | N | N | –³ |
-| channels | E | E | N | E | E | N | E |
+| schedule while app is dead | N | N | N¹ | –² | N | –² | –³ |
+| channels | E | E | N | E | E | E⁶ | E |
 | action buttons | N | N | N | N | N | N | N |
 | inline reply | N | N | N | – | N | – | – |
-| badge count | N | N | N⁴ | – | N | – | – |
+| badge count | N | N | N⁴ | – | N | N | – |
 | tap → Day route | N | N | N | N⁵ | N | N | N |
 
 1. `AlarmManager`, not an OS-held queue, and increasingly restricted (see pitfalls).
@@ -267,6 +271,8 @@ whole flow is unit-testable on `day-mock` without a display, matching every othe
 3. No closed-tab scheduling; a running page can post now.
 4. Android badge support is launcher-dependent (`setNumber` + a badge-capable launcher).
 5. Requires a `.desktop` file for some daemons to route actions back.
+6. A channel's importance picks one of HarmonyOS's fixed notification slots; the user configures
+   slots, not the app's channels.
 
 ## Build-time declarations (local is light)
 
@@ -657,13 +663,9 @@ Menu.
 
 ### HarmonyOS — `src/ohos.rs`
 
-Immediate notifications through the Notification Kit C API (`OH_Notification_*`,
-`Notification_NotificationRequest`), with notification slots mapping to channels. **Flagged as
-uncertain**: the NDK C surface for notifications is narrower than the ArkTS one, and scheduled
-notifications go through the reminder agent, which may be ArkTS-only. If it is, the scheduling half
-ships as an ArkTS source dir through `[package.metadata.day.ohos].ets`, the same route
-`day-piece-webview` takes for the `Web` component. Immediate first; whatever the C API cannot reach
-is deferred and reported as `Unsupported`.
+Built as an ArkTS daybridge arm over `notificationManager` (see "HarmonyOS (ArkUI) — Notification
+Kit" above for what it does). The C surface turned out too narrow for an app, and daybridge's ArkTS
+tier made a separate `.ets` source dir unnecessary.
 
 ### Web — `src/web.rs` + the day-dom shim
 

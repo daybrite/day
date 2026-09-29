@@ -19,6 +19,7 @@ import { abilityAccessCtrl, common, Permissions, PermissionRequestResult, Want }
 import { BusinessError } from '@kit.BasicServicesKit';
 import nativeEntry from 'libentry.so';
 import { registerDayPieces } from '../daypieces/DayPieces';
+import { daySelect } from './DaySelect';
 import DayWindowAbility from './DayWindowAbility';
 
 @Entry
@@ -144,9 +145,11 @@ struct Index {
     );
     // Standalone pieces whose component exists only in ArkTS (docs/extending.md) — the native
     // Web view is one, since the ArkUI C node API has no Web kind. `day build` regenerates
-    // DayPieces.ets from the app's piece closure (an empty set when it has none). Before
-    // start(): a piece node can be realized during the very first tree build.
-    registerDayPieces(this.getUIContext());
+    // DayPieces.ets from the app's piece closure (an empty set when it has none), and the
+    // framework's own ArkTS-only components ride along: the menu-style picker's `Select`
+    // (DaySelect.ets). Before start(): a piece node can be realized during the very first tree
+    // build.
+    registerDayPieces(this.getUIContext(), [daySelect]);
 
     // Hand the ArkTS resourceManager to native so `resource("name")` can read bundled data via the
     // NDK rawfile API (§18.3) — the manager can only be obtained on the ArkTS side. Before

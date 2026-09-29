@@ -646,6 +646,10 @@ pub fn hdc() -> Command {
 /// with "[Fail]TCP Port listen failed" when the host-side hdc server is in a bad state, so recycle
 /// the server and retry (bounded); a recycled server has forgotten networked targets, so
 /// re-`tconn` before every attempt (harmless for USB keys, which are auto-discovered).
+///
+/// A forward that already exists is done: `day launch` sets it and every `day drive` asks again,
+/// and hdc answers a duplicate with the same "[Fail]TCP Port listen failed". Recycling the server
+/// for that dropped every forward and killed the launch's log stream, which ended the launch.
 pub(crate) fn fport_engine(port: u16) {
     let key = ohos_devices()
         .first()
@@ -653,9 +657,23 @@ pub(crate) fn fport_engine(port: u16) {
         .unwrap_or_else(ohos_target);
     for attempt in 1..=5u32 {
         let _ = Command::new(hdc_bin()).args(["tconn", &key]).output();
+        if fport_exists(&key, port) {
+            return;
+        }
         let out = hdc_for(&key)
             .args(["fport", &format!("tcp:{port}"), &format!("tcp:{port}")])
             .output();
+        if let Err(e) = &out {
+            // No hdc to run: nothing will forward, so say so now rather than leave the caller
+            // waiting out its connect window on a port nobody listens on.
+            eprintln!(
+                "day: cannot forward the dayscript port: running `{}` failed ({e}); put the \
+                 OpenHarmony command-line tools' toolchains dir on PATH or set OHOS_NDK_HOME \
+                 (`day doctor --toolkit harmonyos`)",
+                hdc_bin()
+            );
+            return;
+        }
         let text = out
             .map(|o| {
                 String::from_utf8_lossy(&o.stdout).into_owned()
@@ -672,6 +690,28 @@ pub(crate) fn fport_engine(port: u16) {
         let _ = Command::new(hdc_bin()).arg("kill").status();
         std::thread::sleep(Duration::from_secs(2));
     }
+}
+
+/// Whether `hdc fport ls` already lists the engine forward `tcp:port → tcp:port` for `key`.
+fn fport_exists(key: &str, port: u16) -> bool {
+    let Ok(out) = hdc_for(key).args(["fport", "ls"]).output() else {
+        return false;
+    };
+    fport_listed(&String::from_utf8_lossy(&out.stdout), key, port)
+}
+
+/// [`fport_exists`]' reading of an `hdc fport ls` listing
+/// (`127.0.0.1:55555    tcp:28995 tcp:28995    [Forward]`).
+fn fport_listed(listing: &str, key: &str, port: u16) -> bool {
+    let rule = format!("tcp:{port}");
+    listing.lines().any(|line| {
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        fields.len() >= 4
+            && fields[0] == key
+            && fields[1] == rule
+            && fields[2] == rule
+            && fields[3] == "[Forward]"
+    })
 }
 
 /// A fresh `hdc` command pinned to connect key `key` (`-t <key>`), for multi-device install/launch.
@@ -1870,6 +1910,18 @@ mod screen_size_tests {
                     screenType=EXTERNAL_TYPE, render resolution=640x480, \
                     physical resolution=640x480, isVirtual=false\nactiveMode: 640x480, refreshRate=60";
         assert_eq!(parse_screen_dump(dump), Some((640, 480)));
+    }
+
+    /// A forward `day launch` already set is found, so `day drive` doesn't re-add it (hdc
+    /// answers a duplicate with a failure the retry used to "fix" by recycling the server).
+    #[test]
+    fn an_existing_engine_forward_is_recognized() {
+        let listing = "127.0.0.1:55555    tcp:28995 tcp:28995    [Forward]\n\
+                       127.0.0.1:55556    tcp:28000 tcp:28000    [Forward]\n";
+        assert!(super::fport_listed(listing, "127.0.0.1:55555", 28995));
+        assert!(!super::fport_listed(listing, "127.0.0.1:55555", 28000));
+        assert!(!super::fport_listed(listing, "127.0.0.1:55556", 28995));
+        assert!(!super::fport_listed("[Empty]", "127.0.0.1:55555", 28995));
     }
 
     #[test]

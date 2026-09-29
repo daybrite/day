@@ -21,6 +21,8 @@ pub use imp::*;
 #[cfg(target_env = "ohos")]
 pub mod ext;
 #[cfg(target_env = "ohos")]
+mod host;
+#[cfg(target_env = "ohos")]
 mod transfer;
 #[cfg(target_env = "ohos")]
 pub use ext::*;
@@ -94,6 +96,15 @@ mod imp {
         /// ArkTS FrameNode inside it). Release detaches the FrameNode, sends the ArkTS side its
         /// disposal (ArkTS owns that node), and disposes only the native wrapper.
         static PIECE_NODES: RefCell<HashMap<usize, (u64, usize)>> = RefCell::new(HashMap::new());
+        /// Each menu picker's size by wrapper handle: the width its widest option needs (the
+        /// button's own chrome plus that label) and its height, so a choice never changes it.
+        static MENU_PICKER_SIZE: RefCell<HashMap<usize, (f64, Size)>> = RefCell::new(HashMap::new());
+        /// The size each ArkTS piece was last told it has (see `set_frame`), by wrapper handle.
+        static PIECE_FRAME: RefCell<HashMap<usize, Size>> = RefCell::new(HashMap::new());
+        /// The neutral paints that follow the color mode (see [`themed`]), by the node whose
+        /// lifetime bounds them: each owner's (node, paint, light ARGB, dark ARGB).
+        static THEMED: RefCell<HashMap<usize, Vec<(usize, Paint, u32, u32)>>> =
+            RefCell::new(HashMap::new());
         // Text-area (min_lines, max_lines) by handle, for the measure band (docs/textarea.md).
         static TEXTAREA_LINES: RefCell<HashMap<usize, (u32, u32)>> = RefCell::new(HashMap::new());
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
@@ -246,6 +257,15 @@ mod imp {
             for old in std::mem::take(&mut suite.bar_items) {
                 unsafe { ffi::day_ark_remove_child(suite.bar.0, old.0) };
             }
+            forget_themed(host);
+            // The bar's ground, kept across refills.
+            themed(
+                host,
+                suite.bar.0,
+                Paint::Background,
+                0xFFF1_F3F5,
+                0xFF1C_1C1E,
+            );
             for (i, title) in items.iter().enumerate() {
                 let cell = new_node(K_COLUMN);
                 let synth = SYNTH.with(|c| {
@@ -257,10 +277,10 @@ mod imp {
                 // The selected destination takes the accent; the rest the secondary label color,
                 // which is how a HarmonyOS bottom bar reads.
                 let on = i == selected;
-                let tint = if on {
-                    theme_color(0xFF00_7DFF, 0xFF3E_9BFF)
+                let (tint_light, tint_dark) = if on {
+                    (0xFF00_7DFF, 0xFF3E_9BFF)
                 } else {
-                    theme_color(0x9900_0000, 0x99FF_FFFF)
+                    (0x9900_0000, 0x99FF_FFFF)
                 };
                 let mut child: c_int = 0;
                 if let Some(Some(name)) = icons.get(i) {
@@ -272,7 +292,7 @@ mod imp {
                         if is_vector {
                             let src = format!("resource://RAWFILE/{svg}");
                             ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
-                            ffi::day_ark_set_image_fill(icon.0, tint);
+                            themed(host, icon.0, Paint::ImageFill, tint_light, tint_dark);
                         } else {
                             let src = format!("resource://RAWFILE/day/{name}.png");
                             ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
@@ -287,7 +307,7 @@ mod imp {
                 unsafe {
                     ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
                     ffi::day_ark_set_font_size(label.0, 10.0);
-                    ffi::day_ark_set_font_color(label.0, tint);
+                    themed(host, label.0, Paint::Font, tint_light, tint_dark);
                     ffi::day_ark_insert_child(cell.0, label.0, child);
                     ffi::day_ark_set_flex_grow(cell.0, 1.0);
                     ffi::day_ark_register_event(cell.0, 0, synth);
@@ -393,7 +413,13 @@ mod imp {
                 unsafe {
                     ffi::day_ark_set_text(heading.0, cstr(section).as_ptr());
                     ffi::day_ark_set_font_size(heading.0, 14.0);
-                    ffi::day_ark_set_font_color(heading.0, theme_color(0x9900_0000, 0x99FF_FFFF));
+                    themed(
+                        col.0 as usize,
+                        heading.0,
+                        Paint::Font,
+                        0x9900_0000,
+                        0x99FF_FFFF,
+                    );
                     ffi::day_ark_style_nav_heading(heading.0, c_int::from(pos == 0));
                     ffi::day_ark_insert_child(col.0, heading.0, pos);
                 }
@@ -418,13 +444,16 @@ mod imp {
                     if is_vector {
                         let src = format!("resource://RAWFILE/{svg}");
                         ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
-                        let fill = tints
-                            .get(i)
-                            .copied()
-                            .flatten()
-                            .map(argb)
-                            .unwrap_or_else(|| theme_color(0x9900_0000, 0x99FF_FFFF));
-                        ffi::day_ark_set_image_fill(icon.0, fill);
+                        match tints.get(i).copied().flatten() {
+                            Some(c) => ffi::day_ark_set_image_fill(icon.0, argb(c)),
+                            None => themed(
+                                col.0 as usize,
+                                icon.0,
+                                Paint::ImageFill,
+                                0x9900_0000,
+                                0x99FF_FFFF,
+                            ),
+                        }
                     } else {
                         let src = format!("resource://RAWFILE/day/{name}.png");
                         ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
@@ -439,11 +468,17 @@ mod imp {
             unsafe {
                 ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
                 ffi::day_ark_set_font_size(label.0, 16.0);
-                ffi::day_ark_set_font_color(label.0, theme_color(0xE500_0000, 0xE6FF_FFFF));
+                themed(col.0 as usize, label.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
                 ffi::day_ark_set_flex_grow(label.0, 1.0);
                 ffi::day_ark_set_text(chevron.0, cstr("\u{203a}").as_ptr());
                 ffi::day_ark_set_font_size(chevron.0, 20.0);
-                ffi::day_ark_set_font_color(chevron.0, theme_color(0x4D00_0000, 0x66FF_FFFF));
+                themed(
+                    col.0 as usize,
+                    chevron.0,
+                    Paint::Font,
+                    0x4D00_0000,
+                    0x66FF_FFFF,
+                );
                 ffi::day_ark_insert_child(row.0, label.0, child);
             }
             // The trailing status glyph (docs/navigation.md), between the growing label and the
@@ -457,13 +492,16 @@ mod imp {
                     if is_vector {
                         let src = format!("resource://RAWFILE/{svg}");
                         ffi::day_ark_set_image_src(badge.0, cstr(&src).as_ptr());
-                        let fill = badge_tints
-                            .get(i)
-                            .copied()
-                            .flatten()
-                            .map(argb)
-                            .unwrap_or_else(|| theme_color(0x9900_0000, 0x99FF_FFFF));
-                        ffi::day_ark_set_image_fill(badge.0, fill);
+                        match badge_tints.get(i).copied().flatten() {
+                            Some(c) => ffi::day_ark_set_image_fill(badge.0, argb(c)),
+                            None => themed(
+                                col.0 as usize,
+                                badge.0,
+                                Paint::ImageFill,
+                                0x9900_0000,
+                                0x99FF_FFFF,
+                            ),
+                        }
                     } else {
                         let src = format!("resource://RAWFILE/day/{name}.png");
                         ffi::day_ark_set_image_src(badge.0, cstr(&src).as_ptr());
@@ -485,7 +523,13 @@ mod imp {
             if i + 1 < items.len() && !matches!(sections.get(i + 1), Some(Some(_))) {
                 let sep = new_node(K_STACK);
                 unsafe {
-                    ffi::day_ark_menu_separator(sep.0, theme_color(0x1400_0000, 0x24FF_FFFF));
+                    themed(
+                        col.0 as usize,
+                        sep.0,
+                        Paint::Separator,
+                        0x1400_0000,
+                        0x24FF_FFFF,
+                    );
                     ffi::day_ark_insert_child(col.0, sep.0, pos);
                 }
                 pos += 1;
@@ -626,15 +670,24 @@ mod imp {
         /// factory is registered (or it declined `kind`) — the caller should fall back to Day's
         /// placeholder leaf, exactly as an unregistered renderer does.
         pub fn make(kind: day_spec::PieceKind, id: NodeId, props: &str) -> AHandle {
-            let h =
-                unsafe { ffi::day_ark_piece_make(cstr(kind).as_ptr(), id.0, cstr(props).as_ptr()) };
-            if h.is_null() {
+            try_make(kind, id, props).unwrap_or_else(|| {
                 // No ArkTS module claimed the kind (or building it threw). Hand back a real empty
                 // node, never a null handle: the tree mounts this like any leaf, and a null would
                 // take its whole parent's layout down instead of leaving one blank rectangle.
                 // Reported so `assert_no_placeholders` sees it, exactly like a missing renderer.
                 day_spec::placeholder::report(kind, "arkui");
-                return super::new_node(super::K_STACK);
+                super::new_node(super::K_STACK)
+            })
+        }
+
+        /// [`make`], answering `None` where no ArkTS module claims `kind`, for a caller with a
+        /// native fallback of its own (the menu-style picker keeps the wheel on a host too old
+        /// to register its `Select`).
+        pub fn try_make(kind: &str, id: NodeId, props: &str) -> Option<AHandle> {
+            let h =
+                unsafe { ffi::day_ark_piece_make(cstr(kind).as_ptr(), id.0, cstr(props).as_ptr()) };
+            if h.is_null() {
+                return None;
             }
             let wrapper = super::new_node(super::K_STACK);
             unsafe { ffi::day_ark_add_child(wrapper.0, h) };
@@ -644,7 +697,12 @@ mod imp {
                 m.borrow_mut()
                     .insert(wrapper.0 as usize, (id.0, h as usize))
             });
-            wrapper
+            Some(wrapper)
+        }
+
+        /// Whether `h` is an ArkTS-built piece node.
+        pub(crate) fn is_piece(h: &AHandle) -> bool {
+            PIECE_NODES.with(|m| m.borrow().contains_key(&(h.0 as usize)))
         }
 
         /// Send a command to a piece's ArkTS component. Takes the handle rather than the node id
@@ -1024,6 +1082,150 @@ mod imp {
         Ok(bytes)
     }
 
+    /// The ArkTS piece kind of the menu-style picker (DaySelect.ets).
+    const MENU_PICKER_KIND: &str = "day.picker.menu";
+
+    /// A menu picker's props and `options` command: the selected index (empty to keep the
+    /// current one), then each option, 0x1F-separated (DaySelect.ets parses it). An option can't
+    /// contain the separator, a control character no label carries; one that does loses it
+    /// rather than splitting.
+    fn select_props(selected: Option<usize>, options: &[String]) -> String {
+        let mut out = selected.map(|i| i.to_string()).unwrap_or_default();
+        for o in options {
+            out.push('\u{1F}');
+            out.extend(o.chars().filter(|c| *c != '\u{1F}'));
+        }
+        out
+    }
+
+    /// The application's color mode changed (docs/appearance.md): repaint every neutral paint
+    /// for the new mode, then let `dark_mode()` readers recolor.
+    fn appearance_changed(dark: bool) {
+        repaint_themed(dark);
+        day_core::note_appearance_changed();
+    }
+
+    /// Move IS_DARK to `dark`, repainting every theme-following paint if it changed.
+    fn repaint_themed(dark: bool) {
+        if IS_DARK.with(|d| d.replace(dark)) == dark {
+            return;
+        }
+        THEMED.with(|t| {
+            for paints in t.borrow().values() {
+                for (node, paint, light, dark_argb) in paints {
+                    paint.apply(*node as *mut c_void, if dark { *dark_argb } else { *light });
+                }
+            }
+        });
+    }
+
+    /// Which attribute a theme-following paint sets.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum Paint {
+        Background,
+        Font,
+        ImageFill,
+        Separator,
+    }
+
+    impl Paint {
+        fn apply(self, node: *mut c_void, argb: u32) {
+            unsafe {
+                match self {
+                    Paint::Background => ffi::day_ark_set_bg_color(node, argb),
+                    Paint::Font => ffi::day_ark_set_font_color(node, argb),
+                    Paint::ImageFill => ffi::day_ark_set_image_fill(node, argb),
+                    Paint::Separator => ffi::day_ark_menu_separator(node, argb),
+                }
+            }
+        }
+    }
+
+    /// Paint `node` with the color mode's pick of `light`/`dark`, and repaint it whenever the
+    /// mode changes (the C nodes don't re-theme an explicit color). `owner` is the node whose
+    /// release or rebuild ends the paint ([`forget_themed`]): the node itself for a Day node, the
+    /// rows column or suite host for the chrome this backend builds inside one.
+    fn themed(owner: usize, node: *mut c_void, paint: Paint, light: u32, dark: u32) {
+        paint.apply(node, theme_color(light, dark));
+        THEMED.with(|t| {
+            let mut t = t.borrow_mut();
+            let paints = t.entry(owner).or_default();
+            paints.retain(|(n, p, _, _)| !(*n == node as usize && *p == paint));
+            paints.push((node as usize, paint, light, dark));
+        });
+    }
+
+    /// Stop repainting what `owner` holds: it is being released or rebuilt.
+    fn forget_themed(owner: usize) {
+        THEMED.with(|t| t.borrow_mut().remove(&owner));
+    }
+
+    /// Stop repainting one attribute of one node (an app color replaced the neutral one).
+    fn forget_paint(owner: usize, node: *mut c_void, paint: Paint) {
+        THEMED.with(|t| {
+            if let Some(paints) = t.borrow_mut().get_mut(&owner) {
+                paints.retain(|(n, p, _, _)| !(*n == node as usize && *p == paint));
+            }
+        });
+    }
+
+    /// The primary text color a label without one of its own takes.
+    const TEXT_LIGHT: u32 = 0xE500_0000;
+    const TEXT_DARK: u32 = 0xE6FF_FFFF;
+
+    /// The width of `text` in the Select's own face (16 vp, medium weight).
+    fn select_label_width(text: &str) -> f64 {
+        let text = cstr(text);
+        let mut out = [0.0f64; 8];
+        // SAFETY: the string outlives the call and `out` has the eight slots the shim fills.
+        let ok = unsafe {
+            ffi::day_ark_measure_text(
+                text.as_ptr(),
+                16.0,
+                i32::from(day_spec::FontWeight::Medium.css()),
+                0,
+                c"".as_ptr(),
+                out.as_mut_ptr(),
+            )
+        };
+        if ok == 1 { out[0] } else { 0.0 }
+    }
+
+    /// Size a freshly built menu picker for its widest option. The button's chrome (padding and
+    /// arrow) is what its first measure reports beyond the label it shows; a Select sized to its
+    /// current label would clip a longer choice until something else relaid the row.
+    fn size_menu_picker(h: &AHandle, shown: Option<&str>, options: &[String]) {
+        let (mut w, mut hh) = (0.0f64, 0.0f64);
+        unsafe { ffi::day_ark_measure(h.0, 0.0, 0.0, &mut w, &mut hh) };
+        let chrome = (w - shown.map_or(0.0, select_label_width)).max(40.0);
+        let size = Size::new(chrome + widest_label(options), hh.max(40.0));
+        MENU_PICKER_SIZE.with(|m| m.borrow_mut().insert(h.0 as usize, (chrome, size)));
+        piece::update(h, "width", &size.width.to_string());
+    }
+
+    /// Re-size a menu picker for new options.
+    fn resize_menu_picker(h: &AHandle, options: &[String]) {
+        let Some((chrome, size)) =
+            MENU_PICKER_SIZE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+        else {
+            return;
+        };
+        let width = chrome + widest_label(options);
+        if (width - size.width).abs() >= 0.5 {
+            let size = Size::new(width, size.height);
+            MENU_PICKER_SIZE.with(|m| m.borrow_mut().insert(h.0 as usize, (chrome, size)));
+            piece::update(h, "width", &width.to_string());
+        }
+    }
+
+    fn widest_label(options: &[String]) -> f64 {
+        options
+            .iter()
+            .map(|o| select_label_width(o))
+            .fold(0.0, f64::max)
+            .ceil()
+    }
+
     /// The theme-adaptive pick: `light` under the light theme, `dark` under dark.
     fn theme_color(light: u32, dark: u32) -> u32 {
         if IS_DARK.with(|d| d.get()) {
@@ -1047,6 +1249,9 @@ mod imp {
             };
             IS_DARK.with(|d| d.set(dark));
             unsafe { ffi::day_ark_init() };
+            // Follow the color mode live (a system switch, or the app's own override coming
+            // back): neutral paints branch on IS_DARK, and `dark_mode()` closures recolor.
+            crate::host::watch_appearance(appearance_changed);
             // Serve bundled data resources (§18.3) from the app's rawfile store. Registered once
             // here; the opener is a no-op until the ArkTS host hands us its resourceManager (see
             // below).
@@ -1743,9 +1948,12 @@ mod imp {
                             if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                                 // A translucent neutral fill reads as a subtle card on both the
                                 // light and dark ArkUI themes (no public semantic-fill API).
-                                ffi::day_ark_set_bg_color(
+                                themed(
+                                    n.0 as usize,
                                     n.0,
-                                    theme_color(0x1480_8080, 0x2EFF_FFFF),
+                                    Paint::Background,
+                                    0x1480_8080,
+                                    0x2EFF_FFFF,
                                 );
                             } else if let Some(c) = p.background {
                                 ffi::day_ark_set_bg_color(n.0, argb(c));
@@ -1818,10 +2026,10 @@ mod imp {
                         ffi::day_ark_set_font_size(n.0, font_vp(p.font));
                         if let Some(c) = p.color {
                             ffi::day_ark_set_font_color(n.0, argb(c));
-                        } else if IS_DARK.with(|d| d.get()) {
-                            // Text defaults don't re-theme through the C API — give un-colored
-                            // labels the dark theme's primary text color.
-                            ffi::day_ark_set_font_color(n.0, 0xE6FF_FFFF);
+                        } else {
+                            // Text defaults don't re-theme through the C API: an un-colored
+                            // label takes the mode's primary text color, repainted on a switch.
+                            themed(n.0 as usize, n.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
                         }
                     }
                     apply_font_attrs(n.0, p.font);
@@ -1883,12 +2091,29 @@ mod imp {
                     }
                     n
                 }
-                // Option picker (docs/picker.md): HarmonyOS has no segmented control, so every
-                // style maps to the native TEXT_PICKER wheel; SelectionChanged via event kind 8.
+                // Option picker (docs/picker.md). A menu picker is HarmonyOS's own dropdown, the
+                // ArkTS `Select` the host registers (DaySelect.ets; the C node API has no select
+                // kind). HarmonyOS has no segmented control, so the other styles, and a menu
+                // picker under a host without the Select, are the native TEXT_PICKER wheel;
+                // SelectionChanged via event kind 8.
                 Some(Builtin::Picker) => {
                     let Some(p) = day_spec::props_of::<PickerProps>(kind, "arkui", props) else {
                         return new_node(K_STACK);
                     };
+                    if p.style == PickerStyle::Menu
+                        && let Some(n) = piece::try_make(
+                            MENU_PICKER_KIND,
+                            id,
+                            &select_props(Some(p.selected), &p.options),
+                        )
+                    {
+                        size_menu_picker(
+                            &n,
+                            p.options.get(p.selected).map(String::as_str),
+                            &p.options,
+                        );
+                        return n;
+                    }
                     let n = new_node(K_TEXT_PICKER);
                     let joined = p.options.join(";");
                     PICKER_SELECTED.with(|m| m.insert(n.0 as usize, p.selected));
@@ -1930,9 +2155,13 @@ mod imp {
                 // A 1-vp hairline: a thin Stack tinted with a faint separator color.
                 Some(Builtin::Divider) => {
                     let n = new_node(K_STACK);
-                    unsafe {
-                        ffi::day_ark_set_bg_color(n.0, theme_color(0x3300_0000, 0x33FF_FFFF))
-                    };
+                    themed(
+                        n.0 as usize,
+                        n.0,
+                        Paint::Background,
+                        0x3300_0000,
+                        0x33FF_FFFF,
+                    );
                     n
                 }
                 // Determinate bar (ARKUI_NODE_PROGRESS) vs indeterminate spinner (LOADING_PROGRESS).
@@ -1967,7 +2196,13 @@ mod imp {
                         unsafe {
                             ffi::day_ark_insert_child(host.0, pages.0, 0);
                             ffi::day_ark_insert_child(host.0, bar.0, 1);
-                            ffi::day_ark_set_bg_color(bar.0, theme_color(0xFFF1_F3F5, 0xFF1C_1C1E));
+                            themed(
+                                host.0 as usize,
+                                bar.0,
+                                Paint::Background,
+                                0xFFF1_F3F5,
+                                0xFF1C_1C1E,
+                            );
                         }
                         SUITE_AWAITING_MENU.with(|c| c.set(Some(host.0 as usize)));
                         NAV_SUITES.with(|c| {
@@ -2020,9 +2255,13 @@ mod imp {
                 }
                 Some(Builtin::NavPage) => {
                     let n = new_node(K_STACK);
-                    unsafe {
-                        ffi::day_ark_set_bg_color(n.0, theme_color(0xFFFF_FFFF, 0xFF1A_1A1C))
-                    };
+                    themed(
+                        n.0 as usize,
+                        n.0,
+                        Paint::Background,
+                        0xFFFF_FFFF,
+                        0xFF1A_1A1C,
+                    );
                     NAV_PAGE_IDS.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     n
                 }
@@ -2235,6 +2474,7 @@ mod imp {
                             suite_fill_bar(host, menu, items, icons, 0);
                         }
                         if let Some(old) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
+                            forget_themed(old);
                             unsafe {
                                 ffi::day_ark_remove_child(h.0, old as *mut _);
                                 ffi::day_ark_node_dispose(old as *mut _);
@@ -2336,11 +2576,15 @@ mod imp {
                             LabelPatch::Text(t) => unsafe {
                                 ffi::day_ark_set_text(h.0, cstr(t).as_ptr())
                             },
-                            LabelPatch::Color(c) => {
-                                if let Some(c) = c {
+                            LabelPatch::Color(c) => match c {
+                                Some(c) => {
+                                    forget_paint(h.0 as usize, h.0, Paint::Font);
                                     unsafe { ffi::day_ark_set_font_color(h.0, argb(*c)) };
                                 }
-                            }
+                                None => {
+                                    themed(h.0 as usize, h.0, Paint::Font, TEXT_LIGHT, TEXT_DARK)
+                                }
+                            },
                             LabelPatch::Font(f) => {
                                 unsafe { ffi::day_ark_set_font_size(h.0, font_vp(*f)) };
                                 apply_font_attrs(h.0, *f);
@@ -2408,6 +2652,16 @@ mod imp {
                         unsafe { ffi::day_ark_set_textarea_text(h.0, cstr(text).as_ptr()) };
                     }
                 }
+                kinds::PICKER if piece::is_piece(h) => match patch.downcast_ref::<PickerPatch>() {
+                    Some(PickerPatch::Selected(i)) => piece::update(h, "selected", &i.to_string()),
+                    // The Select keeps its own live choice across new options, clamped to the list;
+                    // its width follows the new widest option (an options patch re-measures).
+                    Some(PickerPatch::Options(opts)) => {
+                        piece::update(h, "options", &select_props(None, opts));
+                        resize_menu_picker(h, opts);
+                    }
+                    None => {}
+                },
                 kinds::PICKER => match patch.downcast_ref::<PickerPatch>() {
                     Some(PickerPatch::Selected(i)) => {
                         PICKER_SELECTED.with(|m| m.insert(h.0 as usize, *i));
@@ -2497,6 +2751,7 @@ mod imp {
             // and future — before the manual purges below (day_spec::sidetable; the existing
             // maps predate it and keep their explicit lines).
             day_spec::sidetable::sweep(key);
+            forget_themed(key);
             // The control's echo cells go with it (a recycled address must not alias them).
             if let Some(nid) = CTRL_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 TEXT_ECHO.with(|m| m.borrow_mut().remove(&nid));
@@ -2559,12 +2814,15 @@ mod imp {
             }
             // A scroll owns its content container (realize) — dispose it with the scroll.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
+                forget_themed(stack);
                 unsafe { ffi::day_ark_node_dispose(stack as *mut _) };
             }
             // An ArkTS-built piece node belongs to its BuilderNode: detach it from the native
             // wrapper, ask ArkTS to release it, and dispose only the wrapper — a native dispose
             // of the FrameNode would free a node ArkTS still holds.
             if let Some((id, inner)) = PIECE_NODES.with(|m| m.borrow_mut().remove(&key)) {
+                MENU_PICKER_SIZE.with(|m| m.borrow_mut().remove(&key));
+                PIECE_FRAME.with(|m| m.borrow_mut().remove(&key));
                 unsafe {
                     ffi::day_ark_remove_child(h.0, inner as *mut _);
                     ffi::day_ark_piece_dispose(id);
@@ -2720,6 +2978,11 @@ mod imp {
                     };
                     Size::new(p.width.unwrap_or(200.0), capped)
                 }
+                // The Select button's own size (a wrapper measures its ArkTS child), with a floor
+                // for a first measure before the component has laid out.
+                kinds::PICKER if piece::is_piece(h) => MENU_PICKER_SIZE
+                    .with(|m| m.borrow().get(&(h.0 as usize)).map(|(_, size)| *size))
+                    .unwrap_or(Size::new(120.0, 40.0)),
                 kinds::PICKER => Size::new(p.width.unwrap_or(200.0), 200.0),
                 kinds::TOGGLE => Size::new(50.0, 30.0),
                 kinds::SLIDER => Size::new(p.width.unwrap_or(200.0), 40.0),
@@ -2775,6 +3038,19 @@ mod imp {
                     frame.size.height,
                 )
             };
+            // An ArkTS piece is built detached, so a percentage size inside it resolves against
+            // the window rather than this wrapper: tell it the size it was laid out at, when that
+            // changes, as `day.frame` "<w>,<h>" (vp). A component that fills its frame sizes
+            // itself from that; one that doesn't ignores the command.
+            if piece::is_piece(h) {
+                let key = h.0 as usize;
+                let changed = PIECE_FRAME.with(|m| m.borrow_mut().insert(key, frame.size))
+                    != Some(frame.size);
+                if changed {
+                    let size = format!("{},{}", frame.size.width, frame.size.height);
+                    piece::update(h, "day.frame", &size);
+                }
+            }
         }
 
         fn set_opacity(&mut self, h: &AHandle, opacity: f64, anim: Option<&AnimSpec>) {
@@ -3045,6 +3321,29 @@ mod imp {
             IS_DARK.with(|d| d.get())
         }
 
+        /// The application context's color mode (docs/appearance.md). ArkTS components and
+        /// the C nodes' theme colors restyle in place, and this backend repaints its own neutral
+        /// paints (see [`themed`]). A return to the system mode has no answer until the
+        /// environment callback `init` subscribed reports the mode it resolved to.
+        fn set_appearance(&mut self, dark: Option<bool>) {
+            crate::host::set_color_mode(dark);
+            // An override repaints now (day-core reads `dark_mode()` right after this returns);
+            // the environment callback that follows then finds nothing changed.
+            if let Some(dark) = dark {
+                repaint_themed(dark);
+            }
+        }
+
+        /// NotificationKit's `setBadgeNumber` (docs/badge.md): a count, which the launcher
+        /// draws on the icon; text and a bare dot have no HarmonyOS form.
+        fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+            match badge {
+                day_spec::AppBadge::None => crate::host::set_badge(0),
+                day_spec::AppBadge::Count(n) => crate::host::set_badge(*n),
+                day_spec::AppBadge::Text(_) | day_spec::AppBadge::Dot => {}
+            }
+        }
+
         /// Whether nav transitions have settled: dayscript screenshots poll this, so a shot
         /// taken right after a section switch waits for the pushed destination's first area
         /// report (content laid out) and for Day-initiated pops to be acknowledged.
@@ -3176,6 +3475,9 @@ mod imp {
                 // Derived from NODE_FONT_SIZE — ArkUI publishes no baseline (docs/baseline.md).
                 Cap::BaselineAlignment => Support::Emulated,
                 Cap::TextRuns => Support::Native,
+                // ArkTS arms (src/host.rs): present wherever `day build` staged them.
+                Cap::Appearance => crate::host::color_mode_support(),
+                Cap::AppBadgeCount => crate::host::badge_support(),
                 // Multiton DayWindowAbility instances (docs/windows.md) — Native only when
                 // the ArkTS host registered the launchers; an older host degrades to the
                 // cover fallback.

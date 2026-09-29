@@ -47,13 +47,13 @@ There is no determinate mode here, because that is day's built-in `progress(frac
 
 ## Per-backend native realization
 
-| | AppKit | UIKit | GTK | Qt | Android | XAML |
-|---|---|---|---|---|---|---|
-| control | `NSProgressIndicator` (Spinning) | `UIActivityIndicatorView` | `gtk4::Spinner` | busy `QProgressBar` (range 0..0) | `android.widget.ProgressBar` | `ProgressRing` |
-| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `src/DayActivity.java` | `src/lib-xaml-shim.cpp` |
-| run/stop | `startAnimation:` / `stopAnimation:` | `startAnimating` / `stopAnimating` | `start()` / `stop()` | range 0..0 (busy) ↔ 0..1 (frozen) | `View.VISIBLE` ↔ `INVISIBLE` | `IsActive` |
-| `.large` | `controlSize` Large/Regular | style Large/Medium | `set_size_request` 48/24 | bigger minimum size | `setScaleX/Y(1.5)` | Width/Height 48 |
-| stopped state | stays visible (`displayedWhenStopped`) | stays visible (`hidesWhenStopped = false`) | stays visible (drawn static) | frozen empty bar | INVISIBLE (box kept) | `IsActive(false)` |
+| | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
+|---|---|---|---|---|---|---|---|
+| control | `NSProgressIndicator` (Spinning) | `UIActivityIndicatorView` | `gtk4::Spinner` | busy `QProgressBar` (range 0..0) | `android.widget.ProgressBar` | `ProgressRing` | `ARKUI_NODE_LOADING_PROGRESS` |
+| native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `src/DayActivity.java` | `src/lib-xaml-shim.cpp` | C node API (`src/lib-arkui.rs`) |
+| run/stop | `startAnimation:` / `stopAnimation:` | `startAnimating` / `stopAnimating` | `start()` / `stop()` | range 0..0 (busy) ↔ 0..1 (frozen) | `View.VISIBLE` ↔ `INVISIBLE` | `IsActive` | `ENABLE_LOADING` + `VISIBLE` ↔ `HIDDEN` |
+| `.large` | `controlSize` Large/Regular | style Large/Medium | `set_size_request` 48/24 | bigger minimum size | `setScaleX/Y(1.5)` | Width/Height 48 | 64 vp instead of 32 |
+| stopped state | stays visible (`displayedWhenStopped`) | stays visible (`hidesWhenStopped = false`) | stays visible (drawn static) | frozen empty bar | INVISIBLE (box kept) | `IsActive(false)` | HIDDEN (box kept) |
 
 **Backend notes:**
 

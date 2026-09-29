@@ -74,7 +74,7 @@ so whichever of the two crates runs first shows it.
 | iOS / macOS | `CLLocationManager` + a delegate defined with `objc2::define_class!` | `objc2`, `objc2-foundation`, `[package.metadata.day.ios].frameworks = ["CoreLocation"]` |
 | Android | `LocationManager.requestLocationUpdates` via the crate's own Java shim | `day-android` + `[package.metadata.day.android]` |
 | Web | `navigator.geolocation.watchPosition` through the day-dom shim | `web.rs` (wasm32; needs the day-dom host page) |
-| HarmonyOS | none; see below | — |
+| HarmonyOS | `geoLocationManager.on('locationChange')` (Location Kit) via an ArkTS arm; see below | `day-bridge` (`src/ohos.rs`) |
 | Linux | none; GeoClue2 would need a D-Bus dependency this tree does not have | — |
 | Windows | none yet; `Windows.Devices.Geolocation` is the future impl | — |
 
@@ -89,12 +89,16 @@ coordinate to every app linking this part. The platform `LocationManager` is alw
 shim prefers GPS at `Accuracy::Best` and the network provider otherwise, and seeds the first update
 from `getLastKnownLocation` so a fix appears immediately instead of waiting for the radio.
 
-### HarmonyOS is not implemented
+### HarmonyOS: an ArkTS arm
 
-Location on HarmonyOS is an ArkTS API (`@kit.LocationKit`) with no NDK C surface, and there is no
-`[package.metadata.day.ohos]` mechanism for a crate to contribute ArkTS. The crate reports that
-instead of shipping a stub. It could later ride the same ArkTS bridge that
-[`day-part-permissions`](permissions.md) needs for its request path.
+Location on HarmonyOS is an ArkTS API (`@kit.LocationKit`) with no NDK C surface, so the crate
+reaches it through a daybridge arm (docs/bridge.md "Streams"): `watch_native` subscribes to
+`locationChange` at the accuracy's priority (`LOW_POWER`, `FIRST_FIX`, `ACCURACY`) and streams each
+fix back as one line, a field the platform left out as `NaN`. The switch being off answers
+`LocationError::Disabled` at once rather than waiting for a fix that cannot come; error 201 is
+`PermissionDenied`, and the app asks through [`day-part-permissions`](permissions.md)
+(`Permission::Location`). The OpenHarmony emulator has no positioning source, so it reports
+`Disabled` or times out; a real fix needs a device.
 
 ### Apple: fixes need a run loop
 

@@ -1,11 +1,11 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Targets with no local-notification implementation wired: Windows and HarmonyOS.
+//! Targets with no local-notification implementation wired: Windows (and the targets described
+//! in lib.rs).
 //!
-//! Both platforms have a notification system (Windows `ToastNotification`, HarmonyOS Notification
-//! Kit), so this is a gap in this crate, not in the platform (docs/notify.md says what each would
-//! need). Answering `Unsupported` means `capabilities().post` is false, so a UI can disable its
+//! Windows has a notification system (`ToastNotification`), so this is a gap in this crate, not in
+//! the platform (docs/notify.md says what it would need). Answering `Unsupported` means `capabilities().post` is false, so a UI can disable its
 //! controls instead of posting into a void.
 
 use crate::{Capabilities, Channel, NotifId, Notification, NotifyError};

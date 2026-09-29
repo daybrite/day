@@ -170,6 +170,9 @@ unsafe extern "C" {
     ) -> c_int;
     /// Determinate progress fraction (0..1), mapped onto ArkUI's NODE_PROGRESS_VALUE/TOTAL.
     pub fn day_ark_set_progress(node: *mut c_void, fraction: f64);
+    /// Start or stop an indeterminate spinner (a LOADING_PROGRESS node); stopped, it is hidden
+    /// but keeps its layout box.
+    pub fn day_ark_set_loading(node: *mut c_void, on: c_int);
     /// Visibility: 0 = VISIBLE, else NONE (removed from layout — one TABS page shown at a time).
     pub fn day_ark_set_visibility(node: *mut c_void, visible: c_int);
     /// The active page index of a Swiper (`NODE_SWIPER_INDEX`).

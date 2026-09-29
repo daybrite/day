@@ -15,7 +15,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > `Toolkit::set_app_badge` duty, the `day::set_app_badge` facade, and the **AppKit, UIKit, and
 > web-dom** arms are implemented; [docs/duty-matrix.md](duty-matrix.md) and [docs/coverage-matrix.md](coverage-matrix.md) carry the rows.
 > Every other backend inherits the default no-op and answers `Unsupported`, which is correct for
-> Android (it has no API) and a to-do for Linux, Windows, and HarmonyOS.
+> Android (it has no API) and a to-do for Linux and Windows.
 >
 > The Showcase's Notifications & badge page has an "App badge" group — a stepper, Set/Clear, and a
 > macOS-only "Set text" button that appears only where `Cap::AppBadgeText` is `Native`.
@@ -67,7 +67,7 @@ This is the part that decides the API, because the payload differs more than the
 | web-dom | ✓ | – | ✓ | `navigator.setAppBadge(n?)` / `clearAppBadge()` |
 | windows-xaml | ~ | – | ~ | `ITaskbarList3::SetOverlayIcon` — an **image**, not a number |
 | android-mdc | – | – | ~ | none: the launcher derives a dot from posted notifications |
-| harmony-arkui | ? | ? | ? | `notificationManager.setBadgeNumber` — likely ArkTS-only, needs investigation |
+| harmony-arkui | ✓ | – | – | `notificationManager.setBadgeNumber`, an ArkTS-only API reached through day-arkui's daybridge arm (`src/host.rs`) |
 
 Four findings follow from that table.
 
@@ -188,7 +188,8 @@ feature and does not belong in `Badge`.
 2. **Linux**, over the Unity D-Bus signal, reusing the std-only D-Bus approach [docs/notify.md](notify.md)
    specifies for `org.freedesktop.Notifications` rather than adding a D-Bus crate. Reports
    `Emulated`, because whether it shows depends on the shell.
-3. **HarmonyOS**, once the ArkTS-versus-NDK question is settled, and **Windows**, which needs the
+3. **HarmonyOS** (done: `setBadgeNumber` is ArkTS-only, so day-arkui carries a daybridge arm for
+   it and reports `Cap::AppBadgeCount` as `Native` wherever that arm is staged), and **Windows**, which needs the
    render-digits-to-an-icon path or a packaged-only implementation.
 
 Phase 1 stands on its own: it is three small arms, it needs no new crate, and one defaulted

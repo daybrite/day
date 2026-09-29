@@ -842,7 +842,11 @@ day_bridge::bridge! {
                 case 'OPTIONS': return http.RequestMethod.OPTIONS;
                 case 'TRACE': return http.RequestMethod.TRACE;
                 case 'CONNECT': return http.RequestMethod.CONNECT;
-                default: return http.RequestMethod.GET;
+                case 'GET': return http.RequestMethod.GET;
+                // The enum has no PATCH (or any extension method), but its values are the method
+                // names and the network stack sends the name it is given, so pass it through:
+                // falling back to GET turned a PATCH into a GET.
+                default: return method as http.RequestMethod;
               }
             }
 

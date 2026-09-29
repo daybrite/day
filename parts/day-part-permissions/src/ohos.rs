@@ -12,6 +12,10 @@
 //! carries it, and a build that somehow does not answers the request with the current status
 //! instead of failing to link.
 //!
+//! Notifications are not a permission on HarmonyOS but a per-app switch the user sets once, from
+//! a system dialog `notificationManager.requestEnableNotification` raises. Both halves are
+//! ArkTS-only, so they go through this crate's daybridge arm (docs/bridge.md).
+//!
 //! HarmonyOS has no "asked and refused once" state a native call can read: a denied permission is
 //! not held, and the system remembers a refusal itself (a second `requestPermissionsFromUser`
 //! after a denial resolves without a dialog). So `status` answers `Prompt` for anything not held,
@@ -58,7 +62,19 @@ fn held(name: &str) -> bool {
     unsafe { OH_AT_CheckSelfPermission(c.as_ptr()) }
 }
 
+/// Whether the notification switch can be read and asked for: the ArkTS arm is staged.
+fn notifications_reachable() -> bool {
+    notifications_enabled_native_support() != day_bridge::Support::Unsupported
+}
+
 pub fn gate(perm: Permission) -> Gate {
+    if perm == Permission::Notifications {
+        return if notifications_reachable() {
+            Gate::Prompts
+        } else {
+            Gate::Absent
+        };
+    }
     if native_ids(perm).is_empty() {
         Gate::Absent
     } else {
@@ -67,6 +83,13 @@ pub fn gate(perm: Permission) -> Gate {
 }
 
 pub fn status(perm: Permission) -> Status {
+    if perm == Permission::Notifications {
+        return match notifications_enabled_native() {
+            Ok(true) => Status::Granted,
+            Ok(false) => Status::Prompt,
+            Err(_) => Status::Unsupported,
+        };
+    }
     let ids = native_ids(perm);
     if ids.is_empty() {
         return Status::Unsupported;
@@ -141,6 +164,18 @@ extern "C" fn on_result(token: u64, mask: u64) {
 }
 
 pub fn request(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
+    if perm == Permission::Notifications && notifications_reachable() {
+        // The arm answers with the switch after the dialog, so a refusal reads as Denied. An
+        // arm that fails to start has already answered through the callback.
+        let _ = request_notifications_native_async(move |allowed| {
+            on_done(match allowed {
+                Ok(true) => Status::Granted,
+                Ok(false) => Status::Denied,
+                Err(_) => Status::Unknown,
+            })
+        });
+        return;
+    }
     let ids = native_ids(perm);
     if ids.is_empty() {
         on_done(status(perm));
@@ -171,4 +206,52 @@ pub fn request(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
 
 pub fn open_settings(_perm: Permission) -> bool {
     false
+}
+
+day_bridge::bridge! {
+    #[day_bridge::declare]
+    extern "day" {
+        /// Whether the user lets this app post notifications.
+        fn notifications_enabled_native() -> Result<bool, day_bridge::Error>;
+        /// Ask, with the system dialog; `done` completes with the switch afterwards.
+        fn request_notifications_native(done: day_bridge::Done<bool>) -> Result<(), day_bridge::Error>;
+    }
+
+    #[day_bridge::impl(arkts, platforms = [ohos])]
+    arkts!(
+        prelude = r#"
+            import { notificationManager } from '@kit.NotificationKit';
+            import { common } from '@kit.AbilityKit';
+            import { BusinessError } from '@kit.BasicServicesKit';
+        "#,
+        body = r#"
+            export function notifications_enabled_native(): boolean {
+              return notificationManager.isNotificationEnabledSync();
+            }
+
+            export function request_notifications_native(done: number): void {
+              const ctx = getContext() as common.UIAbilityContext;
+              notificationManager.requestEnableNotification(ctx)
+                .catch((e: BusinessError) => {
+                  // A refusal rejects (1600004), as does a dialog already showing: the switch
+                  // afterwards is the answer either way.
+                  console.info(`day-part-permissions: notifications: ${e.code} ${e.message}`);
+                })
+                .finally(() => {
+                  request_notifications_native_complete(done,
+                    notificationManager.isNotificationEnabledSync());
+                });
+            }
+        "#,
+    );
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn notifications_enabled_native() -> Result<bool, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn request_notifications_native(_done: day_bridge::Done<bool>) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
 }

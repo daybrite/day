@@ -21,7 +21,8 @@ license.workspace = true
 #              scheduler, so a scheduled notification is lost if the process exits
 #   Web:       the Notification API through the day-dom shim; foreground only
 #   Windows:   not wired yet (ToastNotification needs an AUMID shortcut + COM activator)
-#   HarmonyOS: not wired yet (the NDK notification surface is narrower than ArkTS)
+#   HarmonyOS: Notification Kit through the ArkTS arm in src/ohos.rs (docs/bridge.md); a
+#              scheduled notification is an in-process timer, as on Linux
 # See docs/notify.md + docs/extending.md.
 #
 # PERMISSIONS. This crate does not ask for any: a denial surfaces as `NotifyError::PermissionDenied`
@@ -65,6 +66,10 @@ block2 = "0.6"
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
 
+# The HarmonyOS arm (src/ohos.rs) is ArkTS: Notification Kit has no native C surface.
+[target.'cfg(target_env = "ohos")'.dependencies]
+day-bridge = { workspace = true }
+
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
 java = [
@@ -101,3 +106,6 @@ frameworks = ["UserNotifications"]
 
 [package.metadata.day.permissions]
 uses = ["notifications"]
+
+[build-dependencies]
+day-build = { workspace = true }

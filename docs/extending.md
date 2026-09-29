@@ -413,10 +413,18 @@ permissions = ["ohos.permission.GET_NETWORK_INFO"]   # joined into module.json5 
 
 `day build -p harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
 (gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
-`DayPieces.ets`, whose `registerDayPieces(uiContext)` hands the native shim one factory, command sink,
-and disposer for all pieces. The framework's host page (staged beside them from the day-arkui crate,
-[docs/harmonyos.md](harmonyos.md)) calls it once, before `start()`, so adding an ArkTS piece is pure
-`Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
+`DayPieces.ets`, whose `registerDayPieces(uiContext, builtins)` hands the native shim one factory,
+command sink, and disposer for all pieces. The framework's host page (staged beside them from the
+day-arkui crate, [docs/harmonyos.md](harmonyos.md)) calls it once, before `start()`, so adding an
+ArkTS piece is pure `Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
+An ArkTS component reports with `nativeEntry.pieceEvent(id, text, num?, kind?)`: with no `kind`
+the message arrives as the piece's own `Event::Custom`; with one (1 `TextChanged`, 2
+`ToggleChanged`, 4 `SelectionChanged`, 17 `Submitted`) as the Day event a native control would
+send, so a stand-in control needs no event translation in Rust. day-arkui also sends every ArkTS
+piece its laid-out size as the command `day.frame` `"<w>,<h>"` (vp) whenever it changes: a
+component built in a `BuilderNode` resolves percentages against the window, so one that fills its
+frame sizes itself from that. `builtins` are the framework's own ArkTS-only components, which ride the same channel: the host
+passes the menu-style picker's `Select` (docs/picker.md), and an app's piece of the same kind wins.
 
 On the Rust side the renderer is the thinnest of all the backends, because there is no native widget
 to build. `day_arkui::piece::make` returns the ArkTS component's FrameNode as an ordinary handle:

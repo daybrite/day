@@ -116,7 +116,7 @@ impl<S: Binding<String>> Piece for SearchField<S> {
 // and `#[path]` keeps the files grouped next to lib.rs (the day-piece-picker layout).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui);
 
 /// Give this crate's backend module a caller, so the linker keeps it.
 ///

@@ -51,7 +51,8 @@ plain `main` that uses it with no Day framework at all.
 | iOS | `UIImpactFeedbackGenerator` / `UINotificationFeedbackGenerator` / `UISelectionFeedbackGenerator` | `objc2` + `objc2-ui-kit` |
 | macOS | `NSHapticFeedbackManager.defaultPerformer` (Force Touch trackpad) | `objc2-app-kit` |
 | Android | `Vibrator` / `VibrationEffect` via a Java shim | `day-android` + `[package.metadata.day.android]` |
-| Windows · desktop Linux (GTK/Qt) · HarmonyOS | — (no haptic engine wired) | none (no-op, `is_supported() == false`) |
+| HarmonyOS | `vibrator.startVibration` (Sensor Service Kit) via an ArkTS arm | `day-bridge` + `[package.metadata.day.ohos]` |
+| Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, `is_supported() == false`) |
 
 ## How each platform realizes the styles
 
@@ -70,10 +71,14 @@ plain `main` that uses it with no Day framework at all.
   (Success/Error). Older APIs fall back to a short one-shot buzz whose length stands in for
   intensity. Requires `android.permission.VIBRATE`, a normal install-time permission the crate
   contributes to the manifest itself (see below).
-- **HarmonyOS**: no haptic engine is wired here yet. It could in principle drive
-  `libohvibrator`, but that needs an effect/attribute struct and the `ohos.permission.VIBRATE`
-  grant, so for now it falls through to the no-op path (`is_supported() == false`). A native OHOS
-  realization is a follow-up, symmetric with `day-part-battery`/`day-part-network`'s OHOS impls.
+- **HarmonyOS**: an ArkTS daybridge arm (docs/bridge.md) plays the system's own haptic presets
+  through the Sensor Service Kit's `vibrator`: `haptic.effect.soft` (Light), `haptic.clock.timer`
+  (Medium/Selection), `haptic.effect.hard` (Heavy/Warning/Error), `haptic.effect.sharp` (Success).
+  A device without a preset gets a timed buzz whose length stands in for strength, like Android's
+  pre-API-29 fallback. The C vibrator API takes only durations, which is why the arm is ArkTS.
+  Requires `ohos.permission.VIBRATE`, a `system_grant` permission the crate contributes through
+  `[package.metadata.day.ohos] permissions`. The OpenHarmony emulator has no vibrator, so the call
+  is accepted and nothing is felt.
 
 ## What it shows about the extension system
 

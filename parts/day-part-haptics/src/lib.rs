@@ -12,10 +12,11 @@
 //! ```
 //!
 //! Platform selection is purely `#[cfg(target_os)]` (a haptic engine is an OS concern, not a
-//! widget-toolkit one): iOS uses UIKit's feedback generators, macOS `NSHapticFeedbackManager`, and
-//! Android `Vibrator`/`VibrationEffect` (via a Java shim staged by `day build`). Every other target
-//! (Windows, desktop Linux under GTK/Qt, HarmonyOS) has no haptic engine wired here, so [`play`]
-//! is a no-op and [`is_supported`] returns `false`.
+//! widget-toolkit one): iOS uses UIKit's feedback generators, macOS `NSHapticFeedbackManager`,
+//! Android `Vibrator`/`VibrationEffect`, and HarmonyOS the Sensor Service Kit's vibrator (both
+//! through daybridge arms `day build` stages). Every other target (Windows, desktop Linux under
+//! GTK/Qt) has no haptic engine wired here, so [`play`] is a no-op and [`is_supported`] returns
+//! `false`.
 //!
 //! [`play`] is **fire-and-forget** and best-effort: it never blocks, never returns an error, and
 //! never panics. On hardware without a Taptic engine (an iOS Simulator, a Mac without a Force Touch
@@ -54,9 +55,9 @@ pub fn play(h: Haptic) {
     imp::play(h)
 }
 
-/// Whether this platform has a haptic engine wired up. `true` on iOS/macOS/Android (even on a
-/// Simulator or a device that happens to lack the hardware; this reports API availability, not a
-/// live hardware probe), `false` on every other target, where [`play`] is a no-op.
+/// Whether this platform has a haptic engine wired up. `true` on iOS/macOS/Android/HarmonyOS (even
+/// on a Simulator or a device that happens to lack the hardware; this reports API availability,
+/// not a live hardware probe), `false` on every other target, where [`play`] is a no-op.
 pub fn is_supported() -> bool {
     imp::is_supported()
 }
@@ -73,14 +74,17 @@ mod imp;
 #[path = "macos.rs"]
 mod imp;
 
-#[cfg(target_os = "android")]
-#[path = "android.rs"]
+#[cfg(any(target_os = "android", target_env = "ohos"))]
+#[path = "bridge.rs"]
 mod imp;
 
-// Any other platform (Windows, desktop Linux under GTK/Qt, HarmonyOS) has no haptic engine wired
-// here. (HarmonyOS could in principle drive `libohvibrator`, but it needs an effect/attribute
-// struct and the `ohos.permission.VIBRATE` grant, so it is left as a best-effort no-op for now.)
-#[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "android")))]
+// Any other platform (Windows, desktop Linux under GTK/Qt) has no haptic engine wired here.
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "macos",
+    target_os = "android",
+    target_env = "ohos"
+)))]
 mod imp {
     pub fn play(_h: super::Haptic) {}
     pub fn is_supported() -> bool {

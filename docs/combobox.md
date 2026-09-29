@@ -48,11 +48,13 @@ emit it: a native pick already arrives as text).
 
 | AppKit | GTK | Qt | Android | XAML | UIKit | ArkUI |
 |---|---|---|---|---|---|---|
-| `NSComboBox` | `GtkComboBoxText` with entry | editable `QComboBox` | `AutoCompleteTextView` | editable `ComboBox` (1809+) | — placeholder | — placeholder |
+| `NSComboBox` | `GtkComboBoxText` with entry | editable `QComboBox` | `AutoCompleteTextView` | editable `ComboBox` (1809+) | — placeholder | ArkTS `TextInput` + suggestions menu |
 
-iOS and HarmonyOS have no native combo-box control, so the piece carries **no renderer**
-there: day renders its placeholder leaf, and the showcase adds a footnote saying why.
-Use `picker` or `text_field` on those platforms. The change plumbing per backend:
+iOS has no native combo-box control, so the piece carries **no renderer** there: day renders its
+placeholder leaf, and the showcase adds a footnote saying why. Use `picker` or `text_field` on
+iOS. HarmonyOS has none either, but ArkTS composes one cheaply: the piece ships an ArkTS half
+(`platform/harmony/ets`) that sets a `TextInput` beside a chevron button whose `bindMenu` lists
+the items, and reports typing and picks alike as `Event::TextChanged`, as the native backends do. The change plumbing per backend:
 
 - **AppKit**: one per-node delegate serves both halves,
   `NSControlTextEditingDelegate::controlTextDidChange:` for keystrokes and

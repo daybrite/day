@@ -440,8 +440,11 @@ name = "day-arkui"
 version = "0.4.10"
 dependencies = [
  "day-arkui-sys",
+ "day-bridge",
+ "day-build",
  "day-core",
  "day-pieces",
+ "day-reactive",
  "day-spec",
  "linkme",
  "log",
@@ -708,6 +711,8 @@ version = "0.4.10"
 dependencies = [
  "block2",
  "day-android",
+ "day-bridge",
+ "day-build",
  "day-core",
  "day-reactive",
  "objc2",
@@ -720,6 +725,8 @@ name = "day-part-location"
 version = "0.4.10"
 dependencies = [
  "day-android",
+ "day-bridge",
+ "day-build",
  "objc2",
  "objc2-foundation",
 ]
@@ -740,6 +747,7 @@ dependencies = [
  "block2",
  "day-android",
  "day-bridge",
+ "day-build",
  "objc2",
 ]
 
@@ -816,6 +824,8 @@ dependencies = [
  "cc",
  "day-android",
  "day-appkit",
+ "day-arkui",
+ "day-arkui-sys",
  "day-core",
  "day-gtk",
  "day-mock",
@@ -870,6 +880,7 @@ dependencies = [
  "cc",
  "day-android",
  "day-appkit",
+ "day-arkui",
  "day-core",
  "day-gtk",
  "day-mock",
@@ -1009,6 +1020,7 @@ dependencies = [
  "cc",
  "day-android",
  "day-appkit",
+ "day-arkui",
  "day-core",
  "day-gtk",
  "day-mock",

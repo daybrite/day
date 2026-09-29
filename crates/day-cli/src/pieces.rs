@@ -1727,10 +1727,13 @@ const dayPieces: DayPieceModule[] = [
 const dayPieceOwners: Map<number, DayPieceModule> = new Map();
 
 // Call once, before `start()`: a piece node can be realized during the first tree build.
-export function registerDayPieces(ui: UIContext): void {{
+// `builtins` are the framework's own ArkTS-only components, which the host page passes in (the
+// menu-style picker's Select); an app's piece of the same kind wins over one of them.
+export function registerDayPieces(ui: UIContext, builtins: DayPieceModule[] = []): void {{
+  const modules: DayPieceModule[] = dayPieces.concat(builtins);
   nativeEntry.registerPiece(
     (kind: string, id: number, props: string): FrameNode | undefined => {{
-      for (const m of dayPieces) {{
+      for (const m of modules) {{
         if (m.kind === kind) {{
           const node: FrameNode | undefined = m.make(ui, id, props);
           if (node !== undefined) {{

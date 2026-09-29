@@ -42,7 +42,8 @@ block2 = "0.6"
 day-android = { workspace = true }
 
 # HarmonyOS finds day-arkui's permission export in the app's own native library, which the ArkTS
-# loader opens with local symbol visibility; day-bridge's lookup knows to ask that library.
+# loader opens with local symbol visibility; day-bridge's lookup knows to ask that library. The
+# notification switch is an ArkTS arm in src/ohos.rs (docs/bridge.md).
 [target.'cfg(target_env = "ohos")'.dependencies]
 day-bridge = { workspace = true }
 
@@ -66,3 +67,6 @@ frameworks = [
     "UserNotifications",
     "CoreMotion",
 ]
+
+[build-dependencies]
+day-build = { workspace = true }

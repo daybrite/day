@@ -27,15 +27,19 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the 
 # uniformly; the combobox kind then falls back to day's placeholder leaf (as it does on uikit,
 # which has no feature at all: iOS has no native combo-box control).
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# HarmonyOS: an ArkTS TextInput + suggestions menu (platform/harmony/ets, staged through
+# [package.metadata.day.ohos]) behind day-arkui's piece bridge (src/lib-arkui.rs).
+arkui = ["dep:day-arkui"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
 # and no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "mdc", "xaml", "mock"]
+backends = ["appkit", "gtk", "qt", "mdc", "xaml", "mock", "arkui"]
 
 [dependencies]
+day-arkui = { workspace = true, optional = true }
 log = { workspace = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
@@ -71,3 +75,8 @@ java = ["src/DayCombo.java"]
 gradle-dependencies = []
 # Extra Maven repositories (URLs) for dependencies not on google()/mavenCentral().
 gradle-repositories = []
+
+# HarmonyOS contribution (docs/extending.md): the ArkTS half `day build` stages into the app's
+# hvigor project.
+[package.metadata.day.ohos]
+ets = ["platform/harmony/ets"]

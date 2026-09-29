@@ -322,8 +322,8 @@ rules the arm out even where the tree exists, because hvigor then compiles again
 SDK alone. `DAY_OHOS_HMS=1` stages it regardless.
 
 **ArkTS arms run on the JS thread.** The generated Rust half reaches an arm through the ArkUI
-shim's dispatcher (`day_bridge::arkts::invoke`, found by `dlsym` at run time like the
-permissions prompter): from the JS thread — Day's UI thread on HarmonyOS — the call runs
+shim's dispatcher (`day_bridge::arkts::invoke`, found at run time in the app's own native library,
+which the ArkTS loader opens with local symbol visibility, so a process-wide `dlsym` misses it): from the JS thread — Day's UI thread on HarmonyOS — the call runs
 inline; from any other thread it is posted over the shim's `uv_async` rail and the caller
 parks until the loop has run it, so `Ok` still means the arm accepted the call. The host's
 `EntryAbility` hands the generated `DayBridges.ets` record to the native module at startup
@@ -333,6 +333,11 @@ same completion. The completion export for ArkTS has one uniform shape for every
 (`day_bridge_complete_arkts_<crate>_<fn>`), and the shim marshals the JS value into it. A
 synchronous ArkTS arm may return a scalar (a boolean or a number), which the dispatcher hands
 back the same way; strings and bytes come back only through a `Done<T>`.
+
+**A toolkit can carry arms too.** The CLI stages every crate in the app's graph that depends on
+day-bridge, not only parts, so a backend reaches a platform duty that exists only in the platform
+language the same way: day-arkui's `src/host.rs` sets the application color mode, sets the app
+badge, and streams color-mode changes back, all as ArkTS arms, with no shim or host-page change.
 
 **Kotlin `suspend` arms** are not built.
 

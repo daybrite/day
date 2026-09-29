@@ -15,9 +15,10 @@ license.workspace = true
 # target:
 #   iOS:     UIFeedbackGenerator (impact / notification / selection)
 #   macOS:   NSHapticFeedbackManager (generic / alignment / levelChange)
-#   Android: Vibrator / VibrationEffect via the inline Java arm in src/android.rs (docs/bridge.md)
+#   Android: Vibrator / VibrationEffect via the inline Java arm in src/bridge.rs (docs/bridge.md)
+#   HarmonyOS: the Sensor Service Kit vibrator's haptic presets, ArkTS arm in src/bridge.rs
 #   others:  no haptic engine, so play() is a no-op and is_supported() == false (Windows, desktop
-#            Linux/GTK/Qt, HarmonyOS)
+#            Linux/GTK/Qt)
 # See docs/haptics.md + docs/extending.md.
 
 [dependencies]
@@ -41,16 +42,25 @@ objc2-app-kit = { version = "0.3", features = ["NSHapticFeedback"] }
 # backends).
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
-# daybridge (docs/bridge.md): the Java arm and its declaration live in src/android.rs, so the
-# dependency is Android-only too; every other target compiles exactly as it did before.
+# daybridge (docs/bridge.md): the Java and ArkTS arms and their declaration live in src/bridge.rs,
+# so the dependency is Android- and HarmonyOS-only; every other target compiles as it did before.
+day-bridge = { workspace = true }
+
+[target.'cfg(target_env = "ohos")'.dependencies]
 day-bridge = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
-# The Java itself is a daybridge arm in src/android.rs (docs/bridge.md), rendered and staged by
+# The Java itself is a daybridge arm in src/bridge.rs (docs/bridge.md), rendered and staged by
 # `day build`; what stays here is the build-graph fact that arm needs.
 [package.metadata.day.android]
 # Vibrator.vibrate(...) requires `VIBRATE` (a normal, install-time permission; no runtime prompt).
 permissions = ["android.permission.VIBRATE"]
+
+# --- HarmonyOS backend contribution ---
+[package.metadata.day.ohos]
+# vibrator.startVibration requires VIBRATE (a system_grant permission, granted at install with no
+# prompt), so the app's module.json5 must declare it.
+permissions = ["ohos.permission.VIBRATE"]
 
 [build-dependencies]
 day-build = { workspace = true }

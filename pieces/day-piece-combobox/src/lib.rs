@@ -147,7 +147,7 @@ impl Piece for ComboBox {
 // No uikit arm: iOS has no native combo-box control (day renders its placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, mdc, xaml);
+day_pieces::glue_modules!(appkit, gtk, qt, mdc, xaml, arkui);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 

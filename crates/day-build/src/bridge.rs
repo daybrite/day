@@ -2872,6 +2872,14 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             .collect();
         let names: Vec<String> = decl.plain_args().iter().map(|(n, _)| n.clone()).collect();
         let reg = registry_name(decl);
+        // What starts the arm given its handle: a closure over the plain arguments, or the arm
+        // itself when the handle is all it takes (a closure there is clippy's redundant_closure,
+        // which a crate linting with `-D warnings` inherits from this generated file).
+        let arm_call = if names.is_empty() {
+            decl.name.clone()
+        } else {
+            format!("move |{done}| {}({}, {done})", decl.name, names.join(", "))
+        };
         if decl.is_stream() {
             // A stream: one set of consumers per declaration, the `<fn>_stream` wrapper that
             // registers a consumer and calls the arm, and `<fn>_stop` (docs/bridge.md "Streams").
@@ -2884,8 +2892,6 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             stream_params.push(format!(
                 "on_{done}: impl FnMut(day_bridge::Item<{value}>) + Send + 'static"
             ));
-            let mut call_args = names.clone();
-            call_args.push(done.to_string());
             let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
             let _ = writeln!(
                 out,
@@ -2895,9 +2901,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             );
             let _ = writeln!(
                 out,
-                "    day_bridge::start_stream(&{reg}, on_{done}, move |{done}| {}({}))",
-                decl.name,
-                call_args.join(", ")
+                "    day_bridge::start_stream(&{reg}, on_{done}, {arm_call})"
             );
             let _ = writeln!(out, "}}\n");
             let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
@@ -2917,8 +2921,6 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         async_params.push(format!(
             "on_{done}: impl FnOnce(Result<{value}, day_bridge::Error>) + Send + 'static"
         ));
-        let mut call_args = names.clone();
-        call_args.push(done.to_string());
         let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
         let _ = writeln!(
             out,
@@ -2928,9 +2930,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         );
         let _ = writeln!(
             out,
-            "    day_bridge::start_async(&{reg}, on_{done}, move |{done}| {}({}))",
-            decl.name,
-            call_args.join(", ")
+            "    day_bridge::start_async(&{reg}, on_{done}, {arm_call})"
         );
         let _ = writeln!(out, "}}\n");
         let _ = writeln!(out, "#[allow(dead_code, clippy::too_many_arguments)]");
@@ -2940,12 +2940,7 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
             decl.name,
             plain.join(", ")
         );
-        let _ = writeln!(
-            out,
-            "    day_bridge::start_future(&{reg}, move |{done}| {}({}))",
-            decl.name,
-            call_args.join(", ")
-        );
+        let _ = writeln!(out, "    day_bridge::start_future(&{reg}, {arm_call})");
         let _ = writeln!(out, "}}\n");
     }
 
@@ -4139,6 +4134,14 @@ day_bridge::bridge! {
         );
         assert!(
             rust.contains("day_bridge::start_stream(&DAY_BRIDGE_EMIT_WATCH_NATIVE, on_emit, move |emit| watch_native(key, emit))"),
+            "{rust}"
+        );
+        // An arm the handle alone starts is passed as itself: a closure there is clippy's
+        // redundant_closure, inherited by every crate linting its generated glue.
+        assert!(
+            rust.contains(
+                "day_bridge::start_stream(&DAY_BRIDGE_EMIT_TICK_NATIVE, on_emit, tick_native)"
+            ),
             "{rust}"
         );
         assert!(

@@ -109,7 +109,7 @@ impl Piece for Activity {
 // back to day's placeholder leaf there).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
