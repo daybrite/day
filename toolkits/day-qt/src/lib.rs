@@ -2974,6 +2974,15 @@ impl Toolkit for Qt {
         }
     }
 
+    fn set_focusable(&mut self, h: &QtHandle, node: NodeId, focusable: bool) {
+        if focusable {
+            unsafe {
+                ffi::day_qt_enable_keys(h.0, node.0, on_key);
+                ffi::day_qt_enable_focus(h.0, node.0, on_focus);
+            }
+        }
+    }
+
     fn focus(&mut self, h: &QtHandle, _node: NodeId, focused: bool) {
         // The shim clears only while this widget still owns focus, so a stale release
         // can't blur a sibling.

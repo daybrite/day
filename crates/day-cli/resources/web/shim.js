@@ -670,10 +670,16 @@ const env = {
   day_dom_canvas_keynav(id) {
     const el = E(id);
     el.tabIndex = 0;
-    el.addEventListener('pointerdown', () => {
+    if (el.dataset.dayKeynav) return;
+    el.dataset.dayKeynav = 'true';
+    el.addEventListener('focus', () => wasm.day_dom_event(id, 7, 1, 0, 0, 0));
+    el.addEventListener('blur', () => wasm.day_dom_event(id, 7, 0, 0, 0, 0));
+    el.addEventListener('pointerdown', e => {
+      if (e.target.closest('button,input,select,textarea,a,[contenteditable]')) return;
       if (document.activeElement !== el) el.focus({ preventScroll: true });
     });
     el.addEventListener('keydown', (e) => {
+      if (e.target !== el) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const keys = { ArrowLeft: 0, ArrowRight: 1, ArrowUp: 2, ArrowDown: 3, Delete: 4, Backspace: 5 };
       // A digit is 10 + its value; the browser names the main row and the keypad alike, by
@@ -1849,6 +1855,17 @@ function listen(id, mask) {
       tap = null;
     });
     host.addEventListener('pointercancel', () => { tap = null; });
+  }
+  if (mask & 2048) {
+    el.dataset.dayPan = 'true';
+    el.addEventListener('wheel', e => {
+      if (e.target.closest('[data-day-pan]') !== el || e.ctrlKey || e.metaKey) return;
+      if (el.tagName !== 'CANVAS' && Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      const r = el.getBoundingClientRect();
+      const scale = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? r.width : 1;
+      e.preventDefault(); e.stopPropagation();
+      wasm.day_dom_event(id, 20, e.clientX-r.left, e.clientY-r.top, -e.deltaX*scale, -e.deltaY*scale);
+    }, {passive:false});
   }
   if (mask & 1024) {
     // The browser's own context menu yields to the app's: Day presents a composed menu from

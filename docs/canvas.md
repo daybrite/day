@@ -312,9 +312,15 @@ the fingers; a backend that cannot know it (GTK's scroll controller) reports `Po
 Where they come from: trackpad magnify and two-finger scroll on macOS (a plain mouse wheel also
 pans), `GtkGestureZoom` and the scroll controller on GTK, native zoom gestures and wheel events
 on Qt, and pinch plus a two-finger pan recognizer on iOS; one-finger drags still go to
-`.on_drag`, so selection and panning coexist. The remaining backends do not deliver these
-events yet; apps that offer zoom controls in a toolbar or menu (as Day-Sketch does) lose no
-capability there, only the gesture shortcut.
+`.on_drag`, so selection and panning coexist. DOM also delivers wheel pans (Changed phase,
+with negative browser wheel deltas to express content displacement). Android delivers horizontal
+pointer-wheel pans. Pinch remains unavailable on those two backends.
+
+On AppKit, GTK, Qt and DOM, a non-canvas container with `.on_pan` receives horizontal wheel
+movement over its descendants, while vertical scrolling keeps its native behavior. Android
+containers likewise intercept horizontal pointer-wheel input. Accumulate deltas and suppress
+inertial repeats when using a gesture to navigate. Keep visible navigation buttons: XAML and
+ArkUI do not deliver these container pans, and touch-only devices may have no wheel input.
 
 ## Stamping
 

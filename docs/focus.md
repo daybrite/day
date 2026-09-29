@@ -60,10 +60,10 @@ column((
 
 `.focusable()` opts a composed container into focus: the canvas contract (press-to-focus,
 `FocusChanged` both ways, the keys through `.on_key` while focused) behind the
-`Toolkit::set_focusable` duty. Implemented on macos-appkit (2026-08, the content-list keyboard
-work in [docs/navigation.md](navigation.md)); on every other backend the duty is a no-op
-today, so the piece renders normally and never joins the key loop, the same silence
-unfocusable controls have. Reserved with names but not implemented: `default_focus(…)`
+`Toolkit::set_focusable` duty. AppKit, UIKit, GTK, Qt, Android and DOM implement it for
+containers. Editable descendants retain their editing keys; a container can request focus with
+`.focused(...)` after navigation. XAML and ArkUI still require a canvas or native control as the
+keyboard focus target; their container duty remains a no-op. Reserved with names but not implemented: `default_focus(…)`
 on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab traversal stays
 native. Day wraps real widgets, so platform traversal is already correct (§13: focus order
 follows layout order).

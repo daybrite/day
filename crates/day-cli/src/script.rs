@@ -1322,7 +1322,7 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
                     "simctl",
                     "terminate",
                     "booted",
-                    &project.manifest.app.id,
+                    &project.manifest.resolve(target.name).id,
                 ]),
                 DEVICE_CMD,
             );
@@ -1340,7 +1340,12 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
         }
         TargetKind::HarmonyOs => {
             let _ = crate::ops::status_within(
-                crate::ohos::hdc().args(["shell", "aa", "force-stop", &project.manifest.app.id]),
+                crate::ohos::hdc().args([
+                    "shell",
+                    "aa",
+                    "force-stop",
+                    &project.manifest.resolve(target.name).id,
+                ]),
                 DEVICE_CMD,
             );
         }

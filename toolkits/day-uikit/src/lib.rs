@@ -5972,6 +5972,106 @@ mod imp {
     // DayCanvasView — replay in drawRect (§11)
     // -----------------------------------------------------------------------
 
+    define_class!(
+        #[unsafe(super(UIView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayFocusableContainer"]
+        #[ivars = ()]
+        struct DayFocusableContainer;
+        impl DayFocusableContainer {
+            #[unsafe(method(canBecomeFirstResponder))]
+            fn can_become_first_responder(&self) -> bool {
+                KEY_NODES.with(|t| t.get((self as *const Self).cast::<UIView>() as usize)).is_some()
+            }
+
+            #[unsafe(method(becomeFirstResponder))]
+            fn become_first_responder(&self) -> bool {
+                let became: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
+                if became {
+                    let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
+                    }
+                }
+                became
+            }
+
+            #[unsafe(method(resignFirstResponder))]
+            fn resign_first_responder(&self) -> bool {
+                let resigned: bool = unsafe { msg_send![super(self), resignFirstResponder] };
+                if resigned {
+                    let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                    if let Some(node) = KEY_NODES.with(|t| t.get(ptr)) {
+                        day_spec::ffi_guard::contain((), || emit(node, Event::FocusChanged(false)));
+                    }
+                }
+                resigned
+            }
+
+            // A touch focuses the canvas, the way a press does on the desktops. The gesture
+            // recognizers still see it: this runs before `super`, which forwards to them.
+            #[unsafe(method(touchesBegan:withEvent:))]
+            fn touches_began(
+                &self,
+                touches: &objc2_foundation::NSSet<objc2_ui_kit::UITouch>,
+                event: Option<&objc2_ui_kit::UIEvent>,
+            ) {
+                if self.canBecomeFirstResponder() && !self.isFirstResponder() {
+                    let _ = self.becomeFirstResponder();
+                }
+                let _: () = unsafe { msg_send![super(self), touchesBegan: touches, withEvent: event] };
+            }
+
+            /// Hardware-keyboard presses while this canvas is first responder. Anything that is
+            /// not a claimed arrow goes to `super`, which walks the responder chain exactly as
+            /// it would have — so a key nobody wanted still reaches whatever else wants it.
+            #[unsafe(method(pressesBegan:withEvent:))]
+            fn presses_began(
+                &self,
+                presses: &objc2_foundation::NSSet<objc2_ui_kit::UIPress>,
+                event: Option<&objc2_ui_kit::UIPressesEvent>,
+            ) {
+                let ptr = (self as *const DayFocusableContainer).cast::<UIView>() as usize;
+                let handled = day_spec::ffi_guard::contain(false, || {
+                    let Some(node) = KEY_NODES.with(|t| t.get(ptr)) else {
+                        return false;
+                    };
+                    if !day_spec::keys::handled(node) {
+                        return false;
+                    }
+                    let mut any = false;
+                    for press in presses.iter() {
+                        let Some(key) = (unsafe { press.key(self.mtm()) }) else {
+                            continue;
+                        };
+                        let Some(name) = key_name(&key) else {
+                            continue;
+                        };
+                        emit(
+                            node,
+                            Event::Key(day_spec::KeyEvent {
+                                key: name.to_string(),
+                                modifiers: key_modifiers(unsafe { key.modifierFlags() }),
+                            }),
+                        );
+                        any = true;
+                    }
+                    any
+                });
+                if !handled {
+                    let _: () =
+                        unsafe { msg_send![super(self), pressesBegan: presses, withEvent: event] };
+                }
+            }
+        }
+    );
+    impl DayFocusableContainer {
+        fn new(mtm: MainThreadMarker) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), init] }
+        }
+    }
+
     struct CanvasIvars;
 
     define_class!(
@@ -7583,7 +7683,7 @@ mod imp {
             let mtm = mtm();
             match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
-                    let v = unsafe { UIView::new(mtm) };
+                    let v: Retained<UIView> = Retained::into_super(DayFocusableContainer::new(mtm));
                     // A mismatched payload still yields a usable (undecorated) container;
                     // `props_of` reports it.
                     if let Some(p) = day_spec::props_of::<ContainerProps>(kind, "uikit", props) {
@@ -9474,6 +9574,14 @@ mod imp {
                         animated,
                     )
                 };
+            }
+        }
+
+        fn set_focusable(&mut self, h: &Handle, node: NodeId, focusable: bool) {
+            if focusable {
+                KEY_NODES.with(|t| t.insert(ptr_of(h), node));
+            } else {
+                KEY_NODES.with(|t| t.remove(ptr_of(h)));
             }
         }
 

@@ -57,6 +57,7 @@ day_core::tls_group! {
     /// nothing to do with the content — a resize, an occlusion change, a window damage event —
     /// and re-encoding there meant formatting every path segment into a string again for a
     /// drawing that had not moved, in-process, with no boundary to cross.
+    static CONTAINER_KEYS: day_spec::sidetable::SideTable<bool> = day_spec::sidetable::SideTable::new();
     static OPS: SideTable<(Vec<f64>, Vec<String>)> = SideTable::new();
     /// (widget_ptr, kind) pairs already wired, so enable_gesture is idempotent.
     static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
@@ -5668,6 +5669,55 @@ impl Toolkit for Gtk {
         );
     }
 
+    fn set_focusable(&mut self, h: &Handle, node: NodeId, focusable: bool) {
+        h.set_focusable(focusable);
+        h.set_can_focus(focusable);
+        if !focusable {
+            return;
+        }
+        if h.is::<gtk4::DrawingArea>()
+            || CONTAINER_KEYS
+                .with(|t| t.get(h.as_ptr() as usize))
+                .is_some()
+        {
+            return;
+        }
+        CONTAINER_KEYS.with(|t| t.insert(h.as_ptr() as usize, true));
+        h.connect_has_focus_notify(move |w| {
+            ffi_guard::contain((), || emit(node, Event::FocusChanged(w.has_focus())));
+        });
+        let keys = gtk4::EventControllerKey::new();
+        keys.connect_key_pressed(move |controller, key, _, state| {
+            ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+                if !controller.widget().is_some_and(|w| w.has_focus()) {
+                    return gtk4::glib::Propagation::Proceed;
+                }
+                let Some(name) = key_name(key, state) else {
+                    return gtk4::glib::Propagation::Proceed;
+                };
+                if !day_spec::keys::handled(node) {
+                    return gtk4::glib::Propagation::Proceed;
+                }
+                emit(
+                    node,
+                    Event::Key(day_spec::KeyEvent {
+                        key: name.into(),
+                        modifiers: key_modifiers(state),
+                    }),
+                );
+                gtk4::glib::Propagation::Stop
+            })
+        });
+        h.add_controller(keys);
+        let click = gtk4::GestureClick::new();
+        click.connect_pressed(|g, _, _, _| {
+            if let Some(w) = g.widget() {
+                w.grab_focus();
+            }
+        });
+        h.add_controller(click);
+    }
+
     fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
         if focused {
             // grab_focus only lands on a mapped widget; a request racing the first map
@@ -5813,6 +5863,10 @@ impl Toolkit for Gtk {
                 use gtk4::EventControllerScrollFlags;
                 let scroll =
                     gtk4::EventControllerScroll::new(EventControllerScrollFlags::BOTH_AXES);
+                let container_pan = !h.is::<gtk4::DrawingArea>();
+                if container_pan {
+                    scroll.set_propagation_phase(gtk4::PropagationPhase::Capture);
+                }
                 scroll.connect_scroll_begin(move |_| {
                     ffi_guard::contain((), || {
                         emit(
@@ -5826,6 +5880,9 @@ impl Toolkit for Gtk {
                     });
                 });
                 scroll.connect_scroll(move |c, dx, dy| {
+                    if container_pan && dx.abs() <= dy.abs() {
+                        return gtk4::glib::Propagation::Proceed;
+                    }
                     ffi_guard::contain(gtk4::glib::Propagation::Stop, || {
                         let unit = c.unit();
                         let step = if unit == gtk4::gdk::ScrollUnit::Wheel {

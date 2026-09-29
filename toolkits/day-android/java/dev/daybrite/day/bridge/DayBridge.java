@@ -1026,6 +1026,31 @@ public final class DayBridge {
      * 10/11/12 match day_spec::Event::Hover's Began/Changed/Ended. A finger generates no HOVER_*
      * actions at all, so a touch-only device wires this and never reports; that is the contract.
      */
+    public static void enableKeys(View v, final long id) {
+        v.setFocusable(true); v.setFocusableInTouchMode(true);
+        v.setOnFocusChangeListener((view, hasFocus) -> nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null));
+        v.setOnKeyListener((view, code, e) -> {
+            if (!view.isFocused() || e.getAction() != KeyEvent.ACTION_DOWN || !nativeHandlesKeys(id)) return false;
+            String name = DayCanvasView.keyName(code, e); if (name == null) return false;
+            int mods = (e.isShiftPressed()?1:0) | (e.isCtrlPressed()?2:0) | (e.isAltPressed()?4:0);
+            nativeOnEvent(id, K_KEY, mods, name); return true;
+        });
+    }
+
+    static boolean horizontalPan(View v, long id, MotionEvent e) {
+        if (e.getActionMasked() != MotionEvent.ACTION_SCROLL) return false;
+        float x = e.getAxisValue(MotionEvent.AXIS_HSCROLL);
+        float y = e.getAxisValue(MotionEvent.AXIS_VSCROLL);
+        if (Math.abs(x) <= Math.abs(y)) return false;
+        float step = 40 * v.getResources().getDisplayMetrics().density;
+        nativeOnEvent(id, K_GESTURE, 8, e.getX() + "," + e.getY() + "," + (x * step) + "," + (y * step));
+        return true;
+    }
+    public static void enablePan(View v, final long id) {
+        if (v instanceof DayFixed) ((DayFixed)v).panNode = id;
+        else v.setOnGenericMotionListener((view, event) -> horizontalPan(view, id, event));
+    }
+
     public static void enableHover(View v, final long id) {
         v.setOnHoverListener(new View.OnHoverListener() {
             float lx, ly;

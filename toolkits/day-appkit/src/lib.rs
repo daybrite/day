@@ -106,6 +106,7 @@ day_core::tls_group! {
     /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
     /// scroll events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
     static PAN_NODES: SideTable<NodeId> = SideTable::new();
+    static PAN_MONITOR: RefCell<Option<PanMonitor>> = const { RefCell::new(None) };
     /// View ptr → node for `GestureKind::Hover` (docs/canvas.md "Interaction"). Hover is not a
     /// recognizer on macOS either: it is an `NSTrackingArea` plus the three mouse methods, so
     /// like [`PAN_NODES`] this holds the canvases that asked and `DayCanvas` reports for them.
@@ -763,6 +764,82 @@ impl DayLabel {
             self.setAllowsEditingTextAttributes(has_links);
         }
     }
+}
+
+struct PanMonitor(Retained<objc2::runtime::AnyObject>);
+impl Drop for PanMonitor {
+    fn drop(&mut self) {
+        unsafe { NSEvent::removeMonitor(&self.0) };
+    }
+}
+
+// A container pan observes horizontal wheel events over its descendants, including native
+// scroll views. Leave vertical scrolling and canvas 2D pans to their existing handlers.
+fn install_container_pan_monitor() {
+    PAN_MONITOR.with(|slot| {
+        if slot.borrow().is_some() {
+            return;
+        }
+        let block = block2::RcBlock::new(|raw: std::ptr::NonNull<NSEvent>| -> *mut NSEvent {
+            let event = unsafe { raw.as_ref() };
+            ffi_guard::contain(raw.as_ptr(), || {
+                let dx = unsafe { event.scrollingDeltaX() };
+                let dy = unsafe { event.scrollingDeltaY() };
+                if dx.abs() <= dy.abs() {
+                    return raw.as_ptr();
+                }
+                let Some(mtm) = MainThreadMarker::new() else {
+                    return raw.as_ptr();
+                };
+                let Some(window) = event.window(mtm) else {
+                    return raw.as_ptr();
+                };
+                let Some(content) = window.contentView() else {
+                    return raw.as_ptr();
+                };
+                let point =
+                    content.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+                let mut view = content.hitTest(point);
+                while let Some(v) = view {
+                    if let Some(node) = PAN_NODES.with(|t| t.get(ptr_of(&v))) {
+                        if v.downcast_ref::<DayCanvas>().is_some() {
+                            return raw.as_ptr();
+                        }
+                        let raw_phase = unsafe { event.phase() };
+                        let phase = if raw_phase.contains(objc2_app_kit::NSEventPhase::Began) {
+                            day_spec::DragPhase::Began
+                        } else if raw_phase.intersects(
+                            objc2_app_kit::NSEventPhase::Ended
+                                | objc2_app_kit::NSEventPhase::Cancelled,
+                        ) {
+                            day_spec::DragPhase::Ended
+                        } else {
+                            day_spec::DragPhase::Changed
+                        };
+                        let p = v.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+                        emit(
+                            node,
+                            Event::Pan {
+                                phase,
+                                delta: Point::new(dx, dy),
+                                location: Point::new(p.x, p.y),
+                            },
+                        );
+                        return std::ptr::null_mut();
+                    }
+                    view = unsafe { v.superview() };
+                }
+                raw.as_ptr()
+            })
+        });
+        *slot.borrow_mut() = unsafe {
+            NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                objc2_app_kit::NSEventMask::ScrollWheel,
+                &block,
+            )
+        }
+        .map(PanMonitor);
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -7496,9 +7573,10 @@ impl Toolkit for AppKit {
         let key = ptr_of(h);
         // Pan is not a recognizer on macOS: the two-finger idiom is the trackpad SCROLL, so
         // the canvas view's own `scrollWheel:` override reports it for registered nodes.
-        // (Only DayCanvas carries that override — a Pan enabled elsewhere emits nothing.)
+        // Containers use a horizontal-only monitor so nested vertical scrolling still works.
         if kind == day_spec::GestureKind::Pan {
             PAN_NODES.with(|t| t.insert(key, node));
+            install_container_pan_monitor();
             return;
         }
         // Nor is hover: it is a tracking area plus `mouseEntered:`/`mouseMoved:`/`mouseExited:`,

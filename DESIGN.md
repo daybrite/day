@@ -5911,6 +5911,14 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > WebKitGTK / QWebEngineView / WebView2 / ArkUI web, driven by tier-1 Rust renderers with C++
 > shims where the toolkit needs one. Navigation events ride `Event::Custom`; the
 > `evaluate_js(…).await`-over-dayffi design was not needed.
+> `JsHandle::eval` returns JSON through request-keyed custom events. Linux GTK now uses
+> WebKitGTK's evaluation callback; web-dom evaluates only same-origin frames and reports
+> cross-origin access errors. macOS GTK hosts a WKWebView aligned to a GTK allocation
+> anchor and detaches it on unmap. Windows GTK and Qt without Qt WebEngine use Wry's
+> WebView2 child-window host; Windows runtime validation remains outstanding, and those
+> native children have clipping/overlap limits. The piece owns these hosts and their
+> disposal, so Day's core gains no browser dependency. See [webview evaluation](docs/webview-eval.md)
+> and the piece's `tests/browser.mjs` and demo dayscript for the request/link contracts.
 
 ### B.4 Lottie (tier 2 — bridging famous native libraries)
 
@@ -6310,3 +6318,28 @@ This grants access to files actually offered by the native pasteboard, not arbit
 paths embedded in custom Day data. Persistent access still requires a bookmark.
 `transfer::tests::file_reference_url_resolves_to_readable_uri_list_path` covers
 file-ID resolution and escaped Unicode filenames.
+
+### Container horizontal navigation pans
+
+`on_pan` on non-canvas containers now observes horizontal wheel movement through descendant
+controls on AppKit, GTK, Qt and Web DOM. Android containers also receive horizontal pointer-wheel input via
+`dispatchGenericMotionEvent`; touch-only swipes remain separate from this pointer API. Vertical wheel scrolling keeps its native behavior.
+AppKit uses a hit-tested local scroll monitor; GTK uses a capture-phase scroll controller; Qt
+filters wheel events for the host subtree, preferring the nearest pan host; DOM uses the nearest
+registered ancestor. Canvas pans retain both axes. Consumers accumulate content-displacement
+deltas and debounce inertial tails; Stanza Redux exercises this for browser history. DOM sends
+Changed events (no wheel phase API), while native backends retain their available phases.
+Pointer keyboard routing still excludes text-editing controls. UIKit uses its existing two-finger
+recognizer. Other backends retain their existing gesture coverage.
+
+Focusable containers also deliver the existing non-text key route on UIKit, GTK, Qt, Android
+and DOM (AppKit already did). Container focus is explicit; editable child controls keep their
+editing keys. DOM shares the canvas key route with an idempotent listener and target check;
+UIKit containers opt into responder methods only when registered. Stanza's catalog browser
+requests focus after changing location, and real-input browser tests check arrows, horizontal
+wheels, and text-field isolation in addition to dayscript's event injection.
+
+Apple launch/profile lookup and scripted stop use the target-resolved app ID, including platform
+and toolkit overrides, matching the built bundle. This prevents an iOS upgrade test from installing
+the legacy-ID bundle but launching a separately installed default-ID app. The CLI regression
+`apple_launch_uses_the_platform_override` covers the resolved device-launch identity.

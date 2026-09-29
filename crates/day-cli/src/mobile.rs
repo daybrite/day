@@ -744,7 +744,7 @@ pub fn build_macos_xcode(
     }
     // macosx products land under `<configuration>/` (no SDK suffix, unlike iOS).
     let products = symroot.join(configuration);
-    let app = product_bundle(&products, &project.manifest.app.id)?;
+    let app = product_bundle(&products, &apple_app_id(project, target.name))?;
     crate::sandbox::verify(project, &app, profile)?;
     Ok(BuildOutcome {
         target: target.name,
@@ -1290,7 +1290,7 @@ pub fn build_ios_for(
     // the UIAppFonts array, and the permission usage descriptions (docs/permissions.md).
     let floor = prepare_ios(project)?;
     let prov = if physical {
-        installed_profile(&project.manifest.app.id)
+        installed_profile(&apple_app_id(project, "ios-uikit"))
     } else {
         None
     };
@@ -1370,13 +1370,13 @@ pub fn build_ios_for(
     // The Runner target's product bundle is named after the app's PRODUCT_NAME (per app), so locate
     // the single `.app` in the products dir rather than assuming a fixed name.
     let products = symroot.join(format!("{configuration}-{sdk}"));
-    let app = product_bundle(&products, &project.manifest.app.id)?;
+    let app = product_bundle(&products, &apple_app_id(project, target.name))?;
     if physical {
         let p = prov.ok_or_else(|| {
             format!(
                 "no installed provisioning profile covers {}. Create a development profile for \
                  that app id and install it (double-click the .mobileprovision), then retry.",
-                project.manifest.app.id
+                apple_app_id(project, "ios-uikit")
             )
         })?;
         sign_ios_bundle(project, &app, &p)?;
@@ -1433,7 +1433,8 @@ fn sign_ios_bundle(project: &Project, app: &Path, prof: &InstalledProfile) -> Re
                 "Day.toml declares `notifications`, but the profile {:?} does not grant \
                  aps-environment. Enable Push Notifications on the App ID for {} and regenerate \
                  the profile.",
-                prof.name, project.manifest.app.id
+                prof.name,
+                apple_app_id(project, "ios-uikit")
             ));
         }
     }
@@ -1654,7 +1655,7 @@ fn launch_ios_device(
     outcome: &BuildOutcome,
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
-    let bundle_id = project.manifest.app.id.clone();
+    let bundle_id = apple_app_id(project, outcome.target);
     let devices = physical_ios_devices();
     if devices.is_empty() {
         return Err(
@@ -1846,6 +1847,11 @@ fn summarize_devicectl_failure(lines: &[String]) -> String {
         .unwrap_or_else(|| "launch failed".to_string())
 }
 
+// Build, profile selection and launch must use the same target-resolved identity.
+fn apple_app_id(project: &Project, target: &str) -> String {
+    project.manifest.resolve(target).id
+}
+
 pub fn launch_ios(
     project: &Project,
     outcome: &BuildOutcome,
@@ -1854,7 +1860,7 @@ pub fn launch_ios(
     if spec.wants_ios_device() {
         return launch_ios_device(project, outcome, spec);
     }
-    let bundle_id = project.manifest.app.id.clone();
+    let bundle_id = apple_app_id(project, outcome.target);
     let sims = booted_sims();
     if sims.is_empty() {
         return Err(
@@ -2840,6 +2846,46 @@ mod abi_tests {
     use super::{android_build_abis, device_problem, devicectl_launch_args, parse_abi_list};
     use crate::ops::LaunchSpec;
     use std::sync::Mutex;
+
+    #[test]
+    fn apple_launch_uses_the_platform_override() {
+        let manifest = crate::meta::parse_manifest(
+            r#"schema = 1
+[app]
+id = "org.example.default"
+targets = ["ios-uikit", "macos-appkit"]
+[app.ios]
+id = "org.example.Legacy-iOS"
+[app.macos]
+id = "org.example.Legacy-Mac"
+"#,
+            "[package]\nname='demo'\nversion='1.0.0'\n",
+            None,
+        )
+        .unwrap();
+        let project = crate::meta::Project {
+            root: std::env::temp_dir(),
+            manifest,
+        };
+        let spec = LaunchSpec {
+            locale: None,
+            envs: vec![],
+            attached: true,
+            ios_device: None,
+            ios_simulator: None,
+            android_device: None,
+            ohos_device: None,
+        };
+        let ios = super::apple_app_id(&project, "ios-uikit");
+        assert_eq!(ios, "org.example.Legacy-iOS");
+        assert_eq!(
+            super::apple_app_id(&project, "macos-appkit"),
+            "org.example.Legacy-Mac"
+        );
+        let args = devicectl_launch_args("device", &ios, &spec);
+        assert_eq!(args.last().unwrap(), "org.example.Legacy-iOS");
+        assert!(!args.iter().any(|a| a == "org.example.default"));
+    }
 
     /// Every devicectl option must precede the bundle id.
     ///

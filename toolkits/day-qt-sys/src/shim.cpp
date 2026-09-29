@@ -2254,9 +2254,21 @@ public:
     uint64_t node; int kind; DayGestureCb cb;
     bool pressed = false; bool engaged = false; QPointF start; QPointF last;
     double pinch_scale = 1.0;
+    QWidget *pan_host = nullptr;
     DayGestureFilter(uint64_t n, int k, DayGestureCb c) : node(n), kind(k), cb(c) {}
 protected:
     bool eventFilter(QObject *obj, QEvent *ev) override {
+        if (pan_host) {
+            if (ev->type() != QEvent::Wheel) return false;
+            QWidget *target = qobject_cast<QWidget *>(obj);
+            if (!target || (target != pan_host && !pan_host->isAncestorOf(target))) return false;
+            for (QWidget *p = target; p && p != pan_host; p = p->parentWidget())
+                if (p->property("dayPanHost").toBool()) return false;
+            auto *wheel = static_cast<QWheelEvent *>(ev);
+            QPointF d = wheel->pixelDelta();
+            if (d.isNull()) d = wheel->angleDelta();
+            if (std::abs(d.x()) <= std::abs(d.y())) return false;
+        }
         bool is_drag = kind == 1;
         // Hover: entry, each move, then exit — phases 10/11/12 (day_spec::Event::Hover).
         if (kind == 4) {
@@ -2393,7 +2405,11 @@ void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
     if (kind == 4) widget->setMouseTracking(true);
     DayGestureFilter *f = new DayGestureFilter(node, kind, cb);
     f->setParent(widget); // freed with the widget
-    widget->installEventFilter(f);
+    widget->setProperty("dayPanHost", kind == 3 || widget->property("dayPanHost").toBool());
+    if (kind == 3 && !dynamic_cast<DayCanvasWidget *>(widget)) {
+        f->pan_host = widget;
+        qApp->installEventFilter(f); // QObject removes its filters when the host dies.
+    } else widget->installEventFilter(f);
 }
 
 // --- the list (docs/list.md): a real QListWidget ---
@@ -2708,6 +2724,8 @@ protected:
 
 void day_qt_enable_focus(void *w, uint64_t node, DayFocusCb cb) {
     QWidget *widget = static_cast<QWidget *>(w);
+    if (widget->property("dayFocusEnabled").toBool()) return;
+    widget->setProperty("dayFocusEnabled", true);
     DayFocusFilter *f = new DayFocusFilter(node, cb);
     f->setParent(widget); // freed with the widget
     widget->installEventFilter(f);
@@ -2762,6 +2780,8 @@ protected:
 void day_qt_enable_keys(void *w, uint64_t node, DayKeyCb cb) {
     QWidget *widget = static_cast<QWidget *>(w);
     widget->setFocusPolicy(Qt::StrongFocus);
+    if (widget->property("dayKeysEnabled").toBool()) return;
+    widget->setProperty("dayKeysEnabled", true);
     DayKeyFilter *f = new DayKeyFilter(node, cb);
     f->setParent(widget); // freed with the widget
     widget->installEventFilter(f);

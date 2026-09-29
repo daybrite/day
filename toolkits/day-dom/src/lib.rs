@@ -602,6 +602,7 @@ mod ev {
     pub const HOVER_ENTER: u32 = 17;
     pub const HOVER_MOVED: u32 = 18;
     pub const HOVER_LEFT: u32 = 19;
+    pub const PAN: u32 = 20;
 }
 
 // ---------------------------------------------------------------------------
@@ -2372,12 +2373,22 @@ impl Toolkit for Dom {
             GestureKind::Tap => 128,
             GestureKind::Drag => 256,
             GestureKind::Hover => 512,
-            // Long-press, pinch, and pan are not delivered on this backend yet
+            // Long-press and pinch are not delivered on this backend yet
             // (docs/canvas.md "Zoom and pan").
-            GestureKind::LongPress | GestureKind::Pinch | GestureKind::Pan => 0,
+            GestureKind::LongPress | GestureKind::Pinch => 0,
+            GestureKind::Pan => 2048,
         };
         if mask != 0 {
             unsafe { day_dom_listen(h.0, mask) };
+        }
+    }
+
+    fn set_focusable(&mut self, h: &DomHandle, node: NodeId, focusable: bool) {
+        remember(h.0, node);
+        if focusable {
+            unsafe {
+                day_dom_canvas_keynav(h.0);
+            };
         }
     }
 
@@ -3852,6 +3863,11 @@ fn day_dom_event_inner(el: u32, kind: u32, a: f64, b: f64, c: f64, d: f64) {
                 _ => day_spec::DragPhase::Changed,
             },
             location: Point::new(a, b),
+        },
+        ev::PAN => Event::Pan {
+            phase: day_spec::DragPhase::Changed,
+            location: Point::new(a, b),
+            delta: Point::new(c, d),
         },
         ev::SCROLL => Event::ScrollChanged(Point::new(a, b)),
         ev::CONTEXT => Event::ContextMenu {

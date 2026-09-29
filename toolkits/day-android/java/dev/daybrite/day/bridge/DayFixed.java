@@ -13,6 +13,11 @@ import java.util.HashMap;
  *  measured `UNSPECIFIED` (inside a ScrollView) it reports the content size set by day (§7.6). */
 public class DayFixed extends ViewGroup {
     private final HashMap<View, int[]> frames = new HashMap<>();
+    long panNode = 0;
+    @Override public boolean dispatchGenericMotionEvent(android.view.MotionEvent e) {
+        if (panNode != 0 && DayBridge.horizontalPan(this, panNode, e)) return true;
+        return super.dispatchGenericMotionEvent(e);
+    }
     private int contentW = 0, contentH = 0;
 
     public DayFixed(Context c) { super(c); }

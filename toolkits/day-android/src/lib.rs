@@ -1454,6 +1454,11 @@ mod imp {
                 let tr = Point::new(p[2] / d, p[3] / d);
                 match num as i32 {
                     0 => Event::Tap(at),
+                    8 => Event::Pan {
+                        phase: day_spec::DragPhase::Changed,
+                        location: at,
+                        delta: tr,
+                    },
                     // Hover (docs/canvas.md "Interaction"): a mouse or a stylus over the view.
                     // A finger produces none of these: Android's hover events come from
                     // MotionEvent's HOVER_* actions, which touches do not generate.
@@ -3652,6 +3657,16 @@ mod imp {
             );
         }
 
+        fn set_focusable(&mut self, h: &AHandle, node: NodeId, focusable: bool) {
+            if focusable {
+                call_void(
+                    "enableKeys",
+                    "(Landroid/view/View;J)V",
+                    &[JValue::Object(h.0.as_obj()), JValue::Long(node.0 as i64)],
+                );
+            }
+        }
+
         fn focus(&mut self, h: &AHandle, _node: NodeId, focused: bool) {
             // DayBridge pairs the request with the IME (show on gain, hide on resign) and
             // resigns to the focusable content root, since Android focus is never "nowhere".
@@ -3669,10 +3684,15 @@ mod imp {
         fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: day_spec::GestureKind) {
             // Pinch and pan are not delivered on this backend yet (docs/canvas.md "Zoom and
             // pan"), and must not fall through to the tap wire below.
-            if matches!(
-                kind,
-                day_spec::GestureKind::Pinch | day_spec::GestureKind::Pan
-            ) {
+            if kind == day_spec::GestureKind::Pan {
+                call_void(
+                    "enablePan",
+                    "(Landroid/view/View;J)V",
+                    &[JValue::Object(h.0.as_obj()), JValue::Long(node.0 as i64)],
+                );
+                return;
+            }
+            if kind == day_spec::GestureKind::Pinch {
                 return;
             }
             // Hover is a separate listener (`setOnHoverListener`), not a touch one: MotionEvent's
