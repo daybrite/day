@@ -569,6 +569,10 @@ void day_ark_set_enabled(void* n, int enabled) {
     ArkUI_AttributeItem item{}; item.value = &value; item.size = 1;
     g_api->setAttribute((ArkUI_NodeHandle)n, NODE_ENABLED, &item);
 }
+void day_ark_set_button_border(void* n, double width, uint32_t color) {
+    set_f32(n, NODE_BORDER_WIDTH, (float)width);
+    set_u32(n, NODE_BORDER_COLOR, color);
+}
 void day_ark_set_button_label(void* n, const char* s) { set_str(n, NODE_BUTTON_LABEL, s); }
 void day_ark_set_input_text(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_TEXT, s); }
 void day_ark_set_placeholder(void* n, const char* s) { set_str(n, NODE_TEXT_INPUT_PLACEHOLDER, s); }

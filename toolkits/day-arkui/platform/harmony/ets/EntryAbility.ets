@@ -1,4 +1,4 @@
-import { AbilityConstant, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
+import { AbilityConstant, Configuration, ConfigurationConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { window, KeyboardAvoidMode } from '@kit.ArkUI';
 import { util } from '@kit.ArkTS';
 import nativeEntry from 'libentry.so';
@@ -15,6 +15,9 @@ interface DayFontEntry {
 }
 
 export default class EntryAbility extends UIAbility {
+  private mainWindow: window.Window | undefined = undefined;
+  private darkMode: boolean = false;
+
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
     // Deliver launcher-provided environment (the dayscript engine port + token, plus locale /
     // autodrive) into the native process before the UI — and thus `day_script::init()` inside
@@ -38,6 +41,8 @@ export default class EntryAbility extends UIAbility {
     // parameter) forces the app's color mode — themed screenshot runs and local theme checks;
     // unset ⇒ follow the system.
     const theme: Object | undefined = want.parameters?.['day.env.DAY_THEME'];
+    this.darkMode = theme === 'dark' || (theme !== 'light' &&
+      this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     if (theme === 'dark') {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_DARK);
     } else if (theme === 'light') {
@@ -62,6 +67,8 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
+    this.mainWindow = windowStage.getMainWindowSync();
+    this.updateSystemBars();
     windowStage.loadContent('day/Index', () => {
       // Bundled custom fonts (§18.4): registered as soon as the content is loaded — before
       // the Day tree mounts (it starts on the page's first onAreaChange, after layout) — so the
@@ -74,6 +81,23 @@ export default class EntryAbility extends UIAbility {
       // relayouts into the reduced area — the focused field stays visible.
       windowStage.getMainWindowSync().getUIContext()
         .setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    });
+  }
+
+  onConfigurationUpdate(config: Configuration): void {
+    if (config.colorMode !== undefined) {
+      this.darkMode = config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+      this.updateSystemBars();
+    }
+  }
+
+  private updateSystemBars(): void {
+    const color: string = this.darkMode ? '#FFFFFF' : '#000000';
+    this.mainWindow?.setWindowSystemBarProperties({
+      statusBarContentColor: color,
+      navigationBarContentColor: color
+    }).catch(() => {
+      console.warn('day-arkui: could not update system bar appearance');
     });
   }
 
@@ -134,7 +158,7 @@ export default class EntryAbility extends UIAbility {
     }
   }
 
-  onWindowStageDestroy(): void {}
+  onWindowStageDestroy(): void { this.mainWindow = undefined; }
   onForeground(): void {}
   onBackground(): void {}
   onDestroy(): void {}

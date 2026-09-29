@@ -4392,6 +4392,19 @@ fn picker_and_text_area_are_built_in() {
     flush_sync();
     assert_eq!(choice.get_untracked(), 0);
     assert_eq!(draft.get_untracked(), "typed");
+    let inspected = day_core::with_tree(|tree| {
+        let node = tree.find_by_id("ta").unwrap();
+        tree.node_probe(node).unwrap().text
+    });
+    assert_eq!(
+        inspected, "typed",
+        "native edits update the dayscript snapshot"
+    );
+    assert_eq!(
+        probe.find_by_kind("day.text_area")[0].1.text,
+        "bye",
+        "native text is not written back to the widget (preserves caret/IME)"
+    );
 }
 
 /// Cover (docs/cover.md): Some(route) presents + builds content, the native FrameChanged

@@ -90,7 +90,9 @@ Symbols may look different between platforms. Bundled template images use the ex
 AppKit's `.prominent()` establishes the Return-key default action. GTK uses
 `suggested-action`, UIKit uses its bordered-prominent configuration, and XAML requests
 `AccentButtonStyle` where available. Qt asks the current style to draw a default button;
-Android and ArkUI retain their stock filled treatment.
+Android retains its stock filled treatment. ArkUI uses a transparent background for automatic
+and compact buttons, an outline for bordered buttons, and a filled background for prominent
+and tinted buttons. All remain native buttons with native focus, press, and disabled behavior.
 
 Tinting preserves native controls but can affect their feedback. Qt uses explicit hover,
 pressed, and disabled stylesheet rules. XAML's local background brush reduces the template's

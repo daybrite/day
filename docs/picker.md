@@ -56,15 +56,15 @@ moving a mark, and a picker whose choices are constant should stay constant.
 | style | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|---|
 | **Menu** | `NSPopUpButton` | `UIButton`+`UIMenu` pull-down | `GtkDropDown` | `QComboBox` | `Spinner` | `ComboBox` | ArkTS `Select` (wheel on an older host) |
-| **Segmented** | `NSSegmentedControl` | `UISegmentedControl` | `.linked` grouped `GtkToggleButton`s | checkable `QPushButton`s in a `QButtonGroup` | button-row `LinearLayout` (dim unselected) | horizontal `RadioButton` `StackPanel` | `TextPicker` wheel |
+| **Segmented** | `NSSegmentedControl` | `UISegmentedControl` | `.linked` grouped `GtkToggleButton`s | checkable `QPushButton`s in a `QButtonGroup` | button-row `LinearLayout` (dim unselected) | horizontal `RadioButton` `StackPanel` | compact ArkTS button row (wheel on an older host) |
 | **Inline** | vertical `NSStackView` of radio `NSButton`s | checkmark-row `UIStackView` | grouped `GtkCheckButton`s (radio) | `QRadioButton`s in a `QButtonGroup` | `RadioGroup` | vertical `RadioButton` `StackPanel` | `TextPicker` wheel |
 
 ArkUI renders **Menu** as HarmonyOS's own dropdown, the ArkTS `Select` component. The C node API
 has no select kind, so it is a built-in ArkTS piece the host page registers (`DaySelect.ets` in
 day-arkui's host, passed to `registerDayPieces`); it is sized once for its widest option, so a choice
-never changes its width, and a host too old to register it falls back to the wheel. HarmonyOS has no
-segmented control, so **Segmented** and **Inline** render as the native `ARKUI_NODE_TEXT_PICKER`
-wheel, the platform's option-selection idiom. The Qt and XAML renderers each carry a C++ shim in the
+never changes its width. **Segmented** uses a compact row of native ArkTS buttons with an
+accessible selected state, sized for the widest label. **Inline**, and hosts too old to register
+the ArkTS picker, use the native `ARKUI_NODE_TEXT_PICKER` wheel. The Qt and XAML renderers each carry a C++ shim in the
 matching `-sys` crate (`toolkits/day-qt-sys/src/shim-picker.cpp`,
 `toolkits/day-xaml-sys/src/shim-picker.cpp`); the XAML shim boxes its XAML element into a Day handle
 through the `day_xaml_box`/`day_xaml_unbox` functions. Android's Java factory

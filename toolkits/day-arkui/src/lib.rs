@@ -96,9 +96,9 @@ mod imp {
         /// ArkTS FrameNode inside it). Release detaches the FrameNode, sends the ArkTS side its
         /// disposal (ArkTS owns that node), and disposes only the native wrapper.
         static PIECE_NODES: RefCell<HashMap<usize, (u64, usize)>> = RefCell::new(HashMap::new());
-        /// Each menu picker's size by wrapper handle: the width its widest option needs (the
-        /// button's own chrome plus that label) and its height, so a choice never changes it.
-        static MENU_PICKER_SIZE: RefCell<HashMap<usize, (f64, Size)>> = RefCell::new(HashMap::new());
+        /// ArkTS picker size by wrapper: Some(chrome) is a menu, None is a segmented row.
+        /// Both reserve room for every option, so selecting another label never resizes them.
+        static MENU_PICKER_SIZE: RefCell<HashMap<usize, (Option<f64>, Size)>> = RefCell::new(HashMap::new());
         /// The size each ArkTS piece was last told it has (see `set_frame`), by wrapper handle.
         static PIECE_FRAME: RefCell<HashMap<usize, Size>> = RefCell::new(HashMap::new());
         /// The neutral paints that follow the color mode (see [`themed`]), by the node whose
@@ -863,11 +863,6 @@ mod imp {
     const K_LIST: c_int = 13;
     // 14 = ARKUI_NODE_LIST_ITEM, created inside the shim's list adapter (never via new_node here).
 
-    /// Put a [`day_spec::props::ButtonStyleSpec`] on an ArkUI button node, keeping it a button.
-    ///
-    /// A tint is `NODE_BACKGROUND_COLOR` + `NODE_FONT_COLOR` on the button node itself, so ArkUI
-    /// still draws the press effect, the focus ring and the disabled state. The other styles are the
-    /// stock button, which is already ArkUI's filled capsule — the shape `prominent` is asking for.
     /// Rebuild a label's SPAN children from its runs (docs/text-runs.md).
     ///
     /// ArkUI is the one backend where runs are child NODES rather than attributes on one widget: a
@@ -1034,10 +1029,11 @@ mod imp {
             let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
             (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
         };
-        let ink = if let S::Tinted(c) = style {
-            argb(S::on_tint(c))
-        } else {
-            0xFFFF_FFFF
+        let (fill, ink, border) = match style {
+            S::Automatic | S::Compact => (0, 0xFF33_7DFF, 0.0),
+            S::Bordered => (0, 0xFF33_7DFF, 1.0),
+            S::Prominent => (0xFF33_7DFF, 0xFFFF_FFFF, 0.0),
+            S::Tinted(c) => (argb(c), argb(S::on_tint(c)), 0.0),
         };
         BUTTON_INK.with(|m| {
             m.insert(n as usize, ink);
@@ -1052,13 +1048,12 @@ mod imp {
                 }
             }
         });
-        // Bordered, Prominent and Compact keep the stock ArkUI button (it hugs its title).
-        if let S::Tinted(c) = style {
-            // SAFETY: `n` is a live ARKUI_NODE_BUTTON; both setters take a packed color.
-            unsafe {
-                ffi::day_ark_set_bg_color(n, argb(c));
-                ffi::day_ark_set_font_color(n, argb(S::on_tint(c)));
-            }
+        // Reset all style attributes, including when changing away from a tint or border.
+        // Keep the native button so press, focus, accessibility and disabled behavior survive.
+        unsafe {
+            ffi::day_ark_set_bg_color(n, fill);
+            ffi::day_ark_set_font_color(n, ink);
+            ffi::day_ark_set_button_border(n, border, ink);
         }
     }
 
@@ -1082,8 +1077,9 @@ mod imp {
         Ok(bytes)
     }
 
-    /// The ArkTS piece kind of the menu-style picker (DaySelect.ets).
+    /// The ArkTS hosts for menu and segmented pickers (DaySelect.ets).
     const MENU_PICKER_KIND: &str = "day.picker.menu";
+    const SEGMENTED_PICKER_KIND: &str = "day.picker.segmented";
 
     /// A menu picker's props and `options` command: the selected index (empty to keep the
     /// current one), then each option, 0x1F-separated (DaySelect.ets parses it). An option can't
@@ -1199,7 +1195,7 @@ mod imp {
         unsafe { ffi::day_ark_measure(h.0, 0.0, 0.0, &mut w, &mut hh) };
         let chrome = (w - shown.map_or(0.0, select_label_width)).max(40.0);
         let size = Size::new(chrome + widest_label(options), hh.max(40.0));
-        MENU_PICKER_SIZE.with(|m| m.borrow_mut().insert(h.0 as usize, (chrome, size)));
+        MENU_PICKER_SIZE.with(|m| m.borrow_mut().insert(h.0 as usize, (Some(chrome), size)));
         piece::update(h, "width", &size.width.to_string());
     }
 
@@ -1210,12 +1206,25 @@ mod imp {
         else {
             return;
         };
-        let width = chrome + widest_label(options);
+        let width = chrome.map_or_else(
+            || segmented_width(options),
+            |chrome| chrome + widest_label(options),
+        );
         if (width - size.width).abs() >= 0.5 {
             let size = Size::new(width, size.height);
             MENU_PICKER_SIZE.with(|m| m.borrow_mut().insert(h.0 as usize, (chrome, size)));
             piece::update(h, "width", &width.to_string());
         }
+    }
+
+    fn segmented_width(options: &[String]) -> f64 {
+        (widest_label(options) + 24.0).max(48.0) * options.len() as f64 + 8.0
+    }
+
+    fn size_segmented_picker(h: &AHandle, options: &[String]) {
+        let size = Size::new(segmented_width(options), 40.0);
+        MENU_PICKER_SIZE.with(|m| m.borrow_mut().insert(h.0 as usize, (None, size)));
+        piece::update(h, "width", &size.width.to_string());
     }
 
     fn widest_label(options: &[String]) -> f64 {
@@ -2096,25 +2105,33 @@ mod imp {
                 }
                 // Option picker (docs/picker.md). A menu picker is HarmonyOS's own dropdown, the
                 // ArkTS `Select` the host registers (DaySelect.ets; the C node API has no select
-                // kind). HarmonyOS has no segmented control, so the other styles, and a menu
-                // picker under a host without the Select, are the native TEXT_PICKER wheel;
+                // kind). The same host builds a compact button row for segmented pickers.
+                // Inline pickers and hosts without the built-in piece use the TEXT_PICKER wheel;
                 // SelectionChanged via event kind 8.
                 Some(Builtin::Picker) => {
                     let Some(p) = day_spec::props_of::<PickerProps>(kind, "arkui", props) else {
                         return new_node(K_STACK);
                     };
-                    if p.style == PickerStyle::Menu
+                    if matches!(p.style, PickerStyle::Menu | PickerStyle::Segmented)
                         && let Some(n) = piece::try_make(
-                            MENU_PICKER_KIND,
+                            if p.style == PickerStyle::Segmented {
+                                SEGMENTED_PICKER_KIND
+                            } else {
+                                MENU_PICKER_KIND
+                            },
                             id,
                             &select_props(Some(p.selected), &p.options),
                         )
                     {
-                        size_menu_picker(
-                            &n,
-                            p.options.get(p.selected).map(String::as_str),
-                            &p.options,
-                        );
+                        if p.style == PickerStyle::Segmented {
+                            size_segmented_picker(&n, &p.options);
+                        } else {
+                            size_menu_picker(
+                                &n,
+                                p.options.get(p.selected).map(String::as_str),
+                                &p.options,
+                            );
+                        }
                         return n;
                     }
                     let n = new_node(K_TEXT_PICKER);

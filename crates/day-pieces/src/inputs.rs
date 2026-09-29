@@ -325,6 +325,9 @@ impl<S: Binding<String>> Piece for TextArea<S> {
         );
         cx.on(node, move |ev| match ev {
             Event::TextChanged(t) => {
+                // Native edits skip the write-back patch below to preserve the caret/IME.
+                // Keep inspection/dayscript text current even when no toolkit patch is sent.
+                with_tree(|tree| tree.set_probe_value(node, 0.0, t.clone()));
                 *guard.borrow_mut() = Some(t.clone());
                 text.write(t.clone());
             }
