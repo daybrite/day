@@ -341,15 +341,29 @@ fn default_smp() -> usize {
     std::thread::available_parallelism().map_or(6, |n| n.get().min(6))
 }
 
-/// The size QEMU's GTK display opens its window at, before the guest has set a scanout; a
-/// windowed Linux guest runs at this size whatever panel was asked for (see `emulator_launch`).
-const GTK_WINDOW_PANEL: (u32, u32) = (640, 480);
+/// Whether `qemu` offers the display backend `name` (`-display help` lists what it was built
+/// with).
+pub(crate) fn qemu_has_display(qemu: &str, name: &str) -> bool {
+    Command::new(qemu)
+        .args(["-display", "help"])
+        .output()
+        .is_ok_and(|o| qemu_display_listed(&String::from_utf8_lossy(&o.stdout), name))
+}
+
+/// [`qemu_has_display`]'s reading of `-display help`: the backend names follow its first line.
+fn qemu_display_listed(help: &str, name: &str) -> bool {
+    help.lines()
+        .skip(1)
+        .take_while(|l| !l.trim().is_empty())
+        .any(|l| l.trim() == name)
+}
 
 /// Bring up the OpenHarmony QEMU emulator as a native window (the OHOS analogue of
 /// `skip android emulator launch`). On macOS the QEMU `cocoa` backend opens a native window
-/// directly, with no VNC or Screen Sharing in between, and on Linux the `gtk` one;
-/// `--headless` uses no display (hdc-only, for CI). Self-contained: it builds the QEMU command
-/// itself, so it doesn't depend on the emulator distribution's shell launcher.
+/// directly, with no VNC or Screen Sharing in between, and on Linux the `sdl` one, as the Oniro
+/// image's own run.sh does; `--headless` uses no display (hdc-only, for CI). Self-contained: it
+/// builds the QEMU command itself, so it doesn't depend on the emulator distribution's shell
+/// launcher.
 ///
 /// The image directory is `DAY_OHOS_EMULATOR` or the default `~/ohos/emulator/images`, holding
 /// either an Oniro image (OpenHarmony 6.x) or an ohos-qemu `x86_64_virt` one (7.0); its files
@@ -379,6 +393,19 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         return Err(format!(
             "{qemu} not found — install QEMU to run the OpenHarmony emulator \
              (`day doctor --toolkit harmonyos` shows how on this host)."
+        ));
+    }
+    // A window on Linux is SDL's, as the image's own run.sh opens it. A QEMU built without SDL
+    // (Homebrew's, which has only GTK) is refused rather than worked around: GTK hands the guest
+    // its window's size, starting from a 640×480 placeholder, instead of the requested panel.
+    if !headless && cfg!(target_os = "linux") && !qemu_has_display(qemu, "sdl") {
+        return Err(format!(
+            "{} has no SDL display, which the emulator's window needs (Homebrew's QEMU is built \
+             with GTK only). Install your distribution's QEMU, as the Oniro emulator's run.sh \
+             expects: `sudo apt install qemu-system-x86 qemu-system-gui` (Fedora: \
+             `qemu-system-x86-core qemu-ui-sdl`), and remove other builds from PATH. Or boot \
+             with --headless, which needs no display.",
+            find_tool(qemu).map_or(qemu.to_string(), |p| p.display().to_string())
         ));
     }
     // Host hdc port from the connect key (the guest's own port is the image's). Kill any stale hdc
@@ -427,19 +454,12 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         // (bootevent.wms.fullscreen.ready never fires; three consecutive boots). To enlarge
         // the window, toggle View → Zoom To Fit once booted and drag-resize.
         &["-display", "cocoa"]
-    } else if image == EmulatorImage::OhosQemu {
-        // The ohos-qemu (7.0) guest aborts QEMU's GL display during boot
-        // (`surface_gl_create_texture: Assertion 'map_format(...)' failed`, Homebrew QEMU 11.1,
-        // Ubuntu 24.04), though its settled scanout is the same XRGB8888 as Oniro's. `gl=off` is
-        // what the image's own launcher uses; where plain GTK doesn't repaint (below), boot
-        // with --headless instead.
-        &["-display", "gtk,gl=off"]
     } else {
-        // GTK with OpenGL rendering. Plain `gtk` (cairo) painted its "Display output is not
-        // active" placeholder once and never repainted (a Homebrew QEMU 11.1 on Ubuntu 24.04,
-        // X11 and Wayland alike), even though the guest was scanning out and `screendump` saw
-        // its frames; `gl=on` shows them.
-        &["-display", "gtk,gl=on"]
+        // SDL without GL, exactly as the Oniro image's run.sh opens it: the window takes the
+        // guest's panel (360×720 by default there), where GTK's would impose its own size.
+        // `gl=off` also keeps the ohos-qemu (7.0) guest, which aborts QEMU's GL display during
+        // boot (`surface_gl_create_texture: Assertion 'map_format(...)'`), on the same path.
+        &["-display", "sdl,gl=off"]
     };
 
     // Kernel command line, disks, and the guest's hdc port come from the image's layout.
@@ -447,28 +467,11 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         "user,id=net0,hostfwd=tcp:127.0.0.1:{host_port}-:{}",
         image.guest_hdc_port()
     );
-    // QEMU's GTK window opens at its 640×480 placeholder size and reports that size to
-    // virtio-gpu, and the guest adopts it over the requested panel. Any other panel makes the
-    // guest switch modes while its display is coming up; on a fast (KVM) boot that switch's
-    // atomic commit fails with ENOSPC, the CRTC is never enabled, and the window shows
-    // "Display output is not active" for good (restarting render_service doesn't recover it).
-    // So a windowed Linux boot asks for 640×480 from the start. Later window resizes are safe:
-    // the guest keeps 640×480. `--headless` honors the requested panel.
-    let (xres, yres) = if !headless && !cfg!(target_os = "macos") {
-        if panel != GTK_WINDOW_PANEL {
-            status(
-                "Panel",
-                &format!(
-                    "{}×{} requested, but a QEMU GTK window runs the guest at 640×480; \
-                     boot with --headless to keep the requested panel",
-                    panel.0, panel.1
-                ),
-            );
-        }
-        GTK_WINDOW_PANEL
-    } else {
-        panel
-    };
+    // The guest draws at whatever virtio-gpu is told. An SDL window opens at that size, and the
+    // guest follows the window if the window manager clamps it (a 1280×800 tablet on a
+    // 1280×800 screen comes up at the screen's usable area); `--headless` keeps the panel
+    // exactly, whatever the screen.
+    let (xres, yres) = panel;
     status("Panel", &format!("{xres}×{yres} (virtio-gpu)"));
     if let Ok(github_env) = std::env::var("GITHUB_ENV") {
         use std::io::Write;
@@ -1910,6 +1913,24 @@ mod screen_size_tests {
                     screenType=EXTERNAL_TYPE, render resolution=640x480, \
                     physical resolution=640x480, isVirtual=false\nactiveMode: 640x480, refreshRate=60";
         assert_eq!(parse_screen_dump(dump), Some((640, 480)));
+    }
+
+    /// A windowed boot needs SDL: Ubuntu's QEMU lists it, Homebrew's GTK-only build does not.
+    #[test]
+    fn the_display_backends_come_from_display_help() {
+        let ubuntu = "Available display backend types:\nnone\ngtk\nsdl\negl-headless\ncurses\n\
+                      spice-app\ndbus\n";
+        let homebrew = "Available display backend types:\nnone\ngtk\negl-headless\ncurses\n\
+                        dbus\n\nSome display backends support suboptions, which can be set with\n\
+                        -display backend,option=value,option=value...\n";
+        assert!(super::qemu_display_listed(ubuntu, "sdl"));
+        assert!(!super::qemu_display_listed(homebrew, "sdl"));
+        assert!(super::qemu_display_listed(homebrew, "gtk"));
+        // The header is not a backend.
+        assert!(!super::qemu_display_listed(
+            homebrew,
+            "Available display backend types:"
+        ));
     }
 
     /// A forward `day launch` already set is found, so `day drive` doesn't re-add it (hdc

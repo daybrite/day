@@ -142,7 +142,7 @@ builds on Ubuntu 24.04.
 # Debian / Ubuntu
 sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config     # linux-gtk
 sudo apt install qt6-base-dev pkg-config                      # linux-qt
-sudo apt install qemu-system-x86 unzip                        # harmony-arkui (emulator)
+sudo apt install qemu-system-x86 qemu-system-gui unzip       # harmony-arkui (emulator)
 ```
 
 The GTK minimums are hard requirements. Day builds stack navigation on `AdwNavigationView`, and
@@ -344,8 +344,9 @@ tools are Linux binaries, though, so hvigor fails with `spawn ENOEXEC`. Take the
 ### Setting up the Oniro emulator
 
 Day runs the [Oniro](https://oniroproject.org) OpenHarmony emulator directly under QEMU, from a
-public image download. You need `qemu-system-x86_64` (`sudo apt install qemu-system-x86`, or
-`brew install qemu`) and about 7 GB of disk: a 1.4 GB zip that unpacks to 5.5 GB of images. The
+public image download. You need `qemu-system-x86_64` (on Linux your distribution's, with its
+display modules: `sudo apt install qemu-system-x86 qemu-system-gui`; on macOS `brew install qemu`)
+and about 7 GB of disk: a 1.4 GB zip that unpacks to 5.5 GB of images. The
 zip holds an `images/` directory, so unpacking it in `~/ohos/emulator` lands the images at the
 default location:
 
@@ -388,9 +389,12 @@ Without it, Day falls back to TCG software emulation, and boot takes several min
 emulator gets six vCPUs, or as many as the host has cores when that is fewer; set
 `DAY_OHOS_SMP` to override. On macOS the emulator always runs under TCG.
 
-On Linux the emulator window is a GTK window drawn with OpenGL, and the guest runs at 640×480
-landscape whatever `--device` asks for, because that is the size the window reports to the
-guest. `--headless` keeps the requested panel. To watch a headless emulator, take screenshots with
+On Linux the emulator window is QEMU's SDL display, as the Oniro image's own `run.sh` opens it, at
+the panel `--device` names (a 360×720 phone unless you say otherwise). That needs your
+distribution's QEMU with its display modules (`sudo apt install qemu-system-x86
+qemu-system-gui`); Homebrew's QEMU has no SDL display, and `day` refuses it for a windowed boot. A
+panel larger than your screen comes up at the size the window manager allows; `--headless` keeps
+the requested panel. To watch a headless emulator, take screenshots with
 `hdc shell uitest screenCap -p /data/local/tmp/s.png` and `hdc file recv /data/local/tmp/s.png`.
 
 The x86_64 emulator image carries an arm64-only ArkWeb engine, so the web view piece does not

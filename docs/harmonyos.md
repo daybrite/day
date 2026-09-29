@@ -214,15 +214,14 @@ six disks rather than four (in the vda–vdf order the kernel command line's mou
 eng/developer-mode command line, hdc on guest port 5555 rather than 55555, and the virtio tablet
 and keyboard. The host port stays `DAY_OHOS_TARGET`'s for both, so `day launch`, `day drive`, and
 scripts need no change. The Showcase walkthrough passes 861/861 on both images (API-18 build).
-The windowed 7.0 boot uses `-display gtk,gl=off`: the 7.0 guest aborts QEMU's GL display
-(`surface_gl_create_texture: Assertion 'map_format(...)'`) during boot. On a host whose plain GTK
-display doesn't repaint (see below), boot it `--headless`. ohos-qemu's arm64 packages (an `Image`
-kernel) are refused by name: they need `qemu-system-aarch64`.
+Both images boot windowed with `-display sdl,gl=off`: the 7.0 guest aborts QEMU's GL display
+(`surface_gl_create_texture: Assertion 'map_format(...)'`) during boot. ohos-qemu's arm64
+packages (an `Image` kernel) are refused by name: they need `qemu-system-aarch64`.
 
 ```bash
-# A native OpenHarmony emulator window (QEMU cocoa on macOS, GTK on Linux; no VNC, no password,
-# no DevEco). Point DAY_OHOS_EMULATOR at the Oniro image dir (default ~/ohos/emulator/images).
-# --headless runs without a window, as CI does; on Linux, prefer it (see below).
+# A native OpenHarmony emulator window (QEMU cocoa on macOS, SDL on Linux, as the Oniro image's own
+# run.sh opens it; no VNC, no password, no DevEco). Point DAY_OHOS_EMULATOR at the Oniro image dir
+# (default ~/ohos/emulator/images). --headless runs without a window, as CI does.
 day devices boot -p harmony-arkui
 # The same image on a landscape tablet panel. Oniro has no screen of its own: it draws at whatever
 # size QEMU's virtio-gpu is told, so --device names a panel (phone 360x720, tablet 1280x800, or
@@ -240,18 +239,17 @@ $USER`, then log in again). Otherwise boot falls back to TCG and says so. TCG bo
 minutes on a 4-core desktop. The guest gets 6 vCPUs, or the host's core count when it has fewer;
 `DAY_OHOS_SMP` overrides that. `DAY_OHOS_ACCEL` forces a choice (`kvm`, or `tcg,thread=multi`).
 
-**Windowed boot on Linux.** Three things, each verified 2026-09 on Ubuntu 24.04 with Homebrew's
-QEMU 11.1, under both KVM and TCG:
+**Windowed boot on Linux.** The window is QEMU's SDL display with GL off, which is how the Oniro
+image's own `run.sh` opens it (its default screen is the 360×720 phone), and QEMU comes from the
+distribution: `sudo apt install qemu-system-x86 qemu-system-gui` on Ubuntu, `qemu-system-x86-core
+qemu-ui-sdl` on Fedora (verified 2026-09 on Ubuntu 24.04 with its QEMU 8.2, under KVM):
 
-- QEMU's GTK display reports its window's 640×480 placeholder size to virtio-gpu, and the guest
-  adopts it. When the requested panel differs, the guest switches modes while its display is
-  coming up, that `drmModeAtomicCommit` fails with ENOSPC, and the CRTC never turns on (the
-  window reads "Display output is not active"; restarting `render_service` does not recover).
-  `day devices boot` therefore asks for 640×480 on a windowed Linux boot and says so;
-  `--headless` keeps the requested panel. Resizing the window afterwards is harmless.
-- Plain `-display gtk` (cairo) painted its placeholder once and never repainted, even while the
-  guest was scanning out (the monitor's `screendump` showed the frames). Day uses
-  `-display gtk,gl=on`, which shows them.
+- The SDL window opens at the requested panel, and the guest boots at it. When the window manager
+  clamps a window larger than the screen, the guest follows the window: a 1280×800 tablet on a
+  1280×800 laptop comes up at the screen's usable 1214×731. `--headless` keeps the panel exactly.
+- A QEMU built without SDL is refused, by `day devices boot` and by `day doctor`. Homebrew's
+  QEMU is one: it has only GTK, whose window hands the guest its own size, starting from a
+  640×480 placeholder, instead of the requested panel.
 - `day launch` sizes its keyguard swipe from the guest's own screen (RenderService's
   `physical resolution`), not from the requested panel: a swipe aimed at 360×720 starts below a
   640×480 screen, the screen-lock service stays locked, and every `aa start` is refused with

@@ -274,11 +274,12 @@ These emulator failures have specific causes:
   away with a synthetic gesture sized to the emulator's screen; if the lock screen persists,
   swipe up in the emulator window yourself, or start the installed app from its launcher icon.
   Earlier versions of `day` aimed that swipe at the requested panel and missed on a windowed
-  Linux emulator, whose screen follows its GTK window (640×480).
-- **The emulator window is blank or reads "Display output is not active"** while `hdc` works
-  and the app runs. Current versions of `day devices boot` avoid both causes on Linux: they open
-  the GTK window with OpenGL rendering and ask for the 640×480 panel it forces. If you start
-  QEMU yourself, pass `-display gtk,gl=on` and `xres=640,yres=480` to `virtio-gpu-pci`.
+  Linux emulator, whose screen followed its GTK window (640×480).
+- **The emulator window is blank, reads "Display output is not active", or runs at 640×480
+  whatever `--device` says.** That is QEMU's GTK window, which hands the guest its own size.
+  Current versions of `day devices boot` open an SDL window, as the Oniro image's `run.sh` does,
+  and refuse a QEMU built without SDL (Homebrew's). Install your distribution's QEMU:
+  `sudo apt install qemu-system-x86 qemu-system-gui`, and remove other builds from `PATH`.
 - **Every `hdc` command hangs.** The guest is asleep, perhaps after `power-shell suspend`,
   which suspends `hdcd` too. Restart the emulator.
 - **`day devices boot` times out, and `hdc` answers `Bind tartget session is dead`** (the typo is

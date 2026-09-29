@@ -765,11 +765,19 @@ fn harmonyos_group() -> Group {
             .need(Need::Launch),
             Probe::new(
                 "qemu",
-                which("qemu-system-x86_64").map(|p| p.display().to_string()),
+                // On Linux the emulator's window is SDL's, so a QEMU built without it (Homebrew's,
+                // GTK-only) doesn't count as installed.
+                which("qemu-system-x86_64")
+                    .filter(|p| {
+                        host != "linux"
+                            || crate::ohos::qemu_has_display(&p.to_string_lossy(), "sdl")
+                    })
+                    .map(|p| p.display().to_string()),
                 match host {
                     "linux" => {
-                        "the emulator needs qemu-system-x86_64: `sudo apt install \
-                         qemu-system-x86` (or your distro's package, or `brew install qemu`)"
+                        "the emulator needs your distribution's QEMU, with its SDL display: `sudo \
+                         apt install qemu-system-x86 qemu-system-gui` (Fedora: \
+                         `qemu-system-x86-core qemu-ui-sdl`). Homebrew's QEMU has no SDL display"
                     }
                     "macos" => "the emulator needs qemu-system-x86_64: `brew install qemu`",
                     _ => {

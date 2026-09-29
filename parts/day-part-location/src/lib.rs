@@ -305,6 +305,10 @@ mod imp;
 #[path = "ohos.rs"]
 mod imp;
 
+// The HarmonyOS arm's line format, compiled for the host's tests as well.
+#[cfg(any(target_env = "ohos", test))]
+mod ohos_line;
+
 // Everything else, desktop Linux and Windows, has no reachable location API yet. Reporting that
 // beats a stub that looks like an oversight (docs/location.md).
 #[cfg(not(any(
