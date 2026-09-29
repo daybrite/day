@@ -130,7 +130,12 @@ consequences:
   installs its bar *before* the tree builds and a derived contribution re-lowers on
   any reactive change. An item injected once would be dropped by the next rebuild.
 
-dayscript addresses the field by that id: `toolbar: { item: day.search, text: "…" }`.
+dayscript addresses the field by that id wherever the platform put it: `toolbar: { item:
+day.search, text: "…" }`. On the bar that is the item above; inline, where no item exists, day-core
+resolves the id to the host showing the field (`inline_search_host`) and delivers
+`Event::SearchChanged`, the event the native field emits, so one step types the same query on a
+desktop and on a phone. (A bare `toolbar: { item: day.search }` has nothing to press inline, and
+says so.)
 
 ## Scopes are not drawn yet
 

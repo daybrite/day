@@ -494,7 +494,7 @@ type SuggestFn = Rc<dyn Fn(&str) -> Vec<String>>;
 /// the window toolbar (docs/search.md). Reserved and stable: dayscript's `toolbar:` step addresses
 /// the field by this id, and it is Day's own rather than the app's, since the app never declares
 /// the item.
-pub const SEARCH_ITEM_ID: &str = "day.search";
+pub const SEARCH_ITEM_ID: &str = day_spec::SEARCH_ITEM_ID;
 
 /// The flattened live rows a nav's dynamic blocks derive to: per-row key strings, typed
 /// keys, titles, and icons (index-aligned). Carried through the reconcile `bind`.
@@ -1000,6 +1000,13 @@ impl SearchSpec {
                 }],
             );
             Scope::current().on_cleanup(move || day_core::unregister_contribution(token));
+        } else {
+            // Inline: no bar item exists, so the reserved id is answered by the host itself.
+            // That is what lets a dayscript `toolbar: { item: day.search, text }` reach the same
+            // query on a phone as on a desktop (docs/search.md): day-core resolves the id to
+            // this host and delivers `Event::SearchChanged`, the event the native field emits.
+            day_core::register_search_host(host);
+            Scope::current().on_cleanup(move || day_core::unregister_search_host(host));
         }
 
         // The one outbound binding: the app writing its query reaches whichever target this

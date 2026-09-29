@@ -1122,6 +1122,34 @@ pub fn note_appearance_changed() {
     }
 }
 
+// The `.searchable()` hosts whose field is INLINE (docs/search.md), newest last: each has no
+// `day.search` bar item, so a caller holding that reserved id (dayscript's `toolbar:` step)
+// resolves it here and delivers `Event::SearchChanged` to the host, as the native field would.
+thread_local! {
+    static SEARCH_HOSTS: std::cell::RefCell<Vec<RNode>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Record `host` as showing an inline search field. Registered by the host's builder for the
+/// life of its scope; see [`inline_search_host`].
+pub fn register_search_host(host: RNode) {
+    SEARCH_HOSTS.with(|h| {
+        let mut h = h.borrow_mut();
+        h.retain(|n| *n != host);
+        h.push(host);
+    });
+}
+
+/// Forget `host`, once its scope is disposed.
+pub fn unregister_search_host(host: RNode) {
+    SEARCH_HOSTS.with(|h| h.borrow_mut().retain(|n| *n != host));
+}
+
+/// The inline search host the reserved `day.search` id names when no bar item carries it: the
+/// most recently shown one, which is the surface in front.
+pub fn inline_search_host() -> Option<RNode> {
+    SEARCH_HOSTS.with(|h| h.borrow().last().copied())
+}
+
 /// Deliver synthetic typing to a text control (the dayscript `input` step and the autodrive
 /// string commands both route here): paint the widget via the ordinary app-write patch, then
 /// enqueue the `TextChanged` event. Both halves are needed: when a real user types, the text

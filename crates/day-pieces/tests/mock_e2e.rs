@@ -5706,6 +5706,13 @@ fn toolbar_search_falls_back_inline_where_the_bar_holds_no_field() {
     probe.emit(host, Event::SearchChanged("al".into()));
     flush_sync();
     assert_eq!(query.get_untracked(), "al");
+    // The reserved id still names the field: day-core resolves it to this host, which is how a
+    // dayscript `toolbar: { item: day.search, text }` types the same query on a phone.
+    let resolved = day_core::inline_search_host().expect("the inline host answers for day.search");
+    assert_eq!(day_core::rnode_to_id(resolved), host);
+    day_core::enqueue_event(host, Event::SearchChanged("alp".into()));
+    flush_sync();
+    assert_eq!(query.get_untracked(), "alp");
 }
 
 /// A toolbar search field typed into keeps what it shows in Day's model, so a re-install

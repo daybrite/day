@@ -1445,6 +1445,24 @@ fn exec(step: Step) -> Reply {
                 // an app bug rather than an ambiguity to resolve here.
                 let model = day_core::toolbar::toolbar_model();
                 let Some(found) = model.iter().find(|i| i.id == item) else {
+                    // The reserved search id names one field wherever the platform put it
+                    // (docs/search.md): on the bar it is the item found above; inline, on a
+                    // phone's navigation surface, there is no item and the host answers for it.
+                    // The text goes in as the native field would send it, so the same query and
+                    // the same outbound patch (the field showing the text) follow on both.
+                    if item == day_spec::SEARCH_ITEM_ID
+                        && let Some(host) = day_core::inline_search_host()
+                    {
+                        let Some(t) = text else {
+                            return Err(Reply::fail(
+                                "toolbar: day.search rides the navigation surface here, which takes text (or key) only",
+                                false,
+                            ));
+                        };
+                        day_core::enqueue_event(rnode_to_id(host), Event::SearchChanged(t));
+                        day_reactive::flush_sync();
+                        return Ok(Reply::ok());
+                    }
                     // Retryable: a reactive toolbar may not have installed yet.
                     return Err(Reply::fail(format!("toolbar: no item {item:?}"), true));
                 };

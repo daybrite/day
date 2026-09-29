@@ -1433,6 +1433,12 @@ pub struct ToolbarSegment {
 /// recognizes it to drive the toolkit's own duty rather than an app closure.
 pub const SIDEBAR_TOGGLE_ID: &str = "day.sidebar-toggle";
 
+/// The reserved id of a `.searchable()` surface's field (docs/search.md): the `ToolbarItem` a
+/// desktop bar draws for it, and the name dayscript's `toolbar:` step drives it by wherever the
+/// platform put it — on the bar, or inline on the navigation surface where the bar holds no
+/// field, in which case day-core resolves the id to that host instead.
+pub const SEARCH_ITEM_ID: &str = "day.search";
+
 /// One item in a window's toolbar (docs/toolbars.md).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolbarItem {

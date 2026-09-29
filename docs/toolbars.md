@@ -384,7 +384,9 @@ a tiled Android tablet, where selecting a row changes no chrome. Day-Rise's
 `dayscript/toolbar-enable.yaml` is that case, kept.)
 
 The corollary for scripting: `toolbar:` can only reach what is actually ON the bar. A step that
-drives a list pane's command has to run while that list is showing.
+drives a list pane's command has to run while that list is showing. The one exception is the
+reserved `day.search`, which the step also resolves to an inline field ([search](search.md)), so a
+script types the same query on a phone.
 
 ## Events
 
