@@ -280,6 +280,24 @@ These emulator failures have specific causes:
   Current versions of `day devices boot` open an SDL window, as the Oniro image's `run.sh` does,
   and refuse a QEMU built without SDL (Homebrew's). Install your distribution's QEMU:
   `sudo apt install qemu-system-x86 qemu-system-gui`, and remove other builds from `PATH`.
+- **Over a remote-desktop connection, the emulator's pointer stays in the middle of the
+  screen** while clicks and scroll gestures still work. HarmonyOS takes only a relative mouse,
+  which moves only while QEMU's window has grabbed your pointer, and a remote-desktop session
+  (RDP clients such as Thincast or Remmina) doesn't pass on the raw motion a grab relies on. An
+  absolute pointer is no alternative: HarmonyOS's input service doesn't map one to the screen.
+  Boot the emulator with the image's own launcher in its headless mode instead, and view it over
+  VNC, where QEMU turns your pointer positions into motion itself:
+
+  ```bash
+  bash ~/ohos/emulator/images/run.sh --headless   # VNC on port 5900, hdc on 127.0.0.1:55555
+  remmina -c vnc://127.0.0.1:5900                  # or any VNC viewer
+  hdc tconn 127.0.0.1:55555
+  day launch -p harmony-arkui
+  ```
+
+  `run.sh` serves VNC on all network interfaces with no password, so anyone who can reach this
+  machine on port 5900 can see and use the emulator; firewall the port on a shared network. Add
+  `-r 1280x800` for a tablet screen.
 - **Every `hdc` command hangs.** The guest is asleep, perhaps after `power-shell suspend`,
   which suspends `hdcd` too. Restart the emulator.
 - **`day devices boot` times out, and `hdc` answers `Bind tartget session is dead`** (the typo is

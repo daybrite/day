@@ -255,6 +255,16 @@ qemu-ui-sdl` on Fedora (verified 2026-09 on Ubuntu 24.04 with its QEMU 8.2, unde
   640×480 screen, the screen-lock service stays locked, and every `aa start` is refused with
   10106102.
 
+**Over remote desktop.** The SDL window's pointer doesn't move over an RDP session: HarmonyOS
+takes only a relative mouse, QEMU forwards its motion only while the window has grabbed the host
+pointer, and a remote-desktop session doesn't deliver the raw motion a grab relies on (QEMU's
+input trace showed clicks and no motion). HarmonyOS's input service has no handling for absolute
+pointers (`MouseTransformProcessor` treats absolute motion as relative), so a virtio or USB
+tablet pins the pointer to the screen's edge instead. What works is the image's own `run.sh
+--headless`, whose VNC server turns the viewer's pointer positions into relative motion with no
+grab (verified 2026-09 over Thincast, viewing with Remmina); the website's troubleshooting page
+has the steps. `day devices boot` doesn't serve VNC itself.
+
 Don't put the guest to sleep with `power-shell suspend`: the whole guest suspends, `hdcd`
 included, so every later `hdc` call hangs and nothing over hdc can wake it. Restart the
 emulator.
