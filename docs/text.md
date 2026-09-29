@@ -153,3 +153,11 @@ and it survives Day's text updates.
 The showcase's **Text** page is a live specimen of every style, weight, italic, color, custom size,
 the three bundled custom fonts, and links, with a **Selectable** toggle in the heading's corner
 that opts every text piece on the page in and out of `.selectable()`.
+
+## Single-line labels
+
+`label(title).single_line()` keeps plain text on one line as its text changes, including
+recycled list rows. Constrain its width through the enclosing layout. The full text remains
+available to accessibility. UIKit, AppKit, Android, GTK, DOM, XAML and ArkUI request native
+trailing ellipsis; Qt disables wrapping and clips the excess. Styled link labels may use a
+text-view backing and do not guarantee this truncation behavior.

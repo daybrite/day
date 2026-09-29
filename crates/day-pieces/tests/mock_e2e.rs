@@ -2660,6 +2660,67 @@ fn list_recycles_cells_with_a_slot_write_not_a_rebuild() {
     assert_eq!(labels[1].1.text, "d");
 }
 
+#[test]
+fn list_async_content_inside_fixed_frame_is_laid_out_without_scrolling() {
+    let loaded = Signal::new(false);
+    let probe = boot(move || {
+        list(day_pieces::items(|| vec![0], |i: &i32| *i), move |_| {
+            when(
+                move || loaded.get(),
+                || image(day_spec::ImageSource::Named("cover".into())).fit(),
+            )
+            .otherwise(|| label("Loading"))
+            .frame(46., 64.)
+        })
+        .row_height(RowHeight::Uniform(96.))
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    probe.list_bind(host, 0, MockHandle(9001));
+    loaded.set(true);
+    flush_sync();
+    let images = probe.find_by_kind("day.image");
+    assert_eq!(images.len(), 1);
+    // Mock images have a 32-point intrinsic size. The frame may center that size,
+    // but it must place it now, without another native bind/scroll callback.
+    assert_eq!(images[0].1.frame.size, Size::new(32., 32.));
+    loaded.set(false);
+    flush_sync();
+    loaded.set(true);
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.image")[0].1.frame.size,
+        Size::new(32., 32.)
+    );
+}
+
+#[test]
+fn tree_async_content_inside_fixed_frame_is_laid_out_without_scrolling() {
+    let loaded = Signal::new(false);
+    let probe = boot(move || {
+        tree(
+            day_pieces::branches(|| vec![0], |i: &i32| *i, |_| None::<i32>),
+            move |_| {
+                when(
+                    move || loaded.get(),
+                    || image(day_spec::ImageSource::Named("cover".into())),
+                )
+                .otherwise(|| label("Loading"))
+                .frame(46., 64.)
+            },
+        )
+        .row_height(RowHeight::Uniform(96.))
+    });
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let token = probe.tree_children(host, None)[0];
+    probe.tree_bind(host, token, MockHandle(9001));
+    loaded.set(true);
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.image")[0].1.frame.size,
+        Size::new(32., 32.)
+    );
+}
+
 // Teardown (docs/list.md): a list going away takes its bound rows with it, because the row
 // subtrees hang off the cells, outside the node tree, so nothing else would collect them. But
 // the cells themselves are the native host's, only borrowed through `adopt` (§15.3): the host
@@ -8360,4 +8421,28 @@ fn routes_macro_titles_default_to_the_key() {
     assert_eq!(Demo::Basics.title(), "Basic grids");
     assert_eq!(Demo::Stress.title(), "stress");
     assert_eq!(Demo::from_key("basics"), Some(Demo::Basics));
+}
+
+#[test]
+fn single_line_labels_stay_one_line_when_text_changes() {
+    let text = Signal::new("A long publication title repeated several times".to_owned());
+    let probe = boot(move || {
+        column((
+            label(move || text.get())
+                .padding(2.)
+                .single_line()
+                .width(90.)
+                .id("one-line"),
+            label("A long publication title repeated several times").width(90.),
+        ))
+    });
+    let labels = probe.find_by_kind("day.label");
+    assert!(!labels[0].1.flag);
+    assert!(labels[1].1.flag);
+    assert!(labels[0].1.frame.size.height < labels[1].1.frame.size.height);
+    text.set("An even longer title that changes when this list cell is recycled".into());
+    flush_sync();
+    let labels = probe.find_by_kind("day.label");
+    assert!(!labels[0].1.flag);
+    assert!(labels[0].1.frame.size.height <= day_mock::MOCK_LINE_H);
 }

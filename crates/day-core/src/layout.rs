@@ -319,6 +319,7 @@ pub(crate) fn place_node<B: Toolkit>(
         .unwrap_or(false);
     if let Some(n) = tree.node_mut(node) {
         n.last_native_frame = Some(abs);
+        n.needs_layout = false;
     }
     if relayout_cells {
         for key in tree.list_cell_keys(node) {

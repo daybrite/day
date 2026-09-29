@@ -79,6 +79,10 @@ There is deliberately no `Cancel`/`Confirm`: a modal's affirmative and dismissiv
 dialog buttons with their own roles ([docs/dialogs.md](dialogs.md)), and a second, weaker spelling
 of the same idea would leave two right answers for one question.
 
+On UIKit, a `toolbar_label` with `Principal` placement uses a native single-line title label.
+Removing that contribution restores the navigation item’s ordinary title. Only the first
+principal item is shown.
+
 `.label_style(…)` chooses the title, the icon, or both where a platform can draw more than one; an
 item folded into an overflow menu shows its title whatever it asks for, because a menu row with no
 words is not a menu row. `.prominent()` asks for the platform's emphasized style.

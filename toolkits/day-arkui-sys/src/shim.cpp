@@ -465,6 +465,7 @@ void day_ark_remove_child(void* p, void* c) {
     if (g_api) g_api->removeChild((ArkUI_NodeHandle)p, (ArkUI_NodeHandle)c);
 }
 
+void day_ark_label_single_line(void* n) { set_u32(n, NODE_TEXT_MAX_LINES, 1); set_u32(n, NODE_TEXT_OVERFLOW, ARKUI_TEXT_OVERFLOW_ELLIPSIS); }
 void day_ark_set_text(void* n, const char* s) { set_str(n, NODE_TEXT_CONTENT, s); }
 // Make a Text node's text user-selectable + copyable (the `.selectable()` modifier, docs/text.md).
 // A non-Text node ignores NODE_TEXT_COPY_OPTION (setAttribute returns an error, no crash).

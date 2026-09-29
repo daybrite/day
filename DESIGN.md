@@ -957,6 +957,12 @@ accessible name and add automatic tooltips only when it is hidden. The existing 
 resource loaders resolve symbols and bundled images; no additional build metadata is needed.
 See [docs/buttons.md](docs/buttons.md) for platform behavior and backend implementation notes.
 
+UIKit lowers a principal toolbar label to a native `UILabel` in `UINavigationItem.titleView`;
+a plain label bar item has no `customView` and cannot fill that slot. Removing the contribution
+clears `titleView` so the native page title returns. This follows the existing toolbar scope
+lifetime and is exercised by Stanza Redux’s mobile catalog navigation tests. See
+[toolbars](docs/toolbars.md).
+
 ### §5.4 Keyed collections: `each`
 
 > [!IMPORTANT]
@@ -1216,10 +1222,15 @@ When a binding changes a size-affecting attribute:
    root, a scroll node, a `RowHeight::Uniform` list cell). One-axis frames are *not* boundaries
    under height-for-width. `RowHeight::Automatic` list cells are boundaries **with notification**
    ([§10.2](#102-realization-the-rowhost-protocol)).
-2. At the turn boundary, relayout **re-enters at each dirty subtree's boundary** and runs a normal
-   measure+place pass from there: clean descendants answer from the proposal-keyed cache, and
-   place-recursion prunes subtrees whose (proposal, size, origin) are all unchanged. A scroll
-   boundary re-runs its *content* layout and emits a content-size update ([§7.6](#76-scroll)).
+2. Placement dirt (`needs_layout`) continues through measure boundaries to the subtree root.
+   At the turn boundary, window roots and dirty detached list/tree cell roots run placement;
+   clean measurements answer from the proposal-keyed cache. A fixed frame stops remeasurement
+   above itself, but cannot suppress placement of newly inserted descendants. This matters for
+   an asynchronously loaded image inside a framed recycled row: otherwise it keeps its initial
+   zero frame until the next native bind. The `list_async_content_inside_fixed_frame` and
+   `tree_async_content_inside_fixed_frame` regressions in `day-pieces/tests/mock_e2e.rs` cover
+   that transition without a scroll callback. A scroll boundary re-runs its *content* layout
+   and emits a content-size update ([§7.6](#76-scroll)).
 3. `set_frame` is diffed with a half-device-pixel epsilon ([§7.9](#79-pixel-snapping-and-density)), so a text change that moves
    nothing results in exactly one native `set_text` and zero frame calls.
 
@@ -4492,6 +4503,11 @@ Assets ship platform-idiomatically, with the per-target mechanics specified now:
 > `ImageSource` carries all three forms (`Named`, `Bytes`, `Decoded`) through the same `image`
 > piece; `Draw::image` draws a decoded handle on a canvas. Per-backend decode/encode/metadata
 > support: [docs/images.md](docs/images.md).
+> Image-source patches keep the native view alive. UIKit and Android clear it when patched to
+> the default empty named source; an unresolved nonempty source retains the preceding image.
+> Async recycled rows should bind a bundled placeholder until a result matching the current
+> item arrives ([docs/list.md](docs/list.md#asynchronous-row-images)). Their fixed frames stop
+> measure invalidation, while placement dirt still reaches detached cell roots (§7.4).
 > Canvas images follow the same top-left coordinate system and affine transforms as paths.
 > AppKit explicitly respects the flipped `DayCanvas` context when drawing `NSImage`; otherwise
 > imported pictures appear vertically mirrored even though their selection geometry is correct.
@@ -6343,3 +6359,14 @@ Apple launch/profile lookup and scripted stop use the target-resolved app ID, in
 and toolkit overrides, matching the built bundle. This prevents an iOS upgrade test from installing
 the legacy-ID bundle but launching a separately installed default-ID app. The CLI regression
 `apple_launch_uses_the_platform_override` covers the resolved device-launch identity.
+
+### Single-line catalog labels
+
+`Label::single_line()` and the forwarded `LabelBuilder` method lower to the existing
+`LabelProps::wraps = false`. Mobile labels use UILabel numberOfLines/lineBreakMode and
+TextView singleLine/ellipsize; reactive text patches preserve the native configuration.
+GTK, AppKit, DOM, XAML and ArkUI also honor the flag; Qt clips without ellipsis.
+The mock stores the wrap flag and bounds the measured width. The regression
+`single_line_labels_stay_one_line_when_text_changes` covers constrained widths and recycled
+text updates. See `docs/text.md` for rich-text limitations. Mobile Stanza dayscripts and
+native captures validate real list layouts; other toolkit runtimes were not exercised here.

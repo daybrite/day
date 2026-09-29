@@ -2023,6 +2023,9 @@ mod imp {
                     let n = new_node(K_TEXT);
                     unsafe {
                         ffi::day_ark_set_text(n.0, cstr(&p.text).as_ptr());
+                        if !p.wraps {
+                            ffi::day_ark_label_single_line(n.0);
+                        }
                         ffi::day_ark_set_font_size(n.0, font_vp(p.font));
                         if let Some(c) = p.color {
                             ffi::day_ark_set_font_color(n.0, argb(c));

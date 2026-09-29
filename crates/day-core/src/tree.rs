@@ -102,6 +102,9 @@ pub struct NodeData<H> {
     pub baseline_cache: Option<((u64, u64), Option<f64>)>,
     pub probe: NodeProbe,
     pub needs_measure: bool,
+    /// Placement dirt reaches the root even through measure boundaries. Recycled cell
+    /// subtrees are detached from the window tree, so their sweep must see this bit.
+    pub needs_layout: bool,
     pub last_native_frame: Option<Rect>,
     pub is_boundary: bool,
     /// Scroll-content size reported by `ScrollLayout` (§7.6); scroll nodes only. Cached so
@@ -217,6 +220,7 @@ impl<B: Toolkit> Tree<B> {
             baseline_cache: None,
             probe: NodeProbe::default(),
             needs_measure: true,
+            needs_layout: true,
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,
@@ -262,6 +266,7 @@ impl<B: Toolkit> Tree<B> {
             baseline_cache: None,
             probe: NodeProbe::default(),
             needs_measure: true,
+            needs_layout: true,
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,
@@ -511,10 +516,17 @@ impl<B: Toolkit> Tree<B> {
 
     fn mark_needs_measure_impl(&mut self, node: RNode) {
         let mut cur = node;
+        let mut measure = true;
         while let Some(n) = self.nodes.get_mut(cur) {
-            n.needs_measure = true;
-            n.cache.clear();
-            if n.is_boundary || n.parent.is_null() {
+            n.needs_layout = true;
+            if measure {
+                n.needs_measure = true;
+                n.cache.clear();
+            }
+            if n.is_boundary {
+                measure = false;
+            }
+            if n.parent.is_null() {
                 break;
             }
             cur = n.parent;
@@ -578,8 +590,8 @@ impl<B: Toolkit> Tree<B> {
             true,
         );
         // Placed: the dirty-cell sweep need not lay this row again until something in it
-        // changes; a change marks its boundary, this anchor, dirty on the way up. Left set, the
-        // sweep re-laid every bound cell of every list on every layout pass.
+        // changes; placement dirt reaches this anchor even through a nested measure boundary.
+        // Left set, the sweep re-laid every bound cell of every list on every layout pass.
         self.nodes[anchor].needs_measure = false;
     }
 
@@ -630,10 +642,10 @@ impl<B: Toolkit> Tree<B> {
             crate::layout::place_node(self, root, Rect::from_size(size), Point::ZERO, true);
         }
         // Bound list cells live outside the window trees: their anchors are parentless
-        // boundaries, laid out at bind time. A patch inside one marks its anchor and stops
-        // there, so the pass above never reaches it. Sweep the bound cells and re-lay-out the
-        // marked ones, or a row label that grew mid-edit keeps its stale frame and truncates
-        // the very text it was just given.
+        // boundaries, laid out at bind time, so the window pass above never reaches them.
+        // Placement dirt reaches a cell's anchor even when measurement invalidation stops at
+        // a nested fixed frame. Sweep the marked cells so newly inserted descendants receive
+        // frames and a row label that grew mid-edit does not keep its stale frame.
         let dirty_cells: Vec<(RNode, usize)> = self
             .lists
             .iter()
@@ -641,7 +653,7 @@ impl<B: Toolkit> Tree<B> {
                 state.cells.iter().filter_map(|(key, cell)| {
                     self.nodes
                         .get(cell.anchor)
-                        .filter(|n| n.needs_measure)
+                        .filter(|n| n.needs_layout)
                         .map(|_| (*list, *key))
                 })
             })
@@ -653,7 +665,7 @@ impl<B: Toolkit> Tree<B> {
                 state.cells.iter().filter_map(|(key, cell)| {
                     self.nodes
                         .get(cell.anchor)
-                        .filter(|n| n.needs_measure)
+                        .filter(|n| n.needs_layout)
                         .map(|_| (*tree, *key))
                 })
             })
@@ -1107,6 +1119,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             baseline_cache: None,
             probe,
             needs_measure: true,
+            needs_layout: true,
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,
@@ -1763,6 +1776,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             baseline_cache: None,
             probe: NodeProbe::default(),
             needs_measure: true,
+            needs_layout: true,
             last_native_frame: None,
             scroll_content: None,
             implicit_anim: None,

@@ -1578,8 +1578,24 @@ mod imp {
             // A centered item replaces the title view. Only the first is honored: the slot holds
             // one view, and stacking two there is how a title stops being readable.
             let mid = build_toolbar_items(mtm, root, &principal, &mut targets);
-            if let Some(first) = mid.first() {
-                item.setTitleView(first.customView().as_deref());
+            if let Some(title) = principal
+                .first()
+                .filter(|i| matches!(i.kind, day_spec::ToolbarItemKind::Label))
+            {
+                // A label bar item has no customView. Build a native title label instead of
+                // passing None and silently dropping a Principal label from the bar.
+                let label = UILabel::new(mtm);
+                label.setText(Some(&NSString::from_str(&title.label)));
+                label.setFont(Some(&objc2_ui_kit::UIFont::preferredFontForTextStyle(
+                    objc2_ui_kit::UIFontTextStyleHeadline,
+                )));
+                label.setTextColor(Some(&UIColor::labelColor()));
+                label.setNumberOfLines(1);
+                label.sizeToFit();
+                item.setTitleView(Some(&label));
+            } else {
+                // Removing a principal item must restore the ordinary native page title.
+                item.setTitleView(mid.first().and_then(|i| i.customView()).as_deref());
             }
             // Primary items ride a FIXED group so a crowded bar never folds them; everything
             // else rides one optional group apiece, which is what lets UIKit take them into the
@@ -8249,7 +8265,10 @@ mod imp {
                     let label = unsafe { UILabel::new(mtm) };
                     unsafe {
                         label.setText(Some(&NSString::from_str(&p.text)));
-                        label.setNumberOfLines(0);
+                        label.setNumberOfLines(if p.wraps { 0 } else { 1 });
+                        if !p.wraps {
+                            label.setLineBreakMode(objc2_ui_kit::NSLineBreakMode::ByTruncatingTail);
+                        }
                     }
                     apply_font(&label, p.font);
                     // An explicit color wins; otherwise the ROLE chooses which adaptive system
@@ -8488,6 +8507,11 @@ mod imp {
                             // `image()` bound to a signal shows new pixels without rebuilding
                             // its subtree.
                             day_spec::props::ImagePatch::Source(source) => {
+                                if matches!(source, day_spec::ImageSource::Named(name) if name.is_empty())
+                                {
+                                    unsafe { iv.setImage(None) };
+                                    return;
+                                }
                                 // A source that will not load leaves the view showing what it
                                 // was — the patch's contract, and what GTK, Qt and Android do.
                                 if let Some(img) = uikit_image_for(source) {

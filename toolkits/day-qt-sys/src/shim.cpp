@@ -459,9 +459,9 @@ void day_qt_widget_set_bg(void *w, double r, double g, double b, double a) {
 }
 
 // --- label ---
-void *day_qt_label_new(const char *text) {
+void *day_qt_label_new(const char *text, int wraps) {
     QLabel *l = new QLabel(QString::fromUtf8(text));
-    l->setWordWrap(true);
+    l->setWordWrap(wraps != 0);
     if (g_rtl) {
         l->setAlignment(Qt::AlignRight | Qt::AlignTop);
         l->setLayoutDirection(Qt::RightToLeft);

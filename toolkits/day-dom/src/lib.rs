@@ -1472,6 +1472,8 @@ impl Toolkit for Dom {
                 }
                 if !p.wraps {
                     s(el, "white-space", "nowrap");
+                    s(el, "overflow", "hidden");
+                    s(el, "text-overflow", "ellipsis");
                 }
                 // `start`/`end` rather than `left`/`right`, so an RTL locale follows the writing
                 // direction without the app asking (docs/localization.md).

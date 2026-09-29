@@ -3372,10 +3372,11 @@ void day_xaml_container_set_corner(void* h, double radius) {
 
 // ---- label ----
 
-void* day_xaml_label_new(const char* text) {
+void* day_xaml_label_new(const char* text, int wraps) {
     WUXC::TextBlock t;
     t.Text(hs(text));
-    t.TextWrapping(WUX::TextWrapping::Wrap);
+    t.TextWrapping(wraps ? WUX::TextWrapping::Wrap : WUX::TextWrapping::NoWrap);
+    if (!wraps) { t.MaxLines(1); t.TextTrimming(WUX::TextTrimming::CharacterEllipsis); }
     return boxh(t);
 }
 void day_xaml_label_set_text(void* h, const char* t) {

@@ -66,6 +66,7 @@ unsafe extern "C" {
     pub fn day_ark_set_flex_grow(n: *mut c_void, g: f64);
     pub fn day_ark_menu_separator(n: *mut c_void, argb: u32);
 
+    pub fn day_ark_label_single_line(node: *mut c_void);
     pub fn day_ark_set_text(node: *mut c_void, s: *const c_char);
     /// Make a Text node's text user-selectable (the `.selectable()` modifier). No-op on non-text.
     pub fn day_ark_label_set_selectable(node: *mut c_void, on: c_int);

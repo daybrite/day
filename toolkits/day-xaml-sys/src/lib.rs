@@ -203,7 +203,7 @@ unsafe extern "C" {
     pub fn day_xaml_nav_set_back_visible(nav: *mut c_void, visible: c_int);
 
     // leaves
-    pub fn day_xaml_label_new(text: *const c_char) -> *mut c_void;
+    pub fn day_xaml_label_new(text: *const c_char, wraps: c_int) -> *mut c_void;
     pub fn day_xaml_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_xaml_label_runs_begin(h: *mut c_void, node: u64);
     /// Install the trampoline a link run's Hyperlink Click reports through (docs/text-runs.md).

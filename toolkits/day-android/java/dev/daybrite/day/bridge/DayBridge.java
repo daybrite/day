@@ -763,6 +763,12 @@ public final class DayBridge {
         if (content instanceof DayFixed) ((DayFixed) content).setContentSize(w, h);
     }
 
+    public static void setLabelSingleLine(View view) {
+        TextView label = (TextView) view;
+        label.setSingleLine(true);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+    }
+
     public static View makeLabel(String text) {
         TextView t = new TextView(ctx);
         t.setText(text);
@@ -2395,8 +2401,10 @@ public final class DayBridge {
             return;
         }
         android.graphics.drawable.Drawable d = drawableByName(ctx, name);
-        if (d != null) {
-            ((android.widget.ImageView) v).setImageDrawable(d.mutate());
+        if (d != null || name == null || name.isEmpty()) {
+            // The default/empty source explicitly clears a recycled image. An unresolved
+            // nonempty asset still preserves its predecessor (ImagePatch's failure policy).
+            ((android.widget.ImageView) v).setImageDrawable(d == null ? null : d.mutate());
         }
     }
 

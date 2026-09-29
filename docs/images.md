@@ -143,6 +143,12 @@ One limit worth stating: `.tint(…)` applies to **named** sources only. A recol
 source art — an SVG's paths on ArkUI and XAML, the file on GTK — and bytes have no such art to
 re-read.
 
+For asynchronously loaded images in recycled rows, bind the source to a bundled placeholder
+until the current item's image is ready; see [list.md](./list.md#asynchronous-row-images).
+UIKit and Android also treat the default source (`ImageSource::Named(String::new())`) as an
+explicit clear when patching an existing image view. An unresolved nonempty name or a source
+the backend cannot decode retains the preceding image, so it is not a loading placeholder.
+
 ## Lifetime
 
 A `Bitmap` releases its pixels when the last clone drops, through `Toolkit::release_image`. The

@@ -69,7 +69,7 @@ unsafe extern "C" {
     /// pre-6.8 Fusion fallback alike).
     pub fn day_qt_dark_mode() -> c_int;
 
-    pub fn day_qt_label_new(text: *const c_char) -> *mut c_void;
+    pub fn day_qt_label_new(text: *const c_char, wraps: c_int) -> *mut c_void;
     pub fn day_qt_label_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_label_set_align(w: *mut c_void, align: c_int);
     pub fn day_qt_label_set_rich_text(w: *mut c_void, html: *const c_char);

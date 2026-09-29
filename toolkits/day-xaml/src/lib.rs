@@ -1447,7 +1447,7 @@ fn warn_missing_renderer(kind: PieceKind) {
 /// The visible placeholder a realize arm degrades to when its props payload has the wrong type
 /// (`props_of` has already reported the mismatch) — the same label the missing-renderer arm shows.
 pub(crate) fn placeholder_handle(kind: PieceKind) -> WinHandle {
-    WinHandle(unsafe { ffi::day_xaml_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()) })
+    WinHandle(unsafe { ffi::day_xaml_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr(), 1) })
 }
 
 /// The shim's cursor code for a [`Cursor`] (docs/cursor.md): 0 releases the element, 1..=16
@@ -1792,7 +1792,7 @@ impl Toolkit for Xaml {
                     let Some(p) = props_of::<LabelProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
-                    let h = ffi::day_xaml_label_new(cstr(&p.text).as_ptr());
+                    let h = ffi::day_xaml_label_new(cstr(&p.text).as_ptr(), p.wraps as c_int);
                     let (pt, weight, italic, tabular) = font_params(p.font);
                     ffi::day_xaml_label_set_font(h, pt, weight, italic, tabular);
                     apply_custom_family(h, p.font);

@@ -71,6 +71,18 @@ the row's `Elem` for a store source), `.multi_select(bool)`, `.on_selection(Fn(V
 `.selected_rows(Fn() -> Vec<usize>)`, and (reserved, unshipped) `.row_kind` mapping to native
 reuse pools.
 
+### Asynchronous row images
+
+Keep the image view mounted and bind its source to the current item's loaded image or a
+bundled placeholder. When a cell is rebound, cancel its previous request and associate the
+result with the requested URL or item key. Check that identity before displaying a result;
+an older request must not populate a newer row. Clear or replace the previous pixels before
+waiting for the network, and dispose the task with the row's scope.
+
+A two-axis `.frame(width, height)` keeps rows stable while loading. It is a measurement
+boundary, not a placement barrier: both image-source updates and conditional children inside
+it are laid out when they change, including in detached native list and tree cells.
+
 ### Imperative scroll-to-end (chat timelines)
 
 A chat timeline wants to stick to the newest message. Two additive builder options drive the

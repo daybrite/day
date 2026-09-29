@@ -849,6 +849,7 @@ impl Toolkit for MockToolkit {
         let mut detail = String::new();
         if let Some(p) = props.downcast_ref::<LabelProps>() {
             w.text = p.text.clone();
+            w.flag = p.wraps;
             w.font = Some(p.font);
             w.runs = p.runs.clone();
             detail = format!(" text={:?}", p.text);
@@ -1212,7 +1213,10 @@ impl Toolkit for MockToolkit {
         s.measure_calls += 1;
         let w = s.widgets.get(&h.0).cloned().unwrap_or_default();
         let size = match kind {
-            kinds::LABEL => text_size(&w.text, p, true),
+            kinds::LABEL => {
+                let s = text_size(&w.text, p, w.flag);
+                Size::new(s.width.min(p.width.unwrap_or(s.width)), s.height)
+            }
             kinds::BUTTON => {
                 let t = text_size(&w.text, Proposal::UNCONSTRAINED, false);
                 Size::new(t.width + 16.0, 24.0)

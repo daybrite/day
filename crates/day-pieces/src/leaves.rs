@@ -194,6 +194,7 @@ pub struct Label {
     pub(crate) italic: bool,
     pub(crate) tabular: bool,
     pub(crate) monospace: bool,
+    pub(crate) wraps: bool,
     pub(crate) color: Option<Reactive<day_spec::Color>>,
     /// What the text means, for the color the platform gives it (docs/text.md).
     pub(crate) role: day_spec::props::TextRole,
@@ -218,6 +219,7 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
         italic: false,
         tabular: false,
         monospace: false,
+        wraps: true,
         color: None,
         role: Default::default(),
         runs: Vec::new(),
@@ -228,6 +230,11 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
 }
 
 impl Label {
+    /// Keep plain text on one line. UIKit, Android, GTK, AppKit and DOM truncate with an ellipsis.
+    pub fn single_line(mut self) -> Self {
+        self.wraps = false;
+        self
+    }
     /// The semantic text style (`Font::Title`, `Font::Footnote`, …) or a custom `Font::System(pt)`.
     /// Backends render it with the platform's native style + accessibility text scaling.
     pub fn font(mut self, f: Font) -> Self {
@@ -351,6 +358,7 @@ impl Label {
 /// inherent methods on `Label` remain the implementation; this trait carries them across a
 /// decoration.
 pub trait LabelBuilder: Sized {
+    fn single_line(self) -> Self;
     fn font(self, f: Font) -> Self;
     fn weight(self, w: day_spec::FontWeight) -> Self;
     fn bold(self) -> Self;
@@ -366,6 +374,9 @@ pub trait LabelBuilder: Sized {
 }
 
 impl LabelBuilder for Label {
+    fn single_line(self) -> Self {
+        Label::single_line(self)
+    }
     fn font(self, f: Font) -> Self {
         Label::font(self, f)
     }
@@ -405,6 +416,9 @@ impl LabelBuilder for Label {
 }
 
 impl<P: LabelBuilder + Piece> LabelBuilder for Decorated<P> {
+    fn single_line(self) -> Self {
+        self.map_inner(LabelBuilder::single_line)
+    }
     fn font(self, f: Font) -> Self {
         self.map_inner(|p| p.font(f))
     }
@@ -476,7 +490,7 @@ impl Piece for Label {
                 },
                 color: self.color.as_ref().map(|c| c.get_untracked()),
                 role: self.role,
-                wraps: true,
+                wraps: self.wraps,
                 runs,
             },
             Flex::default(),

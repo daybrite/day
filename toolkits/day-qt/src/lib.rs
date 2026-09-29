@@ -1575,7 +1575,7 @@ fn warn_missing_renderer(kind: PieceKind) {
 /// The visible placeholder a realize arm degrades to when its props payload has the wrong type
 /// (`props_of` has already reported the mismatch) — the same label the missing-renderer arm shows.
 pub(crate) fn placeholder_handle(kind: PieceKind) -> QtHandle {
-    QtHandle(unsafe { ffi::day_qt_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr()) })
+    QtHandle(unsafe { ffi::day_qt_label_new(cstr(&format!("⟨{kind}⟩")).as_ptr(), 1) })
 }
 
 /// `Qt::CursorShape` for a [`Cursor`], or -1 to unset (docs/cursor.md).
@@ -1915,7 +1915,7 @@ impl Toolkit for Qt {
                     let Some(p) = props_of::<LabelProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
-                    let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr());
+                    let w = ffi::day_qt_label_new(cstr(&p.text).as_ptr(), p.wraps as c_int);
                     ffi::day_qt_label_set_align(
                         w,
                         match p.align {

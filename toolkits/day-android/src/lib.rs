@@ -2584,6 +2584,14 @@ mod imp {
                             "(Ljava/lang/String;)Landroid/view/View;",
                             &[JValue::Object(&s)],
                         );
+                        if !p.wraps {
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setLabelSingleLine",
+                                "(Landroid/view/View;)V",
+                                &[JValue::Object(view.as_obj())],
+                            );
+                        }
                         // A whole-label monospace ask rides the family parameter: "monospace" is
                         // Android's own alias for the system fixed-pitch face, so this is the same
                         // request `TypefaceSpan("monospace")` makes for a single run.

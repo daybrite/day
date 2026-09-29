@@ -3932,7 +3932,10 @@ impl Toolkit for Gtk {
                 label.set_xalign(xalign);
                 label.set_justify(justify);
                 label.set_yalign(0.0);
-                label.set_wrap(true);
+                label.set_wrap(p.wraps);
+                if !p.wraps {
+                    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+                }
                 label.set_wrap_mode(gtk4::pango::WrapMode::WordChar);
                 update_text_attrs(&label, Some(p.font), Some(p.color));
                 // GTK ships the de-emphasized look as a style class, so the theme decides the

@@ -5319,6 +5319,12 @@ impl Toolkit for AppKit {
                 };
                 let tf = DayLabel::new(mtm, id, &p.text);
                 configure_label_cell(&tf);
+                if !p.wraps {
+                    unsafe {
+                        tf.setMaximumNumberOfLines(1);
+                        tf.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
+                    }
+                }
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
                 // The PLAIN path needs the role as much as the attributed one below: a label
                 // with no runs never reaches `attributed_label`, and reading the role only there
