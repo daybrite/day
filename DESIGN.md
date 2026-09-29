@@ -2183,6 +2183,14 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 
 ### §10.5 Navigation and presentation
 
+`nav_stack` observes the current route's title independently of route equality. A page can
+therefore push before an asynchronous load and acquire its final title without being rebuilt.
+Only the stack owning the host's top page may retitle a merged host. The mock regression
+`nav_stack_updates_loaded_titles_without_rebuilding_the_page` covers this contract.
+On Android, native Back probes visible navigation hosts rather than the last constructed host
+(inactive tabs may already exist). Title patches on a tab/rail suite have no native title bar
+to update and are ignored; the selected destination's navigation host owns its title.
+
 > [!NOTE]
 > **Status: shipped** ([docs/navigation.md](docs/navigation.md), [docs/dialogs.md](docs/dialogs.md), and [docs/menus.md](docs/menus.md) are normative).
 > The DP-23 "native containers" resolution held, delivered through a richer surface than the

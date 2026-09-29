@@ -1217,6 +1217,47 @@ fn nav_stack_pushes_pops_and_reconciles_to_path() {
 }
 
 #[test]
+fn nav_stack_updates_loaded_titles_without_rebuilding_the_page() {
+    // Synthetic route metadata changes after the destination has already been pushed.
+    #[derive(Clone)]
+    struct Pending {
+        title: Signal<String>,
+    }
+    impl PartialEq for Pending {
+        fn eq(&self, _: &Self) -> bool {
+            true
+        }
+    }
+    impl Route for Pending {
+        fn key(&self) -> String {
+            "pending".into()
+        }
+        fn from_key(_: &str) -> Option<Self> {
+            None
+        }
+        fn title(&self) -> String {
+            self.title.get()
+        }
+    }
+    let title = Signal::new("Loading fixture".to_owned());
+    let path = Signal::new(vec![Pending { title }]);
+    let builds = std::rc::Rc::new(std::cell::Cell::new(0));
+    let built = builds.clone();
+    let probe = boot(move || {
+        nav_stack(path, label("root fixture")).destination(move |_| {
+            built.set(built.get() + 1);
+            label("destination fixture")
+        })
+    });
+    flush_sync();
+    title.set("Loaded fixture".into());
+    flush_sync();
+    assert_eq!(builds.get(), 1);
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
+    assert_eq!(probe.find_by_kind("day.nav")[0].1.text, "Loaded fixture");
+}
+
+#[test]
 fn nav_stack_native_back_writes_into_path() {
     let path = Signal::new(vec!["a".to_string()]);
     let probe = boot(move || nav_stack_root(path));

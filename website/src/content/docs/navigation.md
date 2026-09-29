@@ -118,6 +118,11 @@ auto-popping on a native gesture and routes the back through your guard instead:
 swipe is disabled and the back button is intercepted, on Android a back callback takes priority
 (the predictive-back preview is unavailable while armed), on GTK the page's swipe is disabled.
 
+`Route::title()` may read reactive metadata. The stack updates the current native header when
+that title changes, even if the route still compares equal. This lets a destination open
+immediately with a loading title and acquire its final title after fetching data without
+rebuilding the page.
+
 ## Routes and deep links
 
 A route is `segments/joined/by/slashes` with an optional `?name=value` query. A **single key is

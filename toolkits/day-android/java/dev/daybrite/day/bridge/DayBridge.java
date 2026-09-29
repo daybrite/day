@@ -1567,7 +1567,10 @@ public final class DayBridge {
     }
     public static void navPush(View host, String title, boolean immersive) { ((DayNavHost) host).push(title, immersive); }
     public static void navPop(View host) { ((DayNavHost) host).pop(); }
-    public static void navSetTitle(View host, String title) { ((DayNavHost) host).retitle(title); }
+    public static void navSetTitle(View host, String title) {
+        // Tab/rail suites have no title bar; their selected destination owns its own host.
+        if (host instanceof DayNavHost) ((DayNavHost) host).retitle(title);
+    }
     public static void navSetGuard(View host, boolean on) { ((DayNavHost) host).setGuard(on); }
 
     // --- fullscreen cover (docs/cover.md) ---
@@ -1591,10 +1594,23 @@ public final class DayBridge {
      *  a nav host has something to pop or a guard armed; with neither, the dispatcher would
      *  finish the activity, which no walkthrough means. */
     public static boolean nativeBack() {
-        DayNavHost h = DayNavHost.active;
-        if (h == null || !h.canBack()) return false;
+        // All tabs may be built eagerly. The last constructed host need not be visible.
+        View root = ((android.app.Activity) ctx).getWindow().getDecorView();
+        if (!hasVisibleBackHost(root)) return false;
         ((androidx.fragment.app.FragmentActivity) ctx).getOnBackPressedDispatcher().onBackPressed();
         return true;
+    }
+
+    private static boolean hasVisibleBackHost(View view) {
+        if (!view.isShown()) return false;
+        if (view instanceof DayNavHost && ((DayNavHost) view).canBack()) return true;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                if (hasVisibleBackHost(group.getChildAt(i))) return true;
+            }
+        }
+        return false;
     }
 
     /** Whether the system renders in dark appearance (Toolkit::dark_mode). */

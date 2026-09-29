@@ -3744,6 +3744,30 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
             bind(move || p.read(), move |want: &Vec<K>| reconcile(want));
         }
 
+        // Route identity may stay the same while asynchronously loaded metadata changes
+        // its title. Track that title independently of path equality; do not rebuild the
+        // page or let an enclosing merged stack rename a deeper stack's current page.
+        {
+            let p = path.clone();
+            let owners = owners.clone();
+            let stack_owner = stack_owner.clone();
+            bind(
+                move || p.read().last().map(Route::title),
+                move |title: &Option<String>| {
+                    if let Some(title) = title
+                        && owners
+                            .borrow()
+                            .last()
+                            .is_some_and(|owner| Rc::ptr_eq(owner, &stack_owner))
+                    {
+                        with_tree(|t| {
+                            t.patch(host, Box::new(NavPatch::Title(title.clone())), false)
+                        });
+                    }
+                },
+            );
+        }
+
         // Persist the path across launches when `.restore` is set: save the keys in the same
         // percent-encoded wire format `parse_route` reads back (`encode_route`), so a key
         // containing `/` survives the round-trip (docs/navigation.md). Scope-owned, so it stops

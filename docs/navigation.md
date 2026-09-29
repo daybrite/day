@@ -651,6 +651,9 @@ pub trait Route: Clone + PartialEq + 'static {
 `title()` is the label a [stack](#nav_stack-pushpop-with-a-value-path) shows in the native navigation bar
 for a pushed page. It defaults to the wire `key`, so override it to display a name when the key
 is not presentable (e.g. a route that carries only an id can look the name up from your data).
+The stack tracks `title()` separately from route equality. A route can read reactive metadata
+and change its native header after a load without replacing the page. A merged stack only
+updates the header while it owns the top page.
 
 `String` implements it (the untyped baseline: every segment parses), and for plain enums the
 `routes!` macro writes both sides:
