@@ -1849,6 +1849,7 @@ impl ModelContainer {
             columns,
             fields,
             fts: None,
+            fts_key: "rowid",
             spatial: None,
             row_for: Rc::new(move |h| store.with_untracked(|k| k.get(h).map(&to_row))),
             all_rows: Rc::new(move || {

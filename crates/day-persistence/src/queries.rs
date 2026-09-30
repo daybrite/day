@@ -384,6 +384,9 @@ pub(crate) trait SqlIndex {
     fn key_of(&self, table: &str) -> Option<String>;
     /// The FTS5 shadow table of `table`, when the model declares `fts(…)`.
     fn fts_of(&self, table: &str) -> Option<String>;
+    fn fts_key_of(&self, _table: &str) -> &str {
+        "rowid"
+    }
     /// The R*Tree shadow of `table`, when `lat`/`lon` are its declared `spatial(…)` pair.
     fn geo_of(&self, table: &str, lat: &str, lon: &str) -> Option<String>;
     /// Whether the connection has `day_fold` registered (exact Unicode case folding in SQL).
@@ -452,8 +455,9 @@ pub(crate) fn compile_fetch(
             return Err(CompileErr::NoFts);
         };
         params.push(Value::Text(q));
+        let fts_key = idx.fts_key_of(table);
         from = format!(
-            "{table} JOIN {fts} AS day_rank ON day_rank.rowid = {table}.{key} AND day_rank.{fts_bare} MATCH ?"
+            "{table} JOIN {fts} AS day_rank ON day_rank.{fts_key} = {table}.{key} AND day_rank.{fts_bare} MATCH ?"
         );
         rank_pred = true;
     } else {
@@ -766,7 +770,8 @@ fn pred_sql(
                 // schema-qualified (an attached database): `catalog.t_fts MATCH` is a
                 // syntax error, `t_fts MATCH` inside `FROM catalog.t_fts` is not.
                 let fts_bare = fts.rsplit('.').next().unwrap_or(&fts);
-                format!("{alias}.{key} IN (SELECT rowid FROM {fts} WHERE {fts_bare} MATCH ?)")
+                let fts_key = ctx.idx.fts_key_of(table);
+                format!("{alias}.{key} IN (SELECT {fts_key} FROM {fts} WHERE {fts_bare} MATCH ?)")
             }
         }
         Pred::Within {
@@ -1138,6 +1143,20 @@ pub struct FtsRef {
 }
 
 impl FtsRef {
+    /// Literal search-box input: AND the whitespace-separated terms, quoting FTS syntax.
+    /// Empty input is unconstrained. Use `matches` for an advanced FTS query expression.
+    pub fn search(self, text: &str) -> Pred {
+        let terms = text
+            .split_whitespace()
+            .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+            .collect::<Vec<_>>();
+        if terms.is_empty() {
+            Pred::Always
+        } else {
+            self.matches(terms.join(" AND "))
+        }
+    }
+
     /// FTS5 `MATCH`: one subquery over the shadow table; the query re-runs when an indexed
     /// column changes and ignores every other column, so the zero-cost tier survives search.
     pub fn matches(self, query: impl Into<String>) -> Pred {

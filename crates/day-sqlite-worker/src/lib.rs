@@ -871,6 +871,59 @@ mod tests {
     }
 
     #[test]
+    fn worker_batch_migration_is_atomic_and_survives_reopen() {
+        let _engine = engine();
+        let conn = open("migration.db");
+        assert_eq!(ask(Req::Batch { conn, sql: "CREATE TABLE old_books(id TEXT PRIMARY KEY, title TEXT); INSERT INTO old_books VALUES ('fixture', 'Preserved');".into() }), Reply::Ok);
+        assert_eq!(
+            ask(Req::Exec {
+                conn,
+                sql: "BEGIN".into(),
+                params: vec![]
+            }),
+            Reply::Changes(1)
+        );
+        let failed = ask(Req::Batch {
+            conn,
+            sql: "ALTER TABLE old_books RENAME TO books; INSERT INTO missing VALUES (1);".into(),
+        });
+        assert!(matches!(failed, Reply::Err(_)));
+        assert!(matches!(
+            ask(Req::Exec {
+                conn,
+                sql: "ROLLBACK".into(),
+                params: vec![]
+            }),
+            Reply::Changes(_)
+        ));
+        assert_eq!(
+            ask(Req::Query {
+                conn,
+                sql: "SELECT title FROM old_books".into(),
+                params: vec![]
+            }),
+            Reply::Rows(vec![vec![Value::Text("Preserved".into())]])
+        );
+        assert_eq!(ask(Req::Batch { conn, sql: "BEGIN; CREATE TABLE books(id TEXT PRIMARY KEY, title TEXT, opened INTEGER NOT NULL DEFAULT 0); INSERT INTO books(id, title) SELECT id, title FROM old_books; DROP TABLE old_books; COMMIT;".into() }), Reply::Ok);
+        assert_eq!(ask(Req::Close { conn }), Reply::Ok);
+        let conn = open("migration.db");
+        assert_eq!(
+            ask(Req::Query {
+                conn,
+                sql: "SELECT id, title, opened FROM books".into(),
+                params: vec![]
+            }),
+            Reply::Rows(vec![vec![
+                Value::Text("fixture".into()),
+                Value::Text("Preserved".into()),
+                Value::Int(0)
+            ]])
+        );
+        assert_eq!(ask(Req::Close { conn }), Reply::Ok);
+        vfs::fsx::delete("migration.db");
+    }
+
+    #[test]
     fn worker_protocol_full_round_trip() {
         let _engine = engine();
         let conn = open("proto.db");

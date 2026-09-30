@@ -1220,11 +1220,13 @@ const env = {
 
   day_dom_set_hash(ptr, len, replace) {
     const route = str(ptr, len);
-    lastSetRoute = route;
     const url = route ? '#' + route : location.pathname + location.search;
     if (replace || route === location.hash.slice(1)) history.replaceState(null, '', url);
     else if (route) location.hash = route;
     else history.pushState(null, '', url);
+    // URL assignment canonicalizes spaces, quotes and non-ASCII characters. Compare the
+    // browser's actual hash on the echo, not the pre-normalized app route.
+    lastSetRoute = location.hash.slice(1);
   },
 
   // Motion sensors (docs/sensors.md): the browser arm of day-part-sensors, over `devicemotion`.

@@ -276,7 +276,7 @@ fn undo_writes_inverse_statements_with_blob_keys() {
 }
 
 #[test]
-fn fts_on_a_wide_key_is_refused_at_open() {
+fn fts_on_a_uuid_key_preserves_the_key() {
     #[derive(Model, Clone, Default, PartialEq, Debug)]
     #[model(table = "notes_fts_wide", fts("body"))]
     struct Note {
@@ -284,10 +284,21 @@ fn fts_on_a_wide_key_is_refused_at_open() {
         id: Uuid,
         body: String,
     }
-    let err = ModelContainer::open(Sqlite::memory(), schema![Note])
-        .err()
-        .expect("wide-keyed fts must refuse");
-    assert!(err.message.contains("ROWID"), "{}", err.message);
+    let db = ModelContainer::open(Sqlite::memory(), schema![Note]).unwrap();
+    let id = Uuid::now_v7();
+    db.insert(Note {
+        id,
+        body: "synthetic constellation".into(),
+    });
+    db.save().unwrap();
+    let q = db
+        .query::<Note>()
+        .filter(Note::fts().search("constellation"))
+        .live();
+    assert_eq!(q.ids(), [day_model::ModelId::<Note>::of(id)]);
+    db.delete::<Note>(id).unwrap();
+    db.save().unwrap();
+    assert_eq!(q.count(), 0);
 }
 
 #[test]

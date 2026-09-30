@@ -46,6 +46,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use day_model::Source;
 use day_model::{Identified, Key, Keyed, ModelId, Op, Store};
 
 mod queries;
@@ -815,6 +816,13 @@ pub fn model_fingerprint<M: Model>() -> u64 {
         eat(b"fts:");
         eat(c.as_bytes());
     }
+    if !M::FTS_COLUMNS.is_empty()
+        && M::COLUMNS
+            .iter()
+            .any(|c| c.name == M::KEY && c.sql != SqlType::Integer)
+    {
+        eat(b"wide-fts-key-map-v1");
+    }
     if let Some(t) = M::FTS_TOKENIZE {
         eat(b"tok:");
         eat(t.as_bytes());
@@ -962,7 +970,7 @@ pub(crate) enum DirtyRow {
     Delete,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct DirtyState {
     /// (store, key) → pending statement kind, in first-touch order.
     rows: HashMap<(u64, u64), DirtyRow>,
@@ -974,6 +982,33 @@ struct DirtyState {
 }
 
 impl DirtyState {
+    fn merge(&mut self, newer: Self) {
+        for store in newer.full {
+            if !self.full.contains(&store) {
+                self.full.push(store);
+            }
+        }
+        for id in newer.order {
+            let next = newer.rows[&id].clone();
+            if !self.rows.contains_key(&id) {
+                self.order.push(id);
+            }
+            match (self.rows.get_mut(&id), next) {
+                (Some(DirtyRow::Update(old)), DirtyRow::Update(cols)) => {
+                    for col in cols {
+                        if !old.contains(&col) {
+                            old.push(col);
+                        }
+                    }
+                }
+                (Some(DirtyRow::Insert | DirtyRow::Delete), DirtyRow::Update(_)) => {}
+                (_, next) => {
+                    self.rows.insert(id, next);
+                }
+            }
+        }
+    }
+
     fn is_empty(&self) -> bool {
         self.rows.is_empty() && self.full.is_empty()
     }
@@ -1033,6 +1068,7 @@ pub(crate) struct TableHooks {
     pub(crate) fields: Vec<String>,
     /// The FTS5 shadow's table name, when the model declares `fts(…)`.
     pub(crate) fts: Option<String>,
+    pub(crate) fts_key: &'static str,
     /// The R*Tree shadow: (lat column, lon column, shadow table name).
     pub(crate) spatial: Option<(String, String, String)>,
     /// Current row values by key, read from the cache at flush time; the change log carries
@@ -1259,14 +1295,24 @@ impl ModelContainer {
             std::mem::take(&mut *d)
         };
         self.inner.flushing.set(true);
-        let result = self.flush(dirty);
+        let result = self.flush(&dirty);
         self.inner.flushing.set(false);
         match &result {
             Ok(stmts) => {
                 self.inner.error.set_if_changed(None);
                 self.run_deferred_requeries(stmts);
             }
-            Err(e) => self.inner.error.set(Some(e.to_string())),
+            Err(e) => {
+                // Keep the optimistic cache and its pending writes together. A retry must
+                // persist the same edits, including any edits made after the failed save.
+                {
+                    let mut pending = self.inner.dirty.borrow_mut();
+                    let newer = std::mem::take(&mut *pending);
+                    *pending = dirty;
+                    pending.merge(newer);
+                }
+                self.inner.error.set(Some(e.to_string()));
+            }
         }
         result
     }
@@ -1276,17 +1322,28 @@ impl ModelContainer {
     /// One row, made resident (faulted from the file if it was not). `None` when no such row
     /// exists (or a driver error surfaced, observable through [`ModelContainer::last_error`]).
     pub fn get<M: Model>(&self, id: impl Into<ModelId<M>>) -> Option<day_model::Elem<M>> {
+        match self.try_get::<M>(id) {
+            Ok(row) => row,
+            Err(error) => {
+                self.inner.error.set(Some(error.to_string()));
+                None
+            }
+        }
+    }
+
+    /// Read a row, distinguishing an absent key from a storage or decoding failure.
+    pub fn try_get<M: Model>(
+        &self,
+        id: impl Into<ModelId<M>>,
+    ) -> Result<Option<day_model::Elem<M>>, DbError> {
         let store = self.cache::<M>();
         let h = id.into().handle();
-        if !store.with_untracked(|k| k.get(h).is_some())
-            && let Err(e) = self.ensure_resident::<M>(&[h])
-        {
-            self.inner.error.set(Some(e.to_string()));
-            return None;
+        if !store.with_untracked(|k| k.get(h).is_some()) {
+            self.ensure_resident::<M>(&[h])?;
         }
-        store
+        Ok(store
             .with_untracked(|k| k.get(h).is_some())
-            .then(|| store.elem(h))
+            .then(|| store.elem(h)))
     }
 
     /// Make these rows resident, faulting the missing ones in one chunked `SELECT`. Rows the
@@ -1470,16 +1527,23 @@ impl ModelContainer {
         Ok(ids)
     }
 
-    pub(crate) fn select_id_column(&self, sql: &str, params: &[Value]) -> Vec<u64> {
+    fn select_ids_checked(&self, sql: &str, params: &[Value]) -> Result<Vec<u64>, DbError> {
         let mut ids = Vec::new();
-        if let Err(e) = self.conn().query(sql, params, &mut |row| {
+        self.conn().query(sql, params, &mut |row| {
             if let Some(h) = value_to_handle(&row.get(0)) {
                 ids.push(h);
             }
-        }) {
-            self.inner.error.set(Some(e.to_string()));
+        })?;
+        Ok(ids)
+    }
+    pub(crate) fn select_id_column(&self, sql: &str, params: &[Value]) -> Vec<u64> {
+        match self.select_ids_checked(sql, params) {
+            Ok(ids) => ids,
+            Err(e) => {
+                self.inner.error.set(Some(e.to_string()));
+                Vec::new()
+            }
         }
-        ids
     }
 
     /// Run a one-column SELECT for a single REAL.
@@ -1605,11 +1669,11 @@ impl ModelContainer {
             .find(|c| c.name == M::KEY)
             .map(|c| c.sql)
             .unwrap_or(SqlType::Integer);
-        if key_sql != SqlType::Integer && (!M::FTS_COLUMNS.is_empty() || M::SPATIAL.is_some()) {
+        if key_sql != SqlType::Integer && M::SPATIAL.is_some() {
             return Err(DbError::new(
                 DbErrorKind::Unsupported,
                 format!(
-                    "`{}` declares fts(…)/spatial(…), which address rows by ROWID — those \
+                    "`{}` declares spatial(…), which addresses rows by ROWID — those \
                      need an integer `#[model(id)]`, not a Uuid or String key",
                     M::TABLE
                 ),
@@ -1740,6 +1804,11 @@ impl ModelContainer {
                 fields,
                 resident_len,
                 fts: (!M::FTS_COLUMNS.is_empty()).then(|| format!("{}_fts", M::TABLE)),
+                fts_key: if key_sql == SqlType::Integer {
+                    "rowid"
+                } else {
+                    "day_key"
+                },
                 spatial: M::SPATIAL.map(|s| {
                     (
                         s.lat.to_string(),
@@ -1793,16 +1862,34 @@ impl ModelContainer {
             return Ok(());
         }
 
-        let exists = self.table_exists(M::TABLE)?;
-        if !exists {
-            self.create_table::<M>()?;
-        } else {
-            self.lightweight_migrate::<M>()?;
+        // DDL and backfill are one transaction: a failed migration leaves the old
+        // index and fingerprint usable. Remove triggers before dropping indexed columns.
+        self.conn().begin()?;
+        let result = (|| {
+            let t = M::TABLE;
+            if self.table_exists(&format!("{t}_fts"))? {
+                for suffix in ["ai", "ad", "au"] {
+                    self.conn()
+                        .execute(&format!("DROP TRIGGER IF EXISTS {t}_fts_{suffix}"), &[])?;
+                }
+                self.conn().execute(&format!("DROP TABLE {t}_fts"), &[])?;
+                self.conn()
+                    .execute(&format!("DROP TABLE IF EXISTS {t}_fts_keys"), &[])?;
+            }
+            if !self.table_exists(M::TABLE)? {
+                self.create_table::<M>()?;
+            } else {
+                self.lightweight_migrate::<M>()?;
+            }
+            self.create_indexes::<M>()?;
+            self.create_shadow_tables::<M>()?;
+            self.store_fingerprint(M::TABLE, &fp)?;
+            self.conn().commit()
+        })();
+        if result.is_err() {
+            let _ = self.conn().rollback();
         }
-        self.create_indexes::<M>()?;
-        self.create_shadow_tables::<M>()?;
-        self.store_fingerprint(M::TABLE, &fp)?;
-        Ok(())
+        result
     }
 
     /// The FTS5 and R*Tree shadows a model declares: virtual tables plus `AFTER` triggers, so
@@ -1829,38 +1916,90 @@ impl ModelContainer {
                 Some(tok) => format!(", tokenize='{}'", tok.replace('\'', "''")),
                 None => String::new(),
             };
-            self.conn().execute(
-                &format!(
-                    "CREATE VIRTUAL TABLE IF NOT EXISTS {t}_fts USING fts5({cols}, \
+            let wide = M::COLUMNS
+                .iter()
+                .find(|c| c.name == key)
+                .is_some_and(|c| c.sql != SqlType::Integer);
+            if wide {
+                if M::FTS_COLUMNS.contains(&"day_key") {
+                    return Err(DbError::new(
+                        DbErrorKind::Unsupported,
+                        "day_key is reserved in a non-integer-key FTS index",
+                    ));
+                }
+                let key_type = M::COLUMNS
+                    .iter()
+                    .find(|c| c.name == key)
+                    .expect("key column")
+                    .sql
+                    .ddl();
+                // FTS rowids stay private. An indexed mapping makes update/delete O(log n)
+                // rather than scanning the unindexed public key in every FTS row.
+                self.conn().execute(&format!("CREATE TABLE IF NOT EXISTS {t}_fts_keys(day_rowid INTEGER PRIMARY KEY, day_key {key_type} NOT NULL UNIQUE)"), &[])?;
+                self.conn().execute(&format!("CREATE VIRTUAL TABLE IF NOT EXISTS {t}_fts USING fts5(day_key UNINDEXED, {cols}{tokenize})"), &[])?;
+                let new_cols = M::FTS_COLUMNS
+                    .iter()
+                    .map(|c| format!("new.{c}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let insert = format!(
+                    "INSERT INTO {t}_fts_keys(day_key) VALUES (new.{key}); INSERT INTO {t}_fts(rowid, day_key, {cols}) VALUES ((SELECT day_rowid FROM {t}_fts_keys WHERE day_key = new.{key}), new.{key}, {new_cols});"
+                );
+                let delete = format!(
+                    "DELETE FROM {t}_fts WHERE rowid = (SELECT day_rowid FROM {t}_fts_keys WHERE day_key = old.{key}); DELETE FROM {t}_fts_keys WHERE day_key = old.{key};"
+                );
+                for (suffix, event, body) in [
+                    ("ai", "INSERT", insert.clone()),
+                    ("ad", "DELETE", delete.clone()),
+                    ("au", "UPDATE", format!("{delete} {insert}")),
+                ] {
+                    self.conn().execute(&format!("CREATE TRIGGER IF NOT EXISTS {t}_fts_{suffix} AFTER {event} ON {t} BEGIN {body} END"), &[])?;
+                }
+                if fresh {
+                    self.conn().execute(
+                        &format!("INSERT INTO {t}_fts_keys(day_key) SELECT {key} FROM {t}"),
+                        &[],
+                    )?;
+                    let qualified = M::FTS_COLUMNS
+                        .iter()
+                        .map(|c| format!("b.{c}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    self.conn().execute(&format!("INSERT INTO {t}_fts(rowid, day_key, {cols}) SELECT k.day_rowid, b.{key}, {qualified} FROM {t} b JOIN {t}_fts_keys k ON k.day_key = b.{key}"), &[])?;
+                }
+            } else {
+                self.conn().execute(
+                    &format!(
+                        "CREATE VIRTUAL TABLE IF NOT EXISTS {t}_fts USING fts5({cols}, \
                      content={t}, content_rowid={key}{tokenize})"
-                ),
-                &[],
-            )?;
-            let new_cols = M::FTS_COLUMNS
-                .iter()
-                .map(|c| format!("new.{c}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let old_cols = M::FTS_COLUMNS
-                .iter()
-                .map(|c| format!("old.{c}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            self.conn().execute(
-                &format!(
-                    "CREATE TRIGGER IF NOT EXISTS {t}_fts_ai AFTER INSERT ON {t} BEGIN \
+                    ),
+                    &[],
+                )?;
+                let new_cols = M::FTS_COLUMNS
+                    .iter()
+                    .map(|c| format!("new.{c}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let old_cols = M::FTS_COLUMNS
+                    .iter()
+                    .map(|c| format!("old.{c}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.conn().execute(
+                    &format!(
+                        "CREATE TRIGGER IF NOT EXISTS {t}_fts_ai AFTER INSERT ON {t} BEGIN \
                      INSERT INTO {t}_fts(rowid, {cols}) VALUES (new.{key}, {new_cols}); END"
-                ),
-                &[],
-            )?;
-            self.conn().execute(
+                    ),
+                    &[],
+                )?;
+                self.conn().execute(
                 &format!(
                     "CREATE TRIGGER IF NOT EXISTS {t}_fts_ad AFTER DELETE ON {t} BEGIN \
                      INSERT INTO {t}_fts({t}_fts, rowid, {cols}) VALUES ('delete', old.{key}, {old_cols}); END"
                 ),
                 &[],
             )?;
-            self.conn().execute(
+                self.conn().execute(
                 &format!(
                     "CREATE TRIGGER IF NOT EXISTS {t}_fts_au AFTER UPDATE ON {t} BEGIN \
                      INSERT INTO {t}_fts({t}_fts, rowid, {cols}) VALUES ('delete', old.{key}, {old_cols}); \
@@ -1868,12 +2007,13 @@ impl ModelContainer {
                 ),
                 &[],
             )?;
-            if fresh {
-                // External-content rebuild: index whatever rows predate the declaration.
-                self.conn().execute(
-                    &format!("INSERT INTO {t}_fts({t}_fts) VALUES ('rebuild')"),
-                    &[],
-                )?;
+                if fresh {
+                    // External-content rebuild: index whatever rows predate the declaration.
+                    self.conn().execute(
+                        &format!("INSERT INTO {t}_fts({t}_fts) VALUES ('rebuild')"),
+                        &[],
+                    )?;
+                }
             }
         }
         if let Some(s) = M::SPATIAL {
@@ -2130,8 +2270,8 @@ impl ModelContainer {
         });
     }
 
-    fn flush(&self, dirty: DirtyState) -> Result<Vec<(String, Vec<Value>)>, DbError> {
-        let stmts = self.fold(&dirty)?;
+    fn flush(&self, dirty: &DirtyState) -> Result<Vec<(String, Vec<Value>)>, DbError> {
+        let stmts = self.fold(dirty)?;
         if stmts.is_empty() {
             return Ok(stmts);
         }
@@ -2143,7 +2283,10 @@ impl ModelContainer {
                 return Err(e);
             }
         }
-        conn.commit()?;
+        if let Err(error) = conn.commit() {
+            let _ = conn.rollback();
+            return Err(error);
+        }
         Ok(stmts)
     }
 
@@ -2624,6 +2767,9 @@ struct QueryState {
     pending: RefCell<QueryEvents>,
     /// A dependency-touching change arrived; the answer re-derives after the flush.
     needs_sql: Cell<bool>,
+    // Reading the last committed result must not consume the post-commit invalidation.
+    pending_commit: Cell<bool>,
+    error: day_reactive::Signal<Option<DbError>>,
     /// `query_raw` only: the statement and the tables whose flush re-runs it.
     raw: Option<RawQuery>,
     /// A count-shaped query: `count` is the answer, the id set stays empty, and requeries
@@ -2658,6 +2804,45 @@ impl<M: Model> Clone for Query<M> {
 }
 
 impl<M: Model> Query<M> {
+    /// This query's last read failure. A failed read preserves its previous result set.
+    pub fn error(&self) -> day_reactive::Signal<Option<DbError>> {
+        self.state.error
+    }
+
+    /// Explicitly retry a query after a transient read failure (also useful after external SQL).
+    pub fn refresh(&self) {
+        self.state.needs_sql.set(true);
+        self.refresh_if_stale();
+    }
+
+    /// Checked form of `ids`, for imports and commands that must not mistake failure for absence.
+    pub fn try_ids(&self) -> Result<Vec<ModelId<M>>, DbError> {
+        let ids = self.ids();
+        match self.state.error.get() {
+            Some(e) => Err(e),
+            None => Ok(ids),
+        }
+    }
+
+    /// A checked snapshot for non-UI work, fetched in batches. UI lists should use the query
+    /// itself as their row source so they only materialize the visible working set.
+    pub fn try_collect(&self) -> Result<Vec<M>, DbError> {
+        let ids = self.try_ids()?;
+        let mut rows = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(64) {
+            self.container
+                .ensure_resident::<M>(&chunk.iter().map(|id| id.handle()).collect::<Vec<_>>())?;
+            for id in chunk {
+                if let Some(row) = self.container.try_get::<M>(*id)? {
+                    if let Some(value) = row.with_value_untracked(|v| v.cloned()) {
+                        rows.push(value);
+                    }
+                }
+            }
+        }
+        Ok(rows)
+    }
+
     /// The result ids, typed and in query order, as a tracked read: the caller re-runs when
     /// the set changes, and only then.
     pub fn ids(&self) -> Vec<ModelId<M>> {
@@ -2739,6 +2924,9 @@ impl<M: Model> Query<M> {
         }
         // Resolve once pending statements land; mid-turn the flush has not run yet.
         self.state.needs_sql.set(true);
+        self.state
+            .pending_commit
+            .set(!self.container.inner.dirty.borrow().is_empty());
         self.refresh_if_stale();
         self.state.pending.borrow_mut().reload();
         self.bump();
@@ -2830,6 +3018,24 @@ impl<M: Model> Clone for CountQuery<M> {
 }
 
 impl<M: Model> CountQuery<M> {
+    /// The last read error, independently of the last successful count.
+    pub fn error(&self) -> day_reactive::Signal<Option<DbError>> {
+        self.state.error
+    }
+    /// Checked count for operations that require a successful read.
+    pub fn try_get(&self) -> Result<usize, DbError> {
+        let n = self.get();
+        match self.state.error.get() {
+            Some(e) => Err(e),
+            None => Ok(n),
+        }
+    }
+    /// Retry after a transient read error.
+    pub fn refresh(&self) {
+        self.state.needs_sql.set(true);
+        self.refresh_if_stale();
+    }
+
     /// The count, as a tracked read: the caller re-runs when it changes, and only then.
     pub fn get(&self) -> usize {
         self.refresh_if_stale();
@@ -2852,6 +3058,9 @@ impl<M: Model> CountQuery<M> {
         self.container.rewire_watches(&self.state, &fetch);
         *self.state.set.borrow_mut() = ResultSet::new(fetch);
         self.state.needs_sql.set(true);
+        self.state
+            .pending_commit
+            .set(!self.container.inner.dirty.borrow().is_empty());
         self.refresh_if_stale();
     }
 
@@ -2953,8 +3162,24 @@ impl ModelContainer {
     /// The driver's connection, directly, for maintenance, imports, or an extension's
     /// statements. Pending changes flush first; writes made here bypass the change log, so
     /// call [`ModelContainer::rescan`] afterward if they touched Day's tables.
+    ///
+    /// # Panics
+    /// Panics if the pending save fails. Use [`ModelContainer::try_with_connection`] when
+    /// the caller needs to handle storage errors.
     pub fn with_connection<R>(&self, f: impl FnOnce(&mut dyn SqliteConnection) -> R) -> R {
-        let _ = self.save();
+        self.save().expect(
+            "pending persistence save failed; use try_with_connection to handle storage errors",
+        );
+        f(self.conn().as_mut())
+    }
+
+    /// Flush pending edits before accessing the connection. The closure is never run if
+    /// that save fails; its own error is returned unchanged.
+    pub fn try_with_connection<R>(
+        &self,
+        f: impl FnOnce(&mut dyn SqliteConnection) -> Result<R, DbError>,
+    ) -> Result<R, DbError> {
+        self.save()?;
         f(self.conn().as_mut())
     }
 
@@ -3182,6 +3407,8 @@ impl ModelContainer {
             version: day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(0)),
             pending: RefCell::new(QueryEvents::None),
             needs_sql: Cell::new(false),
+            pending_commit: Cell::new(!self.inner.dirty.borrow().is_empty()),
+            error: day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(None)),
             raw,
             count_only,
             count: Cell::new(0),
@@ -3199,6 +3426,8 @@ impl ModelContainer {
             let ids = self.answer(&state);
             state.set.borrow_mut().reset(ids);
         }
+        // The seed is the list's starting snapshot, not a stream of inserts to replay.
+        *state.pending.borrow_mut() = QueryEvents::None;
         state
     }
 
@@ -3398,6 +3627,7 @@ impl ModelContainer {
             };
             if stale {
                 state.needs_sql.set(true);
+                state.pending_commit.set(true);
             }
         }
     }
@@ -3413,7 +3643,7 @@ impl ModelContainer {
             .filter_map(|w| w.upgrade())
             .collect();
         for state in states {
-            let mut due = state.needs_sql.replace(false);
+            let mut due = state.needs_sql.replace(false) | state.pending_commit.replace(false);
             if let Some(raw) = &state.raw
                 && !due
             {
@@ -3477,53 +3707,58 @@ impl ModelContainer {
     /// (a limited set's length is `min(count, limit)`). The fallback form counts its
     /// re-checked rows the same way.
     fn answer_count(&self, state: &Rc<QueryState>) -> usize {
-        if let Some(raw) = &state.raw {
-            return self.select_id_column(&raw.sql, &raw.params).len();
-        }
-        let fetch = state.set.borrow().fetch().clone();
-        let cap = fetch.limit.unwrap_or(usize::MAX);
-        let snapshot = self.sql_snapshot();
-        match compile_count(state.table, &fetch, &snapshot) {
-            Ok(q) => {
-                let mut n = 0usize;
-                if let Err(e) = self.conn().query(&q.sql, &q.params, &mut |row| {
-                    n = row.get(0).as_int().unwrap_or(0).max(0) as usize;
-                }) {
-                    self.inner.error.set(Some(e.to_string()));
-                    return 0;
-                }
-                n.min(cap)
+        let result = (|| {
+            if self.table_detached(state.table) {
+                return Ok(0);
             }
-            Err(CompileErr::NeedsFold) => match compile_fallback(state.table, &fetch, &snapshot) {
-                Ok((q, cols)) => {
-                    let mut n = 0usize;
-                    if let Err(e) = self.conn().query(&q.sql, &q.params, &mut |row| {
-                        let len = Row::len(row);
-                        let values: Vec<Value> = (0..len).map(|i| row.get(i)).collect();
-                        let Some(h) = value_to_handle(&values[0]) else {
-                            return;
-                        };
-                        let view = FallbackRow {
-                            cols: &cols,
-                            values: &values,
-                        };
-                        if fetch.pred.eval(h, &view) {
-                            n += 1;
+            if let Some(raw) = &state.raw {
+                return self
+                    .select_ids_checked(&raw.sql, &raw.params)
+                    .map(|ids| ids.len());
+            }
+            let fetch = state.set.borrow().fetch().clone();
+            let cap = fetch.limit.unwrap_or(usize::MAX);
+            let snapshot = self.sql_snapshot();
+            match compile_count(state.table, &fetch, &snapshot) {
+                Ok(q) => {
+                    let mut n = Ok(0_i64);
+                    self.conn().query(&q.sql, &q.params, &mut |row| {
+                        n = row.get(0).as_int();
+                    })?;
+                    Ok((n?.max(0) as usize).min(cap))
+                }
+                Err(CompileErr::NeedsFold) => {
+                    let (q, cols) = compile_fallback(state.table, &fetch, &snapshot)
+                        .map_err(|e| DbError::new(DbErrorKind::Unsupported, e.message()))?;
+                    let mut n = 0;
+                    self.conn().query(&q.sql, &q.params, &mut |row| {
+                        let values = (0..row.len()).map(|i| row.get(i)).collect::<Vec<_>>();
+                        if let Some(h) = value_to_handle(&values[0]) {
+                            if fetch.pred.eval(
+                                h,
+                                &FallbackRow {
+                                    cols: &cols,
+                                    values: &values,
+                                },
+                            ) {
+                                n += 1;
+                            }
                         }
-                    }) {
-                        self.inner.error.set(Some(e.to_string()));
-                        return 0;
-                    }
-                    n.min(cap)
+                    })?;
+                    Ok(n.min(cap))
                 }
-                Err(e) => {
-                    self.inner.error.set(Some(e.message()));
-                    0
-                }
-            },
-            Err(e) => {
-                self.inner.error.set(Some(e.message()));
-                0
+                Err(e) => Err(DbError::new(DbErrorKind::Unsupported, e.message())),
+            }
+        })();
+        match result {
+            Ok(n) => {
+                state.error.set(None);
+                n
+            }
+            Err(error) => {
+                self.inner.error.set(Some(error.to_string()));
+                state.error.set(Some(error));
+                state.count.get()
             }
         }
     }
@@ -3531,51 +3766,62 @@ impl ModelContainer {
     /// Answer a query's fetch through the engine: the compiled form, the fallback form for
     /// drivers without `day_fold`, or the raw statement.
     fn answer(&self, state: &Rc<QueryState>) -> Vec<u64> {
+        match self.answer_checked(state) {
+            Ok(ids) => {
+                state.error.set(None);
+                ids
+            }
+            Err(error) => {
+                self.inner.error.set(Some(error.to_string()));
+                state.error.set(Some(error));
+                // A failed read is not an empty result. Retain the last successful set.
+                state.set.borrow().ids().to_vec()
+            }
+        }
+    }
+    fn table_detached(&self, table: &str) -> bool {
+        table.split_once('.').is_some_and(|(alias, _)| {
+            alias != "main"
+                && alias != "temp"
+                && !self.inner.attached.borrow().iter().any(|a| a == alias)
+        })
+    }
+    fn answer_checked(&self, state: &Rc<QueryState>) -> Result<Vec<u64>, DbError> {
+        // Explicit detachment is a successful transition to an empty catalog, not an I/O error.
+        if self.table_detached(state.table) {
+            return Ok(Vec::new());
+        }
         if let Some(raw) = &state.raw {
-            return self.select_id_column(&raw.sql, &raw.params);
+            return self.select_ids_checked(&raw.sql, &raw.params);
         }
         let fetch = state.set.borrow().fetch().clone();
         let snapshot = self.sql_snapshot();
         match compile_fetch(state.table, &fetch, &snapshot) {
-            Ok(q) => self.select_id_column(&q.sql, &q.params),
-            Err(CompileErr::NeedsFold) => match compile_fallback(state.table, &fetch, &snapshot) {
-                Ok((q, cols)) => {
-                    let mut ids = Vec::new();
-                    let mut err = None;
-                    if let Err(e) = self.conn().query(&q.sql, &q.params, &mut |row| {
-                        let n = Row::len(row);
-                        let values: Vec<Value> = (0..n).map(|i| row.get(i)).collect();
-                        let Some(h) = value_to_handle(&values[0]) else {
-                            return;
-                        };
-                        let view = FallbackRow {
-                            cols: &cols,
-                            values: &values,
-                        };
-                        if fetch.pred.eval(h, &view) {
+            Ok(q) => self.select_ids_checked(&q.sql, &q.params),
+            Err(CompileErr::NeedsFold) => {
+                let (q, cols) = compile_fallback(state.table, &fetch, &snapshot)
+                    .map_err(|e| DbError::new(DbErrorKind::Unsupported, e.message()))?;
+                let mut ids = Vec::new();
+                self.conn().query(&q.sql, &q.params, &mut |row| {
+                    let values = (0..row.len()).map(|i| row.get(i)).collect::<Vec<_>>();
+                    if let Some(h) = value_to_handle(&values[0]) {
+                        if fetch.pred.eval(
+                            h,
+                            &FallbackRow {
+                                cols: &cols,
+                                values: &values,
+                            },
+                        ) {
                             ids.push(h);
                         }
-                    }) {
-                        err = Some(e);
                     }
-                    if let Some(e) = err {
-                        self.inner.error.set(Some(e.to_string()));
-                        return Vec::new();
-                    }
-                    if let Some(n) = fetch.limit {
-                        ids.truncate(n);
-                    }
-                    ids
+                })?;
+                if let Some(limit) = fetch.limit {
+                    ids.truncate(limit);
                 }
-                Err(e) => {
-                    self.inner.error.set(Some(e.message()));
-                    Vec::new()
-                }
-            },
-            Err(e) => {
-                self.inner.error.set(Some(e.message()));
-                Vec::new()
+                Ok(ids)
             }
+            Err(e) => Err(DbError::new(DbErrorKind::Unsupported, e.message())),
         }
     }
 
@@ -3592,6 +3838,7 @@ impl ModelContainer {
                     table: h.table.to_string(),
                     key: h.key_cols[0].clone(),
                     fts: h.fts.clone(),
+                    fts_key: h.fts_key,
                     spatial: h.spatial.clone(),
                 })
                 .collect(),
@@ -3631,6 +3878,7 @@ struct TableInfo {
     table: String,
     key: String,
     fts: Option<String>,
+    fts_key: &'static str,
     spatial: Option<(String, String, String)>,
 }
 
@@ -3725,6 +3973,14 @@ impl SqlIndex for SqlSnapshot {
             .iter()
             .find(|t| t.table == table)
             .and_then(|t| t.fts.clone())
+    }
+
+    fn fts_key_of(&self, table: &str) -> &str {
+        self.tables
+            .iter()
+            .find(|t| t.table == table)
+            .map(|t| t.fts_key)
+            .unwrap_or("rowid")
     }
 
     fn geo_of(&self, table: &str, lat: &str, lon: &str) -> Option<String> {

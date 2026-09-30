@@ -361,3 +361,214 @@ fn a_match_inside_a_relation_predicate_searches_the_target_table() {
         .collect();
     assert_eq!(either, [1, 2]);
 }
+
+#[derive(Model, Clone, Default, PartialEq, Debug)]
+#[model(
+    table = "wide_books",
+    fts("title", "body", tokenize = "unicode61 remove_diacritics 2")
+)]
+struct WideBook {
+    #[model(id)]
+    id: String,
+    title: String,
+    body: String,
+}
+
+#[test]
+fn wide_key_related_fts_live_query_tracks_insert_edit_and_cascade() {
+    use day_persistence::{Many, One};
+    #[derive(Model, Clone, Default, PartialEq)]
+    #[model(table = "publications")]
+    struct Publication {
+        #[model(id)]
+        id: String,
+        #[model(relation(target = Section, inverse = "publication", delete = "cascade"))]
+        sections: Many<Section>,
+    }
+    #[derive(Model, Clone, Default, PartialEq)]
+    #[model(table = "sections", fts("text"))]
+    struct Section {
+        #[model(id)]
+        id: String,
+        publication: One<Publication>,
+        text: String,
+    }
+    let db = ModelContainer::open(Sqlite::memory(), schema![Publication, Section]).unwrap();
+    db.set_autosave(false);
+    let results = db
+        .query::<Publication>()
+        .filter(Publication::sections().any(Section::fts().search("waistcoat")))
+        .live();
+    db.insert(Publication {
+        id: "hash:fixture".into(),
+        ..Default::default()
+    });
+    db.insert(Section {
+        id: "hash:fixture/chapter".into(),
+        publication: One::to("hash:fixture".to_owned()),
+        text: "A waistcoat pocket".into(),
+    });
+    assert_eq!(results.count(), 0); // Explicit save: only committed membership is visible.
+    db.save().unwrap();
+    assert_eq!(
+        results.try_ids().unwrap(),
+        [day_model::ModelId::<Publication>::of(
+            "hash:fixture".to_owned()
+        )]
+    );
+    let section = db
+        .try_get::<Section>("hash:fixture/chapter".to_owned())
+        .unwrap()
+        .unwrap();
+    section.text().write("An ordinary pocket".into());
+    db.save().unwrap();
+    assert_eq!(results.count(), 0);
+    section.text().write("A waistcoat".into());
+    db.save().unwrap();
+    assert_eq!(results.count(), 1);
+    db.delete::<Publication>("hash:fixture".to_owned()).unwrap();
+    db.save().unwrap();
+    assert_eq!(results.count(), 0);
+    assert_eq!(db.table_count::<Section>().unwrap(), 0);
+}
+
+#[test]
+fn string_key_fts_preserves_identity_and_tracks_edits_deletes_and_literal_input() {
+    let c = ModelContainer::open(Sqlite::memory(), schema![WideBook]).unwrap();
+    c.set_autosave(false);
+    for (id, title) in [
+        ("sha256:one", "Étoile marine"),
+        ("sha256:two", "Étoile étoile marine"),
+    ] {
+        c.insert(WideBook {
+            id: id.into(),
+            title: title.into(),
+            body: "A synthetic fixture".into(),
+        });
+    }
+    c.save().unwrap();
+    let q = c
+        .query::<WideBook>()
+        .filter(WideBook::fts().search("etoile marine"))
+        .sort(rank())
+        .live();
+    assert_eq!(
+        q.ids()[0],
+        day_model::ModelId::<WideBook>::of("sha256:two".to_owned())
+    );
+    assert_eq!(q.count(), 2);
+    c.try_get::<WideBook>("sha256:one".to_owned())
+        .unwrap()
+        .unwrap()
+        .title()
+        .write("Other".into());
+    c.save().unwrap();
+    assert_eq!(q.count(), 1);
+    c.delete::<WideBook>("sha256:two".to_owned()).unwrap();
+    c.save().unwrap();
+    assert_eq!(q.count(), 0);
+    // Search boxes must not interpret punctuation or operators as FTS syntax.
+    for input in ["\"", "AND", "title:", "*", "(a)", "a OR b"] {
+        let _ = c
+            .query::<WideBook>()
+            .filter(WideBook::fts().search(input))
+            .live()
+            .ids();
+        assert_eq!(c.last_error().get_untracked(), None, "{input}");
+    }
+    assert_eq!(
+        c.query::<WideBook>()
+            .filter(WideBook::fts().search("  "))
+            .live()
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn wide_fts_backfills_reopens_and_survives_vacuum_and_tokenizer_migration() {
+    #[derive(Model, Clone, Default, PartialEq)]
+    #[model(table = "wide_archive")]
+    struct Before {
+        #[model(id)]
+        id: String,
+        body: String,
+    }
+    #[derive(Model, Clone, Default, PartialEq)]
+    #[model(
+        table = "wide_archive",
+        fts("body", tokenize = "unicode61 remove_diacritics 0")
+    )]
+    struct Indexed {
+        #[model(id)]
+        id: String,
+        body: String,
+    }
+    #[derive(Model, Clone, Default, PartialEq)]
+    #[model(
+        table = "wide_archive",
+        fts("body", tokenize = "unicode61 remove_diacritics 2")
+    )]
+    struct Folded {
+        #[model(id)]
+        id: String,
+        body: String,
+    }
+    let path = std::env::temp_dir().join(format!("day-wide-fts-{}.sqlite", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    {
+        let db = ModelContainer::open(Sqlite::at(&path), schema![Before]).unwrap();
+        db.insert(Before {
+            id: "hash:fixture".into(),
+            body: "Étoile".into(),
+        });
+        db.save().unwrap();
+    }
+    {
+        let db = ModelContainer::open(Sqlite::at(&path), schema![Indexed]).unwrap();
+        assert_eq!(
+            db.query::<Indexed>()
+                .filter(Indexed::fts().search("étoile"))
+                .live()
+                .count(),
+            1
+        );
+        assert_eq!(
+            db.query::<Indexed>()
+                .filter(Indexed::fts().search("etoile"))
+                .live()
+                .count(),
+            0
+        );
+        db.vacuum().unwrap();
+    }
+    {
+        let db = ModelContainer::open(Sqlite::at(&path), schema![Folded]).unwrap();
+        let q = db
+            .query::<Folded>()
+            .filter(Folded::fts().search("etoile"))
+            .sort(rank())
+            .live();
+        assert_eq!(
+            q.try_ids().unwrap(),
+            [day_model::ModelId::<Folded>::of("hash:fixture".to_owned())]
+        );
+        db.try_with_connection(|c| {
+            c.execute(
+                "UPDATE wide_archive SET body = 'Orion' WHERE id = 'hash:fixture'",
+                &[],
+            )
+        })
+        .unwrap();
+        db.rescan().unwrap();
+        assert_eq!(q.count(), 0);
+        assert_eq!(
+            db.query::<Folded>()
+                .filter(Folded::fts().search("orion"))
+                .live()
+                .count(),
+            1
+        );
+    }
+    let _ = std::fs::remove_file(path);
+}

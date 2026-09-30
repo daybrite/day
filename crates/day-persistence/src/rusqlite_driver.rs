@@ -441,6 +441,22 @@ fn from_sql(v: rusqlite::types::ValueRef<'_>) -> Value {
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 impl SqliteConnection for RusqliteConn {
+    fn execute_batch(&mut self, sql: &str) -> Result<(), DbError> {
+        use day_sqlite_worker::protocol::{Reply as WReply, Req as WReq};
+        match &self.conn {
+            WebConn::Memory(c) => c
+                .execute_batch(sql)
+                .map_err(|e| DbError::driver(format!("{e} in `{sql}`"))),
+            WebConn::Remote(id) => match web::channel::call(&WReq::Batch {
+                conn: *id,
+                sql: sql.to_owned(),
+            })? {
+                WReply::Ok => Ok(()),
+                other => Err(web::unexpected(other)),
+            },
+        }
+    }
+
     fn execute(&mut self, sql: &str, params: &[Value]) -> Result<u64, DbError> {
         use day_sqlite_worker::protocol::{Reply as WReply, Req as WReq};
         match &self.conn {

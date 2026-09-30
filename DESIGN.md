@@ -5756,8 +5756,8 @@ dialog and landed together:
   `day_model::Uuid` re-exports `uuid::Uuid` and **v7 is the taught default** (time-ordered
   inserts, cross-device uniqueness — the sync groundwork); generation stays native-target
   only until the web pipeline's entropy import lands. Refusals rather than mis-service:
-  `fts(…)`/`spatial(…)` need an integer key (both address rows by ROWID), and a key field
-  takes no codec.
+  `spatial(…)` needs an integer key, and a key field takes no codec. FTS supports all
+  three key types through the mapping described below.
 - **Relations, the full SwiftData-style vocabulary.** `One<M>` is the child's foreign-key
   column — the single source of truth — and `Many<M>` a marker field whose accessor reads an
   index the container maintains from the change log, which is how maintained inverses come out of the
@@ -5793,6 +5793,25 @@ What changed, and what it replaced:
   cache is bounded (`set_cache_limit`, default 8192/model): eviction spares dirty and observed
   rows (day-model grew `populate`/`depopulate`/`is_observed` — silent cache traffic, no
   announcements), and a row deleted this turn never resurrects through a fault.
+- **Failure recovery.** A failed flush restores its pending change set; statement/commit
+  errors attempt SQL rollback. The optimistic cache is retained, and a later save retries
+  its current values. `try_get` distinguishes absence from failure, `try_with_connection`
+  refuses maintenance after a failed flush, and checked query snapshots (`try_ids`,
+  `try_collect`) propagate read failures. Query and count errors are observable separately;
+  failed reads retain their last successful result. An explicit `refresh` retries them.
+  Operations remain synchronous, including the blocking web worker bridge. Web batch SQL
+  uses the worker’s `Batch` request (also on in-memory connections), so multi-statement
+  migrations execute every statement and propagate failures to the enclosing transaction.
+  `day-sqlite-worker` tests batch migration rollback and reopen over its wire protocol. Regression
+  coverage: `crates/day-persistence/tests/recovery.rs` (real-engine begin/statement/commit
+  fault injection, query errors, and pre-commit reads).
+- **Wide-key FTS.** Integer keys retain external-content FTS5. String/UUID keys use a
+  contentful FTS index plus an indexed private key→rowid mapping, preserving public identity
+  without collision-prone hashing and avoiding full index scans on updates/deletes. Both
+  compile through the same predicates and relation crossings. FTS schema changes rebuild
+  transactionally; `search(text)` safely quotes search-box terms while `matches` accepts FTS
+  syntax. R*Tree still requires integer keys. `tests/fts_spatial.rs` and `tests/wide_keys.rs`
+  cover identity, ranking, backfills, tokenizers, raw writes, deletion, reopen, and VACUUM.
 - **Queries compile whole.** Predicate → WHERE (relation crossings as correlated `EXISTS` at
   any depth, joins through the join table, FTS as a shadow-table subquery, `rank()` as a join,
   `within` narrowed through the R*Tree then re-checked exactly), sorts → ORDER BY + key
@@ -5807,7 +5826,9 @@ What changed, and what it replaced:
   ids, and `ResultSet::adopt` diffs old→new into `Insert`/`Remove`/`Move` deltas, verified by
   simulation before delivery (an un-narratable change reloads honestly). Every read
   (`ids`, `count`, `take_events`, the untracked forms) settles staleness first, so read-your-
-  writes holds; with autosave off, queries answer from the last save, documented. The 600-edit
+  writes holds; with autosave off, queries answer from the last save. Reading that answer
+  does not consume the post-commit invalidation, including for queries created while edits
+  are pending. Initial query seeding never emits stale insert deltas to a later list. The 600-edit
   agreement tests were rewritten to mirror the delta feed and still pin id-for-id agreement.
 - **Relations became lazy views.** The eager per-relation indexes (seeded O(n) at open) are
   per-parent memos over one indexed `SELECT`, overlaid with the turn's unflushed dirty rows so
@@ -6412,3 +6433,8 @@ Fullscreen covers track per-window presentation counts: underlying toolbar contr
 the split sidebar toggle) are removed until the last cover dismisses, with teardown handled
 by the native handle side table. Text-only toolbar buttons render a labeled native button
 instead of an empty slot in icon-only toolbar mode.
+
+The web navigation shim compares its own route echo with the browser-normalized hash.
+Spaces, quotes and Unicode can be percent-encoded by URL assignment; comparing the original
+string incorrectly re-entered routing and popped data-bearing detail routes. The shipped-shim
+regression is `scripts/ci/webdom-route-test.mjs`, run by the web-dom CI job.

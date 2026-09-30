@@ -1055,11 +1055,7 @@ fn string_literal(lit: &proc_macro::Literal) -> Result<String, String> {
 }
 
 fn tokens_text(tokens: &[TokenTree]) -> String {
-    tokens
-        .iter()
-        .map(|t| t.to_string())
-        .collect::<Vec<_>>()
-        .join(" ")
+    tokens.iter().cloned().collect::<TokenStream>().to_string()
 }
 
 /// Split the brace body on top-level commas and read `#[obs|model(...)] vis name : Type` out of

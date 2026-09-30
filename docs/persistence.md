@@ -134,6 +134,24 @@ Autosave failures land in `container.last_error()`, a tracked `Signal<Option<Str
 line can watch. `record_sql(f)` runs a closure and returns the SQL one flush of everything it
 changed issues; that is the headless persistence assertion.
 
+Failed saves retain the dirty changes and optimistic cache for retry. SQL statement and
+commit failures attempt rollback; a subsequent `save()` retries the pending operation,
+including edits made since the failure. Do not report a successful import or delete its files
+until `save()` succeeds. Stage all rows for one logical operation before saving once.
+There is no automatic in-memory rollback or asynchronous save API.
+
+Use `try_get::<M>(id)` when absence and read failure have different meanings. It returns
+`Result<Option<Elem<M>>, DbError>`. The convenience `get` reports errors through `last_error`.
+For imports and exports, `query.try_collect()` returns a checked snapshot, fetching rows in
+batches. Keep UI lists bound to the query itself. `query.try_ids()` checks a query without
+loading its rows; `query.error()` exposes its read error. Failed queries preserve their last
+successful results. Call `query.refresh()` to retry a read after repairing a storage problem.
+Count queries provide corresponding `try_get`, `error`, and `refresh` methods.
+
+`try_with_connection` flushes first and returns any failure without calling the closure.
+The older `with_connection` convenience panics if that preliminary save fails; it must not
+silently execute maintenance against unsaved data.
+
 The fold's merge rules, per row: same-row changes coalesce (column names accumulate on one
 `UPDATE`), an insert absorbs the edits that fill it, a delete absorbs everything, moves are
 order-only and order is not persisted. Row values are read from the store at flush time; the
@@ -394,6 +412,7 @@ Both of SQLite's own answers ship in the derive:
         spatial(lat = "lat", lon = "lon"))]
 struct Post { /* … */ }
 
+query.filter(Post::fts().search(user_input))                    // literal search-box terms
 query.filter(Post::fts().matches("kyoto OR osaka")).sort(rank())   // bm25, best first
 query.filter(Post::geo().within(GeoRect { min_lat, max_lat, min_lon, max_lon }))
 
@@ -407,13 +426,25 @@ the shadow. A `matches` predicate works inside a relation crossing too (the comp
 subquery resolves the target model's shadow), which is how an app whose bodies live in a
 separate model searches titles and bodies in one fetch.
 
-The schema derive generates the standard patterns rather than asking you to hand-write them: an
-external-content FTS5 table (`posts_fts`, `content=posts`) and an R*Tree table (`posts_geo`),
-each kept true by three `AFTER INSERT/UPDATE/DELETE` triggers, inside the same transaction as
+`search(text)` quotes each whitespace-separated term and combines them with AND; empty input
+is unconstrained. Operators and punctuation are literal input. Use `matches(expression)` for
+advanced FTS5 syntax. A `rank()` sort requires a nonempty `matches` predicate on the queried
+model; do not rank a compound search across several models by one model's index.
+
+Integer-keyed models use an external-content FTS5 table (`posts_fts`, `content=posts`).
+String- and UUID-keyed models use a contentful FTS table with an unindexed `day_key` column
+and a private `{table}_fts_keys` mapping to integer rowids. The public key is preserved exactly;
+there is no hash-to-integer conversion. The mapping makes index maintenance use indexed key
+lookups and survives VACUUM. This costs an additional copy of indexed text. `day_key` is
+reserved among indexed columns on these models. R*Tree still requires an integer model key.
+
+The FTS and R*Tree shadows are each kept true by three `AFTER INSERT/UPDATE/DELETE` triggers, inside the same transaction as
 every write, and correct even for rows another tool writes into the file. (This is also why the
 fold's upsert is a true `ON CONFLICT DO UPDATE` and not `INSERT OR REPLACE`: the latter's
 implicit delete skips the delete triggers unless `recursive_triggers` is on, and the index
-would rot.) A freshly created shadow backfills from existing rows.
+would rot.) A freshly created shadow backfills from existing rows. FTS declaration or tokenizer changes
+rebuild and backfill the index in the same schema transaction; failure restores the prior
+schema and fingerprint.
 
 Both predicates compile through their shadows. `matches` is a subquery over the FTS5 table
 (`rank()` joins it so bm25 orders the result), and its dependency set is the indexed columns:
@@ -683,8 +714,7 @@ identity is the `#[model(id)]` key in its own stored shape (`INTEGER`, a 16-byte
 `Uuid`, `TEXT` for a string key; see [model.md](model.md)); a model's own display order is a
 projection concern and is not persisted, though an ordered relation's position is.
 
-The key layer refuses two shapes rather than mis-serving them. `fts(…)`/`spatial(…)` need an
-integer key (both address rows by SQLite's ROWID), and a key field takes no codec: its stored
+The key layer requires an integer key for `spatial(…)`, and a key field takes no codec: its stored
 form is the key's own canonical one, because the fold's `WHERE` parameters and the merge's
 decoding derive it from the key kind.
 
@@ -715,7 +745,7 @@ OPFS, the browser's origin-private file system, exposes its only synchronous ran
 API inside dedicated workers, so on web-dom the engine runs in one: the **day-sql worker**, a
 second instantiation of the app's own wasm module that day-cli's host page spawns at boot.
 Every `SqliteConnection` call crosses a SharedArrayBuffer as one request; the main thread
-blocks the few microseconds until the reply state flips, and the worker flushes to storage
+blocks until the reply state flips (with a bounded timeout), and the worker flushes to storage
 before answering, so a commit that returned has landed and `capabilities().durable` is true.
 `:memory:` databases skip the channel and run in-process. Apps see none of this: `Sqlite::at`,
 autosave, undo, queries, and `backup_to` behave as they do everywhere else.
