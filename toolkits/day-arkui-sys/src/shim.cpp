@@ -164,7 +164,7 @@ static std::map<uint64_t, DayNavContent> g_nav_contents;
 extern "C" void day_arkui_nav_popped(uint64_t key);
 extern "C" void day_arkui_nav_back_requested();
 extern "C" void day_arkui_nav_area(uint64_t key, double w, double h);
-extern "C" void day_arkui_nav_menu_action(uint64_t action);
+extern "C" void day_arkui_nav_menu_action(uint64_t action, int32_t selection);
 extern "C" void day_arkui_nav_search_changed(const char* text);
 extern "C" void day_arkui_resized(double w, double h);
 
@@ -3872,12 +3872,14 @@ static napi_value NavPopped(napi_env env, napi_callback_info info) {
 // A title-bar action was tapped (the window toolbar's, docs/toolbars.md): dispatch it by id.
 // `navMenuAction(action)`.
 static napi_value NavMenuAction(napi_env env, napi_callback_info info) {
-    size_t argc = 1;
-    napi_value argv[1] = {nullptr};
+    size_t argc = 2;
+    napi_value argv[2] = {nullptr, nullptr};
     napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
     double action = 0;
     napi_get_value_double(env, argv[0], &action);
-    day_arkui_nav_menu_action((uint64_t)action);
+    int32_t selection = -1;
+    if (argc > 1) napi_get_value_int32(env, argv[1], &selection);
+    day_arkui_nav_menu_action((uint64_t)action, selection);
     napi_value undef;
     napi_get_undefined(env, &undef);
     return undef;

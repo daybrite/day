@@ -459,7 +459,12 @@ pub fn emulator_launch(headless: bool, panel: (u32, u32)) -> Result<(), String> 
         // guest's panel (360×720 by default there), where GTK's would impose its own size.
         // `gl=off` also keeps the ohos-qemu (7.0) guest, which aborts QEMU's GL display during
         // boot (`surface_gl_create_texture: Assertion 'map_format(...)'`), on the same path.
-        &["-display", "sdl,gl=off"]
+        // `show-cursor=on` keeps the host cursor visible over the window. Hidden (QEMU's
+        // default, since the guest draws its own), a remote-desktop client such as an RDP one
+        // takes it as a cue to send relative "game" mouse motion, which the window never
+        // receives: the guest pointer then stops wherever it entered. Visible, the client keeps
+        // sending positions, which the 7.0 image's absolute pointer (virtio tablet) follows.
+        &["-display", "sdl,gl=off,show-cursor=on"]
     };
 
     // Kernel command line, disks, and the guest's hdc port come from the image's layout.

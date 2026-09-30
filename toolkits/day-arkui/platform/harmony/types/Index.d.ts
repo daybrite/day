@@ -88,7 +88,7 @@ export const navBackRequested: () => void;
 export const navPageArea: (key: number, w: number, h: number) => void;
 // A title-bar action was tapped (one of the window toolbar's, docs/toolbars.md): dispatch it by
 // its own id.
-export const navMenuAction: (action: number) => void;
+export const navMenuAction: (action: number, selection?: number) => void;
 // The user edited the navigation surface's search field (docs/search.md).
 export const navSearchChanged: (text: string) => void;
 

@@ -312,6 +312,18 @@ that narrow.
 
 Notes that are not obvious from the table:
 
+- **ArkUI**: the primary window's toolbar rides `Navigation` / `NavDestination.menus`.
+  A custom menu builder uses native `Button`, `Menu`, and `MenuItem` components: template
+  images explicitly use system foreground colors (the array API's `icon` loads black SVGs
+  literally in dark mode). Page commands take the visible slots before window commands;
+  text-only and excess commands go into a labeled overflow popup. Toggles show an accent
+  and expose selected state; segmented items open checked choices. System color resources
+  update live on appearance changes. The title bar holds up to three 40vp buttons, with
+  logical end padding. This remains `Support::Emulated`: placement/column layout, nested
+  toolbar pull-downs, and secondary-window toolbars are not fully implemented. Pull-down
+  entries still flatten into the action list. A future bottom-placement implementation
+  should use native `toolbarConfiguration`, preserving its landscape adaptation.
+
 - **AppKit**: macOS toolbars have no separator item, so `toolbar_separator(id)` renders as the
   system's own fixed space, which is what macOS uses between groups. The toolbar is created once
   per window and edited in place (a replaced `NSToolbar` flashes the title bar and drops

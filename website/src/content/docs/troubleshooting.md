@@ -280,13 +280,19 @@ These emulator failures have specific causes:
   Current versions of `day devices boot` open an SDL window, as the Oniro image's `run.sh` does,
   and refuse a QEMU built without SDL (Homebrew's). Install your distribution's QEMU:
   `sudo apt install qemu-system-x86 qemu-system-gui`, and remove other builds from `PATH`.
-- **Over a remote-desktop connection, the emulator's pointer stays in the middle of the
-  screen** while clicks and scroll gestures still work. HarmonyOS takes only a relative mouse,
-  which moves only while QEMU's window has grabbed your pointer, and a remote-desktop session
-  (RDP clients such as Thincast or Remmina) doesn't pass on the raw motion a grab relies on. An
-  absolute pointer is no alternative: HarmonyOS's input service doesn't map one to the screen.
-  Boot the emulator with the image's own launcher in its headless mode instead, and view it over
-  VNC, where QEMU turns your pointer positions into motion itself:
+- **Over a remote-desktop connection, the emulator's pointer doesn't follow yours** (it stays
+  in the middle of the screen, or jumps to where you entered the window and stops there) while
+  clicks and scroll gestures still work. With the OpenHarmony 7.0 (ohos-qemu) image, current
+  versions of `day devices boot` fix this: they give the guest an absolute pointer and keep your
+  desktop cursor visible over the window (`show-cursor=on`). Hidden, the cursor is what makes an
+  RDP client such as Thincast switch to relative "game" mouse input, which the window never
+  receives. Update `day` and boot again.
+
+  The Oniro 6.1 image can't be fixed that way: its input service doesn't map an absolute pointer
+  to the screen, and its relative mouse moves only while QEMU's window has grabbed your pointer,
+  which a remote-desktop session doesn't support. Boot it with the image's own launcher in its
+  headless mode instead, and view it over VNC, where QEMU turns your pointer positions into
+  motion itself:
 
   ```bash
   bash ~/ohos/emulator/images/run.sh --headless   # VNC on port 5900, hdc on 127.0.0.1:55555

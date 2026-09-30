@@ -1712,14 +1712,34 @@ mod imp {
     }
 
     /// A title-bar action was tapped (docs/toolbars.md). The bar's menu items carry only an
-    /// action id, so the item it names says what the tap means: a toggle flips, a segmented
-    /// control steps to its next choice, and anything else (a button, a pull-down's entry) runs
-    /// its command.
+    /// action id and an optional segment index. A toggle flips; an explicit choice selects
+    /// that segment (the legacy action-only path cycles); other items run their command.
+    /// Recheck enablement and index bounds because an open popup may outlive a model patch.
     #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_nav_menu_action(action: u64) {
+    pub extern "C" fn day_arkui_nav_menu_action(action: u64, selection: i32) {
         day_spec::ffi_guard::contain((), || {
             use day_spec::{ToolbarItemKind as K, ToolbarValue as V};
             let item = WINDOW_BAR.with(|b| b.borrow().by_action(action).cloned());
+            if item.as_ref().is_some_and(|i| !i.enabled) {
+                return;
+            }
+            if selection >= 0 {
+                if let Some(day_spec::ToolbarItem {
+                    kind: K::Segmented { segments, .. },
+                    ..
+                }) = item
+                    && (selection as usize) < segments.len()
+                {
+                    emit(
+                        day_spec::WINDOW_NODE,
+                        Event::ToolbarChanged {
+                            action,
+                            value: V::Selected(selection as usize),
+                        },
+                    );
+                }
+                return;
+            }
             let ev = match item.map(|i| i.kind) {
                 Some(K::Toggle { on }) => Event::ToolbarChanged {
                     action,
@@ -1757,10 +1777,13 @@ mod imp {
 
     /// Paint the window toolbar onto the Navigation's title bars (docs/toolbars.md): one
     /// `.menus()` item per action, shown on the root page and every pushed page alike. The bar
-    /// is a list of actions HarmonyOS lays out and folds into its "more" menu itself, and none of
-    /// them holds state (search rides the navigation surface), so it is painted whole from the
-    /// model. A pull-down's entries become actions of their own; spacers, separators, labels and
-    /// the search item draw nothing here.
+    /// uses native buttons and popup menus through Navigation's custom builder. Page actions
+    /// precede window actions. The host tints template icons using system colors, preserves
+    /// toggle state, and exposes segment choices rather than silently cycling on a tap.
+    /// A pull-down's entries remain flattened; separators, labels and search draw nothing here.
+    /// Wire format: five newline-separated parallel fields. Segment addresses are `id:index`
+    /// and their label field is `current title` followed by U+001F-separated choices. Enabled
+    /// carries bit 0 = enabled, bit 1 = checked. User text is stripped of wire separators.
     fn paint_window_bar() {
         use day_spec::ToolbarItemKind as K;
         let (mut icons, mut labels, mut actions, mut enabled) =
@@ -1768,20 +1791,36 @@ mod imp {
         WINDOW_BAR.with(|b| {
             // No sidebar here to show or hide: a phone's navigation is a stack.
             let bar = b.borrow();
-            for item in bar
+            let (page, window): (Vec<_>, Vec<_>) = bar
                 .items()
                 .iter()
                 .filter(|i| i.id != day_spec::SIDEBAR_TOGGLE_ID)
-            {
+                .partition(|i| {
+                    matches!(
+                        i.column,
+                        day_spec::ToolbarColumn::Detail | day_spec::ToolbarColumn::List
+                    )
+                });
+            for item in page.into_iter().chain(window) {
                 let mut add =
                     |icon: Option<&day_spec::Icon>, label: &str, action: u64, on: bool| {
                         if action == 0 {
                             return;
                         }
                         icons.push(icon.and_then(icon_source).unwrap_or_default());
-                        labels.push(label.replace('\n', " "));
-                        actions.push(action.to_string());
-                        enabled.push(if on { "1" } else { "0" }.to_string());
+                        let clean = |text: &str| text.replace(['\n', '\u{1f}'], " ");
+                        if let K::Segmented { segments, selected } = &item.kind {
+                            let mut titles = vec![clean(label)];
+                            titles.extend(segments.iter().map(|s| clean(&s.title)));
+                            labels.push(titles.join("\u{1f}"));
+                            actions.push(format!("{action}:{selected}"));
+                        } else {
+                            labels.push(clean(label));
+                            actions.push(action.to_string());
+                        }
+                        // Bit 0: enabled; bit 1: checked. Preserve disabled checked state too.
+                        let checked = matches!(item.kind, K::Toggle { on: true });
+                        enabled.push((u8::from(on) | (u8::from(checked) << 1)).to_string());
                     };
                 match &item.kind {
                     K::Button | K::Toggle { .. } => {

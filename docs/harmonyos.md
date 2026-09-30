@@ -214,7 +214,8 @@ six disks rather than four (in the vda–vdf order the kernel command line's mou
 eng/developer-mode command line, hdc on guest port 5555 rather than 55555, and the virtio tablet
 and keyboard. The host port stays `DAY_OHOS_TARGET`'s for both, so `day launch`, `day drive`, and
 scripts need no change. The Showcase walkthrough passes 861/861 on both images (API-18 build).
-Both images boot windowed with `-display sdl,gl=off`: the 7.0 guest aborts QEMU's GL display
+Both images boot windowed with `-display sdl,gl=off,show-cursor=on` (the cursor: see "Over
+remote desktop" below): the 7.0 guest aborts QEMU's GL display
 (`surface_gl_create_texture: Assertion 'map_format(...)'`) during boot. ohos-qemu's arm64
 packages (an `Image` kernel) are refused by name: they need `qemu-system-aarch64`.
 
@@ -255,15 +256,22 @@ qemu-ui-sdl` on Fedora (verified 2026-09 on Ubuntu 24.04 with its QEMU 8.2, unde
   640×480 screen, the screen-lock service stays locked, and every `aa start` is refused with
   10106102.
 
-**Over remote desktop.** The SDL window's pointer doesn't move over an RDP session: HarmonyOS
-takes only a relative mouse, QEMU forwards its motion only while the window has grabbed the host
-pointer, and a remote-desktop session doesn't deliver the raw motion a grab relies on (QEMU's
-input trace showed clicks and no motion). HarmonyOS's input service has no handling for absolute
-pointers (`MouseTransformProcessor` treats absolute motion as relative), so a virtio or USB
-tablet pins the pointer to the screen's edge instead. What works is the image's own `run.sh
---headless`, whose VNC server turns the viewer's pointer positions into relative motion with no
-grab (verified 2026-09 over Thincast, viewing with Remmina); the website's troubleshooting page
-has the steps. `day devices boot` doesn't serve VNC itself.
+**Over remote desktop.** QEMU hides the host cursor over its window by default, since the
+guest draws its own, and an RDP client (Thincast here) takes a hidden cursor as a cue to send
+relative "game" mouse input, which the window never receives: QEMU's input trace showed a few
+positions as the pointer entered, then nothing. `day devices boot` keeps the cursor visible
+(`-display sdl,gl=off,show-cursor=on`), so the client keeps sending positions.
+
+- **OpenHarmony 7.0 (ohos-qemu)** gets a virtio tablet, an absolute pointer its input service
+  maps to the screen, so the guest pointer follows the host's over RDP (verified 2026-09 over
+  Thincast: about 2,300 positions traced where a hidden cursor let about 20 through).
+- **Oniro 6.1** can't use one: its input service has no handling for absolute pointers
+  (`MouseTransformProcessor` treats absolute motion as relative), so a tablet pins the pointer
+  to the screen's edge. Its relative PS/2 mouse moves only while the window has grabbed the host
+  pointer, which a remote-desktop session doesn't support. What works there is the image's own
+  `run.sh --headless`, whose VNC server turns the viewer's pointer positions into relative motion
+  with no grab (verified over Thincast, viewing with Remmina); the website's troubleshooting page
+  has the steps. `day devices boot` doesn't serve VNC itself.
 
 Don't put the guest to sleep with `power-shell suspend`: the whole guest suspends, `hdcd`
 included, so every later `hdc` call hangs and nothing over hdc can wake it. Restart the

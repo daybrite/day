@@ -25,6 +25,13 @@ export default class EntryAbility extends UIAbility {
     // `start()` — runs. This is the HarmonyOS analogue of Android's intent-extra env delivery
     // (day/src/lib.rs): `day launch` passes them as `aa start --ps` string parameters.
     EntryAbility.applyLaunchEnv(want);
+    // Match native navigation, popup resources and text direction to the locale Day was
+    // launched with. Setting only DAY_LOCALE translated the Rust tree but left ArkUI's
+    // title bar/back button in the device language (notably LTR for Arabic test runs).
+    const locale = want.parameters?.['day.locale'];
+    if (typeof locale === 'string' && locale.length > 0) {
+      this.context.getApplicationContext().setLanguage(locale);
+    }
     // Every bridged crate's ArkTS arm (docs/bridge.md "Callbacks"), by symbol, before the
     // native side can ask for one. `day build` generates the aggregator, empty when no crate
     // in the app carries an ArkTS arm.

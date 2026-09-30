@@ -21,6 +21,7 @@ import nativeEntry from 'libentry.so';
 import { registerDayPieces } from '../daypieces/DayPieces';
 import { daySelect, daySegmented } from './DaySelect';
 import DayWindowAbility from './DayWindowAbility';
+import { DayToolbar, DayToolbarItem } from './DayToolbar';
 
 @Entry
 @Component
@@ -39,8 +40,8 @@ struct Index {
   // for desktop toolbar buttons. Set once by registerNav's 5th callback and split by scope —
   // `navPageMenus` ride every pushed NavDestination, `navRootMenus` belong to the LIST and are the
   // only reason the root Navigation shows a title bar at all.
-  @State navPageMenus: NavigationMenuItem[] = [];
-  @State navRootMenus: NavigationMenuItem[] = [];
+  @State navPageMenus: DayToolbarItem[] = [];
+  @State navRootMenus: DayToolbarItem[] = [];
   // The ROOT page's title. Only shown when a list-scoped action brings the root title bar out;
   // until this existed a Title patch at depth 0 had nowhere to land and was dropped.
   @State navRootTitle: string = '';
@@ -58,6 +59,16 @@ struct Index {
   // queues around for modals (docs/dialogs.md). Human sessions keep the native transition.
   private animated(): boolean {
     return AppStorage.get<boolean>('dayDriven') !== true;
+  }
+
+  @Builder
+  private pageToolbar() {
+    DayToolbar({ items: this.navPageMenus })
+  }
+
+  @Builder
+  private rootToolbar() {
+    DayToolbar({ items: this.navRootMenus })
   }
 
   private startDay(widthVp: number, heightVp: number): void {
@@ -101,24 +112,32 @@ struct Index {
       // a @Builder re-runs on every state change and would rebuild the closures with it.
       // `scopes` is "1" for the root page alone, "0" for pushed pages alone, "2" for both;
       // `icons` are image URIs (a staged symbol's file://, a bundled image's resource://).
+      // Segment actions are id:selected; labels carry U+001F-separated choices. Enabled
+      // bit 0 is enabled and bit 1 checked. DayToolbar applies native theme colors to icons.
       (icons: string, labels: string, actions: string, scopes: string, enabled: string): void => {
         const ic: string[] = icons.length === 0 ? [] : icons.split('\n');
         const lb: string[] = labels.length === 0 ? [] : labels.split('\n');
         const ac: string[] = actions.length === 0 ? [] : actions.split('\n');
         const sc: string[] = scopes.length === 0 ? [] : scopes.split('\n');
         const en: string[] = enabled.length === 0 ? [] : enabled.split('\n');
-        const page: NavigationMenuItem[] = [];
-        const root: NavigationMenuItem[] = [];
+        const page: DayToolbarItem[] = [];
+        const root: DayToolbarItem[] = [];
         for (let i = 0; i < ac.length; i++) {
-          const id: number = Number(ac[i]);
+          const address: string[] = ac[i].split(':');
+          const id: number = Number(address[0]);
+          const titles: string[] = i < lb.length ? lb[i].split('\u001f') : [''];
           if (id === 0) {
             continue;
           }
           const icon: string = i < ic.length ? ic[i] : '';
-          const item: NavigationMenuItem = {
-            value: i < lb.length ? lb[i] : '',
+          const item: DayToolbarItem = {
+            value: titles[0],
+            choices: titles.slice(1),
+            selection: address.length > 1 ? Number(address[1]) : -1,
+            choose: (index: number) => { nativeEntry.navMenuAction(id, index); },
             icon: icon.length === 0 ? undefined : icon,
-            isEnabled: !(i < en.length && en[i] === '0'),
+            isEnabled: !(i < en.length && (en[i] === '0' || en[i] === '2')),
+            checked: i < en.length && (en[i] === '2' || en[i] === '3'),
             action: () => { nativeEntry.navMenuAction(id); }
           };
           const scope: string = i < sc.length ? sc[i] : '0';
@@ -324,7 +343,7 @@ struct Index {
     // The window toolbar's actions (docs/toolbars.md): `.menus()` items drawn upper-right, the
     // mobile counterpart to desktop toolbar buttons; a tap re-enters native. Only the ones for
     // pushed pages: a root-only action acts on the list this page covers.
-    .menus(this.navPageMenus)
+    .menus(this.pageToolbar)
     .onBackPressed(() => {
       // A guarded top page consumes the native back and routes it to Rust's guard, which
       // pops the path (→ Day-initiated pop) only on Proceed (docs/navigation.md). An unguarded
@@ -392,7 +411,7 @@ struct Index {
     .titleMode(NavigationTitleMode.Mini)
     // The root has nothing to go back to; Mini mode would otherwise draw a back arrow on it.
     .hideBackButton(true)
-    .menus(this.navRootMenus)
+    .menus(this.rootToolbar)
     .mode(NavigationMode.Stack)
     .navDestination(this.dayPage)
     // Theme-adaptive page ground: the C-API Day tree is transparent where it doesn't paint, so
