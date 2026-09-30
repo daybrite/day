@@ -4863,6 +4863,9 @@ pub mod props {
         /// color renders primary, which is legible and correct, just not dimmed.
         pub role: TextRole,
         pub wraps: bool,
+        /// Maximum rendered lines; zero is unlimited. Native Apple plain labels truncate
+        /// the last line. Other backends may retain their ordinary wrapping behavior.
+        pub max_lines: u32,
         /// How the label's lines sit within its own width. Only observable on a label that
         /// wraps or carries explicit newlines: a single line fills its box, so its alignment is
         /// the container's business, not the label's.
@@ -5058,6 +5061,9 @@ pub mod props {
     /// patch (via [`PickerPatch`]).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct PickerProps {
+        /// Decorative boundaries before option indexes (not selectable options). Native menu
+        /// grouping on AppKit/UIKit; ignored by other backends and non-menu styles.
+        pub separators_before: Vec<usize>,
         pub options: Vec<String>,
         pub selected: usize,
         pub style: PickerStyle,

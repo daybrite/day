@@ -161,3 +161,14 @@ recycled list rows. Constrain its width through the enclosing layout. The full t
 available to accessibility. UIKit, AppKit, Android, GTK, DOM, XAML and ArkUI request native
 trailing ellipsis; Qt disables wrapping and clips the excess. Styled link labels may use a
 text-view backing and do not guarantee this truncation behavior.
+
+Plain labels support `.max_lines(n)` with zero meaning unlimited; `.single_line()`
+takes precedence. AppKit and UIKit enforce the limit and truncate the last line natively,
+including during measurement. Other backends and selectable/link-backed text retain their
+existing wrapping behavior. The limit is set at construction; a keyed subtree can rebuild
+when a display preference changes.
+
+Use `.font_scale(1.4)` on a plain label to enlarge its resolved native font by 40%, retaining
+its semantic style and accessibility scaling. The factor is fixed at construction, and
+explicit styled runs keep their own font descriptors. Nonpositive or nonfinite factors
+use 1.0. This also works through label decorations.

@@ -1992,6 +1992,7 @@ impl Toolkit for Dom {
                         let selected = keep.unwrap_or(0).min(opts.len().saturating_sub(1));
                         let json = picker_json(&PickerProps {
                             options: opts.clone(),
+                            separators_before: Vec::new(),
                             selected,
                             style: Default::default(),
                         });

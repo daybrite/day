@@ -20,6 +20,7 @@ use crate::*;
 /// A native picker bound two-way to `selected`. Style via `.menu()`/`.segmented()`/`.inline()`.
 pub struct Picker<Sel: Binding<usize>> {
     options: Vec<String>,
+    separators_before: Vec<usize>,
     reactive_options: Option<Rc<dyn Fn() -> Vec<String>>>,
     selected: Sel,
     style: day_spec::props::PickerStyle,
@@ -33,6 +34,7 @@ pub fn picker<S: Into<String>, Sel: Binding<usize>>(
 ) -> Picker<Sel> {
     Picker {
         options: options.into_iter().map(Into::into).collect(),
+        separators_before: Vec::new(),
         reactive_options: None,
         selected,
         style: day_spec::props::PickerStyle::Menu,
@@ -40,6 +42,15 @@ pub fn picker<S: Into<String>, Sel: Binding<usize>>(
 }
 
 impl<Sel: Binding<usize>> Picker<Sel> {
+    /// Insert native menu separators before these option indexes. Indexes still refer to
+    /// options, so separators never change the selection binding. AppKit/UIKit menu style
+    /// honors this; other backends and styles display the same options without grouping.
+    pub fn separators_before(mut self, indexes: impl IntoIterator<Item = usize>) -> Self {
+        self.separators_before = indexes.into_iter().collect();
+        self.separators_before.sort_unstable();
+        self.separators_before.dedup();
+        self
+    }
     pub fn menu(mut self) -> Self {
         self.style = day_spec::props::PickerStyle::Menu;
         self
@@ -76,11 +87,13 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
         let Picker {
             options,
             reactive_options,
+            separators_before,
             selected,
             style,
         } = self;
         let initial = day_spec::props::PickerProps {
             options,
+            separators_before,
             selected: selected.peek(),
             style,
         };
@@ -347,6 +360,7 @@ impl<S: Binding<String>> Piece for TextArea<S> {
 /// [`Picker`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait PickerBuilder: Sized {
+    fn separators_before(self, indexes: impl IntoIterator<Item = usize>) -> Self;
     fn menu(self) -> Self;
     fn segmented(self) -> Self;
     fn inline(self) -> Self;
@@ -354,6 +368,9 @@ pub trait PickerBuilder: Sized {
 }
 
 impl<Sel: Binding<usize>> PickerBuilder for Picker<Sel> {
+    fn separators_before(self, indexes: impl IntoIterator<Item = usize>) -> Self {
+        Picker::separators_before(self, indexes)
+    }
     fn menu(self) -> Self {
         Picker::menu(self)
     }
@@ -369,6 +386,9 @@ impl<Sel: Binding<usize>> PickerBuilder for Picker<Sel> {
 }
 
 impl<Inner: PickerBuilder + Piece> PickerBuilder for Decorated<Inner> {
+    fn separators_before(self, indexes: impl IntoIterator<Item = usize>) -> Self {
+        self.map_inner(|inner| inner.separators_before(indexes))
+    }
     fn menu(self) -> Self {
         self.map_inner(|inner_piece| inner_piece.menu())
     }

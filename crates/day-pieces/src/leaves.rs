@@ -190,11 +190,13 @@ pub struct Label {
     // pub(crate): `forms` builds Label literals directly (they were co-located before the split).
     pub(crate) text: TextSource,
     pub(crate) font: Font,
+    pub(crate) font_scale: f64,
     pub(crate) weight: Option<day_spec::FontWeight>,
     pub(crate) italic: bool,
     pub(crate) tabular: bool,
     pub(crate) monospace: bool,
     pub(crate) wraps: bool,
+    pub(crate) max_lines: u32,
     pub(crate) color: Option<Reactive<day_spec::Color>>,
     /// What the text means, for the color the platform gives it (docs/text.md).
     pub(crate) role: day_spec::props::TextRole,
@@ -215,11 +217,13 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
     Label {
         text: text.into_text(),
         font: Font::Body,
+        font_scale: 1.0,
         weight: None,
         italic: false,
         tabular: false,
         monospace: false,
         wraps: true,
+        max_lines: 0,
         color: None,
         role: Default::default(),
         runs: Vec::new(),
@@ -235,10 +239,26 @@ impl Label {
         self.wraps = false;
         self
     }
+    /// Limit a plain label to this many lines, truncating the last line on native Apple
+    /// backends. Zero means unlimited. Rebuild the label to change its line limit.
+    pub fn max_lines(mut self, lines: u32) -> Self {
+        self.max_lines = lines;
+        self
+    }
     /// The semantic text style (`Font::Title`, `Font::Footnote`, …) or a custom `Font::System(pt)`.
     /// Backends render it with the platform's native style + accessibility text scaling.
     pub fn font(mut self, f: Font) -> Self {
         self.font = f;
+        self
+    }
+    /// Scale the resolved native font, preserving its semantic style and accessibility size.
+    /// Applies to the label's base font; explicit styled runs retain their own descriptors.
+    pub fn font_scale(mut self, scale: f64) -> Self {
+        self.font_scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
         self
     }
     /// Override the font weight (e.g. `FontWeight::Semibold`). See also [`Label::bold`].
@@ -359,6 +379,8 @@ impl Label {
 /// decoration.
 pub trait LabelBuilder: Sized {
     fn single_line(self) -> Self;
+    fn max_lines(self, lines: u32) -> Self;
+    fn font_scale(self, scale: f64) -> Self;
     fn font(self, f: Font) -> Self;
     fn weight(self, w: day_spec::FontWeight) -> Self;
     fn bold(self) -> Self;
@@ -374,6 +396,12 @@ pub trait LabelBuilder: Sized {
 }
 
 impl LabelBuilder for Label {
+    fn font_scale(self, scale: f64) -> Self {
+        Label::font_scale(self, scale)
+    }
+    fn max_lines(self, lines: u32) -> Self {
+        Label::max_lines(self, lines)
+    }
     fn single_line(self) -> Self {
         Label::single_line(self)
     }
@@ -416,6 +444,12 @@ impl LabelBuilder for Label {
 }
 
 impl<P: LabelBuilder + Piece> LabelBuilder for Decorated<P> {
+    fn font_scale(self, scale: f64) -> Self {
+        self.map_inner(|p| p.font_scale(scale))
+    }
+    fn max_lines(self, lines: u32) -> Self {
+        self.map_inner(|p| p.max_lines(lines))
+    }
     fn single_line(self) -> Self {
         self.map_inner(LabelBuilder::single_line)
     }
@@ -482,6 +516,7 @@ impl Piece for Label {
                 text: initial,
                 font: day_spec::FontSpec {
                     style: self.font,
+                    scale: self.font_scale,
                     weight: self.weight,
                     italic: self.italic,
                     tabular: self.tabular,
@@ -491,6 +526,7 @@ impl Piece for Label {
                 color: self.color.as_ref().map(|c| c.get_untracked()),
                 role: self.role,
                 wraps: self.wraps,
+                max_lines: self.max_lines,
                 runs,
             },
             Flex::default(),

@@ -23,6 +23,7 @@ use objc2_foundation::{NSObject, NSPoint, NSRect, NSSize, NSString};
 
 struct PickerIvars {
     node: NodeId,
+    separators_before: Vec<usize>,
 }
 
 define_class!(
@@ -41,7 +42,7 @@ define_class!(
         fn fire(&self, sender: &AnyObject) {
             ffi_guard::contain((), || {
                 let idx = if let Some(p) = sender.downcast_ref::<NSPopUpButton>() {
-                    p.indexOfSelectedItem()
+                    p.selectedItem().map(|item| item.tag()).unwrap_or(-1)
                 } else if let Some(s) = sender.downcast_ref::<NSSegmentedControl>() {
                     s.selectedSegment()
                 } else if let Some(b) = sender.downcast_ref::<NSButton>() {
@@ -58,8 +59,11 @@ define_class!(
 );
 
 impl PickerTarget {
-    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(PickerIvars { node });
+    fn new(mtm: MainThreadMarker, node: NodeId, separators_before: Vec<usize>) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(PickerIvars {
+            node,
+            separators_before,
+        });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -78,19 +82,38 @@ fn zero_rect() -> NSRect {
 fn make_menu(mtm: MainThreadMarker, p: &PickerProps, target: &PickerTarget) -> Retained<NSView> {
     let popup =
         NSPopUpButton::initWithFrame_pullsDown(NSPopUpButton::alloc(mtm), zero_rect(), false);
-    for opt in &p.options {
-        popup.addItemWithTitle(&NSString::from_str(opt));
-    }
-    // Out-of-range app state must not reach selectItemAtIndex: it raises an NSException,
-    // which Rust cannot catch, so the process aborts (same guard as the segmented arm).
-    if p.selected < p.options.len() {
-        popup.selectItemAtIndex(p.selected as isize);
-    }
+    fill_menu(&popup, &p.options, &p.separators_before, p.selected);
     unsafe {
         popup.setTarget(Some(target));
         popup.setAction(Some(sel!(fire:)));
     }
     Retained::from(<NSPopUpButton as AsRef<NSView>>::as_ref(&popup))
+}
+
+// Build explicit items: NSPopUpButton::addItemWithTitle merges duplicate titles,
+// but a recommended choice may legitimately appear again in the full catalog.
+fn fill_menu(popup: &NSPopUpButton, options: &[String], separators: &[usize], selected: usize) {
+    let mtm = popup.mtm();
+    let menu = objc2_app_kit::NSMenu::new(mtm);
+    for (index, title) in options.iter().enumerate() {
+        if index > 0 && separators.contains(&index) {
+            menu.addItem(&objc2_app_kit::NSMenuItem::separatorItem(mtm));
+        }
+        let item = unsafe {
+            objc2_app_kit::NSMenuItem::initWithTitle_action_keyEquivalent(
+                objc2_app_kit::NSMenuItem::alloc(mtm),
+                &NSString::from_str(title),
+                None,
+                &NSString::from_str(""),
+            )
+        };
+        item.setTag(index as isize);
+        menu.addItem(&item);
+    }
+    popup.setMenu(Some(&menu));
+    if selected < options.len() {
+        popup.selectItemWithTag(selected as isize);
+    }
 }
 
 fn make_segmented(
@@ -140,7 +163,7 @@ fn make_inline(mtm: MainThreadMarker, p: &PickerProps, target: &PickerTarget) ->
 
 fn make(backend: &mut AppKit, p: &PickerProps, id: NodeId) -> Retained<NSView> {
     let mtm = backend.mtm();
-    let target = PickerTarget::new(mtm, id);
+    let target = PickerTarget::new(mtm, id, p.separators_before.clone());
     let view = match p.style {
         PickerStyle::Menu => make_menu(mtm, p, &target),
         PickerStyle::Segmented => make_segmented(mtm, p, &target),
@@ -158,9 +181,7 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
     // Range guards throughout: an out-of-range index raises an NSException in AppKit,
     // which Rust cannot catch, so the process aborts.
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
-        if (i as isize) < popup.numberOfItems() && popup.indexOfSelectedItem() != i as isize {
-            popup.selectItemAtIndex(i as isize);
-        }
+        popup.selectItemWithTag(i as isize);
     } else if let Some(seg) = h.downcast_ref::<NSSegmentedControl>() {
         if (i as isize) < seg.segmentCount() && seg.selectedSegment() != i as isize {
             seg.setSelectedSegment(i as isize);
@@ -181,14 +202,21 @@ fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
 /// each arm restores it explicitly (clamped, since an NSException here would abort).
 fn set_options(h: &Retained<NSView>, opts: &[String]) {
     if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
-        let want = popup.indexOfSelectedItem().max(0) as usize;
-        popup.removeAllItems();
-        for o in opts {
-            popup.addItemWithTitle(&NSString::from_str(o));
-        }
-        if !opts.is_empty() {
-            popup.selectItemAtIndex(want.min(opts.len() - 1) as isize);
-        }
+        let want = popup
+            .selectedItem()
+            .map(|item| item.tag())
+            .unwrap_or(0)
+            .max(0) as usize;
+        let separators = TARGETS
+            .with(|t| t.get((h.as_ref() as *const NSView) as usize))
+            .map(|target| target.ivars().separators_before.clone())
+            .unwrap_or_default();
+        fill_menu(
+            popup,
+            opts,
+            &separators,
+            want.min(opts.len().saturating_sub(1)),
+        );
     } else if let Some(seg) = h.downcast_ref::<NSSegmentedControl>() {
         let want = seg.selectedSegment().max(0) as usize;
         seg.setSegmentCount(opts.len() as isize);

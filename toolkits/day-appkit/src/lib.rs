@@ -5396,10 +5396,13 @@ impl Toolkit for AppKit {
                 };
                 let tf = DayLabel::new(mtm, id, &p.text);
                 configure_label_cell(&tf);
-                if !p.wraps {
+                if !p.wraps || p.max_lines > 0 {
                     unsafe {
-                        tf.setMaximumNumberOfLines(1);
-                        tf.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
+                        tf.setMaximumNumberOfLines(if p.wraps { p.max_lines as isize } else { 1 });
+                        if !p.wraps || p.max_lines == 1 {
+                            tf.setUsesSingleLineMode(true);
+                            tf.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
+                        }
                     }
                 }
                 unsafe { tf.setFont(Some(&nsfont(p.font))) };
@@ -7129,17 +7132,26 @@ impl Toolkit for AppKit {
     fn measure(&mut self, h: &Handle, kind: PieceKind, p: Proposal) -> Size {
         match kind {
             kinds::LABEL => {
-                if let Some(tf) = h.downcast_ref::<NSTextField>()
-                    && let Some(cell) = unsafe { tf.cell() }
-                {
+                if let Some(tf) = h.downcast_ref::<NSTextField>() {
                     let w = p.width.unwrap_or(1.0e6);
-                    let s = unsafe {
-                        cell.cellSizeForBounds(NSRect::new(
-                            NSPoint::new(0.0, 0.0),
-                            NSSize::new(w, 1.0e6),
-                        ))
-                    };
-                    return Size::new(s.width.ceil().min(w), s.height.ceil());
+                    // The field owns maximumNumberOfLines; measuring its cell bypasses it.
+                    let s = tf.sizeThatFits(NSSize::new(w, 1.0e6));
+                    let mut height = s.height.ceil();
+                    // AppKit's truncating single-line mode still measures explicit newlines
+                    // as multiple lines. Bound that case using AppKit's own font metrics.
+                    if tf.maximumNumberOfLines() == 1 {
+                        thread_local! {
+                            static METRICS: Retained<objc2_app_kit::NSLayoutManager> = objc2_app_kit::NSLayoutManager::new();
+                        }
+                        if let Some(font) = unsafe { tf.font() } {
+                            height = height.min(
+                                METRICS
+                                    .with(|metrics| metrics.defaultLineHeightForFont(&font))
+                                    .ceil(),
+                            );
+                        }
+                    }
+                    return Size::new(s.width.ceil().min(w), height);
                 }
                 Size::ZERO
             }

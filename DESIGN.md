@@ -6492,3 +6492,36 @@ AppKit plain labels resolve their enclosing native table row's selection and emp
 paint time, using system selected text colors without modifying the app's stored foreground.
 This keeps custom row layouts readable during native keyboard selection and window focus
 changes. Attributed runs retain their authored styling. See `docs/list.md`.
+
+### Grouped native pickers (2026-09)
+
+`picker(...).separators_before(indexes)` adds decorative boundaries without adding selectable
+options or changing binding indexes. AppKit builds explicit tagged NSMenuItems (preserving
+duplicate titles), and UIKit groups UIActions in inline UIMenus. Both retain the boundaries
+when option labels or selection change. Invalid boundaries are ignored; segmented/inline
+styles and other backends retain their ordinary ungrouped options. Native regression coverage
+in `native_applications` checks duplicate titles, separator placement, patches, and the reverse
+selection callback. See [picker](docs/picker.md).
+
+UIKit navigation reads `UISplitViewController.isCollapsed` when choosing the active column
+and applying queued page operations. Initial presentation callbacks can precede navigation
+state registration, so caching their answer can strand a phone destination in a hidden
+secondary column. The native container remains the authority for both initial presentation
+and subsequent size-class changes.
+When a collapsed destination stops using the content list, UIKit removes that list without
+an independent pop animation before the queued destination push. Otherwise the outgoing
+animation can complete after the push and hide the newly presented page.
+Day-News’s `reader-styles.yaml` regression enters Settings from an article, performs native
+Back, and verifies the Settings controls were removed before reopening them.
+
+Plain labels support `.max_lines(n)` with zero meaning unlimited; `.single_line()`
+takes precedence. AppKit and UIKit enforce the limit and truncate the last line natively,
+including during measurement. Other backends and selectable/link-backed text retain their
+existing wrapping behavior. The limit is set at construction; a keyed subtree can rebuild
+when a display preference changes.
+
+Plain labels expose `.font_scale(factor)` to scale their base `FontSpec` after native semantic
+font resolution, including accessibility sizing. Invalid or nonpositive factors use 1.0.
+Explicit styled runs retain their own font descriptors. Day-News uses this for its saved
+article-list size, rebuilding the keyed list with matching row geometry while preserving
+article selection. Its reader-style persistence scripts cover reset and cold-launch restore.

@@ -30,6 +30,14 @@ picker(plans, plan).inline()                                         // vertical
 widget). Default style is `.menu()`; `.segmented()` / `.inline()` / `.style(PickerStyle)` switch it.
 `Picker` implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via `Decorate`.
 
+### Menu groups
+
+`.separators_before([6])` inserts a native menu divider before option 6 on AppKit/UIKit.
+The boundary consumes no selection index, and duplicate option labels remain independent
+choices (for example, recommended fonts repeated in a complete font catalog). Boundaries
+are fixed at build time, survive option patches, and are ignored when out of range or zero.
+Other backends and non-menu styles present the same options without decorative grouping.
+
 ### Options that come from data
 
 The labels are fixed by default. When they are not (a list of open documents, a tab that names

@@ -197,5 +197,84 @@ fn main() {
             .borrow()
             .contains(&(node, Event::FocusChanged(false)))
     );
-    println!("Native application discovery and list focus passed");
+    // Synthetic labels: duplicate titles must remain independent options across a native
+    // separator, and selected indexes must refer to options rather than native menu slots.
+    use day_spec::props::{PickerPatch, PickerProps};
+    let picker_node = NodeId(902);
+    let picker = toolkit.realize(
+        kinds::PICKER,
+        &PickerProps {
+            options: vec!["Fixture A".into(), "Fixture B".into(), "Fixture A".into()],
+            separators_before: vec![2],
+            selected: 2,
+            ..Default::default()
+        },
+        picker_node,
+    );
+    let popup = picker
+        .downcast_ref::<objc2_app_kit::NSPopUpButton>()
+        .unwrap();
+    assert_eq!(popup.numberOfItems(), 4);
+    assert!(popup.itemAtIndex(2).unwrap().isSeparatorItem());
+    assert_eq!(popup.selectedItem().unwrap().tag(), 2);
+    assert_eq!(popup.indexOfSelectedItem(), 3);
+    toolkit.update(&picker, kinds::PICKER, &PickerPatch::Selected(1), None);
+    assert_eq!(popup.selectedItem().unwrap().tag(), 1);
+    toolkit.update(
+        &picker,
+        kinds::PICKER,
+        &PickerPatch::Options(vec![
+            "Changed A".into(),
+            "Changed B".into(),
+            "Changed A".into(),
+        ]),
+        None,
+    );
+    assert_eq!(popup.numberOfItems(), 4);
+    assert!(popup.itemAtIndex(2).unwrap().isSeparatorItem());
+    assert_eq!(popup.selectedItem().unwrap().tag(), 1);
+    popup.selectItemWithTag(2);
+    unsafe {
+        popup.sendAction_to(popup.action(), popup.target().as_deref());
+    }
+    assert!(
+        events
+            .borrow()
+            .contains(&(picker_node, Event::SelectionChanged(2)))
+    );
+    // Synthetic multiline text: the native line cap must affect measurement too, or a
+    // compact list row still lays its footer underneath an unlimited-height label.
+    let measure_label = |toolkit: &mut AppKit, max_lines, wraps| {
+        let label = toolkit.realize(kinds::LABEL, &day_spec::props::LabelProps {
+            text: "Fixture first line\nFixture second line\nFixture third line\nFixture fourth line".into(),
+            max_lines,
+            wraps,
+            ..Default::default()
+        }, NodeId(903));
+        let field = label.downcast_ref::<objc2_app_kit::NSTextField>().unwrap();
+        assert_eq!(
+            field.maximumNumberOfLines(),
+            if wraps { max_lines as isize } else { 1 }
+        );
+        toolkit.measure(
+            &label,
+            kinds::LABEL,
+            day_spec::Proposal {
+                width: Some(180.0),
+                height: None,
+            },
+        )
+    };
+    let unlimited = measure_label(&mut toolkit, 0, true);
+    let two = measure_label(&mut toolkit, 2, true);
+    let one = measure_label(&mut toolkit, 5, false);
+    assert!(
+        one.height < two.height,
+        "single-line precedence: {one:?} vs {two:?}"
+    );
+    assert!(
+        two.height < unlimited.height,
+        "line limit must constrain measurement: {two:?} vs {unlimited:?}"
+    );
+    println!("Native discovery, list focus, and grouped picker selection passed");
 }

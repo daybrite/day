@@ -70,6 +70,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [drag-and-drop-plan](/docs/internal/drag-and-drop-plan) | transfer architecture, platform constraints, and implementation plan |
 | [files](/docs/internal/files) | file I/O and platform paths |
 | [documents](/docs/internal/documents) | Document types and file activation |
+| [applications](/docs/internal/applications) | which app the OS hands a URL, MIME type or extension to, and opening with one |
 
 ## Pieces
 

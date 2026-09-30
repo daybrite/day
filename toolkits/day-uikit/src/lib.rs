@@ -1291,8 +1291,7 @@ mod imp {
                     }
                     continue;
                 };
-                // UIKit's own answer rather than the `collapsed` mirror, which a presentation
-                // change updates a beat later than the merge it describes.
+                // Read UIKit directly: presentation notifications can trail the merge.
                 let expanded = !unsafe { parts.split_vc.isCollapsed() };
                 if same_nav(&parts.primary_nav, nav)
                     || parts
@@ -2434,10 +2433,6 @@ mod imp {
         host_node: NodeId,
         /// `Some` for the adaptive (Split-lowered) host, `None` for a plain stack host.
         split: Option<SplitParts>,
-        /// UIKit's current answer, mirrored so `insert` knows which container a late-arriving
-        /// page belongs in and the pop detector knows when a count change was a merge. Always
-        /// `false` for a plain stack host.
-        collapsed: std::cell::Cell<bool>,
         /// Set around Day's OWN calls to a pop method (the collapsed triple column's pops),
         /// so `DayNavController`'s pop overrides — the observation point for the user's back
         /// button, swipe and history menu — know those are not the user's. There is no mirror
@@ -2456,6 +2451,14 @@ mod imp {
     }
 
     impl NavState {
+        /// Presentation callbacks can run before this state is registered. Read UIKit's
+        /// settled answer when routing operations instead of caching that initial callback.
+        fn is_collapsed(&self) -> bool {
+            self.split
+                .as_ref()
+                .is_some_and(|parts| unsafe { parts.split_vc.isCollapsed() })
+        }
+
         /// The navigation controller that currently OWNS the stack (docs/size-classes.md).
         ///
         /// Collapsed, UIKit has merged the secondary's pages into the primary's, so a push has to
@@ -2464,7 +2467,7 @@ mod imp {
         /// naming a column, so the same code is right in both presentations.
         fn active_nav(&self) -> Retained<DayNavController> {
             match &self.split {
-                Some(parts) if self.collapsed.get() => parts.primary_nav.clone(),
+                Some(parts) if self.is_collapsed() => parts.primary_nav.clone(),
                 _ => self.nav.clone(),
             }
         }
@@ -3020,19 +3023,14 @@ mod imp {
         }
     }
 
-    /// UIKit collapsed or expanded the split host: reconcile Day's mirror, then report.
-    ///
-    /// The mirror matters because collapsing MERGES the columns — UIKit inserts the primary
-    /// column's view controller at the bottom of the secondary's navigation stack, and expanding
-    /// takes it back out. Day's `vcs` mirror tracks only the pages it pushed, so both the mirror
-    /// and its floor have to be rebased in step; otherwise the
-    /// next `didShow` reads the count change as a user back and tears down a live page.
+    /// UIKit collapsed or expanded the split host: reconcile stranded double-column
+    /// pages and report the new presentation. Operations read the native presentation
+    /// directly, including when this callback preceded navigation state registration.
     fn split_presentation_changed(host: usize, expanded: bool) {
         let plan = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let state = m.get_mut(&host)?;
             let parts = state.split.as_ref()?;
-            state.collapsed.set(!expanded);
             if *DIAG_NAV {
                 log::debug!(
                     "DAYDIAG split {} primary={} secondary={} supplementary={:?}",
@@ -3374,7 +3372,7 @@ mod imp {
             let state = m.get(&host)?;
             let parts = state.split.as_ref()?;
             let list_width = parts.list_width?;
-            if state.collapsed.get() || unsafe { parts.split_vc.isCollapsed() } {
+            if state.is_collapsed() {
                 return None;
             }
             let triple = parts.list_shown.get();
@@ -3723,7 +3721,7 @@ mod imp {
         }
         let Some((active, placeholder, triple, secondary, svc)) = NAV_STATE.with(|m| {
             m.borrow().get(&host).map(|s| {
-                let triple = s.collapsed.get()
+                let triple = s.is_collapsed()
                     && s.split
                         .as_ref()
                         .is_some_and(|p| p.supplementary_nav.is_some());
@@ -7923,11 +7921,6 @@ mod imp {
                             NavState {
                                 nav,
                                 host_node: id,
-                                collapsed: std::cell::Cell::new(
-                                    split
-                                        .as_ref()
-                                        .is_some_and(|s| unsafe { s.split_vc.isCollapsed() }),
-                                ),
                                 split,
                                 day_pop: std::cell::Cell::new(false),
                                 _delegate: delegate,
@@ -8265,8 +8258,8 @@ mod imp {
                     let label = unsafe { UILabel::new(mtm) };
                     unsafe {
                         label.setText(Some(&NSString::from_str(&p.text)));
-                        label.setNumberOfLines(if p.wraps { 0 } else { 1 });
-                        if !p.wraps {
+                        label.setNumberOfLines(if p.wraps { p.max_lines as isize } else { 1 });
+                        if !p.wraps || p.max_lines > 0 {
                             label.setLineBreakMode(objc2_ui_kit::NSLineBreakMode::ByTruncatingTail);
                         }
                     }
@@ -8671,7 +8664,7 @@ mod imp {
                             let Some(state) = m.get_mut(&ptr_of(h)) else {
                                 return Act::None;
                             };
-                            let collapsed_triple = state.collapsed.get()
+                            let collapsed_triple = state.is_collapsed()
                                 && state
                                     .split
                                     .as_ref()
@@ -8707,7 +8700,7 @@ mod imp {
                                     if let Some(p) = state.split.as_ref() {
                                         p.list_shown.set(*v);
                                     }
-                                    if !state.collapsed.get() {
+                                    if !state.is_collapsed() {
                                         Act::Column
                                     } else if collapsed_triple {
                                         let parts = state.split.as_ref().expect("triple");
@@ -8742,8 +8735,11 @@ mod imp {
                                             objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
                                         );
                                     } else {
+                                        // This removes the outgoing list before the queued
+                                        // destination push. An animated pop finishes after that
+                                        // push and can discard its newly shown secondary column.
                                         with_day_pop(&primary, || {
-                                            let _ = primary.popToRootViewControllerAnimated(true);
+                                            let _ = primary.popToRootViewControllerAnimated(false);
                                         });
                                     }
                                 });
@@ -10533,7 +10529,7 @@ mod imp {
                             let nav = s.active_nav();
                             format!(
                                 "host={h:x} collapsed={} count={} shown={} transitioning={}",
-                                s.collapsed.get(),
+                                s.is_collapsed(),
                                 unsafe { nav.viewControllers() }.count(),
                                 nav.viewIfLoaded()
                                     .is_some_and(|v| unsafe { v.window() }.is_some()),

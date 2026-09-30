@@ -72,6 +72,7 @@ struct ViewState {
     /// over these same actions (their handlers stay wired).
     menu_actions: Vec<Retained<UIAction>>,
     options: Vec<String>,
+    separators_before: Vec<usize>,
     /// The picker's node and its live selection — what an option patch needs to rebuild the
     /// menu style's actions (each handler captures its own index, so relabeling is not an
     /// option there) and to keep the selection across the swap.
@@ -158,7 +159,7 @@ fn make_menu(
 ) -> (Retained<UIButton>, Vec<Retained<UIAction>>) {
     let btn = UIButton::buttonWithType(objc2_ui_kit::UIButtonType::System, mtm);
     let actions = menu_actions(mtm, &p.options, p.selected, node);
-    attach_menu(mtm, &btn, &actions);
+    attach_menu(mtm, &btn, &actions, &p.separators_before);
     btn.setShowsMenuAsPrimaryAction(true);
     let title = p.options.get(p.selected).cloned().unwrap_or_default();
     btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
@@ -198,12 +199,48 @@ fn menu_actions(
 /// (Re)attach a UIMenu built over `actions` — creation and every selection change go through
 /// here, because an attached menu is a snapshot: editing an action's state alone leaves an
 /// already-materialized menu showing the old ✓.
-fn attach_menu(mtm: MainThreadMarker, btn: &UIButton, actions: &[Retained<UIAction>]) {
+fn attach_menu(
+    mtm: MainThreadMarker,
+    btn: &UIButton,
+    actions: &[Retained<UIAction>],
+    separators: &[usize],
+) {
     let elems: Vec<Retained<UIMenuElement>> = actions
         .iter()
         .map(|a| Retained::from(<UIAction as AsRef<UIMenuElement>>::as_ref(a)))
         .collect();
-    let arr = NSArray::from_retained_slice(&elems);
+    let mut boundaries: Vec<_> = separators
+        .iter()
+        .copied()
+        .filter(|i| *i > 0 && *i < elems.len())
+        .collect();
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let groups = if boundaries.is_empty() {
+        elems
+    } else {
+        boundaries.push(elems.len());
+        let mut start = 0;
+        boundaries
+            .into_iter()
+            .map(|end| {
+                let children = NSArray::from_retained_slice(&elems[start..end]);
+                start = end;
+                let group = unsafe {
+                    UIMenu::menuWithTitle_image_identifier_options_children(
+                        &NSString::from_str(""),
+                        None,
+                        None,
+                        objc2_ui_kit::UIMenuOptions::DisplayInline,
+                        &children,
+                        mtm,
+                    )
+                };
+                Retained::from(<UIMenu as AsRef<UIMenuElement>>::as_ref(&group))
+            })
+            .collect()
+    };
+    let arr = NSArray::from_retained_slice(&groups);
     let menu = UIMenu::menuWithTitle_children(&NSString::from_str(""), &arr, mtm);
     btn.setMenu(Some(&menu));
 }
@@ -238,7 +275,7 @@ fn set_options(h: &Retained<UIView>, opts: &[String]) {
             st.selected = st.selected.min(opts.len().saturating_sub(1));
             if let Some(btn) = &st.menu_button {
                 st.menu_actions = menu_actions(mtm, opts, st.selected, st.node);
-                attach_menu(mtm, btn, &st.menu_actions);
+                attach_menu(mtm, btn, &st.menu_actions, &st.separators_before);
                 let title = opts.get(st.selected).cloned().unwrap_or_default();
                 btn.setTitle_forState(Some(&NSString::from_str(&title)), UIControlState::Normal);
             }
@@ -284,6 +321,7 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
                 menu_button,
                 menu_actions,
                 options: p.options.clone(),
+                separators_before: p.separators_before.clone(),
                 node: id,
                 selected: p.selected,
                 _target: target,
@@ -320,7 +358,7 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
                     });
                 }
                 if !st.menu_actions.is_empty() {
-                    attach_menu(crate::mtm(), btn, &st.menu_actions);
+                    attach_menu(crate::mtm(), btn, &st.menu_actions, &st.separators_before);
                 }
             }
             for (j, b) in st.buttons.iter().enumerate() {
