@@ -2833,10 +2833,10 @@ impl<M: Model> Query<M> {
             self.container
                 .ensure_resident::<M>(&chunk.iter().map(|id| id.handle()).collect::<Vec<_>>())?;
             for id in chunk {
-                if let Some(row) = self.container.try_get::<M>(*id)? {
-                    if let Some(value) = row.with_value_untracked(|v| v.cloned()) {
-                        rows.push(value);
-                    }
+                if let Some(row) = self.container.try_get::<M>(*id)?
+                    && let Some(value) = row.with_value_untracked(|v| v.cloned())
+                {
+                    rows.push(value);
                 }
             }
         }
@@ -3733,16 +3733,16 @@ impl ModelContainer {
                     let mut n = 0;
                     self.conn().query(&q.sql, &q.params, &mut |row| {
                         let values = (0..row.len()).map(|i| row.get(i)).collect::<Vec<_>>();
-                        if let Some(h) = value_to_handle(&values[0]) {
-                            if fetch.pred.eval(
+                        if let Some(h) = value_to_handle(&values[0])
+                            && fetch.pred.eval(
                                 h,
                                 &FallbackRow {
                                     cols: &cols,
                                     values: &values,
                                 },
-                            ) {
-                                n += 1;
-                            }
+                            )
+                        {
+                            n += 1;
                         }
                     })?;
                     Ok(n.min(cap))
@@ -3804,16 +3804,16 @@ impl ModelContainer {
                 let mut ids = Vec::new();
                 self.conn().query(&q.sql, &q.params, &mut |row| {
                     let values = (0..row.len()).map(|i| row.get(i)).collect::<Vec<_>>();
-                    if let Some(h) = value_to_handle(&values[0]) {
-                        if fetch.pred.eval(
+                    if let Some(h) = value_to_handle(&values[0])
+                        && fetch.pred.eval(
                             h,
                             &FallbackRow {
                                 cols: &cols,
                                 values: &values,
                             },
-                        ) {
-                            ids.push(h);
-                        }
+                        )
+                    {
+                        ids.push(h);
                     }
                 })?;
                 if let Some(limit) = fetch.limit {

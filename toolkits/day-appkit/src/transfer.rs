@@ -97,11 +97,10 @@ pub fn dragged(view: &DayFlipped, event: &NSEvent) -> bool {
         if let Some(item) = offer.items.first() {
             for r in &item.representations {
                 if r.mime == "text/uri-list" {
-                    if let Ok(s) = std::str::from_utf8(&r.bytes) {
-                        if let Some(uri) = s.lines().find(|s| !s.is_empty() && !s.starts_with('#'))
-                        {
-                            pb.setString_forType(&NSString::from_str(uri), &native(&r.mime));
-                        }
+                    if let Ok(s) = std::str::from_utf8(&r.bytes)
+                        && let Some(uri) = s.lines().find(|s| !s.is_empty() && !s.starts_with('#'))
+                    {
+                        pb.setString_forType(&NSString::from_str(uri), &native(&r.mime));
                     }
                 } else {
                     pb.setData_forType(&NSData::with_bytes(&r.bytes), &native(&r.mime));

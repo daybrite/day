@@ -3397,6 +3397,24 @@ fn release_bitmap(id: day_spec::BitmapId) {
     });
 }
 
+/// Qt's macOS QFileOpenEvent; command-line activations on other OSes use day-core.
+///
+/// # Safety
+/// `url` is null or a NUL-terminated C string that stays readable for the length of this call.
+/// The shim passes the event's URL, which Qt owns and outlives the callback; nothing here keeps
+/// the pointer past the copy.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn day_qt_open_file(url: *const std::ffi::c_char) {
+    day_spec::ffi_guard::contain((), || {
+        if !url.is_null() {
+            let file = unsafe { std::ffi::CStr::from_ptr(url) }
+                .to_string_lossy()
+                .into_owned();
+            day_core::request_open_files(vec![file]);
+        }
+    });
+}
+
 #[cfg(test)]
 mod bitmap_teardown_tests {
     use super::*;
@@ -3446,17 +3464,4 @@ mod bitmap_teardown_tests {
             String::from_utf8_lossy(&output.stderr)
         );
     }
-}
-
-/// Qt's macOS QFileOpenEvent; command-line activations on other OSes use day-core.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn day_qt_open_file(url: *const std::ffi::c_char) {
-    day_spec::ffi_guard::contain((), || {
-        if !url.is_null() {
-            let file = unsafe { std::ffi::CStr::from_ptr(url) }
-                .to_string_lossy()
-                .into_owned();
-            day_core::request_open_files(vec![file]);
-        }
-    });
 }
