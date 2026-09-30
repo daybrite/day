@@ -95,7 +95,7 @@ pub(crate) fn default_formats(target: &Target) -> Result<Vec<&'static str>, Stri
         // Both, and in this order: the flatpak is the desktop-integrated install, the AppImage
         // is the one a `curl … && ./app` line can run with nothing installed (§16.5).
         "linux-gtk" | "linux-qt" => vec!["flatpak", "appimage"],
-        "windows-xaml" => vec!["msix", "nsis"],
+        "windows-xaml" | "windows-winui" => vec!["msix", "nsis"],
         "harmony-arkui" => vec!["hap"],
         "macos-gtk" | "macos-qt" | "windows-gtk" | "windows-qt" => {
             return Err(format!(
@@ -180,7 +180,7 @@ pub fn run(
             }
             payload_root = payload_root_for(project, target);
         }
-        "windows-xaml" => {
+        "windows-xaml" | "windows-winui" => {
             let staged = msix::stage_payload(project, target, opts)?;
             payload_root = payload_root_for(project, target);
             if formats.iter().any(|f| f == "msix") {
@@ -743,6 +743,7 @@ pub(crate) fn payload_root(project_root: &Path, target: &'static Target) -> Opti
                 .join("stage/bin"),
         ),
         "windows-xaml" => Some(project_root.join("build/day/pack/windows-payload")),
+        "windows-winui" => Some(project_root.join("build/day/pack/windows-winui-payload")),
         _ => None,
     }
 }

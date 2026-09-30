@@ -284,7 +284,7 @@ pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
     let icons = project.resource_root().join("icons");
     // Windows taskbar icons are .ico; everything else takes a PNG (dock, icon theme, dialogs).
     let (subdirs, ext): (&[&str], &str) = match toolkit {
-        "xaml" => (&["windows", ""], "ico"),
+        "xaml" | "winui" => (&["windows", ""], "ico"),
         _ if cfg!(target_os = "macos") => (&["macos", "png", ""], "png"),
         _ => (&["linux", "png", ""], "png"),
     };
@@ -370,7 +370,7 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
         // `fonts/` dir next to the binary / in Resources when packed (§18.4).
         "gtk" => gtk::stage(project, &set),
         "qt" => qt::stage(project, &set),
-        "xaml" => xaml::stage(project, &set),
+        "xaml" | "winui" => xaml::stage(project, &set),
         _ => Ok(()),
     }
 }
@@ -405,7 +405,7 @@ pub fn vector_raster_dir(project: &Project) -> PathBuf {
 fn toolkit_draws_vectors(toolkit: &str) -> bool {
     matches!(
         toolkit,
-        "appkit" | "uikit" | "mdc" | "arkui" | "dom" | "xaml"
+        "appkit" | "uikit" | "mdc" | "arkui" | "dom" | "xaml" | "winui"
     )
 }
 
@@ -417,7 +417,7 @@ fn vector_fallback_names(toolkit: &str, vectors: &[VectorAsset]) -> Vec<String> 
         .filter(|v| match toolkit {
             // Staged as SVG, which these render natively for every glyph; nothing falls back.
             "appkit" | "uikit" | "arkui" | "dom" => false,
-            "xaml" => !v.xaml,
+            "xaml" | "winui" => !v.xaml,
             "mdc" => !v.vd,
             // No vector arm: the raster IS the glyph here.
             _ => true,

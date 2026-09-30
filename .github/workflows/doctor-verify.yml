@@ -70,6 +70,7 @@ jobs:
           - linux-qt
           - android-mdc
           - harmony-arkui
+          - windows-winui
           - windows-xaml
           - windows-qt
           - windows-gtk
@@ -84,9 +85,14 @@ jobs:
           - { combo: linux-qt,      os: ubuntu-latest }
           - { combo: android-mdc,   os: ubuntu-latest }
           - { combo: harmony-arkui, os: ubuntu-latest }
+          - { combo: windows-winui, os: windows-latest }
           - { combo: windows-xaml,  os: windows-latest }
           - { combo: windows-qt,    os: windows-latest }
           - { combo: windows-gtk,   os: windows-latest }
+        # windows-winui is newer than the latest published CLI; verify it on `main` until a
+        # release carries it, then drop this.
+        exclude:
+          - { day-version: latest, combo: windows-winui }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90 # a cell now builds and packages; the slowest (ios, linux flatpak) run long
     defaults:

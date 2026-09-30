@@ -162,10 +162,11 @@ Per platform:
 - **Qt:** `QFontDatabase::addApplicationFont` per file at startup (shim `day_qt_register_font`);
   labels get `QFont::setFamily` on top of the size/weight/italic font.
 - **XAML:** unpackaged Win32 XAML has no registration API and rejects `file://`/absolute font
-  locations (like `BitmapImage`). The one location system XAML resolves is `ms-appx:///`, mapped to
-  the executable directory and its subtree, so `run()` stages every bundled font into `<exe>/fonts/`
-  (a no-op when packed; `day pack` already ships them there) and the shim sets
-  `FontFamily("ms-appx:///fonts/<file>#<family>")`. The family→file mapping is resolved (and cached)
+  locations (like `BitmapImage`). The one location system XAML (the deprecated windows-xaml)
+  resolves is `ms-appx:///`, mapped to the executable directory and its subtree, so `run()` stages
+  every bundled font into `<exe>/fonts/` (a no-op when packed; `day pack` already ships them there)
+  and the shim sets `FontFamily("ms-appx:///fonts/<file>#<family>")`. The windows-winui build
+  takes the same path. The family→file mapping is resolved (and cached)
   through `day_spec::fonts::resolve_font_file` against `DAY_FONT_ROOT` / the exe-relative `fonts/` dir.
 - **ArkUI:** staged into rawfile `day/fonts/` plus a `day/fonts.json` manifest
   (`[{family, file}]`); the platform/harmony scaffold's EntryAbility feeds it to ArkTS

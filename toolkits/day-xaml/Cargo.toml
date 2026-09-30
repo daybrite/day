@@ -28,3 +28,8 @@ linkme = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 day-xaml-sys = { workspace = true }
+
+[features]
+# WinUI 3 instead of system XAML (the `windows-winui` target, docs/winui.md):
+# the same backend over the same C ABI, with the shim built against Microsoft.UI.Xaml.
+winui = ["day-xaml-sys/winui"]

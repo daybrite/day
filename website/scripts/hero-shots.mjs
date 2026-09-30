@@ -44,7 +44,7 @@ export const APP_ID = 'Day-Showcase';
 // also build in CI. Order here is the default (the client reshuffles anyway).
 const PRIMARY_PLATFORMS = [
   'macos-appkit',
-  'windows-xaml',
+  'windows-winui',
   'linux-gtk',
   'linux-qt',
   'android-mdc',
@@ -61,7 +61,7 @@ const PRIMARY_KEY = ['v7', ...PRIMARY_PLATFORMS].join(',');
 const CAROUSEL_TOOLKIT = {
   'linux-gtk': 'GTK (GNOME)',
   'linux-qt': 'Qt (KDE)',
-  'windows-xaml': 'XAML',
+  'windows-winui': 'WinUI 3',
   'web-dom': 'DOM',
 };
 

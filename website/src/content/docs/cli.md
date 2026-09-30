@@ -71,7 +71,8 @@ when and how to use it.
 | `ios-uikit` | `.ipa` (App Store export; without signing config, an unsigned device `.ipa` named `<stem>-ios-uikit-unsigned.ipa`) |
 | `android-mdc` | `.apk` + `.aab` (release-signed) |
 | `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle **and** a `.appimage` |
-| `windows-xaml` | `.msix` + NSIS `-setup.exe` |
+| `windows-winui` | self-contained `.msix` + NSIS `-setup.exe` |
+| `windows-xaml` (deprecated) | `.msix` + NSIS `-setup.exe` |
 | `harmony-arkui` | `.hap` |
 | `web-dom` | none — `day build` already emits a self-contained static `dist/` |
 

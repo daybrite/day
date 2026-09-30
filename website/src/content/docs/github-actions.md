@@ -54,7 +54,7 @@ An app that predates the scaffolded file, or one from another template, adds the
 hand. `targets: all` builds every target `Day.toml` declares, so `day project add-target`
 reaches CI on its own. To refine what CI builds, add or remove targets in `Day.toml`, or name
 them in the workflow instead, such as
-`targets: macos-appkit, windows-xaml, linux-gtk, ios-uikit, android-mdc, web-dom`.
+`targets: macos-appkit, windows-winui, linux-gtk, ios-uikit, android-mdc, web-dom`.
 `scripts: auto` runs the project's
 `dayscript/*.yaml` files, or `scripts/*.yaml` when that is the script directory. Use a
 space-separated list of paths to run selected tests, or `none` to build without running tests.

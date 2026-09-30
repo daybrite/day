@@ -127,6 +127,7 @@ day_core::tls_group! {
 // (day's logo/title piece) is the PaneHeader; detail pages live in `content_host` (nv.Content) kept
 // with their node ids so a region resize can report FrameChanged (mirrors TABS).
 struct SplitNav {
+    node: u64,
     nav_view: *mut c_void,
     content_host: *mut c_void,
     menu_node: u64,
@@ -210,6 +211,81 @@ extern "C" fn nav_region_size(host_id: u64, region: c_int, w: c_int, h: c_int) {
             emit(id, Event::FrameChanged(size));
         }
     });
+}
+
+/// Resolve a deferred page-size report against the live navigation tree. The host's node id
+/// survives neither teardown nor reuse of its native handle, and a removed page must not receive
+/// the old report even if its host is still alive. Called on the UI thread, immediately before
+/// reading the native size; no side-table borrow is held across native code or event delivery.
+fn nav_page_content_host(host_id: u64, page: NodeId) -> Option<*mut c_void> {
+    let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied())?;
+    NAV_STATE.with(|m| {
+        let m = m.borrow();
+        let NavState::Split(s) = m.get(&(host as usize))?;
+        (s.node == host_id && s.detail_pages.iter().any(|(_, id, _)| *id == page))
+            .then_some(s.content_host)
+    })
+}
+
+#[cfg(test)]
+mod deferred_nav_size_tests {
+    use super::*;
+
+    // Opaque test handles are never dereferenced: only a successful live lookup may reach FFI.
+    fn register(host_id: u64, page: NodeId) -> *mut c_void {
+        let host = std::ptr::without_provenance_mut::<c_void>(1);
+        let content = std::ptr::without_provenance_mut::<c_void>(2);
+        NAV_HOST_BY_ID.with(|m| m.borrow_mut().insert(host_id, host));
+        NAV_STATE.with(|m| {
+            m.borrow_mut().insert(
+                host as usize,
+                NavState::Split(SplitNav {
+                    node: host_id,
+                    nav_view: host,
+                    content_host: content,
+                    menu_node: 0,
+                    sidebar_page: None,
+                    detail_pages: vec![(std::ptr::without_provenance_mut(3), page, String::new())],
+                    is_stack: true,
+                    resident: false,
+                    selected: 0,
+                }),
+            );
+        });
+        content
+    }
+
+    #[test]
+    fn removed_page_does_not_receive_a_deferred_size() {
+        let content = register(10, NodeId(20));
+        assert_eq!(nav_page_content_host(10, NodeId(20)), Some(content));
+        NAV_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(NavState::Split(s)) = m.get_mut(&1) else {
+                unreachable!();
+            };
+            s.detail_pages.clear();
+        });
+        assert_eq!(nav_page_content_host(10, NodeId(20)), None);
+        NAV_STATE.with(|m| m.borrow_mut().clear());
+        NAV_HOST_BY_ID.with(|m| m.borrow_mut().clear());
+    }
+
+    #[test]
+    fn released_host_and_reused_native_address_do_not_resolve() {
+        register(10, NodeId(20));
+        NAV_STATE.with(|m| m.borrow_mut().clear());
+        NAV_HOST_BY_ID.with(|m| m.borrow_mut().remove(&10));
+        assert_eq!(nav_page_content_host(10, NodeId(20)), None);
+
+        // Another navigation host reuses exactly the same native allocation.
+        let content = register(11, NodeId(21));
+        assert_eq!(nav_page_content_host(10, NodeId(20)), None);
+        assert_eq!(nav_page_content_host(11, NodeId(20)), None);
+        assert_eq!(nav_page_content_host(11, NodeId(21)), Some(content));
+        NAV_STATE.with(|m| m.borrow_mut().clear());
+        NAV_HOST_BY_ID.with(|m| m.borrow_mut().clear());
+    }
 }
 
 // Inspector (docs/inspector.md): a SplitView with its pane placed right — the XAML
@@ -1023,21 +1099,27 @@ impl Default for Xaml {
 /// Day font intents → (XAML FontSize in DIPs, bold).
 /// Point size + the style's inherent weight for a logical [`Font`]. XAML's `TextBlock.FontSize`
 /// auto-scales with the OS text-scale-factor (Settings ▸ Accessibility ▸ Text size), so these sizes
-/// honor accessibility. Aligned with the desktop scale used by the GTK/Qt backends.
+/// honor accessibility.
+///
+/// The sizes are the Windows 11 (Fluent) type ramp WinUI's own text styles use, so a Day label
+/// sits beside the controls' text as a native one would: Caption 12, Body 14 (the controls'
+/// `ControlContentThemeFontSize`), BodyStrong 14 semibold, BodyLarge 18, Subtitle 20 semibold,
+/// Title 28 semibold. Fluent has nothing below 12 px; Caption2 alone goes to 11, as the
+/// smallest Windows UI text (the taskbar clock's) does.
 fn xaml_style(f: Font) -> (f64, day_spec::FontWeight) {
     use day_spec::FontWeight::*;
     match f {
-        Font::LargeTitle => (26.0, Regular),
-        Font::Title => (22.0, Regular),
-        Font::Title2 => (17.0, Regular),
-        Font::Title3 => (15.0, Regular),
-        Font::Headline => (13.0, Semibold),
-        Font::Subheadline => (11.0, Regular),
-        Font::Body => (13.0, Regular),
-        Font::Callout => (12.0, Regular),
-        Font::Footnote => (10.0, Regular),
-        Font::Caption => (10.0, Regular),
-        Font::Caption2 => (10.0, Regular),
+        Font::LargeTitle => (28.0, Semibold), // TitleTextBlockStyle
+        Font::Title => (20.0, Semibold),      // SubtitleTextBlockStyle
+        Font::Title2 => (18.0, Regular),      // BodyLargeTextBlockStyle
+        Font::Title3 => (16.0, Semibold),
+        Font::Headline => (14.0, Semibold), // BodyStrongTextBlockStyle
+        Font::Subheadline => (12.0, Regular),
+        Font::Body => (14.0, Regular), // BodyTextBlockStyle
+        Font::Callout => (13.0, Regular),
+        Font::Footnote => (12.0, Regular), // CaptionTextBlockStyle
+        Font::Caption => (12.0, Regular),
+        Font::Caption2 => (11.0, Regular),
         Font::System(pt) => (pt, Regular),
         Font::Custom(_, pt) => (pt, Regular),
     }
@@ -1632,6 +1714,7 @@ impl Toolkit for Xaml {
                         nav_back,
                         &mut content,
                         is_stack as c_int,
+                        (day_core::layout_direction() == day_spec::LayoutDirection::Rtl) as c_int,
                     );
                     if pane_mode >= 0 {
                         ffi::day_xaml_nav_set_pane_mode(nav, pane_mode);
@@ -1640,6 +1723,7 @@ impl Toolkit for Xaml {
                         m.borrow_mut().insert(
                             nav as usize,
                             NavState::Split(SplitNav {
+                                node: id.0,
                                 nav_view: nav,
                                 content_host: content,
                                 menu_node: 0,
@@ -1802,10 +1886,25 @@ impl Toolkit for Xaml {
                         h,
                         match p.align {
                             day_spec::props::TextAlign::Center => 1,
-                            day_spec::props::TextAlign::Trailing => 2,
-                            day_spec::props::TextAlign::Leading => 0,
+                            day_spec::props::TextAlign::Trailing => {
+                                if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+                                    0
+                                } else {
+                                    2
+                                }
+                            }
+                            day_spec::props::TextAlign::Leading => {
+                                if day_core::layout_direction() == day_spec::LayoutDirection::Rtl {
+                                    2
+                                } else {
+                                    0
+                                }
+                            }
                         },
                     );
+                    if p.role == day_spec::props::TextRole::Secondary {
+                        ffi::day_xaml_label_set_secondary(h);
+                    }
                     if let Some(c) = p.color {
                         ffi::day_xaml_label_set_color(h, argb(c));
                     }
@@ -2444,7 +2543,7 @@ impl Toolkit for Xaml {
             /// stack's top-page visibility + back button.
             Content {
                 node: NodeId,
-                content_host: *mut c_void,
+                host_id: u64,
                 stack: bool,
                 resident: bool,
             },
@@ -2470,7 +2569,7 @@ impl Toolkit for Xaml {
                 s.detail_pages.push((child.0, node, String::new()));
                 NavInsert::Content {
                     node,
-                    content_host: s.content_host,
+                    host_id: s.node,
                     stack: s.is_stack,
                     resident: s.resident,
                 }
@@ -2481,7 +2580,7 @@ impl Toolkit for Xaml {
             NavInsert::Done => return,
             NavInsert::Content {
                 node,
-                content_host,
+                host_id,
                 stack,
                 resident,
             } => {
@@ -2489,11 +2588,29 @@ impl Toolkit for Xaml {
                 // refire its SizeChanged — so seed the new page with the current content bounds
                 // (else NavLayout would fall back to the split size). Emitted outside the NAV_STATE
                 // borrow (FrameChanged re-enters the tree).
-                let (mut w, mut h) = (0.0, 0.0);
-                unsafe { ffi::day_xaml_widget_size(content_host, &mut w, &mut h) };
-                if w > 0.0 && h > 0.0 {
-                    emit(node, Event::FrameChanged(Size::new(w, h)));
-                }
+                //
+                // Posted to the next loop turn, not emitted here: the page is inserted while Day
+                // is still building it, before its FrameChanged handler exists, so an event sent
+                // now was dropped and the page kept NavLayout's fallback, the whole host height.
+                // Under WinUI 3 that is wrong by the NavigationView's header (the page title band
+                // above the content), so every newly opened page overhung the window by that
+                // much, clipped at the bottom and short of its scroll extent until a resize
+                // re-reported the size. (System XAML shows no header there, so the fallback
+                // happened to be right.) Resolve by node ids when the post runs: the host can
+                // be released before then, freeing content_host, or this page can be removed
+                // while the host stays alive. Capturing the raw handle would use freed memory.
+                let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
+                    let Some(host) = nav_page_content_host(host_id, node) else {
+                        return;
+                    };
+                    let (mut w, mut h) = (0.0, 0.0);
+                    unsafe { ffi::day_xaml_widget_size(host, &mut w, &mut h) };
+                    if w > 0.0 && h > 0.0 {
+                        emit(node, Event::FrameChanged(Size::new(w, h)));
+                    }
+                });
+                let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+                unsafe { ffi::day_xaml_post(run_posted, data) };
                 if stack {
                     stack_sync(parent.0);
                 } else if resident {
@@ -2506,9 +2623,7 @@ impl Toolkit for Xaml {
         // id is recorded so region-size reports can reach it (docs/inspector.md).
         let inspected = INSPECTOR_STATE.with(|m| {
             let m = m.borrow();
-            let Some(state) = m.get(&(parent.0 as usize)) else {
-                return None;
-            };
+            let state = m.get(&(parent.0 as usize))?;
             let (pane_id, panel) = INSPECTOR_PANE_IDS
                 .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
                 .unwrap_or((NodeId(0), index == 1));
@@ -2647,7 +2762,12 @@ impl Toolkit for Xaml {
             kinds::PROGRESS => {
                 // Determinate bar fills the proposed width; the indeterminate ring is square.
                 let nat = natural(h.0);
-                Size::new(p.width.unwrap_or(nat.width.max(20.0)), nat.height.max(6.0))
+                if unsafe { ffi::day_xaml_progress_is_ring(h.0) } != 0 {
+                    let side = nat.width.max(nat.height).max(20.0);
+                    Size::new(side, side)
+                } else {
+                    Size::new(p.width.unwrap_or(nat.width.max(20.0)), nat.height.max(6.0))
+                }
             }
             _ => {
                 if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
@@ -2951,7 +3071,12 @@ impl Toolkit for Xaml {
         cb: day_spec::FrameCallback,
     ) -> day_spec::CancelFrame {
         extern "C" fn fire(token: u64, timestamp: f64) {
-            day_core::frame::native::deliver(token, day_spec::FrameStamp::new(timestamp));
+            // XAML can raise Rendering inside the nested layout/screenshot pump while
+            // day-core holds its tree borrow. Deliver through WM_APP+1, which those pumps
+            // exclude, so reactive frame work runs only after that borrow has ended.
+            Xaml::post(Box::new(move || {
+                day_core::frame::native::deliver(token, day_spec::FrameStamp::new(timestamp));
+            }));
         }
         let token = day_core::frame::native::register(cb);
         unsafe { ffi::day_xaml_request_frame(token, fire) };
@@ -3427,8 +3552,17 @@ extern "C" fn on_gesture(
 }
 
 impl Platform for Xaml {
-    const TARGET: &'static str = "windows-xaml";
-    const TOOLKIT: &'static str = "xaml";
+    // One backend serves both targets; `winui` is its WinUI 3 build (docs/winui.md).
+    const TARGET: &'static str = if cfg!(feature = "winui") {
+        "windows-winui"
+    } else {
+        "windows-xaml"
+    };
+    const TOOLKIT: &'static str = if cfg!(feature = "winui") {
+        "winui"
+    } else {
+        "xaml"
+    };
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, WinHandle, Size)>) {
         unsafe {

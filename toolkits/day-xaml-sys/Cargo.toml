@@ -18,3 +18,9 @@ build = "build.rs"
 [build-dependencies]
 day-toolchain = { workspace = true }
 cc = "1"
+
+[features]
+# Build the shim against WinUI 3 (Microsoft.UI.Xaml, the Windows App SDK) instead of system XAML:
+# the `windows-winui` target (docs/winui.md). Same source, same C ABI; the
+# build script defines DAY_WINUI and puts the generated Windows App SDK projection on the path.
+winui = []

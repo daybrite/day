@@ -44,6 +44,7 @@ const PLATFORM_ASSETS = [
   { id: 'ios-uikit', match: (n) => /-ios-uikit\.ipa$/i.test(n) },
   { id: 'harmony-arkui', match: (n) => /-harmony-arkui\.hap$/i.test(n) },
   { id: 'macos-appkit', match: (n) => /-macos-appkit\.dmg$/i.test(n) },
+  { id: 'windows-winui', match: (n) => /-windows-winui(-setup)?\.(msix|exe)$/i.test(n) },
   { id: 'windows-xaml', match: (n) => /-windows-xaml(-setup)?\.(msix|exe)$/i.test(n) },
   // Linux ships two formats. The card offers the AppImage — one executable carrying its own
   // toolkit, so `chmod +x` and run is the whole procedure — and falls back to the .flatpak for a

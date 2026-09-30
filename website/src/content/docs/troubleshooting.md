@@ -57,7 +57,8 @@ Doctor uses toolkit names, while build and launch commands use target names:
 | `android-mdc` | `android` |
 | `linux-gtk`, `macos-gtk`, `windows-gtk` | `gtk` |
 | `linux-qt`, `macos-qt`, `windows-qt` | `qt` |
-| `windows-xaml` | `xaml` |
+| `windows-winui` | `winui` |
+| `windows-xaml` (deprecated) | `xaml` |
 | `harmony-arkui` | `harmonyos` |
 | `web-dom` | `dom` |
 
@@ -244,11 +245,14 @@ Check which toolchain the project is using:
 rustup show active-toolchain
 ```
 
-`windows-xaml` needs the MSVC toolchain, Visual Studio C++ Build Tools, and the Windows SDK.
+`windows-winui` needs the MSVC toolchain, Visual Studio C++ Build Tools, and the Windows SDK.
 A missing `link.exe` points to that setup. Windows GTK and Qt builds use MSYS2 packages and a
 GNU-compatible Rust toolchain; mixing their import libraries with MSVC causes linking failures.
 Follow the [Windows setup instructions](/docs/system-requirements#windows) for your backend and
 host architecture, then run its focused doctor check in the same terminal.
+
+A `windows-winui` development build that links but offers a download page at start-up is missing
+the Windows App Runtime 2.5.1 or newer; `day doctor --toolkit winui` reports it.
 
 ## HarmonyOS builds Rust but cannot package or launch
 

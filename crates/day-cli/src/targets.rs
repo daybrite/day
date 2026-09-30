@@ -34,6 +34,9 @@ pub struct Target {
     pub label: &'static str,
     /// Not yet production-ready; surfaced with an `[EXPERIMENTAL]` tag in menus.
     pub experimental: bool,
+    /// Superseded: still builds, packs and runs, but new projects should not pick it. Names the
+    /// target that replaces it, which menus and the build's warning point to.
+    pub deprecated: Option<&'static str>,
 }
 
 // Ordered for presentation: the phone OSes first (iOS, Android, HarmonyOS), then the desktops
@@ -50,6 +53,7 @@ pub const TARGETS: &[Target] = &[
         host: "macos",
         label: "iOS",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "android-mdc",
@@ -59,6 +63,7 @@ pub const TARGETS: &[Target] = &[
         host: "any",
         label: "Android",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "harmony-arkui",
@@ -68,6 +73,7 @@ pub const TARGETS: &[Target] = &[
         host: "any",
         label: "OpenHarmony ArkUI",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "macos-appkit",
@@ -77,6 +83,7 @@ pub const TARGETS: &[Target] = &[
         host: "macos",
         label: "macOS (AppKit)",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "macos-gtk",
@@ -86,6 +93,7 @@ pub const TARGETS: &[Target] = &[
         host: "macos",
         label: "macOS (GTK)",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "macos-qt",
@@ -95,6 +103,7 @@ pub const TARGETS: &[Target] = &[
         host: "macos",
         label: "macOS (Qt)",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "linux-gtk",
@@ -104,6 +113,7 @@ pub const TARGETS: &[Target] = &[
         host: "linux",
         label: "Linux (GTK)",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "linux-qt",
@@ -113,15 +123,32 @@ pub const TARGETS: &[Target] = &[
         host: "linux",
         label: "Linux (Qt)",
         experimental: false,
+        deprecated: None,
     },
+    // WinUI 3 (the Windows App SDK): the xaml backend with its shim built against
+    // Microsoft.UI.Xaml (docs/winui.md). The Windows target a new project gets.
+    Target {
+        name: "windows-winui",
+        toolkit: "winui",
+        kind: TargetKind::Desktop,
+        os: "windows",
+        host: "windows",
+        label: "Windows (WinUI 3)",
+        experimental: false,
+        deprecated: None,
+    },
+    // System XAML (Windows.UI.Xaml hosted in XAML Islands): the same backend against the XAML
+    // that ships in Windows. Deprecated in favor of windows-winui; it still builds, packs and
+    // runs, for projects that have not moved yet.
     Target {
         name: "windows-xaml",
         toolkit: "xaml",
         kind: TargetKind::Desktop,
         os: "windows",
         host: "windows",
-        label: "Windows (XAML)",
+        label: "Windows (XAML, deprecated)",
         experimental: false,
+        deprecated: Some("windows-winui"),
     },
     Target {
         name: "windows-qt",
@@ -131,6 +158,7 @@ pub const TARGETS: &[Target] = &[
         host: "windows",
         label: "Windows (Qt)",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "windows-gtk",
@@ -140,6 +168,7 @@ pub const TARGETS: &[Target] = &[
         host: "windows",
         label: "Windows (GTK)",
         experimental: false,
+        deprecated: None,
     },
     Target {
         name: "web-dom",
@@ -149,6 +178,7 @@ pub const TARGETS: &[Target] = &[
         host: "any",
         label: "Web (DOM)",
         experimental: true,
+        deprecated: None,
     },
 ];
 
@@ -179,7 +209,7 @@ pub fn host_os() -> &'static str {
 pub fn host_default() -> &'static str {
     match host_os() {
         "linux" => linux_default_desktop(),
-        "windows" => "windows-xaml",
+        "windows" => "windows-winui",
         _ => "macos-appkit",
     }
 }
@@ -288,7 +318,7 @@ mod tests {
             "macos-gtk",
             "linux-gtk",
             "linux-qt",
-            "windows-xaml",
+            "windows-winui",
             "web-dom",
         ]);
         assert_eq!(suggested(&scaffold), host_default());
@@ -330,7 +360,7 @@ mod tests {
 
     #[test]
     fn host_defaults_name_real_targets() {
-        for name in ["macos-appkit", "windows-xaml", "linux-gtk", "linux-qt"] {
+        for name in ["macos-appkit", "windows-winui", "linux-gtk", "linux-qt"] {
             assert!(find(name).is_some(), "{name} is not in the target table");
         }
         assert!(find(host_default()).is_some());

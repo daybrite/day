@@ -7,10 +7,13 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 The C++/WinRT side of Day's Windows backend.
 
-This crate holds the XAML Islands shim and the raw `extern "C"` declarations for it. The
-build script compiles the shim against the Windows kits, and XAML objects cross into Rust
-as opaque pointers. There is deliberately no safe API here: the safe layer is
-[`day-xaml`](https://crates.io/crates/day-xaml), and apps depend on neither crate
+This crate holds the XAML shim and the raw `extern "C"` declarations for it. The build
+script compiles the shim against the Windows kits and, with the `winui` feature (the
+`windows-winui` target), against WinUI 3 (`Microsoft.UI.Xaml`) from the Windows App SDK,
+whose packages it fetches on first use; without it, against the system XAML in Windows
+(`Windows.UI.Xaml` in XAML Islands), which is the deprecated `windows-xaml` target. XAML
+objects cross into Rust as opaque pointers. There is deliberately no safe API here: the safe
+layer is [`day-xaml`](https://crates.io/crates/day-xaml), and apps depend on neither crate
 directly — the backend arrives through a cargo feature on
 [`day`](https://crates.io/crates/day).
 

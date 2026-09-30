@@ -489,14 +489,14 @@ included. The hosts are already in your repository, so there is nothing to eject
 | apply changes | Fast Refresh | `day relaunch --all-running` |
 | Android store build | Gradle `bundleRelease` + signing config | `day pack -p android-mdc` → signed `.apk` + `.aab` |
 | iOS store build | Xcode archive / fastlane / EAS | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
-| macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -p macos-appkit` / `-p windows-xaml` / `-p linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` + `.appimage` |
+| macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -p macos-appkit` / `-p windows-winui` / `-p linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` + `.appimage` |
 | web | react-native-web (renders DOM via the RN API) | `day build -p web-dom` — the same crate compiled to WebAssembly, driving DOM elements |
 | environment check | `npx react-native doctor` | `day doctor` |
 
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
 today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
 [Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
-[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships), plus [Tier 5](/docs/platforms#support-tiers) for deprecated targets.
 
 You give up Fast Refresh and the size of the npm ecosystem, and you write Rust instead of
 TypeScript; in return one repository and one dayscript cover mobile, desktop, and web. Signing

@@ -17,6 +17,9 @@
 
 use std::path::{Path, PathBuf};
 
+/// The Windows App SDK (WinUI 3) a `windows-winui` build compiles against.
+pub mod winappsdk;
+
 // ---------------------------------------------------------------------------
 // Windows Kits (the Windows 10/11 SDK): cppwinrt headers + bin tools
 // ---------------------------------------------------------------------------

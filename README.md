@@ -24,7 +24,7 @@ Day takes a third path among cross-platform toolkits. Web-view shells (Tauri, El
 
 This enables you to use Day to create user interfaces that are indistinguishable from ones built directly with the first-party toolkit provided by the mobile or desktop vendor. And because it is Rust, it has bare-metal performance and unmatched efficiency _everywhere_ without sacrificing memory safety and without relying on any additional runtime or garbage collector. Using the first-party native toolkit widgets also gives Day excellent accessibility support out of the box, so screen readers and other assistive technologies can interoperate flawlessly with Day apps.
 
-Day is a complete framework, and the UI layer is one part of it. The `day` command line creates a project, lints it, builds and launches it on any of the twelve targets, and packs the installer each platform expects. The [Day extension for VS Code](https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode) does the same from the editor and opens the host projects in Xcode and Android Studio. A reusable [GitHub Actions workflow](https://github.com/daybrite/actions) builds every target on each push, drives the app's own dayscript walkthrough on simulators and emulators, and uploads to the stores on a tag. Localization with Fluent, accessibility through each platform's own tree, and dayscript automation are in every app from the first build.
+Day is a complete framework, and the UI layer is one part of it. The `day` command line creates a project, lints it, builds and launches it on any of the thirteen targets, and packs the installer each platform expects. The [Day extension for VS Code](https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode) does the same from the editor and opens the host projects in Xcode and Android Studio. A reusable [GitHub Actions workflow](https://github.com/daybrite/actions) builds every target on each push, drives the app's own dayscript walkthrough on simulators and emulators, and uploads to the stores on a tag. Localization with Fluent, accessibility through each platform's own tree, and dayscript automation are in every app from the first build.
 
 Applications created in Day are compact and follow the platform's native packaging idioms, which result in installation packages that are often just a few megabytes. The CI workflow also generates a landing page for each app with its screenshots and install links.
 
@@ -32,7 +32,7 @@ See the Day Gallery at https://daybrite.dev/gallery/ for examples of application
 
 ## Platforms
 
-Day targets twelve `(OS, toolkit)` pairs. Each one is built from that toolkit's own widgets, and
+Day targets thirteen `(OS, toolkit)` pairs. Each one is built from that toolkit's own widgets, and
 `day pack` produces the package that platform's users install. The
 [support tier](https://daybrite.dev/docs/platforms/#support-tiers) records how much testing and
 maintenance a target gets today, independent of how complete its backend is.
@@ -44,19 +44,23 @@ maintenance a target gets today, independent of how complete its backend is.
 | [`android-mdc`](https://daybrite.dev/docs/platforms/android-mdc/) | Android | Material Components | 1 · Supported | `.apk` and `.aab` |
 | [`linux-gtk`](https://daybrite.dev/docs/platforms/linux-gtk/) | Linux | GTK 4 | 2 · Demi-supported | `.flatpak` and `.appimage` |
 | [`linux-qt`](https://daybrite.dev/docs/platforms/linux-qt/) | Linux | Qt 6 Widgets | 2 · Demi-supported | `.flatpak` and `.appimage` |
-| [`windows-xaml`](https://daybrite.dev/docs/platforms/windows-xaml/) | Windows | XAML | 2 · Demi-supported | `.msix` and installer |
+| [`windows-winui`](https://daybrite.dev/docs/platforms/windows-winui/) | Windows | WinUI 3 | 2 · Demi-supported | `.msix` and installer |
 | [`harmony-arkui`](https://daybrite.dev/docs/platforms/harmony-arkui/) | HarmonyOS | ArkUI | 3 · Experimental | `.hap` |
 | [`web-dom`](https://daybrite.dev/docs/platforms/web-dom/) | Web | DOM, via WebAssembly | 3 · Experimental | static `dist/` |
 | `macos-gtk` | macOS | GTK 4 | 4 · Development | none |
 | `macos-qt` | macOS | Qt 6 | 4 · Development | none |
 | `windows-gtk` | Windows | GTK 4 | 4 · Development | none |
 | `windows-qt` | Windows | Qt 6 | 4 · Development | none |
+| `windows-xaml` | Windows | system XAML | 5 · Deprecated | `.msix` and installer |
 
-All twelve build in CI on every push. Every target except the Windows development combos and
-HarmonyOS also runs the Showcase app's full dayscript walkthrough there, and those captures are
-what the [gallery](https://daybrite.dev/gallery/) shows. The Tier 4 combos exist for
-compatibility testing and to show one toolkit running on several operating systems; real
-applications aren't expected to ship on them. The
+All of them build in CI on every push (the `windows-winui` legs are written but have not run on
+GitHub yet). Every target except the Windows development combos and HarmonyOS also runs the
+Showcase app's full dayscript walkthrough there, and those captures are what the
+[gallery](https://daybrite.dev/gallery/) shows. The Tier 4 combos exist for compatibility testing
+and to show one toolkit running on several operating systems; real applications aren't expected
+to ship on them. `windows-xaml` is the same XAML backend built against the system XAML in
+Windows instead of WinUI 3: it still builds, packs and runs for existing projects, but new apps
+should not choose it (`day project add-target windows-winui` moves a project). The
 [Platforms page](https://daybrite.dev/docs/platforms/) carries the per-target notes and known
 gaps.
 

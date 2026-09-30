@@ -14,9 +14,10 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Shipped.** `day-piece-texteditor` carries all eight toolkit arms. Six are verified running
 > (macos-appkit, macos-gtk, macos-qt, ios-uikit, android-mdc, web-dom; the Showcase walkthrough
 > drives the editor on each). **harmony-arkui** builds and stages its ArkTS but has not been driven
-> on a device, and **windows-xaml** is written blind against the Windows SDK and compiles only in
-> CI, the same standing as [`day-piece-colorpicker`](colorpicker.md)'s XAML arm. Both are called
-> out again in §6.
+> on a device. The XAML arm was written blind against the Windows SDK; on **windows-winui** (whose
+> build switches its document API to `Microsoft.UI.Text`) the Showcase walkthrough's editor steps
+> pass ([winui.md](winui.md)), but the Windows checks in §6 have not been done by hand. Both are
+> called out again in §6.
 
 `text_editor(doc)` edits a [`StyledText`](#2-the-document), the same document a label renders and
 `.markdown()` produces, live in each platform's text editor: bold, italic, underline,
@@ -324,7 +325,7 @@ ships this control because it is not reasonable to write.
 | android-mdc | ✅ | ✅ | emulator |
 | web-dom | ✅ | ✅ | headless WebKit through the walkthrough |
 | harmony-arkui | ✅ | ❌ | the Rust arm compiles and the ArkTS stages; not driven on a device |
-| windows-xaml | CI | ❌ | written blind against the Windows SDK |
+| windows-winui | ✅ | walkthrough | written blind against the Windows SDK; the Showcase walkthrough passes on it, the checks below are open. The deprecated windows-xaml builds the same arm against system XAML |
 
 A check on Windows has to confirm: that `RichEditBox` seeds and restyles without the caret moving,
 that `SelectionChanged` reports the range the piece expects, that the swallowed Ctrl+B/I/U really do

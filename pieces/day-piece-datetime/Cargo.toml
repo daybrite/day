@@ -25,6 +25,8 @@ qt = ["dep:day-qt"]
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-xaml-sys/winui"]
 arkui = ["dep:day-arkui"]
 dom = ["dep:day-dom"]
 
@@ -32,7 +34,7 @@ dom = ["dep:day-dom"]
 # web-dom, whose `<input type="date">` is the browser's picker. `day build` unions
 # `<pkg>/<backend>` into an app build (Tier A.2).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "arkui", "dom"]
 
 [dependencies]
 log = { workspace = true }

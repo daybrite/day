@@ -617,6 +617,72 @@ fn xaml_group() -> Group {
     }
 }
 
+/// WinUI 3 (`windows-winui`, docs/winui.md): XAML's toolchain, plus the
+/// Windows App SDK runtime, which unlike system XAML is not part of Windows. The SDK's build
+/// inputs (NuGet packages, the generated projection) are fetched by the build itself.
+fn winui_group() -> Group {
+    Group {
+        id: "winui",
+        label: "Windows · WinUI 3",
+        hosts: &["windows"],
+        probes: vec![
+            Probe::new(
+                "msvc-toolchain",
+                run_out("rustc", &["-vV"]).and_then(|s| {
+                    s.lines()
+                        .find_map(|l| l.strip_prefix("host: "))
+                        .filter(|h| h.contains("windows-msvc"))
+                        .map(str::to_string)
+                }),
+                "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
+            ),
+            Probe::new(
+                "Windows App SDK runtime 2",
+                winui_runtime_version(),
+                format!(
+                    "install the Windows App SDK {} runtime (or newer 2.x): \
+                     https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads",
+                    day_toolchain::winappsdk::RUNTIME_VERSION
+                ),
+            ),
+        ],
+        setup: "WinUI 3 builds on a Windows host with the MSVC toolchain, like XAML, and runs on\n\
+                the Windows App SDK 2 runtime, which has to be installed (it is not part of\n\
+                Windows) unless the app is packed self-contained. The build downloads the SDK's\n\
+                NuGet packages into %LOCALAPPDATA%\\day\\winappsdk on first use (DAY_WINAPPSDK\n\
+                points at an offline copy instead). WinUI cannot build off a Windows host.",
+    }
+}
+
+/// The newest installed `Microsoft.WindowsAppRuntime.2` framework package that is at least the
+/// release the build targets ([`day_toolchain::winappsdk::RUNTIME_VERSION`]): the bootstrapper
+/// refuses an older one, so reporting it as found would only move the failure to launch.
+fn winui_runtime_version() -> Option<String> {
+    let out = run_out(
+        "powershell",
+        &[
+            "-NoProfile",
+            "-Command",
+            &format!(
+                "Get-AppxPackage {} | ForEach-Object {{ $_.Version }}",
+                day_toolchain::winappsdk::FRAMEWORK_PACKAGE
+            ),
+        ],
+    )?;
+    let parse = |v: &str| -> Vec<u32> {
+        v.trim()
+            .split('.')
+            .map(|p| p.parse().unwrap_or(0))
+            .collect()
+    };
+    let floor = parse(day_toolchain::winappsdk::RUNTIME_VERSION);
+    out.lines()
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && parse(v) >= floor)
+        .max_by_key(|v| parse(v))
+        .map(str::to_string)
+}
+
 fn android_group() -> Group {
     let sdk = crate::mobile::android_sdk_dir();
     let ndk = crate::mobile::find_ndk().ok();
@@ -1063,6 +1129,7 @@ fn all_groups() -> Vec<Group> {
         gtk_group(),
         qt_group(),
         xaml_group(),
+        winui_group(),
         android_group(),
         harmonyos_group(),
         dom_group(),

@@ -157,7 +157,7 @@ surface and the bar can sit under it. When they land, the per-backend mapping is
 | linux-gtk | `.linked` toggle buttons | `Emulated` |
 | linux-qt | a button row | `Emulated` |
 | web-dom | a radio group | `Emulated` |
-| windows-xaml | a `ToggleButton` row (system XAML has no `Segmented`) | `Emulated` |
+| windows-winui | a `ToggleButton` row (written for system XAML, which has no `Segmented`; the WinUI build keeps it) | `Emulated` |
 
 `Emulated` covers two different situations there: a real native component doing this job (the
 chips, `SegmentButtonV2`, `NSSegmentedControl`) and a bar composed from primitives (web, XAML).
@@ -177,7 +177,7 @@ differently from every other one on the system is worse than no completions.
 |---|---|
 | linux-qt | `QCompleter` (native popup, case-insensitive) |
 | web-dom | `<datalist>` (the browser's own popup) |
-| windows-xaml | `AutoSuggestBox.ItemsSource` |
+| windows-winui | `AutoSuggestBox.ItemsSource` |
 | ios-uikit | `UISearchResultsUpdating`, at any placement — see below |
 | macos-appkit | **none.** `NSSearchField`'s menu is a recents list, not completions for the current text, so Day does not present it as one |
 | linux-gtk | **none.** GTK4 deprecated `GtkEntryCompletion` and `GtkSearchEntry` has no replacement |

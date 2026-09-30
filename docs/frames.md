@@ -59,7 +59,7 @@ needed (including retained, offscreen pages). `in_scope()` cancels at scope disp
 | macos-appkit | View-associated `CADisplayLink` on macOS 14+; `CVDisplayLink` on supported macOS 13, marshaled to the main queue |
 | ios-uikit | Screen-associated `CADisplayLink`, in common run-loop modes |
 | android-mdc | `Choreographer.postFrameCallback` / `removeFrameCallback` |
-| windows-xaml | One-shot registration with `Windows.UI.Xaml.Media.CompositionTarget.Rendering` (the XAML Islands backend) |
+| windows-winui | One-shot registration with `Microsoft.UI.Xaml.Media.CompositionTarget.Rendering` (the XAML backend; the deprecated windows-xaml uses `Windows.UI.Xaml`'s) |
 | web-dom | `requestAnimationFrame` / `cancelAnimationFrame` |
 | macos/linux/windows-gtk | Host widget's `add_tick_callback`, timestamped by its `GdkFrameClock` |
 | macos/linux/windows-qt | Host `QWindow::requestUpdate()` / `QEvent::UpdateRequest` |

@@ -180,9 +180,10 @@ Two haps of byte-identical content differ only in the ECDSA signature block.
 `DAY_OHOS_ARCH` selects the architecture and takes precedence over any connected device, so a hap
 packed next to an x86_64 emulator does not silently ship x86_64.
 
-### windows-xaml
+### windows-winui and windows-xaml
 
-The staged payload is reproducible.
+The staged payload is reproducible. Both targets stage it the same way; `windows-winui` adds the
+Windows App SDK runtime files from the pinned 2.5.1 packages.
 
 The Microsoft linker writes the wall clock into the PE header's `TimeDateStamp` and into the debug
 directory. Day passes `/Brepro`, which substitutes a hash of the input.

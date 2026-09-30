@@ -30,6 +30,8 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 mdc = ["dep:day-android"]
 qt = ["dep:day-qt"]
 xaml = ["dep:day-xaml"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-xaml/winui"]
 arkui = ["dep:day-arkui"]
 # uikit intentionally absent: UISlider has no native tick API — the tweak is a documented no-op
 # there (see lib.rs), and declaring no backend keeps `day build` from enabling a dead feature.
@@ -37,4 +39,4 @@ arkui = ["dep:day-arkui"]
 # Tweak crates reuse the piece backends table so `day build` unions `<pkg>/<backend>`
 # features into the app automatically (Tier A.2 — crates/day-cli/src/pieces.rs).
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "mdc", "qt", "xaml", "arkui"]
+backends = ["appkit", "gtk", "mdc", "qt", "xaml", "winui", "arkui"]

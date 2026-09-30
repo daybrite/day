@@ -135,7 +135,7 @@ functions, not raw pointers into temporary `QByteArray`s. Generic widgets and li
 need their own target installation. Start with real staged files for outgoing file drops;
 report native file-promise export separately until each OS backend has been verified.
 
-### Windows: windows-xaml
+### Windows: windows-winui
 
 Use the XAML flavor already selected by `day-xaml-sys`: `CanDrag`, `DragStarting`,
 `DropCompleted`, `AllowDrop`, and enter/over/leave/drop events. Populate `DataPackage` with
@@ -368,7 +368,7 @@ for their existing semantic seams. Mock/injected events test policy, not OS inte
 the latter needs actual native drags and independent processes.
 
 Required acceptance matrix: macos-appkit, macos-gtk, macos-qt; linux-gtk and linux-qt on
-Wayland and X11; windows-xaml with Explorer and another app; ios-uikit with Files/Photos
+Wayland and X11; windows-winui with Explorer and another app; ios-uikit with Files/Photos
 and another app; android-mdc with content-URI providers; web-dom on Chromium/WebKit/Firefox;
 harmony-arkui CI/device tests using both a Day sender and a native UDMF sender. Test success,
 cancel, rejection, unsupported types, empty/unknown MIME, delayed/failed data, destroyed

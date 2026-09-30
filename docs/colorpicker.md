@@ -72,7 +72,7 @@ banner from this answer would be wrong. Use it to say *which* picker the user ge
 | ios-uikit | **Native** | `UIColorWell` → `UIColorPickerViewController` | grid / spectrum / sliders, eyedropper, iPad popover anchoring — all from the well |
 | gtk | **Native** | `GtkColorDialogButton` → `GtkColorDialog` | GTK 4.10+, which day-gtk already requires |
 | qt | **Native** | swatch `QPushButton` → `QColorDialog` | Qt has no color-well widget; the shim paints the swatch |
-| windows-xaml | **Native** | swatch `Button` → `ColorPicker` in a `Flyout` | `Windows.UI.Xaml.Controls.ColorPicker`, Windows 10 1703+ |
+| windows-winui | **Native** | swatch `Button` → `ColorPicker` in a `Flyout` | `Microsoft.UI.Xaml.Controls.ColorPicker`; the deprecated windows-xaml builds the same shim against `Windows.UI.Xaml.Controls.ColorPicker` (Windows 10 1703+) |
 | web-dom | **Native** | `<input type="color">` | the browser's own picker, which on desktop IS the system chooser |
 | android-mdc | Composed | — | Android ships no color picker in the framework, in Material, or in AndroidX |
 | harmony-arkui | Composed | — | the ArkUI C node API has no picker node, and ArkTS has no `ColorPicker` component |
@@ -203,9 +203,10 @@ every host.
 code the other eight run, but the OHOS emulator has not run it), and neither has the *interaction*
 with each native chooser, which is an OS panel a script cannot drive.
 
-**windows-xaml** was written blind and has since been driven by hand on Windows 11, in Day-Sketch's
-inspector, with synthetic mouse input (nothing below is in CI, because opening the flyout is the
-part no script reaches). Three of the four assumptions hold: `Button.Flyout` does carry a
+**The XAML arm** (windows-winui and the deprecated windows-xaml share its shim) was written blind
+and has since been driven by hand on Windows 11, built as windows-xaml, in Day-Sketch's inspector,
+with synthetic mouse input (nothing below is in CI, because opening the flyout is the part no
+script reaches). Three of the four assumptions hold: `Button.Flyout` does carry a
 `ColorPicker`, `ColorChanged` does fire while the flyout is open and the pick reaches the app, and
 `day_xaml_measure` sizes the swatch button sanely. `IsAlphaEnabled` is still unconfirmed — the app
 the check ran in keeps its wells opaque and carries opacity on a slider of its own.

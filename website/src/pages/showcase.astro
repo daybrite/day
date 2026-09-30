@@ -65,10 +65,16 @@ const packaging = [
       'Open the .dmg and drag Day Showcase into Applications. The build is signed and notarized, so it opens like any other Mac app.',
   },
   {
+    id: 'windows-winui',
+    kind: '.msix + setup.exe',
+    install:
+      'Run the -setup.exe. SmartScreen interjects for an unsigned installer: choose “More info”, then “Run anyway”. The .msix package needs the development certificate trusted first, so the setup.exe is the easier path. Both carry the Windows App SDK runtime, so nothing else needs installing.',
+  },
+  {
     id: 'windows-xaml',
     kind: '.msix + setup.exe',
     install:
-      'Run the -setup.exe. SmartScreen interjects for an unsigned installer: choose “More info”, then “Run anyway”. The .msix package needs the development certificate trusted first, so the setup.exe is the easier path.',
+      'The deprecated system-XAML build, kept for comparison with the WinUI one. Run the -setup.exe; SmartScreen interjects for an unsigned installer: choose “More info”, then “Run anyway”.',
   },
   {
     id: 'linux-gtk',

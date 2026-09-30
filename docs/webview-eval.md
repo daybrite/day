@@ -34,7 +34,7 @@ Disposing the Day node invalidates its handle; callers must handle errors when n
 | macos-appkit, macos-gtk, ios-uikit | WKWebView `evaluateJavaScript` |
 | linux-gtk | WebKitGTK `evaluate_javascript` |
 | macos-qt, linux-qt | QWebEngine `runJavaScript` |
-| windows-xaml | WebView2 composition controller |
+| windows-winui | WinUI's `WebView2` control, driving its `ICoreWebView2` (the deprecated windows-xaml hosts a WebView2 composition controller) |
 | windows-gtk, windows-qt without Qt WebEngine | WebView2 child window through Wry |
 | android-mdc | Android WebView `evaluateJavascript` |
 | harmony-arkui | ArkWeb `runJavaScript` |

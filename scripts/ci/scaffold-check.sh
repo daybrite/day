@@ -150,7 +150,7 @@ done
 if [ -n "$COMBO" ]; then
     case "$COMBO" in
         # The combos `day pack` supports (pack/mod.rs); only these can go on to the rebuild.
-        macos-appkit | ios-uikit | android-mdc | linux-gtk | linux-qt | windows-xaml | harmony-arkui) ;;
+        macos-appkit | ios-uikit | android-mdc | linux-gtk | linux-qt | windows-xaml | windows-winui | harmony-arkui) ;;
         *)
             echo "day pack does not support $COMBO yet — stopping after the lint"
             cd "$ROOT"
@@ -257,7 +257,7 @@ SWIFT
     done
 
     case "$COMBO" in
-        macos-appkit | macos-gtk | macos-qt | linux-gtk | linux-qt | windows-xaml | windows-gtk | windows-qt)
+        macos-appkit | macos-gtk | macos-qt | linux-gtk | linux-qt | windows-xaml | windows-winui | windows-gtk | windows-qt)
             # Desktop: run the demo dayscript against the rebuilt copy (--keep left it in the
             # scratch), so the thing that gets driven is the tree the rebuild packed.
             # find is scoped to the scratch dirs (never the whole temp dir: macOS's is full of

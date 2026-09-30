@@ -21,10 +21,33 @@
 #include <winrt/Windows.Foundation.Collections.h> // IVector methods; else C3779
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Text.h>
+// One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
+// windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
+#ifdef DAY_WINUI
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+#else
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#else
 #include <winrt/Windows.UI.Xaml.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Media.h>
+#else
 #include <winrt/Windows.UI.Xaml.Media.h>
+#endif
 
 #include <windows.h>
 
@@ -35,9 +58,9 @@
 using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
 namespace WU = winrt::Windows::UI;
-namespace WUX = winrt::Windows::UI::Xaml;
-namespace WUXC = winrt::Windows::UI::Xaml::Controls;
-namespace WUXM = winrt::Windows::UI::Xaml::Media;
+namespace WUX = DAY_XAML_NS;
+namespace WUXC = DAY_XAML_NS::Controls;
+namespace WUXM = DAY_XAML_NS::Media;
 
 // The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);

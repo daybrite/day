@@ -26,6 +26,7 @@ still lacking release packaging or regular testing on physical hardware.
 | [Tier 2 · Demi-supported](/docs/platforms#support-tiers) | Shipping applications | CI coverage, with less manual testing and production use |
 | [Tier 3 · Experimental](/docs/platforms#support-tiers) | Evaluation and testing | Walkthrough coverage, but no shipping applications yet |
 | [Tier 4 · Development](/docs/platforms#support-tiers) | Compatibility testing | Development combinations without release packaging |
+| [Tier 5 · Deprecated](/docs/platforms#support-tiers) | Existing projects only | Superseded by another target; still builds, packs and runs, but not for new apps, and due for removal |
 
 The target table below assigns each platform to a tier. Support badges throughout the
 documentation link back to this section.
@@ -47,13 +48,14 @@ tests, including navigation, input, dialogs, and screenshots. Captures appear in
 | `android-mdc` | [Tier 1](/docs/platforms#support-tiers) | Full, emulator; failures tolerated | `.apk`, `.aab` |
 | `linux-gtk` | [Tier 2](/docs/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
 | `linux-qt` | [Tier 2](/docs/platforms#support-tiers) | Full, headless X | `.flatpak`, `.appimage` |
-| `windows-xaml` | [Tier 2](/docs/platforms#support-tiers) | Full | `.msix`, installer |
+| `windows-winui` | [Tier 2](/docs/platforms#support-tiers) | Full | `.msix`, installer |
 | `harmony-arkui` | [Tier 3](/docs/platforms#support-tiers) | Best-effort, emulator | `.hap` |
 | `web-dom` | [Tier 3](/docs/platforms#support-tiers) | Full, headless Chromium | Static `dist/` |
 | `macos-gtk` | [Tier 4](/docs/platforms#support-tiers) | Full | None |
 | `macos-qt` | [Tier 4](/docs/platforms#support-tiers) | Full | None |
 | `windows-gtk` | [Tier 4](/docs/platforms#support-tiers) | Best-effort | None |
 | `windows-qt` | [Tier 4](/docs/platforms#support-tiers) | Best-effort | None |
+| `windows-xaml` (deprecated) | [Tier 5](/docs/platforms#support-tiers) | Full | `.msix`, installer |
 
 Android emulator failures do not block CI, but build failures do. HarmonyOS build and packaging
 failures block CI; its QEMU emulator checks tolerate failures. Windows GTK and Qt jobs are marked
@@ -71,7 +73,7 @@ They do not have release packaging. The GTK combinations also lack an accessibil
 Windows GTK and Qt use MSYS2. Under CI’s x86-64 MinGW linker, external piece renderers fail to
 register and appear as placeholders; an MSYS2 environment using Clang and `lld` retains them.
 Windows GTK also lacks WebKitGTK 6. See the
-[Windows toolkit setup](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host) for details.
+[Windows toolkit setup](/docs/platforms/windows-winui#qt-and-gtk-on-a-windows-host) for details.
 
 ## Per-platform notes
 
@@ -107,12 +109,19 @@ Both run the full walkthrough headlessly in CI. Flatpak packages both. The runti
 toolkit, so bundles stay app-sized. Pick GTK by default; pick Qt for its cross-OS accessibility bridge or for the Qt library set. The webview piece is
 functional on GTK/Linux (WebKitGTK) and Qt (QtWebEngine).
 
-### Windows (`windows-xaml`) — [full page](/docs/platforms/windows-xaml)
+### Windows (`windows-winui`) — [full page](/docs/platforms/windows-winui)
 [Tier 2 · Demi-supported](/docs/platforms#support-tiers)
-Day hosts XAML through XAML Islands, using the XAML stack that ships with Windows 10/11 itself
-rather than the WinAppSDK runtime, so there's no runtime bootstrap to install. It builds with
-MSVC, and its C++/WinRT shim follows the same pattern as Qt's. This target builds and walks
-through in CI but fewer applications have shipped on it than on the Apple, Linux, and Android targets.
+Day renders WinUI 3 controls from the Windows App SDK 2.5.1, hosted in a Win32 window through the
+SDK's `DesktopWindowXamlSource`. It builds with MSVC, and its C++/WinRT shim follows the same
+pattern as Qt's. Development builds need the Windows App Runtime installed; `day pack` ships the
+runtime inside the `.msix` and installer, so users install nothing extra. Fewer applications have
+shipped on it than on the Apple, Linux, and Android targets.
+
+### Windows, system XAML (`windows-xaml`) — [full page](/docs/platforms/windows-xaml)
+[Tier 5 · Deprecated](/docs/platforms#support-tiers)
+The same XAML backend built against the system XAML that ships with Windows, hosted through XAML
+Islands. It still builds, packs and runs for existing projects, but new apps should use
+`windows-winui`; move a project with `day project add-target windows-winui`.
 
 ### HarmonyOS (`harmony-arkui`) — [full page](/docs/platforms/harmony-arkui)
 [Tier 3 · Experimental](/docs/platforms#support-tiers)

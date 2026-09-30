@@ -84,7 +84,7 @@ One [backend](/docs/glossary#backend) is compiled per binary. The AppKit build c
 its JNI bridge. Standalone [pieces](/docs/glossary#piece) (say, a Lottie or map piece) contribute their own native code and
 dependencies through Cargo metadata, so the app never re-declares per-piece build wiring.
 
-### Desktop: `macos-appkit`, `linux-gtk`, `linux-qt`, `windows-xaml`, and the GTK/Qt combinations
+### Desktop: `macos-appkit`, `linux-gtk`, `linux-qt`, `windows-winui`, and the GTK/Qt combinations
 
 Desktop targets are the simplest: the artifact is the Cargo binary itself.
 
@@ -93,7 +93,9 @@ src/*.rs ──► cargo build -p my-app --features appkit     (per-target CARGO
                  │
                  ├── GTK: links system GTK 4 / libadwaita
                  ├── Qt / XAML: cc-compiled C++ shim (built by the toolkit crate's build.rs)
-                 ├── XAML: embeds a side-by-side manifest (XAML Islands requires it)
+                 ├── XAML: embeds a side-by-side manifest (`maxversiontested`, which
+                 │   XAML Islands requires; both XAML targets get it);
+                 │   day pack -p windows-winui adds the runtime's WinRT registrations
                  └── macos-appkit: swift build prepass when Swift is contributed
                      (build/day/macos/DayPieces, statically linked — docs/swiftui)
                  ▼

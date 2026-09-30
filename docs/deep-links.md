@@ -65,7 +65,7 @@ However a link arrives, the behavior inside the app is the same:
 | web-dom | the page URL is the link | ✓ hash/`?route=` | ✓ `RouteRequested` on hash change | Shipped |
 | harmony-arkui | `uris` skill (scaffold) | ✓ `want.uri` → buffered | ✓ `onNewWant` | Shipped |
 | macos-appkit | `CFBundleURLTypes` (platform/macos scaffold) | — | — | Planned |
-| windows-xaml | none | — | — | Planned |
+| windows-winui | none | — | — | Planned |
 | linux-gtk / linux-qt | none | — | — | Planned |
 
 ### iOS — Shipped, two concerns

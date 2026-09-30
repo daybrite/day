@@ -650,6 +650,25 @@ pub fn build_for_device(
     }
 }
 
+thread_local! {
+    /// Set for the duration of [`build_self_contained`].
+    static WINUI_SELF_CONTAINED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// [`build`], linking a `windows-winui` exe self-contained: its manifest registers the Windows App
+/// SDK runtime that `day pack` stages beside it (docs/winui.md "Packing"). The same as [`build`]
+/// for every other target.
+pub fn build_self_contained(
+    project: &Project,
+    target: &'static Target,
+    profile: Profile,
+) -> Result<BuildOutcome, String> {
+    WINUI_SELF_CONTAINED.set(true);
+    let outcome = build(project, target, profile);
+    WINUI_SELF_CONTAINED.set(false);
+    outcome
+}
+
 pub fn build(
     project: &Project,
     target: &'static Target,
@@ -668,6 +687,12 @@ pub fn build(
             "target {} builds on a {} host (this is {})",
             target.name, target.host, host
         ));
+    }
+    if let Some(successor) = target.deprecated {
+        eprintln!(
+            "warning: {} is deprecated; move to {successor} (`day project add-target {successor}`)",
+            target.name
+        );
     }
     let start = std::time::Instant::now();
     // The derived host files (icon catalogs, mipmaps, HarmonyOS media) live under
@@ -778,7 +803,7 @@ fn build_native(
             // renderer feature, derived from `cargo metadata`, so the app depends on a piece
             // without re-listing its per-backend feature (Tier A.2).
             let features = feature_selection(project, target.toolkit);
-            if target.toolkit == "xaml" {
+            if matches!(target.toolkit, "xaml" | "winui") {
                 // XAML Islands refuses to start unless the app manifest declares
                 // `maxversiontested` (§9). rustc's default embedded manifest lacks it, so we
                 // embed our own; `cargo rustc -- <link-args>` scopes this to the bin only.
@@ -791,6 +816,17 @@ fn build_native(
                 cmd.arg("--");
                 cmd.arg("-Clink-arg=/MANIFEST:EMBED");
                 cmd.arg(format!("-Clink-arg=/MANIFESTINPUT:{}", manifest.display()));
+                // A self-contained WinUI build (what `day pack` ships, docs/winui.md "Packing"):
+                // merge the manifest that registers the app-local Windows App SDK runtime's
+                // classes. Only for pack, which stages that runtime beside the exe; an exe carrying
+                // these entries activates from its own folder and cannot fall back to an
+                // installed runtime, so a plain build or launch stays framework-dependent.
+                if target.toolkit == "winui" && WINUI_SELF_CONTAINED.get() {
+                    let sdk = day_toolchain::winappsdk::self_contained_manifest()?;
+                    let path = cargo_dir(project, target, profile).join("day-winappsdk.manifest");
+                    std::fs::write(&path, sdk).map_err(|e| format!("manifest write: {e}"))?;
+                    cmd.arg(format!("-Clink-arg=/MANIFESTINPUT:{}", path.display()));
+                }
                 // Reproducible PE output (§20.3): without this the linker stamps the COFF header
                 // and the debug directory with the wall clock, so the same commit built twice
                 // differs by exactly those bytes and nothing else. `/Brepro` substitutes a hash of

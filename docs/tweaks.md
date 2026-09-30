@@ -62,9 +62,9 @@ then whatever context that toolkit needs:
 | XAML   | `day_xaml::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
 | ArkUI   | `day_arkui::with_native_raw` / `.arkui_raw(…)` | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
 
-The `windows` crate ships no `Windows.UI.Xaml` bindings, which is why XAML is a raw tier: the
-pointer is real and the C++/WinRT recipe below is short, but there is no typed Rust surface to
-hand you.
+The `windows` crate ships no XAML bindings (neither WinUI 3's `Microsoft.UI.Xaml` nor the system
+`Windows.UI.Xaml`), which is why XAML is a raw tier: the pointer is real and the C++/WinRT recipe
+below is short, but there is no typed Rust surface to hand you.
 
 ```rust
 // Inline, per-toolkit (each trait exists only under its backend's cargo feature):
@@ -149,7 +149,7 @@ The Cargo shape mirrors piece crates: per-backend `[features]` gating optional d
 
 ```toml
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "mdc", "qt", "xaml", "arkui"]
+backends = ["appkit", "gtk", "mdc", "qt", "xaml", "winui", "arkui"]
 ```
 
 so `day build` unions `<crate>/<backend>` into the app's features automatically (Tier A.2,
@@ -183,19 +183,32 @@ extern "C" void my_ticks(void* w, const char* cls, int interval) {
 ```
 
 **XAML.** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
-function, plus the class. In your C++/WinRT (compiled with `cc` against the Windows SDK's cppwinrt
-headers; mirror `tweaks/day-tweak-slider-tickmarks/build.rs`):
+function, plus the class. In your C++/WinRT (compiled with `cc`; mirror
+`tweaks/day-tweak-slider-tickmarks/build.rs`, which adds
+`day_toolchain::winappsdk::shim_includes(&cppwinrt)` and defines `DAY_WINUI` when
+`day_toolchain::winappsdk::shim_is_winui()`, so one file builds for windows-winui against
+`Microsoft.UI.Xaml` and for the deprecated windows-xaml against `Windows.UI.Xaml`):
 
 ```cpp
 #include <cstring>
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+namespace WUX = winrt::Microsoft::UI::Xaml;
+#else
+#include <winrt/Windows.UI.Xaml.Controls.h>
+namespace WUX = winrt::Windows::UI::Xaml;
+#endif
 extern "C" void my_ticks(void* abi, const char* cls, double freq) {
     if (!cls || std::strcmp(cls, "Slider") != 0) return;
-    winrt::Windows::UI::Xaml::UIElement e{ nullptr };
+    WUX::UIElement e{ nullptr };
     winrt::copy_from_abi(e, abi);                       // AddRef for this call's duration
-    auto s = e.try_as<winrt::Windows::UI::Xaml::Controls::Slider>();
+    auto s = e.try_as<WUX::Controls::Slider>();
     if (s) s.TickFrequency(freq);
 }
 ```
+
+The crate also declares a `winui` feature (`winui = ["xaml", "day-xaml/winui"]`) and lists
+`"winui"` in its `backends`.
 
 **ArkUI.** The handle is the NDK `ArkUI_NodeHandle` and the class is the node type name
 (`"Slider"`); resolve the node API with `OH_ArkUI_GetModuleInterface` and `setAttribute` away (see

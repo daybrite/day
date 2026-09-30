@@ -263,7 +263,7 @@ day = { git = "https://github.com/daybrite/day.git" }
 id = "dev.example.fieldnotes"
 title = "Field Notes"
 build = 34
-targets = ["macos-appkit", "windows-xaml", "linux-gtk",
+targets = ["macos-appkit", "windows-winui", "linux-gtk",
            "ios-uikit", "android-mdc", "web-dom"]
 ```
 
@@ -317,7 +317,7 @@ catalogs compiled to typed functions ([Localization](/docs/localization)).
 | run in dev | `electron .` | `day launch -p macos-appkit` |
 | apply changes | reload the window | `day relaunch --all-running` |
 | macOS artifact | electron-builder → `.dmg`, notarize via config | `day pack -p macos-appkit` → notarized, stapled `.dmg` |
-| Windows artifact | NSIS / Squirrel | `day pack -p windows-xaml` → `.msix` + NSIS installer |
+| Windows artifact | NSIS / Squirrel | `day pack -p windows-winui` → `.msix` + NSIS installer |
 | Linux artifact | AppImage / deb / snap | `day pack -p linux-gtk` → `.flatpak` + `.appimage` |
 | mobile | — | `day pack -p ios-uikit` / `-p android-mdc` → `.ipa`, `.apk` + `.aab` |
 | web | separate web build of the renderer code | `day build -p web-dom` — the same crate |
@@ -328,7 +328,7 @@ catalogs compiled to typed functions ([Localization](/docs/localization)).
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
 today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
 [Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
-[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships), plus [Tier 5](/docs/platforms#support-tiers) for deprecated targets.
 
 ## What you give up
 

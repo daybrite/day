@@ -122,13 +122,15 @@ Current evidence:
   long-press testing confirms a local image move. This is not proof of every mobile foreign-provider
   combination. The Android provider is a toolkit manifest contribution, so existing apps receive it.
 - Harmony native adapter compile check passes; emulator acceptance belongs in CI.
-- Windows XAML is verified on a Windows host: dropping a file from Explorer onto a Showcase drop
-  zone imports it. Getting there needed two things the macOS-written adapter could not have found.
-  `OleInitialize` — `init_apartment` brings up COM only, and cross-process drag and drop is an OLE
-  service. And a host-window `IDropTarget`: XAML Islands routes only drags that BEGIN inside the
-  island, so `DesktopWindowXamlSource` never registers its HWND and an external drag was never
-  offered to it, silently, while `AllowDrop(true)` still reported success. See
-  `toolkits/day-xaml-sys/src/transfer-host.inc`. Linux remains unverified.
+- The XAML backend is verified on a Windows host, built as the (now deprecated) windows-xaml:
+  dropping a file from Explorer onto a Showcase drop zone imports it. Getting there needed two
+  things the macOS-written adapter could not have found. `OleInitialize` — `init_apartment` brings
+  up COM only, and cross-process drag and drop is an OLE service. And a host-window `IDropTarget`:
+  the system XAML island routes only drags that BEGIN inside it, so `DesktopWindowXamlSource` never
+  registers its HWND and an external drag was never offered to it, silently, while
+  `AllowDrop(true)` still reported success. See `toolkits/day-xaml-sys/src/transfer-host.inc`,
+  which is shared code, so windows-winui registers the same host-window target; an Explorer drop
+  has not been re-checked on the WinUI build. Linux remains unverified.
 
 Framework regression: `cargo test -p day-spec transfer`. Browser integration is in
 `Day-Showcase/tests/drag-drop-web.mjs`, used as `DAY_WEB_DRIVER` with

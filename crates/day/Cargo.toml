@@ -22,6 +22,9 @@ qt = ["dep:day-qt"]
 uikit = ["dep:day-uikit"]
 mdc = ["dep:day-android"]
 xaml = ["dep:day-xaml"]
+# WinUI 3 (the Windows App SDK) on the same backend: the xaml toolkit with its shim built
+# against Microsoft.UI.Xaml (docs/winui.md). Implies `xaml`, whose code it is.
+winui = ["xaml", "day-xaml/winui"]
 arkui = ["dep:day-arkui"]
 dom = ["dep:day-dom"]
 mock = ["dep:day-mock"]

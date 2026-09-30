@@ -5,13 +5,18 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # day-xaml
 
-Day's Windows backend: the interface is built from Windows' own XAML controls.
+Day's Windows backend: the interface is built from WinUI 3's own XAML controls.
 
 Pieces become real `TextBlock`, `Button`, `ToggleSwitch`, and `Slider` controls, hosted in
-a normal Win32 window through XAML Islands and driven through
-[`day-xaml-sys`](https://crates.io/crates/day-xaml-sys), a C++/WinRT shim. Because these
-controls ship with Windows itself, a packaged Day app needs no separate runtime installer.
-This is the backend behind the `windows-xaml` target.
+a normal Win32 window through the Windows App SDK's `DesktopWindowXamlSource` and driven
+through [`day-xaml-sys`](https://crates.io/crates/day-xaml-sys), a C++/WinRT shim. A packed
+app is self-contained: the Windows App SDK runtime travels inside the `.msix` or installer, so
+users install nothing extra. This is the backend behind the `windows-winui` target (the
+`winui` feature).
+
+The same code, with the shim built against the system XAML in Windows (`Windows.UI.Xaml` in
+XAML Islands) instead of WinUI 3 (`Microsoft.UI.Xaml`), is the deprecated `windows-xaml`
+target (the `xaml` feature), kept for projects that have not moved to `windows-winui` yet.
 
 You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
 [`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the

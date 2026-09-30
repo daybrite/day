@@ -104,7 +104,7 @@ it goes; `Vectors xaml: 81/81 glyph(s) vector` means every glyph converted and n
 | [ios-uikit](/docs/platforms/ios-uikit) | the SVG in an asset catalog with `preserves-vector-representation`, so `UIImage` renders at display size | `tintColor` on a template image |
 | [macos-appkit](/docs/platforms/macos-appkit) | the SVG itself — `NSImage` renders SVG files at display size (macOS 11+) | `contentTintColor` on a template image |
 | [android-mdc](/docs/platforms/android-mdc) | a **VectorDrawable** in `res/drawable/` | `setImageTintList` |
-| [windows-xaml](/docs/platforms/windows-xaml) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
+| [windows-winui](/docs/platforms/windows-winui) | **XAML geometry** — a `Path` in a scaling `Viewbox`, a `PathIcon` in the nav pane, redrawn at every size | a brush on the shapes |
 | [web-dom](/docs/platforms/web-dom) | the SVG, rendered by the browser | a CSS mask painted with the tint |
 | [harmony-arkui](/docs/platforms/harmony-arkui) | the SVG in `rawfile`, rendered by ArkUI's `Image` | SVG fill color |
 | [linux-gtk](/docs/platforms/linux-gtk) | the SVG for icons, rendered at icon size by librsvg through gdk-pixbuf; the raster cache for the `vector` piece | pixel recolor |

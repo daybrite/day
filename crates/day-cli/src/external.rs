@@ -165,6 +165,7 @@ fn build_catalog(decls: Vec<(String, ToolkitMeta)>) -> Result<Vec<ExternalToolki
             host: leak(m.host.unwrap_or_else(|| "any".into())),
             label: leak(m.label.unwrap_or(name)),
             experimental: true,
+            deprecated: None,
         }));
         out.push(ExternalToolkit {
             target,

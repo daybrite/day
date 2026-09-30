@@ -29,13 +29,15 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the 
 # feature exists so apps can enable `day-piece-remote-image/mock` uniformly; the kind then falls
 # back to day's placeholder leaf.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-xaml-sys/winui"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
 # and no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }

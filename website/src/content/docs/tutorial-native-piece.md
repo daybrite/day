@@ -48,11 +48,12 @@ a commented `platform = "16.0"` floor key (iOS/`uikit`). Choosing `appkit` adds 
 `[package.metadata.day.macos]` block for Swift contributions on the macOS leg:
 
 ```bash
-day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,xaml
+day new piece day-piece-searchfield --toolkits appkit,gtk,qt,uikit,mdc,winui
 ```
 
-Pick any subset of `appkit,gtk,qt,uikit,mdc,xaml`; passing `--toolkits` at all makes it a native
-piece rather than a composite one. The crate builds against a remote Day release (add `--local
+Pick any subset of `appkit,gtk,qt,uikit,mdc,winui,xaml`; passing `--toolkits` at all makes it a native
+piece rather than a composite one. `winui` and `xaml` are one native half, so asking for either
+scaffolds both features. The crate builds against a remote Day release (add `--local
 <path>` for a local Day checkout). It also writes `demo/`, a one-page app that shows the piece on the
 targets those toolkits draw on, with `dayscript/demo.yaml` as its walkthrough (`--no-demo` skips
 it). Everything from here down describes what the scaffolder produces and how the halves fit
@@ -437,6 +438,13 @@ Symmetric to Qt: the piece carries `src/lib-xaml-shim.cpp`, a C++/WinRT shim wra
 with `cc` (MSVC) + the Windows SDK cppwinrt projection. It is Windows-only and built in CI; you
 will likely not verify it locally.
 
+The same shim serves both Windows targets. For `windows-winui`, the piece's `winui` feature
+implies `xaml` and turns on `day-xaml-sys/winui`; `build.rs` adds
+`day_toolchain::winappsdk::shim_includes(&cppwinrt)` to the include path and defines `DAY_WINUI`
+when `day_toolchain::winappsdk::shim_is_winui()`, and the shim switches its includes and
+namespace (`Microsoft.UI.Xaml` rather than `Windows.UI.Xaml`) on `DAY_WINUI`. The Rust half is the
+`xaml` half, unchanged.
+
 ### Generalizing the pattern
 
 For any native piece, each backend is the same three functions:
@@ -501,6 +509,7 @@ qt     = ["dep:day-qt"]              # + build.rs compiles src/lib-qt-shim.cpp
 uikit  = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]         # + [package.metadata.day.android] carries the DaySearch Java
 xaml  = ["dep:day-xaml", "dep:day-xaml-sys"]   # + build.rs compiles src/lib-xaml-shim.cpp
+winui  = ["xaml", "day-xaml-sys/winui"]        # the xaml half, built against WinUI 3
 mock   = []                          # no renderer; falls back to Day's placeholder leaf
 ```
 
@@ -512,7 +521,7 @@ for, and the app depends on it without re-listing them:
 ```toml
 # pieces/day-piece-searchfield/Cargo.toml
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "mock"]
 ```
 
 …and `day build` reads that from `cargo metadata`, walks the app's dependency closure, and derives

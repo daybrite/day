@@ -34,7 +34,7 @@ use crate::targets;
 const GIT_URL: &str = "https://github.com/daybrite/day.git";
 
 /// The toolkits a native piece can carry a backend renderer for.
-const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "mdc", "xaml"];
+const TOOLKITS: &[&str] = &["appkit", "gtk", "qt", "uikit", "mdc", "winui", "xaml"];
 /// The platforms a part can carry a native impl for.
 const PLATFORMS: &[&str] = &["macos", "ios", "android", "linux", "windows"];
 
@@ -377,6 +377,7 @@ pub fn describe() -> serde_json::Value {
                 "detail": format!("{} · {}", t.os, t.toolkit),
                 "buildable_here": t.host == "any" || t.host == targets::host_os(),
                 "experimental": t.experimental,
+                "deprecated": t.deprecated,
             })
         })
         .collect();
@@ -688,7 +689,22 @@ fn parse_toolkits(csv: &str) -> Result<Vec<String>, CliError> {
             v.push(t);
         }
     }
-    Ok(v)
+    Ok(with_xaml_family(v))
+}
+
+/// `winui` and `xaml` are one native half: a single shim compiled against WinUI 3 or system XAML
+/// (`DAY_WINUI`), whose `winui` feature builds on `xaml`. Asking for either scaffolds both, so a
+/// piece never supports one Windows target and fails to build for the other.
+fn with_xaml_family(mut v: Vec<String>) -> Vec<String> {
+    let family = ["winui", "xaml"];
+    if v.iter().any(|t| family.contains(&t.as_str())) {
+        for t in family {
+            if !v.iter().any(|x| x == t) {
+                v.push(t.to_string());
+            }
+        }
+    }
+    v
 }
 
 /// Parse + validate a comma-separated platform list for a PART.
@@ -719,7 +735,8 @@ fn toolkit_label(tk: &str) -> String {
         "qt" => "Qt — Linux / macOS / Windows",
         "uikit" => "UIKit — iOS",
         "mdc" => "Android — Material Design Components",
-        "xaml" => "XAML — Windows",
+        "winui" => "WinUI 3 — Windows",
+        "xaml" => "XAML (deprecated) — Windows",
         _ => tk,
     };
     format!("{human}  ({tk})")
@@ -748,7 +765,9 @@ fn host_toolkit_index() -> usize {
 }
 
 fn target_menu_label(t: &targets::Target) -> String {
-    if t.experimental {
+    if let Some(successor) = t.deprecated {
+        format!("{}  ({})  [DEPRECATED: use {successor}]", t.label, t.name)
+    } else if t.experimental {
         format!("{}  ({})  [EXPERIMENTAL]", t.label, t.name)
     } else {
         format!("{}  ({})", t.label, t.name)
@@ -826,7 +845,7 @@ pub fn piece(
                     "a native piece needs at least one toolkit.",
                 ));
             }
-            picked.iter().map(|i| TOOLKITS[*i].to_string()).collect()
+            with_xaml_family(picked.iter().map(|i| TOOLKITS[*i].to_string()).collect())
         } else {
             Vec::new()
         }
@@ -1862,6 +1881,8 @@ fn native_piece_files(
             }
             "mdc" => "mdc = [\"dep:day-android\"]",
             "xaml" => "xaml = [\"dep:day-xaml\", \"dep:day-xaml-sys\"]",
+            // The same shim built against WinUI 3 (DAY_WINUI); it rides the xaml feature.
+            "winui" => "winui = [\"xaml\", \"day-xaml-sys/winui\"]",
             _ => continue,
         };
         features.push_str(entry);
@@ -2956,11 +2977,18 @@ day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
 const XAML_SHIM: &str = r#"// This piece's C++/WinRT shim: a TextBox boxed into a Day handle via the day_xaml_box/unbox
 // functions that day-xaml-sys exports. TextChanged reports edits back to Rust as a UTF-8 C string;
 // programmatic Text(...) is guarded so it only re-writes when the value differs. Windows-only;
-// compiled by build.rs.
+// compiled by build.rs, once per XAML stack: against WinUI 3 (Microsoft.UI.Xaml) for
+// windows-winui, where build.rs defines DAY_WINUI, and against system XAML (Windows.UI.Xaml) for
+// the deprecated windows-xaml. The control code below is the same under both namespaces.
 
 #include <winrt/Windows.Foundation.h>
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
 
 #include <windows.h>
 
@@ -2968,8 +2996,13 @@ const XAML_SHIM: &str = r#"// This piece's C++/WinRT shim: a TextBox boxed into 
 #include <string>
 
 using namespace winrt;
+#ifdef DAY_WINUI
+namespace WUX = winrt::Microsoft::UI::Xaml;
+namespace WUXC = winrt::Microsoft::UI::Xaml::Controls;
+#else
 namespace WUX = winrt::Windows::UI::Xaml;
 namespace WUXC = winrt::Windows::UI::Xaml::Controls;
+#endif
 
 // The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
@@ -3043,7 +3076,8 @@ fn main() {
     if std::env::var("CARGO_FEATURE_QT").is_ok() {
         build_qt();
     }
-    // Windows-only, and only when the app targets XAML.
+    // Windows-only, and only when the app targets XAML: windows-winui (the `winui` feature, which
+    // turns `xaml` on too) or the deprecated windows-xaml.
     if std::env::var("CARGO_FEATURE_XAML").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
         build_xaml();
     }
@@ -3078,10 +3112,15 @@ fn build_xaml() {
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
         .file("src/lib-xaml-shim.cpp")
-        .include(&cppwinrt)
+        // The SDK's cppwinrt headers, plus (for windows-winui, this crate's `winui` feature) the
+        // generated Windows App SDK projection ahead of them.
+        .includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))
         .flag("/EHsc")
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
+    if day_toolchain::winappsdk::shim_is_winui() {
+        build.define("DAY_WINUI", None);
+    }
     build.compile("day__SNAKE__xamlshim");
     // WindowsApp.lib + the day_xaml_box/unbox functions are already linked by day-xaml-sys.
 }

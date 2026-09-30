@@ -514,7 +514,7 @@ DOM elements.
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
 today: each `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from [Tier
 1](/docs/platforms#support-tiers) (thoroughly tested, shipping apps) down to [Tier
-4](/docs/platforms#support-tiers) (development combinations nobody ships).
+4](/docs/platforms#support-tiers) (development combinations nobody ships), plus [Tier 5](/docs/platforms#support-tiers) for deprecated targets.
 
 ## Building and shipping
 
@@ -529,7 +529,7 @@ platform's tools, and writes an installable artifact plus checksum to `build/day
 | iOS store build | `flutter build ipa` | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
 | macOS | `flutter build macos` (then sign/notarize yourself) | `day pack -p macos-appkit` → signed, notarized, stapled `.dmg` |
 | Linux | `flutter build linux` (then package yourself) | `day pack -p linux-gtk` → single-file `.flatpak` + `.appimage` |
-| Windows | `flutter build windows` (then package yourself) | `day pack -p windows-xaml` → `.msix` + NSIS installer |
+| Windows | `flutter build windows` (then package yourself) | `day pack -p windows-winui` → `.msix` + NSIS installer |
 | doctor | `flutter doctor` | `day doctor` |
 
 Day has no hot reload. A change is a Rust rebuild (incremental, a few seconds on a warm build)

@@ -448,7 +448,7 @@ pub fn play_script(yaml: &str) -> Result<(), String> {
 }
 
 /// The display name of the toolkit compiled into this binary: `"AppKit"`, `"GTK"`, `"Qt"`,
-/// `"UIKit"`, `"Android"`, `"XAML"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
+/// `"UIKit"`, `"Android"`, `"XAML"`, `"WinUI"`, `"ArkUI"`, `"DOM"` (or `"Mock"`). Handy for a window
 /// title that names its backend.
 pub const fn toolkit_name() -> &'static str {
     #[cfg(feature = "appkit")]
@@ -471,7 +471,12 @@ pub const fn toolkit_name() -> &'static str {
     {
         return "Android";
     }
-    #[cfg(feature = "xaml")]
+    // `winui` implies `xaml` (same backend), so it is asked first.
+    #[cfg(feature = "winui")]
+    {
+        return "WinUI";
+    }
+    #[cfg(all(feature = "xaml", not(feature = "winui")))]
     {
         return "XAML";
     }

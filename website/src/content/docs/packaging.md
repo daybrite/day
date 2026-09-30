@@ -33,7 +33,8 @@ If signing fails, start with the [signing checks](/docs/troubleshooting#signing-
 | `ios-uikit` | `.ipa` | Device app archive |
 | `android-mdc` | `.apk`, `.aab` | Direct installation or Google Play |
 | `linux-gtk`, `linux-qt` | `.flatpak`, `.appimage` | Flatpak bundle or executable with bundled libraries |
-| `windows-xaml` | `.msix`, `-setup.exe` | MSIX package or per-user installer |
+| `windows-winui` | `.msix`, `-setup.exe` | Self-contained MSIX package or per-user installer |
+| `windows-xaml` (deprecated) | `.msix`, `-setup.exe` | MSIX package or per-user installer |
 | `harmony-arkui` | `.hap` | HarmonyOS application package |
 | `web-dom` | Static `dist/` directory | Static hosting; use `day build` |
 
@@ -93,7 +94,8 @@ to be installed on the user’s machine. Day reports this during packaging.
 
 Windows packaging uses `makeappx` and `signtool` for MSIX, and NSIS for the per-user `-setup.exe`
 installer. The NSIS installer does not require elevation, registers with Add/Remove Programs,
-and accepts `/S` for silent installation.
+and accepts `/S` for silent installation. A `windows-winui` package is self-contained: the Windows
+App SDK runtime travels inside the `.msix` and the installer, so users install nothing extra.
 
 HarmonyOS packaging uses hvigor for a release build and `hap-sign-tool` for signing. Day uses
 configured release credentials when available, or the public development certificate otherwise.

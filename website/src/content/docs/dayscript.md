@@ -116,7 +116,9 @@ mirror, keeping the step only where it names. Both take a target (`web-dom`), a 
 `windows`, `harmony`, `web`. Opt a step in by platform when it belongs to a few places
 (`only_on: [ios, web]`), and opt it out when one place lacks what it needs (`skip_on:
 [web-dom]`). A token that names nothing is reported as a likely misspelling. One walkthrough then
-covers every [backend](/docs/glossary#backend).
+covers every [backend](/docs/glossary#backend). `windows-winui` is the XAML backend built against
+WinUI 3, so `xaml` and `windows-xaml` match it too; `winui` or `windows-winui` single out the
+WinUI build.
 
 The same two gates match a [build flavor](/docs/flavors), written `flavor:<name>`, with
 `flavor:none` for the base app. A paid build and a free one then share one walkthrough:
@@ -202,7 +204,7 @@ narrow-layout run stays narrow. How each target reaches the scale:
 | `linux-qt`, `macos-qt`, `windows-qt` | renders the widget into a pixmap with that device pixel ratio |
 | `web-dom` | the driver browser's viewport and device scale factor |
 | `macos-appkit` | reads the window server's pixels, so the scale is the display's. Where no attached display has it (a CI runner's is 1×), `day launch` creates a HiDPI virtual display for the run and the app opens its window there. `DAY_CAPTURE_DISPLAY=native` turns that off; `=virtual` forces it |
-| `windows-xaml` | reads the window's real pixels at the desktop's scale, frame included. At 100% scaling the default capture is 1280×800, which the Mac App Store also takes |
+| `windows-winui`, `windows-xaml` | reads the window's real pixels at the desktop's scale, frame included. At 100% scaling the default capture is 1280×800, which the Mac App Store also takes |
 
 ## Recording
 

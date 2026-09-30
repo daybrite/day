@@ -356,7 +356,7 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<DoctorCmd>,
         /// Check a toolkit and fail if required tools are missing (repeatable).
-        /// Values: appkit, uikit, gtk, qt, xaml, android, harmonyos, dom
+        /// Values: appkit, uikit, gtk, qt, winui, xaml, android, harmonyos, dom
         #[arg(long = "toolkit")]
         toolkits: Vec<String>,
     },
@@ -2207,10 +2207,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     ops::status(
                                         "Script",
                                         &format!(
-                                            "{}{tag}: {}/{} steps passed · {} screenshot(s)",
+                                            "{}{tag}: {}/{} steps passed · {} skipped · {} screenshot(s)",
                                             target.name,
-                                            run.steps_total - run.steps_failed,
-                                            run.steps_total,
+                                            run.steps_total - run.steps_skipped - run.steps_failed,
+                                            run.steps_total - run.steps_skipped,
+                                            run.steps_skipped,
                                             run.screenshots.len()
                                         ),
                                     );

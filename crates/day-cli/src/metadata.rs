@@ -46,6 +46,7 @@ pub fn run(project: &Project, json: bool) -> Result<(), crate::cli::CliError> {
                 "host": t.host,
                 "label": t.label,
                 "experimental": t.experimental,
+                "deprecated": t.deprecated,
             })
         })
         .collect();

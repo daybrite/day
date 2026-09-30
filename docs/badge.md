@@ -65,7 +65,7 @@ This is the part that decides the API, because the payload differs more than the
 | ios-uikit | ✓ | – | – | `UNUserNotificationCenter.setBadgeCount` (iOS 16+); number only |
 | linux-gtk / linux-qt | ✓ | – | ✓ | `com.canonical.Unity.LauncherEntry` D-Bus signal (`count`, `count-visible`) |
 | web-dom | ✓ | – | ✓ | `navigator.setAppBadge(n?)` / `clearAppBadge()` |
-| windows-xaml | ~ | – | ~ | `ITaskbarList3::SetOverlayIcon` — an **image**, not a number |
+| windows-winui | ~ | – | ~ | `ITaskbarList3::SetOverlayIcon` — an **image**, not a number |
 | android-mdc | – | – | ~ | none: the launcher derives a dot from posted notifications |
 | harmony-arkui | ✓ | – | – | `notificationManager.setBadgeNumber`, an ArkTS-only API reached through day-arkui's daybridge arm (`src/host.rs`) |
 

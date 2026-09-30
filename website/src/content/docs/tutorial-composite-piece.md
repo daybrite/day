@@ -22,7 +22,7 @@ Day has two kinds of pieces:
 |---|---|---|
 | What it wraps | a *new* native control (`NSComboBox`, `WKWebView`, …) | *existing* Day pieces |
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
-| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `xaml` | none |
+| Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `xaml` / `winui` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
 | Reference | [the native-piece tutorial](/docs/tutorial-native-piece) · `day-piece-searchfield` | this tutorial · `day-piece-rating` |
 

@@ -110,7 +110,7 @@ navigation existed.
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
 | harmony-arkui | a composed bottom bar over resident pages; ArkUI's native node set has no tab container, so it is built from Day's primitives | yes |
-| windows-xaml | the same `NavigationView` with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
+| windows-winui | the same `NavigationView` with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
 
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
 desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and pushes.

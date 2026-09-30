@@ -1,0 +1,272 @@
+---
+title: Windows (WinUI 3)
+description: Build Day apps for Windows with WinUI 3 and the Windows App SDK in a Win32 window — build tools, the Windows App Runtime, self-contained MSIX and installer packaging, per-platform caveats, and which WinUI control every Day piece becomes.
+order: 33.6
+section: Platforms
+---
+
+{/*
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+*/}
+
+import PlatformShots from '../../../components/PlatformShots.astro';
+
+`windows-winui` is the Windows target. It renders [WinUI
+3](https://learn.microsoft.com/en-us/windows/apps/winui/winui3/) controls (`Microsoft.UI.Xaml`,
+from the [Windows App SDK](https://learn.microsoft.com/en-us/windows/apps/windows-app-sdk/) 2.5.1)
+in a Win32 window, hosted through the Windows App SDK's `DesktopWindowXamlSource`. `day new` gives
+a Windows project this target.
+
+<PlatformShots platform="windows-winui" shots={["home", "controls", "dates", "grid"]} />
+
+> [!QUESTION] WinUI 3 or system XAML?
+> Day has one XAML backend and one C++/WinRT shim, compiled against either of two XAML stacks.
+> `windows-winui` builds it against WinUI 3, whose controls carry the Fluent styles of Windows 11
+> (`XamlControlsResources`). The deprecated [`windows-xaml`](/docs/platforms/windows-xaml) target
+> builds the same code against system XAML (`Windows.UI.Xaml`, part of Windows). Everything Day's
+> Rust code does with the backend applies to both; `day::toolkit_name()` reports `"WinUI"` here.
+> The links below point at the Windows App SDK's `Microsoft.UI.Xaml` API reference.
+
+## Getting started
+
+You need the Visual Studio C++ Build Tools (for MSVC and the Windows SDK) and the MSVC Rust
+toolchain. The C++/WinRT shim is compiled by `build.rs` against the Windows SDK, whose
+`cppwinrt.exe` also generates the WinUI projection.
+
+```powershell
+rustup default stable-msvc
+cargo install day-cli
+day new app my-app --toolkit windows-winui
+cd my-app
+day launch -p windows-winui
+```
+
+The app's `Cargo.toml` carries a `winui = ["day/winui"]` feature, which the `day new` template
+adds.
+
+Development builds (`day build`, `day launch`) run framework-dependent, so they need the
+**Windows App Runtime 2.5.1 or newer** installed (the `Microsoft.WindowsAppRuntime.2` framework
+package), from Microsoft's [Windows App SDK
+downloads](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads). If it is missing,
+the app offers that download page at start-up. `day doctor --toolkit winui` checks the MSVC
+toolchain and the runtime.
+
+There is no NuGet or Visual Studio project. On first use the build downloads the Windows App
+SDK's NuGet packages itself (about 270 MB, with the in-box `curl` and `tar`) into
+`%LOCALAPPDATA%\day\winappsdk`. `DAY_WINAPPSDK` points the build at an already laid-out copy for
+an offline machine; `DAY_WINAPPSDK_CACHE` moves the cache.
+
+A Windows machine can also build `windows-qt` and `windows-gtk` for development
+([Tier 4](/docs/platforms#support-tiers)); that runs the same codebase against three desktop
+toolkits.
+Those need MSYS2 and a GNU Rust toolchain alongside your MSVC default;
+[Qt and GTK on a Windows host](#qt-and-gtk-on-a-windows-host) has the recipe.
+
+## Packing
+
+```powershell
+day pack -p windows-winui     # .msix plus an NSIS -setup.exe
+```
+
+This writes `<app>-windows-winui.msix` and `<app>-windows-winui-setup.exe`. The installer needs
+NSIS (`makensis`, e.g. `choco install nsis`).
+
+A packed app is **self-contained**: the Windows App SDK runtime DLLs, a merged `resources.pri`,
+and a registration-free WinRT manifest travel inside the `.msix` and the installer, so users
+install nothing extra. They need Windows 10 version 1809 or later (Windows 11 recommended). Only
+`day pack` links this way; `day build` and `day launch` stay framework-dependent.
+
+The NSIS installer is per-user: it runs without elevation, adds a normal Add/Remove Programs
+entry, and offers a silent `/S` mode for managed deployment. The Microsoft Store rules that
+[`day store`](/docs/cli) applies (`[microsoft-store]` in `store-rules.toml`) cover this target.
+
+## Caveats
+
+- Fewer applications have shipped on it than on the Apple, Linux, and Android targets. Day-Showcase's
+  full UI walkthrough passes on it, but no large app ships on it yet.
+- The web view needs the Microsoft Edge WebView2 Runtime, which ships with Windows 11 and current
+  Windows 10. Day uses WinUI 3's own
+  [`WebView2`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.webview2)
+  control.
+- `picker().segmented()` is a horizontal row of radio buttons, since XAML has no native segmented
+  control.
+- The inline time picker falls back to a flyout, because XAML has no inline clock.
+- Text-area read-only and spell-check are native (`TextBox.IsReadOnly` /
+  `IsSpellCheckEnabled`). `.selectable(false)` is emulated, because `TextBox` has no
+  selection-enable property: the shim collapses each selection as it is reported and suppresses
+  the context menu.
+- Lottie plays through lottie-web in the web view. Map has no XAML arm and renders its placeholder.
+  `cover()` presents as a topmost window-sized child (no transition, programmatic dismissal only).
+- Radial gradients in a `canvas` are synthesized into a bitmap brush, a path the shim shares with
+  system XAML, which has no `RadialGradientBrush`.
+- **Screenshots** read the window's real pixels, **frame included**, through
+  Windows.Graphics.Capture, so they show web view and video content and work while the window is
+  covered.
+- **dayscript gates:** a step gated on the XAML backend (`only_on: [xaml]`,
+  `skip_on: [windows-xaml]`) applies to `windows-winui` too, since it is that backend;
+  `winui` / `windows-winui` single out the WinUI build.
+
+## Native pieces
+
+A native piece's XAML half serves both XAML targets: a `winui` feature that implies the piece's
+`xaml` feature and turns on `day-xaml-sys/winui`, with `"winui"` in
+`[package.metadata.day.piece] backends`. Its `build.rs` uses
+`day_toolchain::winappsdk::shim_includes(&cppwinrt)` and defines `DAY_WINUI` when
+`day_toolchain::winappsdk::shim_is_winui()`, and the shim switches its includes and namespace on
+`DAY_WINUI`. `day new piece --toolkits winui` scaffolds this; the
+[native piece tutorial](/docs/tutorial-native-piece) walks through it.
+
+## Moving from `windows-xaml`
+
+A project on the deprecated `windows-xaml` target moves with:
+
+```powershell
+day project add-target windows-winui
+```
+
+then drops `windows-xaml` from `Day.toml`. The Rust code needs no changes, since it is the same
+backend. Development machines need the Windows App Runtime (see
+[Getting started](#getting-started)); users of a packed app need nothing extra.
+
+## What each piece becomes
+
+The generated [coverage matrix](/docs/internal/coverage-matrix), checked in CI, covers every backend;
+this table adds links and notes.
+
+| Day piece | WinUI 3 control (`Microsoft.UI.Xaml.Controls`) |
+|---|---|
+| `column` / `row` / `nav_stack` / `section` | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) (Day positions children absolutely) |
+| `label` | [`TextBlock`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textblock) |
+| `button` | [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) (`AccentButtonStyle` when prominent) |
+| `toggle` | [`ToggleSwitch`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.toggleswitch) |
+| `slider` | [`Slider`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.slider) |
+| `text_field` | [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) |
+| `text_area` | [`TextBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.textbox) with `AcceptsReturn` |
+| `picker().menu()` | [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
+| `picker().segmented()` / `.inline()` | [`RadioButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.radiobutton)s in a horizontal / vertical stack |
+| `progress(f)` | [`ProgressBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressbar) |
+| `spinner()` | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
+| `divider` | [`Border`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.border), 1px, themed stroke |
+| `scroll` | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) |
+| `list` | [`ScrollViewer`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.scrollviewer) with Day-side cell pooling |
+| `nav` (split and stack) | [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) |
+| `nav_menu` | `NavigationViewItem`s, or a [`ListView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.listview) standalone |
+| `tabs` | [`Pivot`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.pivot) |
+| `image` | [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) |
+| `vector` | a [`Path`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.shapes.path) in a scaling [`Viewbox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.viewbox) ([XAML geometry](/docs/resources#what-each-target-ships)); an [`Image`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.image) of the raster cache PNG for art outside the convertible subset |
+| `canvas` | [`Canvas`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.canvas) with a `Path` per shape |
+| dialogs / alerts / prompts | [`ContentDialog`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.contentdialog) |
+| file dialogs | [`FileOpenPicker`](https://learn.microsoft.com/en-us/uwp/api/windows.storage.pickers.fileopenpicker) / `FileSavePicker` |
+| menu bar | [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar) |
+| context menus | [`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout) |
+| *external* `activity()` | [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring) |
+| *external* `combobox()` | editable [`ComboBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.combobox) |
+| *external* `search_field()` | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
+| *external* `date_picker()` | [`CalendarDatePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendardatepicker), or [`CalendarView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.calendarview) inline |
+| *external* `time_picker()` | [`TimePicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.timepicker) |
+| *external* `media()` | [`MediaPlayerElement`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.mediaplayerelement) |
+| *external* `webview()` | [`WebView2`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.webview2) |
+
+**Text measurement** is XAML's measure pass (`Measure` → `DesiredSize`), with a re-measure
+after forcing layout when a templated control reports zero before the first async layout pass.
+
+## Qt and GTK on a Windows host
+
+`windows-winui` is the target you ship on Windows. GTK and Qt are portable, so the same machine can
+also run `windows-qt` and `windows-gtk`, to check a change against three desktop toolkits before CI
+or to use one toolkit across Linux and Windows. Both are development combos ([Tier
+4](/docs/platforms#support-tiers)): `day pack` refuses them (bundling a toolkit into a Windows
+installer is deferred), and `windows-gtk` has no accessibility tree.
+
+Each needs two things: the toolkit's development libraries from [MSYS2](https://www.msys2.org), and
+a second Rust toolchain whose ABI matches them. MSYS2 ships GNU-format import libraries
+(`libgtk-4.dll.a`, `libQt6Widgets.dll.a`) which MSVC's `link.exe` cannot read, so the
+`*-pc-windows-msvc` toolchain, the correct one for `windows-winui`, cannot link either of these
+targets. Install the GNU toolchain *alongside* your default and select it per shell; don't `rustup
+default` it away from MSVC.
+
+Which MSYS2 environment and toolchain you want depends on the CPU:
+
+| Host CPU | MSYS2 environment | Package prefix | Rust toolchain |
+|---|---|---|---|
+| x86-64 | `MINGW64` — `C:\msys64\mingw64` | `mingw-w64-x86_64-` | `stable-x86_64-pc-windows-gnu` |
+| ARM64 | `CLANGARM64` — `C:\msys64\clangarm64` | `mingw-w64-clang-aarch64-` | `stable-aarch64-pc-windows-gnullvm` |
+
+### Install the libraries
+
+```powershell
+winget install MSYS2.MSYS2
+```
+
+Then, from the MSYS2 shell, install a compiler, `pkgconf`, and whichever toolkits you want. The
+ARM64 package names are shown; on x86-64 swap the prefix and use `mingw-w64-x86_64-gcc` in place of
+the clang/lld pair.
+
+```bash
+pacman -S --needed \
+  mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-lld \
+  mingw-w64-clang-aarch64-pkgconf \
+  mingw-w64-clang-aarch64-qt6-base \
+  mingw-w64-clang-aarch64-gtk4 mingw-w64-clang-aarch64-libadwaita
+```
+
+Drop the `qt6-base` line, or the `gtk4`/`libadwaita` line, if you only want one of the two.
+`day doctor` and the toolkit build scripts probe through `pkgconf`, and the compiler both
+links the final binary and builds Qt's small C++ shim.
+
+### Add the Rust toolchain
+
+```powershell
+rustup toolchain install stable-aarch64-pc-windows-gnullvm   # x86-64: stable-x86_64-pc-windows-gnu
+```
+
+### Build and run
+
+Every `day` command for these two targets wants the MSYS2 `bin` directory on `PATH` and that
+toolchain selected. `PATH` matters twice: the build resolves `pkg-config` and the compiler
+through it, and the app loads the GTK/Qt DLLs through it at run time.
+
+```powershell
+$env:PATH = "C:\msys64\clangarm64\bin;$env:PATH"
+$env:RUSTUP_TOOLCHAIN = "stable-aarch64-pc-windows-gnullvm"
+
+day doctor --toolkit qt          # and --toolkit gtk
+day launch -p windows-qt
+day launch -p windows-gtk
+```
+
+Setting `RUSTUP_TOOLCHAIN` per shell is the only switch: a shell without it still builds
+`windows-winui` against MSVC, which that target needs.
+`day doctor` will still warn about `flatpak-builder` and `linuxdeploy`; those are Linux
+packaging tools and don't apply here.
+
+There is one exception, seen on CI images more than on laptops: if a different MinGW is already
+on `PATH` (a standalone `C:\mingw64`, or the one some CI runners ship), the GNU toolchain will link
+through that one instead and fail to find MSYS2's `-lQt6Widgets` / `-lglib-2.0`. Putting MSYS2's
+`bin` first, as above, is usually enough; pin it outright if not:
+
+```powershell
+$env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = "C:/msys64/mingw64/bin/gcc.exe"
+$env:CC  = "C:/msys64/mingw64/bin/gcc.exe"
+$env:CXX = "C:/msys64/mingw64/bin/g++.exe"
+```
+
+The first build compiles the native backend and, for Qt, its C++ shim. Subsequent builds reuse
+compiled dependencies. Build times depend on the host, toolkit, and changed files.
+
+### What to expect
+
+- **Neither toolkit has a web engine on Windows.** MSYS2 packages neither Qt 6 WebEngine nor
+  WebKitGTK 6, because both embed a browser engine that doesn't build under MinGW. So `webview()`
+  shows its URL-label fallback on `windows-qt` and renders Day's placeholder leaf on `windows-gtk`.
+  Everything else, including the external `combobox()`, `search_field()`, `date_picker()`,
+  `time_picker()`, `media()`, and `activity()` pieces, draws a native widget.
+- **Custom bundled fonts don't reach Pango on `windows-gtk`**, so labels asking for a bundled
+  family fall back to the default face. The app logs each one at startup.
+- **Toolchains behave differently under the two linkers.** Day registers piece renderers through
+  [`linkme`](https://docs.rs/linkme) statics, and MinGW's GNU `ld` dead-strips some of them, leaving
+  those pieces as placeholders. The clang/`lld` toolchain used by `CLANGARM64` + `gnullvm` keeps
+  them: a full sweep of the showcase there reports no dropped renderers beyond the GTK web view,
+  which has no Windows build. If pieces render as placeholders on an x86-64 MinGW build, that linker
+  is the cause; see [Platform support](/docs/platforms).

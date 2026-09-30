@@ -16,7 +16,7 @@ checkable. The component strips what it does not need at render time rather than
 | `ios-uikit.svg` | Simple Icons 16.28.0 | iOS | CC0 1.0 |
 | `harmony-arkui.svg` | Simple Icons 16.28.0 | HarmonyOS | CC0 1.0 |
 | `macos-appkit.svg` | Simple Icons 16.28.0 | Apple | CC0 1.0 |
-| `windows-xaml.svg` | [Font Awesome Free](https://fontawesome.com) 7.3.1 | `windows` (brands) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `windows-winui.svg`, `windows-xaml.svg` | [Font Awesome Free](https://fontawesome.com) 7.3.1 | `windows` (brands) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | `linux-gtk.svg` | Simple Icons 16.28.0 | GNOME | CC0 1.0 |
 | `linux-qt.svg` | Simple Icons 16.28.0 | KDE | CC0 1.0 |
 
@@ -28,7 +28,7 @@ than "Linux".
 
 Three icons come from elsewhere:
 
-- **`windows-xaml`** — Simple Icons carries no Microsoft mark. Microsoft's legal team asked for the
+- **`windows-winui` and `windows-xaml`** (the same mark) — Simple Icons carries no Microsoft mark. Microsoft's legal team asked for the
   removal of Windows, Office, and LinkedIn in 2024
   ([simple-icons#11236](https://github.com/simple-icons/simple-icons/issues/11236)). Font Awesome
   Free still ships one, under CC BY 4.0 rather than CC0 — so this icon is the one that carries an

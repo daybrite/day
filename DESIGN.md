@@ -196,9 +196,14 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `android-mdc` | Android | Material Components (M3 Expressive) / android.view | shipped; emulator walkthrough + pack (`.apk`/`.aab`) in CI |
 | `linux-gtk` | Linux | GTK 4 | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
 | `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
-| `windows-xaml` | Windows | system XAML (XAML Islands in a Win32 host) | shipped; CI-verified (`.msix` + installer) |
+| `windows-winui` | Windows | WinUI 3 (`Microsoft.UI.Xaml`, Windows App SDK 2.5.1, hosted in a Win32 window by `DesktopWindowXamlSource`) | shipped; Showcase walkthrough passes; self-contained pack (`.msix` + installer); CI legs written, not yet run on GitHub ([docs/winui.md](docs/winui.md)) |
 | `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day devices boot -p harmony-arkui` emulator helpers ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `web-dom` | any modern browser | the DOM (semantic HTML + ARIA) | experimental (2026-07); wasm32 cdylib + JS shim, `day launch` dev server ([docs/web.md](docs/web.md)) |
+
+`windows-xaml` is the same XAML backend built against system XAML (`Windows.UI.Xaml` in XAML
+Islands) instead of WinUI 3. It was the Windows target until `windows-winui` replaced it; it is
+now **deprecated** (Tier 5): it still builds, packs and runs for projects that have not moved
+(`day project add-target windows-winui`), and new projects do not get it.
 
 An eighth backend, **`day-mock`**, is headless: it records toolkit ops and answers deterministic
 measurements, so the whole pipeline is unit-testable without a display ([§3.2](#32-crates)). A ninth,
@@ -253,7 +258,7 @@ Day is not a greenfield guess. It consolidates several years of prior art in thi
 | **Piece** | Day's unit of UI composition (SwiftUI "View", Flutter "Widget"). Also the brand for UI extension packages: "a Day Piece" (`pieces/day-piece-*`). |
 | **Part** | A headless platform-service package — battery, network, clipboard, sensors, prefs, haptics, sound effects, keeping the screen on, device info, HTTP, OS permissions, location, app-local files, local notifications, wall clock & time zones — exposing signals/functions with per-OS native halves (`parts/day-part-*`, [§15](#15-extensibility-pieces-parts-and-tweaks)). |
 | **Tweak** | A per-toolkit configuration of the native widget behind an existing built-in piece (`Decorate::tweak`, `tweaks/day-tweak-*`; [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces), [docs/tweaks.md](docs/tweaks.md)). |
-| **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, Windows XAML, ArkUI (+ the headless mock). |
+| **Toolkit** | A native widget system: UIKit, Android Material, AppKit, GTK 4, Qt 6 Widgets, WinUI 3 (XAML), ArkUI (+ the headless mock). |
 | **Target** | An (OS, toolkit) pair, written `<os>-<toolkit>`: `macos-appkit`, `macos-gtk`, `ios-uikit`, … One binary is built per target. |
 | **Backend crate** | The Rust crate implementing `day-spec` for one toolkit (`toolkits/day-appkit`, `toolkits/day-gtk`, …). One backend is linked per binary. |
 | **Realized tree** | The runtime tree of mounted pieces: each node owns a native handle (or is layout-only), a reactive scope, and layout state. |
@@ -281,8 +286,10 @@ the shared package version and these four requirements; member manifests need no
 
 **Target strings** are the canonical identifiers everywhere: `Day.toml` `targets:`, `day launch
 --platform`, CI job names, screenshot directory names, `PerTarget` style values. The toolkit half
-also exists alone (`uikit`, `mdc`, `appkit`, `gtk`, `qt`, `xaml`, `arkui`, `mock`) for cases
-where OS doesn't matter (styling varies by toolkit far more often than by OS).
+also exists alone (`uikit`, `mdc`, `appkit`, `gtk`, `qt`, `winui`, `xaml`, `arkui`, `mock`) for
+cases where OS doesn't matter (styling varies by toolkit far more often than by OS). The `winui`
+feature implies `xaml`, and a dayscript gate naming `xaml` also matches `windows-winui`, the
+same backend.
 
 ---
 
@@ -1123,7 +1130,7 @@ the recorded shape sugar could take if branching ever becomes common.
 > (`Color::hex(…)` brand values, shape fills, gradients). Semantic *roles* that must cross the
 > spec do so as typed values: `SurfaceRole` for grouped-card surfaces, `Font` for typography.
 > Forced schemes for screenshots/CI ride the `DAY_THEME=light|dark` launch environment, which
-> every backend honors (per-element on XAML islands, palette on Qt ≤6.7, color-scheme
+> every backend honors (per-element on the XAML root, palette on Qt ≤6.7, color-scheme
 > elsewhere). An app-wide token module remains possible later; no real app has needed one.
 
 ### §6.4 Typography
@@ -1643,8 +1650,8 @@ and primitives, never text formats.
 > until the windows-gnu dev combos did (2026-07): MinGW ld drops a piece's registration static
 > when its codegen unit exports nothing else referenced, so on `windows-qt`/`windows-gtk` several
 > external pieces render placeholder leaves (which crates survive is link-order luck; MSVC keeps
-> `#[used]` statics via `/INCLUDE`, so `windows-xaml` is unaffected). The showcase walkthrough's
-> `assert_no_placeholders` ledger records the affected kinds per target; the layered hardening
+> `#[used]` statics via `/INCLUDE`, so `windows-winui` and `windows-xaml` are unaffected). The
+> showcase walkthrough's `assert_no_placeholders` ledger records the affected kinds per target; the layered hardening
 > below is the designed fix and is now motivated by a real failure, not a hypothetical.
 >
 > **web-dom is the exception (2026-07):** `linkme`'s `#[distributed_slice]` refuses to compile for
@@ -1806,8 +1813,8 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > the remaining backends, the color applies at commit. The `.transition` enter/exit surface
 > remains unimplemented.
 >
-> **windows-xaml (2026-08).** `set_opacity`/`set_transform` were the trait's defaulted
-> no-ops until now, so scale, rotation, offset and opacity did nothing at all on Windows
+> **XAML (2026-08, shipped on windows-xaml; windows-winui runs the same code).**
+> `set_opacity`/`set_transform` were the trait's defaulted no-ops until now, so scale, rotation, offset and opacity did nothing at all on Windows
 > (the color still applied, which made the page look half-alive). Both are implemented as
 > XAML `Storyboard`s: opacity on `UIElement.Opacity` and the transform channels on a
 > `CompositeTransform` about the element's center — the same anchor AppKit's layer and Qt's
@@ -1832,7 +1839,7 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > and paused handles owned by the dying root without depending on TLS key destruction order.
 >
 > Native sources are CADisplayLink (AppKit 14+/UIKit), Core Video (AppKit 13), Choreographer
-> (Android), CompositionTarget.Rendering (XAML Islands), requestAnimationFrame (DOM), GTK widget
+> (Android), CompositionTarget.Rendering (XAML), requestAnimationFrame (DOM), GTK widget
 > tick callbacks, QWindow update requests (Qt), and OH_NativeVSync (ArkUI, marshaled to the UI
 > loop). Day has no 16 ms frame timer fallback. Qt itself may use its internal timer where its
 > platform plugin lacks vsync; Harmony uses a system source without an OS window-ID association.
@@ -1922,10 +1929,11 @@ report, so this policy was specified up front:
 > [!IMPORTANT]
 > **Status: all eight shipped** (seven native + mock), and a ninth — **`day-dom`**, the
 > `web-dom` backend — landed 2026-07 as experimental ([docs/web.md](docs/web.md); it grew out of the
-> `web-html` sketch recorded below). One material change from the design: the Windows backend
-> hosts **system XAML** (`Windows.UI.Xaml` controls in a `DesktopWindowXamlSource` island
-> inside a Win32 window), not WinUI 3 / Windows App SDK — no runtime bootstrap, no
-> framework-package dependency, and the `windows-xaml` target name stayed.
+> `web-html` sketch recorded below). The Windows backend is **WinUI 3** (`Microsoft.UI.Xaml`
+> from the Windows App SDK, hosted in a Win32 window by WinUI's `DesktopWindowXamlSource`), the
+> `windows-winui` target ([docs/winui.md](docs/winui.md)). It first shipped against system XAML
+> (`Windows.UI.Xaml` in XAML Islands) as `windows-xaml`; that build of the same backend remains
+> as a deprecated (Tier 5) target.
 
 > [!NOTE]
 > **Home screen (2026-09).** The web-dom dist is an installable web app: `day build` writes
@@ -1943,7 +1951,7 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-gtk` | `gtk4-rs` | `gtk4::Fixed` | shipped (Linux + macOS host); headless CI walkthrough |
 | `day-qt` | `cc`-built C++ shim (`day-qt-sys`) | bare `QWidget` | shipped (Linux + macOS host); headless CI walkthrough |
 | `day-android` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
-| `day-xaml` | C++/WinRT shim (`day-xaml-sys`, cppwinrt-staged headers) | XAML `Canvas` in a `DesktopWindowXamlSource` island | shipped; CI-verified build/walkthrough/pack |
+| `day-xaml` | C++/WinRT shim (`day-xaml-sys`; a projection generated from the Windows App SDK's metadata under `winui`, the Windows SDK's cppwinrt headers otherwise) | XAML `Canvas` in a `DesktopWindowXamlSource` | shipped; Showcase walkthrough + self-contained pack on `windows-winui` ([docs/winui.md](docs/winui.md)); CI-verified build/walkthrough/pack as the deprecated `windows-xaml` |
 | `day-arkui` | ArkUI **NDK C API** through openharmony-rs's `ohos-sys` bindings + ohos-rs's `napi-ohos` for the ArkTS module (`aarch64-unknown-linux-ohos`; no C++) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day devices boot -p harmony-arkui` ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`crates/day-cli/resources/web/shim.js`, embedded in the CLI; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental ([docs/web.md](docs/web.md)); `day build\|launch -p web-dom` |
 | `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
@@ -1964,7 +1972,8 @@ Per-toolkit notes beyond pane's baseline (the day-new duties):
   `QPainter` in `paintEvent`; Win2D or Direct2D via the shim; DOM `<canvas>` 2D.
 - **snapshot ([§14](#14-scripting-dayscript)):** `CALayer`/`NSView` bitmap render; `UIGraphicsImageRenderer`; `PixelCopy` /
   `View.draw(Canvas)`; `gtk_widget_snapshot` → cairo surface; `QWidget::grab`;
-  `RenderTargetBitmap`; `<canvas>` composite (web: best-effort).
+  Windows.Graphics.Capture of the window on WinUI (`RenderTargetBitmap` where it is
+  unavailable); `<canvas>` composite (web: best-effort).
 - **list hosts ([§10](#10-native-list-integration)):** `UICollectionView` / `RecyclerView` / `NSTableView` / `GtkListView` /
   `ItemsRepeater` / virtualized DOM. **Qt is the honest exception**: `QListView` recycles
   *delegate paintings*, not live `QWidget` rows (`setIndexWidget` is unvirtualized) — Qt's list
@@ -1982,13 +1991,19 @@ Two lifecycle realities that shape backends beyond pane's baseline:
   measure-cache epoch bump + frame re-multiplication ([§7.9](#79-pixel-snapping-and-density)). The
   suspend/resume/memory hooks ([§8.1](#81-the-toolkit-trait)) map to the Activity callbacks. Process-death state
   restoration (`onSaveInstanceState`) is **DP-25** — v1 documents cold restart.
-- **Windows runtime choice.** The designed WinUI 3 / Windows App SDK backend (with its
-  `MddBootstrapInitialize2` bootstrap and runtime-installer story) was **replaced by system
-  XAML Islands**: `Windows.UI.Xaml` ships in Windows itself, so an unpackaged Day app starts
-  with no runtime dependency at all, and `day pack` produces `.msix` plus an NSIS installer
-  with nothing to chain. The cost is system-XAML's older control set and per-element theming
-  (the shim forces `DAY_THEME` per-element on the root). Moving to WinUI 3 later is a backend
-  swap behind the same day-spec surface.
+- **Windows runtime choice.** The backend is WinUI 3 on the Windows App SDK (release 2.5.1),
+  as designed. It first shipped against system XAML Islands instead (`Windows.UI.Xaml` ships in
+  Windows, so nothing needed bootstrapping), at the cost of system XAML's older control set; the
+  WinUI build then came as the same backend and the same C++/WinRT shim compiled with
+  `DAY_WINUI`, with the stack's differences behind `#ifdef` (bootstrap, hosting, dispatch,
+  resources, capture — [docs/winui.md](docs/winui.md)). Development builds are
+  framework-dependent: an unpackaged app puts the Windows App Runtime (2.5.1 or newer) on its
+  package graph with `MddBootstrapInitialize2`, and `day doctor` checks the runtime is
+  installed. `day pack` ships self-contained instead — the runtime's DLLs beside the exe and a
+  registration-free WinRT manifest — so the `.msix` and the NSIS installer chain nothing. The
+  build fetches the SDK's NuGet packages itself; nothing from them is linked. The system-XAML
+  build stays as the deprecated `windows-xaml` target. Both force `DAY_THEME` per-element on the
+  root.
 
 On mobile, the [§8.1](#81-the-toolkit-trait) "window" maps to the scene / activity content view; multi-window remains
 future, additive work ([§8.1](#81-the-toolkit-trait)'s status note).
@@ -2001,8 +2016,10 @@ a redistributable macOS/Windows app is real work and is explicitly **post-MVP**,
 
 **Support tiers.** Every target carries a tier saying how much testing and maintenance it gets:
 **Tier 1 — Supported** (`ios-uikit`, `android-mdc`, `macos-appkit`), **Tier 2 — Demi-supported**
-(`linux-gtk`, `linux-qt`, `windows-xaml`), **Tier 3 — Experimental** (`harmony-arkui`,
-`web-dom`), **Tier 4 — Development** (`macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt`). The
+(`linux-gtk`, `linux-qt`, `windows-winui`), **Tier 3 — Experimental** (`harmony-arkui`,
+`web-dom`), **Tier 4 — Development** (`macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt`),
+**Tier 5 — Deprecated** (`windows-xaml`: superseded by `windows-winui`; still builds, packs and
+runs for existing projects, not for new apps, and due for removal). The
 tier is independent of backend completeness — a Tier 4 target runs the same backend crate as its
 Tier 2 sibling on another OS, and differs in the attention it gets, not in what it renders. The
 definitions are normative on the website's Platform support page, "Support tiers"
@@ -3670,7 +3687,7 @@ several days — `day doctor verify --day-version` drives both halves through it
 > [!NOTE]
 > **`day new --describe` added 2026-08.** The prompts are a terminal conversation, and an editor
 > cannot join one — so day-vscode hand-copied the question set and came to offer a
-> `windows-winui` target, which does not exist. `--describe` prints that set instead: a
+> `windows-winui` target before one existed. `--describe` prints that set instead: a
 > versioned, grow-only JSON document of every kind's fields — id, label, help, type, options,
 > default, validation pattern, and **the flag each one fills** — plus the host's own
 > `default_target`. Output is JSON by definition, so it takes no `--format`, the same way
@@ -3938,7 +3955,7 @@ Every format lands on one filename pattern (`pack/naming.rs`):
 
 ```text
 <stem>[-<version>]-<platform>-<toolkit>[-<extra>].<ext>
-  day-showcase-macos-appkit.dmg          day-showcase-windows-xaml-setup.exe
+  day-showcase-macos-appkit.dmg          day-showcase-windows-winui-setup.exe
   day-showcase-android-mdc.aab           day-showcase-linux-gtk-x86_64.flatpak
   day-showcase-linux-gtk-x86_64.appimage
 ```
@@ -4290,7 +4307,7 @@ min-sdk = 24
 target-sdk = 35                     # edge-to-edge is mandatory at 35 — see §7.7 inset policy
 
 [windows]
-app-sdk = "1.6"                     # WinAppSDK runtime pin (§9)
+app-sdk = "2.5"                     # WinAppSDK release pin (§9); designed, not read yet: day-toolchain pins 2.5.1
 
 [qt]
 license = "lgpl-dynamic"            # or "commercial" — gates `day pack` static/store configurations (§16.5)
@@ -4782,8 +4799,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    toolchain and a `toolkit` row would mean a second copy of it: arkui needs the OpenHarmony SDK,
    dom the wasm32 target plus a wasm-capable clang for persistence's bundled SQLite
    ([docs/web.md](docs/web.md)).
-4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: xaml and an MSYS2
-   qt/gtk leg; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
+4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: winui, the
+   deprecated xaml, and an MSYS2 qt/gtk leg; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
    host's toolkit dependencies and runs the checks that need it — above all
    `scripts/ci/scaffold-check.sh`, which proves `day new` output still lints, builds, packs and
    rebuilds against this commit. The build comes before the pack on purpose: the pack then runs
@@ -5004,7 +5021,7 @@ itself there rather than surfacing a job later as an artifact nothing can rebuil
 Stage 2 needs no checkout of its own; only `android-mdc-validate` still checks the repo out, because
 its stage 1 runs `scripts/ci/validate-apk.sh` on the emulator. Each job names the container it
 verifies (`*.dmg`, `*.ipa`, `*.flatpak`, `*.appimage`, `*.apk`, `*.msix`, `*.hap`) rather than globbing the dist
-directory: `windows-xaml` also ships a self-extracting `-setup.exe` that nothing here can open, and
+directory: the Windows targets also ship a self-extracting `-setup.exe` that nothing here can open, and
 `android-mdc` also ships an `.aab`.
 
 Two build inputs are recorded and replayed, because their defaults depend on the machine rather
@@ -5528,9 +5545,9 @@ Mechanism (implemented; [docs/tweaks.md](docs/tweaks.md) is normative):
   `day_core::invalidate_size(node)` for native mutations that change intrinsic size ([§7.4](#74-incremental-relayout-and-the-measurement-cache)'s
   measure cache cannot see mutations Day didn't make).
 - Per-toolkit sugar: `.appkit(…)/.uikit(…)/.gtk(…)/.android(…)` typed ext traits;
-  `.qt_raw(…)/.xaml_raw(…)/.arkui_raw(…)` raw tiers (the `windows` crate ships no
-  Windows.UI.Xaml bindings, so XAML hands out the borrowed ABI pointer via the existing
-  `day_xaml_unbox` seam; C++/WinRT recipes are the supported path).
+  `.qt_raw(…)/.xaml_raw(…)/.arkui_raw(…)` raw tiers (the `windows` crate ships no XAML
+  bindings, neither `Microsoft.UI.Xaml` nor `Windows.UI.Xaml`, so XAML hands out the borrowed
+  ABI pointer via the existing `day_xaml_unbox` seam; C++/WinRT recipes are the supported path).
 - Native-class metadata (Level 1): every accessor also hands the closure the realized widget's
   concrete class name (`&str`), with no new trait method. Typed tiers read the live object's
   runtime class (objc `object_getClass`, GTK GType name), so a *conditional backing* — e.g. a

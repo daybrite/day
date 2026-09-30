@@ -118,7 +118,7 @@ Everything above works on every backend except where noted.
 | **android-mdc** | everything `BitmapFactory` reads | PNG, JPEG | The only backend that **reads** `has_alpha` rather than inferring it. WebP decodes but is not offered for encode: `WEBP_LOSSY` is API 30 and the scaffold's `minSdk` is 24 |
 | **web-dom** | whatever the engine reads | PNG, JPEG, and WebP where the engine writes it | The one backend where decoding **and** encoding are genuinely asynchronous. `image_encode_formats()` asks the engine — Chromium writes WebP, WebKit does not — and an encode the engine would quietly turn into PNG is refused instead. `has_alpha` is derived from the container: an `ImageBitmap` exposes no way to ask |
 | **harmony-arkui** | whatever the image framework reads | PNG, JPEG | `EncodeSpec::fit` is ignored: `OH_PixelmapNative_Scale` rescales in place, and fitting would resize the very bitmap every later draw shares |
-| **windows-xaml** | whatever WIC reads | — | Decode and draw only. `PixelWidth` is published asynchronously, after the element is shown, so the size is read from the container's own header instead ([`ImageFormat::dimensions`]). Encoding would mean `BitmapEncoder`, which this shim does not use |
+| **windows-winui** | whatever WIC reads | — | Decode and draw only. `PixelWidth` is published asynchronously, after the element is shown, so the size is read from the container's own header instead ([`ImageFormat::dimensions`]). Encoding would mean `BitmapEncoder`, which this shim does not use |
 | **mock** | a synthetic answer per format | PNG, JPEG | Deterministic sizes a test can predict, in the spirit of its synthetic text metrics |
 
 `Cap::ImageProperties` is Native on macos-appkit alone. Everywhere else `properties()` answers

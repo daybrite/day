@@ -15,6 +15,7 @@ const TARGETS = new Set([
   'android-mdc',
   'linux-gtk',
   'linux-qt',
+  'windows-winui',
   'windows-xaml',
   'harmony-arkui',
   'web-dom',

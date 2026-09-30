@@ -492,14 +492,14 @@ debugger and profilers, and Gradle calls back into `day` to rebuild the Rust hal
 | run in dev | Run in Android Studio | `day launch -p android-mdc` |
 | iterate | `@Preview`, Live Edit | `day relaunch --all-running` (no previews) |
 | Play Store build | `bundleRelease` + signing config | `day pack -p android-mdc` → signed `.apk` + `.aab`, apksigner-verified, 16 KB-alignment checked |
-| other platforms | Compose Multiplatform (its own renderer everywhere) | `day pack -p ios-uikit` / `-p macos-appkit` / `-p windows-xaml` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` — native widgets on each |
+| other platforms | Compose Multiplatform (its own renderer everywhere) | `day pack -p ios-uikit` / `-p macos-appkit` / `-p windows-winui` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` — native widgets on each |
 | UI tests | `createComposeRule`, Espresso | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 | environment check | Android Studio / `doctor` scripts | `day doctor` |
 
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
 today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
 [Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
-[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships), plus [Tier 5](/docs/platforms#support-tiers) for deprecated targets.
 
 Release signing reads the keystore from `${ENV_VAR}` references in `Day.toml` (the same
 `signingConfig` idea), but a missing variable degrades to a dev-signed artifact with a warning

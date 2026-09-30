@@ -40,6 +40,7 @@
 #include <cmath>
 #include <vector>
 #include <map>
+#include <mutex>  // day_xaml_post's queue for posts that arrive before the window exists
 #include <set>
 #include <functional> // OEM menu-accelerator dispatch (see add_accel)
 #include <fstream> // read local image bytes for BitmapImage.SetSource (file:// URIs don't load)
@@ -56,8 +57,60 @@
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Input.h> // HoldingState (long-press gesture)
+#include <winrt/Windows.UI.ViewManagement.h> // UISettings: the system accent color
 #include <winrt/Windows.UI.Text.h>
 #include <dwrite.h> // IDWriteFontCollection: the platform font list (docs/fonts.md)
+#include <winrt/Windows.UI.Xaml.Interop.h> // TypeName: WinUI 3 still uses the system one
+#include <winrt/Windows.Storage.h>         // StorageFile (file-picker results)
+#include <winrt/Windows.Storage.Pickers.h> // FileOpenPicker / FileSavePicker
+#include <robuffer.h> // IBufferByteAccess — raw pixels out of a WinRT IBuffer
+#include <DispatcherQueue.h> // the system DispatcherQueue both stacks keep on the UI thread
+
+// ONE shim, two XAML stacks. `windows-xaml` builds it against system XAML (Windows.UI.Xaml,
+// hosted by XAML Islands); `windows-winui` (DAY_WINUI) against WinUI 3 (Microsoft.UI.Xaml, the
+// Windows App SDK), hosted by that stack's own DesktopWindowXamlSource. The control set and
+// nearly every API are the same under both namespaces, so the code below is written once
+// against the aliases defined here; what differs (hosting, dispatch, bootstrapping, capture)
+// is behind `#ifdef DAY_WINUI` where it happens.
+#ifdef DAY_WINUI
+#include <MddBootstrap.h>
+#include <winrt/Microsoft.UI.h>
+#include <winrt/Microsoft.UI.Interop.h>
+#include <winrt/Microsoft.UI.Content.h>
+#include <winrt/Microsoft.UI.Dispatching.h>
+#include <winrt/Microsoft.UI.Input.h>
+#include <winrt/Microsoft.UI.Text.h>
+#include <winrt/Microsoft.UI.Composition.h>
+#include <winrt/Microsoft.UI.Xaml.h>
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#include <winrt/Microsoft.UI.Xaml.Documents.h>
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
+#include <winrt/Microsoft.UI.Xaml.Input.h>
+#include <winrt/Microsoft.UI.Xaml.Media.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Animation.h>
+#include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
+#include <winrt/Microsoft.UI.Xaml.Shapes.h>
+#include <winrt/Microsoft.UI.Xaml.Hosting.h>
+#include <winrt/Microsoft.UI.Xaml.Automation.h>
+#include <winrt/Microsoft.UI.Xaml.Markup.h>
+#include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
+// Window capture (snapshot_wgc_png): Windows.Graphics.Capture reads the window back from DWM.
+#include <d3d11.h>
+#include <Windows.Graphics.Capture.Interop.h>
+#include <windows.graphics.directx.direct3d11.interop.h>
+#include <winrt/Windows.Graphics.h>
+#include <winrt/Windows.Graphics.Capture.h>
+#include <winrt/Windows.Graphics.DirectX.h>
+#include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+namespace WUComp = winrt::Microsoft::UI::Composition;
+namespace WUIIn = winrt::Microsoft::UI::Input;
+// FontWeights (the named weights); the FontWeight struct itself stays Windows.UI.Text.
+namespace WUTextNames = winrt::Microsoft::UI::Text;
+// A pointer's device type is Microsoft.UI.Input's; DynamicOverflowOrder is on ICommandBarElement itself.
+using DayPointerDeviceType = winrt::Microsoft::UI::Input::PointerDeviceType;
+using DayCommandBarElement = winrt::Microsoft::UI::Xaml::Controls::ICommandBarElement;
+#else
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
 #include <winrt/Windows.UI.Xaml.Documents.h> // Typography
@@ -73,28 +126,27 @@
 #include <winrt/Windows.UI.Composition.h> // rounded corner clip (see day_xaml_container_set_corner)
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Markup.h>
-#include <winrt/Windows.UI.Xaml.Interop.h>
-#include <winrt/Windows.Storage.h>         // StorageFile (file-picker results)
-#include <winrt/Windows.Storage.Pickers.h> // FileOpenPicker / FileSavePicker
-
 #include <windows.ui.xaml.hosting.desktopwindowxamlsource.h>
-#include <DispatcherQueue.h>
-#include <robuffer.h> // IBufferByteAccess — raw pixels out of a WinRT IBuffer
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+namespace WUComp = winrt::Windows::UI::Composition;
+namespace WUIIn = winrt::Windows::UI::Input;
+namespace WUTextNames = winrt::Windows::UI::Text;
+using DayPointerDeviceType = winrt::Windows::Devices::Input::PointerDeviceType;
+using DayCommandBarElement = winrt::Windows::UI::Xaml::Controls::ICommandBarElement2;
+#endif
 
 using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
 namespace WUI = winrt::Windows::UI;
-namespace WUX = winrt::Windows::UI::Xaml;
-namespace WUXC = winrt::Windows::UI::Xaml::Controls;
-namespace WUXCP = winrt::Windows::UI::Xaml::Controls::Primitives;
-namespace WUXD = winrt::Windows::UI::Xaml::Documents; // Typography (numeral alignment)
-namespace WUXM = winrt::Windows::UI::Xaml::Media;
-namespace WUXMA = winrt::Windows::UI::Xaml::Media::Animation;
-namespace WUXSh = winrt::Windows::UI::Xaml::Shapes;
-namespace WUXH = winrt::Windows::UI::Xaml::Hosting;
-namespace WUComp = winrt::Windows::UI::Composition;
-namespace WUXIn = winrt::Windows::UI::Xaml::Input;
-namespace WUIIn = winrt::Windows::UI::Input;
+namespace WUX = DAY_XAML_NS;
+namespace WUXC = DAY_XAML_NS::Controls;
+namespace WUXCP = DAY_XAML_NS::Controls::Primitives;
+namespace WUXD = DAY_XAML_NS::Documents; // Typography (numeral alignment)
+namespace WUXM = DAY_XAML_NS::Media;
+namespace WUXMA = DAY_XAML_NS::Media::Animation;
+namespace WUXSh = DAY_XAML_NS::Shapes;
+namespace WUXH = DAY_XAML_NS::Hosting;
+namespace WUXIn = DAY_XAML_NS::Input;
 namespace WS = winrt::Windows::System;
 namespace WSt = winrt::Windows::Storage;
 namespace WStP = winrt::Windows::Storage::Pickers;
@@ -275,6 +327,28 @@ static WUXM::ImageBrush make_radial_brush(double cx, double cy, double radius,
     ib.ImageSource(wb);
     ib.Stretch(WUXM::Stretch::Fill);
     return ib;
+}
+
+// RadialGradientBrush is unavailable to the system-XAML half of this shared backend, so the
+// helper above rasterizes a 256x256 ramp. Rebuilding that bitmap for every shape is extremely
+// expensive: an animated canvas with forty marbles used to generate 2.6 million gradient pixels
+// (including a sqrt and stop search for each one), then throw every bitmap away, on every frame.
+// Gradient records are value objects in Day's display list, and an ImageBrush may be shared by
+// multiple shapes, so retain the finished brush by its complete encoded value. The cache is
+// shared by windows-xaml and windows-winui and turns the Physics page's ten recurring marble
+// ramps into ten one-time rasterizations.
+static std::map<std::string, WUXM::ImageBrush> g_radial_brush_cache;
+static WUXM::ImageBrush cached_radial_brush(double cx, double cy, double radius,
+                                             std::string const& encoded_stops,
+                                             std::vector<std::pair<float, WUI::Color>> stops) {
+    std::string key = std::to_string(cx) + "," + std::to_string(cy) + "," +
+                      std::to_string(radius) + ":" + encoded_stops;
+    auto hit = g_radial_brush_cache.find(key);
+    if (hit != g_radial_brush_cache.end()) return hit->second;
+    if (g_radial_brush_cache.size() >= 256) g_radial_brush_cache.clear();
+    auto brush = make_radial_brush(cx, cy, radius, std::move(stops));
+    g_radial_brush_cache.emplace(std::move(key), brush);
+    return brush;
 }
 static WUXM::Matrix mat_identity() {
     WUXM::Matrix m{};
@@ -485,7 +559,7 @@ static WUI::Color color_argb(unsigned int argb) {
 // Toolkit's XamlApplication — no external component needed for system XAML.)
 // ---------------------------------------------------------------------------
 
-namespace WUXMk = winrt::Windows::UI::Xaml::Markup;
+namespace WUXMk = DAY_XAML_NS::Markup;
 namespace WUXI = winrt::Windows::UI::Xaml::Interop;
 
 // DAY_THEME env: 0 = unset (follow the system), 1 = light, 2 = dark.
@@ -518,13 +592,130 @@ struct DayApp : WUX::ApplicationT<DayApp, WUXMk::IXamlMetadataProvider> {
     // NOT via Application::RequestedTheme: the app-level setter is unsupported under XAML Islands and
     // aborts island init (a fail-fast, not a catchable throw), which makes the app exit before the
     // dayscript engine binds its socket — the walkthrough runner then can't connect (§14).
+#ifdef DAY_WINUI
+    // WinUI 3 ships its control templates as a resource dictionary rather than in the OS, so the
+    // Application has to merge XamlControlsResources, and answer for the controls' types so that
+    // dictionary can resolve them (there is no XAML compiler here to generate a provider).
+    WUX::XamlTypeInfo::XamlControlsXamlMetaDataProvider controls;
+    DayApp() {
+        manager = WUXH::WindowsXamlManager::InitializeForCurrentThread();
+        Resources().MergedDictionaries().Append(WUXC::XamlControlsResources());
+    }
+    WUXMk::IXamlType GetXamlType(WUXI::TypeName const& t) { return controls.GetXamlType(t); }
+    WUXMk::IXamlType GetXamlType(winrt::hstring const& n) { return controls.GetXamlType(n); }
+    winrt::com_array<WUXMk::XmlnsDefinition> GetXmlnsDefinitions() {
+        return controls.GetXmlnsDefinitions();
+    }
+#else
     DayApp() { manager = WUXH::WindowsXamlManager::InitializeForCurrentThread(); }
 
     // IXamlMetadataProvider — no custom XAML types to describe.
     WUXMk::IXamlType GetXamlType(WUXI::TypeName const&) { return nullptr; }
     WUXMk::IXamlType GetXamlType(winrt::hstring const&) { return nullptr; }
     winrt::com_array<WUXMk::XmlnsDefinition> GetXmlnsDefinitions() { return {}; }
+#endif
 };
+
+#ifdef DAY_WINUI
+// The Windows App SDK runtime, reached without linking any of its DLLs (docs/winui.md). An
+// unpackaged app has to put the framework package on its own package graph
+// before any Microsoft.UI type can activate, which is what the bootstrapper does; it is loaded
+// from next to the exe (a packaged or staged app) and otherwise from the SDK cache the build
+// used, whose path is compiled in (a development build).
+static bool winui_bootstrap() {
+    static int done = 0; // 0 not yet, 1 up, -1 failed
+    if (done) return done > 0;
+    done = -1;
+    // Self-contained (what `day pack` ships, docs/winui.md "Packing"): the runtime sits beside
+    // the exe and the exe's manifest registers its classes for registration-free activation.
+    // Loading Microsoft.WindowsAppRuntime.dll first is the SDK's own self-contained start-up
+    // (its UndockedRegFreeWinRT initializer); no framework package, no bootstrapper.
+    ACTCTX_SECTION_KEYED_DATA activation{};
+    activation.cbSize = sizeof(activation);
+    const bool self_contained = FindActCtxSectionStringW(
+        0, nullptr, ACTIVATION_CONTEXT_SECTION_WINRT_ACTIVATABLE_CLASSES,
+        L"Microsoft.UI.Xaml.Application", &activation) != FALSE;
+    wchar_t exe[MAX_PATH]{};
+    DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (n > 0 && n < MAX_PATH) {
+        std::wstring local(exe);
+        local.resize(local.find_last_of(L"\\/") + 1);
+        local += L"Microsoft.WindowsAppRuntime.dll";
+        // DLL presence alone is not a deployment mode: a development build may share an
+        // output directory with an earlier package. Only the activation manifest opts in.
+        if (self_contained) {
+            if (!LoadLibraryExW(local.c_str(), nullptr, 0)) {
+                std::fprintf(stderr, "day-winui: the self-contained manifest requires an app-local Windows App SDK runtime, but it failed to load\n");
+                return false;
+            }
+            done = 1;
+            return true;
+        }
+    }
+    // A packaged app (MSIX) already has its framework dependency on the package graph.
+    UINT32 len = 0;
+    if (GetCurrentPackageFullName(&len, nullptr) == ERROR_INSUFFICIENT_BUFFER) {
+        done = 1;
+        return true;
+    }
+    HMODULE boot = LoadLibraryW(L"Microsoft.WindowsAppRuntime.Bootstrap.dll");
+#ifdef DAY_WINAPPSDK_BOOTSTRAP_DLL
+    if (!boot) boot = LoadLibraryW(DAY_WINAPPSDK_BOOTSTRAP_DLL);
+#endif
+    if (!boot) {
+        std::fprintf(stderr, "day-winui: Microsoft.WindowsAppRuntime.Bootstrap.dll not found\n");
+        return false;
+    }
+    using Init = HRESULT(STDAPICALLTYPE*)(UINT32, PCWSTR, PACKAGE_VERSION,
+                                          MddBootstrapInitializeOptions);
+    auto init = reinterpret_cast<Init>(GetProcAddress(boot, "MddBootstrapInitialize2"));
+    if (!init) return false;
+    // The installed runtime of this major version at the release the build targets or newer;
+    // ShowUI offers the runtime's download page when none is installed, instead of failing
+    // silently.
+    PACKAGE_VERSION min_version{};
+    min_version.Version = DAY_WINAPPSDK_MIN_VERSION;
+    HRESULT hr = init(DAY_WINAPPSDK_MAJOR_MINOR, L"", min_version,
+                      MddBootstrapInitializeOptions_OnNoMatch_ShowUI);
+    if (FAILED(hr)) {
+        std::fprintf(stderr,
+                     "day-winui: the Windows App SDK runtime %u.%u is not installed (hr=0x%08X)\n",
+                     DAY_WINAPPSDK_MAJOR_MINOR >> 16, DAY_WINAPPSDK_MAJOR_MINOR & 0xFFFF,
+                     (unsigned)hr);
+        return false;
+    }
+    done = 1;
+    return true;
+}
+
+// ContentPreTranslateMessage: the island's keyboard routing (accelerators, Tab, access keys).
+// A flat export of the runtime, found once the bootstrapper has put it on the package graph.
+static BOOL winui_pretranslate(const MSG* msg) {
+    using Fn = BOOL(__stdcall*)(const MSG*);
+    static Fn fn = [] {
+        HMODULE m = LoadLibraryW(L"Microsoft.UI.Windowing.Core.dll");
+        return m ? reinterpret_cast<Fn>(GetProcAddress(m, "ContentPreTranslateMessage")) : nullptr;
+    }();
+    return fn ? fn(msg) : FALSE;
+}
+
+// Size and show a WinUI island in its host's client area.
+static void winui_place_island(WUXH::DesktopWindowXamlSource const& source, HWND host) {
+    RECT rc; GetClientRect(host, &rc);
+    auto bridge = source.SiteBridge();
+    bridge.MoveAndResize({ 0, 0, rc.right, rc.bottom });
+    bridge.Show();
+}
+
+// Attach a WinUI island to `host`, returning the island's own child HWND (the bridge's window),
+// which is what the rest of this file focuses and positions, exactly as it does system XAML's.
+static HWND winui_attach_island(WUXH::DesktopWindowXamlSource const& source, HWND host) {
+    source.Initialize(winrt::Microsoft::UI::GetWindowIdFromWindow(host));
+    winui_place_island(source, host);
+    return winrt::Microsoft::UI::GetWindowFromWindowId(source.SiteBridge().WindowId());
+}
+
+#endif
 
 // ---------------------------------------------------------------------------
 // window / islands state (single window, v1)
@@ -561,6 +752,21 @@ static std::map<HWND, SecWindow*> g_sec_windows;
 
 static const UINT WM_DAY_POST = WM_APP + 1;
 struct PostMsg { void (*cb)(void*); void* data; };
+// Posts made before the primary window exists. day_xaml_post runs on other threads (the dayscript
+// engine's, a network callback's), and the engine starts listening as the app launches, before
+// the window is up. A post then had no HWND to go to and was DROPPED, so the request behind it
+// never answered: the first step of a walkthrough waited out its whole main-thread timeout on a
+// cold start (WinUI's first launch after a build takes longest to open its window), then every
+// later step passed. They wait here instead and go out, in order, once the window exists.
+// The console display's power state (GUID_CONSOLE_DISPLAY_STATE: 0 off, 1 on, 2 dimmed), from
+// the WM_POWERBROADCAST the primary window registers for. With the display off DWM stops
+// composing, so a window capture reads a blank or stale surface; pump_until_presented wakes it.
+static const GUID kDisplayStateGuid = {
+    0x6fe69556, 0x704a, 0x47a0, { 0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47 } };
+static DWORD g_display_state = 1;
+static std::mutex g_post_mutex;
+static std::vector<PostMsg*> g_post_early;
+static bool g_post_open = false; // the primary window has been created (posts go straight to it)
 // Day's window-resize report (single window, v1 — like g_app). UNVERIFIED on a live
 // Windows host; mirrors the Qt shim's DayWindow::resizeEvent contract.
 static void (*g_resize_cb)(int, int) = nullptr;
@@ -732,7 +938,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SIZE:
         if (g_app && g_app->island) {
             RECT rc; GetClientRect(hwnd, &rc);
+#ifdef DAY_WINUI
+            winui_place_island(g_app->source, hwnd);
+#else
             SetWindowPos(g_app->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
+#endif
             day_xaml_relayout_chrome(g_app);
         }
         return 0;
@@ -791,6 +1001,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (p) { p->cb(p->data); delete p; }
         return 0;
     }
+    case WM_POWERBROADCAST:
+        // The display's power state, which a capture needs (see pump_until_presented).
+        if (wp == PBT_POWERSETTINGCHANGE) {
+            auto s = reinterpret_cast<const POWERBROADCAST_SETTING*>(lp);
+            if (s && IsEqualGUID(s->PowerSetting, kDisplayStateGuid) && s->DataLength >= sizeof(DWORD))
+                g_display_state = *reinterpret_cast<const DWORD*>(s->Data);
+        }
+        return TRUE;
     case WM_DESTROY:
         // NOT the end of the app any more (docs/windows.md close policy): this window is an
         // ordinary primary window, and day-core ends the process — through `day_xaml_quit` —
@@ -908,6 +1126,14 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
             dqc = c;
         }
     }
+#ifdef DAY_WINUI
+    // WinUI 3 runs on its own DispatcherQueue (Microsoft.UI.Dispatching), which has to exist on
+    // this thread before its XAML does, and the framework package has to be on the package
+    // graph before either can activate. Kept alive for the process, like the system one above.
+    if (!winui_bootstrap()) return nullptr;
+    static auto winui_dqc =
+        winrt::Microsoft::UI::Dispatching::DispatcherQueueController::CreateOnCurrentThread();
+#endif
 
     // Application must exist before controls so default styles resolve; its ctor also inits
     // the WindowsXamlManager for this thread.
@@ -959,6 +1185,10 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
                                 nullptr, nullptr, wc.hInstance, nullptr);
 
     WUXH::DesktopWindowXamlSource source;
+#ifdef DAY_WINUI
+    HWND island = winui_attach_island(source, host);
+    wrap_tab_focus(source);
+#else
     auto interop = source.as<::IDesktopWindowXamlSourceNative>();
     interop->AttachToWindow(host);
     wrap_tab_focus(source);
@@ -966,6 +1196,11 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     interop->get_WindowHandle(&island);
     RECT rc; GetClientRect(host, &rc);
     SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
+#endif
+
+    // The display's power state, for captures (g_display_state). Windows answers the
+    // registration with the current state straight away.
+    RegisterPowerSettingNotification(host, &kDisplayStateGuid, DEVICE_NOTIFY_WINDOW_HANDLE);
 
     // Dark title bars are opt-in for Win32 windows; match the app theme (no-op pre-1809).
     // WM_SETTINGCHANGE re-runs this when the system theme flips.
@@ -1077,7 +1312,16 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
         root.Children().Append(sink);
         aw->focus_sink = sink;
     }
-    g_app = aw;
+    {
+        // Published under the post lock, with the posts that arrived early sent on first, so
+        // nothing posted in between can overtake them.
+        std::lock_guard<std::mutex> lock(g_post_mutex);
+        g_app = aw;
+        g_post_open = true;
+        for (PostMsg* m : g_post_early)
+            PostMessageW(aw->host, WM_DAY_POST, 0, reinterpret_cast<LPARAM>(m));
+        g_post_early.clear();
+    }
     return aw;
 } catch (winrt::hresult_error const& e) {
     std::string msg = u8(e.message());
@@ -1451,7 +1695,11 @@ static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SIZE:
         if (sw && sw->island) {
             RECT rc; GetClientRect(hwnd, &rc);
+#ifdef DAY_WINUI
+            winui_place_island(sw->source, hwnd);
+#else
             SetWindowPos(sw->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
+#endif
             // Reports the size below the chrome, not the whole client, or day would lay its
             // tree out under the menu bar.
             relayout_sec_chrome(sw);
@@ -1516,6 +1764,10 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     if (!host) return nullptr;
 
     WUXH::DesktopWindowXamlSource source;
+#ifdef DAY_WINUI
+    HWND island = winui_attach_island(source, host);
+    wrap_tab_focus(source);
+#else
     auto interop = source.as<::IDesktopWindowXamlSourceNative>();
     interop->AttachToWindow(host);
     wrap_tab_focus(source);
@@ -1523,6 +1775,7 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     interop->get_WindowHandle(&island);
     RECT rc; GetClientRect(host, &rc);
     SetWindowPos(island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
+#endif
     apply_dark_titlebar(host); // re-applied on WM_SETTINGCHANGE, as for the primary
     WUXC::Canvas root;
     // Stretch, so the ground below actually covers the window — see the primary window's root.
@@ -1645,7 +1898,11 @@ void* day_xaml_host_hwnd() { return g_app ? reinterpret_cast<void*>(g_app->host)
 
 void day_xaml_run(void* win) {
     auto app = reinterpret_cast<AppWindow*>(win);
+#ifndef DAY_WINUI
     auto interop2 = app->source.as<::IDesktopWindowXamlSourceNative2>();
+#else
+    (void)app;
+#endif
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0)) {
         BOOL handled = FALSE;
@@ -1665,7 +1922,11 @@ void day_xaml_run(void* win) {
                 }
             }
         }
+#ifdef DAY_WINUI
+        if (!handled) handled = winui_pretranslate(&msg);
+#else
         if (!handled && interop2) interop2->PreTranslateMessage(&msg, &handled);
+#endif
         if (!handled) {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -1680,9 +1941,13 @@ void day_xaml_run(void* win) {
 void day_xaml_quit() { PostQuitMessage(0); }
 
 void day_xaml_post(void (*cb)(void*), void* data) {
+    std::lock_guard<std::mutex> lock(g_post_mutex);
     if (g_app && g_app->host) {
         PostMessageW(g_app->host, WM_DAY_POST, 0, reinterpret_cast<LPARAM>(new PostMsg{ cb, data }));
+    } else if (!g_post_open) {
+        g_post_early.push_back(new PostMsg{ cb, data }); // delivered once the window exists
     }
+    // After the primary window is gone the app is ending; the post has nowhere to run.
 }
 
 // One-shot CompositionTarget callbacks on the XAML UI thread. Revoke before entering Rust,
@@ -2268,7 +2533,7 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
                 if (parse_stops([&](WUXM::GradientStop gs) {
                         stops.emplace_back(static_cast<float>(gs.Offset()), gs.Color());
                     }) >= 2)
-                    gradPending = make_radial_brush(a, b, c, std::move(stops));
+                    gradPending = cached_radial_brush(a, b, c, t, std::move(stops));
             } else {
                 WUXM::LinearGradientBrush lgb;
                 lgb.StartPoint(WF::Point{ (float)a, (float)b });
@@ -2485,6 +2750,50 @@ void day_xaml_cell_set_selected(void* cell, int on) {
     auto canvas = elem(cell).try_as<WUXC::Canvas>();
     if (!canvas) return;
     auto rect = ensure_bg_rect(canvas);
+#ifdef DAY_WINUI
+    // WinUI 3's ListView selection, which is what a Windows 11 list looks like: a subtle neutral
+    // fill with rounded corners and a short accent pill at the leading edge, not an accent-tinted
+    // band. The fill is the translucent SubtleFillColorSecondary value for the scheme in force
+    // (alpha-over-ground, so it needs no resource lookup that could answer for the wrong scheme);
+    // the pill is the system accent color, which does not depend on the scheme.
+    WUXSh::Rectangle pill{nullptr};
+    {
+        auto kids = canvas.Children();
+        if (kids.Size() > 1)
+            if (auto r = kids.GetAt(1).try_as<WUXSh::Rectangle>())
+                if (r.Name() == L"day_pill") pill = r;
+    }
+    if (!on) {
+        rect.Fill(WUXM::SolidColorBrush(color_argb(0x00'000000u))); // stays hit-testable
+        if (pill) pill.Visibility(WUX::Visibility::Collapsed);
+        return;
+    }
+    rect.Fill(WUXM::SolidColorBrush(color_argb(effective_dark() ? 0x0F'FFFFFFu : 0x09'000000u)));
+    rect.RadiusX(4);
+    rect.RadiusY(4);
+    if (!pill) {
+        pill = WUXSh::Rectangle();
+        pill.Name(L"day_pill");
+        pill.Width(3);
+        pill.Height(16);
+        pill.RadiusX(1.5);
+        pill.RadiusY(1.5);
+        pill.IsHitTestVisible(false);
+        canvas.Children().InsertAt(1, pill);
+        canvas.SizeChanged([pill](WF::IInspectable const&, WUX::SizeChangedEventArgs const& e) {
+            WUXC::Canvas::SetTop(pill, (std::max)(0.0, (static_cast<double>(e.NewSize().Height) - 16) / 2));
+        });
+    }
+    {
+        winrt::Windows::UI::ViewManagement::UISettings ui;
+        auto a = ui.GetColorValue(winrt::Windows::UI::ViewManagement::UIColorType::Accent);
+        pill.Fill(WUXM::SolidColorBrush(a));
+    }
+    WUXC::Canvas::SetLeft(pill, 0);
+    WUXC::Canvas::SetTop(pill, (std::max)(0.0, (canvas.ActualHeight() - 16) / 2));
+    pill.Visibility(WUX::Visibility::Visible);
+    return;
+#endif
     if (!on) {
         // Transparent, not null: the cell must stay hit-testable so the next press still lands.
         rect.Fill(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
@@ -2554,7 +2863,7 @@ void day_xaml_navlist_set_items(void* w, const char* items_joined, const char* s
             WUXC::TextBlock label;
             label.Text(hs(sections[i].c_str()));
             label.FontSize(12.0);
-            label.FontWeight(winrt::Windows::UI::Text::FontWeights::SemiBold());
+            label.FontWeight(WUTextNames::FontWeights::SemiBold());
             WUXC::ListViewItem heading;
             heading.Content(label);
             heading.IsEnabled(false);
@@ -2802,8 +3111,9 @@ void* day_xaml_nav_new(unsigned long long id,
                         void (*size_cb)(unsigned long long, int, int, int),
                         void (*back_cb)(unsigned long long),
                         void** out_content,
-                        int stack) {
+                        int stack, int rtl) {
     WUXC::NavigationView nv;
+    nv.FlowDirection(rtl ? WUX::FlowDirection::RightToLeft : WUX::FlowDirection::LeftToRight);
     nv.IsSettingsVisible(false);
     nv.IsBackButtonVisible(WUXC::NavigationViewBackButtonVisible::Collapsed); // toggled per depth
     if (stack) {
@@ -2825,6 +3135,8 @@ void* day_xaml_nav_new(unsigned long long id,
     // The detail host: a Canvas day positions the current page into (absolute frames). A Canvas has
     // no desired size, so stretch it to fill the NavigationView's content region.
     WUXC::Canvas content;
+    // Day already mirrors absolute child frames. Mirror native navigation chrome only.
+    content.FlowDirection(WUX::FlowDirection::LeftToRight);
     content.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
     content.VerticalAlignment(WUX::VerticalAlignment::Stretch);
     nv.Content(content);
@@ -3293,27 +3605,36 @@ void day_xaml_cover_ground(void* h) {
 // resource set predates the card brush: a translucent neutral, which reads correctly over
 // either scheme's page ground precisely because it is alpha-over-ground rather than a fixed
 // opaque color.
+static void fill_section_card(WUXSh::Rectangle const& r) {
+    bool filled = false;
+    // The app-resource card brush resolves per the SYSTEM theme; only trust it when nothing
+    // overrides that — a DAY_THEME force or the app's own Appearance pick both re-theme
+    // per-element (`Application::RequestedTheme` is unsupported under Islands), so the app
+    // resources still answer for the system scheme and would mis-color the chosen one. That is
+    // exactly what left cards light on a dark override. The translucent-neutral fallback is
+    // alpha-over-ground, so it reads correctly over either scheme's page ground.
+    if (g_forced_theme == 0 && g_app_override == 0) {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(winrt::hstring(L"CardBackgroundFillColorDefaultBrush"));
+        if (res.HasKey(key)) {
+            if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
+                r.Fill(brush);
+                filled = true;
+            }
+        }
+    }
+    if (!filled) r.Fill(WUXM::SolidColorBrush(color_argb(0x14'808080u)));
+}
+
 void day_xaml_container_set_card(void* h, double radius) {
     if (auto c = elem(h).try_as<WUXC::Canvas>()) {
         auto r = ensure_bg_rect(c);
-        bool filled = false;
-        // The app-resource card brush resolves per the SYSTEM theme; only trust it when nothing
-        // overrides that — a DAY_THEME force or the app's own Appearance pick both re-theme
-        // per-element (`Application::RequestedTheme` is unsupported under Islands), so the app
-        // resources still answer for the system scheme and would mis-color the chosen one. That is
-        // exactly what left cards light on a dark override. The translucent-neutral fallback is
-        // alpha-over-ground, so it reads correctly over either scheme's page ground.
-        if (g_forced_theme == 0 && g_app_override == 0) {
-            auto res = WUX::Application::Current().Resources();
-            auto key = winrt::box_value(winrt::hstring(L"CardBackgroundFillColorDefaultBrush"));
-            if (res.HasKey(key)) {
-                if (auto brush = res.Lookup(key).try_as<WUXM::Brush>()) {
-                    r.Fill(brush);
-                    filled = true;
-                }
-            }
-        }
-        if (!filled) r.Fill(WUXM::SolidColorBrush(color_argb(0x14'808080u)));
+        fill_section_card(r);
+        // An application-resource lookup is a brush snapshot, not a ThemeResource binding.
+        // Resolve it again when the island changes theme, including secondary windows.
+        r.ActualThemeChanged([](FrameworkElement const& sender, WF::IInspectable const&) {
+            fill_section_card(sender.as<WUXSh::Rectangle>());
+        });
         r.RadiusX(radius);
         r.RadiusY(radius);
     }
@@ -3419,7 +3740,7 @@ void day_xaml_label_runs_add(void* h, const char* text, int flags, unsigned argb
     if (!tb) return;
     WUXD::Run run;
     run.Text(hs(text));
-    if (flags & 1) run.FontWeight(winrt::Windows::UI::Text::FontWeights::Bold());
+    if (flags & 1) run.FontWeight(WUTextNames::FontWeights::Bold());
     if (flags & 2) run.FontStyle(WUI::Text::FontStyle::Italic);
     // The family name is the XAML convention for "the fixed-pitch face"; Consolas is the
     // Windows default behind it.
@@ -3490,8 +3811,56 @@ void day_xaml_label_set_align(void* h, int mode) {
         }
     });
 }
+#ifdef DAY_WINUI
+// WinUI 3 owns the island's cursor: its input system sets it on every pointer move, so the Win32
+// path below (SetCursor on enter, reasserted on the host's WM_SETCURSOR) is overwritten at once
+// and the Cursors page showed the arrow over every shape. The WinUI way is an InputCursor on the
+// element's ProtectedCursor, which WinUI shows while the pointer is over the element or anything
+// inside it that sets none of its own. The cursor is built from the same HCURSOR the Win32 path
+// uses, through the runtime's interop factory (Microsoft.UI.Input.InputCursor.Interop.h, declared
+// here because that header needs ABI types the package does not ship), so every code, "hidden"
+// included, maps exactly as it does on system XAML.
+struct __declspec(uuid("ac6f5065-90c4-46ce-beb7-05e138e54117")) IInputCursorStaticsInterop
+    : ::IInspectable {
+    virtual HRESULT __stdcall CreateFromHCursor(HCURSOR cursor, void** result) = 0;
+};
+
+static winrt::Microsoft::UI::Input::InputCursor winui_cursor_for_code(int code) {
+    static std::map<int, winrt::Microsoft::UI::Input::InputCursor> cache;
+    auto it = cache.find(code);
+    if (it != cache.end()) return it->second;
+    HCURSOR hc = nullptr;
+    if (code == 17) {
+        // Hidden: a fully transparent cursor (AND mask all ones, XOR mask all zeros).
+        static BYTE and_mask[32 * 4];
+        static BYTE xor_mask[32 * 4];
+        std::memset(and_mask, 0xFF, sizeof(and_mask));
+        hc = CreateCursor(GetModuleHandleW(nullptr), 0, 0, 32, 32, and_mask, xor_mask);
+    } else {
+        hc = cursor_for_code(code);
+    }
+    winrt::Microsoft::UI::Input::InputCursor cursor{ nullptr };
+    auto factory = winrt::get_activation_factory<winrt::Microsoft::UI::Input::InputCursor,
+                                                 IInputCursorStaticsInterop>();
+    void* raw = nullptr;
+    if (hc && SUCCEEDED(factory->CreateFromHCursor(hc, &raw)) && raw)
+        cursor = { raw, winrt::take_ownership_from_abi };
+    cache.emplace(code, cursor);
+    return cursor;
+}
+#endif
+
 void day_xaml_set_cursor(void* h, int code) {
     UIElement e = elem(h);
+#ifdef DAY_WINUI
+    guard([&] {
+        auto prot = e.try_as<WUX::IUIElementProtected>();
+        if (!prot) return;
+        prot.ProtectedCursor(code == 0 ? winrt::Microsoft::UI::Input::InputCursor{ nullptr }
+                                       : winui_cursor_for_code(code));
+    });
+    return;
+#endif
     void* key = winrt::get_abi(e);
     if (code == 0) {
         g_cursor_codes.erase(key);
@@ -3527,6 +3896,30 @@ void day_xaml_label_set_color(void* h, unsigned argb) {
         tb.ClearValue(WUXC::TextBlock::ForegroundProperty());
     else
         tb.Foreground(brush_bits(argb));
+}
+// `.secondary()` (TextRole::Secondary): the platform's de-emphasized text color. Applied as a
+// style whose setter is a {ThemeResource}, not a brush looked up here, because only a theme
+// reference re-resolves when the element's scheme changes (the Appearance override re-themes per
+// element, and a brush fetched once would keep the old scheme's gray). A later explicit color is
+// a local value, which beats the style; clearing it (alpha 0) falls back to the style again.
+void day_xaml_label_set_secondary(void* h) try {
+    auto tb = elem(h).try_as<WUXC::TextBlock>();
+    if (!tb) return;
+    static WUX::Style style{nullptr};
+    if (!style) {
+        style = WUXMk::XamlReader::Load(
+                    L"<Style xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" "
+                    L"TargetType=\"TextBlock\"><Setter Property=\"Foreground\" Value=\""
+#ifdef DAY_WINUI
+                    L"{ThemeResource TextFillColorSecondaryBrush}"
+#else
+                    L"{ThemeResource SystemControlForegroundBaseMediumBrush}"
+#endif
+                    L"\"/></Style>")
+                    .as<WUX::Style>();
+    }
+    tb.Style(style);
+} catch (...) {
 }
 void day_xaml_label_set_font(void* h, double pt, int weight, int italic, int tabular) {
     if (auto tb = elem(h).try_as<WUXC::TextBlock>()) {
@@ -3675,7 +4068,14 @@ void* day_xaml_progress_new(int determinate, int value) {
     }
     WUXC::ProgressRing r;
     r.IsActive(true);
+    // WinUI's unloaded template has no intrinsic size. Keep the built-in spinner
+    // at the same 20-DIP size as the activity piece, including its first measure.
+    r.MinWidth(20.0);
+    r.MinHeight(20.0);
     return boxh(r);
+}
+int day_xaml_progress_is_ring(void* h) {
+    return elem(h).try_as<WUXC::ProgressRing>() ? 1 : 0;
 }
 void day_xaml_progress_set(void* h, int value) {
     if (auto b = elem(h).try_as<WUXC::ProgressBar>())
@@ -4298,8 +4698,21 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
             if (had_w) fe.Width(kAuto);
             if (had_h) fe.Height(kAuto);
         }
-        e.Measure(WF::Size{ fw, fh });
-        auto d = e.DesiredSize();
+        // Each step caught on its own: under WinUI 3 a templated control that is not in the tree
+        // yet can throw from its first Measure (ProgressRing does, E_FAIL), and one throw used to
+        // abandon the whole measure, reporting 0x0 and skipping the frame restore below. Caught
+        // here, the forced layout and re-measure that follow still size it.
+        auto step = [](const char*, auto&& f) {
+            try {
+                f();
+            } catch (...) {
+            }
+        };
+        WF::Size d{ 0, 0 };
+        step("measure", [&] {
+            e.Measure(WF::Size{ fw, fh });
+            d = e.DesiredSize();
+        });
         // day measures during its synchronous initial layout, before the island's first async layout
         // pass has applied control templates (so a templated control reports 0). A PARTIAL zero counts
         // too: a Button measured this early reports its template HEIGHT but 0 width (its content isn't
@@ -4311,10 +4724,20 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
         static bool s_forcing_layout = false;
         if ((d.Width == 0 || d.Height == 0) && !s_forcing_layout) {
             s_forcing_layout = true;
-            if (fe) fe.UpdateLayout(); // the outer `fe` — re-querying here only shadowed it (C4456)
+            // the outer `fe` — re-querying here only shadowed it (C4456)
+            step("layout", [&] { if (fe) fe.UpdateLayout(); });
             s_forcing_layout = false;
-            e.Measure(WF::Size{ fw, fh });
-            d = e.DesiredSize();
+            step("remeasure", [&] {
+                e.Measure(WF::Size{ fw, fh });
+                d = e.DesiredSize();
+            });
+        }
+        // A desired size is never below the element's minimums, which is XAML's own rule. Applied
+        // here as well because a measure that threw (above) reports nothing: when the forced layout
+        // cannot run (another element's is already in progress), the minimums are the size.
+        if (fe) {
+            d.Width = (std::max)(d.Width, static_cast<float>(fe.MinWidth()));
+            d.Height = (std::max)(d.Height, static_cast<float>(fe.MinHeight()));
         }
         // Put the frame back before returning: day re-applies it through set_geometry only when
         // its layout actually changes, so an element it leaves alone must keep the size it had.
@@ -4424,8 +4847,8 @@ void day_xaml_enable_gesture(void* h, unsigned long long id, int kind,
         auto lastY = std::make_shared<double>(0.0);
         auto is_pointer = [](WUXIn::PointerRoutedEventArgs const& a) {
             auto t = a.Pointer().PointerDeviceType();
-            return t == winrt::Windows::Devices::Input::PointerDeviceType::Mouse ||
-                   t == winrt::Windows::Devices::Input::PointerDeviceType::Pen;
+            return t == DayPointerDeviceType::Mouse ||
+                   t == DayPointerDeviceType::Pen;
         };
         el.PointerEntered([id, cb, el, lastX, lastY, is_pointer](
                               WF::IInspectable const&, WUXIn::PointerRoutedEventArgs const& a) {
@@ -4503,13 +4926,57 @@ static int png_encoder_clsid(CLSID* clsid) {
 /// Bounded and best-effort: a window that is never composed (minimized, or a headless session
 /// where DWM does not tick) must not hang the capture, so this falls through on a timeout and
 /// lets the snapshot proceed with whatever the surface holds.
-static void pump_until_presented() {
+static long long qpc_time_100ns() {
+    LARGE_INTEGER now{}, frequency{};
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&frequency);
+    return frequency.QuadPart > 0
+        ? static_cast<long long>((static_cast<long double>(now.QuadPart) * 10000000.0L) /
+                                 static_cast<long double>(frequency.QuadPart))
+        : 0;
+}
+
+static long long pump_until_presented() {
+    // Direct3D11CaptureFrame::SystemRelativeTime uses this same QPC clock. A WGC session can
+    // initially hand out a frame it cached before this barrier; returning the barrier's start
+    // lets the capture loop reject that frame without guessing how many milliseconds are enough.
+    const long long fresh_after = qpc_time_100ns();
+    // Keep the display on, for the rest of the run. With the monitor off (the power plan's idle
+    // timeout; nothing a script does counts as user input), DWM stops composing and WinUI stops
+    // presenting, so every capture read a blank window, or a page from before the monitor went
+    // off, while every step still passed. ES_DISPLAY_REQUIRED switches a sleeping display back on;
+    // ES_CONTINUOUS keeps it on while this (UI) thread lives, which only a process that takes
+    // screenshots (a dayscript run, `day drive`) ever asks for.
+    static bool display_held = false;
+    const bool first = !display_held;
+    SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
+    display_held = true;
     auto seen = std::make_shared<int>(0);
     auto token = WUXM::CompositionTarget::Rendering(
         [seen](WF::IInspectable const&, WF::IInspectable const&) { ++*seen; });
-    pump_until([&] { return *seen >= 2; }, 2000);
+    // A display that is already off (or dimmed) stays that way: the execution state only holds an
+    // awake one. What wakes it is input, so send a zero-distance relative mouse move, which
+    // Windows counts as user activity without moving the pointer, wait for the display to report
+    // itself on, then give composition time to resume and the window to present again. The
+    // state comes from the display's power notification (WM_POWERBROADCAST), not from counting
+    // frames: XAML keeps raising Rendering while nothing reaches the screen.
+    if (g_display_state != 1) {
+        INPUT nudge{};
+        nudge.type = INPUT_MOUSE;
+        nudge.mi.dwFlags = MOUSEEVENTF_MOVE;
+        SendInput(1, &nudge, sizeof(nudge));
+        pump_until([] { return g_display_state == 1; }, 5000);
+        std::fprintf(stderr, "day-xaml: the display was %s; woke it for the capture\n",
+                     g_display_state == 1 ? "off" : "off and did not come back on");
+        std::fflush(stderr);
+        *seen = 0;
+        pump_until([&] { return *seen >= 10; }, 4000);
+    } else {
+        pump_until([&] { return *seen >= (first ? 10 : 2); }, first ? 4000 : 2000);
+    }
     WUXM::CompositionTarget::Rendering(token);
     DwmFlush();
+    return fresh_after;
 }
 
 // Snapshot via RenderTargetBitmap: renders the XAML visual tree straight to a bitmap,
@@ -4574,9 +5041,233 @@ static int snapshot_hwnd_png(HWND hwnd, const char* path) {
     return rc_out;
 }
 
+#ifdef DAY_WINUI
+// WinUI 3's capture: the window as DWM composes it, read back through Windows.Graphics.Capture.
+//
+// GDI cannot see a WinUI window. WinUI 3 presents through its own compositor into a visual
+// DWM owns, so PrintWindow (even with PW_RENDERFULLCONTENT) and a screen BitBlt return the
+// host's empty client area: solid white. Windows.Graphics.Capture (WGC) is the platform API for
+// reading a window's composed output (Windows 10 1903+ for HWND items): it captures the frame,
+// the XAML content and whatever the compositor draws outside the XAML tree (WebView2, video),
+// and it keeps working when the window is covered by others. It is what OBS, the Snipping Tool
+// and Teams window-sharing use.
+//
+// One frame is enough: start a session on a free-threaded frame pool (it delivers on a worker
+// thread, so no dispatcher is needed), pump this thread's messages until the first frame lands,
+// copy it to a CPU-readable texture and encode it. The pool's texture can be larger than the
+// window; `ContentSize` is the part that is the window.
+extern "C++" { // inside the extern "C" block, and these pass C++ types
+namespace WGC = winrt::Windows::Graphics::Capture;
+namespace WGD = winrt::Windows::Graphics::DirectX;
+
+// The D3D device every capture reuses. Hardware when there is a GPU, WARP otherwise (a VM, a CI
+// runner): WGC accepts either, and one frame's copy is cheap on the CPU.
+static winrt::com_ptr<ID3D11Device> wgc_d3d_device() {
+    static winrt::com_ptr<ID3D11Device> device;
+    if (device) return device;
+    for (D3D_DRIVER_TYPE type : {D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP}) {
+        if (SUCCEEDED(D3D11CreateDevice(nullptr, type, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                                        nullptr, 0, D3D11_SDK_VERSION, device.put(), nullptr,
+                                        nullptr)))
+            break;
+    }
+    return device;
+}
+
+static int snapshot_wgc_png(HWND hwnd, const char* path) {
+    if (!hwnd || !IsWindow(hwnd) || IsIconic(hwnd)) return 1;
+    if (!WGC::GraphicsCaptureSession::IsSupported()) return 10;
+    auto d3d = wgc_d3d_device();
+    if (!d3d) return 11;
+    winrt::com_ptr<IInspectable> inspectable;
+    winrt::check_hresult(CreateDirect3D11DeviceFromDXGIDevice(d3d.as<IDXGIDevice>().get(), inspectable.put()));
+    auto device = inspectable.as<WGD::Direct3D11::IDirect3DDevice>();
+
+    auto interop = winrt::get_activation_factory<WGC::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
+    WGC::GraphicsCaptureItem item{nullptr};
+    winrt::check_hresult(interop->CreateForWindow(hwnd, winrt::guid_of<WGC::GraphicsCaptureItem>(),
+                                                  winrt::put_abi(item)));
+
+    const long long fresh_after = pump_until_presented();
+    auto pool = WGC::Direct3D11CaptureFramePool::CreateFreeThreaded(
+        device, WGD::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, item.Size());
+    auto session = pool.CreateCaptureSession(item);
+    // Both are later additions (1 = 2004, 2 = 20348), so they are set only where the running
+    // system has them. The border setting is a request: without the user's consent (a packaged
+    // app's graphicsCaptureWithoutBorder prompt) Windows still draws its yellow outline, but that
+    // outline is drawn around the window on screen, never into the captured frame.
+    try { session.IsCursorCaptureEnabled(false); } catch (...) {}
+    try { session.IsBorderRequired(false); } catch (...) {}
+    session.StartCapture();
+
+    WGC::Direct3D11CaptureFrame frame{nullptr};
+    int stale_frames = 0;
+    pump_until([&] {
+        frame = pool.TryGetNextFrame();
+        if (!frame) return false;
+        // Allow 1 ms for conversion rounding between QueryPerformanceCounter ticks and WinRT's
+        // 100 ns TimeSpan. Anything older was composed before the layout/present barrier and is
+        // exactly the previous-page frame that made walkthrough captures intermittently lie.
+        if (frame.SystemRelativeTime().count() + 10000 >= fresh_after) return true;
+        ++stale_frames;
+        frame.Close();
+        frame = nullptr;
+        return false;
+    }, 10000);
+    if (stale_frames > 0) {
+        std::fprintf(stderr, "day-winui: discarded %d stale capture frame%s\n", stale_frames,
+                     stale_frames == 1 ? "" : "s");
+        std::fflush(stderr);
+    }
+    int rc_out = 12;
+    if (frame) {
+        auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
+        winrt::com_ptr<ID3D11Texture2D> texture;
+        winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(texture.put())));
+        D3D11_TEXTURE2D_DESC desc{};
+        texture->GetDesc(&desc);
+        auto content = frame.ContentSize();
+        const UINT w = (std::min)(desc.Width, static_cast<UINT>(content.Width));
+        const UINT h = (std::min)(desc.Height, static_cast<UINT>(content.Height));
+        rc_out = 2;
+        if (w > 0 && h > 0) {
+            D3D11_TEXTURE2D_DESC staging_desc = desc;
+            staging_desc.Width = w;
+            staging_desc.Height = h;
+            staging_desc.MipLevels = 1;
+            staging_desc.ArraySize = 1;
+            staging_desc.Usage = D3D11_USAGE_STAGING;
+            staging_desc.BindFlags = 0;
+            staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            staging_desc.MiscFlags = 0;
+            winrt::com_ptr<ID3D11Texture2D> staging;
+            winrt::check_hresult(d3d->CreateTexture2D(&staging_desc, nullptr, staging.put()));
+            winrt::com_ptr<ID3D11DeviceContext> ctx;
+            d3d->GetImmediateContext(ctx.put());
+            D3D11_BOX box{0, 0, 0, w, h, 1};
+            ctx->CopySubresourceRegion(staging.get(), 0, 0, 0, 0, texture.get(), 0, &box);
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            winrt::check_hresult(ctx->Map(staging.get(), 0, D3D11_MAP_READ, 0, &mapped));
+            rc_out = 4;
+            ULONG_PTR token = 0;
+            Gdiplus::GdiplusStartupInput si;
+            if (Gdiplus::GdiplusStartup(&token, &si, nullptr) == Gdiplus::Ok) {
+                {
+                    // Premultiplied BGRA8: DWM's surfaces are premultiplied, and only the
+                    // rounded corners outside the frame are anything but opaque.
+                    Gdiplus::Bitmap bitmap(static_cast<INT>(w), static_cast<INT>(h),
+                                           static_cast<INT>(mapped.RowPitch), PixelFormat32bppPARGB,
+                                           static_cast<BYTE*>(mapped.pData));
+                    CLSID clsid;
+                    if (png_encoder_clsid(&clsid) >= 0) {
+                        std::wstring wpath = hs(path).c_str();
+                        if (bitmap.Save(wpath.c_str(), &clsid, nullptr) == Gdiplus::Ok) rc_out = 0;
+                    }
+                }
+                Gdiplus::GdiplusShutdown(token);
+            }
+            ctx->Unmap(staging.get(), 0);
+        }
+        frame.Close();
+    }
+    session.Close();
+    pool.Close();
+    if (rc_out == 12) {
+        std::fprintf(stderr, "day-winui: window capture delivered no frame within 10 s\n");
+        std::fflush(stderr);
+    }
+    return rc_out;
+}
+
+// The capture a scripted screenshot takes: the window itself, falling back to the XAML tree
+// (snapshot_tree_png) only where Windows.Graphics.Capture is unavailable or fails, which loses
+// the frame and anything drawn outside the tree but still shows the content.
+static int snapshot_tree_png(WUX::UIElement const& root, HWND host, const char* path);
+static int snapshot_winui_png(WUX::UIElement const& root, HWND host, const char* path) {
+    int rc = 13;
+    try {
+        rc = snapshot_wgc_png(host, path);
+    } catch (winrt::hresult_error const& e) {
+        std::fprintf(stderr, "day-winui: window capture threw hr=0x%08X %ls\n",
+                     static_cast<unsigned>(e.code()), e.message().c_str());
+    }
+    if (rc == 0) return 0;
+    std::fprintf(stderr, "day-winui: window capture failed (%d); capturing the XAML tree instead\n", rc);
+    std::fflush(stderr);
+    return snapshot_tree_png(root, host, path);
+}
+
+// The fallback capture: the XAML tree rendered by RenderTargetBitmap.
+// It sees the content without the compositor, at the price the note on snapshot_hwnd_png gives
+// (no window frame, and anything drawn outside the XAML tree is missing). Pixels are
+// premultiplied BGRA8, GDI+'s PixelFormat32bppPARGB.
+static int snapshot_tree_png(WUX::UIElement const& root, HWND host, const char* path) {
+    if (!root) return 1;
+    // Said, not just returned: the scripted runner reports any failure as "nothing to capture",
+    // which cannot tell a slow render from a refused one.
+    auto failed = [](int code, const char* stage, WF::IAsyncInfo const& op) {
+        std::fprintf(stderr, "day-winui: capture failed at %s (status %d, hr=0x%08X)\n", stage,
+                     static_cast<int>(op.Status()),
+                     op.Status() == WF::AsyncStatus::Error ? static_cast<unsigned>(op.ErrorCode().value) : 0u);
+        std::fflush(stderr);
+        return code;
+    };
+    pump_until_presented();
+    WUXM::Imaging::RenderTargetBitmap rtb;
+    auto render = rtb.RenderAsync(root);
+    // Generous: a scripted run captures at 2x (2560x1600 px), and the first render of a dense
+    // page takes seconds on a machine without a GPU.
+    pump_until([&] { return render.Status() != WF::AsyncStatus::Started; }, 20000);
+    if (render.Status() != WF::AsyncStatus::Completed) return failed(5, "render", render);
+    auto pixels = rtb.GetPixelsAsync();
+    pump_until([&] { return pixels.Status() != WF::AsyncStatus::Started; }, 20000);
+    if (pixels.Status() != WF::AsyncStatus::Completed) return failed(6, "pixels", pixels);
+    auto buffer = pixels.GetResults();
+    const int stride_w = rtb.PixelWidth();
+    int w = stride_w, h = rtb.PixelHeight();
+    // Cropped to what the window shows: the root canvas can extend past the island (a child
+    // laid out below the client area), and RenderTargetBitmap renders all of it.
+    RECT client{};
+    if (host && GetClientRect(host, &client)) {
+        w = (std::min)(w, static_cast<int>(client.right));
+        h = (std::min)(h, static_cast<int>(client.bottom));
+    }
+    if (w <= 0 || h <= 0) return 2;
+    uint8_t* data = nullptr;
+    buffer.as<::Windows::Storage::Streams::IBufferByteAccess>()->Buffer(&data);
+    int rc_out = 4;
+    ULONG_PTR token = 0;
+    Gdiplus::GdiplusStartupInput si;
+    if (Gdiplus::GdiplusStartup(&token, &si, nullptr) == Gdiplus::Ok) {
+        {
+            // PREMULTIPLIED: RenderTargetBitmap hands back premultiplied BGRA8, and reading it as
+            // straight ARGB darkened every translucent pixel (WinUI's layered page fills went gray).
+            Gdiplus::Bitmap bitmap(w, h, stride_w * 4, PixelFormat32bppPARGB, data);
+            CLSID clsid;
+            if (png_encoder_clsid(&clsid) >= 0) {
+                std::wstring wpath = hs(path).c_str();
+                if (bitmap.Save(wpath.c_str(), &clsid, nullptr) == Gdiplus::Ok) rc_out = 0;
+            }
+        }
+        Gdiplus::GdiplusShutdown(token);
+    }
+    return rc_out;
+}
+} // extern "C++"
+#endif
+
 int day_xaml_snapshot_png(void* win, const char* path) try {
     auto app = reinterpret_cast<AppWindow*>(win);
+#ifdef DAY_WINUI
+    return app ? snapshot_winui_png(app->root, app->host, path) : 1;
+#else
     return app ? snapshot_hwnd_png(app->host, path) : 1;
+#endif
+} catch (winrt::hresult_error const& e) {
+    std::fprintf(stderr, "day-xaml: capture threw hr=0x%08X %ls\n",
+                 static_cast<unsigned>(e.code()), e.message().c_str());
+    std::fflush(stderr);
+    return 9;
 } catch (...) {
     return 9;
 }
@@ -4586,7 +5277,11 @@ int day_xaml_snapshot_png(void* win, const char* path) try {
 // and the walkthrough's `preferences` capture silently showed the main window instead.
 int day_xaml_snapshot_png2(void* win, const char* path) try {
     auto sw = reinterpret_cast<SecWindow*>(win);
+#ifdef DAY_WINUI
+    return sw ? snapshot_winui_png(sw->root, sw->host, path) : 1;
+#else
     return sw ? snapshot_hwnd_png(sw->host, path) : 1;
+#endif
 } catch (...) {
     return 9;
 }
@@ -4900,10 +5595,9 @@ extern "C" void day_xaml_window_set_menu2(void* win, const char* spec) try {
 // A Fluent CommandBar docked under the menu bar. `PrimaryCommands` — which the CommandBar
 // template right-aligns — carries the AppBarButton / AppBarToggleButton / AppBarSeparator
 // commands, and `Content` — which it left-aligns — carries the leading items in a horizontal
-// StackPanel. Each item's placement picks its region (see insert_toolbar_item). A search field or
-// a label lands in Content whichever side it asked for: that is this backend's choice, not a
-// toolkit limit, since an AppBarElementContainer (Windows.UI.Xaml, 1903+; the segmented control
-// rides one) can carry any control into PrimaryCommands, where it would also fold.
+// StackPanel. Each item's placement picks its region (see insert_toolbar_item). The search field
+// rides an AppBarElementContainer (Windows.UI.Xaml, 1903+) at the right end of PrimaryCommands;
+// a label lands in Content whichever side it asked for.
 //
 // Each item arrives as its own spec (`day_xaml_toolbar_insert`), in the format of the menu spec
 // above, one line per item:
@@ -5466,14 +6160,14 @@ static void fold_by_role(ToolbarState& st) {
     for (int rank : { 1, 2, 3 }) { // Automatic, Primary, then the search field
         for (size_t k = cmds.size(); k-- > 0;) {
             if (cmds[k]->rank != rank) continue;
-            if (auto el = cmds[k]->elem.try_as<WUXC::ICommandBarElement2>())
+            if (auto el = cmds[k]->elem.try_as<DayCommandBarElement>())
                 el.DynamicOverflowOrder(next++);
         }
     }
     for (size_t k = 1; k < cmds.size(); ++k) {
         if (!cmds[k]->elem.try_as<WUXC::AppBarSeparator>()) continue;
-        auto left = cmds[k - 1]->elem.try_as<WUXC::ICommandBarElement2>();
-        auto sep = cmds[k]->elem.try_as<WUXC::ICommandBarElement2>();
+        auto left = cmds[k - 1]->elem.try_as<DayCommandBarElement>();
+        auto sep = cmds[k]->elem.try_as<DayCommandBarElement>();
         if (left && sep) sep.DynamicOverflowOrder(left.DynamicOverflowOrder());
     }
 }

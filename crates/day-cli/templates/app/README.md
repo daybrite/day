@@ -19,7 +19,7 @@ turn the default off as well — otherwise `mock` and your choice are both on, w
 and a compile error:
 
 ```sh
-cargo build --no-default-features --features appkit    # or gtk / qt / uikit / mdc / xaml / dom
+cargo build --no-default-features --features appkit    # or gtk / qt / uikit / mdc / winui / dom
 ```
 
 ## What's inside

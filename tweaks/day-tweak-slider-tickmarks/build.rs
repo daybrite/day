@@ -47,9 +47,13 @@ fn build_xaml() {
         .std("c++20")
         .define("_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS", None)
         .file("src/ticks-xaml.cpp")
-        .include(&cppwinrt)
+        .includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))
         .flag("/EHsc")
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
+    // WinUI 3 (windows-winui): the same shim against Microsoft.UI.Xaml (docs/winui.md).
+    if day_toolchain::winappsdk::shim_is_winui() {
+        build.define("DAY_WINUI", None);
+    }
     build.compile("daytweaktickxaml");
 }

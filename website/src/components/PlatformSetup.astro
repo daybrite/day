@@ -9,7 +9,7 @@ const setup: Record<string, { hosts: string[]; needs: string; section: string }>
   'android-mdc': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'Android SDK and NDK, JDK 17 or newer, cargo-ndk, and a Rust target matching your device or emulator. Start the emulator or connect a device before launching.', section: 'android' },
   'linux-gtk': { hosts: ['Linux'], needs: 'GTK 4.10 or newer, libadwaita 1.5 or newer, and pkg-config, including development packages.', section: 'linux' },
   'linux-qt': { hosts: ['Linux'], needs: 'Qt 6 development packages and pkg-config.', section: 'linux' },
-  'windows-xaml': { hosts: ['Windows'], needs: 'Visual Studio C++ Build Tools, the Windows SDK, and the MSVC Rust toolchain.', section: 'windows' },
+  'windows-winui': { hosts: ['Windows'], needs: 'Visual Studio C++ Build Tools, the Windows SDK, the MSVC Rust toolchain, and the Windows App Runtime 2.5.1 or newer to run development builds. The build downloads the Windows App SDK itself.', section: 'windows' },
   'harmony-arkui': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'OpenHarmony SDK, Rust targets, hvigor, ohpm, and hdc. Running the app also needs a device or a configured emulator.', section: 'harmonyos' },
   'web-dom': { hosts: ['macOS', 'Linux', 'Windows'], needs: 'The wasm32-unknown-unknown Rust target and a browser.', section: 'web' },
 };
@@ -34,7 +34,7 @@ const setup: Record<string, { hosts: string[]; needs: string; section: string }>
   const host = document.querySelector<HTMLSelectElement>('#setup-host')!;
   const target = document.querySelector<HTMLSelectElement>('#setup-target')!;
   const panels = [...document.querySelectorAll<HTMLElement>('[data-setup-target]')];
-  const defaults: Record<string, string> = { macOS: 'macos-appkit', Linux: 'linux-gtk', Windows: 'windows-xaml' };
+  const defaults: Record<string, string> = { macOS: 'macos-appkit', Linux: 'linux-gtk', Windows: 'windows-winui' };
   function update(changeHost = false) {
     for (const option of target.options) {
       const panel = panels.find((p) => p.dataset.setupTarget === option.value)!;

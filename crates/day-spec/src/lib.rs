@@ -2216,7 +2216,7 @@ pub enum Cap {
     ///   harmony-arkui, web-dom).
     /// - `Unsupported`: it may not; a compact window collapses to
     ///   [`props::NavPresentation::Stack`] instead, exactly as `NavStyle::Sidebar` has always
-    ///   done (macos-appkit, linux-gtk, linux-qt, windows-xaml).
+    ///   done (macos-appkit, linux-gtk, linux-qt, windows-winui).
     ///
     /// [`props::NavPresentation::Rail`] is not gated by this. A narrow sidebar is an ordinary
     /// desktop shape (on Windows it is what `NavigationView` does at that width on its own), so
@@ -2426,8 +2426,9 @@ impl ImageFormat {
     /// (docs/images.md).
     ///
     /// Every backend that decodes natively reports its own dimensions; this exists for the one
-    /// that cannot. `windows-xaml`'s `BitmapImage` learns its size asynchronously, only once the
-    /// element has been shown, so a synchronous `image_info` there would have nothing to say.
+    /// that cannot. The XAML backend's (`windows-winui`) `BitmapImage` learns its size
+    /// asynchronously, only once the element has been shown, so a synchronous `image_info` there
+    /// would have nothing to say.
     /// Reading the header instead gives the same answer the decoder would, before any decoding.
     ///
     /// `None` when the header is absent, truncated, or a container this does not parse.

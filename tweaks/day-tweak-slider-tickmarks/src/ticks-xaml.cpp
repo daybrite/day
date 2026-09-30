@@ -11,14 +11,33 @@
 // no-op cleanly (and cheaply) when applied to something that isn't a Slider.
 
 #include <winrt/Windows.Foundation.h>
+// One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
+// windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
+#ifdef DAY_WINUI
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+#else
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#else
 #include <winrt/Windows.UI.Xaml.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
+#endif
 #include <cstring>
 
-namespace WUX = winrt::Windows::UI::Xaml;
-namespace WUXC = winrt::Windows::UI::Xaml::Controls;
-namespace WUXCP = winrt::Windows::UI::Xaml::Controls::Primitives;
+namespace WUX = DAY_XAML_NS;
+namespace WUXC = DAY_XAML_NS::Controls;
+namespace WUXCP = DAY_XAML_NS::Controls::Primitives;
 
 extern "C" void day_tweak_slider_ticks_xaml(void* abi, const char* cls, int count, int position, int snap) {
     if (!cls || std::strcmp(cls, "Slider") != 0) return;

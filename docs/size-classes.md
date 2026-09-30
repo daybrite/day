@@ -125,7 +125,7 @@ back.
 | macos-appkit | ✅ | ✅ | one `NSSplitViewController` either way — a stack is that split with its sidebar item collapsed |
 | linux-qt / windows-qt / macos-qt | ✅ | ✅ | one `QSplitter` either way, back header installed in both |
 | linux-gtk / windows-gtk | ✅ | — | see below |
-| windows-xaml | ✅ | — | a `NavigationView` owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
+| windows-winui | ✅ | — | a `NavigationView` owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
 | ios-uikit | ✅ | **observed** | `UISplitViewController`, both columns navigation controllers |
 | android-mdc | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |
 | harmony-arkui | — | — | `NavigationMode.Auto` pending; see below |

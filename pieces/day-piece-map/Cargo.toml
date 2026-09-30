@@ -43,6 +43,8 @@ gtk = []
 qt = []
 mdc = []
 xaml = []
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml"]
 mock = []
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions `<pkg>/<backend>`
@@ -51,7 +53,7 @@ mock = []
 # the other backends declare an empty feature so `<pkg>/<backend>` resolves and the map kind falls
 # back.)
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }

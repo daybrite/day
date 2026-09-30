@@ -30,6 +30,8 @@ uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation
 # `ColorPicker`, boxed through day-xaml-sys's day_xaml_box functions. Windows-only, built in CI,
 # not verified locally (docs/colorpicker.md records what a Windows check must confirm).
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-xaml-sys/winui"]
 # web-dom: `<input type="color">`, the browser's own picker.
 dom = ["dep:day-dom"]
 # No renderer; the feature exists so an app can enable `day-piece-colorpicker/mock` uniformly;
@@ -41,7 +43,7 @@ mock = []
 # `{ workspace = true }` and no per-backend feature fan-out of its own. mdc and arkui are absent
 # because their picker is the composed one, which is plain Rust behind no feature at all.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "xaml", "dom", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "xaml", "winui", "dom", "mock"]
 
 [dependencies]
 day-spec = { workspace = true }

@@ -54,15 +54,16 @@ Everything else depends on which targets you build.
 |---|:--:|:--:|:--:|
 | `macos-appkit` | ✅ | — | — |
 | `ios-uikit` | ✅ | — | — |
-| `windows-xaml` | — | — | ✅ |
+| `windows-winui` | — | — | ✅ |
+| `windows-xaml` (deprecated) | — | — | ✅ |
 | `linux-gtk` / `windows-gtk` / `macos-gtk` | ✅ | ✅ | ✅ |
 | `linux-qt` / `windows-qt` / `macos-qt` | ✅ | ✅ | ✅ |
 | `android-mdc` | ✅ | ✅ | ✅ |
 | `harmony-arkui` | ✅ | ✅ | ✅ |
 | `web-dom` | ✅ | ✅ | ✅ |
 
-Apple's toolkits build only on macOS, and XAML only on Windows, because both compile against SDKs
-that ship with the host OS. GTK and Qt are portable, so a macOS or Windows machine can build and
+Apple's toolkits build only on macOS, and WinUI and XAML only on Windows, because they compile
+against SDKs that exist only on the host OS. GTK and Qt are portable, so a macOS or Windows machine can build and
 run them for development even though you ship `linux-gtk` and `linux-qt`.
 
 ## macOS
@@ -105,17 +106,28 @@ Xcode and the command-line tools both provide it.
 
 ## Windows
 
-On Windows 10 or 11, the `windows-xaml` target uses the XAML that ships inside those releases rather
-than WinUI 3, so there is no framework runtime for you or your users to install. See the [Windows
-platform page](/docs/platforms/windows-xaml) for the details.
+`windows-winui` builds on Windows 10 or 11. It renders WinUI 3 from the Windows App SDK 2.5.1;
+see the [Windows platform page](/docs/platforms/windows-winui) for the details.
 
-For `windows-xaml`, install the
+For `windows-winui`, install the
 [Visual Studio 2022 C++ Build Tools](https://visualstudio.microsoft.com/downloads/) (MSVC plus the
 Windows 10/11 SDK) and the MSVC Rust toolchain:
 
 ```powershell
 rustup default stable-msvc
 ```
+
+Development builds (`day build`, `day launch`) also need the **Windows App Runtime 2.5.1 or
+newer**, from Microsoft's [Windows App SDK
+downloads](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads); an app started
+without it offers that page. The Windows App SDK packages themselves need no install: the build
+downloads them on first use (about 270 MB) into `%LOCALAPPDATA%\day\winappsdk`. Set
+`DAY_WINAPPSDK` to an already laid-out copy on an offline machine, or `DAY_WINAPPSDK_CACHE` to move
+the cache. `day doctor --toolkit winui` checks the toolchain and the runtime.
+
+A packed app is self-contained: the runtime travels inside the `.msix` and the installer, so your
+users install nothing extra. The deprecated `windows-xaml` target needs the same Build Tools and
+toolchain but no Windows App Runtime, since it uses the XAML that ships in Windows.
 
 For `windows-qt` and `windows-gtk`, install [MSYS2](https://www.msys2.org) and build with a **GNU**
 Rust toolchain, because MSVC cannot link MSYS2's import libraries, and the C++ shims are built
@@ -130,7 +142,7 @@ rustup toolchain install stable-x86_64-pc-windows-gnu
 On ARM64 hosts, use the CLANGARM64 environment's `mingw-w64-clang-aarch64-` packages and the
 `stable-aarch64-pc-windows-gnullvm` toolchain. Build with MSYS2's `bin` on `PATH` and
 `RUSTUP_TOOLCHAIN` set to the GNU toolchain; the
-[Windows page](/docs/platforms/windows-xaml#qt-and-gtk-on-a-windows-host) walks through it.
+[Windows page](/docs/platforms/windows-winui#qt-and-gtk-on-a-windows-host) walks through it.
 
 ## Linux
 
@@ -199,8 +211,8 @@ distribution](/docs/packaging) covers the formats themselves.
 |---|---|---|
 | `linux-gtk`, `linux-qt` | `flatpak-builder` | [flatpak.org](https://flatpak.org/setup/), plus the Flathub remote |
 | `linux-gtk`, `linux-qt` | `linuxdeploy` and its GTK or Qt plugin | [linuxdeploy releases](https://github.com/linuxdeploy/linuxdeploy/releases) |
-| `windows-xaml` | `makeappx`, `signtool` | the Windows 10/11 SDK (installed with the Build Tools) |
-| `windows-xaml` | `makensis` | [NSIS](https://nsis.sourceforge.io), or `choco install nsis` |
+| `windows-winui`, `windows-xaml` | `makeappx`, `signtool` | the Windows 10/11 SDK (installed with the Build Tools) |
+| `windows-winui`, `windows-xaml` | `makensis` | [NSIS](https://nsis.sourceforge.io), or `choco install nsis` |
 
 Without the `linuxdeploy` GTK or Qt plugin an AppImage still builds, but it will only run on a
 machine that already has the toolkit installed.
@@ -427,6 +439,7 @@ development machine needs.
 | `ios-uikit` | iOS 15 |
 | `android-mdc` | API level 24 (Android 7.0), compiled against API 37 |
 | `harmony-arkui` | API level 18 |
-| `windows-xaml` | Windows 10 or 11 |
+| `windows-winui` | Windows 10 version 1809 (Windows 11 recommended); packed apps carry the Windows App SDK runtime |
+| `windows-xaml` (deprecated) | Windows 10 or 11 |
 | `linux-gtk` / `linux-qt` | GTK 4.10 with libadwaita 1.5 / Qt 6 |
 | `web-dom` | a current browser, served as static files |

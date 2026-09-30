@@ -171,6 +171,7 @@ unsafe extern "C" {
         back_cb: extern "C" fn(u64),
         out_content: *mut *mut c_void,
         stack: c_int,
+        rtl: c_int,
     ) -> *mut c_void;
     pub fn day_xaml_nav_set_items(
         nav: *mut c_void,
@@ -231,6 +232,8 @@ unsafe extern "C" {
     pub fn day_xaml_label_set_selectable(w: *mut c_void, on: c_int);
     /// TextBlock.Foreground = SolidColorBrush(argb); alpha 0 restores the inherited default.
     pub fn day_xaml_label_set_color(w: *mut c_void, argb: u32);
+    /// The platform's secondary text color (`TextRole::Secondary`), theme-tracking.
+    pub fn day_xaml_label_set_secondary(w: *mut c_void);
     /// Wrapped lines' alignment within the label's width: 0 leading, 1 center, 2 trailing.
     pub fn day_xaml_label_set_align(w: *mut c_void, mode: c_int);
 
@@ -264,6 +267,7 @@ unsafe extern "C" {
     pub fn day_xaml_slider_set(w: *mut c_void, value: f64);
 
     pub fn day_xaml_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
+    pub fn day_xaml_progress_is_ring(w: *mut c_void) -> c_int;
     pub fn day_xaml_progress_set(w: *mut c_void, value: c_int);
 
     pub fn day_xaml_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;

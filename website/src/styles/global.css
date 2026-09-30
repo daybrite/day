@@ -48,13 +48,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --pf-android-mdc: #30d158;   /* green */
   --pf-linux-gtk: #63e6e2;     /* mint */
   --pf-linux-qt: #64d2ff;      /* cyan */
-  --pf-windows-xaml: #40c8e0; /* teal */
+  --pf-windows-winui: #40c8e0; /* teal */
+  --pf-windows-xaml: var(--pf-windows-winui); /* deprecated: the same family color */
   --pf-harmony-arkui: #ff453a;    /* red */
   --pf-web-dom: #ff9f0a;       /* orange */
 
   /* Support tiers (/docs/platforms#support-tiers) share ONE tint — the iOS palette's Purple,
      the hue no platform accent claims — so a tier badge beside a target name never reads as a
-     second platform mark. The four tiers differ in badge weight, not color. */
+     second platform mark. The five tiers differ in badge weight, not color. */
   --tier: #bf5af2;             /* purple */
 
   /* Admonition kinds (plugins/admonitions.mjs). Semantic, and deliberately clear of the tier
@@ -72,7 +73,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --pf-ios: var(--pf-ios-uikit);
   --pf-android: var(--pf-android-mdc);
   --pf-linux: var(--pf-linux-gtk);
-  --pf-windows: var(--pf-windows-xaml);
+  --pf-windows: var(--pf-windows-winui);
   --pf-harmony: var(--pf-harmony-arkui);
   --pf-web: var(--pf-web-dom);
 
@@ -130,7 +131,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
   --pf-android-mdc: #34c759;   /* green */
   --pf-linux-gtk: #00c7be;     /* mint */
   --pf-linux-qt: #32ade6;      /* cyan */
-  --pf-windows-xaml: #30b0c7; /* teal */
+  --pf-windows-winui: #30b0c7; /* teal */
+  --pf-windows-xaml: var(--pf-windows-winui);
   --pf-harmony-arkui: #ff3b30;    /* red */
   --pf-web-dom: #ff9500;       /* orange */
 
@@ -155,7 +157,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 [data-pf='android-mdc'] { --pf: var(--pf-android-mdc); }
 [data-pf='linux-gtk'], [data-pf='macos-gtk'], [data-pf='windows-gtk'] { --pf: var(--pf-linux-gtk); }
 [data-pf='linux-qt'], [data-pf='macos-qt'], [data-pf='windows-qt'] { --pf: var(--pf-linux-qt); }
-[data-pf='windows-xaml'] { --pf: var(--pf-windows-xaml); }
+[data-pf='windows-winui'], [data-pf='windows-xaml'] { --pf: var(--pf-windows-winui); }
 [data-pf='harmony-arkui'] { --pf: var(--pf-harmony-arkui); }
 [data-pf='web-dom'] { --pf: var(--pf-web-dom); }
 
@@ -365,6 +367,13 @@ pre.code code { color: inherit; background: none; padding: 0; }
   border-style: dashed;
   border-color: color-mix(in srgb, var(--tier) 38%, transparent);
   color: color-mix(in srgb, var(--tier) 30%, var(--muted));
+}
+/* Deprecated: the faintest weight, dotted, so it reads as on its way out. */
+.tier-badge[data-tier='5'] {
+  background: transparent;
+  border-style: dotted;
+  border-color: color-mix(in srgb, var(--tier) 30%, transparent);
+  color: var(--muted);
 }
 a.tier-badge:hover {
   border-color: color-mix(in srgb, var(--tier) 85%, transparent);

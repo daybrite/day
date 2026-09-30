@@ -292,7 +292,7 @@ fn tool_table(toolkit: &str) -> Vec<(&'static str, &'static str, &'static str)> 
                 "ships with the OpenHarmony command-line-tools",
             ),
         ]),
-        "xaml" => t.extend([
+        "xaml" | "winui" => t.extend([
             (
                 "msvc",
                 "MSVC toolchain",

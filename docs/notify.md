@@ -224,8 +224,9 @@ the process exits, a scheduled notification is lost.
 via `ToastNotificationManager.CreateToastNotifier(aumid)`; `ScheduledToastNotification` gives
 OS-held scheduling that fires while the app is closed, like Apple. Actions and inputs are
 `<action>`/`<input>` in the toast XML. The pitfall is unpackaged-app registration (below): a Win32
-XAML-islands host must register a Start Menu shortcut carrying an AppUserModelID and a COM
-activator to receive taps and actions, which the shim does at first run.
+XAML host (windows-winui, or the deprecated windows-xaml) must register a Start Menu shortcut
+carrying an AppUserModelID and a COM activator to receive taps and actions, which the shim does at
+first run.
 
 ### HarmonyOS (ArkUI) — Notification Kit
 
@@ -655,8 +656,8 @@ XML built as a string (`<text>`, `<image>`, `<action>`, `<input>` for reply);
 `ScheduledToastNotification(xml, deliveryTime)` + `AddToSchedule` gives OS-held scheduling that
 fires while the app is closed. `GetScheduledToastNotifications` backs `pending()`.
 
-The pitfall is unpackaged activation: a Win32 XAML-islands host must have a Start Menu shortcut
-carrying an `AppUserModelID` and a `ToastActivatorCLSID`, plus a registered COM class implementing
+The pitfall is unpackaged activation: a Win32 XAML host (either Windows target) must have a Start
+Menu shortcut carrying an `AppUserModelID` and a `ToastActivatorCLSID`, plus a registered COM class implementing
 `INotificationActivationCallback`, or taps and actions never reach the app. The shim writes the
 shortcut and registers the CLSID at first run, and the docs note that it touches the user's Start
 Menu.

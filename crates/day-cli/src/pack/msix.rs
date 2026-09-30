@@ -1,9 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! windows-xaml → .msix (makeappx + signtool). The xaml backend hosts system XAML Islands
-//! (Windows.UI.Xaml ships with the OS, so there is no WinAppSDK runtime dependency to declare or
-//! bootstrap).
+//! Windows → .msix (makeappx + signtool), sharing its payload with the NSIS installer.
+//! windows-winui bundles the Windows App SDK runtime; legacy windows-xaml uses system XAML.
 //! Signing providers (Day.toml signing.windows.provider): self-signed-dev (default; generated
 //! per-publisher cert in CurrentUser\My, installable locally after trusting it, dev tier) |
 //! signtool-cert-store (thumbprint) | azure-artifact-signing (signtool /dlib; 72 h certs make the
@@ -27,8 +26,18 @@ pub fn stage_payload(
     target: &'static Target,
     opts: &PackOptions,
 ) -> Result<PathBuf, PackError> {
-    let outcome = ops::build(project, target, opts.profile).map_err(PackError::Other)?;
-    let stage = project.root.join("build/day/pack/windows-payload");
+    // WinUI ships self-contained (docs/winui.md "Packing"): the exe is linked with the manifest
+    // that registers the Windows App SDK runtime staged beside it below, so neither package
+    // needs that runtime installed.
+    let winui = target.toolkit == "winui";
+    let outcome = if winui {
+        ops::build_self_contained(project, target, opts.profile)
+    } else {
+        ops::build(project, target, opts.profile)
+    }
+    .map_err(PackError::Other)?;
+    let stage = super::payload_root(&project.root, target)
+        .ok_or_else(|| PackError::Other(format!("no payload root for {}", target.name)))?;
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir_all(&stage).map_err(|e| PackError::Other(e.to_string()))?;
     let name = &project.manifest.app.name;
@@ -39,17 +48,7 @@ pub fn stage_payload(
     }
     std::fs::copy(&outcome.artifact, stage.join(format!("{name}.exe")))
         .map_err(|e| PackError::Other(e.to_string()))?;
-    // The xaml runtime resolves assets/images/fonts relative to the exe when DAY_* env is
-    // absent (resources/xaml.rs is a launch-env no-op; pack ships the trees beside the binary).
-    for dir in ["assets", "images", "fonts"] {
-        let src = project.root.join("resource").join(dir);
-        if src.is_dir() {
-            super::copy_tree(&src, &stage.join(dir)).map_err(PackError::Other)?;
-        }
-    }
-    // Piece-contributed assets, under `<crate-name>/` beside the app's (docs/extending.md).
-    crate::resources::stage_piece_assets(project, "xaml", &stage.join("assets"))
-        .map_err(PackError::Other)?;
+    stage_assets(project, target, &stage)?;
     // Vector glyphs (docs/vectors.md): the raster fallbacks merge into `images/`, so one
     // exe-relative probe then serves both the `vector(…)` piece and the nav rows'
     // `ms-appx:///images/<file>` loads (the name namespace is shared, so a stem can't collide
@@ -86,11 +85,46 @@ pub fn stage_payload(
     if let Some(ico) = crate::resources::app_icon(project, "xaml") {
         let _ = std::fs::copy(&ico, stage.join(format!("{name}.ico")));
     }
+    // The Windows App SDK runtime, beside the exe: the self-contained half of the link above.
+    if winui {
+        for (src, rel) in day_toolchain::winappsdk::self_contained_payload(std::env::consts::ARCH)
+            .map_err(PackError::Other)?
+        {
+            let dst = stage.join(&rel);
+            if let Some(parent) = dst.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| PackError::Other(e.to_string()))?;
+            }
+            std::fs::copy(&src, &dst)
+                .map_err(|e| PackError::Other(format!("staging {}: {e}", rel.display())))?;
+        }
+        // …and the resource index WinUI loads its control templates through.
+        day_toolchain::winappsdk::merge_resource_indexes(
+            &stage,
+            &project.root.join("build/day/pack/winui-pri"),
+        )
+        .map_err(PackError::Other)?;
+    }
     // Both containers built from this tree (makeappx's .msix and makensis's -setup.exe) copy
     // each file's mtime into their archive, so the tree is stamped once here rather than in each
     // packer (§20.3).
     super::normalize_mtimes(&stage).map_err(PackError::Other)?;
     Ok(stage)
+}
+
+/// Stage the app and piece resources shared by MSIX and NSIS, independently of native build
+/// and signing tools so the selected dependency graph can be checked on every test host.
+fn stage_assets(project: &Project, target: &Target, stage: &Path) -> Result<(), PackError> {
+    // Both Windows backends resolve these trees relative to the packaged executable.
+    for dir in ["assets", "images", "fonts"] {
+        let src = project.root.join("resource").join(dir);
+        if src.is_dir() {
+            super::copy_tree(&src, &stage.join(dir)).map_err(PackError::Other)?;
+        }
+    }
+    // Resolve the graph the executable uses: a WinUI app need not declare an `xaml` feature,
+    // and an app supporting both targets may enable different asset-bearing dependencies.
+    crate::resources::stage_piece_assets(project, target.toolkit, &stage.join("assets"))
+        .map_err(PackError::Other)
 }
 
 pub fn pack(
@@ -497,6 +531,100 @@ pub(crate) fn windows_kit_tool(tool: &str) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Real Cargo feature resolution: a WinUI-only app has no `xaml` feature at all, while
+    /// a dual-target app can reach different asset-bearing pieces through each feature.
+    #[test]
+    fn staged_assets_follow_the_windows_target() {
+        let tmp = std::env::temp_dir().join(format!(
+            "day-windows-assets-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&tmp).unwrap();
+        for legacy in [false, true] {
+            let root = tmp.join(if legacy { "both" } else { "winui-only" });
+            std::fs::create_dir_all(root.join("src")).unwrap();
+            std::fs::write(root.join("src/lib.rs"), "").unwrap();
+            let cargo = format!(
+                r#"[package]
+name = "asset-app"
+version = "1.0.0"
+edition = "2024"
+[workspace]
+members = ["winui-piece", "xaml-piece"]
+[features]
+default = ["dep:xaml-piece"]
+winui = ["dep:winui-piece"]
+{}
+[dependencies]
+winui-piece = {{ path = "winui-piece", optional = true }}
+xaml-piece = {{ path = "xaml-piece", optional = true }}
+"#,
+                if legacy {
+                    "xaml = [\"dep:xaml-piece\"]"
+                } else {
+                    ""
+                }
+            );
+            std::fs::write(root.join("Cargo.toml"), &cargo).unwrap();
+            for toolkit in ["winui", "xaml"] {
+                let piece = root.join(format!("{toolkit}-piece"));
+                std::fs::create_dir_all(piece.join("src")).unwrap();
+                std::fs::create_dir_all(piece.join("assets")).unwrap();
+                std::fs::write(piece.join("src/lib.rs"), "").unwrap();
+                std::fs::write(piece.join("assets/data.txt"), toolkit).unwrap();
+                std::fs::write(
+                    piece.join("Cargo.toml"),
+                    format!(
+                        "[package]\nname = \"{toolkit}-piece\"\nversion = \"1.0.0\"\nedition = \"2024\"\n\
+                         [package.metadata.day.piece]\nassets = [\"assets\"]\n"
+                    ),
+                )
+                .unwrap();
+            }
+            for dir in ["assets", "images", "fonts"] {
+                std::fs::create_dir_all(root.join("resource").join(dir)).unwrap();
+                std::fs::write(root.join("resource").join(dir).join("app.txt"), dir).unwrap();
+            }
+            let manifest = crate::meta::parse_manifest(
+                "schema = 1\n[app]\nid = \"dev.example.assets\"\n",
+                &cargo,
+                None,
+            )
+            .unwrap();
+            let project = Project { root, manifest };
+            for toolkit in if legacy {
+                &["winui", "xaml"][..]
+            } else {
+                &["winui"][..]
+            } {
+                let target = crate::targets::find(&format!("windows-{toolkit}")).unwrap();
+                let stage = project.root.join("payload").join(toolkit);
+                stage_assets(&project, target, &stage)
+                    .unwrap_or_else(|error| panic!("{}", error.message()));
+                let asset = stage.join(format!("assets/{toolkit}-piece/data.txt"));
+                assert!(
+                    asset.is_file(),
+                    "missing staged piece asset: {}",
+                    asset.display()
+                );
+                assert_eq!(std::fs::read_to_string(&asset).unwrap(), *toolkit);
+                let other = if *toolkit == "winui" { "xaml" } else { "winui" };
+                assert!(!stage.join(format!("assets/{other}-piece")).exists());
+                for dir in ["assets", "images", "fonts"] {
+                    assert_eq!(
+                        std::fs::read_to_string(stage.join(dir).join("app.txt")).unwrap(),
+                        dir
+                    );
+                }
+            }
+        }
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
 
     /// The manifest schema's `[-.A-Za-z0-9]+` is narrower than what an app id may contain, and
     /// `makeappx` fails the whole pack rather than warning, so the normalization is what keeps a

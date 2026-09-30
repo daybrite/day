@@ -155,7 +155,7 @@ fn family_of_target(t: &str) -> Vec<Family> {
         "ios-uikit" => vec![Family::Ios],
         "android-mdc" => vec![Family::Android],
         "harmony-arkui" => vec![Family::Ohos],
-        "windows-xaml" | "windows-gtk" | "windows-qt" => vec![Family::Windows],
+        "windows-xaml" | "windows-winui" | "windows-gtk" | "windows-qt" => vec![Family::Windows],
         "macos-appkit" | "macos-gtk" | "macos-qt" => vec![Family::Macos],
         "linux-gtk" | "linux-qt" => vec![Family::Linux],
         "web-dom" => vec![Family::Png],

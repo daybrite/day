@@ -41,7 +41,7 @@
  * @property {boolean} [primary] One of the eight the landing page's "Runs natively on" grid
  *                               shows. The other four are the same toolkits on a second OS, which
  *                               the gallery covers but the grid would only repeat.
- * @property {1|2|3|4} tier      The support tier, defined in `tiers` below and documented at
+ * @property {1|2|3|4|5} tier    The support tier, defined in `tiers` below and documented at
  *                               /docs/platforms#support-tiers.
  */
 
@@ -137,14 +137,23 @@ export const platforms = /** @type {Platform[]} */ ([
     tier: 2,
   },
   {
-    id: 'windows-xaml',
+    id: 'windows-winui',
     os: 'Windows',
-    toolkit: 'XAML',
-    toolkitLong: 'XAML Islands',
+    toolkit: 'WinUI 3',
+    toolkitLong: 'WinUI 3 · Windows App SDK',
     shellKind: 'chrome',
     shell: 'windows',
     primary: true,
     tier: 2,
+  },
+  {
+    id: 'windows-xaml',
+    os: 'Windows',
+    toolkit: 'XAML',
+    toolkitLong: 'System XAML · deprecated',
+    shellKind: 'chrome',
+    shell: 'windows',
+    tier: 5,
   },
   {
     id: 'windows-gtk',
@@ -198,7 +207,7 @@ export const platformsById = /** @type {Record<string, Platform>} */ (
  * target can render every piece and still be a development combination nobody ships.
  *
  * @typedef {object} Tier
- * @property {1|2|3|4} n     The tier number, as the badge and the docs write it.
+ * @property {1|2|3|4|5} n   The tier number, as the badge and the docs write it.
  * @property {string} name   The tier's name: `Supported`, `Development`.
  * @property {string} blurb  One sentence on what the tier promises, for badge tooltips.
  */
@@ -222,6 +231,11 @@ export const tiers = /** @type {Tier[]} */ ([
     n: 4,
     name: 'Development',
     blurb: 'For compatibility testing and running one toolkit on a second OS; not meant for shipping apps.',
+  },
+  {
+    n: 5,
+    name: 'Deprecated',
+    blurb: 'Superseded by another target; still builds, packs and runs for existing projects, but not for new apps, and due for removal.',
   },
 ]);
 

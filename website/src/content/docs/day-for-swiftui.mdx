@@ -481,13 +481,13 @@ Day's macOS target is an AppKit app: `NSButton`, `NSSplitView` source lists, and
 | macOS release | Archive → notarize → staple → DMG (your tooling) | `day pack -p macos-appkit` → signed, notarized, stapled `.dmg` |
 | iOS release | Archive → Organizer / `xcodebuild -exportArchive` | `day pack -p ios-uikit` → `.ipa` (App Store Connect export) |
 | TestFlight / App Store upload | Organizer or Transporter | upload the `.ipa` with your usual tool; `day pack` stops at the artifact |
-| Android / Windows / Linux / HarmonyOS / web | — | `day pack -p android-mdc` / `-p windows-xaml` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` |
+| Android / Windows / Linux / HarmonyOS / web | — | `day pack -p android-mdc` / `-p windows-winui` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` |
 | UI tests | XCUITest | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has
 today: every `(OS, toolkit)` pair carries a [support tier](/docs/platforms#support-tiers), from
 [Tier 1](/docs/platforms#support-tiers) (thoroughly tested, with shipping apps on it) down to
-[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships).
+[Tier 4](/docs/platforms#support-tiers) (development combinations nobody ships), plus [Tier 5](/docs/platforms#support-tiers) for deprecated targets.
 
 Signing works headless and in CI: identities and keys are `${ENV_VAR}` references in
 `Day.toml`, `day sign check` reports readiness without printing secrets, and a missing

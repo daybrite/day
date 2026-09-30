@@ -25,6 +25,8 @@ mdc = ["dep:day-android"]           # + [package.metadata.day.android] carries D
 # XAML: build.rs compiles src/lib-xaml-shim.cpp, a RichEditBox driven through its TOM
 # ITextDocument. Windows-only, built in CI, not verified locally.
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-xaml-sys/winui"]
 # HarmonyOS: the ArkUI C node API has no rich editor, so the component is this crate's own ArkTS.
 arkui = ["dep:day-arkui"]
 # web-dom: a contenteditable element, which is the browser's own rich text editing.
@@ -33,7 +35,7 @@ dom = ["dep:day-dom"]
 mock = []
 
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "arkui", "dom", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "arkui", "dom", "mock"]
 
 [dependencies]
 log = { workspace = true }

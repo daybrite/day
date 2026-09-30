@@ -30,12 +30,38 @@
 #include <winrt/Windows.Foundation.Collections.h> // IVector methods, else C3779
 #include <winrt/Windows.System.h>  // VirtualKey
 #include <winrt/Windows.UI.h>
-#include <winrt/Windows.UI.Core.h> // CoreWindow, CoreVirtualKeyStates
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Text.h> // the RichEditBox document API moved here in WinUI 3
+#else
 #include <winrt/Windows.UI.Text.h>
+#endif
+// One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
+// windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
+#ifdef DAY_WINUI
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+#else
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#else
 #include <winrt/Windows.UI.Xaml.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Input.h>
+#else
 #include <winrt/Windows.UI.Xaml.Input.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Media.h>
+#else
 #include <winrt/Windows.UI.Xaml.Media.h>
+#endif
 
 #include <windows.h>
 
@@ -49,12 +75,15 @@ using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
 namespace WS = winrt::Windows::System;
 namespace WU = winrt::Windows::UI;
-namespace WUC = winrt::Windows::UI::Core;
+#ifdef DAY_WINUI
+namespace WUT = winrt::Microsoft::UI::Text;
+#else
 namespace WUT = winrt::Windows::UI::Text;
-namespace WUX = winrt::Windows::UI::Xaml;
-namespace WUXC = winrt::Windows::UI::Xaml::Controls;
-namespace WUXI = winrt::Windows::UI::Xaml::Input;
-namespace WUXM = winrt::Windows::UI::Xaml::Media;
+#endif
+namespace WUX = DAY_XAML_NS;
+namespace WUXC = DAY_XAML_NS::Controls;
+namespace WUXI = DAY_XAML_NS::Input;
+namespace WUXM = DAY_XAML_NS::Media;
 
 // The boxing functions, exported by day-xaml-sys (already linked into the app).
 extern "C" void *day_xaml_box(void *iinspectable_abi);
@@ -183,15 +212,10 @@ void *day_texteditor_xaml_new(uint64_t id, int editable, int spellcheck, double 
     // RichEditBox's own Ctrl+B / Ctrl+I / Ctrl+U change the character format directly. Swallow
     // them: attributes are Day's, and a toolbar button goes through the bound signal.
     box.KeyDown([](WF::IInspectable const &, WUXI::KeyRoutedEventArgs const &args) {
-        const auto ctrl = WUX::Window::Current().CoreWindow().GetKeyState(WS::VirtualKey::Control);
-        // Both `GetKeyState` and the flag operators over `CoreVirtualKeyStates` are defined in
-        // <winrt/Windows.UI.Core.h>. Without it only the Xaml headers' forward declarations were
-        // here, which left the call's `auto` return type undefined and collapsed the state test
-        // into the operator== soup CI reported. The bit test is what the projection's own
-        // `operator&` performs, and unlike `(ctrl & Down) == Down` it does not depend on whether a
-        // given Windows Kit's operator hands back the enum or its underlying type.
-        const bool down = (static_cast<uint32_t>(ctrl) &
-                           static_cast<uint32_t>(WUC::CoreVirtualKeyStates::Down)) != 0;
+        // Win32's key state, not CoreWindow's: this is a XAML island in a desktop window, where
+        // `Window::Current()` is null (under system XAML and WinUI 3 alike), so asking it for the
+        // CoreWindow threw inside this handler on every keystroke.
+        const bool down = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
         if (!down) return;
         const auto k = args.Key();
         if (k == WS::VirtualKey::B || k == WS::VirtualKey::I || k == WS::VirtualKey::U) {

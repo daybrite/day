@@ -86,14 +86,15 @@ height = 640
 - **Reactivity rule:** static content → pass a value; dynamic content → pass a closure. `label("Hi")`
   is static; `label(move || format!("{}", n.get()))` is reactive.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
-  `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-xaml`, `windows-gtk`,
-  `windows-qt`, `web-dom` (wasm in a browser; no process environment, so pass runtime flags with
-  `day launch --env K=V` and read them with `day::env("K")`, which is portable to every target).
+  `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`,
+  `windows-qt`, `windows-xaml` (deprecated), `web-dom` (wasm in a browser; no process
+  environment, so pass runtime flags with `day launch --env K=V` and read them with `day::env("K")`, which is portable to every target).
 - Each target has a **support tier** ([definitions](/docs/platforms#support-tiers)), which tells
   you how much to trust it: `ios-uikit`, `android-mdc`, `macos-appkit` are Tier 1 (thoroughly
-  tested); `linux-gtk`, `linux-qt`, `windows-xaml` are Tier 2; `harmony-arkui` and `web-dom` are
+  tested); `linux-gtk`, `linux-qt`, `windows-winui` are Tier 2; `harmony-arkui` and `web-dom` are
   Tier 3 (experimental, with real gaps); `macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt` are
-  Tier 4 development combos that no app ships on and `day pack` refuses. Verify a user-facing
+  Tier 4 development combos that no app ships on and `day pack` refuses; `windows-xaml` is Tier 5
+  (deprecated: still builds, but new apps use `windows-winui`). Verify a user-facing
   change on a Tier 1 target unless the change is that platform's.
 
 ## Canonical patterns (copy these)

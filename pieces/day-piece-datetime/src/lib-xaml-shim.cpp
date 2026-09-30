@@ -13,9 +13,28 @@
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h> // IVector/IObservableVector methods; else C3779
+// One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
+// windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
+#ifdef DAY_WINUI
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+#else
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#else
 #include <winrt/Windows.UI.Xaml.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
+#endif
 
 #include <winrt/Windows.Globalization.h> // Calendar — the civil⇄instant bridge, see fromEpochDays
 
@@ -24,7 +43,7 @@
 
 using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
-namespace WUXC = winrt::Windows::UI::Xaml::Controls;
+namespace WUXC = DAY_XAML_NS::Controls;
 namespace WG = winrt::Windows::Globalization;
 
 // The boxing functions, exported by day-xaml-sys (already linked into the app).

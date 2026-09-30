@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // The remote-image piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. day-xaml hosts the
-// UWP system XAML (winrt::Windows::UI::Xaml, from the base Windows SDK, not WinAppSDK). A circle
+// UWP system XAML (DAY_XAML_NS, from the base Windows SDK, not WinAppSDK). A circle
 // clip uses an Ellipse filled with an ImageBrush (a true circular avatar); a rounded/plain image
 // uses a Border (CornerRadius) hosting an Image. The root element is boxed into a day handle via
 // the `day_xaml_box`/`day_xaml_unbox` functions day-xaml-sys exports, so this piece carries its
@@ -17,21 +17,48 @@
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Storage.Streams.h>
+// One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
+// windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
+#ifdef DAY_WINUI
+#define DAY_XAML_NS winrt::Microsoft::UI::Xaml
+#else
+#define DAY_XAML_NS winrt::Windows::UI::Xaml
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Controls.h>
+#else
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
+#else
 #include <winrt/Windows.UI.Xaml.Media.Imaging.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Media.h>
+#else
 #include <winrt/Windows.UI.Xaml.Media.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.Shapes.h>
+#else
 #include <winrt/Windows.UI.Xaml.Shapes.h>
+#endif
+#ifdef DAY_WINUI
+#include <winrt/Microsoft.UI.Xaml.h>
+#else
 #include <winrt/Windows.UI.Xaml.h>
+#endif
 #include <winrt/Windows.UI.h>
 
 #include <cstdint>
 
 using namespace winrt;
-namespace WUX = winrt::Windows::UI::Xaml;
-namespace WUXC = winrt::Windows::UI::Xaml::Controls;
-namespace WUXM = winrt::Windows::UI::Xaml::Media;
-namespace WUXMI = winrt::Windows::UI::Xaml::Media::Imaging;
-namespace WUXS = winrt::Windows::UI::Xaml::Shapes;
+namespace WUX = DAY_XAML_NS;
+namespace WUXC = DAY_XAML_NS::Controls;
+namespace WUXM = DAY_XAML_NS::Media;
+namespace WUXMI = DAY_XAML_NS::Media::Imaging;
+namespace WUXS = DAY_XAML_NS::Shapes;
 namespace WSS = winrt::Windows::Storage::Streams;
 
 // The boxing functions, exported by day-xaml-sys (already linked into the app).

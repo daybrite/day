@@ -27,6 +27,8 @@ mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the 
 # uniformly; the combobox kind then falls back to day's placeholder leaf (as it does on uikit,
 # which has no feature at all: iOS has no native combo-box control).
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
+# WinUI 3 (windows-winui, docs/winui.md): the xaml half, built against Microsoft.UI.Xaml.
+winui = ["xaml", "day-xaml-sys/winui"]
 # HarmonyOS: an ArkTS TextInput + suggestions menu (platform/harmony/ets, staged through
 # [package.metadata.day.ohos]) behind day-arkui's piece bridge (src/lib-arkui.rs).
 arkui = ["dep:day-arkui"]
@@ -36,7 +38,7 @@ mock = []
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
 # and no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "mdc", "xaml", "mock", "arkui"]
+backends = ["appkit", "gtk", "qt", "mdc", "xaml", "winui", "mock", "arkui"]
 
 [dependencies]
 day-arkui = { workspace = true, optional = true }

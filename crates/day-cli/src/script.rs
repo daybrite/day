@@ -19,6 +19,7 @@ use anstream::eprintln;
 
 pub struct ScriptRun {
     pub steps_total: usize,
+    pub steps_skipped: usize,
     pub steps_failed: usize,
     /// How many of `steps_failed` the engine marked retryable: an element not realized yet,
     /// an assert still pending. Those are the failures a race can produce, so a run whose only
@@ -79,7 +80,15 @@ fn parse_flow(
     project_root: &Path,
 ) -> Result<Vec<(String, serde_json::Value)>, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let doc: serde_json::Value = serde_norway::from_str(&text).map_err(|e| e.to_string())?;
+    parse_flow_text(&text, project_root)
+}
+
+fn parse_flow_text(
+    text: &str,
+    project_root: &Path,
+) -> Result<Vec<(String, serde_json::Value)>, String> {
+    let doc: serde_json::Value =
+        serde_norway::from_str(text.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
     let flow = doc
         .get("flow")
         .and_then(|f| f.as_array())
@@ -726,6 +735,7 @@ pub fn run_scripts(
     let mut warned_store = false;
     let mut run = ScriptRun {
         steps_total: 0,
+        steps_skipped: 0,
         steps_failed: 0,
         retryable_failed: 0,
         screenshots: Vec::new(),
@@ -798,6 +808,7 @@ pub fn run_scripts(
                     .any(|s| gate_names(s, target, &flavor_gate));
                 if hit {
                     eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
+                    run.steps_skipped += 1;
                     continue;
                 }
             }
@@ -823,6 +834,7 @@ pub fn run_scripts(
                         target.name
                     };
                     eprintln!("  {WARN}\u{2013}{WARN:#} {op} (not for {scope})");
+                    run.steps_skipped += 1;
                     continue;
                 }
             }
@@ -1441,11 +1453,17 @@ fn gate_platform(target_name: &str) -> &str {
 /// `web`), or the build flavor as `flavor:<name>` (`flavor:none` for the base app). The
 /// platform form is what lets a step opt IN by where it applies, `only_on: [ios, android]`,
 /// instead of listing every toolkit it does not.
+///
+/// `windows-winui` is the XAML backend built against WinUI 3 (docs/winui.md), so a gate naming
+/// the XAML backend (`xaml`, `windows-xaml`) names it too: a step written for XAML's behavior is
+/// WinUI's behavior as well. `winui` / `windows-winui` single the WinUI build out.
 fn gate_names(token: &str, target: &crate::targets::Target, flavor_gate: &str) -> bool {
+    let xaml_family = target.toolkit == "winui" && matches!(token, "xaml" | "windows-xaml");
     token == target.name
         || token == target.toolkit
         || token == gate_platform(target.name)
         || token == flavor_gate
+        || xaml_family
 }
 
 /// Whether a gate token could name anything at all (some target, toolkit or platform in the
@@ -1460,6 +1478,16 @@ fn gate_is_known(token: &str) -> bool {
 #[cfg(test)]
 mod gate_tests {
     use super::{gate_is_known, gate_names};
+
+    #[test]
+    fn windows_utf8_bom_preserves_script_text_and_project_expansion() {
+        let script = "flow:\n  - input: { id: name, text: 'Français ${project}' }\n";
+        let root = std::path::Path::new("C:/Showcase");
+        let plain = super::parse_flow_text(script, root).unwrap();
+        let bom = super::parse_flow_text(&format!("\u{feff}{script}"), root).unwrap();
+        assert_eq!(bom, plain);
+        assert_eq!(bom[0].1["text"], "Français C:/Showcase");
+    }
 
     /// A gate opts a step in or out by target, toolkit, platform or flavor; nothing else.
     #[test]
@@ -1476,6 +1504,20 @@ mod gate_tests {
         assert!(gate_names("web", web, "flavor:none"));
         assert!(gate_names("harmony", harmony, "flavor:none"));
         assert!(gate_names("flavor:paid", ios, "flavor:paid"));
+    }
+
+    /// WinUI is the XAML backend: a gate naming XAML reaches it, a gate naming WinUI reaches
+    /// only it.
+    #[test]
+    fn a_xaml_gate_names_the_winui_build_too() {
+        let winui = crate::targets::find("windows-winui").expect("windows-winui");
+        let xaml = crate::targets::find("windows-xaml").expect("windows-xaml");
+        for token in ["xaml", "windows-xaml", "winui", "windows-winui", "windows"] {
+            assert!(gate_names(token, winui, "flavor:none"), "{token}");
+        }
+        for token in ["winui", "windows-winui"] {
+            assert!(!gate_names(token, xaml, "flavor:none"), "{token}");
+        }
     }
 
     #[test]
