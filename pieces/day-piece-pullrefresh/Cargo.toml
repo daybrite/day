@@ -7,7 +7,6 @@ rust-version.workspace = true
 description.workspace = true
 repository.workspace = true
 license.workspace = true
-build = "build.rs"
 
 # A standalone Day Piece adding pull-to-refresh to any scrollable (`scroll(...)` or `list(...)`),
 # modeled on SwiftUI's `refreshable(action:)`. Native where the toolkit has a real implementation
@@ -22,7 +21,7 @@ appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundat
 gtk = ["dep:day-gtk", "dep:gtk4"]
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
-arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/refresh-arkui.cpp
+arkui = ["dep:day-arkui"]
 
 # Backends this piece carries native-side code for. `day build` unions `<pkg>/<backend>` into an app
 # build (Tier A.2). Qt / XAML / mock are absent: with no feature enabled the piece takes its
@@ -42,17 +41,12 @@ day-gtk = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
-day-arkui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 block2 = { version = "0.6", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder", "NSScrollView", "NSClipView"] }
 objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder", "UIScrollView", "UIControl", "UIRefreshControl"] }
 objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSNotification"] }
-
-[build-dependencies]
-day-toolchain = { workspace = true }
-cc = "1"
 
 [dev-dependencies]
 day-mock = { workspace = true }

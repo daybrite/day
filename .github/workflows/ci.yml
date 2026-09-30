@@ -1001,7 +1001,7 @@ jobs:
       - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
         run: |
           # setup-ohos-sdk's OHOS_NDK_HOME is the per-OS SDK root; the NDK (the llvm cross-compilers
-          # day-arkui-sys's build.rs and the cargo linkers need) is its `native` component, exposed as
+          # napi-ohos's build script and the cargo linkers need) is its `native` component, exposed as
           # the `ohos_sdk_native` output (…/native, a sibling of …/toolchains). Pin OHOS_NDK_HOME to it.
           NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
           echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"

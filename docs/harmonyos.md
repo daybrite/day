@@ -23,16 +23,26 @@ widget tree over a thin bridge, and Day owns absolute layout.
 
 ```
 ArkTS host (Index.ets)           libentry.so (Rust cdylib)
-  NodeContent slot  ──start()──▶  day-arkui-sys  (C++ shim over the ArkUI NodeAPI + NAPI)
-  ContentSlot(content)            day-arkui      (Toolkit/Platform: Stack/Text/Button/…)
-        ▲                         day-core / day-pieces / day-fluent / day-script
+  NodeContent slot  ──start()──▶  day-arkui  (Toolkit/Platform: Stack/Text/Button/…)
+  ContentSlot(content)              host_api  #[napi] exports + JS callbacks   (napi-ohos)
+        ▲                           node / canvas / list / images / …          (ohos-sys)
+        │                         day-core / day-pieces / day-fluent / day-script
         └── OH_ArkUI_NodeContent_AddNode ── the native tree Day builds is mounted here
 ```
+
+There is no C or C++ in the backend. The NDK is bound by openharmony-rs's
+[`ohos-sys`](https://crates.io/crates/ohos-sys) (ArkUI's node, gesture, animate and drag APIs,
+OH_Drawing, the image kit, rawfile, VSync, UDMF, hilog), and the NAPI module the host imports is
+registered and marshaled by ohos-rs's [`napi-ohos`](https://crates.io/crates/napi-ohos): every
+export in `types/Index.d.ts` is a `#[napi]` function in `src/host_api.rs`, and the host's
+callbacks (navigation, pickers, permissions, windows, ArkTS-built pieces, the daybridge record)
+are held as NAPI references. `build.rs` names the module `entry` (`NAPI_BUILD_TARGET_NAME`) so
+it matches the `libentry.so` the ArkTS runtime loads.
 
 The ArkTS host is the framework's, not the app's. It lives in the day-arkui crate at
 `toolkits/day-arkui/platform/harmony/` — `ets/` holds `EntryAbility`, `DayWindowAbility`, the
 `Index` page and the secondary-window `DayWindow` page; `types/Index.d.ts` declares the native
-module's exports, so it always matches the `day-arkui-sys` shim the app links. `day build`
+module's exports, so it always matches the `#[napi]` exports the app links. `day build`
 (and `day prepare`/`day open`) resolves the crate through cargo metadata and stages the
 directory into `build/day/harmony/project/`: the pages and abilities under
 `entry/src/main/ets/day/`, the typings (with their `oh-package.json5`) under
@@ -58,15 +68,19 @@ Keep native module dependencies and custom build-script paths relative to the na
 or use absolute paths for external tools. A path that climbs out of `platform/harmony/`
 will resolve from a different directory in the staged project.
 
-- **`day-arkui-sys`**: a C++ shim (like `day-qt-sys`/`day-xaml-sys`) exposing a flat C ABI over
-  `arkui/native_node.h` (`createNode`/`setAttribute`/`addChild`/`registerNodeEvent`/`measureNode`),
-  `arkui/native_node_napi.h` (`NodeContent`), and `napi/native_api.h`. It also registers the NAPI
-  module (`entry`) whose `start(nodeContent, widthVp, heightVp, density)` kicks off Day, wires the
-  global node-event receiver back to Rust, and posts to the main (JS) thread via libuv `uv_async`.
-- **`day-arkui`**: the `Toolkit`/`Platform` impl. Pieces map to ArkUI node types
-  (`ARKUI_NODE_STACK` for containers, `TEXT`, `BUTTON`, `TEXT_INPUT`, `TOGGLE`, `SLIDER`), children
-  get an explicit position + size in **vp** (≈ Day points), and events (click / text / toggle /
-  slider) come back through `day_arkui_on_event`.
+- **`day-arkui`**: the `Toolkit`/`Platform` impl (`src/lib.rs`) over a set of modules, one per
+  NDK API: `node` (the `ArkUI_NativeNodeAPI_1` table: `createNode`/`setAttribute`/`addChild`/
+  `registerNodeEvent`/`measureNode`, plus the attribute recipes the pieces need), `events` (the
+  global node-event receiver, which turns ArkUI payloads into the shared bridge wire), `canvas`
+  (OH_Drawing replay), `list` (the NodeAdapter), `images` (pixelmaps, the packer, snapshots),
+  `fonts`, `anim` (`animateTo`), `gesture`, `transfer` (UDMF drag and drop), `resources`
+  (rawfile), `vsync`, `hilog`, `main_thread` (a NAPI threadsafe function posts to the JS thread),
+  `host_api` (the `#[napi]` exports and the host's callbacks) and `bridge` (daybridge's ArkTS
+  arms). Pieces map to ArkUI node types (`ARKUI_NODE_STACK` for containers, `TEXT`, `BUTTON`,
+  `TEXT_INPUT`, `TOGGLE`, `SLIDER`), children get an explicit position + size in **vp** (≈ Day
+  points), and events (click / text / toggle / slider) come back through `on_event`. A standalone
+  piece drives its own node through `day_arkui::node` and the raw `day_arkui::arkui_sys` bindings
+  (day-piece-datetime, day-piece-pullrefresh, day-tweak-slider-tickmarks): no C++ of its own.
 - **`day::day_start_arkui!(root)`**: exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
   it mounts the app's root piece and runs the loop (`day::arkui::start` → `launch_with`). Apps
   reach it through `day::day_start!("App Name", root)`, which expands to this macro and to every
@@ -308,7 +322,7 @@ on the Oniro emulator:
   marshaled to the JS/UI loop. Integer request tickets make cancellation and late callbacks safe;
   the native source is released when idle. See [frames.md](frames.md) for timing and lifecycle.
 - **Animation** (§8.4) — `Cap::Animation` is `Native`. `set_opacity`, `set_transform`, and an
-  animated container background run inside the NDK's `animateTo` (`day_ark_animate` in the shim),
+  animated container background run inside the NDK's `animateTo` (`anim::animate`),
   so ArkUI interpolates `NODE_OPACITY`, `NODE_TRANSLATE`/`NODE_SCALE`/`NODE_ROTATE` (about
   `NODE_TRANSFORM_CENTER`), and `NODE_BACKGROUND_COLOR` on its compositor. Easing curves map to
   ArkUI's built-in ones; a spring becomes a custom curve that samples day's own analytic spring
@@ -316,12 +330,12 @@ on the Oniro emulator:
   on the target (ArkUI jumps to the target when a curve ends elsewhere). `apply` runs instantly
   when the node has no UI context yet. `set_frame` is not animated.
 - **Label measurement** — a label measures on a fresh copy of its Text node
-  (`day_ark_measure_label`): after a Text's `NODE_TEXT_CONTENT` changes, ArkUI's `measureNode`
+  (`node::measure_label`): after a Text's `NODE_TEXT_CONTENT` changes, ArkUI's `measureNode`
   keeps returning the previous text's size until its own layout pass runs (`markDirty` and a
   changed constraint don't clear it), so a readout that grew was laid out at its old width and
   wrapped. The copy costs about 80 µs per measure on the emulator. Styled labels (spans) still
   measure directly.
-- **Button measurement** — a title button measures a fresh copy (`day_ark_measure_button`), for
+- **Button measurement** — a title button measures a fresh copy (`node::measure_button`), for
   the stale-size reason labels do. An icon button (the Row `apply_button_content` inserts) is
   sized from that Row plus the capsule's padding, calibrated once from a fresh "M" button against
   a fresh "M" text: ArkUI measures the Button at its 32 vp minimum without regard to the Row.

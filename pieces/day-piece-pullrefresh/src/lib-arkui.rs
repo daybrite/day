@@ -2,41 +2,61 @@
 // SPDX-License-Identifier: MPL-2.0
 
 // ---------------------------------------------------------------------------
-// ArkUI (HarmonyOS): the native tier, ARKUI_NODE_REFRESH, created by this crate's NDK shim
-// (src/refresh-arkui.cpp, compiled by build.rs against OHOS_NDK_HOME, the tickmarks pattern).
-// The realized node is the Refresh node: day-core's generic day_ark_insert_child mounts the
-// wrapped scrollable into it (Refresh hosts exactly one child). Pull-begins route from
-// NODE_REFRESH_ON_REFRESH through the shim's callback into `day_arkui::emit`; `RefreshPatch`
-// drives NODE_REFRESH_REFRESHING both ways. This is the first external ArkUI piece renderer;
-// registration is the same `renderer!` slice as every other backend.
+// ArkUI (HarmonyOS): the native tier, ARKUI_NODE_REFRESH, created through day-arkui's node module
+// (docs/extending.md). The realized node is the Refresh node: day-core's generic insert mounts
+// the wrapped scrollable into it (Refresh hosts exactly one child). Pull-begins route from
+// NODE_REFRESH_ON_REFRESH through an additive per-node event receiver (so day-arkui's global
+// receiver is untouched) into `day_arkui::emit`; `RefreshPatch` drives NODE_REFRESH_REFRESHING
+// both ways. Registration is the same `renderer!` slice as every other backend.
 // ---------------------------------------------------------------------------
 
 use super::*;
+use day_arkui::arkui_sys::native_node::{
+    ArkUI_NodeAttributeType as Attr, ArkUI_NodeEvent, ArkUI_NodeEventType as Ev, ArkUI_NodeType,
+    OH_ArkUI_NodeEvent_GetEventType, OH_ArkUI_NodeEvent_GetUserData,
+};
+use day_arkui::node;
 use day_arkui::{AHandle, ArkUi};
 use day_spec::NodeId;
-use std::os::raw::{c_int, c_longlong, c_void};
 
-unsafe extern "C" {
-    fn day_prf_node_new(
-        id: c_longlong,
-        refreshing: c_int,
-        cb: extern "C" fn(c_longlong),
-    ) -> *mut c_void;
-    fn day_prf_set_refreshing(node: *mut c_void, on: c_int);
+/// A user pull began on the Refresh node carrying this day NodeId in its event user data.
+unsafe extern "C" fn on_event(ev: *mut ArkUI_NodeEvent) {
+    day_spec::ffi_guard::contain((), || {
+        // SAFETY: a live node event for the callback's duration.
+        let (kind, id) = unsafe {
+            (
+                OH_ArkUI_NodeEvent_GetEventType(ev),
+                OH_ArkUI_NodeEvent_GetUserData(ev) as usize as u64,
+            )
+        };
+        if kind == Ev::NODE_REFRESH_ON_REFRESH {
+            day_arkui::emit(NodeId(id), Event::custom("pullrefresh:begin", ""));
+        }
+    });
 }
 
-/// Shim → Day: a user pull began on the Refresh node carrying this day NodeId.
-extern "C" fn on_pull(id: c_longlong) {
-    day_arkui::emit(NodeId(id as u64), Event::custom("pullrefresh:begin", ""));
+fn set_refreshing(h: &AHandle, on: bool) {
+    node::set_i32(h.0, Attr::NODE_REFRESH_REFRESHING, i32::from(on));
 }
 
 fn make(_backend: &mut ArkUi, p: &RefreshProps, id: NodeId) -> AHandle {
-    AHandle(unsafe { day_prf_node_new(id.0 as c_longlong, p.refreshing as c_int, on_pull) })
+    let n = node::create(ArkUI_NodeType::ARKUI_NODE_REFRESH);
+    // Null = Refresh unavailable on this SDK; day falls back per docs.
+    if n.is_null() {
+        return AHandle(n);
+    }
+    node::register_event(n, Ev::NODE_REFRESH_ON_REFRESH, id.0);
+    node::add_event_receiver(n, on_event);
+    let h = AHandle(n);
+    if p.refreshing {
+        set_refreshing(&h, true);
+    }
+    h
 }
 
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &RefreshPatch) {
     let RefreshPatch::SetRefreshing(on) = patch;
-    unsafe { day_prf_set_refreshing(h.0, *on as c_int) };
+    set_refreshing(h, *on);
 }
 
 day_pieces::renderer!(day_arkui::RENDERERS, ArkUi,

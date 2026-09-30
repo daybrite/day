@@ -3,17 +3,15 @@
 
 // ---------------------------------------------------------------------------
 // HarmonyOS: ARKUI_NODE_LOADING_PROGRESS, the platform's indeterminate spinner, straight from the
-// C node API. `large` doubles the default 32 vp to the 64 vp HarmonyOS uses for a page-level
-// loader; a stopped spinner is hidden but keeps its box, as on Android and iOS.
+// C node API through day-arkui's node module. `large` doubles the default 32 vp to the 64 vp
+// HarmonyOS uses for a page-level loader; a stopped spinner is hidden but keeps its box, as on
+// Android and iOS.
 // ---------------------------------------------------------------------------
 
 use super::*;
+use day_arkui::node;
 use day_arkui::{AHandle, ArkUi};
-use day_arkui_sys as ffi;
 use day_spec::{NodeId, Proposal, Size};
-
-/// `day_ark_node_new`'s LOADING_PROGRESS kind.
-const K_LOADING: std::os::raw::c_int = 8;
 
 std::thread_local! {
     /// The spinners built large, by handle, for `measure`.
@@ -30,19 +28,17 @@ fn side(h: &AHandle) -> f64 {
 }
 
 fn make(_backend: &mut ArkUi, p: &ActivityProps, _id: NodeId) -> AHandle {
-    let n = unsafe { ffi::day_ark_node_new(K_LOADING) };
+    let n = node::create(node::LOADING);
     if p.large {
         LARGE.with(|l| l.borrow_mut().insert(n as usize));
     }
-    unsafe { ffi::day_ark_set_loading(n, std::os::raw::c_int::from(p.animating)) };
+    node::set_loading(n, p.animating);
     AHandle(n)
 }
 
 fn update(_backend: &mut ArkUi, h: &AHandle, patch: &ActivityPatch) {
     match patch {
-        ActivityPatch::Animating(on) => unsafe {
-            ffi::day_ark_set_loading(h.0, std::os::raw::c_int::from(*on))
-        },
+        ActivityPatch::Animating(on) => node::set_loading(h.0, *on),
     }
 }
 

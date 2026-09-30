@@ -1328,9 +1328,10 @@ pub fn build_ohos(
             )
             .env("CARGO_TARGET_DIR", &target_dir)
             .env(&linker_var, format!("{ndk}/llvm/bin/{triple}-clang"))
-            // day-arkui-sys's build.rs compiles the C++ shim with the NDK clang and reads this
-            // variable itself; export the resolved path so auto-detected local installs work even
-            // when the parent environment (a GUI-launched editor) never set it.
+            // napi-ohos's build script (the NAPI runtime day-arkui registers the ArkTS module
+            // with) reads this variable for its link search paths; export the resolved path so
+            // auto-detected local installs work even when the parent environment (a GUI-launched
+            // editor) never set it.
             .env("OHOS_NDK_HOME", &ndk)
             // cc-rs (used by build scripts of C-carrying deps, e.g. ring under day-part-http's
             // fallback TLS) picks the cross compiler from these per-target vars; without them it
@@ -1384,8 +1385,8 @@ pub fn build_ohos(
         std::fs::create_dir_all(&libs).map_err(|e| format!("mkdir {}: {e}", libs.display()))?;
         std::fs::copy(&so, libs.join("libentry.so"))
             .map_err(|e| format!("stage libentry.so: {e}"))?;
-        // libentry.so links the NDK's shared libc++ (the day-arkui-sys C++ shim), which
-        // OpenHarmony does not provide on-device for apps: an unbundled hap dies at load with
+        // libentry.so may link the NDK's shared libc++ (a piece's own C++, or a C++-backed
+        // dependency), which OpenHarmony does not provide on-device for apps: an unbundled hap dies at load with
         // MUSL-LDSO's "Error loading shared library libc++_shared.so". Stage it next to
         // libentry.so so hvigor packs it into the hap (the exact analogue of the Android jniLibs
         // bundling). The NDK's per-arch lib dir uses the clang triple (`x86_64-linux-ohos`), not

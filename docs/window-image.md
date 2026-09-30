@@ -103,7 +103,7 @@ synchronous packer at all (`packToData` and `packing` are Promise/callback only)
 through the host would have forced `window_image()` to be async on **every** backend to satisfy
 this one. `OH_ArkUI_GetNodeSnapshot` and `OH_ImagePackerNative_PackToDataFromPixelmap` do the same
 work synchronously in-process, so the API stays sync everywhere. It costs two extra linked
-libraries (`libpixelmap.so`, `libimage_packer.so`); see day-arkui-sys's `build.rs`.
+libraries (`libpixelmap.so`, `libimage_packer.so`), linked by the image kit's `ohos-sys` bindings (day-arkui's `images` module).
 
 ## Relationship to dayscript screenshots
 

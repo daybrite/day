@@ -25,7 +25,7 @@ qt = ["dep:day-qt"]
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android]
 xaml = ["dep:day-xaml", "dep:day-xaml-sys"]
-arkui = ["dep:day-arkui", "dep:day-arkui-sys"]  # + build.rs compiles src/datetime-arkui.cpp
+arkui = ["dep:day-arkui"]
 dom = ["dep:day-dom"]
 
 # Backends this piece carries a native renderer for, all eight: the seven native toolkits plus
@@ -53,7 +53,6 @@ day-arkui = { workspace = true, optional = true }
 # `persistence`: SQLite codecs only, without the engine or a driver, so this never drags rusqlite
 # in.
 day-persistence = { workspace = true, default-features = false, optional = true }
-day-arkui-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
 objc2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", optional = true, features = ["NSDatePicker", "NSDatePickerCell", "NSControl", "NSView", "NSResponder"] }

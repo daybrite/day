@@ -53,7 +53,7 @@ The source investigation found these reusable paths:
 | Windows XAML | `toolkits/day-xaml-sys/src/shim.cpp`: `day_xaml_list_enable_reorder`, `day_xaml_cell_drag` | Existing `CanDrag`, `AllowDrop`, `DataPackageOperation` wiring is local row bookkeeping. Add actual data packages. |
 | Android MDC | `toolkits/day-android/java/dev/daybrite/day/bridge/DayBridge.java`: `ItemTouchHelper` | Incremental row swaps are not Android system data dragging. Add `View.OnDragListener` separately. |
 | web-dom | `crates/day-cli/resources/web/shim.js`: `day_dom_list_reorder` | Pointer capture and a CSS gap implement local reorder; there is no HTML transfer session in that path. |
-| Harmony ArkUI | `toolkits/day-arkui-sys/src/shim.cpp`: `NODE_ON_DRAG_START`, `NODE_ON_DROP`, draggable cells | Native drag events exist, but handlers are hard-wired to list state. Route by registered capability before list fallback. |
+| Harmony ArkUI | `toolkits/day-arkui/src/transfer.rs` + `list.rs`: `NODE_ON_DRAG_START`, `NODE_ON_DROP`, draggable cells | Native drag events exist, but handlers are hard-wired to list state. Route by registered capability before list fallback. |
 
 `Cap::TreeMove` remains unsupported in several adapters; a general drop API must not silently
 claim that tree reparenting works everywhere. Preserve the current list/tree contracts while
@@ -202,8 +202,8 @@ on registered accepting targets, preserving ordinary browser/editor behavior els
 
 ### HarmonyOS: harmony-arkui
 
-Day uses native ArkUI nodes, so implement the C API in `day-arkui-sys`, with Rust ownership
-in `day-arkui`. Use draggable/allowed-type configuration and `NODE_ON_DRAG_*`/`NODE_ON_DROP`.
+Day uses native ArkUI nodes, so drive the C API (`ohos-sys`'s `drag_and_drop` and `udmf`
+bindings) from `day-arkui`'s `transfer` module, which owns the state in Rust. Use draggable/allowed-type configuration and `NODE_ON_DRAG_*`/`NODE_ON_DROP`.
 The installed SDK's `arkui/drag_and_drop.h` provides `SetData`/`GetUdmfData`, type enumeration,
 window/display coordinates, copy/move proposals, drag results, previews, and explicit
 `ArkUI_DragAction` creation. These core declarations are marked API 12. Link is not in its

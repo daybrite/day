@@ -3,15 +3,17 @@
 
 //! day-arkui: the HarmonyOS Next **ArkUI** backend (target `harmony-arkui`; DESIGN.md §9).
 //!
-//! HarmonyOS has no AOSP layer; its UI framework is ArkUI. Day drives it through the **ArkUI Native
-//! NodeAPI** (`day-arkui-sys`): every Piece becomes a real `ArkUI_NodeHandle` (Text / Button /
-//! TextInput / Toggle / Slider / Stack), built natively and mounted into an ArkTS `NodeContent` slot.
-//! Architecturally it mirrors `day-android`: a managed UI runtime (ArkTS) hosts the window, native
-//! code (Rust) builds the tree over a thin bridge, and **day owns absolute layout**: containers are
-//! `ARKUI_NODE_STACK` and each child gets an explicit position + size (in vp = day points).
+//! HarmonyOS has no AOSP layer; its UI framework is ArkUI. Day drives it through the **ArkUI
+//! Native NodeAPI**, bound by openharmony-rs's `ohos-sys` (src/node.rs): every Piece becomes a
+//! real `ArkUI_NodeHandle` (Text / Button / TextInput / Toggle / Slider / Stack), built natively
+//! and mounted into an ArkTS `NodeContent` slot. The ArkTS host reaches the native side through
+//! the NAPI module ohos-rs's `napi-ohos` registers (src/host_api.rs). Architecturally it mirrors
+//! `day-android`: a managed UI runtime (ArkTS) hosts the window, native code (Rust) builds the
+//! tree, and **day owns absolute layout**: containers are `ARKUI_NODE_STACK` and each child gets
+//! an explicit position + size (in vp = day points).
 //!
-//! Off HarmonyOS the crate is empty (`cfg(target_env = "ohos")`), so the workspace still type-checks
-//! on the host.
+//! Off HarmonyOS the crate is empty (`cfg(target_env = "ohos")`), so the workspace still
+//! type-checks on the host.
 
 #![allow(clippy::missing_safety_doc)]
 
@@ -19,23 +21,53 @@
 pub use imp::*;
 
 #[cfg(target_env = "ohos")]
+mod anim;
+#[cfg(target_env = "ohos")]
+mod bridge;
+#[cfg(target_env = "ohos")]
+mod canvas;
+#[cfg(target_env = "ohos")]
+mod events;
+#[cfg(target_env = "ohos")]
 pub mod ext;
+#[cfg(target_env = "ohos")]
+mod fonts;
+#[cfg(target_env = "ohos")]
+mod gesture;
+#[cfg(target_env = "ohos")]
+mod hilog;
 #[cfg(target_env = "ohos")]
 mod host;
 #[cfg(target_env = "ohos")]
+mod host_api;
+#[cfg(target_env = "ohos")]
+mod images;
+#[cfg(target_env = "ohos")]
+mod list;
+#[cfg(target_env = "ohos")]
+mod main_thread;
+/// The ArkUI node API for standalone pieces (docs/extending.md): create a node, set its
+/// attributes, register its events, and the raw bindings behind them.
+#[cfg(target_env = "ohos")]
+pub mod node;
+#[cfg(target_env = "ohos")]
+mod resources;
+#[cfg(target_env = "ohos")]
 mod transfer;
 #[cfg(target_env = "ohos")]
+mod vsync;
+#[cfg(target_env = "ohos")]
 pub use ext::*;
+/// The NDK's ArkUI bindings, for a piece that needs an attribute or event `node` does not wrap.
+#[cfg(target_env = "ohos")]
+pub use ohos_sys::arkui as arkui_sys;
 
 #[cfg(target_env = "ohos")]
 mod imp {
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;
-    use std::ffi::{CStr, CString};
-    use std::os::raw::{c_char, c_int, c_void};
     use std::rc::Rc;
 
-    use day_arkui_sys as ffi;
     use linkme::distributed_slice;
 
     use day_spec::props::*;
@@ -45,9 +77,11 @@ mod imp {
         Toolkit, WindowOptions, kinds,
     };
 
+    use crate::node::{self, Handle};
+
     /// An `ArkUI_NodeHandle`. day owns the tree, so the raw pointer is the identity.
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct AHandle(pub *mut c_void);
+    pub struct AHandle(pub Handle);
 
     type Sink = Rc<dyn Fn(NodeId, Event)>;
 
@@ -64,8 +98,8 @@ mod imp {
         static WINDOW_BAR: RefCell<day_spec::ToolbarMirror> = RefCell::new(day_spec::ToolbarMirror::default());
         static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
-        /// Keys whose NavDestination already disappeared (`day_arkui_nav_popped`) while the
-        /// page is still mounted; its Remove must not touch the torn-down ArkTS content.
+        /// Keys whose NavDestination already disappeared (`nav_popped`) while the page is
+        /// still mounted; its Remove must not touch the torn-down ArkTS content.
         static NAV_POPPED_KEYS: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
         /// Keys whose next `navPopped` acknowledges a Day-initiated pop (must not sync back
@@ -82,7 +116,6 @@ mod imp {
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         /// The window root Stack + content size, set by [`init`] before `run`.
         static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
-        static DENSITY: Cell<f64> = const { Cell::new(1.0) };
         /// Dark mode (docs/localization + theming): resolved once at init. DAY_THEME (the CI
         /// forced theme) wins, else DAY_ARKUI_DARK (the system color mode the ArkTS host reports
         /// via setEnv before start()). ArkUI's C-API nodes do not re-theme hardcoded colors, so
@@ -110,7 +143,7 @@ mod imp {
         /// A NAV_MENU row's synthetic click id → (menu node, row index). A tap on a menu row is a
         /// plain NODE_ON_CLICK, so we register it against a fresh synthetic id and translate the
         /// click back into `SelectionChanged(index)` against the menu host (day-android does the
-        /// same with a per-row listener). See [`day_arkui_on_event`].
+        /// same with a per-row listener). See [`on_event`].
         static MENU_ROWS: RefCell<HashMap<u64, (NodeId, i64)>> = RefCell::new(HashMap::new());
         /// NAV_MENU scroll node ptr → its day NodeId, so `NavMenuPatch::Items` (which only gets
         /// the handle) can rebuild the rows against the right menu id, and `release` can purge
@@ -123,8 +156,8 @@ mod imp {
         /// key the source by the id the native adapter callbacks report.
         static LIST_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// List host NodeId → its injected row-pull source (docs/list.md).
-        /// Programmatic selection per list (docs/list.md `ListPatch::Selected`): the shim
-        /// paints from this at bind and on a sync (`day_ark_list_paint_selection`).
+        /// Programmatic selection per list (docs/list.md `ListPatch::Selected`): the list
+        /// module paints from this at bind and on a sync (`list::paint_selection`).
         static LIST_SELECTED: RefCell<HashMap<u64, std::collections::BTreeSet<usize>>> =
             RefCell::new(HashMap::new());
         /// Lists with a posted reload not yet run (see the Reload arm): one data change often
@@ -147,7 +180,7 @@ mod imp {
             RefCell::new(HashMap::new());
         /// Node ids with a Tap gesture (docs/shapes.md): a NODE_ON_CLICK on these emits `Event::Tap`
         /// (not `Event::Pressed`), which is how a canvas/shape `.on_tap` (e.g. day-piece-rating's
-        /// stars) receives taps on ArkUI. See [`Toolkit::enable_gesture`] + [`day_arkui_on_event`].
+        /// stars) receives taps on ArkUI. See [`Toolkit::enable_gesture`] + [`on_event`].
         static TAP_NODES: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
         /// Tap-node handle ptr → its node id, so `release` (which only gets the handle) can drop the
@@ -178,15 +211,13 @@ mod imp {
             RefCell::new(std::collections::HashSet::new());
         static NAV_PENDING_POP: RefCell<std::collections::HashSet<u64>> =
             RefCell::new(std::collections::HashSet::new());
-        /// Each `scroll()`'s shim-owned content Stack (scroll ptr → stack ptr), sized by
+        /// Each `scroll()`'s backend-owned content Stack (scroll ptr → stack ptr), sized by
         /// `set_scroll_content`. Day's content nodes are layout-only (no native child of
         /// their own), and an ArkUI Scroll whose children are absolutely-placed leaves
         /// measures a content extent of 0, so offsets clamp to nothing and neither touch nor
         /// programmatic scrolling moves. `insert`/`remove` re-route the scroll's day
         /// children into the container so the Scroll measures the real extent.
         static SCROLL_CONTENT: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
-        /// Monotonic base for frame-clock timestamps (§8.4).
-
 
         /// Each picker wheel's live selection, so a change of options can keep it: the
         /// range attribute is set whole, and the selected index goes with it. A
@@ -206,18 +237,8 @@ mod imp {
         /// Secondary window roots (docs/windows.md): (day node, the window's Stack node
         /// pointer): the multiton DayWindowAbility instances' content.
         static SECONDARY: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
-
     }
 
-    /// Build a NAV_MENU: a scrollable column of conventional navigation rows (an optional
-    /// leading icon, leading-aligned label, trailing chevron, hairline separators, the
-    /// HarmonyOS settings-list idiom), not buttons. Each row's tap becomes a synthetic click
-    /// that [`day_arkui_on_event`] translates to `SelectionChanged(index)` against `menu`.
-    ///
-    /// Icons (docs/vectors.md): a vector name resolves to its staged rawfile SVG
-    /// (`day/<name>.svg`), which ArkUI renders natively and `NODE_IMAGE_FILL_COLOR` recolors:
-    /// the row's tint when given, else a secondary theme foreground. A raster name falls
-    /// back to `day/<name>.png`, drawn as authored (fill color has no effect on rasters).
     /// Height of the composed bottom bar, in vp (HarmonyOS's tab-bar metric).
     const NAV_BAR_H: f64 = 56.0;
 
@@ -240,6 +261,42 @@ mod imp {
         page_size: Size,
     }
 
+    fn next_synth() -> u64 {
+        SYNTH.with(|c| {
+            let v = c.get();
+            c.set(v + 1);
+            v
+        })
+    }
+
+    /// The staged image for a name (docs/vectors.md): a vector's SVG (recolorable), else the
+    /// raster PNG, as a `resource://RAWFILE` URI.
+    fn named_image(name: &str) -> (String, bool) {
+        let svg = format!("day/{name}.svg");
+        if crate::resources::rawfile_exists(&svg) {
+            (format!("resource://RAWFILE/{svg}"), true)
+        } else {
+            (format!("resource://RAWFILE/day/{name}.png"), false)
+        }
+    }
+
+    /// An icon node for a nav row or bar item: a vector tinted with `tint` or the themed
+    /// secondary color, a raster drawn as authored.
+    fn row_icon(owner: usize, name: &str, tint: Option<day_spec::Color>, size: f64) -> AHandle {
+        let icon = new_node(node::IMAGE);
+        let (src, is_vector) = named_image(name);
+        node::set_image_src(icon.0, &src);
+        if is_vector {
+            match tint {
+                Some(c) => node::set_image_fill(icon.0, argb(c)),
+                None => themed(owner, icon.0, Paint::ImageFill, 0x9900_0000, 0x99FF_FFFF),
+            }
+        }
+        node::set_image_fit(icon.0, 0);
+        node::set_size(icon.0, size, size);
+        icon
+    }
+
     /// Build the bar's items from the host's rows: an icon over a label per destination, each
     /// registering a synthetic click that reports `SelectionChanged(i)` against the menu node.
     fn suite_fill_bar(
@@ -255,7 +312,7 @@ mod imp {
                 return;
             };
             for old in std::mem::take(&mut suite.bar_items) {
-                unsafe { ffi::day_ark_remove_child(suite.bar.0, old.0) };
+                node::remove_child(suite.bar.0, old.0);
             }
             forget_themed(host);
             // The bar's ground, kept across refills.
@@ -267,12 +324,8 @@ mod imp {
                 0xFF1C_1C1E,
             );
             for (i, title) in items.iter().enumerate() {
-                let cell = new_node(K_COLUMN);
-                let synth = SYNTH.with(|c| {
-                    let v = c.get();
-                    c.set(v + 1);
-                    v
-                });
+                let cell = new_node(node::COLUMN);
+                let synth = next_synth();
                 MENU_ROWS.with(|m| m.borrow_mut().insert(synth, (menu, i as i64)));
                 // The selected destination takes the accent; the rest the secondary label color,
                 // which is how a HarmonyOS bottom bar reads.
@@ -282,37 +335,27 @@ mod imp {
                 } else {
                     (0x9900_0000, 0x99FF_FFFF)
                 };
-                let mut child: c_int = 0;
+                let mut child = 0;
                 if let Some(Some(name)) = icons.get(i) {
-                    let icon = new_node(K_IMAGE);
-                    let svg = format!("day/{name}.svg");
-                    let is_vector =
-                        unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
-                    unsafe {
-                        if is_vector {
-                            let src = format!("resource://RAWFILE/{svg}");
-                            ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
-                            themed(host, icon.0, Paint::ImageFill, tint_light, tint_dark);
-                        } else {
-                            let src = format!("resource://RAWFILE/day/{name}.png");
-                            ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
-                        }
-                        ffi::day_ark_set_image_fit(icon.0, 0);
-                        ffi::day_ark_set_size(icon.0, 24.0, 24.0);
-                        ffi::day_ark_insert_child(cell.0, icon.0, child);
+                    let icon = new_node(node::IMAGE);
+                    let (src, is_vector) = named_image(name);
+                    node::set_image_src(icon.0, &src);
+                    if is_vector {
+                        themed(host, icon.0, Paint::ImageFill, tint_light, tint_dark);
                     }
+                    node::set_image_fit(icon.0, 0);
+                    node::set_size(icon.0, 24.0, 24.0);
+                    node::insert_child(cell.0, icon.0, child);
                     child += 1;
                 }
-                let label = new_node(K_TEXT);
-                unsafe {
-                    ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
-                    ffi::day_ark_set_font_size(label.0, 10.0);
-                    themed(host, label.0, Paint::Font, tint_light, tint_dark);
-                    ffi::day_ark_insert_child(cell.0, label.0, child);
-                    ffi::day_ark_set_flex_grow(cell.0, 1.0);
-                    ffi::day_ark_register_event(cell.0, 0, synth);
-                    ffi::day_ark_insert_child(suite.bar.0, cell.0, i as c_int);
-                }
+                let label = new_node(node::TEXT);
+                node::set_text(label.0, title);
+                node::set_font_size(label.0, 10.0);
+                themed(host, label.0, Paint::Font, tint_light, tint_dark);
+                node::insert_child(cell.0, label.0, child);
+                node::set_flex_grow(cell.0, 1.0);
+                node::register_event(cell.0, node::EV_CLICK, synth);
+                node::insert_child(suite.bar.0, cell.0, i as i32);
                 suite.bar_items.push(cell);
             }
         });
@@ -331,15 +374,13 @@ mod imp {
             };
             let page = Size::new(size.width, (size.height - NAV_BAR_H).max(0.0));
             suite.page_size = page;
-            unsafe {
-                ffi::day_ark_set_size(suite.pages.0, page.width, page.height);
-                ffi::day_ark_set_size(suite.bar.0, size.width, NAV_BAR_H);
-            }
+            node::set_size(suite.pages.0, page.width, page.height);
+            node::set_size(suite.bar.0, size.width, NAV_BAR_H);
             suite
                 .items
                 .iter()
                 .map(|(h, id)| {
-                    unsafe { ffi::day_ark_set_size(h.0, page.width, page.height) };
+                    node::set_size(h.0, page.width, page.height);
                     (*id, page)
                 })
                 .collect()
@@ -358,11 +399,20 @@ mod imp {
             };
             suite.selected = i;
             for (n, (h, _)) in suite.items.iter().enumerate() {
-                unsafe { ffi::day_ark_set_visibility(h.0, (n == i) as c_int) };
+                node::set_visibility(h.0, n == i);
             }
         });
     }
 
+    /// Build a NAV_MENU: a scrollable column of conventional navigation rows (an optional
+    /// leading icon, leading-aligned label, trailing chevron, hairline separators, the
+    /// HarmonyOS settings-list idiom), not buttons. Each row's tap becomes a synthetic click
+    /// that [`on_event`] translates to `SelectionChanged(index)` against `menu`.
+    ///
+    /// Icons (docs/vectors.md): a vector name resolves to its staged rawfile SVG
+    /// (`day/<name>.svg`), which ArkUI renders natively and `NODE_IMAGE_FILL_COLOR` recolors:
+    /// the row's tint when given, else a secondary theme foreground. A raster name falls
+    /// back to `day/<name>.png`, drawn as authored (fill color has no effect on rasters).
     fn build_nav_menu(
         menu: NodeId,
         items: &[String],
@@ -372,7 +422,7 @@ mod imp {
         badge_tints: &[Option<day_spec::Color>],
         sections: &[Option<String>],
     ) -> AHandle {
-        let scroll = new_node(K_SCROLL);
+        let scroll = new_node(node::SCROLL);
         let col = build_nav_menu_rows(
             menu,
             items,
@@ -382,7 +432,7 @@ mod imp {
             badge_tints,
             sections,
         );
-        unsafe { ffi::day_ark_insert_child(scroll.0, col.0, 0) };
+        node::insert_child(scroll.0, col.0, 0);
         // The rows column is owned content: registering it here lets `NavMenuPatch::Items`
         // swap it wholesale and `release` dispose it with the scroll.
         SCROLL_CONTENT.with(|m| m.borrow_mut().insert(scroll.0 as usize, col.0 as usize));
@@ -405,133 +455,58 @@ mod imp {
         badge_tints: &[Option<day_spec::Color>],
         sections: &[Option<String>],
     ) -> AHandle {
-        let col = new_node(K_COLUMN);
-        let mut pos: c_int = 0;
+        let col = new_node(node::COLUMN);
+        let owner = col.0 as usize;
+        let mut pos = 0;
         for (i, title) in items.iter().enumerate() {
             if let Some(Some(section)) = sections.get(i) {
-                let heading = new_node(K_TEXT);
-                unsafe {
-                    ffi::day_ark_set_text(heading.0, cstr(section).as_ptr());
-                    ffi::day_ark_set_font_size(heading.0, 14.0);
-                    themed(
-                        col.0 as usize,
-                        heading.0,
-                        Paint::Font,
-                        0x9900_0000,
-                        0x99FF_FFFF,
-                    );
-                    ffi::day_ark_style_nav_heading(heading.0, c_int::from(pos == 0));
-                    ffi::day_ark_insert_child(col.0, heading.0, pos);
-                }
+                let heading = new_node(node::TEXT);
+                node::set_text(heading.0, section);
+                node::set_font_size(heading.0, 14.0);
+                themed(owner, heading.0, Paint::Font, 0x9900_0000, 0x99FF_FFFF);
+                node::style_nav_heading(heading.0, pos == 0);
+                node::insert_child(col.0, heading.0, pos);
                 pos += 1;
             }
             // A Row (vertically centered children) carries the whole-row click target.
-            let row = new_node(K_ROW);
-            let label = new_node(K_TEXT);
-            let chevron = new_node(K_TEXT);
-            let synth = SYNTH.with(|c| {
-                let v = c.get();
-                c.set(v + 1);
-                v
-            });
+            let row = new_node(node::ROW);
+            let label = new_node(node::TEXT);
+            let chevron = new_node(node::TEXT);
+            let synth = next_synth();
             MENU_ROWS.with(|m| m.borrow_mut().insert(synth, (menu, i as i64)));
-            let mut child: c_int = 0;
+            let mut child = 0;
             if let Some(Some(name)) = icons.get(i) {
-                let icon = new_node(K_IMAGE);
-                let svg = format!("day/{name}.svg");
-                let is_vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
-                unsafe {
-                    if is_vector {
-                        let src = format!("resource://RAWFILE/{svg}");
-                        ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
-                        match tints.get(i).copied().flatten() {
-                            Some(c) => ffi::day_ark_set_image_fill(icon.0, argb(c)),
-                            None => themed(
-                                col.0 as usize,
-                                icon.0,
-                                Paint::ImageFill,
-                                0x9900_0000,
-                                0x99FF_FFFF,
-                            ),
-                        }
-                    } else {
-                        let src = format!("resource://RAWFILE/day/{name}.png");
-                        ffi::day_ark_set_image_src(icon.0, cstr(&src).as_ptr());
-                    }
-                    ffi::day_ark_set_image_fit(icon.0, 0);
-                    ffi::day_ark_set_size(icon.0, 20.0, 20.0);
-                    ffi::day_ark_set_margin(icon.0, 4.0);
-                    ffi::day_ark_insert_child(row.0, icon.0, child);
-                }
+                let icon = row_icon(owner, name, tints.get(i).copied().flatten(), 20.0);
+                node::set_margin(icon.0, 4.0);
+                node::insert_child(row.0, icon.0, child);
                 child += 1;
             }
-            unsafe {
-                ffi::day_ark_set_text(label.0, cstr(title).as_ptr());
-                ffi::day_ark_set_font_size(label.0, 16.0);
-                themed(col.0 as usize, label.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
-                ffi::day_ark_set_flex_grow(label.0, 1.0);
-                ffi::day_ark_set_text(chevron.0, cstr("\u{203a}").as_ptr());
-                ffi::day_ark_set_font_size(chevron.0, 20.0);
-                themed(
-                    col.0 as usize,
-                    chevron.0,
-                    Paint::Font,
-                    0x4D00_0000,
-                    0x66FF_FFFF,
-                );
-                ffi::day_ark_insert_child(row.0, label.0, child);
-            }
+            node::set_text(label.0, title);
+            node::set_font_size(label.0, 16.0);
+            themed(owner, label.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
+            node::set_flex_grow(label.0, 1.0);
+            node::set_text(chevron.0, "\u{203a}");
+            node::set_font_size(chevron.0, 20.0);
+            themed(owner, chevron.0, Paint::Font, 0x4D00_0000, 0x66FF_FFFF);
+            node::insert_child(row.0, label.0, child);
             // The trailing status glyph (docs/navigation.md), between the growing label and the
             // chevron so it sits at the row's end without displacing the disclosure arrow.
             let mut after_label = child + 1;
             if let Some(Some(name)) = badge_icons.get(i) {
-                let badge = new_node(K_IMAGE);
-                let svg = format!("day/{name}.svg");
-                let is_vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
-                unsafe {
-                    if is_vector {
-                        let src = format!("resource://RAWFILE/{svg}");
-                        ffi::day_ark_set_image_src(badge.0, cstr(&src).as_ptr());
-                        match badge_tints.get(i).copied().flatten() {
-                            Some(c) => ffi::day_ark_set_image_fill(badge.0, argb(c)),
-                            None => themed(
-                                col.0 as usize,
-                                badge.0,
-                                Paint::ImageFill,
-                                0x9900_0000,
-                                0x99FF_FFFF,
-                            ),
-                        }
-                    } else {
-                        let src = format!("resource://RAWFILE/day/{name}.png");
-                        ffi::day_ark_set_image_src(badge.0, cstr(&src).as_ptr());
-                    }
-                    ffi::day_ark_set_image_fit(badge.0, 0);
-                    ffi::day_ark_set_size(badge.0, 16.0, 16.0);
-                    ffi::day_ark_set_margin(badge.0, 4.0);
-                    ffi::day_ark_insert_child(row.0, badge.0, after_label);
-                }
+                let badge = row_icon(owner, name, badge_tints.get(i).copied().flatten(), 16.0);
+                node::set_margin(badge.0, 4.0);
+                node::insert_child(row.0, badge.0, after_label);
                 after_label += 1;
             }
-            unsafe {
-                ffi::day_ark_insert_child(row.0, chevron.0, after_label);
-                ffi::day_ark_style_row(row.0, 52.0);
-                ffi::day_ark_register_event(row.0, 0, synth);
-                ffi::day_ark_insert_child(col.0, row.0, pos);
-            }
+            node::insert_child(row.0, chevron.0, after_label);
+            node::style_row(row.0, 52.0);
+            node::register_event(row.0, node::EV_CLICK, synth);
+            node::insert_child(col.0, row.0, pos);
             pos += 1;
             if i + 1 < items.len() && !matches!(sections.get(i + 1), Some(Some(_))) {
-                let sep = new_node(K_STACK);
-                unsafe {
-                    themed(
-                        col.0 as usize,
-                        sep.0,
-                        Paint::Separator,
-                        0x1400_0000,
-                        0x24FF_FFFF,
-                    );
-                    ffi::day_ark_insert_child(col.0, sep.0, pos);
-                }
+                let sep = new_node(node::STACK);
+                themed(owner, sep.0, Paint::Separator, 0x1400_0000, 0x24FF_FFFF);
+                node::insert_child(col.0, sep.0, pos);
                 pos += 1;
             }
         }
@@ -540,12 +515,12 @@ mod imp {
 
     thread_local! {
         /// `BitmapId` → what the decode reported (docs/images.md). Only the METADATA lives here;
-        /// the pixels are the shim's, in an `OH_PixelmapNative` registry under the same id.
+        /// the pixels are the image module's, in a pixelmap registry under the same id.
         static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> =
             RefCell::new(HashMap::new());
     }
 
-    /// Re-encode a decoded bitmap through the shim (docs/images.md).
+    /// Re-encode a decoded bitmap (docs/images.md).
     ///
     /// A free function rather than the duty's body so each refusal reads as an early return
     /// instead of another copy of the same emit.
@@ -563,56 +538,38 @@ mod imp {
         if !BITMAP_INFO.with(|m| m.borrow().contains_key(&id.0)) {
             return Err(day_spec::ImageError::Gone);
         }
-        // OpenHarmony takes quality as 0..=100; -1 means the format's own default.
+        // OpenHarmony takes quality as 0..=100; none means the format's own default.
         let quality = spec
             .quality
-            .map(|q| (q.clamp(0.0, 1.0) * 100.0).round() as i32)
-            .unwrap_or(-1);
-        let mut len: u32 = 0;
-        // SAFETY: the shim returns either null or a malloc'd buffer of `len` bytes, copied out
-        // here and released through its own free.
-        unsafe {
-            let p = ffi::day_ark_image_encode(id.0, cstr(mime).as_ptr(), quality, &mut len);
-            if p.is_null() || len == 0 {
-                return Err(day_spec::ImageError::Encode);
-            }
-            let out = std::slice::from_raw_parts(p, len as usize).to_vec();
-            ffi::day_ark_bytes_free(p);
-            Ok(out)
-        }
+            .map(|q| (q.clamp(0.0, 1.0) * 100.0).round() as u32);
+        crate::images::encode(id.0, mime, quality).ok_or(day_spec::ImageError::Encode)
     }
 
-    /// Point an image node at an [`day_spec::ImageSource`] (docs/images.md) — shared by realize
+    /// Point an image node at an [`day_spec::ImageSource`] (docs/images.md): shared by realize
     /// and the `Source` patch, so a swap loads exactly what a fresh realize would have.
     ///
     /// Named is the staged-rawfile path: a vector's SVG first (docs/vectors.md), then the PNG,
     /// and `tint` recolors an SVG's paths. Bytes and Decoded need no file at all, and take no
     /// tint: there is no SVG to repaint.
     fn arkui_apply_image_source(
-        n: *mut c_void,
+        n: Handle,
         source: &day_spec::ImageSource,
         tint: Option<day_spec::Color>,
     ) {
         match source {
             day_spec::ImageSource::Named(named) => {
                 let svg = format!("day/{named}.svg");
-                if unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0 {
-                    let src = format!("resource://RAWFILE/{svg}");
-                    unsafe { ffi::day_ark_set_image_src(n, cstr(&src).as_ptr()) };
+                if crate::resources::rawfile_exists(&svg) {
+                    node::set_image_src(n, &format!("resource://RAWFILE/{svg}"));
                     if let Some(t) = tint {
-                        unsafe { ffi::day_ark_set_image_fill(n, argb(t)) };
+                        node::set_image_fill(n, argb(t));
                     }
                 } else if !named.is_empty() {
-                    let src = format!("resource://RAWFILE/day/{named}.png");
-                    unsafe { ffi::day_ark_set_image_src(n, cstr(&src).as_ptr()) };
+                    node::set_image_src(n, &format!("resource://RAWFILE/day/{named}.png"));
                 }
             }
-            day_spec::ImageSource::Bytes(bytes) => unsafe {
-                ffi::day_ark_image_node_set_bytes(n, bytes.as_ptr(), bytes.len() as u32)
-            },
-            day_spec::ImageSource::Decoded(id) => unsafe {
-                ffi::day_ark_image_node_set_bitmap(n, id.0)
-            },
+            day_spec::ImageSource::Bytes(bytes) => crate::images::node_set_bytes(n, bytes),
+            day_spec::ImageSource::Decoded(id) => crate::images::node_set_bitmap(n, id.0),
         }
     }
 
@@ -623,29 +580,10 @@ mod imp {
         }
     }
 
-    /// Emit `ev` on the next loop turn — for events produced inside a toolkit duty (which runs
+    /// Emit `ev` on the next loop turn: for events produced inside a toolkit duty (which runs
     /// under the tree borrow, so a synchronous emit would re-enter it).
     fn post_emit(id: NodeId, ev: Event) {
-        struct Payload(NodeId, Event);
-        extern "C" fn deliver(data: *mut c_void) {
-            // SAFETY: `data` is the Box::into_raw pointer minted below; the shim delivers it
-            // exactly once.
-            let p = unsafe { Box::from_raw(data as *mut Payload) };
-            // An FFI entry running app handlers: contain panics (a panic unwinding an
-            // extern "C" frame aborts the process).
-            day_spec::ffi_guard::contain((), move || emit(p.0, p.1));
-        }
-        let data = Box::into_raw(Box::new(Payload(id, ev))) as *mut c_void;
-        unsafe { ffi::day_ark_post(deliver, data) };
-    }
-
-    fn cstr(s: &str) -> CString {
-        CString::new(s).unwrap_or_else(|_| {
-            // An interior NUL must not blank the whole string (the old unwrap_or_default
-            // did): strip the NULs and keep the text.
-            let stripped: Vec<u8> = s.bytes().filter(|b| *b != 0).collect();
-            CString::new(stripped).unwrap_or_default()
-        })
+        crate::main_thread::post_local(Box::new(move || emit(id, ev)));
     }
 
     /// Pieces whose component exists only in ArkTS (docs/extending.md).
@@ -660,14 +598,14 @@ mod imp {
     /// so `set_frame` on the FrameNode itself was silently dropped: the component kept ArkUI's
     /// default layout, filling its parent from (0, 0) and covering the siblings Day had laid out
     /// around it (the web view over its URL bar). Day positions and sizes the wrapper, which it
-    /// created, and the component fills it. `props`, `cmd`, and `arg` are opaque strings the piece defines —
-    /// the bridge stays generic, so a new piece needs no shim change.
+    /// created, and the component fills it. `props`, `cmd`, and `arg` are opaque strings the piece
+    /// defines; the bridge stays generic, so a new piece needs no host change.
     pub mod piece {
-        use super::{AHandle, PIECE_NODES, cstr, ffi};
+        use super::{AHandle, PIECE_NODES, node};
         use day_spec::NodeId;
 
         /// Build the ArkTS component registered for `kind`. A null handle means no ArkTS piece
-        /// factory is registered (or it declined `kind`) — the caller should fall back to Day's
+        /// factory is registered (or it declined `kind`); the caller should fall back to Day's
         /// placeholder leaf, exactly as an unregistered renderer does.
         pub fn make(kind: day_spec::PieceKind, id: NodeId, props: &str) -> AHandle {
             try_make(kind, id, props).unwrap_or_else(|| {
@@ -676,7 +614,7 @@ mod imp {
                 // take its whole parent's layout down instead of leaving one blank rectangle.
                 // Reported so `assert_no_placeholders` sees it, exactly like a missing renderer.
                 day_spec::placeholder::report(kind, "arkui");
-                super::new_node(super::K_STACK)
+                super::new_node(node::STACK)
             })
         }
 
@@ -684,14 +622,13 @@ mod imp {
         /// native fallback of its own (the menu-style picker keeps the wheel on a host too old
         /// to register its `Select`).
         pub fn try_make(kind: &str, id: NodeId, props: &str) -> Option<AHandle> {
-            let h =
-                unsafe { ffi::day_ark_piece_make(cstr(kind).as_ptr(), id.0, cstr(props).as_ptr()) };
+            let h = crate::host_api::piece_make(kind, id.0, props);
             if h.is_null() {
                 return None;
             }
-            let wrapper = super::new_node(super::K_STACK);
-            unsafe { ffi::day_ark_add_child(wrapper.0, h) };
-            // Remembered so `release` can send the ArkTS side its disposal — and so it knows
+            let wrapper = super::new_node(node::STACK);
+            node::add_child(wrapper.0, h);
+            // Remembered so `release` can send the ArkTS side its disposal, and so it knows
             // NOT to dispose the ArkTS-owned node itself.
             PIECE_NODES.with(|m| {
                 m.borrow_mut()
@@ -713,7 +650,7 @@ mod imp {
             else {
                 return;
             };
-            unsafe { ffi::day_ark_piece_update(id, cstr(cmd).as_ptr(), cstr(arg).as_ptr()) };
+            crate::host_api::piece_update(id, cmd, arg);
         }
     }
 
@@ -721,85 +658,6 @@ mod imp {
     fn argb(c: day_spec::Color) -> u32 {
         let f = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u32;
         (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
-    }
-
-    /// Run `apply`'s attribute changes under `anim` (§8.4): inside ArkUI's `animateTo`, which
-    /// interpolates each changed attribute from its current value on ArkUI's compositor, or
-    /// instantly when `anim` is `None` (or zero-length). The shim runs `apply` exactly once
-    /// either way, instantly too when the node has no UI context yet.
-    fn animate(node: *mut c_void, anim: Option<&AnimSpec>, apply: impl FnOnce() + 'static) {
-        let Some(a) = anim.filter(|a| a.duration_ms > 0) else {
-            apply();
-            return;
-        };
-        extern "C" fn run(data: *mut c_void) {
-            let apply = unsafe { Box::from_raw(data as *mut Box<dyn FnOnce()>) };
-            apply();
-        }
-        // A spring becomes a custom curve evaluating day's own analytic spring over the
-        // animation's duration, so its overshoot and timing match every other backend; the
-        // easing curves map to ArkUI's built-in ones.
-        let (curve, custom, custom_data, custom_free) = match a.curve {
-            day_spec::Curve::Linear => (0, None, std::ptr::null_mut(), None),
-            day_spec::Curve::EaseIn => (1, None, std::ptr::null_mut(), None),
-            day_spec::Curve::EaseOut => (2, None, std::ptr::null_mut(), None),
-            day_spec::Curve::EaseInOut => (3, None, std::ptr::null_mut(), None),
-            day_spec::Curve::Spring { .. } => {
-                let secs = a.duration_ms as f64 / 1000.0;
-                let spring = SpringCurve {
-                    curve: a.curve,
-                    secs,
-                    end: a.curve.fraction(secs, secs),
-                };
-                (
-                    4,
-                    Some(spring_curve as extern "C" fn(f32, *mut c_void) -> f32),
-                    Box::into_raw(Box::new(spring)) as *mut c_void,
-                    Some(free_spring as extern "C" fn(*mut c_void)),
-                )
-            }
-        };
-        let iterations = if a.repeat == u32::MAX {
-            -1
-        } else {
-            i32::try_from(a.repeat).map_or(i32::MAX, |r| r.saturating_add(1))
-        };
-        let data = Box::into_raw(Box::new(Box::new(apply) as Box<dyn FnOnce()>)) as *mut c_void;
-        unsafe {
-            ffi::day_ark_animate(
-                node,
-                a.duration_ms.min(i32::MAX as u32) as i32,
-                a.delay_ms.min(i32::MAX as u32) as i32,
-                curve,
-                custom,
-                custom_data,
-                custom_free,
-                iterations,
-                a.autoreverse as c_int,
-                run,
-                data,
-            )
-        };
-    }
-
-    /// A spring [`day_spec::Curve`] sampled as an ArkUI custom curve over `secs`. `end` is the
-    /// spring's value at `secs`, just short of 1 for a spring still ringing then; the curve adds
-    /// the remainder linearly so it lands exactly on 1, since ArkUI jumps to the target value
-    /// at the end of an animation whose curve stops elsewhere.
-    struct SpringCurve {
-        curve: day_spec::Curve,
-        secs: f64,
-        end: f64,
-    }
-
-    extern "C" fn spring_curve(fraction: f32, data: *mut c_void) -> f32 {
-        let s = unsafe { &*(data as *const SpringCurve) };
-        let x = (fraction as f64).clamp(0.0, 1.0);
-        (s.curve.fraction(x * s.secs, s.secs) + (1.0 - s.end) * x) as f32
-    }
-
-    extern "C" fn free_spring(data: *mut c_void) {
-        drop(unsafe { Box::from_raw(data as *mut SpringCurve) });
     }
 
     /// Semantic [`Font`] → a vp point size (ArkUI's default length unit is vp ≈ day points).
@@ -825,106 +683,57 @@ mod imp {
     /// Apply a `Font::Custom` family (§18.4): the family was registered by the
     /// platform/harmony scaffold's EntryAbility (from rawfile `day/fonts.json`), so NODE_FONT_FAMILY resolves it
     /// by name; ArkUI falls back to the default family when it doesn't.
-    fn apply_font_attrs(node: *mut c_void, spec: FontSpec) {
+    fn apply_font_attrs(n: Handle, spec: FontSpec) {
         if let Font::Custom(family, _) = spec.style {
-            unsafe { ffi::day_ark_set_font_family(node, cstr(family).as_ptr()) };
+            node::set_font_family(n, family);
         }
         // Tabular figures. Set unconditionally (empty string clears it) so a label that stops
         // asking for them goes back to proportional on the next patch.
-        let feature = if spec.tabular { "tnum 1" } else { "" };
-        unsafe { ffi::day_ark_set_font_feature(node, cstr(feature).as_ptr()) };
+        node::set_font_feature(n, if spec.tabular { "tnum 1" } else { "" });
         // Weight and italic, also unconditional. An explicit weight wins; otherwise the style's
         // own (a headline is semibold, as on Android and Apple).
         let weight = spec.weight.unwrap_or(match spec.style {
             Font::Headline => day_spec::FontWeight::Semibold,
             _ => day_spec::FontWeight::Regular,
         });
-        unsafe {
-            ffi::day_ark_set_font_weight_style(node, i32::from(weight.css()), spec.italic as c_int)
-        };
+        node::set_font_weight_style(n, i32::from(weight.css()), spec.italic);
     }
-
-    // day kind → the shim's node-kind code (see kind_map in shim.cpp).
-    const K_STACK: c_int = 0;
-    const K_TEXT: c_int = 1;
-    const K_BUTTON: c_int = 2;
-    const K_TEXT_INPUT: c_int = 3;
-    const K_TOGGLE: c_int = 4;
-    const K_SLIDER: c_int = 5;
-    const K_SCROLL: c_int = 6;
-    const K_COLUMN: c_int = 7;
-    const K_ROW: c_int = 15;
-    const K_TEXT_AREA: c_int = 16;
-    const K_TEXT_PICKER: c_int = 17;
-    const K_LOADING: c_int = 8; // indeterminate spinner
-    const K_IMAGE: c_int = 9;
-    const K_CANVAS: c_int = 10; // custom node + on-draw
-    const K_PROGRESS: c_int = 11; // determinate bar
-    const K_LIST: c_int = 13;
-    // 14 = ARKUI_NODE_LIST_ITEM, created inside the shim's list adapter (never via new_node here).
 
     /// Rebuild a label's SPAN children from its runs (docs/text-runs.md).
     ///
     /// ArkUI is the one backend where runs are child NODES rather than attributes on one widget: a
     /// styled Text is a small subtree. Day's own layout still treats the label as a leaf, because
     /// ArkUI measures the spans itself and reports the Text's size.
-    fn set_label_runs(n: *mut c_void, text: &str, runs: &[day_spec::TextRun]) {
+    fn set_label_runs(n: Handle, text: &str, runs: &[day_spec::TextRun]) {
         if runs.is_empty() {
             // Plain text goes back on the Text itself; `runs_begin` cleared it when runs arrived.
-            unsafe { ffi::day_ark_set_text(n, cstr(text).as_ptr()) };
+            node::set_text(n, text);
             return;
         }
-        unsafe { ffi::day_ark_label_runs_begin(n) };
+        node::label_runs_begin(n);
         let add = |slice: &str, run: Option<&day_spec::TextRun>| {
-            let mut flags = 0i32;
-            let mut color = 0u32;
-            let mut bg = 0u32;
-            let mut scale_permille = 1000i32;
-            let mut base_fp = 0.0f64;
+            let mut style = node::RunStyle::default();
             if let Some(r) = run {
                 // The span's size is absolute in ArkUI, so a relative scale multiplies against
-                // the size this run's own style resolves to — the same `font_vp` ramp the label
+                // the size this run's own style resolves to: the same `font_vp` ramp the label
                 // itself uses.
-                base_fp = font_vp(r.font);
-                scale_permille = (r.font.scale * 1000.0).round() as i32;
-                if r.font
+                let base_fp = font_vp(r.font);
+                let scale_permille = (r.font.scale * 1000.0).round() as i32;
+                if scale_permille != 1000 && scale_permille > 0 && base_fp > 0.0 {
+                    style.size_fp = Some(base_fp * f64::from(scale_permille) / 1000.0);
+                }
+                style.bold = r
+                    .font
                     .weight
-                    .is_some_and(|w| w >= day_spec::FontWeight::Semibold)
-                {
-                    flags |= 1;
-                }
-                if r.font.italic {
-                    flags |= 2;
-                }
-                if r.font.monospace {
-                    flags |= 4;
-                }
-                if r.strikethrough {
-                    flags |= 8;
-                }
-                if let Some(c) = r.color {
-                    flags |= 16;
-                    color = argb(c);
-                }
-                if let Some(c) = r.background {
-                    flags |= 32;
-                    bg = argb(c);
-                }
-                if r.underline.is_on() {
-                    flags |= 64;
-                }
+                    .is_some_and(|w| w >= day_spec::FontWeight::Semibold);
+                style.italic = r.font.italic;
+                style.monospace = r.font.monospace;
+                style.strikethrough = r.strikethrough;
+                style.underline = r.underline.is_on();
+                style.color = r.color.map(argb);
+                style.background = r.background.map(argb);
             }
-            unsafe {
-                ffi::day_ark_label_runs_add(
-                    n,
-                    cstr(slice).as_ptr(),
-                    flags,
-                    color,
-                    bg,
-                    scale_permille,
-                    base_fp,
-                )
-            };
+            node::label_runs_add(n, slice, style);
         };
         let mut at = 0usize;
         for r in runs {
@@ -944,19 +753,16 @@ mod imp {
         }
     }
 
-    fn clear_button_content(node: AHandle) {
-        if let Some(children) = BUTTON_CHILDREN.with(|m| m.borrow_mut().remove(&(node.0 as usize)))
-        {
+    fn clear_button_content(n: AHandle) {
+        if let Some(children) = BUTTON_CHILDREN.with(|m| m.borrow_mut().remove(&(n.0 as usize))) {
             if let Some(root) = children.first() {
-                unsafe { ffi::day_ark_remove_child(node.0, root.0) };
-            }
-            if let Some(root) = children.first() {
+                node::remove_child(n.0, root.0);
                 for child in children.iter().skip(1) {
-                    unsafe { ffi::day_ark_remove_child(root.0, child.0) };
+                    node::remove_child(root.0, child.0);
                 }
             }
             for child in children.into_iter().rev() {
-                unsafe { ffi::day_ark_node_dispose(child.0) };
+                node::dispose(child.0);
             }
         }
     }
@@ -969,10 +775,8 @@ mod imp {
             day_spec::Icon::Symbol(s) => day_spec::resource::stage_symbol_svg(*s)
                 .map(|p| format!("file://{}", p.to_string_lossy())),
             day_spec::Icon::Image(name) => {
-                let svg = format!("day/{name}.svg");
-                let vector = unsafe { ffi::day_ark_rawfile_exists(cstr(&svg).as_ptr()) } != 0;
-                let png = format!("day/{name}.png");
-                let raster = unsafe { ffi::day_ark_rawfile_exists(cstr(&png).as_ptr()) } != 0;
+                let vector = crate::resources::rawfile_exists(&format!("day/{name}.svg"));
+                let raster = crate::resources::rawfile_exists(&format!("day/{name}.png"));
                 (vector || raster).then(|| {
                     format!(
                         "resource://RAWFILE/day/{name}.{}",
@@ -984,51 +788,40 @@ mod imp {
     }
 
     fn apply_button_content(
-        node: AHandle,
+        n: AHandle,
         title: &str,
         icon: Option<&day_spec::Icon>,
         icon_only: bool,
     ) {
-        clear_button_content(node);
+        clear_button_content(n);
         let source = icon.and_then(icon_source);
-        unsafe {
-            ffi::day_ark_set_a11y(node.0, cstr(title).as_ptr(), 0);
-            ffi::day_ark_set_button_label(
-                node.0,
-                cstr(if source.is_some() { "" } else { title }).as_ptr(),
-            );
-        }
+        node::set_a11y(n.0, title, false);
+        node::set_button_label(n.0, if source.is_some() { "" } else { title });
         if let Some(source) = source {
             let ink = BUTTON_INK
-                .with(|m| m.get(node.0 as usize))
+                .with(|m| m.get(n.0 as usize))
                 .unwrap_or(0xFFFF_FFFF);
-            let row = new_node(K_ROW);
-            let image = new_node(K_IMAGE);
+            let row = new_node(node::ROW);
+            let image = new_node(node::IMAGE);
             let mut children = vec![row, image];
-            unsafe {
-                ffi::day_ark_set_image_src(image.0, cstr(&source).as_ptr());
-                ffi::day_ark_set_image_fill(image.0, ink);
-                ffi::day_ark_set_size(image.0, 20.0, 20.0);
-                ffi::day_ark_insert_child(row.0, image.0, 0);
-                if !icon_only {
-                    let label = new_node(K_TEXT);
-                    ffi::day_ark_set_text(label.0, cstr(&format!("  {title}")).as_ptr());
-                    ffi::day_ark_set_font_color(label.0, ink);
-                    ffi::day_ark_insert_child(row.0, label.0, 1);
-                    children.push(label);
-                }
-                ffi::day_ark_insert_child(node.0, row.0, 0);
+            node::set_image_src(image.0, &source);
+            node::set_image_fill(image.0, ink);
+            node::set_size(image.0, 20.0, 20.0);
+            node::insert_child(row.0, image.0, 0);
+            if !icon_only {
+                let label = new_node(node::TEXT);
+                node::set_text(label.0, &format!("  {title}"));
+                node::set_font_color(label.0, ink);
+                node::insert_child(row.0, label.0, 1);
+                children.push(label);
             }
-            BUTTON_CHILDREN.with(|m| m.borrow_mut().insert(node.0 as usize, children));
+            node::insert_child(n.0, row.0, 0);
+            BUTTON_CHILDREN.with(|m| m.borrow_mut().insert(n.0 as usize, children));
         }
     }
 
-    fn apply_button_style(n: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
+    fn apply_button_style(n: Handle, style: day_spec::props::ButtonStyleSpec) {
         use day_spec::props::ButtonStyleSpec as S;
-        let argb = |c: day_spec::Color| {
-            let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
-            (f(c.a) << 24) | (f(c.r) << 16) | (f(c.g) << 8) | f(c.b)
-        };
         let (fill, ink, border) = match style {
             S::Automatic | S::Compact => (0, 0xFF33_7DFF, 0.0),
             S::Bordered => (0, 0xFF33_7DFF, 1.0),
@@ -1041,40 +834,22 @@ mod imp {
         BUTTON_CHILDREN.with(|m| {
             if let Some(children) = m.borrow().get(&(n as usize)) {
                 if let Some(image) = children.get(1) {
-                    unsafe { ffi::day_ark_set_image_fill(image.0, ink) };
+                    node::set_image_fill(image.0, ink);
                 }
                 if let Some(label) = children.get(2) {
-                    unsafe { ffi::day_ark_set_font_color(label.0, ink) };
+                    node::set_font_color(label.0, ink);
                 }
             }
         });
         // Reset all style attributes, including when changing away from a tint or border.
         // Keep the native button so press, focus, accessibility and disabled behavior survive.
-        unsafe {
-            ffi::day_ark_set_bg_color(n, fill);
-            ffi::day_ark_set_font_color(n, ink);
-            ffi::day_ark_set_button_border(n, border, ink);
-        }
+        node::set_bg_color(n, fill);
+        node::set_font_color(n, ink);
+        node::set_button_border(n, border, ink);
     }
 
-    fn new_node(kind: c_int) -> AHandle {
-        AHandle(unsafe { ffi::day_ark_node_new(kind) })
-    }
-
-    /// Render a mounted node to PNG bytes (docs/window-image.md). The shim owns the buffer until
-    /// it is copied out here, so the free is unconditional past a successful call.
-    fn snapshot_node(node: *mut c_void) -> Result<Vec<u8>, String> {
-        let mut data: *mut u8 = std::ptr::null_mut();
-        let mut len: usize = 0;
-        let ok = unsafe { ffi::day_ark_snapshot_png(node, &mut data, &mut len) };
-        if ok == 0 || data.is_null() || len == 0 {
-            return Err("the node has no snapshot".into());
-        }
-        // SAFETY: the shim reports `len` bytes written into its own malloc'd buffer, and this is
-        // the only reader; the copy ends the borrow before the matching free.
-        let bytes = unsafe { std::slice::from_raw_parts(data, len) }.to_vec();
-        unsafe { ffi::day_ark_snapshot_free(data as *mut c_void) };
-        Ok(bytes)
+    fn new_node(kind: ohos_sys::arkui::native_node::ArkUI_NodeType) -> AHandle {
+        AHandle(node::create(kind))
     }
 
     /// The ArkTS hosts for menu and segmented pickers (DaySelect.ets).
@@ -1108,8 +883,8 @@ mod imp {
         }
         THEMED.with(|t| {
             for paints in t.borrow().values() {
-                for (node, paint, light, dark_argb) in paints {
-                    paint.apply(*node as *mut c_void, if dark { *dark_argb } else { *light });
+                for (n, paint, light, dark_argb) in paints {
+                    paint.apply(*n as Handle, if dark { *dark_argb } else { *light });
                 }
             }
         });
@@ -1125,29 +900,27 @@ mod imp {
     }
 
     impl Paint {
-        fn apply(self, node: *mut c_void, argb: u32) {
-            unsafe {
-                match self {
-                    Paint::Background => ffi::day_ark_set_bg_color(node, argb),
-                    Paint::Font => ffi::day_ark_set_font_color(node, argb),
-                    Paint::ImageFill => ffi::day_ark_set_image_fill(node, argb),
-                    Paint::Separator => ffi::day_ark_menu_separator(node, argb),
-                }
+        fn apply(self, n: Handle, argb: u32) {
+            match self {
+                Paint::Background => node::set_bg_color(n, argb),
+                Paint::Font => node::set_font_color(n, argb),
+                Paint::ImageFill => node::set_image_fill(n, argb),
+                Paint::Separator => node::menu_separator(n, argb),
             }
         }
     }
 
-    /// Paint `node` with the color mode's pick of `light`/`dark`, and repaint it whenever the
+    /// Paint `n` with the color mode's pick of `light`/`dark`, and repaint it whenever the
     /// mode changes (the C nodes don't re-theme an explicit color). `owner` is the node whose
     /// release or rebuild ends the paint ([`forget_themed`]): the node itself for a Day node, the
     /// rows column or suite host for the chrome this backend builds inside one.
-    fn themed(owner: usize, node: *mut c_void, paint: Paint, light: u32, dark: u32) {
-        paint.apply(node, theme_color(light, dark));
+    fn themed(owner: usize, n: Handle, paint: Paint, light: u32, dark: u32) {
+        paint.apply(n, theme_color(light, dark));
         THEMED.with(|t| {
             let mut t = t.borrow_mut();
             let paints = t.entry(owner).or_default();
-            paints.retain(|(n, p, _, _)| !(*n == node as usize && *p == paint));
-            paints.push((node as usize, paint, light, dark));
+            paints.retain(|(p, k, _, _)| !(*p == n as usize && *k == paint));
+            paints.push((n as usize, paint, light, dark));
         });
     }
 
@@ -1157,10 +930,10 @@ mod imp {
     }
 
     /// Stop repainting one attribute of one node (an app color replaced the neutral one).
-    fn forget_paint(owner: usize, node: *mut c_void, paint: Paint) {
+    fn forget_paint(owner: usize, n: Handle, paint: Paint) {
         THEMED.with(|t| {
             if let Some(paints) = t.borrow_mut().get_mut(&owner) {
-                paints.retain(|(n, p, _, _)| !(*n == node as usize && *p == paint));
+                paints.retain(|(p, k, _, _)| !(*p == n as usize && *k == paint));
             }
         });
     }
@@ -1171,28 +944,20 @@ mod imp {
 
     /// The width of `text` in the Select's own face (16 vp, medium weight).
     fn select_label_width(text: &str) -> f64 {
-        let text = cstr(text);
-        let mut out = [0.0f64; 8];
-        // SAFETY: the string outlives the call and `out` has the eight slots the shim fills.
-        let ok = unsafe {
-            ffi::day_ark_measure_text(
-                text.as_ptr(),
-                16.0,
-                i32::from(day_spec::FontWeight::Medium.css()),
-                0,
-                c"".as_ptr(),
-                out.as_mut_ptr(),
-            )
-        };
-        if ok == 1 { out[0] } else { 0.0 }
+        crate::fonts::measure_text(
+            text,
+            16.0,
+            i32::from(day_spec::FontWeight::Medium.css()),
+            false,
+            "",
+        )[0]
     }
 
     /// Size a freshly built menu picker for its widest option. The button's chrome (padding and
     /// arrow) is what its first measure reports beyond the label it shows; a Select sized to its
     /// current label would clip a longer choice until something else relaid the row.
     fn size_menu_picker(h: &AHandle, shown: Option<&str>, options: &[String]) {
-        let (mut w, mut hh) = (0.0f64, 0.0f64);
-        unsafe { ffi::day_ark_measure(h.0, 0.0, 0.0, &mut w, &mut hh) };
+        let (w, hh) = node::measure(h.0, 0.0, 0.0);
         let chrome = (w - shown.map_or(0.0, select_label_width)).max(40.0);
         let size = Size::new(chrome + widest_label(options), hh.max(40.0));
         MENU_PICKER_SIZE.with(|m| m.borrow_mut().insert(h.0 as usize, (Some(chrome), size)));
@@ -1245,200 +1010,166 @@ mod imp {
     }
 
     /// Set up the window root and density from the ArkTS host, before `launch_with`. Called by
-    /// `day::arkui::start` (via the `day::day_start_arkui!` entry macro) with the `NodeContent` handle.
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `content` is a trusted NodeContent handle from ArkTS
-    pub fn init(content: *mut c_void, w_vp: f64, h_vp: f64, density: f64) {
+    /// `day::arkui::start` (via the `day::day_start_arkui!` entry macro) with the `NodeContent`
+    /// handle the host's `start` export received.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `content` is a trusted NodeContent handle
+    pub fn init(content: *mut std::ffi::c_void, w_vp: f64, h_vp: f64, density: f64) {
         // Reached from the ArkTS host's NAPI start call: contained like every FFI entry.
         day_spec::ffi_guard::contain((), || {
-            DENSITY.with(|d| d.set(if density > 0.0 { density } else { 1.0 }));
+            node::set_density(density);
             let dark = match std::env::var("DAY_THEME").ok().as_deref() {
                 Some("dark") => true,
                 Some("light") => false,
                 _ => std::env::var("DAY_ARKUI_DARK").ok().as_deref() == Some("1"),
             };
             IS_DARK.with(|d| d.set(dark));
-            unsafe { ffi::day_ark_init() };
             // Follow the color mode live (a system switch, or the app's own override coming
             // back): neutral paints branch on IS_DARK, and `dark_mode()` closures recolor.
             crate::host::watch_appearance(appearance_changed);
             // Serve bundled data resources (§18.3) from the app's rawfile store. Registered once
-            // here; the opener is a no-op until the ArkTS host hands us its resourceManager (see
-            // below).
+            // here; the opener is a no-op until the ArkTS host hands us its resourceManager.
             day_spec::resource::set_resource_opener(open_resource);
             // A Stack fills the window; day mounts its tree under it and positions children
             // absolutely.
-            let root = new_node(K_STACK);
-            unsafe {
-                ffi::day_ark_set_frame(root.0, 0.0, 0.0, w_vp, h_vp);
-                ffi::day_ark_content_add(content, root.0);
-            }
+            let root = new_node(node::STACK);
+            node::set_frame(root.0, 0.0, 0.0, w_vp, h_vp);
+            node::content_add(content.cast(), root.0);
             ROOT.with(|r| *r.borrow_mut() = Some((root, Size::new(w_vp, h_vp))));
             ROOT_KEEP.with(|r| r.set(Some((root.0 as usize, w_vp, h_vp))));
         });
     }
 
-    /// A secondary DayWindowAbility's page connected (the shim's `windowStart` export):
-    /// mount a Stack into its NodeContent and complete the pending open (docs/windows.md).
-    /// 0 = closed before connecting — the ability terminates itself.
-    #[unsafe(no_mangle)]
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `content` is the ability page's NodeContent
-    pub extern "C" fn day_arkui_window_start(
-        node: u64,
-        content: *mut c_void,
+    /// A secondary DayWindowAbility's page connected (the host's `windowStart` export): mount a
+    /// Stack into its NodeContent and complete the pending open (docs/windows.md). False = closed
+    /// before connecting; the ability terminates itself.
+    pub fn window_start(
+        node_id: u64,
+        content: ohos_sys::arkui::native_type::ArkUI_NodeContentHandle,
         w_vp: f64,
         h_vp: f64,
-    ) -> c_int {
-        // Every `extern "C"` entry below runs contained (day_spec::ffi_guard): a panic
-        // unwinding an extern "C" frame is UB — in practice an abort — so a caught panic
-        // reports, runs the recovery hook, and returns the arm's safe default instead.
-        day_spec::ffi_guard::contain(0, || {
-            let root = new_node(K_STACK);
-            unsafe {
-                ffi::day_ark_set_frame(root.0, 0.0, 0.0, w_vp, h_vp);
-                ffi::day_ark_content_add(content, root.0);
-            }
-            SECONDARY.with(|s| s.borrow_mut().push((node, root.0 as usize)));
+    ) -> bool {
+        // Every host entry runs contained (day_spec::ffi_guard): a panic unwinding into the
+        // runtime's frame is an abort, so a caught panic reports, runs the recovery hook, and
+        // returns the arm's safe default instead.
+        day_spec::ffi_guard::contain(false, || {
+            let root = new_node(node::STACK);
+            node::set_frame(root.0, 0.0, 0.0, w_vp, h_vp);
+            node::content_add(content, root.0);
+            SECONDARY.with(|s| s.borrow_mut().push((node_id, root.0 as usize)));
             let ok = day_core::finish_window_open(
-                day_spec::NodeId(node),
+                day_spec::NodeId(node_id),
                 root.0 as day_spec::RawHandle,
                 Size::new(w_vp, h_vp),
             );
             if !ok {
-                SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node));
-                unsafe { ffi::day_ark_node_dispose(root.0) };
+                SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node_id));
+                node::dispose(root.0);
             }
-            ok as c_int
+            ok
         })
     }
 
-    /// The secondary window's content area changed (freeform resize, rotation) — vp.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_window_resized(node: u64, w_vp: f64, h_vp: f64) {
+    /// The secondary window's content area changed (freeform resize, rotation), in vp.
+    pub fn window_resized(node_id: u64, w_vp: f64, h_vp: f64) {
         day_spec::ffi_guard::contain((), || {
             emit(
-                day_spec::NodeId(node),
+                day_spec::NodeId(node_id),
                 Event::WindowResized(Size::new(w_vp, h_vp)),
             );
         });
     }
 
-    /// The ability instance is going away (back, recents swipe, terminateSelf) — confirm
-    /// to day-core, which tears the window's subtree down.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_window_closed(node: u64) {
+    /// The ability instance is going away (back, recents swipe, terminateSelf): confirm to
+    /// day-core, which tears the window's subtree down.
+    pub fn window_closed(node_id: u64) {
         day_spec::ffi_guard::contain((), || {
-            SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node));
-            emit(day_spec::NodeId(node), Event::WindowClosed);
+            SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node_id));
+            emit(day_spec::NodeId(node_id), Event::WindowClosed);
         });
     }
 
     /// Foreground/background transitions of a secondary ability instance.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_window_focused(node: u64, active: c_int) {
+    pub fn window_focused(node_id: u64, active: bool) {
         day_spec::ffi_guard::contain((), || {
-            emit(day_spec::NodeId(node), Event::WindowFocused(active != 0));
+            emit(day_spec::NodeId(node_id), Event::WindowFocused(active));
         });
     }
 
-    /// The native event callback the shim invokes. Kind numbers are
-    /// `day_spec::bridge::BridgeKind` — the same wire table as the Android bridge (the shim's
-    /// DAY_K_* defines mirror it; day-arkui-sys's parity test holds them together). `id` is the
     /// The hilog sink for Day's logger (docs/logging.md): std's stderr goes nowhere in an
-    /// OHOS ability, so the facade installs this at start — one already-formatted line per
-    /// call, routed through the shim's OH_LOG_Print.
-    pub fn hilog_sink(_level: log::Level, line: &str) {
-        unsafe { ffi::day_ark_log(cstr(line).as_ptr()) };
+    /// OHOS ability, so the facade installs this at start, one already-formatted line per call.
+    pub fn hilog_sink(level: log::Level, line: &str) {
+        crate::hilog::print(level, line);
     }
 
-    /// day NodeId delivered back as the ArkUI event userData.
-    #[unsafe(no_mangle)]
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `text` is a valid C string from the ArkUI event
-    pub extern "C" fn day_arkui_on_event(id: u64, kind: c_int, num: f64, text: *const c_char) {
-        // The main event trampoline — contained like every extern "C" entry.
+    /// The native event trampoline: `kind` is `day_spec::bridge::BridgeKind`, the same wire
+    /// table as the Android bridge; `id` is the day NodeId the event was registered against.
+    pub fn on_event(id: u64, kind: i32, num: f64, text: &str) {
         day_spec::ffi_guard::contain((), || on_event_inner(id, kind, num, text));
     }
 
-    /// Whether this node has a `Decorate::on_key` handler (docs/menus.md). The shim asks before
-    /// it consumes a key, so an arrow nobody wanted keeps propagating — ArkUI's own focus
-    /// walking still moves between components.
+    /// [`on_event`]'s C form, for pieces built against it (day-piece-camera reports its ArkTS
+    /// surface through it): `text` is a C string or null.
     #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_node_handles_keys(id: u64) -> c_int {
-        day_spec::ffi_guard::contain(0, || c_int::from(day_spec::keys::handled(NodeId(id))))
+    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `text` is a valid C string or null, per the caller
+    pub extern "C" fn day_arkui_on_event(
+        id: u64,
+        kind: std::ffi::c_int,
+        num: f64,
+        text: *const std::ffi::c_char,
+    ) {
+        on_event(id, kind, num, &node::text_of(text));
     }
 
-    fn on_event_inner(id: u64, kind: c_int, num: f64, text: *const c_char) {
-        // A NAV_MENU row click arrives with a synthetic id — translate it to a SelectionChanged
+    fn on_event_inner(id: u64, kind: i32, num: f64, text: &str) {
+        use day_spec::bridge::BridgeKind as K;
+        // A NAV_MENU row click arrives with a synthetic id: translate it to a SelectionChanged
         // against the menu host before the normal per-node dispatch.
-        if kind == 0
+        if kind == K::Pressed as i32
             && let Some((menu, index)) = MENU_ROWS.with(|m| m.borrow().get(&id).copied())
         {
             emit(menu, Event::SelectionChanged(index));
             return;
         }
         // A node with a registered Tap gesture emits `Event::Tap`, not `Event::Pressed`.
-        if kind == 0 && TAP_NODES.with(|s| s.borrow().contains(&id)) {
+        if kind == K::Pressed as i32 && TAP_NODES.with(|s| s.borrow().contains(&id)) {
             emit(NodeId(id), Event::Tap(Point::ZERO));
             return;
         }
-        let node = NodeId(id);
+        let node_id = NodeId(id);
         let ev = match kind {
-            0 => Event::Pressed,
+            k if k == K::Pressed as i32 => Event::Pressed,
             // SelectionChanged (swiper tab / menu row), carried as the index in `num`.
-            4 => Event::SelectionChanged(num as i64),
-            k if k == day_spec::bridge::BridgeKind::ListActivated as i32 => {
-                Event::ListActivated(num as usize)
-            }
-            1 => {
-                let s = if text.is_null() {
-                    String::new()
-                } else {
-                    unsafe { CStr::from_ptr(text) }
-                        .to_string_lossy()
-                        .into_owned()
-                };
+            k if k == K::SelectionChanged as i32 => Event::SelectionChanged(num as i64),
+            k if k == K::ListActivated as i32 => Event::ListActivated(num as usize),
+            k if k == K::TextChanged as i32 => {
                 // The programmatic-set echo (see TEXT_ECHO): a change carrying exactly what
                 // day just wrote is ArkUI reporting the set back, not the user typing.
                 let is_echo =
-                    TEXT_ECHO.with(|m| m.borrow().get(&id).is_some_and(|last| *last == s));
+                    TEXT_ECHO.with(|m| m.borrow().get(&id).is_some_and(|last| *last == text));
                 if is_echo {
                     return;
                 }
                 TEXT_ECHO.with(|m| m.borrow_mut().remove(&id));
-                Event::TextChanged(s)
+                Event::TextChanged(text.to_owned())
             }
-            2 => Event::ToggleChanged(num != 0.0),
+            k if k == K::ToggleChanged as i32 => Event::ToggleChanged(num != 0.0),
             // Focus pair + text-input submit (docs/focus.md).
-            16 => Event::FocusChanged(num != 0.0),
-            17 => Event::Submitted,
+            k if k == K::FocusChanged as i32 => Event::FocusChanged(num != 0.0),
+            k if k == K::Submitted as i32 => Event::Submitted,
             // A non-text key from a focused node (docs/menus.md): `text` is the day key name,
-            // `num` the modifier mask. The shim already asked whether this node claims keys.
-            29 => {
-                if text.is_null() {
-                    return;
-                }
-                let key = unsafe { CStr::from_ptr(text) }
-                    .to_string_lossy()
-                    .into_owned();
-                Event::Key(day_spec::KeyEvent {
-                    key,
-                    modifiers: num as u8,
-                })
-            }
+            // `num` the modifier mask. The receiver already asked whether this node claims keys.
+            k if k == K::Key as i32 => Event::Key(day_spec::KeyEvent {
+                key: text.to_owned(),
+                modifiers: num as u8,
+            }),
             // Pan/drag gesture (docs/shapes.md): `num` = phase (1 began, 2 changed, 3 ended),
-            // `text` = "x,y,tx,ty" in px — converted to vp like the Android bridge.
-            11 => {
-                let text = if text.is_null() {
-                    String::new()
-                } else {
-                    unsafe { CStr::from_ptr(text) }
-                        .to_string_lossy()
-                        .into_owned()
-                };
+            // `text` = "x,y,tx,ty" in px, converted to vp like the Android bridge.
+            k if k == K::Gesture as i32 => {
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
                     return;
                 }
-                let d = DENSITY.with(|x| x.get());
+                let d = node::density();
                 let at = Point::new(p[0] / d, p[1] / d);
                 let tr = Point::new(p[2] / d, p[3] / d);
                 match num as i32 {
@@ -1459,9 +1190,9 @@ mod imp {
                     },
                 }
             }
-            3 | 22 => {
-                // ArkUI slider reports 0..100; map back to the node's day range. Code 22 is the
-                // same value once the interaction settled (day-spec `Event::ValueCommitted`).
+            k if k == K::ValueChanged as i32 || k == K::ValueCommitted as i32 => {
+                // ArkUI slider reports 0..100; map back to the node's day range. ValueCommitted
+                // is the same value once the interaction settled.
                 let (min, max) = SLIDER_RANGE
                     .with(|m| m.borrow().get(&id).copied())
                     .unwrap_or((0.0, 1.0));
@@ -1476,51 +1207,34 @@ mod imp {
                     return;
                 }
                 SLIDER_ECHO.with(|m| m.borrow_mut().remove(&id));
-                if kind == 22 {
+                if kind == K::ValueCommitted as i32 {
                     Event::ValueCommitted(value)
                 } else {
                     Event::ValueChanged(value)
                 }
             }
             // An ArkTS-built piece component reporting back (docs/extending.md), through the
-            // shim's `pieceEvent`. Like the Android bridge's Custom, the payload IS the event —
+            // host's `pieceEvent`. Like the Android bridge's Custom, the payload IS the event:
             // a cross-boundary Custom carries no tag, and the piece owns the whole channel.
-            12 => {
-                let s = if text.is_null() {
-                    String::new()
-                } else {
-                    unsafe { CStr::from_ptr(text) }
-                        .to_string_lossy()
-                        .into_owned()
-                };
-                Event::Custom {
-                    tag: "",
-                    num,
-                    text: s,
-                }
-            }
+            k if k == K::Custom as i32 => Event::Custom {
+                tag: "",
+                num,
+                text: text.to_owned(),
+            },
             // File-picker answer (docs/files.md): `id` is the request id, `text` the chosen local
-            // path (a cache copy for open, a docs URI for save) — empty means the user cancelled.
-            15 => {
-                let s = if text.is_null() {
-                    String::new()
-                } else {
-                    unsafe { CStr::from_ptr(text) }
-                        .to_string_lossy()
-                        .into_owned()
-                };
-                let result = day_spec::present::PresentResult::decode(3, 0, s);
-                emit(node, Event::PresentResult { req: id, result });
+            // path (a cache copy for open, a docs URI for save); empty means the user cancelled.
+            k if k == K::PresentFile as i32 => {
+                let result = day_spec::present::PresentResult::decode(3, 0, text.to_owned());
+                emit(node_id, Event::PresentResult { req: id, result });
                 return;
             }
             _ => return,
         };
-        emit(node, ev);
+        emit(node_id, ev);
     }
 
-    /// Recycling-list row count, called from the NodeAdapter (docs/list.md).
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_list_count(host_id: u64) -> u32 {
+    /// Recycling-list row count, asked by the NodeAdapter (docs/list.md).
+    pub(crate) fn list_count(host_id: u64) -> u32 {
         day_spec::ffi_guard::contain(0, || {
             LIST_SOURCES.with(|m| {
                 m.borrow()
@@ -1532,11 +1246,9 @@ mod imp {
     }
 
     /// Build (or rebind) row `index`'s content into the native cell `cell` (an inner Stack). The
-    /// adapter reuses cells, so a repeat `cell` pointer is a rebind (day-core keys its cell cache by
-    /// the raw handle). Called on the JS/main thread from the adapter's add callback.
-    #[unsafe(no_mangle)]
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `cell` is a live ArkUI_NodeHandle from the adapter
-    pub extern "C" fn day_arkui_list_bind(host_id: u64, index: u32, cell: *mut c_void) {
+    /// adapter reuses cells, so a repeat `cell` pointer is a rebind (day-core keys its cell cache
+    /// by the raw handle). Called on the JS/main thread from the adapter's add callback.
+    pub(crate) fn list_bind(host_id: u64, index: u32, cell: Handle) {
         day_spec::ffi_guard::contain((), || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             if let Some(source) = source {
@@ -1545,12 +1257,10 @@ mod imp {
         });
     }
 
-    /// A pooled cell left the adapter's visible set: clear the cell subtree's dayscript ids
-    /// so hidden rows stop answering lookups (day-core's `list_recycle_cell`) — keyed by the
-    /// Same inner-Stack pointer `day_arkui_list_bind` binds with.
-    #[unsafe(no_mangle)]
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `cell` is the adapter's live inner Stack
-    pub extern "C" fn day_arkui_list_recycle(host_id: u64, cell: *mut c_void) {
+    /// A pooled cell left the adapter's visible set: clear the cell subtree's dayscript ids so
+    /// hidden rows stop answering lookups (day-core's `list_recycle_cell`), keyed by the same
+    /// inner-Stack pointer `list_bind` binds with.
+    pub(crate) fn list_recycle(host_id: u64, cell: Handle) {
         day_spec::ffi_guard::contain((), || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             if let Some(source) = source {
@@ -1559,24 +1269,22 @@ mod imp {
         });
     }
 
-    /// Whether row `index` is in the list's programmatic selection — the shim paints newly
-    /// bound cells from this (docs/list.md `ListPatch::Selected`).
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_list_is_selected(host_id: u64, index: u32) -> u32 {
-        day_spec::ffi_guard::contain(0, || {
+    /// Whether row `index` is in the list's programmatic selection: newly bound cells are
+    /// painted from this (docs/list.md `ListPatch::Selected`).
+    pub(crate) fn list_is_selected(host_id: u64, index: u32) -> bool {
+        day_spec::ffi_guard::contain(false, || {
             LIST_SELECTED.with(|m| {
                 m.borrow()
                     .get(&host_id)
-                    .is_some_and(|set| set.contains(&(index as usize))) as u32
+                    .is_some_and(|set| set.contains(&(index as usize)))
             })
         })
     }
 
     /// The reorder guard's verdict for a hovered drop (docs/list.md): the accepted target index,
-    /// or -1. Called synchronously from the shim's NODE_ON_DROP handler; the source is cloned
-    /// out before the app's guard runs, so no thread-local borrow is held.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_list_can_move(host_id: u64, from: u32, to: u32) -> i32 {
+    /// or -1. Called synchronously from the list's drop handler; the source is cloned out before
+    /// the app's guard runs, so no thread-local borrow is held.
+    pub(crate) fn list_can_move(host_id: u64, from: u32, to: u32) -> i32 {
         day_spec::ffi_guard::contain(-1, || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             let Some(source) = source else { return -1 };
@@ -1593,50 +1301,45 @@ mod imp {
     }
 
     /// Commit an accepted drop through the sync seam (rotates day's snapshot, defers the app
-    /// callback); the shim reloads the adapter afterwards. Returns 1 on commit.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_list_move(host_id: u64, from: u32, to: u32) -> u32 {
-        day_spec::ffi_guard::contain(0, || {
+    /// callback); the list reloads the adapter afterwards.
+    pub(crate) fn list_move(host_id: u64, from: u32, to: u32) {
+        day_spec::ffi_guard::contain((), || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             let Some(r) = source.and_then(|s| s.reorder) else {
-                return 0;
+                return;
             };
             if from != to {
                 (r.move_row)(from as usize, to as usize);
             }
-            1
-        })
+        });
     }
 
-    /// May this row be swiped away? Called from the shim as it builds a cell's swipe action,
-    /// so a guarded row is given no action at all (docs/list.md).
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_list_can_delete(host_id: u64, index: u32) -> u32 {
-        day_spec::ffi_guard::contain(0, || {
+    /// May this row be swiped away? A guarded row is refused at delete time (docs/list.md).
+    pub(crate) fn list_can_delete(host_id: u64, index: u32) -> bool {
+        day_spec::ffi_guard::contain(false, || {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
-            let Some(source) = source else { return 0 };
+            let Some(source) = source else { return false };
             let Some(d) = source.delete.as_ref() else {
-                return 0;
+                return false;
             };
             let index = index as usize;
-            (index < (source.len)() && (d.can_delete)(index)) as u32
+            index < (source.len)() && (d.can_delete)(index)
         })
     }
 
     /// Commit a swipe-to-delete through the sync seam (shortens day's snapshot, defers the app
-    /// callback); the shim reloads the adapter afterwards. Returns 1 on commit.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_list_delete(host_id: u64, index: u32) -> u32 {
-        day_spec::ffi_guard::contain(0, || {
-            if day_arkui_list_can_delete(host_id, index) == 0 {
-                return 0;
+    /// callback); the list reloads the adapter afterwards. True on commit.
+    pub(crate) fn list_delete(host_id: u64, index: u32) -> bool {
+        day_spec::ffi_guard::contain(false, || {
+            if !list_can_delete(host_id, index) {
+                return false;
             }
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             let Some(d) = source.and_then(|s| s.delete) else {
-                return 0;
+                return false;
             };
             (d.delete_row)(index as usize);
-            1
+            true
         })
     }
 
@@ -1644,8 +1347,7 @@ mod imp {
     /// initiated (NavPatch::Popped) this is just the acknowledgment; for a NATIVE back
     /// (system gesture / title-bar back button) sync the route state: the toolkit already
     /// popped, so the host receives `NavBack { already_popped: true }`.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_nav_popped(key: u64) {
+    pub fn nav_popped(key: u64) {
         day_spec::ffi_guard::contain((), || nav_popped_inner(key));
     }
 
@@ -1682,9 +1384,8 @@ mod imp {
 
     /// A guarded NavDestination consumed its back (ArkTS onBackPressed) and asks Day's guard to
     /// decide: emit `NavBack { already_popped: false }` (the native stack did NOT pop, unlike an
-    /// unguarded back's `day_arkui_nav_popped`).
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_nav_back_requested() {
+    /// unguarded back's [`nav_popped`]).
+    pub fn nav_back_requested() {
         day_spec::ffi_guard::contain((), || {
             if let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
                 emit(
@@ -1698,9 +1399,8 @@ mod imp {
     }
 
     /// A destination's content area changed (vp): relayout that page in its real bounds. The
-    /// First report for a key is also the push-landed signal `ui_idle` waits on.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_nav_area(key: u64, w: f64, h: f64) {
+    /// first report for a key is also the push-landed signal `ui_idle` waits on.
+    pub fn nav_area(key: u64, w: f64, h: f64) {
         day_spec::ffi_guard::contain((), || {
             if w > 0.0 && h > 0.0 {
                 NAV_PENDING_PUSH.with(|s| {
@@ -1715,8 +1415,7 @@ mod imp {
     /// action id and an optional segment index. A toggle flips; an explicit choice selects
     /// that segment (the legacy action-only path cycles); other items run their command.
     /// Recheck enablement and index bounds because an open popup may outlive a model patch.
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_nav_menu_action(action: u64, selection: i32) {
+    pub fn nav_menu_action(action: u64, selection: i32) {
         day_spec::ffi_guard::contain((), || {
             use day_spec::{ToolbarItemKind as K, ToolbarValue as V};
             let item = WINDOW_BAR.with(|b| b.borrow().by_action(action).cloned());
@@ -1759,18 +1458,10 @@ mod imp {
 
     /// The user edited the navigation surface's search field (docs/search.md): reported against
     /// the nav host, where the `.searchable()` surface listens, whatever its placement asked for.
-    #[unsafe(no_mangle)]
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `text` is a valid C string from the ArkTS host
-    pub extern "C" fn day_arkui_nav_search_changed(text: *const c_char) {
+    pub fn nav_search_changed(text: &str) {
         day_spec::ffi_guard::contain((), || {
-            if text.is_null() {
-                return;
-            }
-            let text = unsafe { CStr::from_ptr(text) }
-                .to_string_lossy()
-                .into_owned();
             if let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
-                emit(NodeId(host_id), Event::SearchChanged(text));
+                emit(NodeId(host_id), Event::SearchChanged(text.to_owned()));
             }
         });
     }
@@ -1855,15 +1546,13 @@ mod imp {
             }
         });
         let scopes = vec!["2"; actions.len()].join("\n");
-        unsafe {
-            ffi::day_ark_nav_set_menu(
-                cstr(&icons.join("\n")).as_ptr(),
-                cstr(&labels.join("\n")).as_ptr(),
-                cstr(&actions.join("\n")).as_ptr(),
-                cstr(&scopes).as_ptr(),
-                cstr(&enabled.join("\n")).as_ptr(),
-            )
-        };
+        crate::host_api::nav_set_menu(
+            &icons.join("\n"),
+            &labels.join("\n"),
+            &actions.join("\n"),
+            &scopes,
+            &enabled.join("\n"),
+        );
     }
 
     /// Whether `h` is a secondary window's root (a DayWindowAbility page). The title-bar actions
@@ -1874,17 +1563,10 @@ mod imp {
         SECONDARY.with(|s| s.borrow().iter().any(|(_, stack)| *stack == ptr))
     }
 
-    /// Show or fill the navigation surface's search field (docs/search.md); see
-    /// `day_ark_nav_set_search` for `shown`.
-    fn set_nav_search(shown: i32, prompt: &str, text: &str) {
-        unsafe { ffi::day_ark_nav_set_search(shown, cstr(prompt).as_ptr(), cstr(text).as_ptr()) };
-    }
-
     /// The ArkTS host reports a ROOT area change after start (keyboard RESIZE avoidance,
-    /// rotation, window resize) — routed to Day as a window resize, the shared rail
+    /// rotation, window resize), routed to Day as a window resize, the shared rail
     /// (docs/focus.md; same shape as Android's kind-15 event).
-    #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_resized(w: f64, h: f64) {
+    pub fn resized(w: f64, h: f64) {
         day_spec::ffi_guard::contain((), || {
             if w > 0.0 && h > 0.0 {
                 ROOT_KEEP.with(|r| {
@@ -1899,56 +1581,53 @@ mod imp {
 
     /// The permission seam for `day-part-permissions` (docs/permissions.md): the part reaches this
     /// by `dlsym` rather than a link-time dependency on this toolkit, and it forwards to the
-    /// shim's ArkTS-registered prompter. Same contract as [`ffi::day_ark_request_permissions`].
+    /// host's ArkTS-registered prompter. 1 when the request went out (`cb` then runs on the JS
+    /// thread with the request id and a bit mask of the grants), 0 when no prompter is
+    /// registered, in which case `cb` is never called.
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `names` is a valid C string from the part
     pub extern "C" fn day_arkui_request_permissions(
         req: u64,
-        names: *const c_char,
+        names: *const std::ffi::c_char,
         cb: extern "C" fn(u64, u64),
-    ) -> c_int {
-        day_spec::ffi_guard::contain(0, || unsafe {
-            ffi::day_ark_request_permissions(req, names, cb)
+    ) -> std::ffi::c_int {
+        day_spec::ffi_guard::contain(0, || {
+            let names = node::text_of(names);
+            std::ffi::c_int::from(crate::host_api::request_permissions(req, &names, cb))
         })
     }
 
     /// daybridge's door to an ArkTS arm (docs/bridge.md "Callbacks"): `day_bridge::arkts::invoke`
-    /// finds this by `dlsym` rather than a link-time dependency on this toolkit, and it forwards
-    /// to the shim's dispatcher, which runs the registered function on the JS thread.
+    /// finds this by `dlsym` rather than a link-time dependency on this toolkit, and it runs the
+    /// registered function on the JS thread.
     #[unsafe(no_mangle)]
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // `symbol`/`args` are valid for the call, per the bridge
     pub extern "C" fn day_arkui_bridge_invoke(
-        symbol: *const c_char,
-        args: *const c_void,
+        symbol: *const std::ffi::c_char,
+        args: *const std::ffi::c_void,
         n: usize,
         done: u64,
-        ret: *mut c_void,
-    ) -> c_int {
-        day_spec::ffi_guard::contain(2, || unsafe {
-            ffi::day_ark_bridge_invoke(symbol, args, n, done, ret)
+        ret: *mut std::ffi::c_void,
+    ) -> std::ffi::c_int {
+        day_spec::ffi_guard::contain(2, || {
+            // SAFETY: the bridge passes `n` `Arg`s of the layout `bridge::Arg` mirrors.
+            unsafe { crate::bridge::invoke(symbol, args.cast(), n, done, ret.cast()) }
         })
     }
 
-    /// Whether the caller is the JS thread — the UI thread of a Day app here — where a bridged
+    /// Whether the caller is the JS thread, the UI thread of a Day app here, where a bridged
     /// crate's blocking call cannot wait for an ArkTS answer.
     #[unsafe(no_mangle)]
-    pub extern "C" fn day_arkui_bridge_on_js_thread() -> c_int {
-        unsafe { ffi::day_ark_bridge_on_js_thread() }
+    pub extern "C" fn day_arkui_bridge_on_js_thread() -> std::ffi::c_int {
+        std::ffi::c_int::from(crate::main_thread::on_js_thread())
     }
 
     /// The ArkTS host reports the app cache dir here (docs/files.md); it's the app-writable staging
     /// area for `save_file(..)`, since HarmonyOS's OS temp dir isn't writable by the app.
-    #[unsafe(no_mangle)]
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // `path` is a valid C string from the ArkTS host
-    pub extern "C" fn day_arkui_set_cache_dir(path: *const c_char) {
+    pub fn set_cache_dir(path: &str) {
         day_spec::ffi_guard::contain((), || {
-            if !path.is_null() {
-                let p = unsafe { CStr::from_ptr(path) }
-                    .to_string_lossy()
-                    .into_owned();
-                if !p.is_empty() {
-                    day_spec::present::set_app_temp_dir(p);
-                }
+            if !path.is_empty() {
+                day_spec::present::set_app_temp_dir(path.to_owned());
             }
         });
     }
@@ -1990,70 +1669,67 @@ mod imp {
         fn realize(&mut self, kind: PieceKind, props: &dyn Any, id: NodeId) -> AHandle {
             match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
-                    let n = new_node(K_STACK);
+                    let n = new_node(node::STACK);
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
-                        unsafe {
-                            if p.role == Some(day_spec::SurfaceRole::SectionCard) {
-                                // A translucent neutral fill reads as a subtle card on both the
-                                // light and dark ArkUI themes (no public semantic-fill API).
-                                themed(
-                                    n.0 as usize,
-                                    n.0,
-                                    Paint::Background,
-                                    0x1480_8080,
-                                    0x2EFF_FFFF,
-                                );
-                            } else if let Some(c) = p.background {
-                                ffi::day_ark_set_bg_color(n.0, argb(c));
-                            }
-                            if p.corner_radius > 0.0 {
-                                // NODE_BORDER_RADIUS in vp rounds this node's own background.
-                                ffi::day_ark_set_corner_radius(n.0, p.corner_radius);
-                            }
-                            if p.clips {
-                                // `.corner_radius` wraps the piece, whose fill is an inner
-                                // node, so rounding shows only when this node clips it.
-                                ffi::day_ark_set_clip(n.0, 1);
-                            }
+                        if p.role == Some(day_spec::SurfaceRole::SectionCard) {
+                            // A translucent neutral fill reads as a subtle card on both the
+                            // light and dark ArkUI themes (no public semantic-fill API).
+                            themed(
+                                n.0 as usize,
+                                n.0,
+                                Paint::Background,
+                                0x1480_8080,
+                                0x2EFF_FFFF,
+                            );
+                        } else if let Some(c) = p.background {
+                            node::set_bg_color(n.0, argb(c));
+                        }
+                        if p.corner_radius > 0.0 {
+                            // NODE_BORDER_RADIUS in vp rounds this node's own background.
+                            node::set_corner_radius(n.0, p.corner_radius);
+                        }
+                        if p.clips {
+                            // `.corner_radius` wraps the piece, whose fill is an inner
+                            // node, so rounding shows only when this node clips it.
+                            node::set_clip(n.0, true);
                         }
                     }
                     n
                 }
                 Some(Builtin::Scroll) => {
-                    let n = new_node(K_SCROLL);
+                    let n = new_node(node::SCROLL);
                     let horizontal = props
                         .downcast_ref::<day_spec::props::ScrollProps>()
                         .map(|p| p.horizontal)
                         .unwrap_or(false);
-                    unsafe { ffi::day_ark_scroll_direction(n.0, horizontal as c_int) };
+                    node::scroll_direction(n.0, horizontal);
                     // The one real child ArkUI's Scroll measures its extent from (see
                     // [`SCROLL_CONTENT`]); day children land inside it via `insert`.
-                    let content = new_node(K_STACK);
-                    unsafe { ffi::day_ark_insert_child(n.0, content.0, 0) };
+                    let content = new_node(node::STACK);
+                    node::insert_child(n.0, content.0, 0);
                     SCROLL_CONTENT
                         .with(|m| m.borrow_mut().insert(n.0 as usize, content.0 as usize));
                     n
                 }
                 Some(Builtin::Image) => {
                     // Here and in every arm below: a props-type mismatch degrades to the same
-                    // empty-stack placeholder a missing renderer gets (`props_of` reported it)
-                    // — realize runs inside native up-calls, where a panic is a process kill.
+                    // empty-stack placeholder a missing renderer gets (`props_of` reported it):
+                    // realize runs inside native up-calls, where a panic is a process kill.
                     let Some(p) = day_spec::props_of::<ImageProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    let n = new_node(K_IMAGE);
-                    // Resolve `image("name")` through the app's rawfile store — the only resource
+                    let n = new_node(node::IMAGE);
+                    // Resolve `image("name")` through the app's rawfile store, the only resource
                     // root the OpenHarmony NDK can address from native code (app.media is ArkTS-only,
                     // §18.3). The CLI stages each image uncompressed to resources/rawfile/day/<name>
                     // normalized to PNG, so a bare `source` (no extension) maps to `day/<source>.png`.
                     // A vector name resolves to its staged SVG instead (docs/vectors.md): ArkUI
                     // renders it natively at display size, and `.tint(…)` recolors it via
                     // NODE_IMAGE_FILL_COLOR (untinted = as authored, matching every backend).
-                    // Named is the staged-rawfile path; Bytes and Decoded arrive from
-                    // `day::decode_image` (docs/images.md), so an `image()` piece can show a
-                    // download or a pasted PNG with no staged resource behind it. Only a named
-                    // source takes a tint: the recolor repaints an SVG's paths, and bytes have no
-                    // SVG to repaint.
+                    // Bytes and Decoded arrive from `day::decode_image` (docs/images.md), so an
+                    // `image()` piece can show a download or a pasted PNG with no staged resource
+                    // behind it. Only a named source takes a tint: the recolor repaints an SVG's
+                    // paths, and bytes have no SVG to repaint.
                     arkui_apply_image_source(n.0, &p.source, p.tint);
                     // Scaling (§18.3): ArkUI_ObjectFit CONTAIN=0 (fit) / COVER=1 (fill) / FILL=3.
                     let fit = match p.content_mode {
@@ -2061,27 +1737,25 @@ mod imp {
                         ContentMode::Fill => 1,
                         ContentMode::Stretch => 3,
                     };
-                    unsafe { ffi::day_ark_set_image_fit(n.0, fit) };
+                    node::set_image_fit(n.0, fit);
                     n
                 }
                 Some(Builtin::Label) => {
                     let Some(p) = day_spec::props_of::<LabelProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    let n = new_node(K_TEXT);
-                    unsafe {
-                        ffi::day_ark_set_text(n.0, cstr(&p.text).as_ptr());
-                        if !p.wraps {
-                            ffi::day_ark_label_single_line(n.0);
-                        }
-                        ffi::day_ark_set_font_size(n.0, font_vp(p.font));
-                        if let Some(c) = p.color {
-                            ffi::day_ark_set_font_color(n.0, argb(c));
-                        } else {
-                            // Text defaults don't re-theme through the C API: an un-colored
-                            // label takes the mode's primary text color, repainted on a switch.
-                            themed(n.0 as usize, n.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
-                        }
+                    let n = new_node(node::TEXT);
+                    node::set_text(n.0, &p.text);
+                    if !p.wraps {
+                        node::label_single_line(n.0);
+                    }
+                    node::set_font_size(n.0, font_vp(p.font));
+                    if let Some(c) = p.color {
+                        node::set_font_color(n.0, argb(c));
+                    } else {
+                        // Text defaults don't re-theme through the C API: an un-colored
+                        // label takes the mode's primary text color, repainted on a switch.
+                        themed(n.0 as usize, n.0, Paint::Font, TEXT_LIGHT, TEXT_DARK);
                     }
                     apply_font_attrs(n.0, p.font);
                     if !p.runs.is_empty() {
@@ -2091,65 +1765,58 @@ mod imp {
                 }
                 Some(Builtin::Button) => {
                     let Some(p) = day_spec::props_of::<ButtonProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    let n = new_node(K_BUTTON);
-                    unsafe {
-                        ffi::day_ark_set_button_label(n.0, cstr(&p.title).as_ptr());
-                        ffi::day_ark_register_event(n.0, 0, id.0);
-                        ffi::day_ark_enable_focus(n.0, id.0, 0);
-                    }
+                    let n = new_node(node::BUTTON);
+                    node::set_button_label(n.0, &p.title);
+                    node::register_event(n.0, node::EV_CLICK, id.0);
+                    node::enable_focus(n.0, id.0, false);
                     apply_button_style(n.0, p.style);
                     if p.icon.is_some() {
                         apply_button_content(n, &p.title, p.icon.as_ref(), p.icon_only);
                     }
-                    unsafe { ffi::day_ark_set_enabled(n.0, p.enabled as c_int) };
+                    node::set_enabled(n.0, p.enabled);
                     n
                 }
                 Some(Builtin::TextField) => {
                     let Some(p) = day_spec::props_of::<TextFieldProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    let n = new_node(K_TEXT_INPUT);
+                    let n = new_node(node::TEXT_INPUT);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     TEXT_ECHO.with(|m| m.borrow_mut().insert(id.0, p.text.clone()));
-                    unsafe {
-                        ffi::day_ark_set_input_text(n.0, cstr(&p.text).as_ptr());
-                        ffi::day_ark_set_placeholder(n.0, cstr(&p.placeholder).as_ptr());
-                        ffi::day_ark_register_event(n.0, 1, id.0);
-                        ffi::day_ark_enable_focus(n.0, id.0, 1);
-                    }
+                    node::set_input_text(n.0, &p.text);
+                    node::set_placeholder(n.0, &p.placeholder);
+                    node::register_event(n.0, node::EV_TEXT_INPUT_CHANGE, id.0);
+                    node::enable_focus(n.0, id.0, true);
                     n
                 }
-                // Multi-line editor (docs/textarea.md): ARKUI_NODE_TEXT_AREA, TextChanged via
-                // event kind 7. min/max-lines aren't a native attribute here — the node grows
-                // with content and the measure arm bounds it.
+                // Multi-line editor (docs/textarea.md): ARKUI_NODE_TEXT_AREA. min/max-lines
+                // aren't a native attribute here: the node grows with content and the measure
+                // arm bounds it.
                 Some(Builtin::TextArea) => {
                     let Some(p) = day_spec::props_of::<TextAreaProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    let n = new_node(K_TEXT_AREA);
+                    let n = new_node(node::TEXT_AREA);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     TEXTAREA_LINES.with(|m| {
                         m.borrow_mut()
                             .insert(n.0 as usize, (p.min_lines, p.max_lines))
                     });
-                    unsafe {
-                        ffi::day_ark_set_textarea_text(n.0, cstr(&p.text).as_ptr());
-                        ffi::day_ark_set_textarea_placeholder(n.0, cstr(&p.placeholder).as_ptr());
-                        ffi::day_ark_register_event(n.0, 7, id.0);
-                        ffi::day_ark_enable_focus(n.0, id.0, 1);
-                    }
+                    node::set_textarea_text(n.0, &p.text);
+                    node::set_textarea_placeholder(n.0, &p.placeholder);
+                    node::register_event(n.0, node::EV_TEXT_AREA_CHANGE, id.0);
+                    node::enable_focus(n.0, id.0, true);
                     n
                 }
                 // Option picker (docs/picker.md). A menu picker is HarmonyOS's own dropdown, the
                 // ArkTS `Select` the host registers (DaySelect.ets; the C node API has no select
                 // kind). The same host builds a compact button row for segmented pickers.
-                // Inline pickers and hosts without the built-in piece use the TEXT_PICKER wheel;
-                // SelectionChanged via event kind 8.
+                // Inline pickers and hosts without the built-in piece use the TEXT_PICKER wheel.
                 Some(Builtin::Picker) => {
                     let Some(p) = day_spec::props_of::<PickerProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
                     if matches!(p.style, PickerStyle::Menu | PickerStyle::Segmented)
                         && let Some(n) = piece::try_make(
@@ -2173,47 +1840,40 @@ mod imp {
                         }
                         return n;
                     }
-                    let n = new_node(K_TEXT_PICKER);
+                    let n = new_node(node::TEXT_PICKER);
                     let joined = p.options.join(";");
                     PICKER_SELECTED.with(|m| m.insert(n.0 as usize, p.selected));
-                    unsafe {
-                        ffi::day_ark_set_picker(n.0, cstr(&joined).as_ptr(), p.selected as u32);
-                        ffi::day_ark_register_event(n.0, 8, id.0);
-                        ffi::day_ark_enable_focus(n.0, id.0, 0);
-                    }
+                    node::set_picker(n.0, &joined, p.selected as u32);
+                    node::register_event(n.0, node::EV_TEXT_PICKER_CHANGE, id.0);
+                    node::enable_focus(n.0, id.0, false);
                     n
                 }
                 Some(Builtin::Toggle) => {
                     let Some(p) = day_spec::props_of::<ToggleProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    let n = new_node(K_TOGGLE);
-                    unsafe {
-                        ffi::day_ark_set_toggle(n.0, p.on as c_int);
-                        ffi::day_ark_register_event(n.0, 2, id.0);
-                        ffi::day_ark_enable_focus(n.0, id.0, 0);
-                    }
+                    let n = new_node(node::TOGGLE);
+                    node::set_toggle(n.0, p.on);
+                    node::register_event(n.0, node::EV_TOGGLE_CHANGE, id.0);
+                    node::enable_focus(n.0, id.0, false);
                     n
                 }
                 Some(Builtin::Slider) => {
                     let Some(p) = day_spec::props_of::<SliderProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    let n = new_node(K_SLIDER);
+                    let n = new_node(node::SLIDER);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     SLIDER_ECHO.with(|m| m.borrow_mut().insert(id.0, p.value));
                     SLIDER_RANGE.with(|m| m.borrow_mut().insert(id.0, (p.min, p.max)));
-                    let pct = normalize(p.value, p.min, p.max);
-                    unsafe {
-                        ffi::day_ark_set_slider(n.0, pct);
-                        ffi::day_ark_register_event(n.0, 3, id.0);
-                        ffi::day_ark_enable_focus(n.0, id.0, 0);
-                    }
+                    node::set_slider(n.0, normalize(p.value, p.min, p.max));
+                    node::register_event(n.0, node::EV_SLIDER_CHANGE, id.0);
+                    node::enable_focus(n.0, id.0, false);
                     n
                 }
                 // A 1-vp hairline: a thin Stack tinted with a faint separator color.
                 Some(Builtin::Divider) => {
-                    let n = new_node(K_STACK);
+                    let n = new_node(node::STACK);
                     themed(
                         n.0 as usize,
                         n.0,
@@ -2226,43 +1886,41 @@ mod imp {
                 // Determinate bar (ARKUI_NODE_PROGRESS) vs indeterminate spinner (LOADING_PROGRESS).
                 Some(Builtin::Progress) => {
                     let Some(p) = day_spec::props_of::<ProgressProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
                     match p.value {
                         Some(v) => {
-                            let n = new_node(K_PROGRESS);
-                            unsafe { ffi::day_ark_set_progress(n.0, v) };
+                            let n = new_node(node::PROGRESS);
+                            node::set_progress(n.0, v);
                             n
                         }
-                        None => new_node(K_LOADING),
+                        None => new_node(node::LOADING),
                     }
                 }
                 // Navigation host + pages (docs/navigation.md): the host Stack shows the ROOT
                 // page; every later page is re-homed into an ArkTS `NavDestination` (HarmonyOS's
-                // own Navigation/NavPathStack) when its NavPatch::Pushed arrives — native push
+                // own Navigation/NavPathStack) when its NavPatch::Pushed arrives: native push
                 // transition, title bar, and system back gesture included. Pages carry an opaque
                 // background so transitions don't bleed.
                 Some(Builtin::Nav) => {
                     let Some(p) = day_spec::props_of::<NavProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
                     // Rows as CHROME: a composed bottom bar over resident pages (see NavSuite).
                     // A phone gets here through `Automatic`, because this backend has no split.
                     if p.presentation.rows_are_chrome() {
-                        let host = new_node(K_COLUMN);
-                        let pages = new_node(K_STACK);
-                        let bar = new_node(K_ROW);
-                        unsafe {
-                            ffi::day_ark_insert_child(host.0, pages.0, 0);
-                            ffi::day_ark_insert_child(host.0, bar.0, 1);
-                            themed(
-                                host.0 as usize,
-                                bar.0,
-                                Paint::Background,
-                                0xFFF1_F3F5,
-                                0xFF1C_1C1E,
-                            );
-                        }
+                        let host = new_node(node::COLUMN);
+                        let pages = new_node(node::STACK);
+                        let bar = new_node(node::ROW);
+                        node::insert_child(host.0, pages.0, 0);
+                        node::insert_child(host.0, bar.0, 1);
+                        themed(
+                            host.0 as usize,
+                            bar.0,
+                            Paint::Background,
+                            0xFFF1_F3F5,
+                            0xFF1C_1C1E,
+                        );
                         SUITE_AWAITING_MENU.with(|c| c.set(Some(host.0 as usize)));
                         NAV_SUITES.with(|c| {
                             c.borrow_mut().insert(
@@ -2284,11 +1942,11 @@ mod imp {
                         );
                         return host;
                     }
-                    let n = new_node(K_STACK);
+                    let n = new_node(node::STACK);
                     NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
                     // The root's title, which the title bar shows once toolbar actions bring it
                     // out (no page is pushed yet, so this names the root).
-                    unsafe { ffi::day_ark_nav_set_title(cstr(&p.title).as_ptr()) };
+                    crate::host_api::nav_set_title(&p.title);
                     // Inline search (docs/search.md) goes above the navigation root. The title bar
                     // holds actions, never a field (`Cap::ToolbarSearch` is unsupported), so every
                     // placement resolves here.
@@ -2297,10 +1955,10 @@ mod imp {
                         .as_ref()
                         .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
                     {
-                        Some(sp) => set_nav_search(1, &sp.prompt, &sp.text),
-                        None => set_nav_search(0, "", ""),
+                        Some(sp) => crate::host_api::nav_set_search(1, &sp.prompt, &sp.text),
+                        None => crate::host_api::nav_set_search(0, "", ""),
                     }
-                    // A REBUILT host invalidates every pointer the old one tracked — a Pushed
+                    // A REBUILT host invalidates every pointer the old one tracked: a Pushed
                     // patch that then consumed a stale NAV_ATTACHED entry would re-home a
                     // DISPOSED node (SIGSEGV inside ArkUI RemoveChild).
                     NAV_ATTACHED.with(|v| v.borrow_mut().clear());
@@ -2313,7 +1971,7 @@ mod imp {
                     n
                 }
                 Some(Builtin::NavPage) => {
-                    let n = new_node(K_STACK);
+                    let n = new_node(node::STACK);
                     themed(
                         n.0 as usize,
                         n.0,
@@ -2328,18 +1986,18 @@ mod imp {
                 // onto the window root at full bounds (day owns layout, so the "modal" is a
                 // topmost full-window child; no transition on this backend).
                 Some(Builtin::Cover) => {
-                    let n = new_node(K_STACK);
+                    let n = new_node(node::STACK);
                     COVER_NODES.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     n
                 }
                 // A scrollable column of tappable rows; each row's tap becomes SelectionChanged(index)
-                // against this menu host (via a synthetic click id, see day_arkui_on_event).
+                // against this menu host (via a synthetic click id, see on_event).
                 Some(Builtin::NavMenu) => {
                     let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
-                    // Inside a suite the rows are the bar. The list is still built — it lives in
-                    // the sidebar page, which the suite keeps but never shows — so nothing else
+                    // Inside a suite the rows are the bar. The list is still built (it lives in
+                    // the sidebar page, which the suite keeps but never shows) so nothing else
                     // has to know which presentation it is in.
                     if let Some(host) = SUITE_AWAITING_MENU.with(|c| c.take()) {
                         MENU_SUITE.with(|m| m.borrow_mut().insert(id.0, host));
@@ -2357,35 +2015,31 @@ mod imp {
                 }
                 // Canvas: a custom node whose on-draw callback replays the encoded display list.
                 Some(Builtin::Canvas) => {
-                    let n = new_node(K_CANVAS);
-                    unsafe { ffi::day_ark_canvas_init(n.0, id.0) };
+                    let n = new_node(node::CUSTOM);
+                    crate::canvas::init(n.0, id.0);
                     n
                 }
                 // Recycling list: an ARKUI_NODE_LIST driven by a NodeAdapter (attach_list injects the
-                // row source; the adapter binds cells on demand). See attach_list / the adapter cbs.
+                // row source; the adapter binds cells on demand). See attach_list / src/list.rs.
                 Some(Builtin::List) => {
                     let Some(p) = day_spec::props_of::<ListProps>(kind, "arkui", props) else {
-                        return new_node(K_STACK);
+                        return new_node(node::STACK);
                     };
                     let row_h = match p.row_height {
                         RowHeight::Uniform(h) => h,
                         RowHeight::Automatic => 0.0,
                     };
-                    let n = new_node(K_LIST);
+                    let n = new_node(node::LIST);
                     LIST_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
-                    let del_label = std::ffi::CString::new(p.delete_label.as_str())
-                        .unwrap_or_else(|_| std::ffi::CString::new("").expect("empty is valid"));
-                    unsafe {
-                        ffi::day_ark_list_init(
-                            n.0,
-                            id.0,
-                            row_h,
-                            p.selectable as u32,
-                            p.reorderable as u32,
-                            p.deletable as u32,
-                            del_label.as_ptr(),
-                        )
-                    };
+                    crate::list::init(
+                        n.0,
+                        id.0,
+                        row_h,
+                        p.selectable,
+                        p.reorderable,
+                        p.deletable,
+                        &p.delete_label,
+                    );
                     n
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
@@ -2400,7 +2054,7 @@ mod imp {
                         return make(self, props, id);
                     }
                     warn_missing_renderer(kind);
-                    new_node(K_STACK)
+                    new_node(node::STACK)
                 }
             }
         }
@@ -2419,7 +2073,7 @@ mod imp {
                     if let Some(day_spec::props::SearchPatch::Text(t)) =
                         patch.downcast_ref::<day_spec::props::SearchPatch>()
                     {
-                        set_nav_search(-1, "", t);
+                        crate::host_api::nav_set_search(-1, "", t);
                     }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {
@@ -2431,55 +2085,42 @@ mod imp {
                                 // the same (already re-homed, possibly disposed) page.
                                 let last = NAV_ATTACHED.with(|v| v.borrow_mut().pop());
                                 if let Some((page, key)) = last {
-                                    unsafe {
-                                        ffi::day_ark_remove_child(h.0, page as *mut _);
-                                    }
-                                    let rc = unsafe {
-                                        ffi::day_ark_nav_push(
-                                            page as *mut _,
-                                            key,
-                                            cstr(title).as_ptr(),
-                                        )
-                                    };
-                                    if rc == 0 {
-                                        NAV_PUSHED.with(|m| m.borrow_mut().insert(page, key));
+                                    let page = page as Handle;
+                                    node::remove_child(h.0, page);
+                                    if crate::host_api::nav_push(page, key, title) == 0 {
+                                        NAV_PUSHED
+                                            .with(|m| m.borrow_mut().insert(page as usize, key));
                                         NAV_STACK.with(|s| s.borrow_mut().push(key));
                                         NAV_PENDING_PUSH.with(|s| s.borrow_mut().insert(key));
                                     } else {
                                         // No ArkTS bridge (old host page): fall back to the
                                         // stacked-children presentation.
-                                        unsafe {
-                                            ffi::day_ark_add_child(h.0, page as *mut _);
-                                        }
+                                        node::add_child(h.0, page);
                                     }
                                 }
                             }
                             NavPatch::Popped => {
                                 // Pop natively only if a destination is actually up and not
-                                // already popped by a native back (the NavBack sync path —
-                                // `day_arkui_nav_popped` removed its key from NAV_STACK).
+                                // already popped by a native back (the NavBack sync path:
+                                // `nav_popped` removed its key from NAV_STACK).
                                 let popped = NAV_STACK.with(|s| s.borrow_mut().pop());
                                 if let Some(key) = popped {
                                     NAV_EXPECT_POP.with(|e| e.borrow_mut().insert(key));
                                     // A page popped before it ever landed (pushed and popped
                                     // within one frame) mounts nothing: ArkUI will fire
                                     // neither its area report nor its disappear. Retire the
-                                    // pending push and wait on no acknowledgment — only a
+                                    // pending push and wait on no acknowledgment; only a
                                     // LANDED page's pop blocks `ui_idle`.
                                     let landed =
                                         NAV_PENDING_PUSH.with(|s| !s.borrow_mut().remove(&key));
                                     if landed {
                                         NAV_PENDING_POP.with(|p| p.borrow_mut().insert(key));
                                     }
-                                    unsafe { ffi::day_ark_nav_pop() };
+                                    crate::host_api::nav_pop();
                                 }
                             }
-                            NavPatch::Title(t) => unsafe {
-                                ffi::day_ark_nav_set_title(cstr(t).as_ptr());
-                            },
-                            NavPatch::GuardTop(on) => unsafe {
-                                ffi::day_ark_nav_set_guard(*on as i32);
-                            },
+                            NavPatch::Title(t) => crate::host_api::nav_set_title(t),
+                            NavPatch::GuardTop(on) => crate::host_api::nav_set_guard(*on),
                             // Unreachable: this backend answers `Cap::NavRepresent =
                             // Unsupported`, so the pieces layer never sends it. The plan for
                             // HarmonyOS is `Navigation.mode(Auto)`, which switches at its own
@@ -2502,11 +2143,11 @@ mod imp {
                     {
                         // Under `with_animation` the fill fades to the new color (§8.4).
                         let (n, c) = (h.0, argb(*c));
-                        animate(n, anim, move || unsafe { ffi::day_ark_set_bg_color(n, c) });
+                        crate::anim::animate(n, anim, move || node::set_bg_color(n, c));
                     }
                 }
                 // Data-driven sidebar rebuild (docs/navigation.md): swap the rows column for a
-                // freshly built one. Without this arm the patch was silently dropped — stale
+                // freshly built one. Without this arm the patch was silently dropped: stale
                 // rows kept rendering and their synthetic ids kept firing old indices (the same
                 // bug the Android path documents fixing). Old synthetic ids are retired first so
                 // a late tap on a recycled row cannot emit a wrong SelectionChanged.
@@ -2534,10 +2175,8 @@ mod imp {
                         }
                         if let Some(old) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                             forget_themed(old);
-                            unsafe {
-                                ffi::day_ark_remove_child(h.0, old as *mut _);
-                                ffi::day_ark_node_dispose(old as *mut _);
-                            }
+                            node::remove_child(h.0, old as Handle);
+                            node::dispose(old as Handle);
                         }
                         let col = build_nav_menu_rows(
                             menu,
@@ -2548,7 +2187,7 @@ mod imp {
                             badge_tints,
                             sections,
                         );
-                        unsafe { ffi::day_ark_insert_child(h.0, col.0, 0) };
+                        node::insert_child(h.0, col.0, 0);
                         SCROLL_CONTENT.with(|m| m.borrow_mut().insert(key, col.0 as usize));
                     }
                     // NavMenuPatch::Selected: no native highlight on the conventional-rows
@@ -2556,10 +2195,10 @@ mod imp {
                 }
                 kinds::COVER => {
                     if let Some(p) = patch.downcast_ref::<CoverPatch>() {
-                        let node = COVER_NODES
+                        let node_id = COVER_NODES
                             .with(|m| m.borrow().get(&(h.0 as usize)).copied())
                             .map(NodeId);
-                        let Some(node) = node else { return };
+                        let Some(node_id) = node_id else { return };
                         match p {
                             CoverPatch::Present { background, .. } => {
                                 let bg = background
@@ -2573,41 +2212,39 @@ mod imp {
                                     return; // already presented
                                 }
                                 let prev = COVER_PARENTS.with(|m| m.borrow().get(&key).copied());
-                                unsafe {
-                                    ffi::day_ark_set_bg_color(h.0, bg);
-                                    // Detach from the tree slot it was parked in, then top the
-                                    // window root at full bounds. The cover-fallback tier
-                                    // (docs/windows.md) parks covers directly under the root —
-                                    // a same-parent re-add is rejected by ArkUI, so detach from
-                                    // the root too (a no-op when parked elsewhere).
-                                    match prev {
-                                        Some(p) => ffi::day_ark_remove_child(p as *mut _, h.0),
-                                        None => ffi::day_ark_remove_child(root as *mut _, h.0),
-                                    }
-                                    ffi::day_ark_add_child(root as *mut _, h.0);
-                                    ffi::day_ark_set_frame(h.0, 0.0, 0.0, w, hgt);
+                                node::set_bg_color(h.0, bg);
+                                // Detach from the tree slot it was parked in, then top the
+                                // window root at full bounds. The cover-fallback tier
+                                // (docs/windows.md) parks covers directly under the root;
+                                // a same-parent re-add is rejected by ArkUI, so detach from
+                                // the root too (a no-op when parked elsewhere).
+                                match prev {
+                                    Some(p) => node::remove_child(p as Handle, h.0),
+                                    None => node::remove_child(root as Handle, h.0),
                                 }
+                                node::add_child(root as Handle, h.0);
+                                node::set_frame(h.0, 0.0, 0.0, w, hgt);
                                 COVER_PARENTS.with(|m| m.borrow_mut().insert(key, root));
                                 COVER_PRESENTED.with(|s| s.borrow_mut().insert(key));
                                 // Report the content size outside this tree borrow.
-                                post_emit(node, Event::FrameChanged(Size::new(w, hgt)));
+                                post_emit(node_id, Event::FrameChanged(Size::new(w, hgt)));
                             }
-                            // No interactive dismissal on this backend — nothing to disable.
+                            // No interactive dismissal on this backend: nothing to disable.
                             CoverPatch::DismissDisabled(_) => {}
                             CoverPatch::Dismiss => {
                                 let key = h.0 as usize;
                                 if !COVER_PRESENTED.with(|s| s.borrow_mut().remove(&key)) {
-                                    // Never presented (or already dismissed) — still answer
+                                    // Never presented (or already dismissed): still answer
                                     // the hide confirmation so the piece can dispose.
-                                    post_emit(node, Event::CoverHidden);
+                                    post_emit(node_id, Event::CoverHidden);
                                     return;
                                 }
                                 let cur = COVER_PARENTS.with(|m| m.borrow_mut().remove(&key));
                                 if let Some(p) = cur {
-                                    unsafe { ffi::day_ark_remove_child(p as *mut _, h.0) };
+                                    node::remove_child(p as Handle, h.0);
                                 }
                                 // No hide transition: the content can go immediately.
-                                post_emit(node, Event::CoverHidden);
+                                post_emit(node_id, Event::CoverHidden);
                             }
                         }
                     }
@@ -2618,9 +2255,9 @@ mod imp {
                             // SVG-only recolor, as at realize (docs/vectors.md). Only a tint to
                             // apply: ArkUI keeps no "authored" fill to go back to, so a `None`
                             // leaves the last recolor in place.
-                            day_spec::props::ImagePatch::Tint(Some(c)) => unsafe {
-                                ffi::day_ark_set_image_fill(h.0, argb(*c))
-                            },
+                            day_spec::props::ImagePatch::Tint(Some(c)) => {
+                                node::set_image_fill(h.0, argb(*c))
+                            }
                             day_spec::props::ImagePatch::Tint(None) => {}
                             // A source swap repaints the same node (docs/images.md).
                             day_spec::props::ImagePatch::Source(source) => {
@@ -2632,20 +2269,18 @@ mod imp {
                 kinds::LABEL => {
                     if let Some(p) = patch.downcast_ref::<LabelPatch>() {
                         match p {
-                            LabelPatch::Text(t) => unsafe {
-                                ffi::day_ark_set_text(h.0, cstr(t).as_ptr())
-                            },
+                            LabelPatch::Text(t) => node::set_text(h.0, t),
                             LabelPatch::Color(c) => match c {
                                 Some(c) => {
                                     forget_paint(h.0 as usize, h.0, Paint::Font);
-                                    unsafe { ffi::day_ark_set_font_color(h.0, argb(*c)) };
+                                    node::set_font_color(h.0, argb(*c));
                                 }
                                 None => {
                                     themed(h.0 as usize, h.0, Paint::Font, TEXT_LIGHT, TEXT_DARK)
                                 }
                             },
                             LabelPatch::Font(f) => {
-                                unsafe { ffi::day_ark_set_font_size(h.0, font_vp(*f)) };
+                                node::set_font_size(h.0, font_vp(*f));
                                 apply_font_attrs(h.0, *f);
                             }
                             LabelPatch::Runs(text, runs) => set_label_runs(h.0, text, runs),
@@ -2656,18 +2291,14 @@ mod imp {
                     Some(ButtonPatch::Content(c)) => {
                         apply_button_content(*h, &c.title, c.icon.as_ref(), c.icon_only)
                     }
-                    Some(ButtonPatch::Enabled(on)) => unsafe {
-                        ffi::day_ark_set_enabled(h.0, *on as c_int)
-                    },
-                    Some(ButtonPatch::Title(t)) => {
-                        unsafe { ffi::day_ark_set_button_label(h.0, cstr(t).as_ptr()) };
-                    }
+                    Some(ButtonPatch::Enabled(on)) => node::set_enabled(h.0, *on),
+                    Some(ButtonPatch::Title(t)) => node::set_button_label(h.0, t),
                     Some(ButtonPatch::Style(s)) => apply_button_style(h.0, *s),
                     _ => {}
                 },
                 kinds::TOGGLE => {
                     if let Some(TogglePatch::On(on)) = patch.downcast_ref::<TogglePatch>() {
-                        unsafe { ffi::day_ark_set_toggle(h.0, *on as c_int) };
+                        node::set_toggle(h.0, *on);
                     }
                 }
                 kinds::SLIDER => {
@@ -2681,21 +2312,21 @@ mod imp {
                         if let Some(nid) = nid {
                             SLIDER_ECHO.with(|m| m.borrow_mut().insert(nid, *v));
                         }
-                        unsafe { ffi::day_ark_set_slider(h.0, normalize(*v, min, max)) };
+                        node::set_slider(h.0, normalize(*v, min, max));
                     }
                 }
                 kinds::TEXT_FIELD => {
                     if let Some(TextFieldPatch::Text { text, from_native }) =
                         patch.downcast_ref::<TextFieldPatch>()
                     {
-                        // A from_native echo would fight the user's caret — skip it (§4.4).
+                        // A from_native echo would fight the user's caret: skip it (§4.4).
                         if !from_native {
                             if let Some(nid) =
                                 CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
                             {
                                 TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
                             }
-                            unsafe { ffi::day_ark_set_input_text(h.0, cstr(text).as_ptr()) };
+                            node::set_input_text(h.0, text);
                         }
                     }
                 }
@@ -2708,7 +2339,7 @@ mod imp {
                         {
                             TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
                         }
-                        unsafe { ffi::day_ark_set_textarea_text(h.0, cstr(text).as_ptr()) };
+                        node::set_textarea_text(h.0, text);
                     }
                 }
                 kinds::PICKER if piece::is_piece(h) => match patch.downcast_ref::<PickerPatch>() {
@@ -2724,9 +2355,9 @@ mod imp {
                 kinds::PICKER => match patch.downcast_ref::<PickerPatch>() {
                     Some(PickerPatch::Selected(i)) => {
                         PICKER_SELECTED.with(|m| m.insert(h.0 as usize, *i));
-                        unsafe { ffi::day_ark_set_picker_selected(h.0, *i as u32) }
+                        node::set_picker_selected(h.0, *i as u32);
                     }
-                    // The wheel's whole option RANGE, re-set — the same attribute realize
+                    // The wheel's whole option RANGE, re-set: the same attribute realize
                     // seeds. The selection rides along, clamped to the new list.
                     Some(PickerPatch::Options(opts)) => {
                         let joined = opts.join(";");
@@ -2734,9 +2365,7 @@ mod imp {
                             .with(|m| m.get(h.0 as usize))
                             .unwrap_or(0)
                             .min(opts.len().saturating_sub(1));
-                        unsafe {
-                            ffi::day_ark_set_picker(h.0, cstr(&joined).as_ptr(), selected as u32)
-                        };
+                        node::set_picker(h.0, &joined, selected as u32);
                     }
                     None => {}
                 },
@@ -2744,47 +2373,46 @@ mod imp {
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()
                     {
-                        unsafe { ffi::day_ark_set_progress(h.0, *v) };
+                        node::set_progress(h.0, *v);
                     }
                 }
                 kinds::LIST => match patch.downcast_ref::<ListPatch>() {
                     Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
                         // Deferred out of the day-core borrow: ReloadAllItems fires the
                         // adapter's ADD/REMOVE synchronously, and a bind pulled while the
-                        // borrow is held SKIPS (try_with_tree) and never retries — the
+                        // borrow is held SKIPS (try_with_tree) and never retries, the
                         // deferred-native-mutation rule (docs/tree.md M1). Coalesced: one
                         // change fires several watches, and adapter reload bursts drop ADDs.
-                        let node = h.0 as usize;
-                        let fresh = LIST_RELOAD_PENDING.with(|p| p.borrow_mut().insert(node));
+                        let n = h.0 as usize;
+                        let fresh = LIST_RELOAD_PENDING.with(|p| p.borrow_mut().insert(n));
                         if fresh {
-                            <Self as day_spec::Platform>::post(Box::new(move || {
-                                LIST_RELOAD_PENDING.with(|p| p.borrow_mut().remove(&node));
-                                unsafe { ffi::day_ark_list_reload(node as *mut c_void) };
+                            crate::main_thread::post_local(Box::new(move || {
+                                LIST_RELOAD_PENDING.with(|p| p.borrow_mut().remove(&n));
+                                crate::list::reload(n as Handle);
                             }));
                         }
                     }
-                    Some(ListPatch::ScrollToEnd) => unsafe { ffi::day_ark_list_scroll_to_end(h.0) },
-                    Some(ListPatch::ScrollToRow(row)) => unsafe {
-                        ffi::day_ark_list_scroll_to_row(h.0, *row as u32)
-                    },
-                    // RowSizeInvalidated / Selected: the node adapter re-measures rows itself and
-                    // ArkUI's list exposes no programmatic selection — nothing to forward.
+                    Some(ListPatch::ScrollToEnd) => crate::list::scroll_to_end(h.0),
+                    Some(ListPatch::ScrollToRow(row)) => {
+                        crate::list::scroll_to_row(h.0, *row as u32)
+                    }
+                    // RowSizeInvalidated: the node adapter re-measures rows itself.
                     Some(ListPatch::Selected(rows)) => {
                         // Record, then repaint the live cells; newly bound cells pick the
-                        // state up in the adapter's add path. Paint only — no echo.
+                        // state up in the adapter's add path. Paint only, no echo.
                         if let Some(nid) =
                             LIST_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
                         {
                             LIST_SELECTED.with(|m| {
                                 m.borrow_mut().insert(nid, rows.iter().copied().collect());
                             });
-                            unsafe { ffi::day_ark_list_paint_selection(h.0) };
+                            crate::list::paint_selection(h.0);
                         }
                     }
                     Some(ListPatch::RowSizeInvalidated(_)) | None => {}
                 },
                 // An external piece's own arkui renderer, if one registered for this kind. Without
-                // this, every registered piece realized correctly and then ignored every patch —
+                // this, every registered piece realized correctly and then ignored every patch:
                 // realize and measure consulted the registry but update did not.
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
@@ -2803,11 +2431,12 @@ mod imp {
                 f(self, h);
             }
         }
+
         fn release(&mut self, h: AHandle) {
             clear_button_content(h);
             let key = h.0 as usize;
-            // One sweep drops this node's entry from every registered `SideTable` — present
-            // and future — before the manual purges below (day_spec::sidetable; the existing
+            // One sweep drops this node's entry from every registered `SideTable`, present
+            // and future, before the manual purges below (day_spec::sidetable; the existing
             // maps predate it and keep their explicit lines).
             day_spec::sidetable::sweep(key);
             forget_themed(key);
@@ -2819,10 +2448,10 @@ mod imp {
             }
             // A pushed page released without a Remove patch (whole-host teardown) must not
             // leave its re-home bookkeeping behind: a recycled node address would alias it.
-            // The ArkTS side still holds the destination slot's keep-alive ref — drop that
+            // The ArkTS side still holds the destination slot's keep-alive ref; drop that
             // too (nav_forget touches only the bookkeeping, never the content tree).
             if let Some(nav_key) = NAV_PUSHED.with(|m| m.borrow_mut().remove(&key)) {
-                unsafe { ffi::day_ark_nav_forget(nav_key) };
+                crate::host_api::nav_forget(nav_key);
             }
             NAV_ATTACHED.with(|v| v.borrow_mut().retain(|(p, _)| *p != key));
             // A cover released while presented, and a secondary window root released after
@@ -2866,46 +2495,42 @@ mod imp {
                     m.borrow_mut().remove(&nid);
                 });
             }
-            // A released NAV_MENU retires its rows' synthetic click ids — without this every
+            // A released NAV_MENU retires its rows' synthetic click ids: without this every
             // menu rebuild leaked its row entries for the process lifetime.
             if let Some(menu) = NAV_MENU_IDS.with(|m| m.borrow_mut().remove(&key)) {
                 MENU_ROWS.with(|m| m.borrow_mut().retain(|_, v| v.0 != menu));
             }
-            // A scroll owns its content container (realize) — dispose it with the scroll.
+            // A scroll owns its content container (realize): dispose it with the scroll.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                 forget_themed(stack);
-                unsafe { ffi::day_ark_node_dispose(stack as *mut _) };
+                node::dispose(stack as Handle);
             }
             // An ArkTS-built piece node belongs to its BuilderNode: detach it from the native
-            // wrapper, ask ArkTS to release it, and dispose only the wrapper — a native dispose
+            // wrapper, ask ArkTS to release it, and dispose only the wrapper; a native dispose
             // of the FrameNode would free a node ArkTS still holds.
             if let Some((id, inner)) = PIECE_NODES.with(|m| m.borrow_mut().remove(&key)) {
                 MENU_PICKER_SIZE.with(|m| m.borrow_mut().remove(&key));
                 PIECE_FRAME.with(|m| m.borrow_mut().remove(&key));
-                unsafe {
-                    ffi::day_ark_remove_child(h.0, inner as *mut _);
-                    ffi::day_ark_piece_dispose(id);
-                }
+                node::remove_child(h.0, inner as Handle);
+                crate::host_api::piece_dispose(id);
             }
-            unsafe { ffi::day_ark_node_dispose(h.0) };
+            node::dispose(h.0);
         }
 
         fn insert(&mut self, parent: &AHandle, child: &AHandle, index: usize) {
             // A suite's own pages. The one at index 0 is the SIDEBAR page, whose rows became the
             // bar: it is kept so nothing downstream has to special-case a missing page, but never
-            // shown — drawing the rows again as a list would be the same navigation twice.
+            // shown; drawing the rows again as a list would be the same navigation twice.
             let into_suite = NAV_SUITES.with(|c| {
                 let mut c = c.borrow_mut();
                 let Some(suite) = c.get_mut(&(parent.0 as usize)) else {
                     return false;
                 };
                 let page = suite.page_size;
-                unsafe {
-                    ffi::day_ark_insert_child(suite.pages.0, child.0, index as c_int);
-                    ffi::day_ark_set_size(child.0, page.width, page.height);
-                }
+                node::insert_child(suite.pages.0, child.0, index as i32);
+                node::set_size(child.0, page.width, page.height);
                 if index == 0 {
-                    unsafe { ffi::day_ark_set_visibility(child.0, 0) };
+                    node::set_visibility(child.0, false);
                 } else {
                     let id = NodeId(
                         NAV_PAGE_IDS
@@ -2915,7 +2540,7 @@ mod imp {
                     let first = suite.items.is_empty();
                     suite.items.push((*child, id));
                     // The first destination claims the screen: page 0 is the hidden sidebar.
-                    unsafe { ffi::day_ark_set_visibility(child.0, first as c_int) };
+                    node::set_visibility(child.0, first);
                 }
                 true
             });
@@ -2940,7 +2565,7 @@ mod imp {
             if COVER_NODES.with(|m| m.borrow().contains_key(&(child.0 as usize))) {
                 COVER_PARENTS.with(|m| m.borrow_mut().insert(child.0 as usize, native_parent));
             }
-            unsafe { ffi::day_ark_insert_child(native_parent as *mut _, child.0, index as c_int) };
+            node::insert_child(native_parent as Handle, child.0, index as i32);
         }
 
         fn remove(&mut self, parent: &AHandle, child: &AHandle) {
@@ -2948,20 +2573,20 @@ mod imp {
             NAV_ATTACHED.with(|v| v.borrow_mut().retain(|(p, _)| *p != cp));
             // A presented cover lives under the window root, not its tree parent.
             if let Some(cur) = COVER_PARENTS.with(|m| m.borrow_mut().remove(&cp)) {
-                unsafe { ffi::day_ark_remove_child(cur as *mut _, child.0) };
+                node::remove_child(cur as Handle, child.0);
                 return;
             }
             if let Some(key) = NAV_PUSHED.with(|m| m.borrow_mut().remove(&cp)) {
                 // The page lives in an ArkTS NodeContent (NavDestination), not under the host.
                 // Detach it only while that destination is still alive (a Day-initiated pop:
                 // the Remove patch lands before the pop transition finishes). Once the ArkTS
-                // side reported the disappearance (native back — the destination and its
+                // side reported the disappearance (native back: the destination and its
                 // content tree are already torn down), touching the slot would walk freed
                 // FrameNodes: drop the bookkeeping instead.
                 if NAV_POPPED_KEYS.with(|s| s.borrow_mut().remove(&key)) {
-                    unsafe { ffi::day_ark_nav_forget(key) };
+                    crate::host_api::nav_forget(key);
                 } else {
-                    unsafe { ffi::day_ark_nav_remove(key, child.0) };
+                    crate::host_api::nav_remove(key, child.0);
                 }
                 return;
             }
@@ -2969,7 +2594,7 @@ mod imp {
             let native_parent = SCROLL_CONTENT
                 .with(|m| m.borrow().get(&(parent.0 as usize)).copied())
                 .unwrap_or(parent.0 as usize);
-            unsafe { ffi::day_ark_remove_child(native_parent as *mut _, child.0) };
+            node::remove_child(native_parent as Handle, child.0);
         }
 
         fn move_child(&mut self, parent: &AHandle, child: &AHandle, to: usize) {
@@ -2980,24 +2605,15 @@ mod imp {
         fn measure(&mut self, h: &AHandle, kind: PieceKind, p: Proposal) -> Size {
             match kind {
                 kinds::LABEL => {
-                    let (mut w, mut hh) = (0.0f64, 0.0f64);
                     // A label measures on a fresh copy: ArkUI answers a Text whose content
-                    // changed with the old content's size (see the shim).
-                    unsafe {
-                        ffi::day_ark_measure_label(
-                            h.0,
-                            p.width.unwrap_or(-1.0),
-                            p.height.unwrap_or(-1.0),
-                            &mut w,
-                            &mut hh,
-                        )
-                    };
+                    // changed with the old content's size (see node::measure_label).
+                    let (w, hh) =
+                        node::measure_label(h.0, p.width.unwrap_or(-1.0), p.height.unwrap_or(-1.0));
                     Size::new(w, hh)
                 }
                 kinds::BUTTON => {
-                    let (mut w, mut hh) = (0.0f64, 0.0f64);
                     // An icon button is sized from its content Row (see `apply_button_content`),
-                    // a title button from a fresh copy (see the shim).
+                    // a title button from a fresh copy (see node::measure_button).
                     let content = BUTTON_CHILDREN
                         .with(|m| {
                             m.borrow()
@@ -3005,16 +2621,12 @@ mod imp {
                                 .and_then(|c| c.first().copied())
                         })
                         .map_or(std::ptr::null_mut(), |row| row.0);
-                    unsafe {
-                        ffi::day_ark_measure_button(
-                            h.0,
-                            content,
-                            p.width.unwrap_or(-1.0),
-                            p.height.unwrap_or(-1.0),
-                            &mut w,
-                            &mut hh,
-                        )
-                    };
+                    let (w, hh) = node::measure_button(
+                        h.0,
+                        content,
+                        p.width.unwrap_or(-1.0),
+                        p.height.unwrap_or(-1.0),
+                    );
                     Size::new(w, hh)
                 }
                 kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 40.0),
@@ -3025,11 +2637,7 @@ mod imp {
                         .unwrap_or((1, 0));
                     let line = 24.0;
                     let min_h = min_lines as f64 * line + 16.0;
-                    let nat = unsafe {
-                        let (mut w, mut hh) = (0.0f64, 0.0f64);
-                        ffi::day_ark_measure(h.0, p.width.unwrap_or(0.0), 0.0, &mut w, &mut hh);
-                        hh
-                    };
+                    let nat = node::measure(h.0, p.width.unwrap_or(0.0), 0.0).1;
                     let capped = if max_lines == 0 {
                         nat.max(min_h)
                     } else {
@@ -3060,27 +2668,25 @@ mod imp {
         }
 
         fn set_selectable(&mut self, h: &AHandle, selectable: bool) -> Option<AHandle> {
-            // The shim sets NODE_TEXT_COPY_OPTION on the Text node; a non-text node ignores it
-            // (docs/text.md).
-            unsafe { ffi::day_ark_label_set_selectable(h.0, selectable as c_int) };
+            // NODE_TEXT_COPY_OPTION on the Text node; a non-text node ignores it (docs/text.md).
+            node::label_set_selectable(h.0, selectable);
             None
         }
 
-        /// Derived from the node's font size in the shim (docs/baseline.md): the ArkUI C
-        /// API publishes no baseline, so `Cap::BaselineAlignment` is `Emulated` here.
+        /// Derived from the node's font size (docs/baseline.md): the ArkUI C API publishes no
+        /// baseline, so `Cap::BaselineAlignment` is `Emulated` here.
         fn first_baseline(&mut self, h: &AHandle, kind: PieceKind, size: Size) -> Option<f64> {
             if !day_spec::kind_has_baseline(kind) {
                 return None;
             }
-            let b = unsafe { ffi::day_ark_baseline(h.0, size.height) };
-            (b >= 0.0).then_some(b)
+            node::baseline(h.0, size.height)
         }
 
         fn set_frame(&mut self, h: &AHandle, frame: Rect, _anim: Option<&AnimSpec>) {
             // The suite divides its own frame between the pages area and the bar, then tells each
-            // page how much room it has — day-core sees one host node and gives it one frame.
+            // page how much room it has: day-core sees one host node and gives it one frame.
             if NAV_SUITES.with(|c| c.borrow().contains_key(&(h.0 as usize))) {
-                unsafe { ffi::day_ark_set_size(h.0, frame.size.width, frame.size.height) };
+                node::set_size(h.0, frame.size.width, frame.size.height);
                 suite_layout(h.0 as usize, frame.size);
                 return;
             }
@@ -3088,15 +2694,13 @@ mod imp {
             if COVER_NODES.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
                 return;
             }
-            unsafe {
-                ffi::day_ark_set_frame(
-                    h.0,
-                    frame.origin.x,
-                    frame.origin.y,
-                    frame.size.width,
-                    frame.size.height,
-                )
-            };
+            node::set_frame(
+                h.0,
+                frame.origin.x,
+                frame.origin.y,
+                frame.size.width,
+                frame.size.height,
+            );
             // An ArkTS piece is built detached, so a percentage size inside it resolves against
             // the window rather than this wrapper: tell it the size it was laid out at, when that
             // changes, as `day.frame` "<w>,<h>" (vp). A component that fills its frame sizes
@@ -3114,9 +2718,7 @@ mod imp {
 
         fn set_opacity(&mut self, h: &AHandle, opacity: f64, anim: Option<&AnimSpec>) {
             let n = h.0;
-            animate(n, anim, move || unsafe {
-                ffi::day_ark_set_opacity(n, opacity)
-            });
+            crate::anim::animate(n, anim, move || node::set_opacity(n, opacity));
         }
 
         fn set_transform(
@@ -3129,40 +2731,38 @@ mod imp {
             // ArkUI takes the pivot as a fraction of the node's own size, so the laid-out size
             // isn't needed. The pivot is not animated: only where the node moves to is.
             let n = h.0;
-            unsafe { ffi::day_ark_set_transform_center(n, t.anchor_x, t.anchor_y) };
-            animate(n, anim, move || unsafe {
-                ffi::day_ark_set_transform(n, t.tx, t.ty, t.sx, t.sy, t.rotate_deg)
+            node::set_transform_center(n, t.anchor_x, t.anchor_y);
+            crate::anim::animate(n, anim, move || {
+                node::set_transform(n, t.tx, t.ty, t.sx, t.sy, t.rotate_deg)
             });
         }
 
         fn set_scroll_content(&mut self, h: &AHandle, content: Size) {
-            // Size the shim-owned container (see [`SCROLL_CONTENT`]) so ArkUI's Scroll
-            // measures the real extent — that extent is what makes touch and programmatic
+            // Size the backend-owned container (see [`SCROLL_CONTENT`]) so ArkUI's Scroll
+            // measures the real extent; that extent is what makes touch and programmatic
             // offsets take effect. Size without position: `NODE_POSITION` removes a child
             // from layout flow, and the Scroll's measure ignores positioned children.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
-                unsafe { ffi::day_ark_set_size(stack as *mut _, content.width, content.height) };
+                node::set_size(stack as Handle, content.width, content.height);
             }
         }
 
         fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {
-            // The shim owns the minimal-reveal math (it can read the node's offset + size).
-            unsafe {
-                ffi::day_ark_scroll_to_rect(
-                    h.0,
-                    target.origin.x as f32,
-                    target.origin.y as f32,
-                    target.size.width as f32,
-                    target.size.height as f32,
-                    animated as c_int,
-                )
-            };
+            // The node module owns the minimal-reveal math (it can read the offset + size).
+            node::scroll_to_rect(
+                h.0,
+                target.origin.x as f32,
+                target.origin.y as f32,
+                target.size.width as f32,
+                target.size.height as f32,
+                animated,
+            );
         }
 
         fn focus(&mut self, h: &AHandle, _node: NodeId, focused: bool) {
-            // The shim clears the UI context's focus only while this node still owns it, and
-            // swallows typed non-focusable errors — no event, and the signal snaps back.
-            unsafe { ffi::day_ark_focus(h.0, focused as c_int) };
+            // The UI context's focus is cleared only while this node still owns it, and typed
+            // non-focusable errors are swallowed: no event, and the signal snaps back.
+            node::focus(h.0, focused);
         }
 
         fn set_event_sink(&mut self, sink: EventSink) {
@@ -3172,26 +2772,25 @@ mod imp {
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {
             // The screen-reader label; `hidden`/`decorative` drop the node + subtree from the tree.
             let label = a11y.label.as_deref().unwrap_or("");
-            let hidden = (a11y.hidden || a11y.decorative) as c_int;
-            unsafe { ffi::day_ark_set_a11y(h.0, cstr(label).as_ptr(), hidden) };
+            node::set_a11y(h.0, label, a11y.hidden || a11y.decorative);
         }
 
-        fn enable_gesture(&mut self, h: &AHandle, node: NodeId, kind: GestureKind) {
+        fn enable_gesture(&mut self, h: &AHandle, node_id: NodeId, kind: GestureKind) {
             // Tap is a NODE_ON_CLICK that emits `Event::Tap` (tracked in TAP_NODES so the shared
             // click receiver knows to send Tap, not Pressed). Drag is a native pan recognizer
-            // (docs/shapes.md) whose phases arrive on the shared kind-11 gesture wire.
-            // Long-press isn't wired on ArkUI yet — a piece that needs it degrades to no gesture.
+            // (docs/shapes.md) whose phases arrive on the shared gesture wire.
+            // Long-press isn't wired on ArkUI yet: a piece that needs it degrades to no gesture.
             match kind {
                 GestureKind::Tap => {
-                    TAP_NODES.with(|s| s.borrow_mut().insert(node.0));
-                    TAP_HANDLES.with(|m| m.borrow_mut().insert(h.0 as usize, node.0));
-                    unsafe { ffi::day_ark_register_event(h.0, 0, node.0) };
+                    TAP_NODES.with(|s| s.borrow_mut().insert(node_id.0));
+                    TAP_HANDLES.with(|m| m.borrow_mut().insert(h.0 as usize, node_id.0));
+                    node::register_event(h.0, node::EV_CLICK, node_id.0);
                 }
-                GestureKind::Drag => unsafe { ffi::day_ark_enable_pan(h.0, node.0) },
+                GestureKind::Drag => crate::gesture::enable_pan(h.0, node_id.0),
                 // Hover is deliberately unwired here (docs/canvas.md "Interaction"): the C node
                 // API's `NODE_ON_HOVER` reports only entered/exited with no coordinates, and the
                 // contract is a POINT. `NODE_ON_MOUSE` carries one, but this is the one target
-                // nothing here can run, and a HarmonyOS phone has no pointer to hover with — so
+                // nothing here can run, and a HarmonyOS phone has no pointer to hover with, so
                 // it degrades to no gesture, like long-press, rather than to a guessed position.
                 _ => {}
             }
@@ -3202,78 +2801,66 @@ mod imp {
             host: &AHandle,
             cb: day_spec::FrameCallback,
         ) -> day_spec::CancelFrame {
-            extern "C" fn fire(token: u64, timestamp: f64) {
+            fn fire(token: u64, timestamp: f64) {
                 day_core::frame::native::deliver(token, day_spec::FrameStamp::new(timestamp));
             }
             let token = day_core::frame::native::register(cb);
-            if unsafe { ffi::day_ark_request_frame(host.0, token, fire) } != 0 {
+            if !crate::vsync::request_frame(host.0 as usize, token, fire) {
                 day_core::frame::native::cancel(token);
                 log::error!("NativeVSync frame request failed");
             }
             Box::new(move || {
                 day_core::frame::native::cancel(token);
-                unsafe { ffi::day_ark_cancel_frame(token) };
+                crate::vsync::cancel_frame(token);
             })
         }
 
         fn replay(&mut self, h: &AHandle, ops: &[DrawOp], _size: Size) {
             ensure_canvas_fonts();
-            // Encode the display list the shared way (day-android uses the same encoder) and hand it
-            // to the custom node; its on-draw callback replays it with OH_Drawing (§11).
+            // Encode the display list the shared way (day-android uses the same encoder) and hand
+            // it to the custom node; its on-draw callback replays it with OH_Drawing (§11).
             let (nums, texts) = day_spec::encode_ops(ops);
-            let joined = cstr(&texts.join("\u{1f}"));
-            unsafe {
-                ffi::day_ark_set_canvas_ops(h.0, nums.as_ptr(), nums.len() as u32, joined.as_ptr())
-            };
+            crate::canvas::set_ops(h.0, &nums, &texts);
         }
 
         fn adopt(&mut self, raw: day_spec::RawHandle) -> AHandle {
             // A recycling LIST cell's inner Stack, created natively and handed back through the
-            // adapter's bind callback — day mounts + rebinds the row's content into it.
-            AHandle(raw)
+            // adapter's bind callback: day mounts + rebinds the row's content into it.
+            AHandle(raw.cast())
         }
 
         fn attach_list(&mut self, host: &AHandle, source: day_spec::ListSource) {
             if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&(host.0 as usize)).copied()) {
                 LIST_SOURCES.with(|m| m.borrow_mut().insert(nid, source));
             }
-            unsafe { ffi::day_ark_list_reload(host.0) };
+            crate::list::reload(host.0);
         }
 
-        /// `OH_Drawing_FontMgr` families and faces, decoded from the shim's list text
-        /// (docs/fonts.md).
+        /// `OH_Drawing_FontMgr` families and faces (docs/fonts.md).
         fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
-            let mut p: *mut c_char = std::ptr::null_mut();
-            let mut len = 0usize;
-            // SAFETY: the shim fills `p` with a NUL-terminated heap string it owns until the
-            // free below; nothing else reads it.
-            unsafe {
-                if ffi::day_ark_font_families(&mut p, &mut len) != 1 || p.is_null() {
-                    return Vec::new();
-                }
-                let text = std::ffi::CStr::from_ptr(p).to_string_lossy().into_owned();
-                ffi::day_ark_string_free(p as *mut c_void);
-                let mut list = day_spec::parse_font_list(&text);
-                // The bundled families the ability registered from `day/fonts.json`
-                // (`[{"family": …, "file": …}]`): one Regular face each, appended when the
-                // manager's own list did not report them.
-                if let Some(res) = open_resource("fonts.json") {
-                    let json = String::from_utf8_lossy(res.as_slice()).into_owned();
-                    for family in manifest_families(&json) {
-                        if !list.iter().any(|f| f.family.eq_ignore_ascii_case(&family)) {
-                            list.push(day_spec::FontFamilyInfo {
-                                family,
-                                faces: vec![day_spec::FontFace {
-                                    name: "Regular".to_string(),
-                                    weight: day_spec::FontWeight::Regular,
-                                    italic: false,
-                                }],
-                            });
-                        }
+            let Some(text) = crate::fonts::families_text() else {
+                return Vec::new();
+            };
+            let mut list = day_spec::parse_font_list(&text);
+            // The bundled families the ability registered from `day/fonts.json`
+            // (`[{"family": …, "file": …}]`): one Regular face each, appended when the
+            // manager's own list did not report them.
+            if let Some(res) = open_resource("fonts.json") {
+                let json = String::from_utf8_lossy(res.as_slice()).into_owned();
+                for family in manifest_families(&json) {
+                    if !list.iter().any(|f| f.family.eq_ignore_ascii_case(&family)) {
+                        list.push(day_spec::FontFamilyInfo {
+                            family,
+                            faces: vec![day_spec::FontFace {
+                                name: "Regular".to_string(),
+                                weight: day_spec::FontWeight::Regular,
+                                italic: false,
+                            }],
+                        });
                     }
                 }
-                list
             }
+            list
         }
 
         /// `OH_Drawing_FontMeasureText` + the font metrics of the face the canvas draws with
@@ -3285,56 +2872,39 @@ mod imp {
             font: &day_spec::CanvasFont,
         ) -> Option<day_spec::TextMetrics> {
             ensure_canvas_fonts();
-            let text = cstr(text);
-            let family = cstr(font.family_str());
-            let mut out = [0.0f64; 8];
-            // SAFETY: both strings outlive the call and `out` has the eight slots the shim fills.
-            let ok = unsafe {
-                ffi::day_ark_measure_text(
-                    text.as_ptr(),
-                    size,
-                    i32::from(font.css_weight()),
-                    i32::from(font.italic),
-                    family.as_ptr(),
-                    out.as_mut_ptr(),
-                )
-            };
-            (ok == 1).then(|| day_spec::TextMetrics::from_slots(&out))
+            let out = crate::fonts::measure_text(
+                text,
+                size,
+                i32::from(font.css_weight()),
+                font.italic,
+                font.family_str(),
+            );
+            Some(day_spec::TextMetrics::from_slots(&out))
         }
 
         /// Decode bytes with `OH_ImageSourceNative` (docs/images.md), which reads every container
         /// the platform's image framework knows.
         fn decode_image(&mut self, req: u64, id: day_spec::BitmapId, bytes: &[u8]) {
-            let mut out = [0.0f64; 3];
-            // SAFETY: the shim reads `len` bytes from the borrowed span and keeps only its own
-            // decoded pixelmap; it writes exactly three doubles into `out`.
-            let ok = unsafe {
-                ffi::day_ark_image_decode(
-                    id.0,
-                    bytes.as_ptr(),
-                    bytes.len() as u32,
-                    out.as_mut_ptr(),
-                )
-            };
-            let event = if ok != 0 {
-                let info = day_spec::BitmapInfo {
-                    pixels: Size::new(out[0], out[1]),
-                    // Decoded bytes carry no density — a PNG is simply its pixels.
-                    scale: 1.0,
-                    format: day_spec::ImageFormat::sniff(bytes),
-                    // Read from the pixelmap's alpha type, not inferred from the container.
-                    has_alpha: out[2] > 0.5,
-                };
-                BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
-                Event::ImageDecoded {
-                    req,
-                    result: Ok(info),
+            let event = match crate::images::decode(id.0, bytes) {
+                Some((w, h, has_alpha)) => {
+                    let info = day_spec::BitmapInfo {
+                        pixels: Size::new(w, h),
+                        // Decoded bytes carry no density: a PNG is simply its pixels.
+                        scale: 1.0,
+                        format: day_spec::ImageFormat::sniff(bytes),
+                        // Read from the pixelmap's alpha type, not inferred from the container.
+                        has_alpha,
+                    };
+                    BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+                    Event::ImageDecoded {
+                        req,
+                        result: Ok(info),
+                    }
                 }
-            } else {
-                Event::ImageDecoded {
+                None => Event::ImageDecoded {
                     req,
                     result: Err(day_spec::ImageError::Decode),
-                }
+                },
             };
             emit(day_spec::WINDOW_NODE, event);
         }
@@ -3348,7 +2918,7 @@ mod imp {
             emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
         }
 
-        /// What the image packer WRITES. The platform READS more, and the asymmetry is its own —
+        /// What the image packer WRITES. The platform READS more, and the asymmetry is its own,
         /// which is why this duty exists rather than letting `Cap::ImageEncode` imply symmetry.
         fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
             use day_spec::ImageFormat::{Jpeg, Png};
@@ -3359,23 +2929,23 @@ mod imp {
             BITMAP_INFO.with(|m| {
                 m.borrow_mut().remove(&id.0);
             });
-            // SAFETY: an id the shim either knows or does not; releasing an absent one is a no-op.
-            unsafe { ffi::day_ark_image_release(id.0) };
+            crate::images::release(id.0);
         }
 
         /// In-process capture of the window root (docs/window-image.md). `hdc shell
-        /// snapshot_display` remains what a dayscript screenshot uses on a device — it is the
-        /// whole display, including the system status bar this cannot see — but the app itself
+        /// snapshot_display` remains what a dayscript screenshot uses on a device (it is the
+        /// whole display, including the system status bar this cannot see), but the app itself
         /// needs an answer that does not shell out, and this is it.
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             let (root, _, _) = ROOT_KEEP
                 .with(|r| r.get())
                 .ok_or("no window root to capture")?;
-            snapshot_node(root as *mut c_void)
+            crate::images::snapshot_png(root as Handle)
+                .ok_or_else(|| "the node has no snapshot".into())
         }
 
         /// The color mode resolved at startup (DAY_THEME override, else the host-reported
-        /// system mode) — the same flag every neutral day-arkui paint branches on.
+        /// system mode): the same flag every neutral day-arkui paint branches on.
         fn dark_mode(&mut self) -> bool {
             IS_DARK.with(|d| d.get())
         }
@@ -3416,35 +2986,29 @@ mod imp {
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
             use day_spec::present::PresentSpec;
             match spec {
-                PresentSpec::OpenFile { .. } => unsafe {
-                    ffi::day_ark_present_file(
-                        req,
-                        0,
-                        std::ptr::null(),
-                        std::ptr::null(),
-                        cstr(&spec.filters_joined()).as_ptr(),
-                    );
-                },
+                PresentSpec::OpenFile { .. } => {
+                    crate::host_api::present_file(req, 0, "", "", &spec.filters_joined());
+                }
                 PresentSpec::SaveFile {
                     suggested_name,
                     src_path,
                     ..
-                } => unsafe {
-                    ffi::day_ark_present_file(
+                } => {
+                    crate::host_api::present_file(
                         req,
                         1,
-                        cstr(suggested_name).as_ptr(),
-                        cstr(src_path).as_ptr(),
-                        cstr(&spec.filters_joined()).as_ptr(),
+                        suggested_name,
+                        src_path,
+                        &spec.filters_joined(),
                     );
-                },
+                }
                 // Dialog / Prompt aren't implemented on ArkUI (a follow-up); ignore.
                 _ => {}
             }
         }
 
         fn open_url(&mut self, url: &str) {
-            unsafe { ffi::day_ark_open_url(cstr(url).as_ptr()) };
+            crate::host_api::open_url(url);
         }
 
         fn set_drag_source(&mut self, h: &AHandle, source: day_spec::transfer::Source) {
@@ -3505,7 +3069,7 @@ mod imp {
                 // (docs/window-image.md).
                 Cap::Snapshot => Support::Native,
                 // Every pushed page is an ArkTS NavDestination with a native title bar
-                // (Index.ets) — content needn't repeat the title (docs/navigation.md).
+                // (Index.ets); content needn't repeat the title (docs/navigation.md).
                 Cap::NavHeader => Support::Native,
                 // A `Navigation`'s title bar carries `.menus()` items, which is where a page's
                 // toolbar commands go here (docs/toolbars.md). Emulated rather than Native: the
@@ -3513,7 +3077,7 @@ mod imp {
                 // asks whether there is persistent window chrome gets the honest answer.
                 Cap::Toolbar => Support::Emulated,
                 // The composed bottom bar (see NavSuite): ArkUI's native node set has no tab
-                // container, so this one is built from Day's own primitives — Emulated says so.
+                // container, so this one is built from Day's own primitives; Emulated says so.
                 Cap::NavTabs => Support::Emulated,
                 // And HarmonyOS should grow one as it narrows: a bottom bar is the phone idiom
                 // here as it is on iOS and Android (docs/navigation.md).
@@ -3531,17 +3095,17 @@ mod imp {
                 // day pieces. No native drag wiring, so `Cap::TreeMove` stays Unsupported
                 // (`tree_move:` drives the seam synthetically).
                 Cap::Tree => Support::Emulated,
-                // Derived from NODE_FONT_SIZE — ArkUI publishes no baseline (docs/baseline.md).
+                // Derived from NODE_FONT_SIZE: ArkUI publishes no baseline (docs/baseline.md).
                 Cap::BaselineAlignment => Support::Emulated,
                 Cap::TextRuns => Support::Native,
                 // ArkTS arms (src/host.rs): present wherever `day build` staged them.
                 Cap::Appearance => crate::host::color_mode_support(),
                 Cap::AppBadgeCount => crate::host::badge_support(),
-                // Multiton DayWindowAbility instances (docs/windows.md) — Native only when
+                // Multiton DayWindowAbility instances (docs/windows.md): Native only when
                 // the ArkTS host registered the launchers; an older host degrades to the
                 // cover fallback.
                 Cap::MultiWindow => {
-                    if unsafe { ffi::day_ark_has_windows() } != 0 {
+                    if crate::host_api::has_windows() {
                         Support::Native
                     } else {
                         Support::Unsupported
@@ -3562,10 +3126,7 @@ mod imp {
             if kind == day_spec::WindowKind::Preferences {
                 return day_spec::WindowOpenReply::Unsupported;
             }
-            let Ok(title) = std::ffi::CString::new(options.title.as_str()) else {
-                return day_spec::WindowOpenReply::Unsupported;
-            };
-            if unsafe { ffi::day_ark_open_window(id.0, title.as_ptr()) } != 0 {
+            if crate::host_api::open_window(id.0, &options.title) {
                 day_spec::WindowOpenReply::Pending
             } else {
                 day_spec::WindowOpenReply::Unsupported
@@ -3573,14 +3134,14 @@ mod imp {
         }
 
         fn close_window(&mut self, host: &AHandle) {
-            let node = SECONDARY.with(|s| {
+            let node_id = SECONDARY.with(|s| {
                 s.borrow()
                     .iter()
                     .find(|(_, ptr)| *ptr == host.0 as usize)
                     .map(|(n, _)| *n)
             });
-            if let Some(node) = node {
-                unsafe { ffi::day_ark_close_window(node) };
+            if let Some(node_id) = node_id {
+                crate::host_api::close_window(node_id);
             }
         }
     }
@@ -3598,17 +3159,8 @@ mod imp {
         }
 
         fn post(f: Box<dyn FnOnce() + Send>) {
-            let data = Box::into_raw(Box::new(f)) as *mut c_void;
-            unsafe { ffi::day_ark_post(run_posted, data) };
+            crate::main_thread::post(f);
         }
-    }
-
-    extern "C" fn run_posted(data: *mut c_void) {
-        // SAFETY: `data` is the Box::into_raw pointer `Platform::post` minted; the shim
-        // delivers it exactly once.
-        let f = unsafe { Box::from_raw(data as *mut Box<dyn FnOnce() + Send>) };
-        // Posted-closure trampoline (an FFI entry): contained (day_spec::ffi_guard).
-        day_spec::ffi_guard::contain((), f);
     }
 
     /// Map a day slider value into ArkUI's default 0..100 range.
@@ -3617,16 +3169,6 @@ mod imp {
             0.0
         } else {
             ((v - min) / (max - min) * 100.0).clamp(0.0, 100.0)
-        }
-    }
-
-    /// Keeps a native rawfile view (an mmap region or heap copy) alive for a [`Resource`]'s lifetime,
-    /// releasing it via the shim when dropped.
-    struct ResGuard(*mut c_void);
-
-    impl Drop for ResGuard {
-        fn drop(&mut self) {
-            unsafe { ffi::day_ark_res_close(self.0) };
         }
     }
 
@@ -3689,13 +3231,7 @@ mod imp {
                 log::warn!("bundled font {file:?} ({family:?}) is not in the rawfile store");
                 continue;
             };
-            let bytes = res.as_slice();
-            let name = cstr(&family);
-            // SAFETY: the shim copies the bytes before returning; both pointers outlive the call.
-            let ok = unsafe {
-                ffi::day_ark_register_canvas_font(name.as_ptr(), bytes.as_ptr(), bytes.len())
-            };
-            if ok != 1 {
+            if !crate::fonts::register_canvas_font(&family, res.as_slice()) {
                 log::warn!("bundled font {file:?} ({family:?}) did not parse as a font");
             }
         }
@@ -3703,30 +3239,25 @@ mod imp {
 
     /// The rawfile-backed data-resource opener (§18.3), registered once in [`init`]. Serves
     /// `resource("numbers.bin")` from the app's `resources/rawfile/day/<name>` store via the
-    /// OpenHarmony `OH_ResourceManager_*` API — zero-copy where the entry is mmap-able, else a copy.
+    /// OpenHarmony `OH_ResourceManager_*` API: zero-copy where the entry is mmap-able, else a copy.
     ///
     /// Returns `None` until the ArkTS entry ability has handed the native side its `resourceManager`
-    /// (the shim's `registerResourceManager`); without it there is no `NativeResourceManager` to read
-    /// through, so no data resources are available.
+    /// (the host's `registerResourceManager`); without it there is no `NativeResourceManager` to
+    /// read through, so no data resources are available.
     fn open_resource(name: &str) -> Option<day_spec::resource::Resource> {
-        if unsafe { ffi::day_ark_res_available() } == 0 {
+        if !crate::resources::available() {
             return None;
         }
         // OpenRawFile addresses entries relative to the rawfile root, so the lookup key for a staged
         // resource is `day/<name>` (the CLI stages data uncompressed under resources/rawfile/day/).
-        let path = cstr(&format!("day/{name}"));
-        let mut data: *const u8 = std::ptr::null();
-        let mut len: usize = 0;
-        let mut handle: *mut c_void = std::ptr::null_mut();
-        let ok = unsafe { ffi::day_ark_res_open(path.as_ptr(), &mut data, &mut len, &mut handle) };
-        if ok == 0 || data.is_null() {
+        let mapped = crate::resources::open(&format!("day/{name}"))?;
+        let (data, len) = mapped.as_ptr_len();
+        if data.is_null() {
             return None;
         }
-        // Safety: `data`/`len` describe a valid immutable region owned by the native token `handle`;
-        // `ResGuard` keeps it mapped until the `Resource` drops, then releases it via the shim.
-        Some(unsafe {
-            day_spec::resource::Resource::from_raw(data, len, Box::new(ResGuard(handle)))
-        })
+        // Safety: `data`/`len` describe a valid immutable region owned by `mapped`, which the
+        // Resource keeps until it drops, unmapping or freeing it then.
+        Some(unsafe { day_spec::resource::Resource::from_raw(data, len, Box::new(mapped)) })
     }
 
     use std::any::Any;

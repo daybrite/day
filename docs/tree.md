@@ -990,7 +990,7 @@ ArkTS-native form above stays open work. What the NodeAdapter list machinery had
 
 - **Reloads re-bind for real.** `SetTotalNodeCount` alone diffs by item id (the index), so
   a list that changed above its tail kept every untouched cell's old binding, and one that
-  shrank to empty stopped firing ADD at all. `day_ark_list_reload` now bumps a per-list
+  shrank to empty stopped firing ADD at all. `list::reload` now bumps a per-list
   generation salted into `GET_NODE_ID` and calls `ReloadAllItems`: every reload renames the
   rows, the adapter re-adds them, and the pool + day-core's cell cache make that cheap
   rebinds. The reload is posted out of the day-core borrow (the M1 deferred-mutation rule:

@@ -224,7 +224,7 @@ fn subpath(crate_name: &str) -> String {
         n if n.starts_with("day-piece-") => format!("pieces/{n}"),
         n if n.starts_with("day-part-") => format!("parts/{n}"),
         "day-appkit" | "day-gtk" | "day-qt" | "day-qt-sys" | "day-uikit" | "day-android"
-        | "day-xaml" | "day-xaml-sys" | "day-arkui" | "day-arkui-sys" => {
+        | "day-xaml" | "day-xaml-sys" | "day-arkui" => {
             format!("toolkits/{crate_name}")
         }
         n => format!("crates/{n}"),

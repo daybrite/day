@@ -12,7 +12,7 @@
 //! | Android | JNI (Material `Slider` step size)            | ✓ | ✗ (Material draws its own) | always on (Material snaps with steps) |
 //! | Qt      | own C++ (`QSlider` ticks; docs/tweaks.md recipe) | ✓ | ✓ | ✗ (no native snap) |
 //! | XAML   | own C++/WinRT (`Slider` TickFrequency/SnapsTo)   | ✓ | ✓ | ✓ |
-//! | ArkUI   | own C++ against the NDK (`NODE_SLIDER_STEP`) | ✓ | ✗ | always on (steps snap) |
+//! | ArkUI   | the NDK node API (`NODE_SLIDER_STEP`) | ✓ | ✗ | always on (steps snap) |
 //! | UIKit   | — `UISlider` has NO native tick API: documented no-op | | | |
 //!
 //! ```ignore
@@ -208,21 +208,14 @@ fn apply(node: RNode, t: Tickmarks) {
     }
     #[cfg(all(feature = "arkui", target_env = "ohos"))]
     {
-        // Own C++ against the NDK node handle (src/ticks-arkui.cpp). ArkUI's stepped slider
-        // always snaps; `NODE_SLIDER_STEP` is a percentage of the range. The node type name lets
-        // the C++ guard before acting on the handle.
-        unsafe extern "C" {
-            fn day_tweak_slider_ticks_arkui(
-                node: *mut std::os::raw::c_void,
-                cls: *const std::os::raw::c_char,
-                step_percent: f32,
-                show: std::os::raw::c_int,
-            );
-        }
-        if let Some((h, class)) = day_arkui::with_native_raw(node) {
-            let cls = std::ffi::CString::new(class).unwrap_or_default();
+        // The NDK node handle, driven through day-arkui's node module (docs/tweaks.md). ArkUI's
+        // stepped slider always snaps; `NODE_SLIDER_STEP` is a percentage of the range. The node
+        // type name is the guard before acting on the handle.
+        use day_arkui::arkui_sys::native_node::ArkUI_NodeAttributeType as Attr;
+        if let Some((h, "Slider")) = day_arkui::with_native_raw(node) {
             let step = 100.0 / (t.count.saturating_sub(1).max(1)) as f32;
-            unsafe { day_tweak_slider_ticks_arkui(h, cls.as_ptr(), step, 1) };
+            day_arkui::node::set_f32(h.cast(), Attr::NODE_SLIDER_STEP, step);
+            day_arkui::node::set_i32(h.cast(), Attr::NODE_SLIDER_SHOW_STEPS, 1);
         }
     }
     #[cfg(not(any(

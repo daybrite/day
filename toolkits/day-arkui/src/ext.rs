@@ -6,10 +6,9 @@
 //! ArkUI is driven through the NDK C API, and the stored handle IS the NDK node pointer — so the
 //! tweak surface is that pointer, paired with the concrete native **node type name** Day realized
 //! for the node (e.g. `"Slider"`, matching `ARKUI_NODE_SLIDER`). Rust can't introspect the opaque
-//! handle, so the class is the metadata that lets your C++ act on the right node type — pass it
-//! across the FFI and guard. Use the pointer with your own `ArkUI_NativeNodeAPI_1` calls (declare
-//! the NDK functions you need `extern "C"`, or add a small C file like `day-arkui-sys` does;
-//! recipe in docs/tweaks.md).
+//! handle, so the class is the metadata that lets a tweak act on the right node type: guard on
+//! it, then drive the node through [`crate::node`] (`set_f32`, `set_i32`, …) or the raw
+//! `ArkUI_NativeNodeAPI_1` from [`crate::arkui_sys`]; recipe in docs/tweaks.md.
 //!
 //! Contract: the node is owned by Day — never dispose it, never reparent it, main thread only,
 //! don't hold the pointer past the call (capture a `NativeRef` and re-resolve instead). After a
@@ -21,7 +20,7 @@ use day_core::RNode;
 use day_pieces::Decorate;
 use day_spec::{PieceKind, kinds};
 
-/// The ArkUI node type Day's shim (`day-arkui-sys`) realizes for `kind`, named after the
+/// The ArkUI node type Day realizes for `kind`, named after the
 /// `ARKUI_NODE_*` constant. `""` for container/layout kinds with no single leaf node type.
 fn class_for_kind(kind: Option<PieceKind>) -> &'static str {
     match kind {
@@ -40,7 +39,7 @@ fn class_for_kind(kind: Option<PieceKind>) -> &'static str {
 pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
     let (handle, kind) = day_core::with_tree(|t| (t.node_handle_any(node), t.node_kind(node)));
     let h = handle?.downcast::<crate::AHandle>().ok()?;
-    Some((h.0, class_for_kind(kind)))
+    Some((h.0.cast(), class_for_kind(kind)))
 }
 
 /// The ArkUI tweak modifier: runs once at mount with the raw node handle and its type name

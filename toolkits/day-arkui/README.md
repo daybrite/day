@@ -13,6 +13,14 @@ Rust owns the widget tree. The shape mirrors Day's Android backend. This is the 
 behind the `harmony-arkui` target; `day devices boot -p harmony-arkui` helps with emulators, and the details live in
 Day's HarmonyOS guide.
 
+The whole backend is Rust. The NDK is bound by openharmony-rs's
+[`ohos-sys`](https://crates.io/crates/ohos-sys) (ArkUI's node, gesture, animate and drag APIs,
+OH_Drawing, the image kit, rawfile, VSync, UDMF and hilog), and the module the ArkTS host
+imports from `libentry.so` is registered and marshaled by ohos-rs's
+[`napi-ohos`](https://crates.io/crates/napi-ohos). A standalone piece that needs a node kind
+this crate does not wrap drives it through `day_arkui::node` and the raw `day_arkui::arkui_sys`
+bindings, with no C++ of its own.
+
 You don't add this crate to a project yourself. Backends are chosen by a cargo feature on
 [`day`](https://crates.io/crates/day) — each app binary contains exactly one — and the
 `day` CLI selects the right one for the target you're building.

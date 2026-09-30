@@ -4,17 +4,13 @@
 //! Compiles this piece's native shims when their feature is on: an external Day Piece
 //! carrying native C++ without touching Day's toolkit crates (DESIGN.md §15's tier-1+shim,
 //! the day-piece-picker recipe). Qt uses `cc` + pkg-config; XAML uses `cc` (MSVC) + the Windows
-//! SDK cppwinrt projection; ArkUI uses the OpenHarmony NDK's clang against the sysroot headers
-//! (day-arkui-sys already links the ArkUI libs; this object only adds picker-node calls).
-
-use std::path::PathBuf;
+//! SDK cppwinrt projection. ArkUI needs no shim: src/lib-arkui.rs drives the NDK's picker nodes
+//! through day-arkui's `node` module.
 
 fn main() {
     println!("cargo:rerun-if-changed=src/lib-qt-shim.cpp");
     println!("cargo:rerun-if-changed=src/lib-xaml-shim.cpp");
-    println!("cargo:rerun-if-changed=src/datetime-arkui.cpp");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=OHOS_NDK_HOME");
 
     if std::env::var("CARGO_FEATURE_QT").is_ok() {
         build_qt();
@@ -22,11 +18,6 @@ fn main() {
     // Windows-only, and only when the app targets XAML.
     if std::env::var("CARGO_FEATURE_XAML").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
         build_xaml();
-    }
-    if std::env::var("CARGO_FEATURE_ARKUI").is_ok()
-        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("ohos")
-    {
-        build_arkui();
     }
 }
 
@@ -66,20 +57,4 @@ fn build_xaml() {
     build.compile("daydatetimexamlshim");
     // WindowsApp.lib (WinRT umbrella) + the day_xaml_box/unbox functions are already linked by
     // day-xaml-sys; nothing extra to link here.
-}
-
-fn build_arkui() {
-    let ndk = std::env::var("OHOS_NDK_HOME")
-        .expect("day-piece-datetime: set OHOS_NDK_HOME to the OpenHarmony NDK `native` dir");
-    let ndk = PathBuf::from(ndk);
-    let target = std::env::var("TARGET").unwrap();
-    cc::Build::new()
-        .cpp(true)
-        .compiler(ndk.join("llvm/bin").join(format!("{target}-clang++")))
-        .archiver(ndk.join("llvm/bin/llvm-ar"))
-        .flag("-std=c++17")
-        .flag("-fPIC")
-        .include(ndk.join("sysroot/usr/include"))
-        .file("src/datetime-arkui.cpp")
-        .compile("daypiecedatetimearkui");
 }

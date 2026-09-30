@@ -3,29 +3,21 @@
 
 //! Compiles this tweak's OWN native shims when their feature is on — the bring-your-own-native
 //! recipe for tweaks (docs/tweaks.md), mirroring day-piece-picker's build.rs exactly:
-//! Qt via `cc` + pkg-config; XAML via `cc` (MSVC) + the Windows SDK cppwinrt projection;
-//! ArkUI via the OpenHarmony NDK's clang (like day-arkui-sys). The toolkits' own libs are already
-//! linked by day-qt-sys / day-xaml-sys / day-arkui-sys — these objects only ADD calls.
-
-use std::path::PathBuf;
+//! Qt via `cc` + pkg-config; XAML via `cc` (MSVC) + the Windows SDK cppwinrt projection. The
+//! toolkits' own libs are already linked by day-qt-sys / day-xaml-sys — these objects only ADD
+//! calls. ArkUI needs no shim: lib.rs sets the slider's step attributes through day-arkui's
+//! `node` module.
 
 fn main() {
     println!("cargo:rerun-if-changed=src/ticks-qt.cpp");
     println!("cargo:rerun-if-changed=src/ticks-xaml.cpp");
-    println!("cargo:rerun-if-changed=src/ticks-arkui.cpp");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-env-changed=OHOS_NDK_HOME");
 
     if std::env::var("CARGO_FEATURE_QT").is_ok() {
         build_qt();
     }
     if std::env::var("CARGO_FEATURE_XAML").is_ok() && std::env::var("CARGO_CFG_WINDOWS").is_ok() {
         build_xaml();
-    }
-    if std::env::var("CARGO_FEATURE_ARKUI").is_ok()
-        && std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("ohos")
-    {
-        build_arkui();
     }
 }
 
@@ -60,21 +52,4 @@ fn build_xaml() {
         .flag("/bigobj")
         .flag_if_supported("/permissive-");
     build.compile("daytweaktickxaml");
-}
-
-fn build_arkui() {
-    let ndk = std::env::var("OHOS_NDK_HOME").expect(
-        "day-tweak-slider-tickmarks: set OHOS_NDK_HOME to the OpenHarmony NDK `native` dir",
-    );
-    let ndk = PathBuf::from(ndk);
-    let target = std::env::var("TARGET").unwrap();
-    cc::Build::new()
-        .cpp(true)
-        .compiler(ndk.join("llvm/bin").join(format!("{target}-clang++")))
-        .archiver(ndk.join("llvm/bin/llvm-ar"))
-        .flag("-std=c++17")
-        .flag("-fPIC")
-        .include(ndk.join("sysroot/usr/include"))
-        .file("src/ticks-arkui.cpp")
-        .compile("daytweaktickarkui");
 }

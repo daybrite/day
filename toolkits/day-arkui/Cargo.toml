@@ -17,9 +17,21 @@ day-core = { workspace = true }
 day-pieces = { workspace = true }
 linkme = { workspace = true }
 
-# The ArkUI/NAPI shim links on-device runtime libs, so it's only pulled in for HarmonyOS builds.
+# The platform bindings link on-device runtime libs, so they're only pulled in for HarmonyOS
+# builds (docs/harmonyos.md "Architecture"):
+# - `ohos-sys` (openharmony-rs): the NDK's C API as bindgen'd Rust — ArkUI's node, gesture,
+#   animate and drag APIs (`ohos_sys::arkui`), OH_Drawing (`drawing`), the image kit, rawfile,
+#   VSync, UDMF and hilog. Every `#[link]` line comes with it.
+# - `napi-ohos` + `napi-derive-ohos` (ohos-rs): the NAPI runtime. `#[napi]` exports the
+#   functions the ArkTS host imports from `libentry.so` (src/host_api.rs) and registers the
+#   `entry` module (build.rs names it); references and threadsafe functions carry the host's
+#   callbacks and the main-thread post.
 [target.'cfg(target_env = "ohos")'.dependencies]
-day-arkui-sys = { workspace = true }
+ohos-sys = { workspace = true }
+ohos-sys-opaque-types = { workspace = true }
+napi-ohos = { workspace = true }
+napi-derive-ohos = { workspace = true }
+libc = { workspace = true }
 # The duties HarmonyOS exposes only in ArkTS (color mode, the app badge) are daybridge arms in
 # src/host.rs (docs/bridge.md); `day build` stages their ArkTS beside every bridged crate's.
 day-bridge = { workspace = true }
@@ -27,10 +39,10 @@ day-reactive = { workspace = true }
 
 # platform/harmony/ beside this manifest is the framework's ArkTS host for every Day app on
 # HarmonyOS — both abilities, both pages (ets/), and the native module's type declarations
-# (types/Index.d.ts, which must match day-arkui-sys's shim.cpp exports). `day build` resolves
-# this crate through cargo metadata and stages the directory into the app's hvigor project, the
-# way Gradle reads the Java shim from day-android (docs/harmonyos.md). Nothing here is metadata:
-# the CLI finds the dir by the crate's name.
+# (types/Index.d.ts, which must match the `#[napi]` exports in src/host_api.rs). `day build`
+# resolves this crate through cargo metadata and stages the directory into the app's hvigor
+# project, the way Gradle reads the Java shim from day-android (docs/harmonyos.md). Nothing
+# here is metadata: the CLI finds the dir by the crate's name.
 
 [build-dependencies]
 day-build = { workspace = true }

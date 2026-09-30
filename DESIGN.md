@@ -372,7 +372,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
-| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui` (+`day-arkui-sys`), `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
+| `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui`, `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
 Two structural rules carried over from pane, both still enforced:
@@ -1944,7 +1944,7 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-qt` | `cc`-built C++ shim (`day-qt-sys`) | bare `QWidget` | shipped (Linux + macOS host); headless CI walkthrough |
 | `day-android` | `jni` + a Java shim (`DayBridge`/`DayFixed`/`DayActivity`) | absolute-layout `ViewGroup` (`DayFixed`) | shipped; emulator walkthrough + pack in CI |
 | `day-xaml` | C++/WinRT shim (`day-xaml-sys`, cppwinrt-staged headers) | XAML `Canvas` in a `DesktopWindowXamlSource` island | shipped; CI-verified build/walkthrough/pack |
-| `day-arkui` | ArkUI **NDK C API** via a C++ shim (`day-arkui-sys`; `aarch64-unknown-linux-ohos`) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day devices boot -p harmony-arkui` ([docs/harmonyos.md](docs/harmonyos.md)) |
+| `day-arkui` | ArkUI **NDK C API** through openharmony-rs's `ohos-sys` bindings + ohos-rs's `napi-ohos` for the ArkTS module (`aarch64-unknown-linux-ohos`; no C++) | ArkUI stack node | shipped; cross-compile in CI, emulator via `day devices boot -p harmony-arkui` ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`crates/day-cli/resources/web/shim.js`, embedded in the CLI; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental ([docs/web.md](docs/web.md)); `day build\|launch -p web-dom` |
 | `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
 

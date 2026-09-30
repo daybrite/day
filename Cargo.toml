@@ -33,7 +33,6 @@ members = [
     "toolkits/day-xaml",
     "toolkits/day-xaml-sys",
     "toolkits/day-arkui",
-    "toolkits/day-arkui-sys",
     "toolkits/day-dom",
     "pieces/day-piece-combobox",
     "pieces/day-piece-swiftui",
@@ -174,8 +173,17 @@ day-android = { path = "toolkits/day-android" }
 day-xaml = { path = "toolkits/day-xaml" }
 day-xaml-sys = { path = "toolkits/day-xaml-sys" }
 day-arkui = { path = "toolkits/day-arkui" }
-day-arkui-sys = { path = "toolkits/day-arkui-sys" }
 day-dom = { path = "toolkits/day-dom" }
+# The HarmonyOS backend's platform bindings (docs/harmonyos.md): openharmony-rs's raw NDK
+# bindings (ArkUI's node API, OH_Drawing, the image kit, rawfile, VSync, UDMF, hilog) and
+# ohos-rs's NAPI runtime, which registers `libentry.so`'s ArkTS module and marshals its exports.
+# Only the `*-linux-ohos` targets pull them; the API level matches build-profile.json5's
+# compatibleSdkVersion.
+ohos-sys = { version = "0.9", features = ["api-18", "arkui", "drawing", "hilog", "rawfile", "image-kit", "image-kit-pixelmap", "image-kit-image-source", "image-kit-image-packer", "vsync", "udmf"] }
+ohos-sys-opaque-types = "0.1"
+napi-ohos = { version = "1.2", features = ["napi8"] }
+napi-derive-ohos = "1.2"
+libc = "0.2"
 slotmap = "1.1"
 linkme = "0.3"
 # The logging facade every day crate emits through (docs/logging.md). It is a facade only, with
