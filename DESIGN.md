@@ -2198,6 +2198,13 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 
 ### §10.5 Navigation and presentation
 
+Android navigation-suite menu items use `View.generateViewId()`, with an explicit mapping back
+to Day row indices. Material copies item IDs onto row views; using raw indices collides with
+fragment-container IDs and can insert a pushed page into the permanent drawer instead of its
+content pane. IDs remain stable across bar/rail/drawer changes. Stanza Redux's `book-info`
+dayscript exercises the failure on an expanded Android window: the library list must have a
+visible frame after selecting a folder, before opening its book overview.
+
 Relative route dispatch ignores controllers in inactive resident tabs. Presented covers and
 navigation inside them have a presentation-order layer above the underlying window; Back
 pops the cover's inner stack before dismissing the cover, leaving the covered stacks intact.

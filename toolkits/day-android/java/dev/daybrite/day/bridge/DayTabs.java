@@ -50,6 +50,10 @@ public class DayTabs extends LinearLayout {
     private final ArrayList<View> pageViews = new ArrayList<>();
     private final ArrayList<String> titles = new ArrayList<>();
     private final ArrayList<String> iconNames = new ArrayList<>();
+    // Material assigns each menu item's ID to its native row view. Row indices collide with
+    // generateViewId() IDs used by FragmentManager containers (especially the leading drawer,
+    // which findViewById visits first). Allocate from the same namespace as those containers.
+    private final ArrayList<Integer> itemIds = new ArrayList<>();
     private int selected;
     /** True while select() applies a programmatic selection (suppresses the item listener). */
     private boolean syncing;
@@ -81,6 +85,8 @@ public class DayTabs extends LinearLayout {
         for (String i : split(joinedIcons)) {
             iconNames.add(i);
         }
+        while (itemIds.size() < titles.size()) itemIds.add(View.generateViewId());
+        while (itemIds.size() > titles.size()) itemIds.remove(itemIds.size() - 1);
         if (menuNode != 0) {
             this.menuNode = menuNode;
         }
@@ -112,11 +118,13 @@ public class DayTabs extends LinearLayout {
         selected = index;
         syncing = true;
         try {
-            if (chrome instanceof NavigationBarView) {
-                ((NavigationBarView) chrome).setSelectedItemId(index);
+            if (index >= itemIds.size()) {
+                // Selection can arrive before the rows; retain it for fillChrome().
+            } else if (chrome instanceof NavigationBarView) {
+                ((NavigationBarView) chrome).setSelectedItemId(itemIds.get(index));
             } else if (chrome instanceof NavigationView) {
                 Menu m = ((NavigationView) chrome).getMenu();
-                MenuItem item = m.findItem(index);
+                MenuItem item = m.findItem(itemIds.get(index));
                 if (item != null) ((NavigationView) chrome).setCheckedItem(item);
             }
         } finally {
@@ -153,7 +161,7 @@ public class DayTabs extends LinearLayout {
             ((NavigationBarView) chrome).setOnItemSelectedListener(
                     new NavigationBarView.OnItemSelectedListener() {
                         @Override public boolean onNavigationItemSelected(MenuItem item) {
-                            pick(item.getItemId());
+                            pick(itemIds.indexOf(item.getItemId()));
                             return true;
                         }
                     });
@@ -161,7 +169,7 @@ public class DayTabs extends LinearLayout {
             ((NavigationView) chrome).setNavigationItemSelectedListener(
                     new NavigationView.OnNavigationItemSelectedListener() {
                         @Override public boolean onNavigationItemSelected(MenuItem item) {
-                            pick(item.getItemId());
+                            pick(itemIds.indexOf(item.getItemId()));
                             return true;
                         }
                     });
@@ -195,7 +203,7 @@ public class DayTabs extends LinearLayout {
                 ? ((NavigationBarView) chrome).getMaxItemCount()
                 : titles.size();
         for (int i = 0; i < titles.size() && i < max; i++) {
-            MenuItem item = menu.add(0, i, i, titles.get(i));
+            MenuItem item = menu.add(0, itemIds.get(i), i, titles.get(i));
             Drawable icon = i < iconNames.size()
                     ? DayBridge.drawableByName(getContext(), iconNames.get(i))
                     : null;
@@ -220,6 +228,7 @@ public class DayTabs extends LinearLayout {
 
     /** A chrome tap: show the page, and report it unless we are the ones who moved the selection. */
     private void pick(int index) {
+        if (index < 0 || index >= itemIds.size()) return;
         showPage(index);
         if (!syncing) {
             selected = index;
