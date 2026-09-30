@@ -197,6 +197,52 @@ fn main() {
             .borrow()
             .contains(&(node, Event::FocusChanged(false)))
     );
+    // An occluded, freshly attached list must recover a cell whose first bind was
+    // skipped (as when cacheDisplay/layout enters while day-core holds its tree borrow).
+    let cold_list = toolkit.realize(kinds::LIST, &ListProps::default(), NodeId(903));
+    window.contentView().unwrap().addSubview(&cold_list);
+    cold_list.setFrame(NSRect::new(NSPoint::ZERO, NSSize::new(300.0, 200.0)));
+    let cold_table = cold_list
+        .downcast_ref::<NSScrollView>()
+        .unwrap()
+        .documentView()
+        .unwrap()
+        .downcast::<NSTableView>()
+        .unwrap();
+    let allow_bind = Rc::new(std::cell::Cell::new(false));
+    let allow = allow_bind.clone();
+    toolkit.attach_list(
+        &cold_list,
+        day_spec::ListSource {
+            len: Rc::new(|| 1),
+            token_at: Rc::new(|_| 1),
+            bind_row: Rc::new(move |_, raw| {
+                if allow.get() {
+                    let cell = unsafe { &*(raw as *const objc2_app_kit::NSView) };
+                    let child = objc2_app_kit::NSView::new(mtm);
+                    cell.addSubview(&child);
+                }
+            }),
+            recycle: Rc::new(|_| {}),
+            layout_cell: Rc::new(|_, _| {}),
+            reorder: None,
+            delete: None,
+            swipe: None,
+        },
+    );
+    let cold_cell = cold_table
+        .viewAtColumn_row_makeIfNecessary(0, 0, true)
+        .unwrap();
+    assert!(cold_cell.subviews().is_empty());
+    allow_bind.set(true);
+    // Drain the posted initial-realization pass without ordering the window onscreen.
+    objc2_foundation::NSRunLoop::currentRunLoop()
+        .runUntilDate(&objc2_foundation::NSDate::dateWithTimeIntervalSinceNow(0.1));
+    assert!(
+        !cold_cell.subviews().is_empty(),
+        "cached empty cell must be bound offscreen"
+    );
+
     // Synthetic labels: duplicate titles must remain independent options across a native
     // separator, and selected indexes must refer to options rather than native menu slots.
     use day_spec::props::{PickerPatch, PickerProps};

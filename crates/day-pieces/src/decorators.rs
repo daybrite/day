@@ -964,9 +964,16 @@ impl<P: Piece> Decorated<P> {
     pub fn a11y(self, f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> Self {
         self.push(op_a11y(f))
     }
+    /// Handle a tap gesture on this piece.
+    ///
+    /// Do not use this to activate a native button; use [`crate::ButtonBuilder::action`].
+    /// A separate gesture recognizer can delay pressed feedback and bypass native keyboard,
+    /// accessibility, and disabled behavior. Day warns when it attaches a tap to a button.
     pub fn on_tap(self, f: impl Fn() + 'static) -> Self {
         self.push(op_on_tap(f))
     }
+    /// Handle a tap with its local position. Like [`Self::on_tap`], this is a gesture,
+    /// not native button activation; use [`crate::ButtonBuilder::action`] for buttons.
     pub fn on_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> Self {
         self.push(op_on_tap_at(f))
     }
@@ -1243,6 +1250,10 @@ pub trait Decorate: Piece + Sized {
     }
 
     /// Fire when this piece is tapped (bounding-box; shapes override with path-precise testing).
+    ///
+    /// Do not use this to activate a native button; use [`crate::Button::action`] instead.
+    /// A separate gesture recognizer can delay pressed feedback and bypass native keyboard,
+    /// accessibility, and disabled behavior. Day warns when it attaches a tap to a button.
     fn on_tap(self, f: impl Fn() + 'static) -> Decorated<Self> {
         Decorated::new(self).on_tap(f)
     }
@@ -1258,6 +1269,8 @@ pub trait Decorate: Piece + Sized {
     ///
     /// `Event::Tap` has always carried the point; this is the decorator that stops throwing it
     /// away.
+    ///
+    /// For native buttons use [`crate::Button::action`], not this gesture decorator.
     fn on_tap_at(self, f: impl Fn(day_spec::Point) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_tap_at(f)
     }

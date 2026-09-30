@@ -2611,10 +2611,22 @@ fn ns_badges(badges: &[Option<String>]) -> Vec<Option<Retained<NSString>>> {
 /// reliable way to realize rows without a draw pass (§10; see the Reload patch for why).
 fn post_realize_visible_rows(key: usize) {
     <AppKit as Platform>::post(Box::new(move || {
-        if let Some((table, _)) = list_entry(key) {
+        if let Some((table, data)) = list_entry(key) {
+            unsafe { table.layoutSubtreeIfNeeded() };
             let range = unsafe { table.rowsInRect(table.visibleRect()) };
             for row in range.location..range.location + range.length {
-                let _ = unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
+                let cell = unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
+                // A snapshot/layout can have requested this cell while day-core held its
+                // tree borrow. The delegate then returned an empty container; AppKit caches
+                // it and will not ask viewForRow again. Complete that skipped bind here.
+                if let Some(cell) = cell
+                    && cell.subviews().is_empty()
+                {
+                    let source = data.ivars().source.borrow().clone();
+                    if let Some(source) = source {
+                        (source.bind_row)(row, Retained::as_ptr(&cell) as RawHandle);
+                    }
+                }
             }
         }
         // The builds above queued their styling effects; drain them now — outside the pump, no
@@ -7544,11 +7556,7 @@ impl Toolkit for AppKit {
         // any `with_tree` borrow, so `viewForRow`/`bind_row` build the cells then. Otherwise a
         // headless CI window never lays the table out until a snapshot's `cacheDisplayInRect`
         // forces it *inside* the snapshot borrow, where `bind_row` must skip (blank rows).
-        <AppKit as Platform>::post(Box::new(move || {
-            if let Some((table, _)) = list_entry(key) {
-                unsafe { table.layoutSubtreeIfNeeded() };
-            }
-        }));
+        post_realize_visible_rows(key);
     }
 
     fn attach_tree(&mut self, host: &Handle, source: TreeSource) {

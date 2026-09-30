@@ -521,7 +521,6 @@ impl Piece for Label {
                     italic: self.italic,
                     tabular: self.tabular,
                     monospace: self.monospace,
-                    ..day_spec::FontSpec::default()
                 },
                 color: self.color.as_ref().map(|c| c.get_untracked()),
                 role: self.role,
@@ -699,6 +698,12 @@ impl Button {
         self
     }
 
+    /// Handle native button activation by pointer, keyboard, or accessibility action.
+    /// Disabled buttons do not invoke this callback.
+    ///
+    /// Use this instead of [`Decorate::on_tap`]. A tap decorator adds a separate gesture
+    /// recognizer that can delay pressed feedback and bypass native control behavior.
+    /// Day logs a warning when a tap gesture is attached to a native button.
     pub fn action(mut self, f: impl Fn() + 'static) -> Self {
         self.action = Some(Rc::new(f));
         self
@@ -763,6 +768,8 @@ pub trait ButtonBuilder: Sized {
     fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self;
     fn image(self, name: impl Into<day_spec::ImageName>) -> Self;
     fn icon_only(self) -> Self;
+    /// Handle native button activation, including through decorations. See [`Button::action`].
+    /// Use this rather than a generic `.on_tap(...)` gesture handler.
     fn action(self, f: impl Fn() + 'static) -> Self;
     fn bordered(self) -> Self;
     fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;

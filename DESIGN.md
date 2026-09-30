@@ -949,6 +949,18 @@ fn basics_section() -> impl Piece {
 }
 ```
 
+Button activation uses `.action(...)`, which handles native `Event::Pressed` and gates the
+callback on enabled state. Generic `.on_tap(...)` handles `Event::Tap` from an additional
+gesture recognizer; it is not a substitute for the native control action. In particular,
+AppKit's click recognizer delays primary mouse events by default and can interfere with
+button highlighting; UIKit also attaches a separate tap recognizer. Apps should use
+`.action(...)` on buttons, including decorated buttons, to retain native activation behavior.
+The shared tree logs a warning when enabling a `Tap` on a native `BUTTON`, after resolving
+single-child layout wrappers. This catches both `.on_tap(...)` and `.on_tap_at(...)` on every
+toolkit without changing existing event routing. The button gesture diagnostic regression
+in `crates/day-pieces/tests/button_gesture_warning.rs` covers direct and wrapped buttons,
+ordinary label gestures, and the native action path.
+
 Buttons remain native controls when displaying icons. `ButtonProps` carries an optional
 `Icon` and an `icon_only` flag. Icon buttons send `ButtonPatch::Content` when their title or
 symbol changes; the binding is seeded from the realized content, so mounting does not trigger
@@ -2810,10 +2822,9 @@ and AppKit and XAML have neither signal so they read the interaction that provok
 (the current `NSEvent`'s type; the thumb's pointer capture being lost). `Step::SetValue` synthesizes
 both, so a replayed `set_value` looks like a user who dragged and let go.
 
-Both tap shapes record because a control's shape decides which one it gets. A native `button` leaf
-delivers `Pressed`; a `Button::style(…)` is not a leaf at all but a piece COMPOSED from
-`Decorate::on_tap` ([§5.3](#53-the-piece-vocabulary)), and delivers only `Tap` — as does every
-tappable shape or card. `Step::Tap` has always synthesized both for exactly that reason, so
+Both tap shapes record because the control decides which one it gets. A native `button` leaf
+delivers `Pressed`, including when styled; a tappable shape or card using `Decorate::on_tap`
+([§5.3](#53-the-piece-vocabulary)) delivers `Tap`. `Step::Tap` synthesizes both for that reason, so
 recognizing one of them made every styled button replayable and unrecordable at once: it recorded
 as nothing, silently. A node that delivers both in one pump records once.
 
@@ -3597,6 +3608,11 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day devices setup -p android-mdc --device <profile> --os <api> [--arch] [--tag] [--name] [--orientation] [--ram <MB>]` | create (or refresh) one AVD from a device profile, so CI and a developer stand a device up with the same command instead of the workflow carrying Android SDK trivia. Installs the system image when it is absent (`sdkmanager`), creates the AVD (`avdmanager create avd -d <profile>`), then writes the config that makes it usable — `hw.keyboard=yes`, and `hw.initialOrientation` when an orientation is named. Idempotent: an existing AVD of that name is left alone and only its config is brought up to date, which is what lets CI cache the system image (the slow part, hundreds of megabytes) and rebuild the AVD from it in about a second. `--os` accepts `36`, `API 36` or `android-36`; `--arch` defaults to the host's ABI, since an emulator only runs an image its CPU can execute. Prints the AVD name on stdout, and ONLY that: the SDK tools write progress to stdout, so their output is forwarded to stderr — a CI run captured three minutes of download bars along with the name and passed the whole blob to `--device`. The SDK root is pinned too (`sdkmanager --sdk_root`), and the SDK's own `cmdline-tools` are installed when absent: `avdmanager` takes its root from where the TOOL lives (`-Dcom.android.sdkmanager.toolsdir`) with no flag to override it, so a copy on PATH outside the SDK creates AVDs referencing images the emulator cannot resolve. `ANDROID_AVD_HOME` is pinned for every AVD tool for the same class of reason: `avdmanager` and the `emulator` resolve that directory INDEPENDENTLY from an overlapping set of variables (`ANDROID_USER_HOME`, the older `ANDROID_SDK_HOME`, `$HOME`) and need not agree — a CI runner created an AVD successfully and then reported having none. Listing AVDs unions `avdmanager list avd -c` (authoritative: the tool that created them), `emulator -list-avds` and a scan of every candidate directory, and an EMPTY union is read as "could not be asked" rather than "there are none", so a boot proceeds and lets the emulator give its own diagnosis. `--wait` NARRATES: a line whenever adb\'s view or the boot properties change, a heartbeat every 15s, and every poll under `--verbose`. The emulator\'s own output goes to a log file rather than `/dev/null` (its path printed), the child handle is watched so an emulator that EXITS fails in seconds instead of sitting out the timeout, and both that failure and a timeout quote the log\'s tail — the silent version printed "Waiting …" and then nothing for ten minutes, which is what a hung CI boot looked like. `adb` itself is resolved from `$ANDROID_HOME/platform-tools` before PATH, and the wait refuses to start when it cannot be run at all: a GitHub Linux runner sets `ANDROID_HOME` but does NOT put platform-tools on PATH, so every `adb` call answered "not found" — indistinguishable, to code reading `adb devices`, from a device that has not booted, and a CI boot polled the full ten minutes reporting "adb sees it: no" against an emulator whose own log said `Boot completed in 51826 ms` |
 | `day devices boot -p <target> [<id>] [--device <name>] [--os <version>] [--orientation <o>] [--wait] [--headless]` | start a simulator, AVD or the Oniro emulator so a launch has somewhere to go. iOS/Android resolve `--device` against the machine's catalog (a name pattern, newest match wins); harmony-arkui has one image whose screen is whatever QEMU is told, so there `--device` names a PANEL (`phone` 360×720, `tablet` 1280×800, or `WxH`) and `--orientation` turns it, which is what the shared workflow's `harmony-devices` rows pass ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)); the Xcode scaffolds also call `stage-resources` (macOS bundle resources) and `stage-strings` (iOS `[[shortcuts]]` label localizations) |
+
+Navigation route linting recognizes string keys in both `.item` and `.item_icon`, including
+multiline rustfmt output. Typed route macros remain an independent source of declared keys.
+Regression: `lint::tests::formatted_navigation_items_declare_routes`.
+
 
 > [!NOTE]
 > `day lite test` (§11 of day-lite's `docs/lite.md`) is **not** built into the published `day` CLI:
@@ -6525,3 +6541,9 @@ font resolution, including accessibility sizing. Invalid or nonpositive factors 
 Explicit styled runs retain their own font descriptors. Day-News uses this for its saved
 article-list size, rebuilding the keyed list with matching row geometry while preserving
 article selection. Its reader-style persistence scripts cover reset and cold-launch restore.
+
+AppKit's initial list attachment uses the same deferred visible-row realization as reloads.
+It runs outside the core tree borrow even for covered windows. If AppKit cached an empty
+cell during a snapshot/layout while binding was unavailable, that pass completes its bind
+instead of trusting `viewAtColumn:row:makeIfNecessary:` to call the delegate again. The
+native list regression covers an occluded list with an initially skipped row bind.

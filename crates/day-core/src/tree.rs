@@ -1280,6 +1280,16 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         for _ in 0..16 {
             let Some(n) = self.nodes.get(cur) else { return };
             if let Some(h) = n.handle.clone() {
+                if kind == day_spec::GestureKind::Tap && n.kind == kinds::BUTTON {
+                    log::warn!(
+                        "tap gesture attached to native button {:?} (id: {:?}): \
+                         use .action(...) instead of .on_tap(...) or .on_tap_at(...). \
+                         A separate gesture recognizer can delay pressed feedback and \
+                         bypass native keyboard, accessibility, and disabled behavior",
+                        rnode_to_id(cur),
+                        n.id,
+                    );
+                }
                 self.toolkit.enable_gesture(&h, rnode_to_id(node), kind);
                 return;
             }

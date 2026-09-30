@@ -455,6 +455,22 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
     });
 }
 
+/// String-keyed navigation declarations, including formatted icon-bearing items.
+fn scan_nav_keys(dir: &Path, out: &mut Vec<Hit>) {
+    for_each_rs(dir, &mut |path, src| {
+        for pat in [".item(", ".item_icon("] {
+            for at in matches_of(src, pat) {
+                let rest = src[at + pat.len()..].trim_start();
+                if let Some(literal) = rest.strip_prefix('"')
+                    && let Some(end) = literal.find('"')
+                {
+                    out.push(Hit::found(path, src, &literal[..end]));
+                }
+            }
+        }
+    });
+}
+
 /// The first path segment of a route string (`"a/b?x=1"` → `"a"`), the part a lint can check
 /// against declared nav host/tabs item keys. Deeper segments are open-ended (stack destination
 /// builders accept any key), so only the first is validated.
@@ -1497,7 +1513,7 @@ fn collect(project: &Project) -> Vec<Finding> {
     // declares no keys either way (a pure-stack app's routes are open-ended).
     let mut declared_keys = Vec::new();
     for r in &roots {
-        scan_sources(r, ".item(\"", &mut declared_keys);
+        scan_nav_keys(r, &mut declared_keys);
         scan_routes_macro_keys(r, &mut declared_keys);
     }
     if !declared_keys.is_empty() {
@@ -2323,6 +2339,36 @@ e = { PLATFORM() }
         // is the receiver, and skipping on it would find nothing at all.
         let dotted = r#"sidebar.item("home", …).item("stack", …)"#;
         assert_eq!(matches_of(dotted, ".item(\"").count(), 2);
+    }
+
+    #[test]
+    fn formatted_navigation_items_declare_routes() {
+        let (dir, project) = app(
+            "navigation-icons",
+            &[
+                (
+                    "src/lib.rs",
+                    r#"fn root() { nav()
+                    .item(
+ "library", title, page)
+                    .item_icon(
+ "catalogs", title, icon, page);
+                    navigate("library"); navigate("catalogs"); navigate("missing");
+                }"#,
+                ),
+                (
+                    "dayscript/nav.yaml",
+                    "flow:\n  - navigate: { route: catalogs }\n",
+                ),
+            ],
+        );
+        let findings: Vec<_> = collect(&project)
+            .into_iter()
+            .filter(|f| f.code == "day::lint::unknown-route")
+            .collect();
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert!(findings[0].message.contains("missing"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

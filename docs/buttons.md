@@ -20,6 +20,16 @@ button("About").image(res::vectors::app_mark).action(about)
 button("Send").enabled(move || !busy.get()).action(send)
 ```
 
+Use `.action(...)` for button activation, including after decorations such as `.padding(...)`.
+The generic `.on_tap(...)` decorator installs a separate gesture recognizer; it is not an alias
+for the native button action. On AppKit that recognizer delays primary mouse events and can
+delay or suppress the pressed highlight. UIKit also installs a separate tap recognizer.
+Keeping activation on `.action(...)` preserves the control's normal pointer, keyboard,
+accessibility, and disabled behavior across toolkits.
+Day logs a runtime warning when a tap recognizer is attached to a native button, including
+through layout decorators. This also covers `.on_tap_at(...)`. Existing callbacks continue
+to work, so the diagnostic does not silently change gesture semantics.
+
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
 title, availability, optional check state, icon, shortcut, and handler once.
 

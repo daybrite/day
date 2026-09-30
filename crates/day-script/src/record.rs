@@ -367,8 +367,9 @@ struct Recorder {
     input_gen: Option<u64>,
     /// The id whose `Pressed` was just recorded, if the immediately preceding recorded event was
     /// one. It exists to drop the `Tap` twin that follows: a node wearing both shapes
-    /// (`button(…).on_tap(…)`, and every playback-while-recording, since `Step::Tap` synthesizes
-    /// `Pressed` then `Tap`) would otherwise record two taps for one press.
+    /// (a legacy button with an extra tap recognizer, and every playback-while-recording,
+    /// since `Step::Tap` synthesizes `Pressed` then `Tap`) would otherwise record two taps
+    /// for one press.
     ///
     /// Keyed on "immediately preceding", not on a pump generation: the executor enqueues the two
     /// separately and `enqueue_events` pumps between them, so the twin lands a generation later.
