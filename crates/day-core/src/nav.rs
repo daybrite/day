@@ -47,6 +47,9 @@ pub struct NavController {
     /// first. Ordering the descent by depth instead of by position is what lets `section/detail`
     /// find the stack no matter which of the two registered first.
     pub depth: usize,
+    /// Presentation order of the containing fullscreen cover; zero for ordinary pages.
+    /// A cover and its descendants receive Back before navigation underneath it.
+    pub layer: Box<dyn Fn() -> u64>,
     /// Whether this surface is on screen: false for one sitting inside a resident page its host
     /// is not currently showing.
     ///
@@ -132,7 +135,8 @@ pub fn clear_controllers() {
 /// `Rc`-cloned out of the stack before the call, so their closures (which re-enter the tree and
 /// may register/unregister hosts) never run while the stack is borrowed (§3.3).
 ///
-/// "Innermost" is decided by [`NavController::depth`], not by registration order: the mirror of
+/// Presented covers and their descendants come before the covered window. Within a presentation
+/// layer, "innermost" is decided by [`NavController::depth`], not by registration order: the mirror of
 /// [`nested_after`]'s outermost-first rule, and for the same reason: a host registers after
 /// building its pages, so the registry places it after the surfaces those pages contain. Asked in
 /// reverse-registration order, a tab bar would answer a back before the stack pushed inside its
@@ -142,9 +146,9 @@ pub fn clear_controllers() {
 fn dispatch(f: impl Fn(&NavController) -> bool) -> bool {
     let mut controllers: Vec<Rc<NavController>> =
         NAV_STACK.with(|s| s.borrow().iter().rev().map(|(_, c)| c.clone()).collect());
-    controllers.sort_by_key(|c| std::cmp::Reverse(c.depth));
+    controllers.sort_by_key(|c| std::cmp::Reverse(((c.layer)(), c.depth)));
     for c in controllers {
-        if f(&c) {
+        if (c.active)() && f(&c) {
             return true;
         }
     }

@@ -2198,6 +2198,12 @@ change. `scroll(column(each(…)))` remains the honest choice for small collecti
 
 ### §10.5 Navigation and presentation
 
+Relative route dispatch ignores controllers in inactive resident tabs. Presented covers and
+navigation inside them have a presentation-order layer above the underlying window; Back
+pops the cover's inner stack before dismissing the cover, leaving the covered stacks intact.
+The layer is scope context so reactive content rebuilds retain it. Mock coverage exercises
+hidden tabs, nested reader navigation, and dismissal over an existing stack.
+
 `nav_stack` observes the current route's title independently of route equality. A page can
 therefore push before an asynchronous load and acquire its final title without being rebuilt.
 Only the stack owning the host's top page may retitle a merged host. The mock regression

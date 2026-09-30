@@ -293,6 +293,8 @@ impl NavHostCx {
 }
 
 day_reactive::tls_group! {
+    /// Increasing presentation order for fullscreen navigation layers.
+    static NEXT_COVER_LAYER: Cell<u64> = const { Cell::new(1) };
     /// Build-time stack of enclosing nav hosts. `None` is a barrier (a resident container such as
     /// tabs) that a nested stack must not merge through.
     static NAV_HOST_CX: RefCell<Vec<Option<NavHostCx>>> = const { RefCell::new(Vec::new()) };
@@ -396,6 +398,13 @@ fn destination_gate<K: Route, S: Binding<K> + 'static>(
     Rc::new(move || selection.read().key() == key)
 }
 
+// Scope context survives reactive content rebuilds after the build-time nav stack unwinds.
+#[derive(Clone, Default)]
+struct NavLayer {
+    order: Rc<Cell<u64>>,
+    depth: usize,
+}
+
 /// Register a string-route adapter over a route surface's own signal, so `navigate()` /
 /// deep links / dayscript keep working by key. This is a convenience layer: the surface
 /// itself is driven by the signal, not by this registry (docs/navigation.md).
@@ -409,16 +418,37 @@ fn register_route_surface(
     enter: impl Fn(&str) -> bool + 'static,
     segments: impl Fn() -> Vec<String> + 'static,
 ) {
+    register_route_surface_in_layer(
+        Scope::current()
+            .use_context::<NavLayer>()
+            .unwrap_or_default(),
+        push,
+        pop,
+        current,
+        enter,
+        segments,
+    );
+}
+
+fn register_route_surface_in_layer(
+    layer: NavLayer,
+    push: impl Fn(&str) -> bool + 'static,
+    pop: impl Fn(bool) -> bool + 'static,
+    current: impl Fn() -> String + 'static,
+    enter: impl Fn(&str) -> bool + 'static,
+    segments: impl Fn() -> Vec<String> + 'static,
+) {
     // The nesting depth day-core descends by. `NAV_HOST_CX` is the stack of hosts this build is
     // inside, so its length is how deep this surface sits, and unlike registration order it does
     // not depend on whether a host registers before or after building its pages.
-    let depth = NAV_HOST_CX.with(|s| s.borrow().len());
+    let depth = layer.depth + NAV_HOST_CX.with(|s| s.borrow().len());
     // The resident pages this surface is built inside, captured now because the stack unwinds as
     // soon as the build returns. Empty for a surface at the window root, which is then always on
     // screen, since `all` over nothing is true.
     let gates: Vec<Rc<dyn Fn() -> bool>> = NAV_PAGE_ACTIVE.with(|s| s.borrow().clone());
     let token = day_core::register_nav(day_core::NavController {
         depth,
+        layer: Box::new(move || layer.order.get()),
         push: Box::new(push),
         pop: Box::new(pop),
         current: Box::new(current),
@@ -4000,6 +4030,10 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         let current: Rc<RefCell<Option<Presented<R>>>> = Rc::default();
         let closing: Rc<Cell<bool>> = Rc::default();
         let owner_scope = Scope::current();
+        let layer = NavLayer {
+            order: Rc::new(Cell::new(0)),
+            depth: owner_scope.use_context::<NavLayer>().map_or(0, |l| l.depth),
+        };
 
         let dispose_content = {
             let current = current.clone();
@@ -4020,6 +4054,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         let reconcile = {
             let (current, closing, dispose_content) =
                 (current.clone(), closing.clone(), dispose_content.clone());
+            let layer = layer.clone();
             move |want: &Option<R>| match want {
                 Some(r) => {
                     let already =
@@ -4029,7 +4064,16 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     }
                     dispose_content();
                     closing.set(false);
+                    layer.order.set(NEXT_COVER_LAYER.with(|next| {
+                        let order = next.get();
+                        next.set(order + 1);
+                        order
+                    }));
                     let scope = owner_scope.enter(Scope::child);
+                    scope.provide(NavLayer {
+                        order: layer.order.clone(),
+                        depth: layer.depth + 1,
+                    });
                     // Run the app's builder inside the presentation scope: side effects it
                     // performs eagerly (state restore, autosave/cleanup registration, signals)
                     // must belong to the presented content's lifetime, not the cover's.
@@ -4060,6 +4104,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     });
                 }
                 None => {
+                    layer.order.set(0);
                     if current.borrow().is_some() && !closing.get() {
                         closing.set(true);
                         with_tree(|t| t.patch(node, Box::new(CoverPatch::Dismiss), false));
@@ -4150,7 +4195,8 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
             None => false,
         };
         let push2 = push;
-        register_route_surface(
+        register_route_surface_in_layer(
+            layer,
             move |k| push(k, &o_push),
             move |_| {
                 if o_pop.peek().is_some() {

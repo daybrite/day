@@ -559,7 +559,10 @@ builder return the values of the navigation being applied. They describe the nav
 flight; a push you perform by writing the path signal directly carries its data in your own
 state instead.
 
-- `nav_back()`: pops the innermost surface, falling through when it is already at its root. On a
+- `nav_back()`: pops the innermost visible surface, falling through when it is already at its
+  root. Inactive resident tabs are skipped. A presented cover and its inner navigation take
+  precedence over the covered window: Back pops its inner stack first, then dismisses the cover.
+  On a
   sidebar with a content list, an open detail is the innermost layer, whether it is pushed over
   the list in a collapsed stack or shown beside it in a split: the call closes it
   (`detail_visible` := false), the same place the native back lands, and only a second call

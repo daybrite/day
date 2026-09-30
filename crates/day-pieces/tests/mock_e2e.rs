@@ -4452,6 +4452,44 @@ fn picker_and_text_area_are_built_in() {
 /// report lays the content out at the reported size, nav_back dismisses, and the content is
 /// disposed only after the backend reports the hide finished (`CoverHidden`).
 #[test]
+fn back_skips_hidden_tabs_and_dismisses_cover_before_underlying_stack() {
+    let selected = Signal::new("one".to_string());
+    let first = Signal::new(vec!["first-detail".to_string()]);
+    let second = Signal::new(vec!["second-detail".to_string()]);
+    let open = Signal::new(None::<String>);
+    let inner = Signal::new(vec!["reader-detail".to_string()]);
+    let _probe = boot(move || {
+        zstack((
+            nav(selected)
+                .style(NavStyle::Tabs)
+                .item("one", "One", move || nav_stack_root(first))
+                .item("two", "Two", move || nav_stack_root(second)),
+            cover(open, move |_: &String| nav_stack_root(inner)),
+        ))
+    });
+    flush_sync();
+    // The later-registered stack in the hidden tab must not consume Back.
+    assert!(nav_back());
+    flush_sync();
+    assert!(first.get_untracked().is_empty());
+    assert_eq!(second.get_untracked(), vec!["second-detail"]);
+    first.set(vec!["first-detail".into()]);
+    open.set(Some("reader".into()));
+    flush_sync();
+    // A stack inside a cover still gets Back before its enclosing cover.
+    assert!(nav_back());
+    flush_sync();
+    assert!(inner.get_untracked().is_empty());
+    assert!(open.get_untracked().is_some());
+    assert_eq!(first.get_untracked(), vec!["first-detail"]);
+    assert!(nav_back());
+    flush_sync();
+    assert!(open.get_untracked().is_none());
+    assert_eq!(first.get_untracked(), vec!["first-detail"]);
+    assert_eq!(second.get_untracked(), vec!["second-detail"]);
+}
+
+#[test]
 fn cover_presents_lays_out_and_dismisses() {
     let probe = boot(|| {
         let open = Signal::new(None::<String>);
