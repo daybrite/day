@@ -275,112 +275,6 @@ pub fn windows_manifest(manifest: String, types: &[FileType]) -> String {
     let manifest = manifest.replace("<Package ", "<Package xmlns:uap2=\"http://schemas.microsoft.com/appx/manifest/uap/windows10/2\" xmlns:uap3=\"http://schemas.microsoft.com/appx/manifest/uap/windows10/3\" IgnorableNamespaces=\"uap uap2 uap3 rescap\" ");
     manifest.replace("    </Application>", &format!("{s}\n    </Application>"))
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    fn epub() -> Vec<FileType> {
-        vec![FileType {
-            extensions: vec!["epub".into()],
-            mime_types: vec!["application/epub+zip".into()],
-            apple_uti: Some("org.idpf.epub-container".into()),
-        }]
-    }
-    #[test]
-    fn associations_use_explicit_file_delivery() {
-        let t = epub();
-        validate(&t).unwrap();
-        assert!(linux_entry("Exec=reader\n".into(), &t).contains("--day-open-files %U"));
-        assert_eq!(
-            web_manifest(json!({}), &t)["file_handlers"][0]["accept"]["application/epub+zip"][0],
-            ".epub"
-        );
-        assert!(
-            windows_manifest("    </Application>".into(), &t)
-                .contains("<uap:FileType>.epub</uap:FileType>")
-        );
-    }
-    #[test]
-    fn generated_registrations_preserve_other_handlers_and_escape_paths() {
-        let types = epub();
-        let appx = windows_manifest("<Package >    </Application>".into(), &types);
-        assert!(appx.contains("xmlns:uap3="));
-        assert!(appx.contains("<uap2:SupportedVerbs>"));
-        assert!(appx.contains("&quot;%1&quot;"));
-        assert!(!appx.contains("&amp;quot;"));
-        let script = nsis(
-            "Section \"Install\"\nSectionEnd\nSection \"Uninstall\"\nSectionEnd".into(),
-            &types,
-            "org.test.reader",
-            "reader",
-        );
-        assert!(script.contains("OpenWithProgids"));
-        assert!(script.contains("DeleteRegValue"));
-        assert!(!script.contains("DeleteRegKey HKCU \"Software\\Classes\\.epub\""));
-        let module=harmony_module(r#"{module:{abilities:[{name:'EntryAbility',skills:[{actions:['existing.action']}]}]}}"#,&types).unwrap();
-        assert!(module.contains("existing.action"));
-        assert!(module.contains("FileOpen"));
-        assert!(module.contains("application/epub+zip"));
-        let mut duplicate = types.clone();
-        duplicate[0].extensions.push("ebook".into());
-        let mut combined = types;
-        combined.extend(duplicate);
-        assert_eq!(
-            web_manifest(json!({}), &combined)["file_handlers"][0]["accept"]["application/epub+zip"],
-            json!([".epub", ".ebook"])
-        );
-    }
-    #[test]
-    fn apple_registration_updates_and_removes_only_managed_entries() {
-        let dir = std::env::temp_dir().join(format!("day-document-plist-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(
-            dir.join("Cargo.toml"),
-            "[package]\nname='document-fixture'\nversion='0.1.0'\nedition='2024'\n",
-        )
-        .unwrap();
-        std::fs::write(dir.join("Day.toml"),"schema=1\n[app]\nid='org.test.reader'\n[[file_types]]\nextensions=['epub']\nmime_types=['application/epub+zip']\napple_uti='org.idpf.epub-container'\n").unwrap();
-        let mut project = crate::meta::find_project(Some(&dir)).unwrap();
-        let path = dir.join("Info.plist");
-        let mut doc = plist::Dictionary::new();
-        let mut custom = plist::Dictionary::new();
-        custom.insert("CFBundleTypeName".into(), "app-authored".into());
-        doc.insert(
-            "CFBundleDocumentTypes".into(),
-            plist::Value::Array(vec![plist::Value::Dictionary(custom)]),
-        );
-        plist::Value::Dictionary(doc).to_file_xml(&path).unwrap();
-        sync_apple(&project, &path, true).unwrap();
-        sync_apple(&project, &path, true).unwrap();
-        let value = plist::Value::from_file(&path).unwrap();
-        let d = value.as_dictionary().unwrap();
-        assert_eq!(d["CFBundleDocumentTypes"].as_array().unwrap().len(), 2);
-        assert_eq!(
-            d["LSSupportsOpeningDocumentsInPlace"].as_boolean(),
-            Some(false)
-        );
-        project.manifest.file_types.clear();
-        sync_apple(&project, &path, true).unwrap();
-        let value = plist::Value::from_file(&path).unwrap();
-        let d = value.as_dictionary().unwrap();
-        assert_eq!(d["CFBundleDocumentTypes"].as_array().unwrap().len(), 1);
-        assert!(
-            d["UTImportedTypeDeclarations"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-    #[test]
-    fn rejects_wildcards_and_manifest_injection() {
-        let mut t = epub();
-        t[0].mime_types = vec!["*/*".into()];
-        assert!(validate(&t).is_err());
-        t = epub();
-        t[0].extensions = vec!["epub\"/><evil>".into()];
-        assert!(validate(&t).is_err());
-    }
-}
 
 /// Harmony's staged host is regenerated from the source before this merge, so removing a
 /// declaration also removes its generated skill without touching app-authored skills.
@@ -557,4 +451,111 @@ pub fn windows_registry(types: &[FileType], id: &str, binary: &Path) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn epub() -> Vec<FileType> {
+        vec![FileType {
+            extensions: vec!["epub".into()],
+            mime_types: vec!["application/epub+zip".into()],
+            apple_uti: Some("org.idpf.epub-container".into()),
+        }]
+    }
+    #[test]
+    fn associations_use_explicit_file_delivery() {
+        let t = epub();
+        validate(&t).unwrap();
+        assert!(linux_entry("Exec=reader\n".into(), &t).contains("--day-open-files %U"));
+        assert_eq!(
+            web_manifest(json!({}), &t)["file_handlers"][0]["accept"]["application/epub+zip"][0],
+            ".epub"
+        );
+        assert!(
+            windows_manifest("    </Application>".into(), &t)
+                .contains("<uap:FileType>.epub</uap:FileType>")
+        );
+    }
+    #[test]
+    fn generated_registrations_preserve_other_handlers_and_escape_paths() {
+        let types = epub();
+        let appx = windows_manifest("<Package >    </Application>".into(), &types);
+        assert!(appx.contains("xmlns:uap3="));
+        assert!(appx.contains("<uap2:SupportedVerbs>"));
+        assert!(appx.contains("&quot;%1&quot;"));
+        assert!(!appx.contains("&amp;quot;"));
+        let script = nsis(
+            "Section \"Install\"\nSectionEnd\nSection \"Uninstall\"\nSectionEnd".into(),
+            &types,
+            "org.test.reader",
+            "reader",
+        );
+        assert!(script.contains("OpenWithProgids"));
+        assert!(script.contains("DeleteRegValue"));
+        assert!(!script.contains("DeleteRegKey HKCU \"Software\\Classes\\.epub\""));
+        let module=harmony_module(r#"{module:{abilities:[{name:'EntryAbility',skills:[{actions:['existing.action']}]}]}}"#,&types).unwrap();
+        assert!(module.contains("existing.action"));
+        assert!(module.contains("FileOpen"));
+        assert!(module.contains("application/epub+zip"));
+        let mut duplicate = types.clone();
+        duplicate[0].extensions.push("ebook".into());
+        let mut combined = types;
+        combined.extend(duplicate);
+        assert_eq!(
+            web_manifest(json!({}), &combined)["file_handlers"][0]["accept"]["application/epub+zip"],
+            json!([".epub", ".ebook"])
+        );
+    }
+    #[test]
+    fn apple_registration_updates_and_removes_only_managed_entries() {
+        let dir = std::env::temp_dir().join(format!("day-document-plist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname='document-fixture'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("Day.toml"),"schema=1\n[app]\nid='org.test.reader'\n[[file_types]]\nextensions=['epub']\nmime_types=['application/epub+zip']\napple_uti='org.idpf.epub-container'\n").unwrap();
+        let mut project = crate::meta::find_project(Some(&dir)).unwrap();
+        let path = dir.join("Info.plist");
+        let mut doc = plist::Dictionary::new();
+        let mut custom = plist::Dictionary::new();
+        custom.insert("CFBundleTypeName".into(), "app-authored".into());
+        doc.insert(
+            "CFBundleDocumentTypes".into(),
+            plist::Value::Array(vec![plist::Value::Dictionary(custom)]),
+        );
+        plist::Value::Dictionary(doc).to_file_xml(&path).unwrap();
+        sync_apple(&project, &path, true).unwrap();
+        sync_apple(&project, &path, true).unwrap();
+        let value = plist::Value::from_file(&path).unwrap();
+        let d = value.as_dictionary().unwrap();
+        assert_eq!(d["CFBundleDocumentTypes"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            d["LSSupportsOpeningDocumentsInPlace"].as_boolean(),
+            Some(false)
+        );
+        project.manifest.file_types.clear();
+        sync_apple(&project, &path, true).unwrap();
+        let value = plist::Value::from_file(&path).unwrap();
+        let d = value.as_dictionary().unwrap();
+        assert_eq!(d["CFBundleDocumentTypes"].as_array().unwrap().len(), 1);
+        assert!(
+            d["UTImportedTypeDeclarations"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn rejects_wildcards_and_manifest_injection() {
+        let mut t = epub();
+        t[0].mime_types = vec!["*/*".into()];
+        assert!(validate(&t).is_err());
+        t = epub();
+        t[0].extensions = vec!["epub\"/><evil>".into()];
+        assert!(validate(&t).is_err());
+    }
 }

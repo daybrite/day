@@ -91,3 +91,9 @@ cancellation for in-flight web operations.
 
 For macOS container storage, file permissions, migration, and SQLite sidecar restrictions,
 see [macOS App Sandbox](sandbox.md).
+
+Native archive readers can use `open_read(path)` to obtain a read-only `std::fs::File`
+implementing `Read + Seek`. It applies the same relative-path checks and `day-fs/` storage root
+as `read` and `write`, avoiding whole-file buffers and application-specific path reconstruction.
+Opening and reading are blocking: perform this work off the UI thread. Web does not expose this
+native handle; use `read_future` there, which currently returns the whole file as an owned buffer.

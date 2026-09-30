@@ -66,6 +66,10 @@ pub fn read(path: &str) -> BytesResult {
     std::fs::read(root_dir()?.join(path)).map_err(io)
 }
 
+pub fn open_read(path: &str) -> Result<std::fs::File, FsError> {
+    std::fs::File::open(root_dir()?.join(path)).map_err(io)
+}
+
 pub fn write(path: &str, bytes: &[u8]) -> UnitResult {
     let full = root_dir()?.join(path);
     if let Some(parent) = full.parent() {

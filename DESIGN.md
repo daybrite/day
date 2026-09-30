@@ -6438,3 +6438,10 @@ The web navigation shim compares its own route echo with the browser-normalized 
 Spaces, quotes and Unicode can be percent-encoded by URL assignment; comparing the original
 string incorrectly re-entered routing and popped data-bearing detail routes. The shipped-shim
 regression is `scripts/ci/webdom-route-test.mjs`, run by the web-dom CI job.
+
+`day-part-fs::open_read` exposes native app-local storage as a read-only, seekable file. It uses
+exactly the same path validation and `day-fs/` root as buffer reads/writes. EPUB/ZIP consumers can
+keep an archive handle and inflate requested entries without retaining the compressed file in
+memory. Calls remain blocking and belong on a worker; web retains its existing async whole-file
+buffer API. The part's storage round-trip test checks seek/read, read-only access, missing files
+and path rejection. See `docs/fs.md`.

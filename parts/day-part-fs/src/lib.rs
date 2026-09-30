@@ -75,6 +75,17 @@ pub fn read(path: &str) -> Result<Vec<u8>, FsError> {
     imp::read(path)
 }
 
+/// Open an app-local file for read-only, seekable access on native targets.
+/// Uses the same relative path rules and storage root as [`read`]. This lets archive
+/// readers fetch individual entries without loading the whole file. Opening and reading
+/// are blocking; use a worker when called from UI code. Not available on web, whose
+/// storage API currently supplies owned buffers through [`read_future`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_read(path: &str) -> Result<std::fs::File, FsError> {
+    check_path(path)?;
+    imp::open_read(path)
+}
+
 /// Write `bytes` to `path` (create or truncate), creating missing parent directories. Blocking;
 /// [`FsError::Unsupported`] on web.
 pub fn write(path: &str, bytes: &[u8]) -> Result<(), FsError> {
@@ -286,6 +297,17 @@ mod tests {
 
         write("t/hello.txt", b"hi").unwrap();
         assert_eq!(read("t/hello.txt").unwrap(), b"hi");
+        {
+            use std::io::{Read, Seek, SeekFrom, Write};
+            let mut file = open_read("t/hello.txt").unwrap();
+            file.seek(SeekFrom::Start(1)).unwrap();
+            let mut byte = [0];
+            file.read_exact(&mut byte).unwrap();
+            assert_eq!(&byte, b"i");
+            assert!(file.write_all(b"x").is_err(), "handle must be read-only");
+        }
+        assert_eq!(open_read("t/missing.txt").unwrap_err(), FsError::NotFound);
+        assert_eq!(open_read("../outside").unwrap_err(), FsError::BadPath);
         assert_eq!(list("t").unwrap(), vec!["hello.txt".to_string()]);
         assert_eq!(read("t/missing.txt"), Err(FsError::NotFound));
         remove("t/hello.txt").unwrap();
