@@ -806,6 +806,22 @@ fn reconcile(toolbar: &NSToolbar, key: usize) {
 /// Insert identifier `id` at `*at`, stepping past it when the delegate made one. It can decline
 /// (the list separator on a window with no content list), and then there is nothing to step over.
 fn insert_at(toolbar: &NSToolbar, id: &str, at: &mut usize) {
+    // A synthesized tracking separator can move around a kept model item. AppKit permits
+    // repeated spaces, but inserting any other identifier while it is still present throws.
+    let repeatable = id == unsafe { NSToolbarFlexibleSpaceItemIdentifier.to_string() }
+        || id == unsafe { NSToolbarSpaceItemIdentifier.to_string() };
+    if !repeatable {
+        if let Some(existing) = toolbar
+            .items()
+            .iter()
+            .position(|item| item.itemIdentifier().to_string() == id)
+        {
+            toolbar.removeItemAtIndex(existing as isize);
+            if existing < *at {
+                *at -= 1;
+            }
+        }
+    }
     let before = toolbar.items().count();
     toolbar.insertItemWithItemIdentifier_atIndex(&NSString::from_str(id), *at as isize);
     if toolbar.items().count() > before {

@@ -8500,3 +8500,53 @@ fn single_line_labels_stay_one_line_when_text_changes() {
     assert!(!labels[0].1.flag);
     assert!(labels[0].1.frame.size.height <= day_mock::MOCK_LINE_H);
 }
+
+#[test]
+fn list_selection_applies_on_mount_and_remount() {
+    let visible = Signal::new(true);
+    let selection = Signal::new(vec![1usize]);
+    let probe = boot(move || {
+        when(
+            move || visible.get(),
+            move || {
+                list(
+                    items(
+                        || vec!["first".to_string(), "second".to_string()],
+                        |s: &String| s.clone(),
+                    ),
+                    |slot: ItemSlot<String, String>| label(move || slot.get()),
+                )
+                .selected_rows(move || selection.get())
+            },
+        )
+    });
+    let selected_patches = || {
+        probe
+            .log()
+            .iter()
+            .filter(|line| line.contains("list selected [1]"))
+            .count()
+    };
+    assert_eq!(
+        selected_patches(),
+        1,
+        "an existing model selection must reach the first native table"
+    );
+    visible.set(false);
+    flush_sync();
+    visible.set(true);
+    flush_sync();
+    assert_eq!(
+        selected_patches(),
+        2,
+        "a remounted table must restore the same selection"
+    );
+    selection.set(vec![]);
+    flush_sync();
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|line| line.contains("list selected []"))
+    );
+}

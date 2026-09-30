@@ -10,6 +10,8 @@
 #![allow(unused_unsafe)]
 #![cfg(target_os = "macos")]
 
+mod applications;
+
 use std::any::Any;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -708,6 +710,7 @@ impl DayTextField {
 struct LabelIvars {
     node: NodeId,
     has_links: Cell<bool>,
+    has_runs: Cell<bool>,
     selectable: Cell<bool>,
 }
 
@@ -717,6 +720,48 @@ define_class!(
     #[name = "DayLabel"]
     #[ivars = LabelIvars]
     struct DayLabel;
+
+    impl DayLabel {
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, dirty: NSRect) {
+            // AppKit cannot propagate a table cell's background style through arbitrary
+            // Day containers. Resolve selection at paint time so keyboard focus, window
+            // activation, and cell reuse all use the actual native row state.
+            let mut ancestor = unsafe { self.superview() };
+            let mut selection_color = None;
+            if !self.ivars().has_runs.get() {
+                while let Some(view) = ancestor {
+                    if let Some(row) = view.downcast_ref::<objc2_app_kit::NSTableRowView>() {
+                        if unsafe { row.isSelected() } {
+                            selection_color = Some(unsafe {
+                                if row.isEmphasized() {
+                                    objc2_app_kit::NSColor::alternateSelectedControlTextColor()
+                                } else {
+                                    objc2_app_kit::NSColor::unemphasizedSelectedTextColor()
+                                }
+                            });
+                        }
+                        break;
+                    }
+                    ancestor = unsafe { view.superview() };
+                }
+            }
+            let cell = unsafe { self.cell() }
+                .and_then(|cell| cell.downcast::<objc2_app_kit::NSTextFieldCell>().ok());
+            if let (Some(color), Some(cell)) = (selection_color, cell) {
+                let original = unsafe { cell.textColor() };
+                // Mutate the cell only for this paint; changing the field would invalidate
+                // the view again. Keep the app's normal color for deselection and reuse.
+                unsafe {
+                    cell.setTextColor(Some(&color));
+                    let _: () = msg_send![super(self), drawRect: dirty];
+                    cell.setTextColor(original.as_deref());
+                }
+            } else {
+                let _: () = unsafe { msg_send![super(self), drawRect: dirty] };
+            }
+        }
+    }
 
     unsafe impl NSObjectProtocol for DayLabel {}
     unsafe impl NSTextDelegate for DayLabel {}
@@ -744,6 +789,7 @@ impl DayLabel {
         let this = Self::alloc(mtm).set_ivars(LabelIvars {
             node,
             has_links: Cell::new(false),
+            has_runs: Cell::new(false),
             selectable: Cell::new(false),
         });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
@@ -2592,11 +2638,29 @@ define_class!(
     struct DayListView;
     unsafe impl NSObjectProtocol for DayListView {}
     impl DayListView {
+        #[unsafe(method(becomeFirstResponder))]
+        fn become_first_responder(&self) -> bool {
+            let accepted: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
+            if accepted {
+                self.report_focus(true);
+            }
+            accepted
+        }
+
+        #[unsafe(method(resignFirstResponder))]
+        fn resign_first_responder(&self) -> bool {
+            let accepted: bool = unsafe { msg_send![super(self), resignFirstResponder] };
+            if accepted {
+                self.report_focus(false);
+            }
+            accepted
+        }
+
         #[unsafe(method(keyDown:))]
         fn key_down(&self, event: &objc2_app_kit::NSEvent) {
             ffi_guard::contain((), || {
                 let key = unsafe { event.keyCode() };
-                if key == 36 || key == 76 {
+                if (key == 36 || key == 76) && unsafe { self.doubleAction() }.is_some() {
                     let row = unsafe { self.selectedRow() };
                     if row >= 0 && let Some(target) = unsafe { self.target() } {
                         let _: () = unsafe { msg_send![&*target, activateRow: self] };
@@ -2608,6 +2672,18 @@ define_class!(
         }
     }
 );
+
+impl DayListView {
+    fn report_focus(&self, focused: bool) {
+        ffi_guard::contain((), || {
+            if let Some(target) = unsafe { self.target() }
+                && let Some(data) = target.downcast_ref::<DayListData>()
+            {
+                emit(data.ivars().node, Event::FocusChanged(focused));
+            }
+        });
+    }
+}
 
 struct ListIvars {
     node: NodeId,
@@ -5341,6 +5417,7 @@ impl Toolkit for AppKit {
                     let s = attributed_label(&p.text, &nsfont(p.font), p.color, p.role, &p.runs);
                     unsafe { tf.setAttributedStringValue(&s) };
                 }
+                tf.ivars().has_runs.set(!p.runs.is_empty());
                 tf.set_links(p.runs.iter().any(|r| r.link.is_some()));
                 // Alignment goes on last and, for a runs label, has to reach inside the
                 // attributed string. `setAlignment:` writes the cell's paragraph style, which an
@@ -5878,13 +5955,10 @@ impl Toolkit for AppKit {
                 let Some(p) = props_of::<ListProps>(kind, "appkit", props) else {
                     return placeholder_view(mtm, kind);
                 };
-                let table = if p.activatable {
-                    let table: Retained<DayListView> =
-                        unsafe { msg_send![DayListView::alloc(mtm), init] };
-                    Retained::into_super(table)
-                } else {
-                    unsafe { NSTableView::new(mtm) }
-                };
+                // Every list reports responder changes, even without an activation handler.
+                let table: Retained<DayListView> =
+                    unsafe { msg_send![DayListView::alloc(mtm), init] };
+                let table = Retained::into_super(table);
                 let col = unsafe {
                     NSTableColumn::initWithIdentifier(
                         NSTableColumn::alloc(mtm),
@@ -5938,8 +6012,8 @@ impl Toolkit for AppKit {
                     table.setBackgroundColor(&objc2_app_kit::NSColor::clearColor());
                     table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                     table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                    table.setTarget(Some(&*data));
                     if p.activatable {
-                        table.setTarget(Some(&*data));
                         table.setDoubleAction(Some(sel!(doubleClickRow:)));
                     }
                     if p.reorderable {
@@ -6160,6 +6234,7 @@ impl Toolkit for AppKit {
                         LabelPatch::Text(t) => {
                             unsafe { tf.setStringValue(&NSString::from_str(t)) };
                             if let Some(label) = h.downcast_ref::<DayLabel>() {
+                                label.ivars().has_runs.set(false);
                                 label.set_links(false);
                             }
                         }
@@ -6189,6 +6264,7 @@ impl Toolkit for AppKit {
                             // reactive markdown update without replacing the native label.
                             set_paragraph_alignment(&tf, unsafe { tf.alignment() });
                             if let Some(label) = h.downcast_ref::<DayLabel>() {
+                                label.ivars().has_runs.set(!runs.is_empty());
                                 label.set_links(runs.iter().any(|r| r.link.is_some()));
                             }
                         }
@@ -6618,6 +6694,20 @@ impl Toolkit for AppKit {
                 }
                 Some(ListPatch::Reload) => {
                     if let Some((table, data)) = list_entry(ptr_of(h)) {
+                        // NSTableView reloadData clears selection for this view-based source.
+                        // Preserve identities, not indexes, across refreshes/reorders; removed
+                        // items disappear from the selection without selecting their successor.
+                        let selected = unsafe { table.selectedRowIndexes() };
+                        let tokens: Vec<u64> = data
+                            .ivars()
+                            .tokens
+                            .borrow()
+                            .iter()
+                            .enumerate()
+                            .filter(|(row, _)| selected.containsIndex(*row))
+                            .map(|(_, token)| *token)
+                            .collect();
+                        data.ivars().suppress.set(true);
                         // A reload whose rows are the same set in a new order (a shuffle,
                         // a programmatic sort) animates as native row moves instead of a
                         // blink: a `moveRowAtIndex` batch, the same animation a drag commit
@@ -6635,6 +6725,14 @@ impl Toolkit for AppKit {
                         } else {
                             unsafe { table.reloadData() };
                         }
+                        let restored = objc2_foundation::NSMutableIndexSet::new();
+                        for (row, token) in data.ivars().tokens.borrow().iter().enumerate() {
+                            if tokens.contains(token) {
+                                restored.addIndex(row);
+                            }
+                        }
+                        unsafe { table.selectRowIndexes_byExtendingSelection(&restored, false) };
+                        data.ivars().suppress.set(false);
                     }
                     // Realize the visible rows on the next main-loop turn, outside this borrow.
                     // An occluded window (locked screen, covered, headless CI) gets no normal
@@ -6684,8 +6782,9 @@ impl Toolkit for AppKit {
                                 table.deselectAll(None);
                             } else {
                                 let set = objc2_foundation::NSMutableIndexSet::new();
-                                for r in rows {
-                                    set.addIndex(*r);
+                                let count = table.numberOfRows().max(0) as usize;
+                                for r in rows.iter().copied().filter(|r| *r < count) {
+                                    set.addIndex(r);
                                 }
                                 table.selectRowIndexes_byExtendingSelection(&set, false);
                             }
@@ -7362,7 +7461,13 @@ impl Toolkit for AppKit {
 
     fn focus(&mut self, h: &Handle, _node: NodeId, focused: bool) {
         let Some(window) = h.window() else { return };
-        let responder: &NSResponder = h;
+        // A list's public handle is its scroll view; keyboard focus belongs to the table.
+        let list = list_entry(ptr_of(h));
+        let responder: &NSResponder = match &list {
+            Some((table, _)) => table,
+            None => h,
+        };
+        let responder_ptr = responder as *const NSResponder as usize;
         if focused {
             window.makeFirstResponder(Some(responder));
             return;
@@ -7371,7 +7476,7 @@ impl Toolkit for AppKit {
         // sibling. A focused NSTextField's first responder is the shared field editor, so
         // unwrap it back to the field via its delegate.
         let owns = window.firstResponder().is_some_and(|fr| {
-            if Retained::as_ptr(&fr) as usize == ptr_of(h) {
+            if Retained::as_ptr(&fr) as usize == responder_ptr {
                 return true;
             }
             fr.downcast::<NSText>().is_ok_and(|text| {
@@ -8258,6 +8363,23 @@ impl Toolkit for AppKit {
         if let (Some(panel), Some(window)) = (panel, self.window.clone()) {
             unsafe { window.endSheet(&panel) };
         }
+    }
+
+    fn application_handlers(
+        &mut self,
+        query: &day_spec::applications::HandlerQuery,
+    ) -> Result<day_spec::applications::ApplicationHandlers, day_spec::applications::ApplicationError>
+    {
+        applications::handlers(query)
+    }
+
+    fn open_url_with_application(
+        &mut self,
+        url: &str,
+        application: &str,
+        completion: day_spec::applications::OpenApplicationCompletion,
+    ) {
+        applications::open(url, application, completion);
     }
 
     fn open_url(&mut self, url: &str) {

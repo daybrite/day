@@ -11,6 +11,7 @@ use std::collections::HashMap;
 
 pub use day_geometry::*;
 
+pub mod applications;
 /// Inline markdown → styled runs (docs/markdown.md). Lives here rather than in day-pieces
 /// because it produces `TextRun`s, and every format codec beside it reads the same model.
 pub mod markdown;
@@ -6332,6 +6333,24 @@ pub trait Toolkit: Sized + 'static {
     /// forget: there is no result, and an unopenable URL is ignored. The default no-ops so a
     /// backend that hasn't wired it up still compiles.
     fn open_url(&mut self, _url: &str) {}
+
+    /// Read current OS associations. Unsupported platforms must not fabricate a default.
+    fn application_handlers(
+        &mut self,
+        _query: &applications::HandlerQuery,
+    ) -> Result<applications::ApplicationHandlers, applications::ApplicationError> {
+        Err(applications::ApplicationError::Unsupported)
+    }
+
+    /// Open with an opaque application identifier returned by `application_handlers`.
+    fn open_url_with_application(
+        &mut self,
+        _url: &str,
+        _application: &str,
+        completion: applications::OpenApplicationCompletion,
+    ) {
+        completion(Err(applications::ApplicationError::Unsupported));
+    }
 
     /// Ask the OS to require a second swipe for its edge gestures on `edges` (docs/cover.md):
     /// the union requested by every mounted `defers_system_gestures` modifier, re-sent whenever

@@ -23,6 +23,7 @@ day-pieces = { workspace = true }
 day-l10n = { workspace = true }
 linkme = { workspace = true }
 objc2 = "0.6"
+objc2-uniform-type-identifiers = "0.3"
 block2 = "0.6"
 dispatch2 = "0.3"
 objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
@@ -33,7 +34,7 @@ objc2-foundation = { version = "0.3", features = ["NSLocale",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
 ] }
 objc2-app-kit = { version = "0.3", features = [
-    "objc2-core-graphics",
+    "objc2-core-graphics", "objc2-uniform-type-identifiers", "NSRunningApplication",
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton", "NSScreen",
     "NSTextField", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
     "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",
@@ -59,3 +60,7 @@ objc2-app-kit = { version = "0.3", features = [
     # pull-down items their real macOS behavior (collapsing search, menu indicator).
     "NSToolbar", "NSToolbarItem", "NSSearchToolbarItem", "NSMenuToolbarItem", "NSSearchField",
 ] }
+
+[[test]]
+name = "native_applications"
+harness = false

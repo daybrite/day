@@ -1074,12 +1074,18 @@ impl<S: RowSource + 'static> Piece for List<S> {
             );
         }
 
-        // Programmatic selection sync: re-runs whenever the closure's tracked reads change
-        // (`watch`, so the initial build doesn't clobber a toolkit-default selection).
+        // An explicit selection binding owns the initial selection too. Reader layouts may
+        // remount a list with an already-selected model item; skipping the initial apply
+        // leaves the native table unselected until a later model change.
         if let Some(rows) = self.selected_rows {
-            watch(
+            day_reactive::bind(
                 move || rows(),
-                move |rows: &Vec<usize>, _| day_core::list_set_selected(node, rows.clone()),
+                move |rows: &Vec<usize>| {
+                    // Selection and the row source may depend on the same model signal.
+                    // Let the source publish/reload its snapshot before selecting its indexes.
+                    let rows = rows.clone();
+                    day_reactive::on_main(move || day_core::list_set_selected(node, rows));
+                },
             );
         }
         node

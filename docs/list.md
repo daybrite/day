@@ -188,6 +188,9 @@ report arrives as a one-element set), so an app tracking the whole selection wor
 toolkit. `.selected_rows(Fn() -> Vec<usize>)` reactively syncs app state back into the native
 selection (`ListPatch::Selected`; empty clears) without a selection-event echo; drive it from
 the same signal `on_selection` writes to get a two-way binding and a "clear selection" action.
+The binding also applies its initial value after mounting, deferred until row-source updates
+settle. AppKit preserves the selected tokens across content reloads and reorders; deleting a
+selected token clears it instead of selecting whichever item inherits its index.
 
 Support matrix: **AppKit** (native `NSTableView` multi-selection), **Qt**, **XAML** and
 **web-dom** (the emulated lists: a per-cell press hook, a highlight treatment on the cell's
@@ -198,6 +201,12 @@ alpha as the cell background) and newly bound cells inherit their row's state, w
 lets the composed tree's selection follow the canvas ([docs/tree.md](tree.md)). The remaining
 toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
 programmatic sync; the one-element `on_selection` contract still holds there.
+
+AppKit separates selection from keyboard focus. `.selected_rows` uses native selection but
+never steals focus from search or other panes. Bind `.focused(signal)` and set the signal to
+`true` for explicit reading commands that should make the table the first responder (and
+therefore give its selected row the active blue highlight). The native table reports focus
+loss and gain back to the binding; the surrounding scroll view is not the responder.
 
 ### Keyboard
 
@@ -450,3 +459,7 @@ Dayscript keeps the two operations separate:
 
 `activate` invokes the row without changing selection. An out-of-range index is ignored.
 Recordings preserve activation even when the row was already selected.
+
+AppKit plain labels inside selected native rows use the system selected text color at paint
+time, including inactive-window selection. Their normal colors are preserved for reuse and
+deselection; explicitly attributed text retains its authored run styling.

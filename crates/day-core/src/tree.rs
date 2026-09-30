@@ -929,6 +929,17 @@ pub trait TreeOps {
     fn dismiss(&mut self, req: u64);
     /// Open `url` in the platform's default handler (what the `link` piece calls).
     fn open_url(&mut self, url: &str);
+    fn application_handlers(
+        &mut self,
+        query: &day_spec::applications::HandlerQuery,
+    ) -> Result<day_spec::applications::ApplicationHandlers, day_spec::applications::ApplicationError>;
+    fn open_url_with_application(
+        &mut self,
+        url: &str,
+        application: &str,
+        completion: day_spec::applications::OpenApplicationCompletion,
+    );
+
     /// Re-send the union of every mounted `defers_system_gestures` request (docs/cover.md).
     fn defer_system_gestures(&mut self, edges: day_spec::Edges);
 
@@ -1046,6 +1057,24 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn open_url(&mut self, url: &str) {
         self.toolkit.open_url(url);
+    }
+
+    fn application_handlers(
+        &mut self,
+        query: &day_spec::applications::HandlerQuery,
+    ) -> Result<day_spec::applications::ApplicationHandlers, day_spec::applications::ApplicationError>
+    {
+        self.toolkit.application_handlers(query)
+    }
+
+    fn open_url_with_application(
+        &mut self,
+        url: &str,
+        application: &str,
+        completion: day_spec::applications::OpenApplicationCompletion,
+    ) {
+        self.toolkit
+            .open_url_with_application(url, application, completion);
     }
 
     fn set_appearance(&mut self, dark: Option<bool>) {
@@ -2369,6 +2398,38 @@ pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
 /// URLs are ignored by the backend.
 pub fn open_url(url: &str) {
     with_tree(|t| t.open_url(url));
+}
+
+/// Query current system associations on the UI thread. macOS AppKit implements all query
+/// kinds; other backends return `Unsupported`. No application is launched by discovery.
+pub fn application_handlers(
+    query: &day_spec::applications::HandlerQuery,
+) -> Result<day_spec::applications::ApplicationHandlers, day_spec::applications::ApplicationError> {
+    with_tree(|t| t.application_handlers(query))
+}
+
+/// The OS-chosen browser for HTTPS links, read afresh rather than cached by Day.
+pub fn default_browser()
+-> Result<Option<day_spec::applications::Application>, day_spec::applications::ApplicationError> {
+    application_handlers(&day_spec::applications::HandlerQuery::Scheme(
+        "https".into(),
+    ))
+    .map(|h| h.default)
+}
+
+/// Open a URL or file URL in a chosen application. Await on the UI executor. Success means
+/// the OS accepted the open request; tab/window presentation belongs to the receiving app.
+pub async fn open_url_with_application(
+    url: &str,
+    application: &str,
+) -> Result<(), day_spec::applications::ApplicationError> {
+    let (send, receive) = day_async::oneshot();
+    with_tree(|t| {
+        t.open_url_with_application(url, application, Box::new(move |result| send.send(result)))
+    });
+    receive
+        .await
+        .unwrap_or(Err(day_spec::applications::ApplicationError::LaunchFailed))
 }
 
 /// Tell layout that a node's intrinsic size may have changed. For tweaks (docs/tweaks.md):

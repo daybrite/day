@@ -478,3 +478,10 @@ also checked by capturing the real window.
   tab bar's horizontal size class — the same question `gated_detail_piece` asks in the pieces
   layer. Two layers deriving one fact; the fix is for the tabs presentation to build each
   destination as a navigation host, as SwiftUI's `TabView { NavigationStack { … } }` does.
+
+Window composition is non-reentrant through native delivery. AppKit can enqueue layout or
+focus events while editing the bar, and core drains them as its tree borrow ends. Any nested
+composition is deferred until the delivered model has been recorded, then recomputed from
+that baseline. This prevents duplicate native insertion during the first article selection
+or a rapid change in toolbar contributors. Reconciliation also treats synthesized tracking
+separators as unique; only the system's fixed and flexible spaces can repeat.

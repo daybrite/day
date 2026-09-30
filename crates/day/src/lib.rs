@@ -48,7 +48,11 @@ pub use day_core::{
     Bitmap, decode_image, decode_image_async, image_decode_support, image_encode_formats,
     image_encode_support,
 };
+pub use day_core::{application_handlers, default_browser, open_url_with_application};
 pub use day_spec::AppBadge;
+pub use day_spec::applications::{
+    Application, ApplicationError, ApplicationHandlers, HandlerQuery,
+};
 /// An app-writable scratch directory. The OS temp dir is not app-writable on every target
 /// (Android reports `getCacheDir()`), so a backend records the right location at startup and
 /// this is how an app asks for it. For derived files an app can rebuild: rendered documents,

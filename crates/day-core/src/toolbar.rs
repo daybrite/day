@@ -90,6 +90,8 @@ day_reactive::tls_slots! {
     static DELIVERED: RefCell<HashMap<RNode, Vec<ToolbarItem>>> = RefCell::new(HashMap::new());
     /// A recompose is owed at the end of this turn ([`schedule_recompose`]).
     static RECOMPOSE_PENDING: Cell<bool> = const { Cell::new(false) };
+    static RECOMPOSING: Cell<bool> = const { Cell::new(false) };
+    static RECOMPOSE_AGAIN: Cell<bool> = const { Cell::new(false) };
     /// Next contribution token, and the registration counter behind `Contribution::seq`.
     static NEXT_TOKEN: Cell<u64> = const { Cell::new(1) };
     /// The window whose content is being built right now (see [`with_window`]).
@@ -434,6 +436,36 @@ fn schedule_recompose() {
 /// the installed one. Values the user or the app change (search text, a toggle) reach the model
 /// through the same patches that update the widget, so they never differ either.
 fn recompose_windows() {
+    recompose_serially(recompose_windows_inner);
+}
+
+// Native toolbar edits can enqueue layout/focus events. `with_tree` drains those events
+// before returning, and their handlers can request another toolbar composition. Finish
+// recording DELIVERED first: nested diffs against the old baseline insert an item twice,
+// which raises an Objective-C exception in NSToolbar.
+fn recompose_serially(mut apply: impl FnMut()) {
+    if RECOMPOSING.with(|busy| busy.replace(true)) {
+        RECOMPOSE_AGAIN.with(|again| again.set(true));
+        return;
+    }
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            RECOMPOSING.with(|busy| busy.set(false));
+            RECOMPOSE_AGAIN.with(|again| again.set(false));
+        }
+    }
+    let _reset = Reset;
+    loop {
+        RECOMPOSE_AGAIN.with(|again| again.set(false));
+        apply();
+        if !RECOMPOSE_AGAIN.with(|again| again.get()) {
+            break;
+        }
+    }
+}
+
+fn recompose_windows_inner() {
     RECOMPOSE_PENDING.with(|p| p.set(false));
     let roots: Vec<RNode> = {
         let mut v: Vec<RNode> =
@@ -870,6 +902,26 @@ pub fn reset_toolbars() {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn native_events_recompose_after_the_delivered_baseline_is_recorded() {
+        let passes = std::cell::Cell::new(0);
+        let delivered = std::cell::Cell::new(false);
+        super::recompose_serially(|| {
+            passes.set(passes.get() + 1);
+            if passes.get() == 1 {
+                // Simulate a native edit draining an event before the caller records delivery.
+                super::recompose_serially(|| panic!("must not diff the stale baseline"));
+                super::recompose_serially(|| panic!("nested requests must coalesce"));
+                delivered.set(true);
+            } else {
+                assert!(delivered.get());
+            }
+        });
+        assert_eq!(passes.get(), 2);
+        super::recompose_serially(|| passes.set(passes.get() + 1));
+        assert_eq!(passes.get(), 3, "the guard releases after a settled update");
+    }
     use super::*;
     use day_spec::{ToolbarItemKind as K, ToolbarMirror, ToolbarOp};
 

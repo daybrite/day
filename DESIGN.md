@@ -1533,6 +1533,9 @@ pub trait Toolkit: Sized + 'static {
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {}
     fn dismiss(&mut self, req: u64) {}
     fn open_url(&mut self, url: &str) {}   // system browser/handler for the `link` piece (§5.3)
+    // Current OS associations and explicit-handler opening (docs/applications.md).
+    fn application_handlers(&mut self, query: &HandlerQuery) -> Result<ApplicationHandlers, ApplicationError>;
+    fn open_url_with_application(&mut self, url: &str, application: &str, completion: OpenApplicationCompletion);
     fn defer_system_gestures(&mut self, edges: Edges) {}   // the shield union (docs/cover.md)
     fn dark_mode(&mut self) -> bool {}     // current appearance, for app-painted opaque surfaces
     fn set_appearance(&mut self, dark: Option<bool>) {}  // runtime light/dark/system override (Cap::Appearance)
@@ -5965,6 +5968,12 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > disposal, so Day's core gains no browser dependency. See [webview evaluation](docs/webview-eval.md)
 > and the piece's `tests/browser.mjs` and demo dayscript for the request/link contracts.
 
+Ordinary web documents can opt into `on_external_link` on AppKit/UIKit. The native delegate
+cancels user link navigation and new-window requests, then delivers the policy callback on
+the UI thread. Initial/reissued loads, subframes and same-document fragments stay in the view.
+Session reuse refreshes both the destination node and this opt-in. Other backends retain their
+existing ordinary-document behavior; inline/resource policies are unchanged.
+
 ### B.4 Lottie (tier 2 — bridging famous native libraries)
 
 > [!NOTE]
@@ -6445,3 +6454,41 @@ keep an archive handle and inflate requested entries without retaining the compr
 memory. Calls remain blocking and belong on a worker; web retains its existing async whole-file
 buffer API. The part's storage round-trip test checks seek/read, read-only access, missing files
 and path rejection. See `docs/fs.md`.
+
+### System application associations and explicit list focus (2026-09)
+
+`day-spec::applications` owns platform-neutral `HandlerQuery`, `Application`,
+`ApplicationHandlers` and typed errors. Day exposes `application_handlers`, `default_browser`
+and async `open_url_with_application` through the core tree's toolkit dispatch.
+`macos-appkit` uses NSWorkspace and UniformTypeIdentifiers for URL/scheme/MIME/extension
+lookups. Results are fresh, deduplicated, and include the OS-selected default. Identifiers
+are opaque, persistable file URLs on macOS; removed apps produce a typed failure. Discovery
+never launches apps or changes OS defaults. Other backends, including UIKit, explicitly
+return `Unsupported` because installed-app enumeration is not generally available there.
+Core's std-only `day-async` oneshot returns native completion results to the UI executor;
+AppKit's concurrent callback must not touch UI state. Receiving applications decide tab/window
+presentation. See [applications](docs/applications.md) and `native_applications` tests.
+
+AppKit lists keep selection and keyboard focus separate: `ListPatch::Selected` changes real
+NSTableView selection without stealing focus from search or another pane. `.focused` resolves
+the scroll-view handle to its table, and the table reports native responder gain/loss so the
+binding stays two-way. Reading commands can explicitly request focus for the active blue
+selection treatment, while background list updates preserve the user's current responder.
+See [lists](docs/list.md), [focus](docs/focus.md), and `native_applications` tests.
+
+Toolbar composition serializes native edits through recording their `DELIVERED` baseline.
+Native layout/focus events drained by `with_tree` may request another composition; it is
+coalesced into a following pass instead of diffing the old baseline and inserting the same
+NSToolbar identifier twice. AppKit also removes a pre-existing non-repeatable identifier when
+a synthesized separator moves. Regression: `native_events_recompose_after_the_delivered_baseline_is_recorded`.
+
+Explicit list selection bindings apply on mount/remount and defer native application until
+row-source reactions settle. AppKit reloads preserve selection by stable row token under
+event suppression; dropped tokens clear selection and out-of-range indexes are ignored.
+This prevents read-state refreshes from erasing the selected row. Regression coverage includes
+mock remounts and native content refresh, reorder, deletion, and focus transitions.
+
+AppKit plain labels resolve their enclosing native table row's selection and emphasis at
+paint time, using system selected text colors without modifying the app's stored foreground.
+This keeps custom row layouts readable during native keyboard selection and window focus
+changes. Attributed runs retain their authored styling. See `docs/list.md`.
