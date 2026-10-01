@@ -492,10 +492,7 @@ fn failed_edit_preserves_a_redo_branch() {
     assert_eq!(block_on(w.undo_status()).unwrap(), (false, true));
     assert!(block_on(w.undo(true)).unwrap());
     assert_eq!(count(&w), 1);
-    assert_eq!(
-        block_on(w.read(|db| Ok(db.get::<Note>(1u64).is_some()))).unwrap(),
-        true
-    );
+    assert!(block_on(w.read(|db| Ok(db.get::<Note>(1u64).is_some()))).unwrap());
     block_on(w.close()).unwrap();
 }
 #[test]

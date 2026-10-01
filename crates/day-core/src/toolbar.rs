@@ -900,6 +900,29 @@ pub fn reset_toolbars() {
     BUILDING.with(|b| b.set(None));
 }
 
+/// Focus the active window's search control, revealing a collapsed desktop search item.
+/// Returns false when the active window has no toolbar search contribution.
+pub fn focus_toolbar_search() -> bool {
+    let root = crate::windows::focused_root();
+    let has = MODELS.with(|models| {
+        models.borrow().iter().any(|(chrome, items)| {
+            *chrome == Chrome::Window(root)
+                && items.iter().any(|item| item.id == day_spec::SEARCH_ITEM_ID)
+        })
+    });
+    if has {
+        with_tree(|t| {
+            t.patch_window_toolbar(
+                root,
+                ToolbarPatch::Focus {
+                    item: day_spec::SEARCH_ITEM_ID.to_owned(),
+                },
+            )
+        });
+    }
+    has
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -1026,27 +1049,4 @@ mod tests {
         );
         assert!(longest_increasing(&[None, None]).is_empty());
     }
-}
-
-/// Focus the active window's search control, revealing a collapsed desktop search item.
-/// Returns false when the active window has no toolbar search contribution.
-pub fn focus_toolbar_search() -> bool {
-    let root = crate::windows::focused_root();
-    let has = MODELS.with(|models| {
-        models.borrow().iter().any(|(chrome, items)| {
-            *chrome == Chrome::Window(root)
-                && items.iter().any(|item| item.id == day_spec::SEARCH_ITEM_ID)
-        })
-    });
-    if has {
-        with_tree(|t| {
-            t.patch_window_toolbar(
-                root,
-                ToolbarPatch::Focus {
-                    item: day_spec::SEARCH_ITEM_ID.to_owned(),
-                },
-            )
-        });
-    }
-    has
 }

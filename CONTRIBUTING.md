@@ -33,7 +33,10 @@ Once a discussion lands on "yes, send a patch":
    workflow. A framework feature usually lands with a Day-Showcase screen that demonstrates it,
    as a second PR that follows the framework change.
 4. Before pushing, run `cargo fmt --all`, `scripts/ci/lint.sh` (the full fmt + clippy matrix CI
-   runs), and `cargo test` for the crates you touched.
+   runs), and `cargo test` for the crates you touched. For the host-only Clippy gate during
+   development, run `bash scripts/ci/host-clippy.sh`; CI and the full local lint script share
+   this entry point. It includes test targets and denies warnings. Builds and tests alone
+   do not replace lint validation; report any skipped platform checks when handing off work.
 5. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
    and the `DESIGN.md` section that describes what you changed.
 

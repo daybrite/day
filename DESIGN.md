@@ -4818,6 +4818,13 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    own `cancelled()`), the deliberate misspellings that ARE test fixtures (`--profile relaese`,
    the `stlye:` Fluent lint case), and the starter-app translations, which are not English.
    Native `.inc` fragments are excluded because platform identifiers trigger false positives.
+   Local validation and CI share `bash scripts/ci/host-clippy.sh`, which denies warnings and
+   lints all targets (including tests) in the default members, CLI/dayscript, dynamic piece
+   registry, and model/persistence with the live-list adapter enabled. Model/persistence are
+   explicitly selected because they are outside `default-members`; app dependency checks
+   do not lint their regression tests. Platform-specific lint commands remain in the backend
+   jobs. Run the host script before declaring Rust changes complete; builds and tests alone
+   do not establish lint cleanliness.
    Clippy is a required status but NOT in
    the combos' `needs:`, so a lint error blocks merge without suppressing the platform
    matrix's build/test signal (it once rode the linux-day artifact job, where a pure lint
