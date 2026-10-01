@@ -122,6 +122,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 |---|---|
 | [sandbox](/docs/internal/sandbox) | macOS App Sandbox, entitlements, and persistent file access |
 | [harmonyos](/docs/internal/harmonyos) | OpenHarmony toolchain setup and quirks |
+| [winui](/docs/internal/winui) | the `windows-winui` target — the XAML backend on WinUI 3 and the Windows App SDK |
 | [web](/docs/internal/web) | the `web-dom` backend — wasm build, dayscript bridge, static hosting |
 | [extending](/docs/internal/extending) | piece registration internals |
 | [bridge](/docs/internal/bridge) | daybridge: foreign-language arms of a Rust API |

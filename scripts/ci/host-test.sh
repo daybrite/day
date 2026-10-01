@@ -14,6 +14,9 @@
 # silently skipped more than half the workspace's tests (day-cli's and day-persistence's whole
 # suites among them).
 #
+# day-arkui is host-buildable without its target-only NDK dependencies; its Unix rawfile
+# tests run against an NDK fake here, including resource-provider worker-thread access.
+#
 # A newly added toolkit crate missing from the exclude list fails this script loudly on the
 # hosts lacking its SDK; add it below when adding the crate to [workspace] members.
 set -euo pipefail
@@ -47,7 +50,5 @@ exec cargo test --locked --workspace --no-fail-fast \
     --exclude day-android \
     --exclude day-xaml \
     --exclude day-xaml-sys \
-    --exclude day-arkui \
-    --exclude day-arkui-sys \
     --exclude day-dom \
     "$@"

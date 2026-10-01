@@ -4588,6 +4588,14 @@ copies, `assets/`-rooted APK srcDir, path-carrying gresource/qrc aliases, rawfil
 API in `day-core::resource`; build-time staging in `crates/day-cli/src/resources/`. Full design +
 per-platform detail: **[docs/resources.md](docs/resources.md)**.
 
+ArkUI's NDK resource manager is process-wide: NAPI
+initialization remains on the host thread, while bundled-resource reads can run on worker
+threads (including WebView resource providers). A mutex protects a complete open/read/close
+against manager replacement; returned mappings and owned bytes are independent of its lifetime.
+`toolkits/day-arkui/tests/resources.rs` exercises worker reads against an NDK fake; the WebView
+demo's resource-provider dayscript verifies bundled CSS on device. The fake runs in the
+host-portable CI suite on Unix; device acceptance still belongs to Harmony CI.
+
 ### §18.4 Bundled custom fonts ([docs/resources.md](docs/resources.md))
 
 A third declared bucket — `fonts/` (`.ttf`/`.otf`) — makes `Font::Custom("Family", pt)` resolve by

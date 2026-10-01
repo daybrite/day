@@ -46,3 +46,6 @@ day-reactive = { workspace = true }
 
 [build-dependencies]
 day-build = { workspace = true }
+
+[dev-dependencies]
+libc = { workspace = true }

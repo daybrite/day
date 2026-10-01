@@ -118,6 +118,7 @@ export const groups = [
     docs: [
       ['sandbox', 'macOS App Sandbox, entitlements, and persistent file access'],
       ['harmonyos', 'OpenHarmony toolchain setup and quirks'],
+      ['winui', 'the `windows-winui` target — the XAML backend on WinUI 3 and the Windows App SDK'],
       ['web', 'the `web-dom` backend — wasm build, dayscript bridge, static hosting'],
       ['extending', 'piece registration internals'],
       ['bridge', 'daybridge: foreign-language arms of a Rust API'],

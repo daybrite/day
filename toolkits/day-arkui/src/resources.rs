@@ -8,9 +8,9 @@
 //! host hands it over once (`registerResourceManager`, src/host_api.rs); until then nothing
 //! here can read, and `resource(name)` answers `None`.
 
-use std::cell::Cell;
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::Mutex;
 
 use ohos_sys::rawfile::RawFileDescriptor;
 use ohos_sys::rawfile::raw_file::{
@@ -23,35 +23,39 @@ use ohos_sys::rawfile::raw_file_manager::{
     OH_ResourceManager_OpenRawFile, OH_ResourceManager_ReleaseNativeResourceManager,
 };
 
-thread_local! {
-    static MANAGER: Cell<*mut NativeResourceManager> = const { Cell::new(ptr::null_mut()) };
-}
+// Initialization uses NAPI on the host thread; the resulting NDK manager owns a native
+// shared ResourceManager, not a NAPI value. Native reads may run on resource-provider
+// workers. Serialize each complete read against replacement/release of the manager.
+struct Manager(*mut NativeResourceManager);
+// SAFETY: no NAPI operations occur through this pointer after initialization, and every
+// NDK access (including release) holds MANAGER's mutex. RawFile handles never escape it.
+unsafe impl Send for Manager {}
+static MANAGER: Mutex<Manager> = Mutex::new(Manager(ptr::null_mut()));
 
 /// Take the ArkTS resource manager (a NAPI value) and keep its native handle for the process.
 ///
 /// # Safety
 /// `env` and `value` are the live NAPI environment and the `resourceManager` object.
 pub unsafe fn register(env: napi_ohos::sys::napi_env, value: napi_ohos::sys::napi_value) {
-    MANAGER.with(|m| {
-        let old = m.get();
-        if !old.is_null() {
-            // SAFETY: the manager this module created earlier.
-            unsafe { OH_ResourceManager_ReleaseNativeResourceManager(old) };
-        }
-        // SAFETY: per the caller's contract; the opaque napi types are the same pointers.
-        let mgr = unsafe { OH_ResourceManager_InitNativeResourceManager(env.cast(), value.cast()) };
-        m.set(mgr);
-    });
+    // SAFETY: per the caller's contract; NAPI initialization stays on the host thread.
+    let mgr = unsafe { OH_ResourceManager_InitNativeResourceManager(env.cast(), value.cast()) };
+    let mut manager = MANAGER.lock().unwrap();
+    if !manager.0.is_null() {
+        // SAFETY: no reader can still be using the old manager while this lock is held.
+        unsafe { OH_ResourceManager_ReleaseNativeResourceManager(manager.0) };
+    }
+    manager.0 = mgr;
 }
 
 pub fn available() -> bool {
-    MANAGER.with(|m| !m.get().is_null())
+    !MANAGER.lock().unwrap().0.is_null()
 }
 
 /// Whether rawfile `path` (e.g. `"day/home.svg"`) exists in the app package; false before the
 /// entry ability registers the resource manager (docs/vectors.md).
 pub fn rawfile_exists(path: &str) -> bool {
-    let mgr = MANAGER.with(|m| m.get());
+    let manager = MANAGER.lock().unwrap();
+    let mgr = manager.0;
     if mgr.is_null() {
         return false;
     }
@@ -106,7 +110,8 @@ impl Drop for Mapped {
 /// and the view is biased). If the descriptor or the mapping is unavailable, the whole file is
 /// read into a heap buffer instead.
 pub fn open(path: &str) -> Option<Mapped> {
-    let mgr = MANAGER.with(|m| m.get());
+    let manager = MANAGER.lock().unwrap();
+    let mgr = manager.0;
     if mgr.is_null() {
         return None;
     }
