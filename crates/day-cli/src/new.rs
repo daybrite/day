@@ -2026,9 +2026,11 @@ linkme = "0.3"
 
     // src/lib.rs front-end: one glue_modules! call for the chosen toolkits instead of the
     // hand-written per-toolkit cfg blocks (docs/extending.md §2; "mock" has no glue module).
+    // `winui` enables `xaml` and uses the same lib-xaml.rs renderer; with_xaml_family ensures
+    // that module is present. It is a build variant, not a second glue module to register.
     let glue: Vec<String> = toolkits
         .iter()
-        .filter(|t| t.as_str() != "mock")
+        .filter(|t| !matches!(t.as_str(), "mock" | "winui"))
         .cloned()
         .collect();
     let mod_decls = if glue.is_empty() {
@@ -4042,6 +4044,23 @@ mod scaffold_tests {
                 assert!(!rendered.iter().any(|(p, _)| p.starts_with("platform/ios/")));
                 assert!(text("dayscript/demo.yaml").contains("input: { id: demo-piece"));
             }
+        }
+    }
+
+    /// Both Windows targets share one renderer. A second `winui` glue module used to make
+    /// either scaffold fail to compile, even when building without a native backend.
+    #[test]
+    fn windows_piece_scaffolds_share_xaml_glue() {
+        let r = Repl::new("day-piece-field", None);
+        for requested in ["xaml", "winui", "xaml,winui", "winui,xaml"] {
+            let toolkits = parse_toolkits(requested).unwrap();
+            let files = native_piece_files(&r, &Deps::Git(None), &toolkits, true);
+            let text = |path: &str| -> &str { &files.iter().find(|(p, _)| p == path).unwrap().1 };
+            assert!(text("src/lib.rs").contains("day_pieces::glue_modules!(xaml);"));
+            assert!(text("Cargo.toml").contains("winui = [\"xaml\", \"day-xaml-sys/winui\"]"));
+            assert!(!text("src/lib-xaml.rs").is_empty());
+            assert!(text("src/lib-xaml-shim.cpp").contains("#ifdef DAY_WINUI"));
+            assert!(!files.iter().any(|(p, _)| p == "src/lib-winui.rs"));
         }
     }
 
