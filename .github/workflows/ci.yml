@@ -655,6 +655,12 @@ jobs:
       - name: Native AppKit link activation
         if: matrix.toolkit == 'appkit'
         run: cargo test --locked -p day-appkit --test native_links
+      - name: Native Qt resize delivery
+        if: matrix.toolkit == 'qt'
+        run: |
+          cmake -S toolkits/day-qt-sys/tests -B target/qt-native-tests
+          cmake --build target/qt-native-tests
+          ctest --test-dir target/qt-native-tests --output-on-failure
       # The Windows implementation of this part compiles only here, so its lint rides the xaml
       # row rather than needing a Windows job of its own. (day-part-speech's C++ arm against SAPI
       # used to ride here too; it lives in its own repository now, whose CI has a Windows host leg.)

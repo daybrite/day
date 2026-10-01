@@ -1404,9 +1404,16 @@ fn format_log(name: &str, stream: LogStream, line: &str) -> String {
 pub fn emit_log(name: &str, stream: LogStream, line: &str) {
     let out = format_log(name, stream, line);
     match stream {
-        LogStream::Out => anstream::println!("{out}"),
-        LogStream::Err => anstream::eprintln!("{out}"),
+        LogStream::Out => write_log_line(anstream::stdout(), &out),
+        LogStream::Err => write_log_line(anstream::stderr(), &out),
     }
+}
+
+fn write_log_line(mut writer: impl std::io::Write, line: &str) {
+    // CI output pipes can return WouldBlock under a hilog/logcat burst, or BrokenPipe
+    // when their reader exits. Keep draining the device: a diagnostic write failure
+    // must not panic and permanently kill the forwarding thread. That line is lost.
+    let _ = writeln!(writer, "{line}");
 }
 
 pub fn stream_logs(
@@ -1533,6 +1540,38 @@ mod build_root_tests {
 #[cfg(test)]
 mod log_format_tests {
     use super::*;
+
+    #[test]
+    fn failed_output_does_not_stop_log_forwarding() {
+        struct FlakyOutput {
+            attempts: usize,
+            bytes: Vec<u8>,
+        }
+        impl std::io::Write for FlakyOutput {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.attempts += 1;
+                match self.attempts {
+                    1 => Err(std::io::ErrorKind::WouldBlock.into()),
+                    2 => Err(std::io::ErrorKind::BrokenPipe.into()),
+                    _ => {
+                        self.bytes.extend_from_slice(bytes);
+                        Ok(bytes.len())
+                    }
+                }
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut output = FlakyOutput {
+            attempts: 0,
+            bytes: Vec::new(),
+        };
+        write_log_line(&mut output, "blocked");
+        write_log_line(&mut output, "closed");
+        write_log_line(&mut output, "recovered");
+        assert_eq!(output.bytes, b"recovered\n");
+    }
 
     /// What the terminal actually receives, escapes and all, with ESC made visible.
     fn rendered(stream: LogStream, line: &str) -> String {

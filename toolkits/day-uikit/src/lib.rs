@@ -4401,6 +4401,8 @@ mod imp {
         /// tab demo came up on its third tab). This is the same origin guard every other
         /// two-way control in this backend carries.
         suppress: std::cell::Cell<bool>,
+        /// Latest deferred selection; stale callbacks cannot override a newer selection.
+        pending_selection: std::cell::Cell<Option<u64>>,
         _delegate: Retained<DayNavTabsDelegate>,
     }
 
@@ -4455,6 +4457,7 @@ mod imp {
                         if t.suppress.get() {
                             return None;
                         }
+                        t.pending_selection.set(None);
                         let idx = t.vcs.iter().position(|vc| {
                             unsafe { vc.view() }.is_some_and(|v| ptr_of(&view_of(v)) == sel)
                         })?;
@@ -4495,6 +4498,7 @@ mod imp {
                         if t.suppress.get() {
                             return None;
                         }
+                        t.pending_selection.set(None);
                         let idx = t
                             .tabs
                             .iter()
@@ -7777,6 +7781,7 @@ mod imp {
                                     icons: Vec::new(),
                                     menu_node: std::cell::Cell::new(0),
                                     suppress: std::cell::Cell::new(false),
+                                    pending_selection: std::cell::Cell::new(None),
                                     _delegate: delegate,
                                 },
                             )
@@ -8639,7 +8644,7 @@ mod imp {
                         // A `.tabSidebar` host has no `NavState` — it is not a navigation stack — so
                         // this is handled before that lookup.
                         if NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(h))) {
-                            tabs_select_when_settled(ptr_of(h), *i, 0);
+                            tabs_select_when_settled(ptr_of(h), *i);
                             return;
                         }
                     }
@@ -10561,21 +10566,22 @@ mod imp {
             // A nav push/pop animates on its UINavigationController, which topmost_vc()
             // (presented modals only) never reaches — so without this a scripted screenshot
             // taken right after `navigate` catches the outgoing page (or a mid-slide frame),
-            // the way the iOS gallery captures did. Any registered nav host with a live
-            // transition coordinator counts as still-settling.
+            // the way the iOS gallery captures did. Only on-screen navigation hosts block
+            // capture: a hidden tab can retain an interrupted coordinator indefinitely.
             let nav = NAV_STATE.with(|m| {
                 m.borrow().iter().find_map(|(h, s)| {
                     let nav = s.active_nav();
-                    nav.transitionCoordinator().is_some().then(|| {
-                        (
-                            *h,
-                            nav.viewIfLoaded().is_some_and(|v| v.window().is_some()),
-                            nav.viewControllers().count(),
-                        )
-                    })
+                    let shown = nav.viewIfLoaded().is_some_and(|v| v.window().is_some());
+                    (shown && nav.transitionCoordinator().is_some())
+                        .then(|| (*h, shown, nav.viewControllers().count()))
                 })
             });
-            let active = modal || top || nav.is_some();
+            let selecting = NAV_TABS.with(|m| {
+                m.borrow()
+                    .values()
+                    .any(|t| t.pending_selection.get().is_some())
+            });
+            let active = modal || top || nav.is_some() || selecting;
             if *DIAG_NAV && active {
                 log::debug!("DAYDIAG ui_idle busy modal={modal} top={top} nav={nav:x?}");
             }
@@ -10747,7 +10753,25 @@ mod imp {
     /// on one variant in eight (Day-Trader's back-then-switch on an iOS 27 iPhone). The
     /// selection already moved in Day's tree; only the native switch waits, bounded so a
     /// coordinator that never clears still gets its switch.
-    fn tabs_select_when_settled(hp: usize, i: usize, attempt: u32) {
+    fn tabs_select_when_settled(hp: usize, i: usize) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let ticket = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        NAV_TABS.with(|m| {
+            if let Some(t) = m.borrow().get(&hp) {
+                t.pending_selection.set(Some(ticket));
+            }
+        });
+        tabs_apply_when_settled(hp, i, 0, ticket);
+    }
+
+    fn tabs_apply_when_settled(hp: usize, i: usize, attempt: u32, ticket: u64) {
+        if !NAV_TABS.with(|m| {
+            m.borrow()
+                .get(&hp)
+                .is_some_and(|t| t.pending_selection.get() == Some(ticket))
+        }) {
+            return; // host disposed, or a newer programmatic/user selection superseded this one
+        }
         let in_flight = NAV_STATE.with(|m| {
             m.borrow().values().any(|s| {
                 let nav = s.active_nav();
@@ -10760,8 +10784,12 @@ mod imp {
                 log::debug!("DAYDIAG tabs select {i} waits for a stack transition");
             }
             // Plain data across the turn (a main-thread-only controller cannot).
-            dispatch2::DispatchQueue::main().exec_async(move || {
-                day_spec::ffi_guard::contain((), || tabs_select_when_settled(hp, i, attempt + 1));
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || {
+                    tabs_apply_when_settled(hp, i, attempt + 1, ticket)
+                });
             });
             return;
         }
@@ -10775,9 +10803,11 @@ mod imp {
         };
         NAV_TABS.with(|m| {
             if let Some(t) = m.borrow().get(&hp) {
+                t.pending_selection.set(None);
                 t.suppress.set(true);
             }
         });
+        note_ui_transition();
         match tab {
             // `setSelectedTab`, not `setSelectedIndex`: the tab is the identity now, and an
             // index only ever meant "the nth ROOT tab".

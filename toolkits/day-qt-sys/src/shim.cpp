@@ -6,6 +6,7 @@
 // posting. Only connects to existing Qt signals via lambdas — no moc required.
 
 #include <QApplication>
+#include "shim-resize.h"
 #include <QFileOpenEvent>
 #include <QWindow>
 #include <QElapsedTimer>
@@ -975,22 +976,6 @@ void *day_qt_inspector_new(double panel_width, int leading) {
 /// so filtering the splitter reports the panes' old sizes, right only by the next resize. A
 /// pane's own resize event arrives with its geometry already updated, which is the moment worth
 /// reporting.
-class DayPaneResizeFilter : public QObject {
-public:
-    QWidget *host;
-    void (*cb)(void *);
-    DayPaneResizeFilter(QWidget *h, void (*c)(void *)) : host(h), cb(c) {}
-
-protected:
-    bool eventFilter(QObject *obj, QEvent *ev) override {
-        // Qt sends Resize only when the size actually changed, so this settles rather than
-        // feeding itself: the report re-lays what is inside the pane, which does not resize
-        // the pane that reported it.
-        if (ev->type() == QEvent::Resize)
-            cb(static_cast<void *>(host));
-        return QObject::eventFilter(obj, ev);
-    }
-};
 
 void day_qt_splitter_on_resized(void *w, void (*cb)(void *)) {
     auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));

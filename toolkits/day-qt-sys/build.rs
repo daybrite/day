@@ -75,6 +75,7 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/shim-resize.h");
     println!("cargo:rerun-if-changed=src/shim-picker.cpp");
     println!("cargo:rerun-if-changed=src/shim-textarea.cpp");
 }

@@ -1709,6 +1709,15 @@ dayscript that the externally-registered piece actually rendered ([§20](#20-con
 
 ### §8.3 Events
 
+Qt pane and list-viewport resize filters defer and coalesce their notifications through
+a context-bound `QTimer::singleShot`. Qt can deliver pending resize events from inside
+`QGraphicsEffect::sourcePixmap`, while a backing store is being painted. Entering Day's event
+pump there can drain unrelated actions, replace native WebViews and destroy that backing
+store mid-paint. The notification reads the latest geometry after the native event returns;
+disposing the filter cancels delivery, and a weak host pointer protects independently
+disposed hosts. The [native resize regression](toolkits/day-qt-sys/tests/resize.cpp) runs in
+the Qt toolkit CI job and covers coalescing and both disposal paths.
+
 > [!NOTE]
 > The numeric event-kind wire table for the trampoline backends (Android JNI, ArkUI C-FFI)
 > lives in `day_spec::bridge::BridgeKind`; the Java/C++ constants mirror it and parity tests
@@ -2770,6 +2779,19 @@ in-flight `Resource`s, `busy_scope()` — remains unbuilt even now that `Resourc
 walkthrough steps show.) No sleeps in
 well-written scripts; `pause` exists for demos. Text assertions normalize Fluent's FSI/PDI
 isolation marks ([§12.2](#122-api)).
+
+UIKit screenshot readiness checks transition coordinators only on visible navigation stacks,
+plus pending tab selections. Hidden stacks may retain an interrupted coordinator indefinitely.
+Programmatic tab switching waits for visible push/pop transitions using 50 ms delayed retries
+(up to six seconds), not a tight dispatch-queue loop. Each request has a unique ticket; a newer
+request, native tab selection or host disposal invalidates older retries. Stanza-Redux's
+`dayscript/navigation-settle.yaml` exercises native Back followed by rapid tab switches and
+screenshots.
+
+CLI device log forwarding uses fallible writes. A saturated or closed CI output pipe drops
+the affected diagnostic line rather than panicking and stopping the forwarding thread;
+subsequent device lines are still drained. `ops::log_format_tests` covers recovery after
+`WouldBlock` and `BrokenPipe`.
 
 ### §14.4 Results
 
