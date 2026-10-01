@@ -55,6 +55,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 mod client;
+mod validators;
+pub use validators::CacheValidators;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
@@ -381,6 +383,8 @@ pub enum HttpError {
     TooManyRedirects,
     /// A status the caller could not accept, such as a download manager's unexpected `416`.
     Status(u16),
+    /// The response exceeded the caller's explicit buffered-body limit.
+    BodyTooLarge { limit: usize },
 }
 
 impl std::fmt::Display for HttpError {
@@ -396,6 +400,7 @@ impl std::fmt::Display for HttpError {
             HttpError::Unsupported => write!(f, "not supported on this platform"),
             HttpError::TooManyRedirects => write!(f, "too many redirects"),
             HttpError::Status(s) => write!(f, "unexpected status {s}"),
+            HttpError::BodyTooLarge { limit } => write!(f, "response exceeds {limit} bytes"),
         }
     }
 }
@@ -465,6 +470,25 @@ fn stateless() -> &'static Client {
             .cache(Cache::Off)
             .build()
     })
+}
+
+/// Fetch through the shared stateless client with a strict limit on buffered response bytes.
+/// Checks both Content-Length and streamed chunks; exceeding the limit cancels the transfer.
+/// The returned future also cancels on drop. Available on every backend, including the web.
+pub async fn fetch_limited_future(req: Request, max_bytes: usize) -> Result<Response, HttpError> {
+    stateless().fetch_limited_future(req, max_bytes).await
+}
+
+/// Shared-client bounded download with progress on the future's polling thread.
+/// See [`Client::fetch_limited_with_progress_future`].
+pub async fn fetch_limited_with_progress_future(
+    req: Request,
+    max_bytes: usize,
+    progress: impl FnMut(u64, Option<u64>),
+) -> Result<Response, HttpError> {
+    stateless()
+        .fetch_limited_with_progress_future(req, max_bytes, progress)
+        .await
 }
 
 /// Stream `req` through `client` into `sink`, waiting on this thread.

@@ -11,6 +11,7 @@
 #![cfg(target_os = "macos")]
 
 mod applications;
+mod nav_progress;
 
 use std::any::Any;
 use std::cell::{Cell, RefCell};
@@ -2077,6 +2078,7 @@ struct NavMenuIvars {
     badges: RefCell<Vec<Option<Retained<NSString>>>>,
     /// Trailing accessory GLYPH per row, in the same slot as `badges` and drawn after it —
     /// a starred page's star. Resolved to images once per rebuild, like `icons`.
+    icon_progress: RefCell<Vec<(usize, Option<f64>)>>,
     badge_icons: RefCell<Vec<Option<Retained<objc2_app_kit::NSImage>>>>,
     /// Tint for `badge_icons`; `None` keeps the neutral template tint.
     badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
@@ -2425,6 +2427,14 @@ define_class!(
                         iv.setFrame(NSRect::new(NSPoint::new(2.0, 2.0), NSSize::new(18.0, 18.0)));
                         cell.addSubview(&iv);
                         cell.setImageView(Some(&iv));
+                        let progress = self
+                            .ivars()
+                            .icon_progress
+                            .borrow()
+                            .iter()
+                            .find(|(row, _)| *row == index)
+                            .map(|(_, f)| *f);
+                        nav_progress::update(&iv, progress);
                     }
                 }
                 objc2::rc::Retained::into_super(cell)
@@ -2479,7 +2489,8 @@ fn resolve_nav_icons(icons: &[Option<String>]) -> Vec<Option<Retained<objc2_app_
                     &NSString::from_str(&path.to_string_lossy()),
                 )
             }?;
-            unsafe { img.setTemplate(true) };
+            // Downloaded/user-file icons are artwork; bundled glyphs remain templates.
+            unsafe { img.setTemplate(!std::path::Path::new(name).is_absolute()) };
             Some(img)
         })
         .collect()
@@ -2506,6 +2517,7 @@ impl DayNavMenuData {
             tints: RefCell::new(tints.to_vec()),
             menus: RefCell::new(menus.to_vec()),
             badges: RefCell::new(ns_badges(badges)),
+            icon_progress: RefCell::new(Vec::new()),
             badge_icons: RefCell::new(resolve_nav_icons(badge_icons)),
             badge_tints: RefCell::new(badge_tints.to_vec()),
             rows: RefCell::new(Vec::new()),
@@ -2538,6 +2550,7 @@ impl DayNavMenuData {
         *self.ivars().tints.borrow_mut() = tints.to_vec();
         *self.ivars().menus.borrow_mut() = menus.to_vec();
         *self.ivars().badges.borrow_mut() = ns_badges(badges);
+        self.ivars().icon_progress.borrow_mut().clear();
         *self.ivars().badge_icons.borrow_mut() = resolve_nav_icons(badge_icons);
         *self.ivars().badge_tints.borrow_mut() = badge_tints.to_vec();
         self.rebuild_rows(items, sections);
@@ -6408,6 +6421,33 @@ impl Toolkit for AppKit {
                     });
                     // The rows are a tabs host's labels where the menu sits in one.
                     adopt_menu_for_tabs(self.mtm(), h);
+                } else if let Some(NavMenuPatch::IconProgress(progress)) =
+                    patch.downcast_ref::<NavMenuPatch>()
+                {
+                    NAV_MENUS.with(|menus| {
+                        let menus = menus.borrow();
+                        let Some((outline, data)) = menus.get(&ptr_of(h)) else {
+                            return;
+                        };
+                        let previous = data.ivars().icon_progress.replace(progress.clone());
+                        for (row, item) in data.ivars().rows.borrow().iter().enumerate() {
+                            let Some(index) = item else {
+                                continue;
+                            };
+                            let value = progress.iter().find(|(i, _)| i == index).map(|(_, v)| *v);
+                            if previous.iter().find(|(i, _)| i == index).map(|(_, v)| *v) == value {
+                                continue;
+                            }
+                            if let Some(view) = unsafe {
+                                outline.viewAtColumn_row_makeIfNecessary(0, row as isize, false)
+                            } && let Some(cell) =
+                                view.downcast_ref::<objc2_app_kit::NSTableCellView>()
+                                && let Some(icon) = unsafe { cell.imageView() }
+                            {
+                                nav_progress::update(&icon, value);
+                            }
+                        }
+                    });
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()
                 {

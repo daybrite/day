@@ -8588,3 +8588,65 @@ fn list_selection_applies_on_mount_and_remount() {
             .any(|line| line.contains("list selected []"))
     );
 }
+
+#[test]
+fn nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering() {
+    let current = Signal::new(Option::<String>::None);
+    let rows = Signal::new(vec!["a".to_string(), "b".to_string()]);
+    let active = Signal::new(vec![(Some("b".to_string()), None)]);
+    let probe = boot(move || {
+        nav(current)
+            .style(NavStyle::Sidebar)
+            .icon_progress(move || active.get())
+            .items(
+                move || rows.get(),
+                |name: &String| item(name.clone(), name.clone()),
+            )
+            .destination(|_: &Option<String>| label("Fixture page"))
+    });
+    let menu = probe.find_by_kind("day.nav_menu")[0].0;
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|op| op.contains("icon_progress=[(1, None)]"))
+    );
+    probe.clear_log();
+    active.set(vec![(Some("b".into()), Some(0.5))]);
+    flush_sync();
+    let log = probe.log();
+    assert!(
+        log.iter()
+            .any(|op| op.contains("icon_progress=[(1, Some(0.5))]"))
+    );
+    assert!(
+        !log.iter()
+            .any(|op| op.contains("menu items=") || op.starts_with("create "))
+    );
+    assert_eq!(probe.widget(menu).text, "a|b");
+    probe.clear_log();
+    // A label/icon/count update can recreate native rows without moving the active
+    // key. Progress must be reapplied even though its indices and fractions match.
+    rows.set(vec!["renamed-a".into(), "b".into()]);
+    flush_sync();
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|op| op.contains("icon_progress=[(1, Some(0.5))]"))
+    );
+    probe.clear_log();
+    rows.set(vec!["b".into()]);
+    flush_sync();
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|op| op.contains("icon_progress=[(0, Some(0.5))]"))
+    );
+    probe.clear_log();
+    active.set(vec![]);
+    flush_sync();
+    assert!(probe.log().iter().any(|op| op.contains("icon_progress=[]")));
+    assert!(!probe.log().iter().any(|op| op.contains("menu items=")));
+}

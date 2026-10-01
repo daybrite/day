@@ -636,7 +636,8 @@ pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
 
 impl<K> NavItem<K> {
     /// A bundled-image name for the item's native icon (same convention as
-    /// [`Nav::item_icon`]).
+    /// [`Nav::item_icon`]), or an absolute local image path supplied as an owned string.
+    /// AppKit/UIKit preserve the colors of local files; bundled glyphs remain templates.
     pub fn icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
         self.icon = Some(icon.into().as_str().to_owned());
         self
@@ -874,6 +875,8 @@ impl<K: Route> SelItems<K> {
     }
 }
 
+type IconProgressSource<K> = Box<dyn Fn() -> Vec<(K, Option<f64>)>>;
+
 /// A one-of-N nav whose active key is an app-owned signal (two-way, exactly like
 /// `Picker`/`Toggle`). Deep links and dayscript address items by key (docs/navigation.md).
 ///
@@ -889,6 +892,7 @@ impl<K: Route> SelItems<K> {
 /// ```
 pub struct Nav<S: Binding<K>, K: Route = String> {
     selection: S,
+    icon_progress: Option<IconProgressSource<K>>,
     style: NavStyle,
     title: TextSource,
     header: Option<Box<dyn FnOnce() -> AnyPiece>>,
@@ -1137,6 +1141,7 @@ impl SearchSpec {
 pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
     Nav {
         selection,
+        icon_progress: None,
         style: NavStyle::default(),
         pending_section: None,
         sidebar_toggle: true,
@@ -1158,6 +1163,15 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
 }
 
 impl<K: Route, S: Binding<K>> Nav<S, K> {
+    /// Progress over leading icons, without rebuilding rows or changing label geometry.
+    /// Return active route keys with None while connecting/unknown-length, or Some(0..=1)
+    /// for a known fraction. Omit finished keys. AppKit/UIKit animate in the compositor;
+    /// other toolkits currently leave icons unchanged. Bind separately from `.items`.
+    pub fn icon_progress(mut self, progress: impl Fn() -> Vec<(K, Option<f64>)> + 'static) -> Self {
+        self.icon_progress = Some(Box::new(progress));
+        self
+    }
+
     pub fn style(mut self, style: NavStyle) -> Self {
         self.style = style;
         self
@@ -1959,6 +1973,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     // not fixed at build time; `NavPatch::Presentation` re-presents the live host. The window
     // root is captured here: the effect below re-runs long after this build, when the ambient
     // window would answer the primary one instead of ours.
+    let icon_progress = sel.icon_progress;
+    let progress_revision = Signal::new(0u64);
     let window = day_core::window_being_built();
     let can_split =
         with_tree(|t| t.capability(day_spec::Cap::NavSplit)) == day_spec::Support::Native;
@@ -3113,6 +3129,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         });
     }
 
+    let icon_progress_enabled = icon_progress.is_some();
     // Re-derive the row set when a dynamic block's signal changes (re-patch the native menu,
     // reset the selection if its item vanished) and when the locale changes (tracked title
     // resolution: same keys, new titles). Installed unconditionally: a fully static
@@ -3229,6 +3246,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         );
                     });
                 }
+                // Re-map active route keys after insertions/filtering, after the row patch.
+                if icon_progress_enabled {
+                    progress_revision.update(|n| *n = n.wrapping_add(1));
+                }
                 // Drive the detail from here as well as from the selection bind. That bind is
                 // created first, so when a query signal and the selection are written in one
                 // batch it runs while `typed` still holds the pre-filter rows, finds no index
@@ -3238,6 +3259,42 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 // idempotent (it returns at once when the detail already shows this key), so
                 // calling it on every derive costs nothing and closes both holes.
                 show_e(&cur2);
+            },
+        );
+    }
+    if let Some(progress) = icon_progress {
+        let mh = menu_holder.clone();
+        let keys = typed.clone();
+        bind(
+            move || {
+                let revision = progress_revision.get();
+                let active = progress();
+                let keys = keys.borrow();
+                let values = active
+                    .into_iter()
+                    .filter_map(|(key, fraction)| {
+                        keys.iter().position(|k| k.key() == key.key()).map(|row| {
+                            (
+                                row,
+                                fraction
+                                    .filter(|f| f.is_finite())
+                                    .map(|f| f.clamp(0.0, 1.0)),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                (revision, values)
+            },
+            move |(_, values)| {
+                if let Some(menu) = mh.get() {
+                    with_tree(|t| {
+                        t.patch(
+                            menu,
+                            Box::new(NavMenuPatch::IconProgress(values.clone())),
+                            false,
+                        )
+                    });
+                }
             },
         );
     }

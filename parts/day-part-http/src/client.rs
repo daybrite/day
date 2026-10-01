@@ -676,6 +676,62 @@ impl Client {
         }
     }
 
+    /// Buffer at most `max_bytes`, cancelling if either Content-Length or the actual streamed
+    /// body exceeds it. The bound applies to decoded response bytes delivered by the transport.
+    pub async fn fetch_limited_future(
+        &self,
+        request: Request,
+        max_bytes: usize,
+    ) -> Result<Response, HttpError> {
+        self.fetch_limited_with_progress_future(request, max_bytes, |_, _| {})
+            .await
+    }
+
+    /// Bounded download with `(received, total)` observations on the polling thread.
+    /// Unknown or encoded representation lengths report None, never a guessed fraction.
+    /// Observer calls occur at connection start, response headers, and each body chunk;
+    /// UI consumers should throttle their presentation updates.
+    pub async fn fetch_limited_with_progress_future(
+        &self,
+        request: Request,
+        max_bytes: usize,
+        mut progress: impl FnMut(u64, Option<u64>),
+    ) -> Result<Response, HttpError> {
+        progress(0, None);
+        let is_head = matches!(request.method, Method::Head);
+        let streaming = self.send_future(request).await?;
+        // HEAD/304 can advertise the representation size despite carrying no body.
+        let bodyless = is_head || matches!(streaming.status(), 204 | 304);
+        if !bodyless
+            && streaming
+                .expected_length()
+                .is_some_and(|n| n > max_bytes as u64)
+        {
+            return Err(HttpError::BodyTooLarge { limit: max_bytes });
+        }
+        let (head, mut body) = streaming.into_parts();
+        let encoded = head.headers.iter().any(|(k, v)| {
+            k.eq_ignore_ascii_case("content-encoding") && !v.eq_ignore_ascii_case("identity")
+        });
+        let total = if bodyless || encoded {
+            None
+        } else {
+            head.expected_length.filter(|n| *n > 0)
+        };
+        progress(0, total);
+        let mut bytes = Vec::new();
+        while let Some(chunk) = body.next().await {
+            let chunk = chunk?;
+            if bytes.len().saturating_add(chunk.len()) > max_bytes {
+                return Err(HttpError::BodyTooLarge { limit: max_bytes });
+            }
+            bytes.extend_from_slice(&chunk);
+            let received = bytes.len() as u64;
+            progress(received, total.filter(|n| received <= *n));
+        }
+        Ok(Response::assemble(head, bytes, body.metrics()))
+    }
+
     /// Send `request` and read its whole body into memory. For large bodies use
     /// [`Client::send_async`] and read the [`Body`] in chunks.
     pub fn fetch_async(
@@ -3911,6 +3967,7 @@ mod client_tests {
         chunks: Vec<Vec<u8>>,
         question: Option<Question>,
         stall: bool,
+        expected: Option<Option<u64>>,
     }
 
     impl Reply {
@@ -4136,7 +4193,7 @@ mod client_tests {
                         status: reply.status,
                         headers: reply.headers,
                         url: request.url,
-                        expected_length: Some(expected),
+                        expected_length: reply.expected.unwrap_or(Some(expected)),
                     }),
                     chunks: reply.chunks.into(),
                     demand: 0,
@@ -4409,6 +4466,76 @@ mod client_tests {
             Some("remember=2")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bounded_progress_distinguishes_known_unknown_and_encoded_bodies() {
+        for (advertised, encoding, expected) in [
+            (Some(4), "identity", Some(4)),
+            (None, "identity", None),
+            (Some(2), "gzip", None),
+        ] {
+            let t = Scripted::new(move |_| {
+                let mut reply = Reply::new(200)
+                    .chunks(4)
+                    .header("Content-Encoding", encoding);
+                reply.expected = Some(advertised);
+                reply
+            });
+            let client = builder(&t).build();
+            let mut observations = Vec::new();
+            let response = wait(client.fetch_limited_with_progress_future(
+                Request::get("http://day.test/progress"),
+                10,
+                |received, total| observations.push((received, total)),
+            ))
+            .unwrap();
+            assert_eq!(response.body, vec![0, 1, 2, 3]);
+            assert_eq!(observations.first(), Some(&(0, None)));
+            assert_eq!(observations.last(), Some(&(4, expected)));
+            assert!(observations.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+        }
+    }
+
+    #[test]
+    fn bounded_downloads_check_both_headers_and_streamed_bytes() {
+        for advertised in [Some(100), None, Some(1)] {
+            let t = Scripted::new(move |_| {
+                let mut reply = Reply::new(200).chunks(100);
+                reply.expected = Some(advertised);
+                reply
+            });
+            let client = builder(&t).build();
+            assert!(matches!(
+                wait(client.fetch_limited_future(Request::get("http://day.test/big"), 10)),
+                Err(HttpError::BodyTooLarge { limit: 10 })
+            ));
+            assert_eq!(t.cancels.load(Ordering::SeqCst), 1);
+        }
+        let t = Scripted::new(|_| Reply::new(200).body("exact"));
+        let client = builder(&t).build();
+        assert_eq!(
+            wait(client.fetch_limited_future(Request::get("http://day.test/exact"), 5))
+                .unwrap()
+                .body,
+            b"exact"
+        );
+    }
+
+    #[test]
+    fn bounded_bodyless_responses_ignore_representation_length() {
+        for (method, status) in [(Method::Get, 304), (Method::Head, 200), (Method::Get, 204)] {
+            let t = Scripted::new(move |_| {
+                let mut reply = Reply::new(status);
+                reply.expected = Some(Some(100_000));
+                reply
+            });
+            let mut req = Request::get("http://day.test/unchanged");
+            req.method = method;
+            let response = wait(builder(&t).build().fetch_limited_future(req, 0)).unwrap();
+            assert_eq!(response.status, status);
+            assert!(response.body.is_empty());
+        }
     }
 
     #[test]

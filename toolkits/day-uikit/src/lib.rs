@@ -20,6 +20,8 @@ unsafe extern "C" {}
 pub use imp::*;
 
 #[cfg(target_os = "ios")]
+mod nav_progress;
+#[cfg(target_os = "ios")]
 mod picker;
 #[cfg(target_os = "ios")]
 mod textarea;
@@ -4722,6 +4724,7 @@ mod imp {
         /// Template mode tints them with the cell's tint color (the iOS list idiom).
         icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
         /// Trailing status glyphs per row, resolved the same way as `icons`.
+        icon_progress: RefCell<Vec<(usize, Option<f64>)>>,
         badge_icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
         /// Tint for `badge_icons`; `None` keeps the neutral template look.
         badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
@@ -4895,6 +4898,14 @@ mod imp {
                         ));
                     }
                     cell.setAccessories(&nav_accessories(mtm, bimg.as_deref(), btint));
+                    let progress = self
+                        .ivars()
+                        .icon_progress
+                        .borrow()
+                        .iter()
+                        .find(|(i, _)| *i == row)
+                        .map(|(_, v)| *v);
+                    crate::nav_progress::update(&cell, progress, mtm);
                 }
                 objc2::rc::Retained::into_super(cell)
             }
@@ -5019,9 +5030,14 @@ mod imp {
         names
             .iter()
             .map(|ic| {
-                let img = load_bundled_uiimage(ic.as_deref()?)?;
+                let name = ic.as_deref()?;
+                let img = load_bundled_uiimage(name)?;
                 Some(unsafe {
-                    img.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
+                    img.imageWithRenderingMode(if std::path::Path::new(name).is_absolute() {
+                        objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal
+                    } else {
+                        objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
+                    })
                 })
             })
             .collect()
@@ -5162,6 +5178,7 @@ mod imp {
                 node,
                 items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
                 icons: RefCell::new(resolved),
+                icon_progress: RefCell::new(Vec::new()),
                 badge_icons: RefCell::new(resolve_nav_images(badge_icons)),
                 badge_tints: RefCell::new(badge_tints.to_vec()),
                 tints: RefCell::new(tints.to_vec()),
@@ -5233,6 +5250,7 @@ mod imp {
             *self.ivars().tints.borrow_mut() = tints.to_vec();
             *self.ivars().menus.borrow_mut() = menus.to_vec();
             *self.ivars().icons.borrow_mut() = resolve_nav_images(icons);
+            self.ivars().icon_progress.borrow_mut().clear();
             *self.ivars().badge_icons.borrow_mut() = resolve_nav_images(badge_icons);
             *self.ivars().badge_tints.borrow_mut() = badge_tints.to_vec();
         }
@@ -8579,6 +8597,43 @@ mod imp {
                                     // Resolved from this data source, which the borrow above
                                     // holds: `select_nav_row` would borrow the same map again.
                                     select_nav_path(cv, selected.and_then(|r| data.path_of(r)));
+                                }
+                            }
+                        });
+                    } else if let Some(NavMenuPatch::IconProgress(progress)) =
+                        patch.downcast_ref::<NavMenuPatch>()
+                    {
+                        NAV_MENUS.with(|menus| {
+                            let menus = menus.borrow();
+                            let Some((data, _)) = menus.get(&ptr_of(h)) else {
+                                return;
+                            };
+                            let previous = data.ivars().icon_progress.replace(progress.clone());
+                            let Some(cv) = h.downcast_ref::<objc2_ui_kit::UICollectionView>()
+                            else {
+                                return;
+                            };
+                            unsafe {
+                                for ip in cv.indexPathsForVisibleItems() {
+                                    let Some(index) =
+                                        data.row_of(ip.section() as usize, ip.item() as usize)
+                                    else {
+                                        continue;
+                                    };
+                                    let value =
+                                        progress.iter().find(|(i, _)| *i == index).map(|(_, v)| *v);
+                                    if previous.iter().find(|(i, _)| *i == index).map(|(_, v)| *v)
+                                        == value
+                                    {
+                                        continue;
+                                    }
+                                    if let Some(cell) = cv.cellForItemAtIndexPath(&ip)
+                                        && let Some(cell) = cell
+                                            .downcast_ref::<objc2_ui_kit::UICollectionViewListCell>(
+                                        )
+                                    {
+                                        crate::nav_progress::update(cell, value, self.mtm());
+                                    }
                                 }
                             }
                         });

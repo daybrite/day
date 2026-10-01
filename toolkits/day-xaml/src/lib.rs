@@ -2240,6 +2240,7 @@ impl Toolkit for Xaml {
                     // Split navs drive the NavigationView pane; a plain ListView otherwise.
                     let host = NAV_MENU_HOST.with(|m| m.borrow().get(&(h.0 as usize)).copied());
                     match patch.downcast_ref::<NavMenuPatch>() {
+                        Some(NavMenuPatch::IconProgress(_)) => {}
                         Some(NavMenuPatch::Selected(sel)) => {
                             let idx = sel.map(|i| i as c_int).unwrap_or(-1);
                             match host {

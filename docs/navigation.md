@@ -219,6 +219,12 @@ The row set re-derives whenever a block's signal changes: rows are added/removed
 widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
 The same effect resolves every row title tracked, so a runtime `set_locale` retitles the native
 rows in place, static `.item`s included.
+`NavItem::icon` also accepts an owned absolute path for downloaded image files. AppKit and
+UIKit preserve the colors of these file icons; bundled symbolic icons still use template
+rendering and `icon_tint`. Cache a thumbnail locally and change its filename when its bytes
+change so native image caches invalidate. A missing/unreadable file has no image, so apps
+should supply their own bundled fallback until the download is ready.
+
 `item(key, title).icon(name)` is the row spec; `.icon_tint(color)` recolors the row's glyph
 ([docs/vectors.md](vectors.md)), `.context_menu(vec![…])` attaches a per-row context menu ([docs/menus.md](menus.md)),
 and `.immersive()` on it marks that row's pushed page immersive-chrome, same as the static
@@ -912,3 +918,24 @@ push/pop/reconcile, native-back-into-path, deep-link, nested fall-through, and t
 validation). The showcase's top-level nav is a typed `nav(Sidebar)` over a `Section`
 enum, its Tabs page a typed `nav(Tabs)`, and its Stack page a `nav_stack` over a
 data-carrying `Drill` enum, all driven through the walkthrough on all five local targets.
+
+### Progress over sidebar icons
+
+`nav(selection).icon_progress(move || active.get())` accepts a reactive closure returning
+`Vec<(K, Option<f64>)>`: active route keys with `None` for indeterminate activity or
+`Some(fraction)` for progress from zero to one. Omit a key when its work finishes. Invalid
+fractions become indeterminate and finite fractions clamp to the valid range.
+
+This binding is independent of `.items`: it emits `NavMenuPatch::IconProgress` without
+rebuilding the rows, loading their icons again, changing selection or requesting layout.
+Changes to the row set re-map route keys to current indexes, so filtering and reordering
+cannot move progress onto another item. The binding is owned by the navigation scope.
+
+AppKit and UIKit render a small, muted circular overlay over the existing leading icon.
+An indeterminate quarter ring rotates in Core Animation; a known fraction fills the ring.
+The background softens the icon beneath it. No Rust animation timer or canvas redraw loop
+runs. Only changed visible cells receive updates, and newly displayed/reused cells receive
+the stored state. Completion removes the layer/view and its animation. Text, badges and row
+geometry stay unchanged. Other toolkits currently ignore this optional decoration.
+`nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering` guards the
+separate-patch and route-remapping contracts.

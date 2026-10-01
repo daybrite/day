@@ -2991,6 +2991,7 @@ mod imp {
                         // (rows ripple, then push)", which was true of the hand-built list that
                         // could not draw a resting state; a NavigationView can, and a sidebar
                         // beside its detail is exactly where that state means "you are here".
+                        Some(NavMenuPatch::IconProgress(_)) => {}
                         Some(NavMenuPatch::Selected(sel)) => {
                             with_env(|env| nav_menu_select(env, h, *sel));
                         }

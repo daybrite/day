@@ -525,3 +525,43 @@ Its Android arm contributes `android.permission.INTERNET` and the OkHttp coordin
 `[package.metadata.day.android]`. It was the first part on the bridge's stream tier, and
 [day-part-downloads](downloads.md) builds on its client without platform code of its own for the
 in-app tier.
+
+## Conditional requests for application-owned data
+
+`CacheValidators { etag, last_modified }` stores opaque origin validators beside an
+application's representation (for example, parsed RSS articles in SQLite).
+`Request::get(url).conditional(&validators)` sets `If-None-Match` and
+`If-Modified-Since`, replacing existing copies case-insensitively. The origin gives ETags
+precedence. The helper also supports HEAD; it leaves mutating requests alone, rejects control
+characters and oversized values, and preserves weak ETags and quotes.
+
+After successfully parsing and storing a new 2xx representation, persist
+`validators.updated(&response)` in the same transaction. Missing validators on a new 2xx clear
+old ones. A 304 has no replacement body: keep the stored representation and merge any updated
+validators. Error responses leave validators unchanged. The helper does not synthesize a 200
+or cache bodies; use it with `Cache::Off` when the application owns the cache. An explicit
+refresh revalidates immediately rather than being satisfied from a fresh platform cache.
+
+`Client::fetch_limited_future(request, max_bytes)` and its stateless root counterpart collect
+at most the specified number of delivered body bytes. They reject an oversized advertised
+length before collecting, and check each chunk even when the length is absent or incorrect.
+HEAD, 204 and 304 can advertise a representation length without carrying it; those lengths do
+not trigger rejection. Exceeding the bound returns `HttpError::BodyTooLarge { limit }` and
+drops/cancels the exchange. Dropping the future also cancels. This limits the Rust collector,
+not every buffer inside an OS transport or an already delivered chunk.
+
+Both helpers live above the transport and work identically with URLSession, OkHttp, WinHTTP,
+libcurl, HarmonyOS Network Kit and browser fetch. Web requests remain subject to CORS:
+publishers must allow conditional request headers and expose ETag/Last-Modified as needed.
+Reuse a `Client` for connection pooling; the root helpers already share one stateless client.
+See `validators::tests` and `client_tests::bounded_*` for portable regression coverage.
+
+`Client::fetch_limited_with_progress_future` (also available at the crate root) adds a
+`FnMut(received_bytes, Option<total_bytes>)` observer to the bounded collector. It runs on the
+future's polling thread, so a UI-polled future can safely update UI-owned signals. Calls occur
+at connection start `(0, None)`, after headers, and after each consumed body chunk. A missing,
+zero, bodyless, or content-encoded representation length reports `None`; compressed wire
+length must not be compared with decoded delivered bytes. A body exceeding its advertised
+length also reverts to unknown. Consumers should throttle rendering; the HTTP collector does
+not delay delivery. Cancellation, errors and byte limits retain the same behavior on every
+backend. `bounded_progress_distinguishes_known_unknown_and_encoded_bodies` covers accounting.

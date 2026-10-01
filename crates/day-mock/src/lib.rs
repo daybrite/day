@@ -1056,6 +1056,7 @@ impl Toolkit for MockToolkit {
                 format!("textarea.patch {tp:?}")
             } else if let Some(p) = patch.downcast_ref::<NavMenuPatch>() {
                 match p {
+                    NavMenuPatch::IconProgress(values) => format!("menu icon_progress={values:?}"),
                     NavMenuPatch::Selected(sel) => {
                         w.value = sel.map(|i| i as f64).unwrap_or(-1.0);
                         format!("menu selected={sel:?}")

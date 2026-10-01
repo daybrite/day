@@ -3114,6 +3114,30 @@ Two package kinds share the mechanism:
   Day-Time, now carries that module itself, since a pure-Rust dependency with no platform arm
   needs no part.)
 
+Application-owned network caches use `day-part-http::CacheValidators` with
+`Request::conditional`: validators stay with the persisted representation, 304 merges metadata
+without a body, and a successfully stored 2xx replaces old validators. The shared
+`fetch_limited_future` collector bounds response bytes and cancels on overflow, including
+unknown-length streams; bodyless responses ignore representation length. These policies live
+above every native/web transport, preserving connection reuse and the platform's network
+configuration. Browser CORS still applies. See [HTTP conditional requests](docs/http.md#conditional-requests-for-application-owned-data)
+and the portable validator/bounded-collector tests.
+
+`Nav::icon_progress` is a separate reactive route-key binding, lowered to an icon-only patch
+rather than a row rebuild. Row changes re-map progress to current indexes. AppKit/UIKit
+render a muted circular Core Animation overlay, indeterminate rotation or determinate fill,
+without Rust timers or changes to text geometry; visible cells update in place and recycled
+cells use stored state. Other toolkits ignore the optional decoration. Progress can be sourced
+from `fetch_limited_with_progress_future`, whose observer runs on the polling thread and
+reports unknown total for absent or encoded content lengths. See the HTTP and navigation docs
+and their progress-accounting/no-row-rebuild regressions.
+
+Downloaded sidebar thumbnails use `NavItem::icon` with absolute local paths. AppKit and UIKit
+keep these images in their original colors, while bundled symbols retain template tinting.
+Applications own download/cache lifecycle and use changed filenames to invalidate native
+caches; trailing badge icons can indicate independent per-row activity alongside unread
+counts. See [navigation](docs/navigation.md).
+
 ### §15.2 Package layout and aggregation
 
 > [!NOTE]

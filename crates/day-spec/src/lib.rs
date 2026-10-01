@@ -5553,6 +5553,10 @@ pub mod props {
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum NavMenuPatch {
+        /// Active icon overlays by row index: None spins, Some(0..=1) fills a circle.
+        /// Rows absent from this complete snapshot have no overlay. Does not relayout rows.
+        /// Currently rendered by AppKit/UIKit; other backends may ignore this decoration.
+        IconProgress(Vec<(usize, Option<f64>)>),
         /// Programmatic highlight sync: toolkits apply without re-emitting
         /// SelectionChanged (the TextField from_native echo rule).
         Selected(Option<usize>),
