@@ -1413,6 +1413,63 @@ fn nav_filtered_rows_keep_a_live_detail() {
     );
 }
 
+#[test]
+fn nav_can_hide_the_selected_row_without_disposing_its_detail() {
+    let rows = Signal::new(vec!["feed".to_string(), "other".to_string()]);
+    let selection = Signal::new(Some("feed".to_string()));
+    let keep = Signal::new(true);
+    let probe = boot_content_list(
+        day_spec::Support::Native,
+        Size::new(1200.0, 800.0),
+        move || {
+            nav(selection)
+                .style(NavStyle::Sidebar)
+                .retain_selection_when(move |_| keep.get_untracked())
+                .items(move || rows.get(), |key| item(key.clone(), key.clone()))
+                .content_list(|| label("list"))
+                .destination(|key: &Option<String>| label(format!("detail:{key:?}")))
+                .any()
+        },
+    );
+    let detail = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text.contains("detail:Some(\"feed\")"))
+        .unwrap()
+        .0;
+    let menu = probe.find_by_kind("day.nav_menu")[0].0;
+    rows.set(vec!["other".into()]);
+    flush_sync();
+    assert_eq!(selection.get_untracked().as_deref(), Some("feed"));
+    assert_eq!(probe.widget(menu).text, "other");
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(id, _)| *id == detail)
+    );
+    // Restoring the row restores its highlight without rebuilding the page.
+    rows.set(vec!["feed".into(), "other".into()]);
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(id, _)| *id == detail)
+    );
+    // Deletion, unlike filtering, uses the default fallback.
+    keep.set(false);
+    rows.set(vec!["other".into()]);
+    flush_sync();
+    assert_eq!(selection.get_untracked().as_deref(), Some("other"));
+    assert!(
+        !probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(id, _)| *id == detail)
+    );
+}
+
 /// Boot with `Cap::NavContentList` forced: the content-list pane harness
 /// (docs/navigation.md). Splittable, so the launch size decides split vs stack.
 fn boot_content_list(

@@ -217,6 +217,11 @@ nav(current)
 
 The row set re-derives whenever a block's signal changes: rows are added/removed on the native
 widget, and if the selected key disappears the selection resets (to `None` for an `Option` key).
+For a filtered sidebar whose current document should remain open, use
+`.retain_selection_when(|key| record_still_exists(key))`. On item-list changes, a true result
+keeps that destination and its state alive while the native sidebar has no highlighted row.
+Returning false preserves the normal fallback for deleted records. Supply `.destination`
+for dynamic keys.
 The same effect resolves every row title tracked, so a runtime `set_locale` retitles the native
 rows in place, static `.item`s included.
 `NavItem::icon` also accepts an owned absolute path for downloaded image files. AppKit and

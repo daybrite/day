@@ -2276,6 +2276,10 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   filling `DayCell`s), labeled when the `NAV_MENU` is inserted; Qt's `QTabWidget` now
 >   honors a programmatic `NavPatch::Select` too (its suite branch was unreachable).
 > - **Section headers in a derived sidebar** *(2026-09)* — `nav(…).section(title)` and
+>   `Nav::retain_selection_when` lets filtered sidebars keep the selected destination alive
+>   when its row disappears. The native row selection becomes empty; the document and toolbar
+>   remain resident. The predicate runs when items change and can reject deleted records,
+>   preserving the default fallback. See `nav_can_hide_the_selected_row_without_disposing_its_detail`.
 >   `item(…).section(title)` open a group header before the next row, so a data-driven,
 >   search-filtered sidebar (the showcase's eight groups) keeps its grouping through the derive;
 >   flat-list backends ignore it. Qt, web-dom, Windows and HarmonyOS draw them too since

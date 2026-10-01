@@ -907,6 +907,8 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     /// every change and restored at build (unless a launch deep link is pending). `None` = not
     /// persisted.
     restore: Option<String>,
+    /// Keep a filtered-out selection while its underlying record still exists.
+    retain_selection: Option<ListPred<K>>,
     /// A header from [`Nav::section`] waiting to be attached to the next item added.
     pending_section: Option<TextSource>,
     /// Items declared on this host's own chrome ([`Nav::toolbar`]).
@@ -1151,6 +1153,7 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
         destination: None,
         routed: true,
         restore: None,
+        retain_selection: None,
         toolbar: Vec::new(),
         search: None,
         presentation: None,
@@ -1163,6 +1166,16 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
 }
 
 impl<K: Route, S: Binding<K>> Nav<S, K> {
+    /// Preserve the current destination when its row disappears and `keep` returns true.
+    /// Useful for filtered sidebars: reading a feed's last unread article can hide its row
+    /// without closing the article. The native sidebar then has no highlighted row.
+    /// Return false for deleted records to retain the normal selection-reset behavior.
+    /// Evaluated when the item list changes; pair with [`Self::destination`] for dynamic keys.
+    pub fn retain_selection_when(mut self, keep: impl Fn(&K) -> bool + 'static) -> Self {
+        self.retain_selection = Some(Rc::new(keep));
+        self
+    }
+
     /// Progress over leading icons, without rebuilding rows or changing label geometry.
     /// Return active route keys with None while connecting/unknown-length, or Some(0..=1)
     /// for a known fraction. Omit finished keys. AppKit/UIKit animate in the compositor;
@@ -3130,6 +3143,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     }
 
     let icon_progress_enabled = icon_progress.is_some();
+    let retain_selection = sel.retain_selection;
     // Re-derive the row set when a dynamic block's signal changes (re-patch the native menu,
     // reset the selection if its item vanished) and when the locale changes (tracked title
     // resolution: same keys, new titles). Installed unconditionally: a fully static
@@ -3176,6 +3190,13 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             move |(key_strs, keys, ts, ics, bs, scs, tns, mns, bis, bts): &DerivedRows<K>| {
                 *typed_e.borrow_mut() = keys.clone();
                 *titles_e.borrow_mut() = ts.clone();
+                let selected_key = sel_e.peek();
+                let cur = selected_key.key();
+                let retain = !cur.is_empty()
+                    && !key_strs.contains(&cur)
+                    && retain_selection
+                        .as_ref()
+                        .is_some_and(|keep| keep(&selected_key));
                 // A resident page whose row is gone has nothing left to select it, so it would
                 // sit alive and invisible for the life of the surface, and shift every
                 // `NavPatch::Select` index past it. Drop it here, where the new row set is known.
@@ -3184,8 +3205,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 {
                     let stale: Vec<ResidentPage> = {
                         let mut r = resident_e.borrow_mut();
-                        let (keep, drop): (Vec<_>, Vec<_>) =
-                            r.drain(..).partition(|p| key_strs.contains(&p.key));
+                        let (keep, drop): (Vec<_>, Vec<_>) = r
+                            .drain(..)
+                            .partition(|p| key_strs.contains(&p.key) || (retain && p.key == cur));
                         *r = keep;
                         drop
                     };
@@ -3209,8 +3231,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     }
                 }
                 // If the selected key is gone, reset (Option key → None); else keep it selected.
-                let cur = sel_e.peek().key();
-                let still = cur.is_empty() || key_strs.iter().any(|k| k == &cur);
+                let still = retain || cur.is_empty() || key_strs.iter().any(|k| k == &cur);
                 if !still && let Some(root) = K::from_key("") {
                     sel_e.write(root);
                 }
