@@ -17,6 +17,8 @@ interface DayFontEntry {
 
 export default class EntryAbility extends UIAbility {
   private mainWindow: window.Window | undefined = undefined;
+  // Whether the window stage last reported ACTIVE: the lifecycle's active pair is a transition.
+  private active = false;
   private darkMode: boolean = false;
 
   onCreate(want: Want, _launchParam: AbilityConstant.LaunchParam): void {
@@ -117,6 +119,18 @@ export default class EntryAbility extends UIAbility {
   onWindowStageCreate(windowStage: window.WindowStage): void {
     this.mainWindow = windowStage.getMainWindowSync();
     this.updateSystemBars();
+    // The active/inactive pair of day's lifecycle (docs/lifecycle.md): the stage gains and
+    // loses focus around every app switch, dialog and lock, which `onForeground`/`onBackground`
+    // (the visible pair, below) do not report. Delivered as a transition only, like UIKit's
+    // scene states, so a repeated ACTIVE never doubles DidBecomeActive.
+    windowStage.on('windowStageEvent', (event: window.WindowStageEventType) => {
+      const active = event === window.WindowStageEventType.ACTIVE;
+      const inactive = event === window.WindowStageEventType.INACTIVE;
+      if ((active || inactive) && active !== this.active) {
+        this.active = active;
+        nativeEntry.lifecycle(active ? 2 : 3);
+      }
+    });
     windowStage.loadContent('day/Index', () => {
       // Bundled custom fonts (§18.4): registered as soon as the content is loaded — before
       // the Day tree mounts (it starts on the page's first onAreaChange, after layout) — so the
@@ -207,7 +221,15 @@ export default class EntryAbility extends UIAbility {
   }
 
   onWindowStageDestroy(): void { this.mainWindow = undefined; }
-  onForeground(): void {}
-  onBackground(): void {}
-  onDestroy(): void {}
+
+  // The visible pair: the ability left the screen (DidEnterBackground, where day-core parks the
+  // frame clock so a game's animation stops costing anything) or is about to return to it
+  // (WillEnterForeground). The Android host maps onStart/onStop the same way.
+  onForeground(): void { nativeEntry.lifecycle(4); }
+  onBackground(): void { nativeEntry.lifecycle(5); }
+  // The system's memory pressure signal, at any level: DidReceiveMemoryWarning.
+  onMemoryLevel(_level: AbilityConstant.MemoryLevel): void { nativeEntry.lifecycle(6); }
+  // The ability instance is being torn down (the user closed it from recents, or the OS
+  // reclaimed it): WillTerminate, the app's last chance to save.
+  onDestroy(): void { nativeEntry.lifecycle(7); }
 }

@@ -105,6 +105,11 @@ export const windowResized: (node: number, widthVp: number, heightVp: number) =>
 export const windowFocused: (node: number, active: number) => void;
 export const windowClosed: (node: number) => void;
 
+// The app's lifecycle (docs/lifecycle.md), from the entry ability's callbacks and its window
+// stage's events, coded in day's phase order: 2 DidBecomeActive, 3 WillResignActive,
+// 4 WillEnterForeground, 5 DidEnterBackground, 6 DidReceiveMemoryWarning, 7 WillTerminate.
+export const lifecycle: (phase: number) => void;
+
 // --- ArkTS-built piece components (docs/extending.md) -----------------------
 // Some components exist only in ArkTS — the ArkUI C node API has no `Web` node kind — so a
 // standalone piece ships its own .ets and `day build` generates the aggregator that calls this

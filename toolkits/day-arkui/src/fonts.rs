@@ -52,6 +52,63 @@ thread_local! {
     /// bytes; kept for the process, shared by every font that uses them.
     static CANVAS_FONTS: RefCell<HashMap<String, *mut OH_Drawing_Typeface>> =
         RefCell::new(HashMap::new());
+    /// The fonts canvas text has asked for, by size/weight/slant/family. A replay draws the
+    /// same handful of fonts on every frame (a board of digits, a deck's ranks), and resolving
+    /// one is the costly part of a text record: a font object plus, for a named system family,
+    /// a style match through the manager. Owned here for the process; see [`font`].
+    static FONT_CACHE: RefCell<HashMap<FontKey, (*mut OH_Drawing_Font, *mut OH_Drawing_Typeface)>> =
+        RefCell::new(HashMap::new());
+}
+
+/// A cached font's identity. The size is keyed by its bits: a canvas asks in exact points.
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct FontKey {
+    size: u32,
+    weight: i32,
+    italic: bool,
+    family: String,
+}
+
+/// More distinct fonts than a frame plausibly draws; past it the cache starts over rather
+/// than grow with every size an animation passes through.
+const FONT_CACHE_MAX: usize = 64;
+
+/// The font for canvas text of `size` in `req`, shared across frames: the cache's, never the
+/// caller's to destroy. Resolved through [`make_font`] on the first ask.
+pub fn font(size: f32, req: &FontReq) -> *mut OH_Drawing_Font {
+    let key = FontKey {
+        size: size.to_bits(),
+        weight: req.weight,
+        italic: req.italic,
+        family: req.family.to_ascii_lowercase(),
+    };
+    if let Some((f, _)) = FONT_CACHE.with(|c| c.borrow().get(&key).copied()) {
+        return f;
+    }
+    if FONT_CACHE.with(|c| c.borrow().len()) >= FONT_CACHE_MAX {
+        clear_font_cache(None);
+    }
+    let made = make_font(size, req);
+    FONT_CACHE.with(|c| c.borrow_mut().insert(key, made));
+    made.0
+}
+
+/// Destroy the cached fonts: every one, or those drawn with the bundled `family` (lower-cased)
+/// when that family's typeface is about to be replaced.
+fn clear_font_cache(family: Option<&str>) {
+    FONT_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        let gone: Vec<FontKey> = c
+            .keys()
+            .filter(|k| family.is_none_or(|f| k.family == f))
+            .cloned()
+            .collect();
+        for k in gone {
+            if let Some((f, tf)) = c.remove(&k) {
+                destroy_font(f, tf);
+            }
+        }
+    });
 }
 
 fn manager() -> *mut OH_Drawing_FontMgr {
@@ -66,8 +123,8 @@ fn manager() -> *mut OH_Drawing_FontMgr {
 
 /// A font for canvas text: the family's face nearest the requested weight and slant, or the
 /// default face with a synthesized bold and slant. The returned typeface, when any, is the
-/// font's match to destroy after it.
-pub fn make_font(size: f32, req: &FontReq) -> (*mut OH_Drawing_Font, *mut OH_Drawing_Typeface) {
+/// font's match to destroy after it. Callers go through [`font`], which keeps the result.
+fn make_font(size: f32, req: &FontReq) -> (*mut OH_Drawing_Font, *mut OH_Drawing_Typeface) {
     // SAFETY: OH_Drawing objects created here and released by the caller through
     // `destroy_font`; the manager and bundled typefaces live for the process.
     unsafe {
@@ -113,7 +170,7 @@ pub fn make_font(size: f32, req: &FontReq) -> (*mut OH_Drawing_Font, *mut OH_Dra
     }
 }
 
-pub fn destroy_font(font: *mut OH_Drawing_Font, typeface: *mut OH_Drawing_Typeface) {
+fn destroy_font(font: *mut OH_Drawing_Font, typeface: *mut OH_Drawing_Typeface) {
     // SAFETY: the pair `make_font` returned.
     unsafe {
         OH_Drawing_FontDestroy(font);
@@ -238,6 +295,8 @@ pub fn register_canvas_font(family: &str, data: &[u8]) -> bool {
     if tf.is_null() {
         return false;
     }
+    // Fonts made on the family's earlier typeface would dangle once it is destroyed.
+    clear_font_cache(Some(&family.to_ascii_lowercase()));
     CANVAS_FONTS.with(|f| {
         let mut f = f.borrow_mut();
         if let Some(old) = f.insert(family.to_ascii_lowercase(), tf)
@@ -250,7 +309,7 @@ pub fn register_canvas_font(family: &str, data: &[u8]) -> bool {
     true
 }
 
-/// Measure one line of canvas text with the font [`make_font`] resolves: the eight slots
+/// Measure one line of canvas text with the font [`font`] resolves: the eight slots
 /// `day_spec::TextMetrics::from_slots` reads (advance width, line height, ascent, cap height,
 /// then the ink box, which is the whole line box here: OH_Drawing's C surface has no
 /// tight-bounds call, and the superset is what the contract allows, docs/fonts.md).
@@ -260,12 +319,10 @@ pub fn measure_text(text: &str, size: f64, weight: i32, italic: bool, family: &s
         italic,
         family: family.to_owned(),
     };
-    let (font, tf) = make_font(size as f32, &req);
+    let font = font(size as f32, &req);
     let w = f64::from(text_width(font, text, size as f32));
     let m = metrics(font);
     let ascent = f64::from(-m.ascent);
     let line = f64::from(m.descent - m.ascent);
-    let out = [w, line, ascent, f64::from(m.capHeight), 0.0, 0.0, w, line];
-    destroy_font(font, tf);
-    out
+    [w, line, ascent, f64::from(m.capHeight), 0.0, 0.0, w, line]
 }

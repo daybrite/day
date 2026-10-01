@@ -40,8 +40,10 @@ are held as NAPI references. `build.rs` names the module `entry` (`NAPI_BUILD_TA
 it matches the `libentry.so` the ArkTS runtime loads.
 
 The ArkTS host is the framework's, not the app's. It lives in the day-arkui crate at
-`toolkits/day-arkui/platform/harmony/` — `ets/` holds `EntryAbility`, `DayWindowAbility`, the
-`Index` page and the secondary-window `DayWindow` page; `types/Index.d.ts` declares the native
+`toolkits/day-arkui/platform/harmony/` — `ets/` holds `EntryAbility` (which also reports the
+app lifecycle, docs/lifecycle.md, through the `lifecycle` export: its foreground/background,
+memory and destroy callbacks plus the window stage's active/inactive events), `DayWindowAbility`,
+the `Index` page and the secondary-window `DayWindow` page; `types/Index.d.ts` declares the native
 module's exports, so it always matches the `#[napi]` exports the app links. `day build`
 (and `day prepare`/`day open`) resolves the crate through cargo metadata and stages the
 directory into `build/day/harmony/project/`: the pages and abilities under
@@ -310,6 +312,10 @@ on the Oniro emulator:
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
 - **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
   with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text): the gauge + shapes pages.
+  The custom node sits inside a plain, unpadded, transparent `ARKUI_NODE_BUTTON` that is day's
+  handle for the canvas: ArkUI never lets a custom node (or a childless container) hold focus,
+  and a button does, which is what gives a canvas the keyboard and its `.focused(..)` binding
+  (`canvas::create`).
 - **List** (§10) — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
   500-row list only builds the visible cells.
 - **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.

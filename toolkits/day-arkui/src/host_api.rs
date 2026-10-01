@@ -285,6 +285,13 @@ pub fn window_focused(node: f64, active: f64) {
     crate::window_focused(node as u64, active != 0.0);
 }
 
+/// `lifecycle(phase)`: an app lifecycle phase from the entry ability, in `day_spec::Lifecycle`
+/// order (docs/lifecycle.md): 2 DidBecomeActive … 7 WillTerminate.
+#[napi(js_name = "lifecycle")]
+pub fn lifecycle(phase: f64) {
+    crate::lifecycle(phase as i32);
+}
+
 /// `registerResourceManager(resourceManager)`: the app's ArkTS resource manager, so the
 /// rawfile opener (§18.3) can read staged data resources.
 #[napi(js_name = "registerResourceManager")]

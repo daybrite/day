@@ -58,20 +58,22 @@ handlers see `DidLaunch` and after.
 Not every phase exists on every platform: a desktop app doesn't enter the background or run out
 of memory the way a phone does. The **universal** phases (`WillLaunch`, `DidLaunch`,
 `DidBecomeActive`, `WillResignActive`, `WillTerminate`) are delivered by every backend. The
-background/foreground/memory phases are delivered only by the mobile backends (UIKit, Android).
+background/foreground/memory phases are delivered only by the mobile backends (UIKit, Android,
+ArkUI).
 
-| Phase | AppKit | GTK | Qt | UIKit | Android | XAML |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|
-| WillLaunch / DidLaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| DidBecomeActive / WillResignActive | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| WillEnterForeground / DidEnterBackground | — | — | — | ✓ | ✓ | — |
-| DidReceiveMemoryWarning | — | — | — | ✓ | ✓ | — |
-| WillTerminate | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Phase | AppKit | GTK | Qt | UIKit | Android | ArkUI | XAML |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| WillLaunch / DidLaunch | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| DidBecomeActive / WillResignActive | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| WillEnterForeground / DidEnterBackground | — | — | — | ✓ | ✓ | ✓ | — |
+| DidReceiveMemoryWarning | — | — | — | ✓ | ✓ | ✓ | — |
+| WillTerminate | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Native mapping: AppKit `NSApplication` notifications; UIKit `UIApplicationDelegate`; GTK window
 `is-active` + GApplication `shutdown`; Qt `applicationStateChanged` + `aboutToQuit`; Android Activity
-lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); XAML window
-`WM_ACTIVATE`/`WM_CLOSE`.
+lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); ArkUI's entry
+`UIAbility` (`onForeground`/`onBackground`/`onMemoryLevel`/`onDestroy`, with the window stage's
+`ACTIVE`/`INACTIVE` events for the active pair); XAML window `WM_ACTIVATE`/`WM_CLOSE`.
 
 ### Guarding platform-specific phases
 

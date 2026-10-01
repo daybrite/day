@@ -591,6 +591,10 @@ pub mod lifecycle {
         {
             return day_xaml::lifecycle_supported(phase);
         }
+        #[cfg(all(feature = "arkui", target_env = "ohos"))]
+        {
+            return day_arkui::lifecycle_supported(phase);
+        }
         // No concrete backend (mock, or a mobile backend compiled for the host to check): the
         // universal phases are always deliverable.
         #[allow(unreachable_code)]
@@ -1182,13 +1186,15 @@ macro_rules! day_start_arkui {
             $crate::arkui::start(content, w, h, density, $options, $root);
         }
 
-        /// Deep-link intake (docs/deep-links.md): the shim's NAPI `deepLink(uri)` calls this
+        /// Deep-link intake (docs/deep-links.md): day-arkui's NAPI `deepLink(uri)` calls this
         /// from the app cdylib for cold and warm links alike; `request_route` buffers before
         /// launch and navigates on the UI thread after.
         #[cfg(target_env = "ohos")]
         #[unsafe(no_mangle)]
         pub extern "C" fn day_arkui_deeplink(uri: *const ::core::ffi::c_char) {
-            $crate::arkui::deeplink(uri);
+            // SAFETY: day-arkui passes a NUL-terminated copy of the ArkTS string, valid for
+            // the call, or null.
+            unsafe { $crate::arkui::deeplink(uri) };
         }
     };
 }
@@ -1302,11 +1308,14 @@ pub mod arkui {
     /// A deep link from the ArkTS host (docs/deep-links.md): a cold `want.uri` (delivered
     /// before `start`) or a warm `onNewWant` one. `request_route` makes the two the same
     /// call, buffered until the first mount and applied on the UI thread after it.
-    pub fn deeplink(uri: *const core::ffi::c_char) {
+    ///
+    /// # Safety
+    /// `uri` is null or a NUL-terminated string valid for the call.
+    pub unsafe fn deeplink(uri: *const core::ffi::c_char) {
         if uri.is_null() {
             return;
         }
-        // SAFETY: the shim passes a NUL-terminated copy of the ArkTS string, valid for the call.
+        // SAFETY: per the caller's contract.
         let uri = unsafe { core::ffi::CStr::from_ptr(uri) };
         if let Ok(uri) = uri.to_str() {
             if uri.starts_with("file://") {

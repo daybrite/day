@@ -113,7 +113,7 @@ follows layout order).
 | Qt 6 | `day_qt_enable_focus` — a `FocusIn`/`FocusOut` event filter (the `DayGestureFilter` pattern) on line edit, button, checkbox, and slider; popup-reason focus-outs are ignored (menus are transient). `returnPressed` is `Submitted`. | `setFocus(Qt::OtherFocusReason)` / `clearFocus()` (only while focused). Qt delivers focus events only in the *active* window, so the duty activates it first — via the OS when allowed, else app-locally (`QApplication::setActiveWindow`, kept by Qt for exactly this driving/embedding case). |
 | Android | `View.OnFocusChangeListener` on the inner `TextInputEditText` → event kind 16; `OnEditorActionListener` (IME action or hardware enter key-down) → `Submitted` (kind 17). | `DayBridge.focusView`: `requestFocus()` + `InputMethodManager.showSoftInput` on gain; on resign, hide the IME and `clearFocus()` — which lands on `DayActivity`'s focusable-in-touch-mode root instead of snapping to the first focusable field. |
 | XAML | `GotFocus`/`LostFocus` per control (the shim was written for system XAML, which has no global focus event; the WinUI build keeps the same wiring) on button, toggle, slider, and text box; `KeyDown` Enter in a `TextBox` is `Submitted`. | `Control.Focus(FocusState::Programmatic)` (draws no focus visual); resign parks focus on an invisible 1×1 `ContentControl` sink (`IsTabStop` flipped around the call, so it never sits in the tab order). |
-| ArkUI | `NODE_ON_FOCUS` / `NODE_ON_BLUR` registered on button, text input, toggle, and slider; `NODE_TEXT_INPUT_ON_SUBMIT` is `Submitted`. | `OH_ArkUI_FocusRequest(node)` (typed non-focusable errors ignored — rule 2); resign via `OH_ArkUI_FocusClear(OH_ArkUI_GetContextByNode(node))`, guarded by `NODE_FOCUS_STATUS`. |
+| ArkUI | `NODE_ON_FOCUS` / `NODE_ON_BLUR` registered on button, text input, toggle, slider, and the canvas host; `NODE_TEXT_INPUT_ON_SUBMIT` is `Submitted`. | `OH_ArkUI_FocusRequest(node)` (typed non-focusable errors ignored — rule 2); resign via `OH_ArkUI_FocusClear(OH_ArkUI_GetContextByNode(node))`, guarded by `NODE_FOCUS_STATUS`. |
 | mock | logged op + `MockWidget.focused` | logged op |
 
 **Which controls are focusable.** Text fields are focusable everywhere. On desktop, buttons,
@@ -136,7 +136,7 @@ that has it hears the arrows and a text field that takes it gets them back.
 | Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
 | web-dom | a `tabindex` | a `pointerdown` listener |
 | XAML | `Control::IsTabStop` on a `ContentControl` host wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members and a Panel is not a Control; WinUI 3 moved both up to `UIElement`, but the WinUI build keeps the same host | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
-| ArkUI | the `NODE_FOCUSABLE` attribute | ArkUI's own focus handling |
+| ArkUI | the `NODE_FOCUSABLE` attribute, on the transparent button that hosts the custom drawing node: ArkUI ignores the flag on an `ARKUI_NODE_CUSTOM` and on a childless container (docs/harmonyos.md) | ArkUI's own focus handling |
 | Android | `setFocusableInTouchMode`, without which `requestFocus` refuses it during touch input | `dispatchTouchEvent`, before the gesture listener, and only for a canvas the app hung `.on_key` on: in touch mode a focus move can dismiss a raised soft keyboard |
 
 Each reports `FocusChanged` both ways (`becomeFirstResponder`/`resignFirstResponder`,

@@ -1101,6 +1101,34 @@ mod imp {
         });
     }
 
+    /// An app lifecycle phase from the entry ability (docs/lifecycle.md), coded in
+    /// `day_spec::Lifecycle` order like the Android bridge: 2 DidBecomeActive, 3
+    /// WillResignActive, 4 WillEnterForeground, 5 DidEnterBackground, 6 DidReceiveMemoryWarning,
+    /// 7 WillTerminate. The launch phases are day-core's own. Delivered on the primary window
+    /// node, where the tree turns it into the app's `on_lifecycle` handlers and pauses the
+    /// frame clock across the background.
+    pub fn lifecycle(code: i32) {
+        use day_spec::Lifecycle::*;
+        let phase = match code {
+            2 => DidBecomeActive,
+            3 => WillResignActive,
+            4 => WillEnterForeground,
+            5 => DidEnterBackground,
+            6 => DidReceiveMemoryWarning,
+            7 => WillTerminate,
+            _ => return,
+        };
+        day_spec::ffi_guard::contain((), || {
+            emit(day_spec::WINDOW_NODE, Event::Lifecycle(phase));
+        });
+    }
+
+    /// The entry ability reports every phase (docs/lifecycle.md). `const` for
+    /// `day::require_lifecycle!` compile-time guards.
+    pub const fn lifecycle_supported(_phase: day_spec::Lifecycle) -> bool {
+        true
+    }
+
     /// The hilog sink for Day's logger (docs/logging.md): std's stderr goes nowhere in an
     /// OHOS ability, so the facade installs this at start, one already-formatted line per call.
     pub fn hilog_sink(level: log::Level, line: &str) {
@@ -2090,12 +2118,9 @@ mod imp {
                         &p.sections,
                     )
                 }
-                // Canvas: a custom node whose on-draw callback replays the encoded display list.
-                Some(Builtin::Canvas) => {
-                    let n = new_node(node::CUSTOM);
-                    crate::canvas::init(n.0, id.0);
-                    n
-                }
+                // Canvas: a focus-holding host around the custom node whose on-draw callback
+                // replays the encoded display list (src/canvas.rs).
+                Some(Builtin::Canvas) => AHandle(crate::canvas::create(id.0)),
                 // Recycling list: an ARKUI_NODE_LIST driven by a NodeAdapter (attach_list injects the
                 // row source; the adapter binds cells on demand). See attach_list / src/list.rs.
                 Some(Builtin::List) => {
@@ -2884,6 +2909,10 @@ mod imp {
                 // it degrades to no gesture, like long-press, rather than to a guessed position.
                 _ => {}
             }
+        }
+
+        fn supports_lifecycle(&self, phase: day_spec::Lifecycle) -> bool {
+            lifecycle_supported(phase)
         }
 
         fn request_frame(
