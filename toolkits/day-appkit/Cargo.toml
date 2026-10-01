@@ -12,6 +12,10 @@ license.workspace = true
 name = "native_links"
 harness = false # AppKit must be exercised on the process's main thread.
 
+[[test]]
+name = "native_list_menus"
+harness = false
+
 [dependencies]
 log = { workspace = true }
 day-spec = { workspace = true }

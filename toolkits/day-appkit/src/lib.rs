@@ -723,6 +723,18 @@ define_class!(
     struct DayLabel;
 
     impl DayLabel {
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(&self, event: &objc2_app_kit::NSEvent) -> Option<Retained<NSMenu>> {
+            ffi_guard::contain(None, || {
+                if !self.isSelectable()
+                    && let Some(menu) = inherited_context_menu(self, event)
+                {
+                    return menu;
+                }
+                unsafe { msg_send![super(self), menuForEvent: event] }
+            })
+        }
+
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty: NSRect) {
             // AppKit cannot propagate a table cell's background style through arbitrary
@@ -920,6 +932,14 @@ define_class!(
     struct DayFlipped;
 
     impl DayFlipped {
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(&self, event: &objc2_app_kit::NSEvent) -> Option<Retained<NSMenu>> {
+            ffi_guard::contain(None, || {
+                inherited_context_menu(self, event)
+                    .unwrap_or_else(|| unsafe { msg_send![super(self), menuForEvent: event] })
+            })
+        }
+
         #[unsafe(method(isFlipped))]
         fn is_flipped(&self) -> bool {
             true
@@ -1002,7 +1022,7 @@ define_class!(
         /// regardless of how the click threads through Day's container hierarchy.
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &objc2_app_kit::NSEvent) {
-            if let Some(menu) = self.menu() {
+            if let Some(menu) = self.menuForEvent(event) {
                 unsafe {
                     objc2_app_kit::NSMenu::popUpContextMenu_withEvent_forView(&menu, event, self)
                 };
@@ -2663,6 +2683,39 @@ define_class!(
     struct DayListView;
     unsafe impl NSObjectProtocol for DayListView {}
     impl DayListView {
+        /// NSTableView consumes right-clicks before the row's container sees them. Resolve
+        /// its summon-time provider from the visible cell, never from the selected row.
+        #[unsafe(method_id(menuForEvent:))]
+        fn menu_for_event(
+            &self,
+            event: &objc2_app_kit::NSEvent,
+        ) -> Option<Retained<NSMenu>> {
+            ffi_guard::contain(None, || {
+                let point = self.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+                let row = unsafe { self.rowAtPoint(point) };
+                let provider = if row >= 0 {
+                    unsafe { self.viewAtColumn_row_makeIfNecessary(0, row, false) }
+                        .and_then(|cell| list_row_menu_provider(&cell))
+                } else {
+                    None
+                };
+                match provider {
+                    Some((view, provider)) => {
+                        let point = view.convertPoint_fromView(
+                            unsafe { event.locationInWindow() }, None,
+                        );
+                        let items = provider(day_spec::Point::new(point.x, point.y));
+                        if items.is_empty() {
+                            None
+                        } else {
+                            Some(build_ns_menu(self.mtm(), "", &items))
+                        }
+                    }
+                    None => unsafe { msg_send![super(self), menuForEvent: event] },
+                }
+            })
+        }
+
         #[unsafe(method(becomeFirstResponder))]
         fn become_first_responder(&self) -> bool {
             let accepted: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
@@ -2697,6 +2750,36 @@ define_class!(
         }
     }
 );
+
+/// The cell can wrap its decorated row in layout containers. Search only this visible
+/// cell, not other rows; cloning the provider releases the registry borrow before app code.
+fn list_row_menu_provider(view: &NSView) -> Option<(Retained<NSView>, day_spec::ContextMenuFn)> {
+    if let Some(provider) = CTX_MENU_FNS.with(|t| t.get(view as *const NSView as usize)) {
+        return Some((view.retain(), provider));
+    }
+    view.subviews()
+        .iter()
+        .find_map(|view| list_row_menu_provider(&view))
+}
+
+/// Plain labels receive the mouse event before their row does. Resolve the nearest dynamic
+/// owner without copying providers onto descendants (which would go stale on recycling).
+/// `Some(None)` means an owner deliberately returned no menu; do not fall through to a parent.
+fn inherited_context_menu(
+    view: &NSView,
+    event: &objc2_app_kit::NSEvent,
+) -> Option<Option<Retained<NSMenu>>> {
+    let mut current = Some(view.retain());
+    while let Some(view) = current {
+        if let Some(provider) = CTX_MENU_FNS.with(|t| t.get(Retained::as_ptr(&view) as usize)) {
+            let point = view.convertPoint_fromView(unsafe { event.locationInWindow() }, None);
+            let items = provider(day_spec::Point::new(point.x, point.y));
+            return Some((!items.is_empty()).then(|| build_ns_menu(view.mtm(), "", &items)));
+        }
+        current = unsafe { view.superview() };
+    }
+    None
+}
 
 impl DayListView {
     fn report_focus(&self, focused: bool) {

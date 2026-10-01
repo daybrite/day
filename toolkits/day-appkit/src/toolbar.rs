@@ -803,16 +803,15 @@ fn insert_at(toolbar: &NSToolbar, id: &str, at: &mut usize) {
     // repeated spaces, but inserting any other identifier while it is still present throws.
     let repeatable = id == unsafe { NSToolbarFlexibleSpaceItemIdentifier.to_string() }
         || id == unsafe { NSToolbarSpaceItemIdentifier.to_string() };
-    if !repeatable {
-        if let Some(existing) = toolbar
+    if !repeatable
+        && let Some(existing) = toolbar
             .items()
             .iter()
             .position(|item| item.itemIdentifier().to_string() == id)
-        {
-            toolbar.removeItemAtIndex(existing as isize);
-            if existing < *at {
-                *at -= 1;
-            }
+    {
+        toolbar.removeItemAtIndex(existing as isize);
+        if existing < *at {
+            *at -= 1;
         }
     }
     let before = toolbar.items().count();

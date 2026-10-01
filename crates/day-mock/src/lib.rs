@@ -136,6 +136,8 @@ pub struct MockState {
     pub toolbar_patches: Vec<day_spec::ToolbarPatch>,
     /// Context menus by widget handle (docs/menus.md): item titles per handle.
     pub context_menus: HashMap<u64, Vec<String>>,
+    /// Summon-time menus, callable after releasing the probe's state borrow.
+    pub context_menu_providers: HashMap<u64, day_spec::ContextMenuFn>,
     /// Secondary windows (docs/windows.md), in open order, probe-visible.
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
@@ -1164,6 +1166,7 @@ impl Toolkit for MockToolkit {
     fn release(&mut self, h: MockHandle) {
         let mut s = self.state.borrow_mut();
         s.widgets.remove(&h.0);
+        s.context_menu_providers.remove(&h.0);
         s.log(format!("release #{}", h.0));
     }
 
@@ -1740,6 +1743,13 @@ impl Toolkit for MockToolkit {
                 .insert(h.0, items.iter().map(menu_title).collect());
         }
         s.log(format!("set_context_menu #{} [{} items]", h.0, items.len()));
+    }
+
+    fn set_context_menu_fn(&mut self, h: &MockHandle, _node: NodeId, f: day_spec::ContextMenuFn) {
+        self.state
+            .borrow_mut()
+            .context_menu_providers
+            .insert(h.0, f);
     }
 
     fn supports_lifecycle(&self, _phase: day_spec::Lifecycle) -> bool {

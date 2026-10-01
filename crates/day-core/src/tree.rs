@@ -2287,9 +2287,22 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
     }
     fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn) {
-        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+        // Match static menus: padding/frame decorators are layout-only, but the provider
+        // must be installed on the native root beneath them, not silently discarded.
+        let target = if self.nodes.get(node).is_some_and(|n| n.handle.is_some()) {
+            Some(node)
+        } else {
+            let mut roots = Vec::new();
+            self.native_descendants(node, &mut roots);
+            roots.first().copied()
+        };
+        let Some(target) = target else {
+            log::warn!("context_menu_fn on a subtree with no native view — menu dropped");
+            return;
+        };
+        if let Some(handle) = self.nodes.get(target).and_then(|n| n.handle.clone()) {
             self.toolkit
-                .set_context_menu_fn(&handle, rnode_to_id(node), f);
+                .set_context_menu_fn(&handle, rnode_to_id(target), f);
         }
     }
 }

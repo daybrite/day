@@ -456,6 +456,9 @@ exist ([docs/tree.md](tree.md) is the driving case):
   key. By convention, a summon on a row outside the current selection selects that row
   first, so the menu describes what it acts on.
 
+Layout-only decorators such as `.padding` and `.frame` forward dynamic menus to the first
+native root beneath them, just like static menus.
+
 Action closures are lowered per summon into their own scope, disposed when the next summon
 (or the piece's teardown) replaces them, so per-click menus never accumulate registrations.
 
@@ -464,7 +467,13 @@ Backends: the duty is `Toolkit::set_context_menu_fn` (default no-op). AppKit ser
 long-press) building a one-summon `PopoverMenu`; UIKit from `UIContextMenuInteraction`,
 whose configuration callback is already summon-time, and the tree's rows from the
 collection view's own `contextMenuConfigurationForItemAtIndexPath`. On AppKit the covered
-surfaces are the canvas and tree rows (other views keep the static `.menu` path); GTK's
+surfaces are canvases, tree rows, and recycling list rows. Lists resolve the provider from
+the clicked visible cell (including its layout wrappers), preserve selection, and invoke it
+only at summon time. Empty menus suppress presentation; blank list space does not invoke a
+row provider. Container and plain-label clicks resolve the nearest dynamic owner through
+the live view hierarchy, so recycled descendants never hold copied providers. Selectable
+labels keep their native text menu. Other controls keep the static `.menu` path. The native regression is
+`toolkits/day-appkit/tests/native_list_menus.rs`. GTK's
 form is generic over any widget. Qt connects `customContextMenuRequested` to a callback
 that asks the provider and pops a fresh `QMenu` per summon (`day_qt_context_menu_fn`),
 generic over any widget like GTK's.

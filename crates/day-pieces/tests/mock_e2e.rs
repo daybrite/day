@@ -15,6 +15,34 @@ use day_spec::{Event, NodeId, Size, WindowOptions};
 /// (DAY_DEEPLINK), and tests run on parallel threads.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+fn dynamic_context_menu_survives_padding_and_uses_live_state() {
+    let revision = Signal::new(0);
+    let probe = boot(move || {
+        label("Fixture row")
+            .padding(12.)
+            .frame(200., 60.)
+            .context_menu_fn(move |_| {
+                vec![menu_item(format!("Fixture revision {}", revision.get()))]
+            })
+    });
+    let (handle, _) = probe.find_by_kind("day.label").into_iter().next().unwrap();
+    let provider = probe
+        .state
+        .borrow()
+        .context_menu_providers
+        .get(&handle.0)
+        .cloned()
+        .expect("padding/frame must attach the provider to their native descendant");
+    let title = || match &provider(day_spec::Point::new(1., 1.))[0] {
+        day_spec::MenuItem::Action { label, .. } => label.clone(),
+        _ => panic!("expected fixture action"),
+    };
+    assert_eq!(title(), "Fixture revision 0");
+    revision.set(1);
+    assert_eq!(title(), "Fixture revision 1");
+}
+
 /// Generic in its signature, erasing internally: the shape `day::launch` has, so a test can boot
 /// a root of any piece type without an `.any()` at every call.
 fn boot<P: Piece>(root: impl FnOnce() -> P + 'static) -> MockProbe {

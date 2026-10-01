@@ -1520,7 +1520,15 @@ pub trait Toolkit: Sized + 'static {
     // Summon-time context menu (docs/menus.md "Dynamic context menus"): the provider
     // is called when the click lands, with the local point, and its result is shown —
     // natively (appkit/gtk/uikit/qt), or via `Event::ContextMenu` + the composed
-    // presentation on a backend with no native menu (web-dom).
+    // presentation on a backend with no native menu (web-dom). AppKit's recycling list
+    // resolves a provider in the clicked visible cell, including layout wrappers. It does
+    // not change the selection, retain a row index, or evaluate providers on reload. Empty
+    // results suppress presentation; blank list space uses the native fallback. Containers
+    // and plain labels resolve the nearest dynamic ancestor at summon time; selectable
+    // text keeps its native menu. Providers are never copied onto recycled children. The
+    // tree resolves layout-only padding/frame wrappers to the first native descendant,
+    // as for static menus (mock_e2e::dynamic_context_menu_survives_padding_and_uses_live_state). See
+    // toolkits/day-appkit/tests/native_list_menus.rs and docs/menus.md for coverage.
     fn set_context_menu_fn(&mut self, h, node: NodeId, f: ContextMenuFn) {}
 
     // toolbars (docs/toolbars.md): `h` is the window root's handle, so the backend walks from
