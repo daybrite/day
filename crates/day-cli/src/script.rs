@@ -334,13 +334,50 @@ pub(crate) fn connect_window_secs(kind: TargetKind) -> u64 {
         })
 }
 
-/// How long the runner waits for one step's reply: the connect window (which a slow device
-/// bumps; HarmonyOS uses 120 s), but never less than the step's own implicit-wait budget plus
-/// headroom. The engine answers a retryable step only after polling for the whole budget, so an
-/// equal timeout is already a race; the headroom covers the reply's trip back.
-fn read_window(window_secs: u64, budget_secs: f64) -> Duration {
+/// Outwait both the engine's implicit retries and its last UI-thread dispatch. The engine may
+/// begin that dispatch just before the retry deadline. Its default dispatch allowance is 30 s
+/// (day-script's DEFAULT_MAIN_TIMEOUT_SECS), even for a step with a 5 s implicit wait: the old
+/// 20 s socket timeout disconnected a healthy engine before it could answer a slow startup.
+pub(crate) fn read_window(window_secs: u64, budget_secs: f64) -> Duration {
+    reply_window(
+        window_secs,
+        budget_secs,
+        std::env::var("DAY_SCRIPT_MAIN_TIMEOUT_SECS")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn reply_window(window_secs: u64, budget_secs: f64, main_override: Option<&str>) -> Duration {
+    // Keep the default and override validation in sync with day-script::main_thread_budget.
+    let main_secs = main_override
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(30.0)
+        .max(budget_secs);
     let floor = Duration::from_secs(window_secs.max(20));
-    Duration::from_secs_f64(budget_secs + 10.0).max(floor)
+    Duration::from_secs_f64(budget_secs + main_secs + 10.0).max(floor)
+}
+
+#[cfg(test)]
+mod reply_window_tests {
+    use super::*;
+
+    #[test]
+    fn waits_for_a_slow_ui_dispatch_and_its_reply() {
+        assert_eq!(reply_window(20, 5.0, None), Duration::from_secs(45));
+        assert_eq!(reply_window(20, 5.0, Some("90")), Duration::from_secs(105));
+        // A retry begun just before the step deadline can consume another full UI budget.
+        assert_eq!(reply_window(20, 120.0, None), Duration::from_secs(250));
+        assert_eq!(reply_window(120, 5.0, None), Duration::from_secs(120));
+    }
+
+    #[test]
+    fn rejects_the_same_invalid_overrides_as_the_engine() {
+        for value in ["", "bad", "0", "-1", "NaN", "inf"] {
+            assert_eq!(reply_window(20, 5.0, Some(value)), Duration::from_secs(45));
+        }
+    }
 }
 
 /// The least the runner waits for a run's first reply, in seconds. The engine's socket accepts
@@ -961,7 +998,7 @@ pub fn run_scripts(
                 .get("timeout_secs")
                 .and_then(|v| v.as_f64())
                 .filter(|t| *t > 0.0)
-                .unwrap_or(0.0);
+                .unwrap_or(5.0);
             // A roundtrip that gives up reconnecting means the app process is gone. Carry
             // the failure count seen so far, so the caller can tell a clean-run flake (retry)
             // from a failing run that then died (report).

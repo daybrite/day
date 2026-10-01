@@ -108,6 +108,19 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
             results.push(serde_json::json!({"op": "pause", "ok": true}));
             continue;
         }
+        // Like `launch --script`, allow the engine's UI dispatch and implicit retries to
+        // finish before declaring the connection lost (including explicit long waits).
+        let budget = step
+            .get("timeout_secs")
+            .and_then(|v| v.as_f64())
+            .filter(|t| *t > 0.0)
+            .unwrap_or(5.0);
+        stream
+            .set_read_timeout(Some(script::read_window(
+                script::connect_window_secs(target.kind),
+                budget,
+            )))
+            .map_err(|e| CliError::failure(e.to_string()))?;
         let req = serde_json::json!({"token": session.engine_token, "step": step});
         let mut line = serde_json::to_string(&req).unwrap();
         line.push('\n');
