@@ -176,6 +176,12 @@ mod imp {
         /// user and clears the cell.
         static TEXT_ECHO: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
         static SLIDER_ECHO: RefCell<HashMap<u64, f64>> = RefCell::new(HashMap::new());
+        /// Toggle gates (§4.4), by day node. A value-match cell is not enough for a switch:
+        /// ArkUI can report a programmatic set late, after day has already written the
+        /// opposite value, and that stale event flipped the app state back. So a native
+        /// change reaches the app only when the user touched or keyed the switch since
+        /// day's last write; any other differing event is stale and the switch is repainted.
+        static TOGGLE_GATE: RefCell<HashMap<u64, ToggleGate>> = RefCell::new(HashMap::new());
         static LIST_SOURCES: RefCell<HashMap<u64, day_spec::ListSource>> =
             RefCell::new(HashMap::new());
         /// Node ids with a Tap gesture (docs/shapes.md): a NODE_ON_CLICK on these emits `Event::Tap`
@@ -1101,6 +1107,35 @@ mod imp {
         crate::hilog::print(level, line);
     }
 
+    /// One switch's gate (see `TOGGLE_GATE`).
+    struct ToggleGate {
+        /// The switch's node handle, to repaint it after a stale event.
+        handle: usize,
+        /// The value day last wrote, or the user's last accepted change.
+        written: bool,
+        /// Whether the user touched or keyed the switch since `written` was set.
+        armed: bool,
+    }
+
+    /// User input reached node `id`: if it is a switch, its next change is the user's.
+    pub(crate) fn arm_toggle(id: u64) {
+        TOGGLE_GATE.with(|m| {
+            if let Some(gate) = m.borrow_mut().get_mut(&id) {
+                gate.armed = true;
+            }
+        });
+    }
+
+    /// Record a programmatic write to switch `id`, which disarms its gate.
+    fn toggle_written(id: u64, on: bool) {
+        TOGGLE_GATE.with(|m| {
+            if let Some(gate) = m.borrow_mut().get_mut(&id) {
+                gate.written = on;
+                gate.armed = false;
+            }
+        });
+    }
+
     /// The native event trampoline: `kind` is `day_spec::bridge::BridgeKind`, the same wire
     /// table as the Android bridge; `id` is the day NodeId the event was registered against.
     pub fn on_event(id: u64, kind: i32, num: f64, text: &str) {
@@ -1152,7 +1187,35 @@ mod imp {
                 TEXT_ECHO.with(|m| m.borrow_mut().remove(&id));
                 Event::TextChanged(text.to_owned())
             }
-            k if k == K::ToggleChanged as i32 => Event::ToggleChanged(num != 0.0),
+            k if k == K::ToggleChanged as i32 => {
+                let on = num != 0.0;
+                // The gate (see TOGGLE_GATE): `Some(handle)` is a stale event to repaint over.
+                let stale = TOGGLE_GATE.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let Some(gate) = m.get_mut(&id) else {
+                        return Some(None);
+                    };
+                    if gate.written == on {
+                        // The echo of day's own write, or no change at all.
+                        return None;
+                    }
+                    if gate.armed {
+                        gate.written = on;
+                        gate.armed = false;
+                        return Some(None);
+                    }
+                    Some(Some((gate.handle, gate.written)))
+                });
+                match stale {
+                    None => return,
+                    Some(Some((handle, written))) => {
+                        // Out of the borrow: the set below may report back synchronously.
+                        node::set_toggle(handle as node::Handle, written);
+                        return;
+                    }
+                    Some(None) => Event::ToggleChanged(on),
+                }
+            }
             // Focus pair + text-input submit (docs/focus.md).
             k if k == K::FocusChanged as i32 => Event::FocusChanged(num != 0.0),
             k if k == K::Submitted as i32 => Event::Submitted,
@@ -1853,8 +1916,22 @@ mod imp {
                         return new_node(node::STACK);
                     };
                     let n = new_node(node::TOGGLE);
+                    CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    TOGGLE_GATE.with(|m| {
+                        m.borrow_mut().insert(
+                            id.0,
+                            ToggleGate {
+                                handle: n.0 as usize,
+                                written: p.on,
+                                armed: false,
+                            },
+                        )
+                    });
                     node::set_toggle(n.0, p.on);
                     node::register_event(n.0, node::EV_TOGGLE_CHANGE, id.0);
+                    // What arms the gate: the user's touch, or a key on the focused switch.
+                    node::register_event(n.0, node::EV_TOUCH, id.0);
+                    node::register_event(n.0, node::EV_KEY, id.0);
                     node::enable_focus(n.0, id.0, false);
                     n
                 }
@@ -2304,6 +2381,12 @@ mod imp {
                 },
                 kinds::TOGGLE => {
                     if let Some(TogglePatch::On(on)) = patch.downcast_ref::<TogglePatch>() {
+                        // The gate (see TOGGLE_GATE): this write's echo is not the user's.
+                        if let Some(nid) =
+                            CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                        {
+                            toggle_written(nid, *on);
+                        }
                         node::set_toggle(h.0, *on);
                     }
                 }
@@ -2451,6 +2534,7 @@ mod imp {
                 TEXT_ECHO.with(|m| m.borrow_mut().remove(&nid));
                 SLIDER_ECHO.with(|m| m.borrow_mut().remove(&nid));
                 SLIDER_RANGE.with(|m| m.borrow_mut().remove(&nid));
+                TOGGLE_GATE.with(|m| m.borrow_mut().remove(&nid));
             }
             // A pushed page released without a Remove patch (whole-host teardown) must not
             // leave its re-home bookkeeping behind: a recycled node address would alias it.

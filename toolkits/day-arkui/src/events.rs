@@ -122,6 +122,8 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 Ev::NODE_TEXT_INPUT_ON_CHANGE | Ev::NODE_TEXT_AREA_ON_CHANGE => {
                     crate::on_event(id, K::TextChanged as i32, 0.0, &string());
                 }
+                // A touch on a switch arms its gate (`TOGGLE_GATE`); only switches register it.
+                Ev::NODE_TOUCH_EVENT => crate::arm_toggle(id),
                 Ev::NODE_TOGGLE_ON_CHANGE => {
                     let on = component(0).map_or(0.0, |v| f64::from(v.i32_));
                     crate::on_event(id, K::ToggleChanged as i32, on, "");
@@ -157,6 +159,8 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 // (docs/menus.md). Consumed only when claimed: an unclaimed arrow keeps
                 // propagating, so ArkUI's own focus walking still moves between components.
                 Ev::NODE_ON_KEY_EVENT => {
+                    // A key on a focused switch arms its gate, like a touch.
+                    crate::arm_toggle(id);
                     let input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
                     if input.is_null()
                         || OH_ArkUI_KeyEvent_GetType(input)
