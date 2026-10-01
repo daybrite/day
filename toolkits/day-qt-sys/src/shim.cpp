@@ -3411,6 +3411,13 @@ static QAction *day_qt_toolbar_action(void *win, const char *id) {
     return it == items->actions.end() ? nullptr : it->second.data();
 }
 
+void day_qt_toolbar_focus(void *win, const char *id) {
+    if (auto *edit = qobject_cast<QLineEdit *>(day_qt_toolbar_widget(win, id))) {
+        edit->setFocus(Qt::ShortcutFocusReason);
+        edit->selectAll();
+    }
+}
+
 void day_qt_toolbar_set_text(void *win, const char *id, const char *text) {
     if (auto *edit = qobject_cast<QLineEdit *>(day_qt_toolbar_widget(win, id))) {
         QString next = QString::fromUtf8(text);

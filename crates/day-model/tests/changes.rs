@@ -164,3 +164,21 @@ fn a_sink_and_the_recorder_see_the_same_changes() {
     assert_eq!(sink_count.get(), 1);
     day_model::remove_change_sink(sink);
 }
+
+#[test]
+fn author_scopes_restore_after_nested_unwinding() {
+    let store = store();
+    let (_, changes) = day_model::record_changes(|| {
+        day_model::with_author("outer", || {
+            let failed = std::panic::catch_unwind(|| {
+                day_model::with_author("inner", || panic!("synthetic importer panic"));
+            });
+            assert!(failed.is_err());
+            store.elem(1).count().write(10);
+        });
+        store.elem(1).count().write(11);
+    });
+    assert_eq!(changes.len(), 2);
+    assert_eq!(changes[0].author, Some("outer"));
+    assert_eq!(changes[1].author, None);
+}

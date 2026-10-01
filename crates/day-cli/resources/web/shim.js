@@ -1188,6 +1188,7 @@ const env = {
       [...el.children].forEach((b) => { b.disabled = !p.enabled; });
     }
     if (p.enabled !== undefined) el.disabled = !p.enabled;
+    if (p.focus) { el.focus(); el.select?.(); }
     if (p.suggestions !== undefined && el.__datalist) setSuggestions(el.__datalist, p.suggestions);
   },
   // Show/hide the split nav's sidebar. 0 when this page has no split nav, which is how the

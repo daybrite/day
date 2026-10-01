@@ -49,6 +49,17 @@ This is the same move SwiftUI made with `.searchable()`, for the same reason.
 | `.search_scopes(scope, titles)` | a one-of-N scope bar, bound to `scope` |
 | `.search_suggestions(f)` | completions for the current text |
 
+## Find commands
+
+Bind an application's localized Find command to `day::focus_search()` (usually Cmd-F on
+macOS and Ctrl-F elsewhere). It resolves the focused window's searchable navigation surface,
+reveals/focuses the native field, and keeps its existing query. Desktop toolbars place search
+at the trailing edge in the Detail column. On AppKit the native search field sends its
+immediate action for user edits; application text synchronization remains echo-guarded.
+Focus requests use transient toolbar/inline patches, without rebuilding the field. A synthetic
+`toolbar: { item: day.search, text: ... }` verifies model wiring, but native keyboard/input
+validation is also needed to verify actual AppKit event delivery.
+
 ## Placement is a preference
 
 `SearchPlacement::{Automatic, Toolbar, Inline}` states a preference. A backend that cannot

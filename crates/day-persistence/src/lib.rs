@@ -49,6 +49,13 @@ use std::rc::Rc;
 use day_model::Source;
 use day_model::{Identified, Key, Keyed, ModelId, Op, Store};
 
+#[cfg(not(target_arch = "wasm32"))]
+mod worker;
+#[cfg(not(target_arch = "wasm32"))]
+pub use worker::{
+    DatabaseWorker, WorkerOptions, WorkerRequest, WorkerSnapshot, WorkerSubscription,
+};
+
 mod queries;
 pub use queries::{
     Col, Delta, Deps, Fetch, FtsRef, GeoRect, GeoRef, Pred, Quant, RelatedDep, RelationCol,
@@ -86,6 +93,14 @@ pub struct DbError {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DbErrorKind {
+    /// An asynchronous request was rejected because its worker has closed.
+    Closed,
+    /// The bounded worker queue has no room; the request was not accepted.
+    Busy,
+    /// A queued read was cancelled before it began.
+    Cancelled,
+    /// A worker operation panicked. The worker is closed and must be reopened.
+    Panicked,
     /// The engine said no: SQL error, I/O, constraint.
     Driver,
     /// The stored schema and the declared one disagree in a way lightweight migration cannot
@@ -1090,6 +1105,8 @@ pub(crate) struct TableHooks {
     /// eviction pass costs O(cache), not O(cache × evicted). (Dirtiness is the container's
     /// knowledge, checked before this is called.)
     pub(crate) evict: EvictFn,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) dispose_cache: Rc<dyn Fn()>,
     /// Bring this store under an undo history; captured here because the model type is known
     /// only at attach time.
     pub(crate) watch_undo: Rc<dyn Fn(&day_model::UndoStack)>,
@@ -1122,6 +1139,8 @@ pub(crate) struct ContainerInner {
     attached: RefCell<Vec<String>>,
     sink: Cell<Option<day_model::ChangeSinkId>>,
     autosave: Cell<bool>,
+    /// An outer worker transaction owns commit/rollback; inner model saves only execute SQL.
+    worker_transaction: Cell<bool>,
     /// Soft per-table bound on resident rows. Dirty and observed rows never evict, so the
     /// working set can exceed it; everything else does not.
     cache_limit: Cell<usize>,
@@ -1180,6 +1199,7 @@ impl ModelContainer {
                 attached: RefCell::new(Vec::new()),
                 sink: Cell::new(None),
                 autosave: Cell::new(true),
+                worker_transaction: Cell::new(false),
                 cache_limit: Cell::new(DEFAULT_CACHE_LIMIT),
                 error,
                 flushing: Cell::new(false),
@@ -1823,6 +1843,8 @@ impl ModelContainer {
                 absorb,
                 refresh,
                 evict,
+                #[cfg(not(target_arch = "wasm32"))]
+                dispose_cache: Rc::new(move || store.dispose_contents()),
                 watch_undo,
             },
         );
@@ -2276,18 +2298,119 @@ impl ModelContainer {
             return Ok(stmts);
         }
         let mut conn = self.conn();
-        conn.begin()?;
+        let outer = self.inner.worker_transaction.get();
+        if !outer {
+            conn.begin()?;
+        }
         for (sql, params) in &stmts {
             if let Err(e) = conn.execute(sql, params) {
-                let _ = conn.rollback();
+                if !outer {
+                    let _ = conn.rollback();
+                }
                 return Err(e);
             }
         }
-        if let Err(error) = conn.commit() {
+        if !outer && let Err(error) = conn.commit() {
             let _ = conn.rollback();
             return Err(error);
         }
         Ok(stmts)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn worker_dispose_caches(&self) {
+        for hooks in self.inner.tables.borrow().values() {
+            (hooks.dispose_cache)();
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn worker_write<R>(
+        &self,
+        write: impl FnOnce(&Self) -> Result<R, DbError>,
+    ) -> Result<R, DbError> {
+        self.save()?;
+        self.conn().begin()?;
+        self.inner.worker_transaction.set(true);
+        let result = day_reactive::batch(|| {
+            let value = write(self)?;
+            self.save()?;
+            Ok(value)
+        })
+        .and_then(|value| {
+            // Reactions may have made additional writes while the batch drained. Commit only
+            // after those writes settle, never before turn-end autosave has run.
+            self.save()?;
+            self.conn().commit()?;
+            Ok(value)
+        });
+        self.inner.worker_transaction.set(false);
+        if result.is_err() {
+            self.conn().rollback().map_err(|error| {
+                DbError::new(
+                    DbErrorKind::Closed,
+                    format!("transaction rollback failed: {error}"),
+                )
+            })?;
+            self.worker_discard_changes()?;
+        }
+        result
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn worker_read<R>(&self, read: impl FnOnce(&Self) -> Result<R, DbError>) -> Result<R, DbError> {
+        self.save()?;
+        self.conn().execute_batch("PRAGMA query_only = ON")?;
+        self.conn().begin().map_err(|error| {
+            DbError::new(
+                DbErrorKind::Closed,
+                format!("could not begin read snapshot: {error}"),
+            )
+        })?;
+        let autosave = self.inner.autosave.replace(false);
+        let mut result =
+            day_model::with_author("worker-read", || day_reactive::batch(|| read(self)));
+        let mutated = !self.inner.dirty.borrow().is_empty();
+        self.conn().rollback().map_err(|error| {
+            DbError::new(
+                DbErrorKind::Closed,
+                format!("could not end read snapshot: {error}"),
+            )
+        })?;
+        self.conn()
+            .execute_batch("PRAGMA query_only = OFF")
+            .map_err(|error| {
+                DbError::new(
+                    DbErrorKind::Closed,
+                    format!("could not restore write mode: {error}"),
+                )
+            })?;
+        if mutated {
+            self.worker_discard_changes()?;
+            result = Err(DbError::driver(
+                "a worker read attempted to mutate model state",
+            ));
+        }
+        self.inner.autosave.set(autosave);
+        result
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn worker_discard_changes(&self) -> Result<(), DbError> {
+        let autosave = self.inner.autosave.replace(false);
+        *self.inner.dirty.borrow_mut() = DirtyState::default();
+        let result = self.refresh_resident();
+        self.invalidate_relation_memos();
+        if result.is_ok() {
+            self.requery_all();
+        }
+        self.inner.autosave.set(autosave);
+        result.map(|_| ()).map_err(|error| {
+            DbError::new(
+                DbErrorKind::Closed,
+                format!("transaction cache recovery failed: {error}"),
+            )
+        })
     }
 
     /// The fold, materialized: the smallest statement list that expresses `dirty`, in
@@ -3313,14 +3436,17 @@ impl ModelContainer {
         if self.inner.data_version.get() == Some(current) {
             return Ok(false);
         }
-        self.inner.data_version.set(Some(current));
         // Local edits flush first, so the diff compares the file against a cache with nothing
         // pending: an unflushed local edit must not read as the other side's deletion.
         self.save()?;
-        let changed = self.refresh_resident()?;
+        self.refresh_resident()?;
         self.invalidate_relation_memos();
         self.requery_all();
-        Ok(changed)
+        // A commit matters even when it inserted only nonresident rows: count/projection
+        // observers still need invalidation. Advance only after a successful merge so errors
+        // remain retryable.
+        self.inner.data_version.set(Some(current));
+        Ok(true)
     }
 
     /// `PRAGMA data_version`, or `None` where the engine did not answer (the Recorder).

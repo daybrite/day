@@ -5902,7 +5902,7 @@ What changed, and what it replaced:
   refuses maintenance after a failed flush, and checked query snapshots (`try_ids`,
   `try_collect`) propagate read failures. Query and count errors are observable separately;
   failed reads retain their last successful result. An explicit `refresh` retries them.
-  Operations remain synchronous, including the blocking web worker bridge. Web batch SQL
+  The direct container API remains synchronous, including the blocking web worker bridge; native callers can now use `DatabaseWorker` (below). Web batch SQL
   uses the worker’s `Batch` request (also on in-memory connections), so multi-statement
   migrations execute every statement and propagate failures to the enclosing transaction.
   `day-sqlite-worker` tests batch migration rollback and reopen over its wire protocol. Regression
@@ -6631,3 +6631,33 @@ It runs outside the core tree borrow even for covered windows. If AppKit cached 
 cell during a snapshot/layout while binding was unavailable, that pass completes its bind
 instead of trusting `viewAtColumn:row:makeIfNecessary:` to call the delegate again. The
 native list regression covers an occluded list with an initially skipped row bind.
+
+
+## Persistence workers and search focus (2026-10-01)
+
+`day-persistence::DatabaseWorker` owns a native thread, connection, reactive scope, cache and
+optional undo history. All migrations, SQL, model mutations, read-only projections and backup
+work execute there. Only owned values cross into UI tasks. Accepted jobs are FIFO and bounded;
+write success acknowledges commit, rollback restores cache and history, and fatal recovery or
+panic closes the queue. Reads have query-only transaction snapshots. Observations deliver
+distinct committed values through a single latest-value mailbox. Close stops admission and
+drains accepted work; termination hooks can use the explicitly blocking close variant.
+The contracts, Core Data/Room research, cancellation rules and platform limits are normative
+in [docs/persistence.md](docs/persistence.md#database-workers-native), with concurrency and
+fault regressions in `crates/day-persistence/tests/worker.rs`.
+
+The synchronous `ModelContainer` API remains supported for existing editors and wasm; this
+is not an unsafe conversion of its `Rc` graph into a shared mutex. Native Day-News uses one
+worker for its entire database and per-window subscriptions. Showcase's Query page exercises
+worker queries and editing; Sketch uses a separate queued snapshot operation for exports.
+Stanza-Redux, Day-Tunes and Day-Bench retain their existing container API. A source-compatible
+app does not automatically move its own synchronous queries off the UI thread. Web's existing
+OPFS protocol remains synchronous and needs a separate transferable-message design for workers.
+
+`day::focus_search()` routes to the focused window's declared searchable surface, through
+`ToolbarPatch::Focus` or `SearchPatch::Focus`. Focus is transient and does not mutate the query.
+Desktop search contributes to the trailing Detail column. AppKit uses an immediate target/action
+on `NSSearchField`, the native path for toolbar search edits, and begins search interaction on
+Find. UIKit releases navigation-state borrows before activating its controller, since activation
+can synchronously reenter delegates. Other backends focus their existing native search control;
+see [docs/search.md](docs/search.md).

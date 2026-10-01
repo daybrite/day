@@ -300,6 +300,11 @@ impl Gtk {
             b.with(key, |bar| {
                 bar.mirror.patch(patch);
                 match patch {
+                    ToolbarPatch::Focus { item } => {
+                        if let Some(w) = bar.widgets.get(item) {
+                            w.grab_focus();
+                        }
+                    }
                     ToolbarPatch::Text { item, text } => {
                         if let Some(w) = bar.widgets.get(item)
                             && let Some(e) = w.downcast_ref::<gtk4::SearchEntry>()

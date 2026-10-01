@@ -1541,6 +1541,10 @@ public final class DayBridge {
     }
 
     /** Write the app's own query back into the field, without echoing it back as a change. */
+    public static void focusNavSearch(View navHost) {
+        if (navHost instanceof DayNavHost) ((DayNavHost) navHost).focusSearch();
+    }
+
     public static void setNavSearchText(View navHost, String text) {
         if (!(navHost instanceof DayNavHost)) {
             return;

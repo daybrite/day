@@ -2070,6 +2070,12 @@ mod imp {
                 // Navigation (docs/navigation.md): drive the ArkTS Navigation/NavPathStack.
                 kinds::NAV => {
                     // Inline search (docs/search.md): the app writing its query fills the field.
+                    if matches!(
+                        patch.downcast_ref::<day_spec::props::SearchPatch>(),
+                        Some(day_spec::props::SearchPatch::Focus)
+                    ) {
+                        crate::host_api::nav_set_search(-2, "", "");
+                    }
                     if let Some(day_spec::props::SearchPatch::Text(t)) =
                         patch.downcast_ref::<day_spec::props::SearchPatch>()
                     {
@@ -3038,7 +3044,7 @@ mod imp {
             }
             match patch {
                 // Search is never on this bar (`Cap::ToolbarSearch`, docs/search.md).
-                P::Text { .. } | P::Suggestions { .. } => {}
+                P::Text { .. } | P::Suggestions { .. } | P::Focus { .. } => {}
                 _ => {
                     if WINDOW_BAR.with(|b| b.borrow_mut().patch(patch)) {
                         paint_window_bar();

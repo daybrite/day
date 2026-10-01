@@ -27,6 +27,7 @@ cipher = ["rusqlite?/bundled-sqlcipher-vendored-openssl"]
 pieces = ["dep:day-pieces", "dep:day-spec"]
 
 [dependencies]
+day-async = { workspace = true }
 day-model = { workspace = true }
 day-reactive = { workspace = true }
 day-pieces = { workspace = true, features = ["model"], optional = true }

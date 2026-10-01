@@ -291,6 +291,10 @@ impl Xaml {
             return;
         };
         match patch {
+            ToolbarPatch::Focus { item } => {
+                let id = cstr(item);
+                unsafe { ffi::day_xaml_toolbar_focus(win, id.as_ptr()) };
+            }
             ToolbarPatch::Text { item, text } => {
                 let (id, text) = (cstr(item), cstr(text));
                 unsafe { ffi::day_xaml_toolbar_set_text(win, id.as_ptr(), text.as_ptr()) };

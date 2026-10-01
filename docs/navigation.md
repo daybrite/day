@@ -929,7 +929,8 @@ fractions become indeterminate and finite fractions clamp to the valid range.
 This binding is independent of `.items`: it emits `NavMenuPatch::IconProgress` without
 rebuilding the rows, loading their icons again, changing selection or requesting layout.
 Changes to the row set re-map route keys to current indexes, so filtering and reordering
-cannot move progress onto another item. The binding is owned by the navigation scope.
+cannot move progress onto another item. A row revision also reapplies unchanged progress
+after native rows are recreated. The binding is owned by the navigation scope.
 
 AppKit and UIKit render a small, muted circular overlay over the existing leading icon.
 An indeterminate quarter ring rotates in Core Animation; a known fraction fills the ring.

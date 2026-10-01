@@ -1550,6 +1550,8 @@ pub enum ToolbarValue {
 /// without rebuilding the bar (which would drop the search field's focus mid-keystroke).
 #[derive(Clone, Debug, PartialEq)]
 pub enum ToolbarPatch {
+    /// Focus a search control and select its text without changing its value.
+    Focus { item: String },
     /// Replace a search item's text.
     Text { item: String, text: String },
     /// Set a toggle item's state.
@@ -1568,7 +1570,8 @@ impl ToolbarPatch {
     /// The id of the item this patch addresses.
     pub fn item(&self) -> &str {
         match self {
-            ToolbarPatch::Text { item, .. }
+            ToolbarPatch::Focus { item }
+            | ToolbarPatch::Text { item, .. }
             | ToolbarPatch::On { item, .. }
             | ToolbarPatch::Selected { item, .. }
             | ToolbarPatch::Enabled { item, .. }
@@ -1583,6 +1586,7 @@ impl ToolbarPatch {
             return false;
         };
         match (self, &mut it.kind) {
+            (ToolbarPatch::Focus { .. }, ToolbarItemKind::Search { .. }) => (),
             (ToolbarPatch::Text { text, .. }, ToolbarItemKind::Search { text: t, .. }) => {
                 *t = text.clone()
             }
@@ -5356,6 +5360,7 @@ pub mod props {
     /// syncing text never rebuilds (and refocuses) the field mid-word.
     #[derive(Clone, Debug, PartialEq)]
     pub enum SearchPatch {
+        Focus,
         Text(String),
         Scope(usize),
         Suggestions(Vec<String>),

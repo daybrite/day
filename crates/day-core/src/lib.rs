@@ -1140,28 +1140,46 @@ pub fn note_appearance_changed() {
 // `day.search` bar item, so a caller holding that reserved id (dayscript's `toolbar:` step)
 // resolves it here and delivers `Event::SearchChanged` to the host, as the native field would.
 thread_local! {
-    static SEARCH_HOSTS: std::cell::RefCell<Vec<RNode>> = const { std::cell::RefCell::new(Vec::new()) };
+    static SEARCH_HOSTS: std::cell::RefCell<Vec<(RNode, RNode)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Record `host` as showing an inline search field. Registered by the host's builder for the
 /// life of its scope; see [`inline_search_host`].
 pub fn register_search_host(host: RNode) {
+    let window = toolbar::current_page_window();
     SEARCH_HOSTS.with(|h| {
         let mut h = h.borrow_mut();
-        h.retain(|n| *n != host);
-        h.push(host);
+        h.retain(|(_, node)| *node != host);
+        h.push((window, host));
     });
 }
 
 /// Forget `host`, once its scope is disposed.
 pub fn unregister_search_host(host: RNode) {
-    SEARCH_HOSTS.with(|h| h.borrow_mut().retain(|n| *n != host));
+    SEARCH_HOSTS.with(|h| h.borrow_mut().retain(|(_, node)| *node != host));
 }
 
 /// The inline search host the reserved `day.search` id names when no bar item carries it: the
-/// most recently shown one, which is the surface in front.
+/// most recently shown one in the focused window.
 pub fn inline_search_host() -> Option<RNode> {
-    SEARCH_HOSTS.with(|h| h.borrow().last().copied())
+    let window = windows::focused_root();
+    SEARCH_HOSTS.with(|h| {
+        h.borrow()
+            .iter()
+            .rev()
+            .find(|(root, _)| *root == window)
+            .map(|(_, host)| *host)
+    })
+}
+
+/// Activate the focused window's searchable navigation surface (for a Find command).
+pub fn focus_search() {
+    if toolbar::focus_toolbar_search() {
+        return;
+    }
+    if let Some(host) = inline_search_host() {
+        tree::with_tree(|t| t.patch(host, Box::new(day_spec::props::SearchPatch::Focus), false));
+    }
 }
 
 /// Deliver synthetic typing to a text control (the dayscript `input` step and the autodrive

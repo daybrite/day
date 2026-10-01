@@ -155,6 +155,11 @@ struct Index {
       // it is; an empty `prompt` with -1 keeps the prompt too, so the app writing its query is
       // one call carrying just the text.
       (shown: number, prompt: string, text: string): void => {
+        // -2 requests focus without changing the query or visibility.
+        if (shown === -2) {
+          if (this.navSearchShown) this.getUIContext().getFocusController().requestFocus('day.navigation.search');
+          return;
+        }
         if (shown >= 0) {
           this.navSearchShown = shown === 1;
           this.navSearchPrompt = prompt;
@@ -371,6 +376,7 @@ struct Index {
       Column() {
         if (this.navSearchShown) {
           Search({ value: this.navSearchText, placeholder: this.navSearchPrompt })
+            .id('day.navigation.search')
             .margin({ left: 16, right: 16, top: 8, bottom: 8 })
             .onChange((value: string) => {
               // Only the user's edits report: Day writing the query lands here too, and it is

@@ -833,6 +833,7 @@ dependencies = [
 name = "day-persistence"
 version = "0.4.10"
 dependencies = [
+ "day-async",
  "day-core",
  "day-macros",
  "day-mock",

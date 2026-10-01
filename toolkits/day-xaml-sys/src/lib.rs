@@ -425,6 +425,7 @@ unsafe extern "C" {
     // Targeted patches, addressed by the item's id (no-op if the bar has no such item).
     // Targeted item patches. `win` is the window whose toolbar owns the item: every window
     // installs the same item ids, so a patch has to name the window as well as the id.
+    pub fn day_xaml_toolbar_focus(win: *mut c_void, id: *const c_char);
     pub fn day_xaml_toolbar_set_text(win: *mut c_void, id: *const c_char, text: *const c_char);
     pub fn day_xaml_toolbar_set_checked(win: *mut c_void, id: *const c_char, on: c_int);
     pub fn day_xaml_toolbar_set_selected(win: *mut c_void, id: *const c_char, index: c_int);

@@ -21,13 +21,12 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSBezelStyle, NSButton, NSControl, NSControlStateValueOff, NSControlStateValueOn,
-    NSControlTextEditingDelegate, NSImage, NSMenuToolbarItem, NSSearchToolbarItem, NSTextField,
-    NSTextFieldDelegate, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
-    NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarItemIdentifier,
-    NSToolbarSpaceItemIdentifier, NSView, NSWindow, NSWindowToolbarStyle,
+    NSBezelStyle, NSButton, NSControl, NSControlStateValueOff, NSControlStateValueOn, NSImage,
+    NSMenuToolbarItem, NSSearchToolbarItem, NSTextField, NSToolbar, NSToolbarDelegate,
+    NSToolbarDisplayMode, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem,
+    NSToolbarItemIdentifier, NSToolbarSpaceItemIdentifier, NSView, NSWindow, NSWindowToolbarStyle,
 };
-use objc2_foundation::{NSArray, NSCopying, NSNotification, NSObject, NSString};
+use objc2_foundation::{NSArray, NSCopying, NSObject, NSString};
 
 use crate::{AppKit, Handle, emit};
 
@@ -124,40 +123,20 @@ define_class!(
     struct ItemTarget;
 
     unsafe impl NSObjectProtocol for ItemTarget {}
-    unsafe impl NSTextFieldDelegate for ItemTarget {}
-
-    /// The search field reports every keystroke here; a programmatic `setStringValue` does not
-    /// fire this delegate, so the sync in `update_toolbar` needs no suppression.
-    /// Both entries run contained (§8.5): a panic must not unwind into AppKit.
-    unsafe impl NSControlTextEditingDelegate for ItemTarget {
-        #[unsafe(method(controlTextDidChange:))]
-        fn control_text_did_change(&self, notification: &NSNotification) {
-            ffi_guard::contain((), || {
-                let ivars = self.ivars();
-                if ivars.kind != KIND_SEARCH {
-                    return;
-                }
-                if let Some(obj) = unsafe { notification.object() }
-                    && let Ok(tf) = obj.downcast::<NSTextField>()
-                {
-                    emit(
-                        day_spec::WINDOW_NODE,
-                        Event::ToolbarChanged {
-                            action: ivars.action,
-                            value: ToolbarValue::Text(tf.stringValue().to_string()),
-                        },
-                    );
-                }
-            })
-        }
-    }
-
     impl ItemTarget {
         #[unsafe(method(fire:))]
         fn fire(&self, sender: &AnyObject) {
             ffi_guard::contain((), || {
                 let ivars = self.ivars();
                 match ivars.kind {
+                    KIND_SEARCH => {
+                        if let Some(field) = sender.downcast_ref::<NSTextField>() {
+                            emit(day_spec::WINDOW_NODE, Event::ToolbarChanged {
+                                action: ivars.action,
+                                value: ToolbarValue::Text(field.stringValue().to_string()),
+                            });
+                        }
+                    }
                     KIND_TOGGLE => {
                         let on = sender
                             .downcast_ref::<NSButton>()
@@ -438,8 +417,14 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
                 field.setPlaceholderString(Some(&NSString::from_str(placeholder)));
             }
             if let Some(t) = &target {
-                let tf: &NSTextField = field.as_ref();
-                unsafe { tf.setDelegate(Some(ProtocolObject::from_ref(&**t))) };
+                // NSSearchToolbarItem owns its search field's delegate. Use the field's
+                // target/action contract so installing the item cannot replace our listener.
+                field.setSendsSearchStringImmediately(true);
+                field.setSendsWholeSearchString(false);
+                unsafe {
+                    field.setTarget(Some(&**t));
+                    field.setAction(Some(sel!(fire:)));
+                }
             }
             Retained::into_super(search)
         }
@@ -720,6 +705,14 @@ impl AppKit {
                 continue;
             }
             match patch {
+                ToolbarPatch::Focus { .. } => {
+                    if let Some(search) = bar_item.downcast_ref::<NSSearchToolbarItem>() {
+                        search.beginSearchInteraction();
+                        unsafe {
+                            search.searchField().selectText(None);
+                        }
+                    }
+                }
                 ToolbarPatch::Text { text, .. } => {
                     if let Some(search) = bar_item.downcast_ref::<NSSearchToolbarItem>() {
                         let field = search.searchField();

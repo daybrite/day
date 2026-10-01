@@ -441,6 +441,7 @@ unsafe extern "C" {
     pub fn day_qt_toolbar_has_columns(bar: *mut c_void) -> c_int;
     /// Re-size the column tracks to the splitter's panes.
     pub fn day_qt_toolbar_sync_columns(splitter: *mut c_void);
+    pub fn day_qt_toolbar_focus(win: *mut c_void, id: *const c_char);
     pub fn day_qt_toolbar_set_text(win: *mut c_void, id: *const c_char, text: *const c_char);
     pub fn day_qt_toolbar_set_suggestions(
         win: *mut c_void,

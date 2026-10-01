@@ -1060,8 +1060,8 @@ impl SearchSpec {
                     placement: day_spec::ToolbarPlacement::Secondary,
                     label_style: day_spec::LabelStyle::Automatic,
                     prominent: false,
-                    // Search filters the list this host shows, so it belongs over that column.
-                    column: day_spec::ToolbarColumn::Sidebar,
+                    // Desktop search belongs at the trailing edge of the window toolbar.
+                    column: day_spec::ToolbarColumn::Detail,
                 }],
             );
             Scope::current().on_cleanup(move || day_core::unregister_contribution(token));

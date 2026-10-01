@@ -460,6 +460,17 @@ public class DayNavHost extends LinearLayout {
         syncSearchVisibility(myEntries());
     }
 
+    void focusSearch() {
+        if (searchEdit == null || searchLayout.getVisibility() != View.VISIBLE) return;
+        searchEdit.requestFocus();
+        searchEdit.selectAll();
+        android.view.inputmethod.InputMethodManager keyboard =
+            (android.view.inputmethod.InputMethodManager) getContext().getSystemService(
+                android.content.Context.INPUT_METHOD_SERVICE);
+        if (keyboard != null) keyboard.showSoftInput(searchEdit,
+            android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+    }
+
     /** Day writing the app's query back in — guarded so the watcher does not echo it. */
     void setSearchText(String text) {
         if (searchEdit == null) {

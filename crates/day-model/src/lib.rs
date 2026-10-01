@@ -592,10 +592,14 @@ fn previewing() -> bool {
 /// Run `f` with changes stamped as `author`: how an undo replay or an importer signs its
 /// writes so consumers (a sync engine, a query) can tell them from the user's.
 pub fn with_author<R>(author: &'static str, f: impl FnOnce() -> R) -> R {
-    let prev = CURRENT_AUTHOR.with(|a| a.replace(Some(author)));
-    let out = f();
-    CURRENT_AUTHOR.with(|a| a.set(prev));
-    out
+    struct Restore(Option<&'static str>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CURRENT_AUTHOR.with(|a| a.set(self.0));
+        }
+    }
+    let _restore = Restore(CURRENT_AUTHOR.with(|a| a.replace(Some(author))));
+    f()
 }
 
 fn current_author() -> Option<&'static str> {
@@ -1663,6 +1667,20 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
         removed
     }
 
+    /// Release all row payloads after an owning database queue has permanently closed.
+    /// This sends no notifications: callers must first detach every observer and undo history.
+    /// Handles remain allocated (Store is Copy), but large row data and indexes are reclaimed.
+    /// Poisoned data is discarded too; a failed worker must never retain its working set.
+    #[doc(hidden)]
+    pub fn dispose_contents(self) {
+        let old = {
+            let mut data = self.inner.data.write().unwrap_or_else(|e| e.into_inner());
+            std::mem::replace(&mut *data, Keyed::new(Vec::new()))
+        };
+        // User row destructors may re-enter other code. Do not run them under the data lock.
+        drop(old);
+    }
+
     /// Whether anything currently observes this element: a trigger on the element's own path,
     /// or on any path under it (a bound field, a nested struct). The eviction guard: a row
     /// nobody observes can leave the cache silently, because the next reader faults it back.
@@ -2205,6 +2223,7 @@ struct StoreOps {
     remove_row: Rc<dyn Fn(u64) -> bool>,
 }
 
+#[derive(Clone)]
 struct UndoUnit {
     label: &'static str,
     changes: Vec<Change>,
@@ -2255,6 +2274,14 @@ struct UndoInner {
 #[derive(Clone)]
 pub struct UndoStack {
     inner: Rc<UndoInner>,
+}
+
+/// Queue-confined history checkpoint for a persistence transaction. Restore it only after
+/// rolling back the corresponding model changes. It does not snapshot the models themselves.
+pub struct UndoCheckpoint {
+    undo: std::collections::VecDeque<UndoUnit>,
+    redo: Vec<UndoUnit>,
+    open: Vec<Change>,
 }
 
 /// RAII lifetime of an undo group; dropping the last nested guard seals its changes.
@@ -2454,6 +2481,23 @@ impl UndoStack {
         UndoGroup {
             stack: self.clone(),
         }
+    }
+
+    /// Preserve history before an atomic persistence operation. Failed commits must restore
+    /// both the database/cache and this checkpoint, including an existing redo branch.
+    pub fn checkpoint(&self) -> UndoCheckpoint {
+        UndoCheckpoint {
+            undo: self.inner.undo.borrow().clone(),
+            redo: self.inner.redo.borrow().clone(),
+            open: self.inner.open.borrow().clone(),
+        }
+    }
+
+    pub fn restore_checkpoint(&self, checkpoint: UndoCheckpoint) {
+        *self.inner.undo.borrow_mut() = checkpoint.undo;
+        *self.inner.redo.borrow_mut() = checkpoint.redo;
+        *self.inner.open.borrow_mut() = checkpoint.open;
+        self.refresh();
     }
 
     pub fn can_undo(&self) -> day_reactive::Signal<bool> {

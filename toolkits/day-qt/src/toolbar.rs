@@ -341,6 +341,7 @@ impl Qt {
         }
         let id = cstr(patch.item());
         match patch {
+            ToolbarPatch::Focus { .. } => unsafe { ffi::day_qt_toolbar_focus(win, id.as_ptr()) },
             ToolbarPatch::Text { text, .. } => {
                 let text = cstr(text);
                 unsafe { ffi::day_qt_toolbar_set_text(win, id.as_ptr(), text.as_ptr()) };

@@ -6260,6 +6260,12 @@ extern "C" void day_xaml_toolbar_set_suggestions(void* win, const char* id, cons
 
 
 
+extern "C" void day_xaml_toolbar_focus(void* win, const char* id) try {
+    auto e = find_toolbar_elem(win, id);
+    if (auto c = e.try_as<WUXC::Control>()) c.Focus(WUX::FocusState::Programmatic);
+} catch (...) {
+}
+
 extern "C" void day_xaml_toolbar_set_text(void* win, const char* id, const char* text) try {
     auto e = find_toolbar_elem(win, id);
     if (!e) return;

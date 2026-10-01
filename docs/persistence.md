@@ -35,11 +35,136 @@ day::prelude::*` brings `Model` (the derive and the trait), `ModelContainer`, `S
 `Recorder`, `Secret`, the `schema!` macro, and the `day_persistence` crate name the derive's
 generated code resolves against. The full API is `day::persistence::*`.
 
-The same API works on web-dom: `:memory:` databases run in-process, and a file database
+The synchronous container API works on web-dom: `:memory:` databases run in-process, and a file database
 lives in the browser's origin-private file system, held by the day-sql worker and reached
 synchronously; see [The web](#the-web) below. rusqlite itself is native-only; the wasm build
 compiles the `day-sqlite-worker` engine instead, with FTS5 and R*Tree included. Compiling it
 needs a clang with a wasm32 backend; [docs/web.md](web.md) has the setup.
+
+## Database workers (native)
+
+Use `DatabaseWorker` for growing libraries, feed imports, FTS, large exports, or any work
+whose disk latency must not block input. It owns a dedicated thread, connection, reactive
+scope, caches and optional undo stack. Opening and migrations run there too. This is an
+additive API: synchronous `ModelContainer` remains available for existing document editors
+and the web transport. Merely putting a synchronous container call in `day::task` does **not**
+move it off the UI thread.
+
+```rust,ignore
+use day::persistence::DatabaseWorker;
+
+let worker = DatabaseWorker::open(move || {
+    ModelContainer::open(Sqlite::at(path), schema![Trip, Lodging])
+}).await?;
+
+// Arguments/results are owned values. No UI signal or model handle enters the closure.
+worker.write(move |db| {
+    db.insert(Trip { id, name, ..Default::default() });
+    Ok(())
+}).await?; // acknowledged only after commit
+
+let mut changes = worker.observe(|db| {
+    db.query::<Trip>().sort(Trip::name().asc()).limit(200).live().try_collect()
+}).await?;
+while let Some(snapshot) = changes.next().await {
+    let snapshot = snapshot?;
+    rows.set_if_changed(snapshot.value); // UI task: only publish owned values here
+}
+```
+
+Resolve platform-specific file locations on the UI thread before capturing paths in the open
+factory (for example Android application-directory lookups). The caller chooses the executor. Awaiting a request requires no Tokio runtime; Day's UI
+executor is appropriate for receiving results and formatting localized error messages.
+Applications must keep network waits, dialogs and user decisions outside database closures.
+
+### Ownership, ordering and recovery
+
+- A worker is one serialized queue. Clones share admission order. A read accepted after a
+  write sees that write's committed result; concurrent submitters are ordered by admission,
+  not by wall-clock start. Read-modify-write belongs in **one** `write` closure.
+- `ModelContainer`, queries, relationships, cached `Store`/`Elem` handles, signals and undo
+  handles must stay on the owning queue. Transfer plain model values, stable IDs and DTOs.
+  `Send` bounds reject many accidental captures, but are not a complete confinement proof:
+  model `Store` has its own cross-thread facilities. Do not return or capture such handles
+  through this API. On close the worker clears its cached payloads.
+- `write` creates one transaction around the closure, intermediate `save` calls and the
+  reactive batch. Its result becomes successful only after SQLite commits. Errors roll back
+  SQL, restore resident caches and relationship/query state, and restore the previous undo
+  history, including redo. Rollback/cache-recovery failure closes the worker. A panic also
+  closes it; do not reuse a possibly inconsistent connection.
+- `read` and observable projections use a query-only transaction, giving multi-statement
+  queries one SQLite snapshot. Accidental model writes are discarded and reported as errors;
+  accidental SQL writes fail. Reads do not enter undo history. Use checked operations such
+  as `try_get`, `try_collect` and `try_get` on counts so a failure cannot look like empty data.
+- Do not manually begin/commit transactions, change connection pragmas or attach schema in
+  jobs. Raw SQL bypasses model invalidation; use model operations for observed tables.
+  Migrations belong in the open factory. Queue callbacks must not recursively submit to or
+  close their own worker: these calls return an error instead of deadlocking.
+- `backup_to(path)` is a separate queued operation in autocommit mode. SQLite's `VACUUM INTO`
+  supplies a consistent snapshot and cannot run inside a `read` or `write` transaction.
+
+### Cancellation, pressure and lifecycle
+
+`read` and `write` submit eagerly, before their returned `WorkerRequest` is polled. The
+bounded queue defaults to 256 waiting operations (`WorkerOptions`); admission never blocks.
+`Busy` means the request was **not accepted**. Show/report that error or retry according to
+application policy; do not silently discard a user's edit. The queue bounds job count, not
+bytes, so applications should also bound batch size.
+
+Dropping a pending read skips it if it has not started. Running operations are not interrupted.
+Dropping a write future never cancels an accepted transaction. Await writes when the UI needs
+to know persistence succeeded. Cancelling an open future releases its eventual worker;
+last-handle drop drains already accepted jobs and then closes the connection on its thread.
+`close().await` stops admission for all clones, drains work, and completes after cleanup.
+Multiple closers share that completion. `close_blocking()` is only for OS termination hooks
+that cannot await; never call it while holding a lock needed by queued work.
+
+`observe` emits distinct committed owned snapshots, with a worker-local monotonic revision.
+After at most 32 queued jobs the worker evaluates projections. Each subscription has one
+latest-value mailbox: a slow UI skips superseded intermediate snapshots rather than building
+an unbounded backlog. It is a view, not an audit log. Equal values do not wake the UI. Query
+errors are delivered and can recover after a later commit; fatal recovery errors close the
+worker. The revision is not a persisted history token or a cross-process sequence number.
+
+Drop the subscription when its screen disappears. Cancel its receiving UI task **on each
+reactive effect retrack**, not just final scope disposal: an old search must not overwrite a
+new search, or an old article populate the reader after selection changes. Capture the
+originating window's state; do not resolve whichever window happens to be focused at completion.
+
+`enable_undo(levels)`, `undo(redo)` and `undo_status()` keep history on the queue. Wrap imports
+in `day::model::with_author` inside a write to exclude them from user undo. For an independent
+connection or process writing the file, explicitly call `check_external()`; it merges changed
+resident rows and re-evaluates projections even when the change only inserted nonresident rows.
+It is not automatic cross-process observation or conflict resolution. Prefer one worker as
+sole writer; the existing UI-confined container API remains suitable for small document edits.
+
+### Design references and limits
+
+The design adopts queue confinement and ID/value transfer from [Core Data's concurrency
+guide](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/CoreData/Concurrency.html),
+and one-shot versus observable queries from [Room's asynchronous DAO
+queries](https://developer.android.com/training/data-storage/room/async-queries).
+[Room serializes transactions](https://developer.android.com/reference/androidx/room/Transaction);
+[SQLite WAL](https://www.sqlite.org/wal.html) supports concurrent readers but still one writer.
+For Day, one owner avoids merging two reactive model graphs and defines rollback and undo
+unambiguously. This is a design choice, not an implementation of Core Data contexts or Room.
+
+Native targets share the Rust worker implementation; no Apple-only database path is involved.
+**Web limitation:** `DatabaseWorker` is currently native-only. Rust closures and UI/model
+handles cannot be sent to the existing JavaScript/OPFS worker. The synchronous web container
+API remains supported. A future web implementation needs a serializable typed request protocol,
+commit/invalidation replies and asynchronous transport; wrapping the current blocking bridge
+in a future would not solve main-thread stalls.
+
+Projections currently re-evaluate after any successful write, then suppress unchanged results.
+Large projections can delay later queue work, though not main-thread SQL. Keep projections
+bounded and indexed. Table-dependency tracking, paging and a read pool are possible extensions;
+a read pool would need explicit read-after-write barriers and stale-result protection.
+
+Regression coverage: `crates/day-persistence/tests/worker.rs` exercises concurrent writers and
+closers, bounded admission, cancellation, panic, rollback, deferred constraints, undo/redo,
+FTS recovery, subscriptions, external writers, snapshots, backup and reopen. The existing
+`recovery.rs`, relation, wide-key and query suites continue exercising the synchronous API.
 
 ## Declaring a model
 

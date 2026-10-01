@@ -2429,6 +2429,10 @@ impl Toolkit for Dom {
         use day_spec::ToolbarPatch as P;
         let mut json = String::from("{\"item\":");
         match patch {
+            P::Focus { item } => {
+                json_str(&mut json, item);
+                json.push_str(",\"focus\":true");
+            }
             P::Text { item, text } => {
                 json_str(&mut json, item);
                 json.push_str(",\"text\":");

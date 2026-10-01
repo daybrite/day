@@ -311,6 +311,12 @@ pub fn focused_window() -> Option<WindowHandle> {
     })
 }
 
+pub(crate) fn focused_root() -> RNode {
+    focused_window()
+        .map(|w| w.root)
+        .unwrap_or_else(|| with_tree(|t| t.root_node()))
+}
+
 /// The scope owning the content of the window that currently has focus: the scope an
 /// app-wide command should resolve per-window state through (docs/state.md).
 ///

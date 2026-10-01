@@ -3002,6 +3002,22 @@ mod imp {
                     // Inline search (docs/search.md): the app writing its query patches the live
                     // field, so a sync never rebuilds it or takes the insertion point. The Java
                     // side guards the echo while it writes.
+                    if matches!(
+                        patch.downcast_ref::<day_spec::props::SearchPatch>(),
+                        Some(day_spec::props::SearchPatch::Focus)
+                    ) {
+                        with_env(|env| {
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "focusNavSearch",
+                                "(Landroid/view/View;)V",
+                                &[JValue::Object(h.0.as_obj())],
+                            );
+                            if env.exception_check() {
+                                env.exception_clear();
+                            }
+                        });
+                    }
                     if let Some(day_spec::props::SearchPatch::Text(t)) =
                         patch.downcast_ref::<day_spec::props::SearchPatch>()
                     {
@@ -3794,7 +3810,7 @@ mod imp {
                 P::Selected { item, index } => (item, 2, *index as f64),
                 // Search is never on this bar (`Cap::ToolbarSearch`, docs/search.md).
                 P::Text { .. } => return,
-                P::Suggestions { .. } => return,
+                P::Suggestions { .. } | P::Focus { .. } => return,
             };
             with_env(|env| {
                 let jid = jstr(env, item);

@@ -981,7 +981,7 @@ mod imp {
                 }
             }
             // Search never reaches the bar here (it rides the navigation surface).
-            P::Text { .. } | P::Suggestions { .. } => {}
+            P::Text { .. } | P::Suggestions { .. } | P::Focus { .. } => {}
         }
         false
     }
@@ -8679,21 +8679,24 @@ mod imp {
                     // sync never rebuilds it or takes the insertion point (docs/search.md). The
                     // suppress flag stops UISearchResultsUpdating echoing our own write back.
                     if let Some(sp) = patch.downcast_ref::<day_spec::props::SearchPatch>() {
-                        NAV_STATE.with(|m| {
-                            let m = m.borrow();
-                            let Some((sc, updater)) =
-                                m.get(&ptr_of(h)).and_then(|st| st.search.as_ref())
-                            else {
-                                return;
-                            };
+                        // Activating search can synchronously reenter navigation delegates.
+                        // Retain the controller/updater and release NAV_STATE before UIKit calls.
+                        let search = NAV_STATE
+                            .with(|m| m.borrow().get(&ptr_of(h)).and_then(|st| st.search.clone()));
+                        if let Some((sc, updater)) = search {
+                            if matches!(sp, day_spec::props::SearchPatch::Focus) {
+                                unsafe {
+                                    sc.setActive(true);
+                                    sc.searchBar().becomeFirstResponder();
+                                }
+                            }
                             if let day_spec::props::SearchPatch::Text(t) = sp {
                                 updater.ivars().suppress.set(true);
                                 unsafe { sc.searchBar().setText(Some(&NSString::from_str(t))) };
                                 updater.ivars().suppress.set(false);
                             }
-                            // Scope and suggestion patches have no UIKit surface yet
-                            // (docs/search.md).
-                        });
+                            // Scope and suggestion patches have no UIKit surface yet.
+                        }
                     }
                     if let Some(NavPatch::Select(i)) = patch.downcast_ref::<NavPatch>() {
                         // A `.tabSidebar` host has no `NavState` — it is not a navigation stack — so

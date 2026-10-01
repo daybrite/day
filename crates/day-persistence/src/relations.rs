@@ -1910,6 +1910,8 @@ impl ModelContainer {
                 });
                 Ok(changed)
             }),
+            #[cfg(not(target_arch = "wasm32"))]
+            dispose_cache: Rc::new(move || store.dispose_contents()),
             evict: Rc::new(move |candidates, want| {
                 let doomed: Vec<u64> = candidates
                     .iter()
