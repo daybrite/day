@@ -343,6 +343,17 @@ fn read_window(window_secs: u64, budget_secs: f64) -> Duration {
     Duration::from_secs_f64(budget_secs + 10.0).max(floor)
 }
 
+/// The least the runner waits for a run's first reply, in seconds. The engine's socket accepts
+/// before the app's main thread can answer, so the first step also waits out the rest of the
+/// launch: a WinUI cold start took 18 s on a CI runner, and the 20 s local window then reported
+/// a healthy app as a lost engine.
+const STARTUP_SECS: u64 = 60;
+
+/// [`read_window`] for the first roundtrip of a run, which also covers the app's startup.
+fn first_read_window(window_secs: u64, budget_secs: f64) -> Duration {
+    read_window(window_secs, budget_secs).max(Duration::from_secs(STARTUP_SECS))
+}
+
 pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> {
     let attempts = window_secs * 4; // 250 ms apart
     for _ in 0..attempts {
@@ -692,12 +703,18 @@ pub fn run_scripts(
     // the socket read from `window_secs` alone made any step declaring a longer `timeout_secs`
     // time out runner-side first and report "engine connection lost", a healthy, idle app
     // mislabeled as a dead one.
+    // Set once the engine has answered: until then a read also waits out the app's startup.
+    let answered = std::cell::Cell::new(false);
     let roundtrip = |stream: &mut TcpStream,
                      reader: &mut BufReader<TcpStream>,
                      line: &str,
                      budget: f64|
      -> Result<String, String> {
-        let window = read_window(window_secs, budget);
+        let window = if answered.get() {
+            read_window(window_secs, budget)
+        } else {
+            first_read_window(window_secs, budget)
+        };
         let _ = stream.set_read_timeout(Some(window));
         let deadline = std::time::Instant::now() + window;
         loop {
@@ -713,7 +730,10 @@ pub fn run_scripts(
                 Ok(reply)
             })();
             match attempt {
-                Ok(r) => return Ok(r),
+                Ok(r) => {
+                    answered.set(true);
+                    return Ok(r);
+                }
                 Err(e) if std::time::Instant::now() < deadline => {
                     let _ = e;
                     std::thread::sleep(Duration::from_millis(500));
@@ -1671,5 +1691,24 @@ mod day_script_b64 {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::{STARTUP_SECS, first_read_window, read_window};
+    use std::time::Duration;
+
+    /// The first reply also waits out the app's startup; later replies keep the step's window,
+    /// and a longer window (a slow device, a long step budget) is never shortened.
+    #[test]
+    fn first_read_window_covers_startup_without_shortening_a_longer_window() {
+        assert_eq!(read_window(20, 5.0), Duration::from_secs(20));
+        assert_eq!(
+            first_read_window(20, 5.0),
+            Duration::from_secs(STARTUP_SECS)
+        );
+        assert_eq!(first_read_window(120, 5.0), Duration::from_secs(120));
+        assert_eq!(first_read_window(20, 90.0), Duration::from_secs(100));
     }
 }
