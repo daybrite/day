@@ -1258,6 +1258,16 @@ size stops propagation" is only valid **because the pass re-entered at a boundar
 proposal is unchanged** — a dirty child's size change alters its *siblings'* proposals inside a
 negotiated stack, so propagation stops at negotiation scopes, not at arbitrary nodes.
 
+On XAML/WinUI, a control's template can become ready after Day's initial synchronous measure.
+The shim applies control templates before measuring and invalidates XAML's own measure cache
+before retrying a zero result after forced layout. Built-in controls also report `Loaded`:
+the backend batches these reports on the next UI turn, invalidates each live node's measured
+path, and runs placement. Deferral avoids re-entering the tree from native layout; generational
+node ids make reports for disposed controls harmless. A zero measured before template loading
+must not remain cached when a resident tab becomes visible. Day-Showcase's dynamic-tabs
+walkthrough exercises first selection and return visits; native confirmation requires Windows
+for both `windows-xaml` and `windows-winui`.
+
 ### §7.5 Window sizing
 
 - **Minimum size** comes from measuring the root under `Proposal { width: Some(0), height: Some(0) }`

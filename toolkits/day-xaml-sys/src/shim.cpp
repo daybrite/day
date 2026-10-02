@@ -4671,6 +4671,20 @@ void day_xaml_set_geometry(void* h, int x, int y, int width, int height) {
     });
 }
 
+void day_xaml_on_control_loaded(void* h, unsigned long long id,
+                                void (*cb)(unsigned long long)) {
+    if (!h) return;
+    guard([&] {
+        if (auto control = elem(h).try_as<WUXC::Control>()) {
+            // No captured handle/reference: the control owns the subscription. Day defers
+            // the callback's work and ignores a node disposed before that work runs.
+            control.Loaded([id, cb](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
+                cb(id);
+            });
+        }
+    });
+}
+
 void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
     *ow = 0; // sane defaults if a degraded element throws mid-measure (guard swallows it)
     *oh = 0;
@@ -4709,6 +4723,12 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
             }
         };
         WF::Size d{ 0, 0 };
+        // A nested/resident page can be measured before its first native layout. Prepare
+        // its control templates explicitly; UpdateLayout alone need not visit a hidden
+        // page. Loaded also invalidates Day's cache once the control joins the live tree.
+        step("template", [&] {
+            if (auto control = e.try_as<WUXC::Control>()) (void)control.ApplyTemplate();
+        });
         step("measure", [&] {
             e.Measure(WF::Size{ fw, fh });
             d = e.DesiredSize();
@@ -4728,6 +4748,7 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
             step("layout", [&] { if (fe) fe.UpdateLayout(); });
             s_forcing_layout = false;
             step("remeasure", [&] {
+                e.InvalidateMeasure();
                 e.Measure(WF::Size{ fw, fh });
                 d = e.DesiredSize();
             });

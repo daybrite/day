@@ -342,6 +342,8 @@ unsafe extern "C" {
     pub fn day_xaml_remove_child(parent: *mut c_void, child: *mut c_void);
     pub fn day_xaml_delete(w: *mut c_void);
     pub fn day_xaml_set_geometry(w: *mut c_void, x: c_int, y: c_int, width: c_int, height: c_int);
+    /// Report template readiness for controls; other elements need no subscription.
+    pub fn day_xaml_on_control_loaded(w: *mut c_void, id: u64, cb: extern "C" fn(u64));
     pub fn day_xaml_measure(
         w: *mut c_void,
         avail_w: c_double,

@@ -64,6 +64,8 @@ type Sink = Rc<dyn Fn(NodeId, Event)>;
 
 day_core::tls_group! {
     static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
+    /// Template loads invalidate intrinsic sizes together on the next UI turn.
+    static LOADED_MEASURES: RefCell<BTreeSet<u64>> = const { RefCell::new(BTreeSet::new()) };
     /// Tabs host ptr → (Pivot ptr, pages, initial). Pages reuse day.container.
     /// Recycling-list host ptr → its ScrollViewer/content + cell pool (docs/list.md).
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
@@ -1649,7 +1651,7 @@ impl Toolkit for Xaml {
 
     fn realize(&mut self, kind: PieceKind, props: &dyn std::any::Any, id: NodeId) -> WinHandle {
         unsafe {
-            match Builtin::from_key(kind) {
+            let handle = match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
                     let h = ffi::day_xaml_container_new();
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
@@ -2106,7 +2108,9 @@ impl Toolkit for Xaml {
                     warn_missing_renderer(kind);
                     placeholder_handle(kind)
                 }
-            }
+            };
+            ffi::day_xaml_on_control_loaded(handle.0, id.0, control_loaded);
+            handle
         }
     }
 
@@ -3484,6 +3488,37 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
                 emit(*node, Event::FrameChanged(full));
             }
         });
+    });
+}
+
+extern "C" fn control_loaded(id: u64) {
+    ffi_guard::contain((), || {
+        let post = LOADED_MEASURES.with(|pending| {
+            let mut pending = pending.borrow_mut();
+            let first = pending.is_empty();
+            pending.insert(id);
+            first
+        });
+        if !post {
+            return;
+        }
+        // Loaded can fire inside Measure/UpdateLayout while Day holds its tree borrow.
+        // Defer, batch the invalidations, and retain only generational node ids: a control
+        // may be removed before this runs, and its native address may already be reused.
+        let boxed: Box<dyn FnOnce() + Send> = Box::new(|| {
+            let nodes = LOADED_MEASURES.with(|p| std::mem::take(&mut *p.borrow_mut()));
+            day_core::try_with_tree(|t| {
+                for id in nodes {
+                    let node = day_core::id_to_rnode(NodeId(id));
+                    if t.node_exists(node) {
+                        t.mark_needs_measure(node);
+                    }
+                }
+                t.layout_if_needed();
+            });
+        });
+        let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+        unsafe { ffi::day_xaml_post(run_posted, data) };
     });
 }
 
