@@ -396,9 +396,9 @@ mod reply_window_tests {
 /// a healthy app as a lost engine.
 const STARTUP_SECS: u64 = 60;
 
-/// [`read_window`] for the first roundtrip of a run, which also covers the app's startup.
-fn first_read_window(window_secs: u64, budget_secs: f64) -> Duration {
-    read_window(window_secs, budget_secs).max(Duration::from_secs(STARTUP_SECS))
+/// Extend a computed [`read_window`] for the first roundtrip to cover the app's startup.
+fn first_read_window(window: Duration) -> Duration {
+    window.max(Duration::from_secs(STARTUP_SECS))
 }
 
 pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> {
@@ -757,10 +757,11 @@ pub fn run_scripts(
                      line: &str,
                      budget: f64|
      -> Result<String, String> {
+        let window = read_window(window_secs, budget);
         let window = if answered.get() {
-            read_window(window_secs, budget)
+            window
         } else {
-            first_read_window(window_secs, budget)
+            first_read_window(window)
         };
         let _ = stream.set_read_timeout(Some(window));
         let deadline = std::time::Instant::now() + window;
@@ -1613,8 +1614,19 @@ mod gate_tests {
                 let mut seen = Vec::new();
                 loop {
                     let mut line = String::new();
-                    if reader.read_line(&mut line).unwrap() == 0 {
-                        break;
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        // Windows can report a reset when the runner drops its socket after
+                        // the flow. Only accept it between complete requests; the assertions
+                        // below still require every expected step to have reached the server.
+                        Err(e)
+                            if e.kind() == std::io::ErrorKind::ConnectionReset
+                                && line.is_empty() =>
+                        {
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(e) => panic!("fixture request read failed: {e}"),
                     }
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
                     seen.push(request["step"]["op"].as_str().unwrap().to_string());
@@ -1859,19 +1871,25 @@ mod day_script_b64 {
 
 #[cfg(test)]
 mod window_tests {
-    use super::{STARTUP_SECS, first_read_window, read_window};
+    use super::{STARTUP_SECS, first_read_window, reply_window};
     use std::time::Duration;
 
     /// The first reply also waits out the app's startup; later replies keep the step's window,
     /// and a longer window (a slow device, a long step budget) is never shortened.
     #[test]
     fn first_read_window_covers_startup_without_shortening_a_longer_window() {
-        assert_eq!(read_window(20, 5.0), Duration::from_secs(20));
-        assert_eq!(
-            first_read_window(20, 5.0),
-            Duration::from_secs(STARTUP_SECS)
-        );
-        assert_eq!(first_read_window(120, 5.0), Duration::from_secs(120));
-        assert_eq!(first_read_window(20, 90.0), Duration::from_secs(100));
+        // Pass the override explicitly so the runner's environment cannot alter this test.
+        let normal = reply_window(20, 5.0, None);
+        assert_eq!(normal, Duration::from_secs(45));
+        assert_eq!(first_read_window(normal), Duration::from_secs(STARTUP_SECS));
+        for (connect_secs, budget_secs, main_override, expected_secs) in [
+            (120, 5.0, None, 120),
+            (20, 90.0, None, 190),
+            (20, 5.0, Some("90"), 105),
+        ] {
+            let window = reply_window(connect_secs, budget_secs, main_override);
+            assert_eq!(window, Duration::from_secs(expected_secs));
+            assert_eq!(first_read_window(window), window);
+        }
     }
 }

@@ -2793,6 +2793,13 @@ walkthrough steps show.) No sleeps in
 well-written scripts; `pause` exists for demos. Text assertions normalize Fluent's FSI/PDI
 isolation marks ([§12.2](#122-api)).
 
+The CLI's socket read window covers the step's retry budget, one final UI-thread dispatch,
+and 10 seconds for the reply. The dispatch allowance defaults to 30 seconds, honors a positive
+finite `DAY_SCRIPT_MAIN_TIMEOUT_SECS`, and is never shorter than the step's budget. The
+connection window (at least 20 seconds) is also a floor; the first reply raises that floor to
+60 seconds for startup without shortening a longer computed window. CLI `reply_window_tests`
+and `window_tests` check these budgets with explicit overrides, independent of the environment.
+
 UIKit screenshot readiness checks transition coordinators only on visible navigation stacks,
 plus pending tab selections. Hidden stacks may retain an interrupted coordinator indefinitely.
 Programmatic tab switching waits for visible push/pop transitions using 50 ms delayed retries

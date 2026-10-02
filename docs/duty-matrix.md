@@ -46,7 +46,7 @@ implement them, and this table proves it.
 | `set_context_menu` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `edit_toolbar` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `update_toolbar` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `supports_lifecycle` | · | · | ✓ | · | · | · | ✓ | · | ✓ | ✓ |
+| `supports_lifecycle` | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
 | `set_a11y` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | · | ✓ |
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
