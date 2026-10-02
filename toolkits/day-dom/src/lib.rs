@@ -3179,6 +3179,9 @@ fn list_fill_window(host: u32) {
         let mut view = [0.0_f64; 2];
         unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
         let (offset, vh) = (view[0], if view[1] > 0.0 { view[1] } else { 600.0 });
+        if let Some(report) = &source.first_visible {
+            report(((offset / rowh).floor() as usize).min(n.saturating_sub(1)));
+        }
         let first = ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN);
         let last = (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n);
         // Slots exist for every row (a Vec of zeros, not of elements): the cell for row i lives

@@ -8735,3 +8735,21 @@ fn nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering(
     assert!(probe.log().iter().any(|op| op.contains("icon_progress=[]")));
     assert!(!probe.log().iter().any(|op| op.contains("menu items=")));
 }
+
+#[test]
+fn list_viewport_reports_update_the_bound_signal() {
+    let first = Signal::new(0usize);
+    let probe = boot(move || {
+        list(items(|| vec![1, 2, 3], |n| *n), |slot| {
+            label(move || slot.get().to_string())
+        })
+        .first_visible_row(first)
+    });
+    let (host, _) = probe.find_by_kind("day.list").into_iter().next().unwrap();
+    probe.list_first_visible(host, 2);
+    day_core::pump_events();
+    assert_eq!(first.get_untracked(), 2);
+    probe.list_first_visible(host, 2);
+    day_core::pump_events();
+    assert_eq!(first.get_untracked(), 2);
+}

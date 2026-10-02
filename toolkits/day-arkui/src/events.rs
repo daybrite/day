@@ -108,6 +108,16 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 }
             };
             match kind {
+                Ev::NODE_LIST_ON_SCROLL_INDEX => {
+                    if let Some(first) = component(0) {
+                        crate::on_event(
+                            id,
+                            K::Custom as i32,
+                            f64::from(first.i32_.max(0)),
+                            "day-list-first-visible",
+                        );
+                    }
+                }
                 Ev::NODE_ON_CLICK => {
                     // A selectable list CELL's click is a row selection, not a press: resolved
                     // through the adapter's row map (cells carry no day node id).

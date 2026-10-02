@@ -6748,3 +6748,16 @@ on `NSSearchField`, the native path for toolbar search edits, and begins search 
 Find. UIKit releases navigation-state borrows before activating its controller, since activation
 can synchronously reenter delegates. Other backends focus their existing native search control;
 see [docs/search.md](docs/search.md).
+
+### Opt-in list viewport observation
+
+`list(...).first_visible_row(Signal<usize>)` bridges native scroll position to floating
+application group headers without timers or changing selectable row identity. ListSource
+has an optional enqueue-only first-visible callback; day-core deduplicates indexes and
+delivers a private custom event, and day-pieces updates the signal in the event pump.
+AppKit and UIKit observe native scroll callbacks; Android and ArkUI report native visible
+indexes; GTK, Qt, DOM and XAML/WinUI derive indexes from uniform row pitch before overscan.
+MockProbe::list_first_visible exercises the same queue. No group model is embedded in the
+framework. Applications clamp the index after reload and compose a top overlay. Variable
+row heights are not covered by the pitch-based adapters. See docs/list.md and the mock
+viewport regression in crates/day-pieces/tests/mock_e2e.rs.

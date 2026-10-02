@@ -4449,6 +4449,25 @@ impl Toolkit for Gtk {
                 sw.set_child(Some(&listview));
                 sw.set_vexpand(true);
                 let vadj = sw.vadjustment();
+                {
+                    let source = source.clone();
+                    let pitch = match p.row_height {
+                        RowHeight::Uniform(height) => height,
+                        RowHeight::Automatic => 44.0,
+                    }
+                    .max(1.0);
+                    vadj.connect_value_changed(move |adjustment| {
+                        let source = source.borrow().clone();
+                        if let Some(source) = source
+                            && let Some(report) = &source.first_visible
+                        {
+                            report(
+                                ((adjustment.value().max(0.0) / pitch) as usize)
+                                    .min((source.len)().saturating_sub(1)),
+                            );
+                        }
+                    });
+                }
                 let host: Handle = sw.upcast();
                 host_key.set(widget_key(&host));
                 if p.reorderable {
@@ -6135,6 +6154,9 @@ impl Toolkit for Gtk {
     }
 
     fn attach_list(&mut self, host: &Handle, source: ListSource) {
+        if let Some(report) = &source.first_visible {
+            report(0);
+        }
         LIST_STATE.with(|m| {
             if let Some(e) = m.borrow().get(&widget_key(host)) {
                 *e.source.borrow_mut() = Some(source);
@@ -6988,10 +7010,10 @@ impl Platform for Gtk {
         // local theme checks); unset ⇒ follow the system. Applied in `startup`, once libadwaita
         // is initialized (StyleManager::default() needs adw_init).
         app.connect_startup(|_| {
-            if day_core::testing::fast_animations() {
-                if let Some(settings) = gtk4::Settings::default() {
-                    settings.set_gtk_enable_animations(false);
-                }
+            if day_core::testing::fast_animations()
+                && let Some(settings) = gtk4::Settings::default()
+            {
+                settings.set_gtk_enable_animations(false);
             }
 
             // Follow the SYSTEM appearance while running: libadwaita's StyleManager flips

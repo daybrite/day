@@ -117,6 +117,7 @@ fn main() {
     toolkit.attach_list(
         &list,
         day_spec::ListSource {
+            first_visible: None,
             len: Rc::new(move || rows_for_count.borrow().len()),
             token_at: Rc::new(move |i| rows_for_token.borrow()[i]),
             bind_row: Rc::new(|_, _| {}),
@@ -214,6 +215,7 @@ fn main() {
     toolkit.attach_list(
         &cold_list,
         day_spec::ListSource {
+            first_visible: None,
             len: Rc::new(|| 1),
             token_at: Rc::new(|_| 1),
             bind_row: Rc::new(move |_, raw| {

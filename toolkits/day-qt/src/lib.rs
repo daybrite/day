@@ -529,6 +529,9 @@ fn list_fill_window(host_key: usize) {
             };
             (0, (vh / rowh).ceil() as usize)
         };
+        if let Some(report) = &source.first_visible {
+            report(first.min(n.saturating_sub(1)));
+        }
         let first = first.saturating_sub(LIST_OVERSCAN);
         let last = (last + LIST_OVERSCAN).min(n);
         // Slots exist for every row (a Vec of nulls, not of widgets): the cell for row i lives

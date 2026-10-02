@@ -2647,6 +2647,11 @@ fn post_realize_visible_rows(key: usize) {
         if let Some((table, data)) = list_entry(key) {
             unsafe { table.layoutSubtreeIfNeeded() };
             let range = unsafe { table.rowsInRect(table.visibleRect()) };
+            if let Some(source) = data.ivars().source.borrow().clone()
+                && let Some(report) = &source.first_visible
+            {
+                report(range.location.min((source.len)().saturating_sub(1)));
+            }
             for row in range.location..range.location + range.length {
                 let cell = unsafe { table.viewAtColumn_row_makeIfNecessary(0, row as isize, true) };
                 // A snapshot/layout can have requested this cell while day-core held its
@@ -2818,6 +2823,21 @@ define_class!(
     unsafe impl NSControlTextEditingDelegate for DayListData {}
 
     impl DayListData {
+        #[unsafe(method(listViewportChanged:))]
+        fn list_viewport_changed(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || {
+                let source = self.ivars().source.borrow().clone();
+                if let Some(source) = source && let Some(report) = &source.first_visible
+                    && let Some(object) = notification.object()
+                    && let Some(clip) = object.downcast_ref::<objc2_app_kit::NSClipView>()
+                    && let Some(document) = clip.documentView()
+                    && let Some(table) = document.downcast_ref::<NSTableView>() {
+                    let visible = unsafe { table.rowsInRect(table.visibleRect()) };
+                    report(visible.location.min((source.len)().saturating_sub(1)));
+                }
+            });
+        }
+
         #[unsafe(method(activateRow:))]
         fn activate_row(&self, table: &NSTableView) {
             ffi_guard::contain((), || {
@@ -6158,6 +6178,15 @@ impl Toolkit for AppKit {
                     // the SCROLL realize).
                     scroll.setScrollerStyle(objc2_app_kit::NSScrollerStyle::Overlay);
                     scroll.setDocumentView(Some(&table));
+                    let clip = scroll.contentView();
+                    clip.setPostsBoundsChangedNotifications(true);
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            &data,
+                            sel!(listViewportChanged:),
+                            Some(objc2_app_kit::NSViewBoundsDidChangeNotification),
+                            Some(&clip),
+                        );
                 }
                 let view = view_of(scroll);
                 LIST_STATE.with(|m| m.borrow_mut().insert(ptr_of(&view), (table, data)));

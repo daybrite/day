@@ -4965,3 +4965,7 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
+
+[[patch.unused]]
+name = "day-piece-webview"
+version = "0.4.3"

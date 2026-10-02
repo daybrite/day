@@ -21,6 +21,7 @@ use std::rc::Rc;
 /// answer the native data-source and to build/rebind rows.
 pub struct ListDriver {
     pub row_height: RowHeight,
+    pub track_viewport: bool,
     /// Current row count (reads the piece's snapshot; no tree access).
     pub len: Box<dyn Fn() -> usize>,
     /// Stable identity token for row `index` (for native diffing).
@@ -238,6 +239,25 @@ pub fn list_try_swipe(
 
 /// Build the `ListSource` the backend calls from its data-source. `len`/`token_at` read the driver
 /// directly (no tree). `bind_row` phases the tree borrow around the build + flush (see module doc).
+fn driver_viewport(node: RNode, driver: &ListDriver) -> Option<Rc<dyn Fn(usize)>> {
+    if !driver.track_viewport {
+        return None;
+    }
+    let previous = std::cell::Cell::new(None);
+    Some(Rc::new(move |row| {
+        if previous.replace(Some(row)) != Some(row) {
+            crate::tree::enqueue_event(
+                crate::tree::rnode_to_id(node),
+                day_spec::Event::Custom {
+                    tag: "day-list-first-visible",
+                    num: row as f64,
+                    text: String::new(),
+                },
+            );
+        }
+    }))
+}
+
 pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
     let (d_len, d_tok, d_reorder, d_delete, d_swipe, d_bind) = (
         driver.clone(),
@@ -247,7 +267,9 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
         driver.clone(),
         driver,
     );
+    let first_visible = driver_viewport(node, &d_bind);
     ListSource {
+        first_visible,
         len: Rc::new(move || (d_len.len)()),
         token_at: Rc::new(move |i| (d_tok.token_at)(i)),
         bind_row: Rc::new(move |index, cell| {

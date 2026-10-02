@@ -470,6 +470,7 @@ pub struct List<S: RowSource> {
     selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
     scroll_to_end: Option<day_reactive::Trigger>,
     scroll_to_row: Option<Signal<Option<usize>>>,
+    first_visible_row: Option<Signal<usize>>,
     stick_to_bottom: bool,
     reorderable: bool,
     on_reorder: Option<Rc<dyn Fn(usize, usize)>>,
@@ -576,6 +577,7 @@ where
         selected_rows: None,
         scroll_to_end: None,
         scroll_to_row: None,
+        first_visible_row: None,
         stick_to_bottom: false,
         reorderable: false,
         on_reorder: None,
@@ -654,6 +656,13 @@ impl<S: RowSource + 'static> List<S> {
     /// the same row again re-fires.
     pub fn scroll_to_row(mut self, sig: Signal<Option<usize>>) -> Self {
         self.scroll_to_row = Some(sig);
+        self
+    }
+
+    /// The first actually visible article/item index, reported by native scrolling.
+    /// Use with a heading overlay for floating group headers. No periodic timer is used.
+    pub fn first_visible_row(mut self, signal: Signal<usize>) -> Self {
+        self.first_visible_row = Some(signal);
         self
     }
 
@@ -884,7 +893,20 @@ impl<S: RowSource + 'static> Piece for List<S> {
         }
 
         // The type-erased driver day-core drives on cell pulls.
+        if let Some(signal) = self.first_visible_row {
+            cx.on(node, move |event| {
+                if let Event::Custom { tag, num, text } = event
+                    && (*tag == "day-list-first-visible"
+                        || (tag.is_empty() && text == "day-list-first-visible"))
+                    && num.is_finite()
+                    && *num >= 0.0
+                {
+                    signal.set_if_changed(*num as usize);
+                }
+            });
+        }
         let driver = ListDriver {
+            track_viewport: self.first_visible_row.is_some(),
             row_height: self.row_height,
             len: {
                 let conn = conn.clone();
@@ -1446,6 +1468,7 @@ pub trait ListBuilder<S: RowSource + 'static>: Sized {
     fn scroll_to_end(self, trigger: day_reactive::Trigger) -> Self;
     fn stick_to_bottom(self, on: bool) -> Self;
     fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self;
+    fn first_visible_row(self, sig: Signal<usize>) -> Self;
     fn reorderable(self, on: bool) -> Self;
     fn on_reorder(self, f: impl Fn(usize, usize) + 'static) -> Self;
     fn reorder_guard(self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self;
@@ -1485,6 +1508,9 @@ impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
     }
     fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self {
         List::scroll_to_row(self, sig)
+    }
+    fn first_visible_row(self, sig: Signal<usize>) -> Self {
+        List::first_visible_row(self, sig)
     }
     fn reorderable(self, on: bool) -> Self {
         List::reorderable(self, on)
@@ -1545,6 +1571,9 @@ impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for D
     }
     fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self {
         self.map_inner(|inner_piece| inner_piece.scroll_to_row(sig))
+    }
+    fn first_visible_row(self, sig: Signal<usize>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.first_visible_row(sig))
     }
     fn reorderable(self, on: bool) -> Self {
         self.map_inner(|inner_piece| inner_piece.reorderable(on))

@@ -480,6 +480,16 @@ public final class DayBridge {
         final RecyclerView rv = new RecyclerView(ctx);
         if (fastAnimations) rv.setItemAnimator(null);
         rv.setLayoutManager(new LinearLayoutManager(ctx));
+        rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            int previous = -1;
+            @Override public void onScrolled(RecyclerView view, int dx, int dy) {
+                int first = ((LinearLayoutManager) view.getLayoutManager()).findFirstVisibleItemPosition();
+                if (first >= 0 && first != previous) {
+                    previous = first;
+                    nativeOnEvent(hostId, K_CUSTOM, first, "day-list-first-visible");
+                }
+            }
+        });
         rv.setAdapter(new RecyclerView.Adapter<DayCellHolder>() {
             public int getItemCount() { return nativeListLen(hostId); }
             public DayCellHolder onCreateViewHolder(ViewGroup parent, int viewType) {

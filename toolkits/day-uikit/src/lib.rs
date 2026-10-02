@@ -5589,7 +5589,21 @@ mod imp {
         struct DayListData;
 
         unsafe impl NSObjectProtocol for DayListData {}
-        unsafe impl UIScrollViewDelegate for DayListData {}
+        unsafe impl UIScrollViewDelegate for DayListData {
+            #[unsafe(method(scrollViewDidScroll:))]
+            fn list_did_scroll(&self, view: &objc2_ui_kit::UIScrollView) {
+                day_spec::ffi_guard::contain((), || {
+                    let source = self.ivars().source.borrow().clone();
+                    if let Some(source) = source
+                        && let Some(report) = &source.first_visible
+                    {
+                        let offset = unsafe { view.contentOffset() }.y.max(0.0);
+                        let pitch = self.ivars().row_height.get().max(1.0);
+                        report(((offset / pitch) as usize).min((source.len)().saturating_sub(1)));
+                    }
+                });
+            }
+        }
 
         unsafe impl UITableViewDataSource for DayListData {
             #[unsafe(method(tableView:numberOfRowsInSection:))]

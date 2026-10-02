@@ -49,6 +49,7 @@ fn main() {
     toolkit.attach_list(
         &host,
         ListSource {
+            first_visible: None,
             len: Rc::new(|| 2),
             token_at: Rc::new(|i| i as u64),
             bind_row: Rc::new(move |index, raw| {

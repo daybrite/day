@@ -1813,6 +1813,9 @@ pub type EventSink = Box<dyn Fn(NodeId, Event)>;
 /// flushes + lays out the row before returning, so the host can measure the cell immediately).
 #[derive(Clone)]
 pub struct ListSource {
+    /// Report the first actually visible row (exclude overscan). Enqueue-only; optional,
+    /// so hosts without a viewport binding incur no app event work.
+    pub first_visible: Option<std::rc::Rc<dyn Fn(usize)>>,
     /// Current row count.
     pub len: std::rc::Rc<dyn Fn() -> usize>,
     /// Stable identity token for the row at `index` (for native diffing / animation).

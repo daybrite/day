@@ -290,6 +290,7 @@ pub fn init(
     }
     LISTS.with(|l| l.borrow_mut().insert(n as usize, dl));
     node::set_object(n, Attr::NODE_LIST_NODE_ADAPTER, adapter.cast());
+    node::register_event(n, Ev::NODE_LIST_ON_SCROLL_INDEX, host_id);
     if reorderable {
         // Accept Day-row drops anywhere over the list; the verdict comes from the app's guard
         // at drop time (`list_can_move`).

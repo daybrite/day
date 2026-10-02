@@ -742,6 +742,9 @@ fn list_fill_window(host_key: usize) {
                 600.0
             };
         }
+        if let Some(report) = &source.first_visible {
+            report(((offset / rowh).floor() as usize).min(n.saturating_sub(1)));
+        }
         let first = ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN);
         let last = (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n);
         // Slots exist for every row (a Vec of nulls, not of elements): the cell for row i lives

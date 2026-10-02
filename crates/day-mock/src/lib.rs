@@ -259,6 +259,19 @@ impl MockProbe {
         v.sort_by_key(|(h, _)| h.0);
         v
     }
+    /// Report a simulated viewport without synchronously entering application code.
+    pub fn list_first_visible(&self, host: MockHandle, index: usize) {
+        let callback = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .and_then(|source| source.first_visible.clone());
+        if let Some(callback) = callback {
+            callback(index);
+        }
+    }
+
     /// Row count a `LIST` host would query from its data-source.
     pub fn list_len(&self, host: MockHandle) -> usize {
         let f = self

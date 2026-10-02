@@ -107,6 +107,19 @@ follow.notify();
   It does not check whether the user is already near the bottom (no cross-backend scroll-position
   read exists yet); for that finer behavior drive `scroll_to_end` from your own logic instead.
 
+### Floating group headers
+
+`.first_visible_row(Signal<usize>)` receives the first actually visible row, excluding
+overscan. Use that index to select a group title in a top-aligned list overlay. This is
+opt-in and event-driven: native callbacks enqueue a deduplicated report; the event pump
+updates the signal when the tree is available (a report during layout waits for the
+current borrow to end). The list owns no group
+model and adds no selectable header records. AppKit, UIKit, Android, GTK, Qt, XAML/WinUI,
+DOM and ArkUI report scroll changes; mock exposes `list_first_visible` for tests. GTK,
+XAML, Qt and DOM use the uniform row pitch, so floating headers require uniform rows there.
+The initial index is zero; clamp it when data shrinks. Native drag reordering retains its
+existing capability contract; apps can offer explicit move controls on all toolkits.
+
 ## `ListSource`: how the backend pulls rows
 
 Recycling lists *pull*: the native data-source asks, synchronously, "how many rows?" and "fill
@@ -117,6 +130,7 @@ sink is:
 ```rust
 // day-spec
 pub struct ListSource {
+    pub first_visible: Option<Rc<dyn Fn(usize)>>, // opt-in enqueue-only viewport report
     pub len: Rc<dyn Fn() -> usize>,
     pub token_at: Rc<dyn Fn(usize) -> u64>,     // stable per-row identity for the native widget
     pub bind_row: Rc<dyn Fn(usize, RawHandle)>, // build-or-rebind row `i` into this native cell

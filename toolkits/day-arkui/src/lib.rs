@@ -1185,6 +1185,15 @@ mod imp {
 
     fn on_event_inner(id: u64, kind: i32, num: f64, text: &str) {
         use day_spec::bridge::BridgeKind as K;
+        if kind == K::Custom as i32 && text == "day-list-first-visible" {
+            let source = LIST_SOURCES.with(|map| map.borrow().get(&id).cloned());
+            if let Some(source) = source
+                && let Some(report) = &source.first_visible
+            {
+                report((num.max(0.0) as usize).min((source.len)().saturating_sub(1)));
+            }
+            return;
+        }
         // A NAV_MENU row click arrives with a synthetic id: translate it to a SelectionChanged
         // against the menu host before the normal per-node dispatch.
         if kind == K::Pressed as i32
@@ -2949,6 +2958,9 @@ mod imp {
         }
 
         fn attach_list(&mut self, host: &AHandle, source: day_spec::ListSource) {
+            if let Some(report) = &source.first_visible {
+                report(0);
+            }
             if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&(host.0 as usize)).copied()) {
                 LIST_SOURCES.with(|m| m.borrow_mut().insert(nid, source));
             }

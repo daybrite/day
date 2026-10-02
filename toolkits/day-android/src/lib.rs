@@ -1375,6 +1375,15 @@ mod imp {
     }
 
     fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
+        if kind == K_CUSTOM && env.dstr(jstr).ok().as_deref() == Some("day-list-first-visible") {
+            let source = LIST_SOURCES.with(|map| map.borrow().get(&id).cloned());
+            if let Some(source) = source
+                && let Some(report) = &source.first_visible
+            {
+                report((num.max(0.0) as usize).min((source.len)().saturating_sub(1)));
+            }
+            return;
+        }
         let ev = match kind {
             K_PRESSED => Event::Pressed,
             K_TEXT_CHANGED => {
@@ -3852,6 +3861,9 @@ mod imp {
         }
 
         fn attach_list(&mut self, host: &AHandle, source: ListSource) {
+            if let Some(report) = &source.first_visible {
+                report(0);
+            }
             let key = host.0.as_obj().as_raw() as usize;
             if let Some(nid) = LIST_NODE.with(|m| m.borrow().get(&key).copied()) {
                 LIST_SOURCES.with(|m| {
